@@ -304,6 +304,8 @@ export interface FeatureFlagSettings {
   environment?: string;
   /** Local opt-outs for remote feature flags. Users can only force remote-enabled flags off. */
   remoteOverrides?: Record<string, 'off'>;
+  /** Enable the CLI token activity dashboard for /usage daily/weekly/monthly. */
+  cliUsageV2?: boolean;
   /** Enable the v2 usage dashboard command and /status usage panel. */
   usageV2?: boolean;
   /** Enable AWS Bedrock provider support. */

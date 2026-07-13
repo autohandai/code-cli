@@ -10,11 +10,35 @@ import { getProviderConfig } from '../config.js';
 import { getFeatureState } from '../features/featureRegistry.js';
 import { getContextWindow as inferContextWindow } from '../core/context/tokenizer.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
+import type { SessionMetadata } from '../session/types.js';
 import type { LoadedConfig, PermissionMode, ProviderName, ProviderSettings, ReasoningEffort } from '../types.js';
 import { createCommandTheme } from './commandTheme.js';
 import { formatAccount } from './accountDisplay.js';
 
 export const USAGE_V2_FLAG = 'usage_v2';
+export const CLI_USAGE_V2_FLAG = 'cli_usage_v2';
+
+type UsageActivityPeriod = 'daily' | 'weekly' | 'monthly';
+
+interface UsageActivityBucket {
+  key: string;
+  date: Date;
+  tokens: number;
+  sessions: number;
+}
+
+interface UsageActivityData {
+  period: UsageActivityPeriod;
+  rangeLabel: string;
+  lifetimeTokens: number;
+  peakTokens: number;
+  currentStreakDays: number;
+  longestStreakDays: number;
+  longestTaskMs: number;
+  buckets: Map<string, UsageActivityBucket>;
+  maxBucketTokens: number;
+  generatedAt: Date;
+}
 
 export interface UsageLimitRow {
   label: string;
@@ -43,9 +67,18 @@ export interface UsageDashboardData {
 
 export const metadata = {
   command: '/usage',
-  description: 'Show model, provider, context, and usage limits',
+  description: 'Show token activity by day, week, or month',
   implemented: true,
+  subcommands: [
+    { name: 'daily', description: 'Show daily token activity for the last 12 months' },
+    { name: 'weekly', description: 'Show weekly token activity for the last 52 weeks' },
+    { name: 'monthly', description: 'Show monthly token activity for the last 12 months' },
+  ],
 };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as const;
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
 
 function clampPercent(value: number): number {
   if (!Number.isFinite(value)) return 100;
@@ -66,6 +99,11 @@ function formatPath(value: string): string {
 function formatCompactNumber(value: number): string {
   if (!Number.isFinite(value) || value < 0) {
     return '0';
+  }
+
+  if (value >= 1_000_000_000) {
+    const billions = value / 1_000_000_000;
+    return `${Number.isInteger(billions) ? billions.toFixed(0) : billions.toFixed(1)}B`;
   }
 
   if (value >= 1_000_000) {
@@ -151,6 +189,183 @@ function isUsageV2Enabled(ctx: SlashCommandContext): boolean {
     ? getFeatureState(ctx.config, USAGE_V2_FLAG)?.enabled ?? false
     : false;
   return ctx.isFeatureEnabled?.(USAGE_V2_FLAG, localDefault) ?? localDefault;
+}
+
+function isCliUsageV2Enabled(ctx: SlashCommandContext): boolean {
+  const localDefault = ctx.config
+    ? getFeatureState(ctx.config, CLI_USAGE_V2_FLAG)?.enabled ?? true
+    : true;
+  return ctx.isFeatureEnabled?.(CLI_USAGE_V2_FLAG, localDefault) ?? localDefault;
+}
+
+function parseUsagePeriod(args: readonly string[] = []): UsageActivityPeriod {
+  const value = args[0]?.toLowerCase();
+  if (value === 'weekly' || value === 'week') return 'weekly';
+  if (value === 'monthly' || value === 'month') return 'monthly';
+  return 'daily';
+}
+
+function startOfUtcDay(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+function addDays(date: Date, days: number): Date {
+  return new Date(date.getTime() + days * DAY_MS);
+}
+
+function isoDay(date: Date): string {
+  return startOfUtcDay(date).toISOString().slice(0, 10);
+}
+
+function weekStart(date: Date): Date {
+  const day = startOfUtcDay(date);
+  return addDays(day, -day.getUTCDay());
+}
+
+function addMonths(date: Date, months: number): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1));
+}
+
+function monthKey(date: Date): string {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function bucketKeyForDate(date: Date, period: UsageActivityPeriod): string {
+  switch (period) {
+    case 'weekly':
+      return isoDay(weekStart(date));
+    case 'monthly':
+      return monthKey(date);
+    case 'daily':
+      return isoDay(date);
+  }
+}
+
+function bucketDateForKey(key: string, period: UsageActivityPeriod): Date {
+  if (period === 'monthly') {
+    const [year, month] = key.split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, 1));
+  }
+  return new Date(`${key}T00:00:00.000Z`);
+}
+
+function rangeLabelForPeriod(period: UsageActivityPeriod): string {
+  switch (period) {
+    case 'weekly':
+      return 'last 52 weeks';
+    case 'monthly':
+      return 'last 12 months';
+    case 'daily':
+      return 'last 12 months';
+  }
+}
+
+function sessionTokens(metadata: SessionMetadata, currentSessionId: string | undefined, liveTokens: number): number {
+  const persisted = metadata.usage?.totalTokens;
+  const usageTokens = typeof persisted === 'number' && Number.isFinite(persisted) && persisted > 0
+    ? persisted
+    : 0;
+  const currentTokens = metadata.sessionId === currentSessionId && liveTokens > usageTokens ? liveTokens : 0;
+  if (usageTokens > 0 || currentTokens > 0) {
+    return Math.max(usageTokens, currentTokens);
+  }
+
+  return Math.max(0, metadata.messageCount) * 1_000;
+}
+
+function sessionDurationMs(metadata: SessionMetadata, now: Date): number {
+  const start = Date.parse(metadata.createdAt);
+  const end = Date.parse(metadata.closedAt ?? metadata.lastActiveAt) || now.getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+    return 0;
+  }
+  return end - start;
+}
+
+function calculateStreaks(days: Set<string>, today: Date): { current: number; longest: number } {
+  let current = 0;
+  let cursor = startOfUtcDay(today);
+  while (days.has(isoDay(cursor))) {
+    current += 1;
+    cursor = addDays(cursor, -1);
+  }
+
+  let longest = 0;
+  let run = 0;
+  let previous: Date | null = null;
+  for (const key of [...days].sort()) {
+    const date = new Date(`${key}T00:00:00.000Z`);
+    if (previous && isoDay(addDays(previous, 1)) === key) {
+      run += 1;
+    } else {
+      run = 1;
+    }
+    longest = Math.max(longest, run);
+    previous = date;
+  }
+
+  return { current, longest };
+}
+
+async function listProjectSessions(ctx: SlashCommandContext): Promise<SessionMetadata[]> {
+  try {
+    return await ctx.sessionManager.listSessions({ project: ctx.workspaceRoot });
+  } catch {
+    return [];
+  }
+}
+
+export async function gatherUsageActivityData(
+  ctx: SlashCommandContext,
+  period: UsageActivityPeriod,
+  generatedAt = new Date(),
+): Promise<UsageActivityData> {
+  const sessions = await listProjectSessions(ctx);
+  const currentSessionId = ctx.sessionManager.getCurrentSession()?.metadata.sessionId;
+  const liveTokens = ctx.getTotalTokensUsed?.() ?? 0;
+  const buckets = new Map<string, UsageActivityBucket>();
+  const activeDays = new Set<string>();
+  let lifetimeTokens = 0;
+  let longestTaskMs = 0;
+
+  for (const session of sessions) {
+    const createdAt = new Date(session.createdAt);
+    if (!Number.isFinite(createdAt.getTime())) {
+      continue;
+    }
+
+    const tokens = sessionTokens(session, currentSessionId, liveTokens);
+    lifetimeTokens += tokens;
+    activeDays.add(isoDay(createdAt));
+    longestTaskMs = Math.max(longestTaskMs, sessionDurationMs(session, generatedAt));
+
+    const key = bucketKeyForDate(createdAt, period);
+    const existing = buckets.get(key) ?? {
+      key,
+      date: bucketDateForKey(key, period),
+      tokens: 0,
+      sessions: 0,
+    };
+    existing.tokens += tokens;
+    existing.sessions += 1;
+    buckets.set(key, existing);
+  }
+
+  const maxBucketTokens = Math.max(0, ...[...buckets.values()].map((bucket) => bucket.tokens));
+  const streaks = calculateStreaks(activeDays, generatedAt);
+
+  return {
+    period,
+    rangeLabel: rangeLabelForPeriod(period),
+    lifetimeTokens,
+    peakTokens: maxBucketTokens,
+    currentStreakDays: streaks.current,
+    longestStreakDays: streaks.longest,
+    longestTaskMs,
+    buckets,
+    maxBucketTokens,
+    generatedAt,
+  };
 }
 
 export function gatherUsageDashboardData(ctx: SlashCommandContext): UsageDashboardData {
@@ -241,9 +456,125 @@ export function formatUsageDashboard(data: UsageDashboardData): string {
   return lines.join('\n');
 }
 
-export async function usage(ctx: SlashCommandContext): Promise<string> {
+function intensityCell(tokens: number, maxTokens: number): string {
+  if (tokens <= 0 || maxTokens <= 0) return '·';
+  const ratio = tokens / maxTokens;
+  if (ratio >= 0.8) return '█';
+  if (ratio >= 0.55) return '▓';
+  if (ratio >= 0.3) return '▒';
+  return '░';
+}
+
+function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '0m';
+  const totalMinutes = Math.max(1, Math.round(ms / 60_000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours <= 0) return `${minutes}m`;
+  if (minutes === 0) return `${hours}h`;
+  return `${hours}h ${minutes}m`;
+}
+
+function formatActivitySummary(data: UsageActivityData): string {
+  const theme = createCommandTheme();
+  return [
+    `${theme.muted('Lifetime')} ${theme.warning(formatCompactNumber(data.lifetimeTokens))}`,
+    `${theme.muted('Peak')} ${theme.warning(formatCompactNumber(data.peakTokens))}`,
+    `${theme.muted('Streak')} ${theme.warning(`${data.currentStreakDays}d`)} ${theme.warning(`(best ${data.longestStreakDays}d)`)}`,
+    `${theme.muted('Longest task')} ${theme.warning(formatDuration(data.longestTaskMs))}`,
+  ].join(theme.muted(' · '));
+}
+
+function renderDailyHeatmap(data: UsageActivityData): string[] {
+  const today = startOfUtcDay(data.generatedAt);
+  const rangeStart = addDays(today, -364);
+  const gridStart = addDays(rangeStart, -rangeStart.getUTCDay());
+  const weekStarts: Date[] = [];
+  for (let cursor = gridStart; cursor <= today; cursor = addDays(cursor, 7)) {
+    weekStarts.push(cursor);
+  }
+
+  const monthHeader = `    ${weekStarts.map((week, index) => {
+    const next = weekStarts[index - 1];
+    if (index === 0 || week.getUTCMonth() !== next?.getUTCMonth()) {
+      return MONTH_LABELS[week.getUTCMonth()].padEnd(3, ' ');
+    }
+    return '   ';
+  }).join(' ')}`;
+
+  const rows = WEEKDAY_LABELS.map((label, weekday) => {
+    const cells = weekStarts.map((week) => {
+      const date = addDays(week, weekday);
+      if (date < rangeStart || date > today) return ' ';
+      return intensityCell(data.buckets.get(isoDay(date))?.tokens ?? 0, data.maxBucketTokens);
+    });
+    return `${label}  ${cells.join(' ')}`;
+  });
+
+  return [monthHeader, ...rows];
+}
+
+function renderLinearHeatmap(data: UsageActivityData): string[] {
+  const now = startOfUtcDay(data.generatedAt);
+  const keys: string[] = [];
+
+  if (data.period === 'weekly') {
+    const end = weekStart(now);
+    for (let i = 51; i >= 0; i -= 1) {
+      keys.push(isoDay(addDays(end, -i * 7)));
+    }
+    return [
+      '    ' + keys.map((key, index) => index % 4 === 0 ? MONTH_LABELS[bucketDateForKey(key, 'weekly').getUTCMonth()].padEnd(3, ' ') : '   ').join(' '),
+      'Wk  ' + keys.map((key) => intensityCell(data.buckets.get(key)?.tokens ?? 0, data.maxBucketTokens)).join(' '),
+    ];
+  }
+
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  for (let i = 11; i >= 0; i -= 1) {
+    keys.push(monthKey(addMonths(end, -i)));
+  }
+  return [
+    '    ' + keys.map((key) => MONTH_LABELS[bucketDateForKey(key, 'monthly').getUTCMonth()].padEnd(3, ' ')).join(' '),
+    'Mo  ' + keys.map((key) => intensityCell(data.buckets.get(key)?.tokens ?? 0, data.maxBucketTokens)).join(' '),
+  ];
+}
+
+function formatPeriodTabs(period: UsageActivityPeriod): string {
+  const theme = createCommandTheme();
+  return (['daily', 'weekly', 'monthly'] as const)
+    .map((candidate) => candidate === period ? theme.warning(candidate) : theme.muted(candidate))
+    .join(theme.muted(' · '));
+}
+
+function formatUsageActivityDashboard(data: UsageActivityData): string {
+  const theme = createCommandTheme();
+  const heatmap = data.period === 'daily' ? renderDailyHeatmap(data) : renderLinearHeatmap(data);
+  return [
+    theme.accent(`/usage ${data.period}`),
+    '',
+    `${theme.bold('Token activity')}   ${theme.muted(data.rangeLabel)}`,
+    formatActivitySummary(data),
+    '',
+    ...heatmap,
+    '',
+    `${theme.muted('Less')} · ░ ▒ ▓ █ ${theme.muted('More')}`,
+    formatPeriodTabs(data.period),
+  ].join('\n');
+}
+
+export async function usage(ctx: SlashCommandContext, args: string[] = []): Promise<string> {
+  if (isCliUsageV2Enabled(ctx)) {
+    const period = parseUsagePeriod(args);
+    await ctx.trackFeatureActivation?.(CLI_USAGE_V2_FLAG, {
+      provider: ctx.provider,
+      model: ctx.model,
+      period,
+    });
+    return formatUsageActivityDashboard(await gatherUsageActivityData(ctx, period));
+  }
+
   if (!isUsageV2Enabled(ctx)) {
-    return 'The /usage dashboard is behind usage_v2. Run /experiments enable usage_v2, then /usage again. No restart required.';
+    return 'The /usage activity dashboard is behind cli_usage_v2. Run /experiments enable cli_usage_v2, then /usage again. No restart required.';
   }
 
   await ctx.trackFeatureActivation?.(USAGE_V2_FLAG, {

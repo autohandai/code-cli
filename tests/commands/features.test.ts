@@ -118,6 +118,7 @@ describe('/experiments command', () => {
       },
       features: {
         usageV2: false,
+        cliUsageV2: false,
       },
     });
 
@@ -165,6 +166,7 @@ describe('/experiments command', () => {
       },
       features: {
         usageV2: false,
+        cliUsageV2: false,
       },
     });
     mockLoadRemoteFeatureFlags.mockResolvedValue({
