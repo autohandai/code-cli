@@ -202,7 +202,7 @@ autohand -p "refactor database queries" --dry-run
 | `--display-language <locale>`   |       | Set display language (e.g., en, id, zh-cn, fr, de, ja)                           |
 | `--cc, --context-compact`       |       | Enable context compaction (default: on)                                          |
 | `--no-cc, --no-context-compact` |       | Disable context compaction                                                       |
-| `--search-engine <provider>`    |       | Set web search provider (google, brave, duckduckgo, parallel)                    |
+| `--search-engine <provider>`    |       | Set web search provider (browser-profile, exa, google, brave, duckduckgo, parallel) |
 | `--sys-prompt <value>`          |       | Replace entire system prompt (inline string or file path)                        |
 | `--append-sys-prompt <value>`   |       | Append to system prompt (inline string or file path)                             |
 | `--yolo [pattern]`              |       | Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete) |

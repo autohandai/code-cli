@@ -2091,7 +2091,7 @@ These flags override config file settings:
 | Flag                          | Description                                                                                    |
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `--display-language <locale>` | Set display language (e.g., en, id, zh-cn, fr, de, ja)                                         |
-| `--search-engine <provider>`  | Set web search provider (google, brave, duckduckgo, parallel)                                  |
+| `--search-engine <provider>`  | Set web search provider (browser-profile, exa, google, brave, duckduckgo, parallel)             |
 | `--cc, --context-compact`     | Enable context compaction (default: on)                                                        |
 | `--no-cc, --no-context-compact` | Disable context compaction                                                                    |
 

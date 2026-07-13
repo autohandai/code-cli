@@ -47,6 +47,40 @@ function throwIfAborted(signal?: AbortSignal): void {
   }
 }
 
+const REPO_PARSE_ERROR = 'Could not parse repo URL. Use owner/repo, a github.com or gitlab.com URL, or a Git/SSH clone URL.';
+
+function normalizeRepoName(value: string): string {
+  return value.trim().replace(/\.git$/i, '');
+}
+
+function parsedRepo(platform: Platform, path: string): ParsedRepo {
+  const pathParts = path
+    .replace(/^\/+|\/+$/g, '')
+    .split('/')
+    .filter(Boolean);
+
+  if (platform === 'github') {
+    const owner = pathParts[0];
+    const repo = normalizeRepoName(pathParts[1] ?? '');
+    if (!owner || !repo) throw new Error(REPO_PARSE_ERROR);
+    return { platform, owner, repo };
+  }
+
+  const contentMarker = pathParts.indexOf('-');
+  const repoPath = contentMarker > 0 ? pathParts.slice(0, contentMarker) : pathParts;
+  const repo = normalizeRepoName(repoPath.at(-1) ?? '');
+  const owner = repoPath.slice(0, -1).join('/');
+  if (!owner || !repo) throw new Error(REPO_PARSE_ERROR);
+  return { platform, owner, repo };
+}
+
+function platformForHost(hostname: string): Platform | null {
+  const normalized = hostname.toLowerCase().replace(/^www\./, '');
+  if (normalized === 'github.com') return 'github';
+  if (normalized === 'gitlab.com') return 'gitlab';
+  return null;
+}
+
 /**
  * Parse a repository URL or shorthand into platform, owner, and repo.
  *
@@ -57,79 +91,53 @@ function throwIfAborted(signal?: AbortSignal): void {
  * - Shorthand: gitlab:group/project
  */
 export function parseRepoUrl(input: string): ParsedRepo {
+  const value = input.trim();
+
   // Try shorthand format first: github:owner/repo or gitlab:owner/repo
-  const shorthandMatch = input.match(/^(github|gitlab):(.+)$/);
+  const shorthandMatch = value.match(/^(github|gitlab):(.+)$/i);
   if (shorthandMatch) {
-    const platform = shorthandMatch[1] as Platform;
-    const path = shorthandMatch[2];
-    const lastSlash = path.lastIndexOf('/');
-    if (lastSlash === -1) {
-      throw new Error('Could not parse repo URL. Use format: owner/repo (GitHub), github:owner/repo, gitlab:group/project, or full URL.');
+    return parsedRepo(shorthandMatch[1].toLowerCase() as Platform, shorthandMatch[2]);
+  }
+
+  // Git clone SCP syntax: git@github.com:owner/repo.git
+  const scpMatch = value.match(/^(?:[^@/]+@)?((?:www\.)?(?:github|gitlab)\.com):(.+)$/i);
+  if (scpMatch) {
+    const platform = platformForHost(scpMatch[1]);
+    if (!platform) throw new Error(REPO_PARSE_ERROR);
+    return parsedRepo(platform, scpMatch[2]);
+  }
+
+  // URL() requires a scheme, so add one for ordinary pasted host/path values.
+  const normalizedUrl = /^(?:www\.)?(?:github|gitlab)\.com\//i.test(value)
+    ? `https://${value}`
+    : value;
+
+  try {
+    const url = new URL(normalizedUrl);
+    const platform = platformForHost(url.hostname);
+    if (platform) {
+      return parsedRepo(platform, url.pathname);
     }
-    return {
-      platform,
-      owner: path.slice(0, lastSlash),
-      repo: path.slice(lastSlash + 1)
-    };
+  } catch {
+    // Continue to the owner/repo shorthand below.
   }
 
   // Try implicit GitHub format: owner/repo (assumes GitHub as default)
   // Must contain exactly one slash and no protocol/colon
-  if (!input.includes(':') && input.includes('/')) {
-    const slashIndex = input.indexOf('/');
-    const lastSlashIndex = input.lastIndexOf('/');
+  if (!value.includes(':') && value.includes('/')) {
+    const slashIndex = value.indexOf('/');
+    const lastSlashIndex = value.lastIndexOf('/');
     // Exactly one slash
     if (slashIndex === lastSlashIndex && slashIndex > 0) {
-      const owner = input.slice(0, slashIndex);
-      const repo = input.slice(slashIndex + 1);
+      const owner = value.slice(0, slashIndex);
+      const repo = normalizeRepoName(value.slice(slashIndex + 1));
       if (owner && repo) {
-        return {
-          platform: 'github',
-          owner,
-          repo
-        };
+        return { platform: 'github', owner, repo };
       }
     }
   }
 
-  // Try full URL format
-  try {
-    const url = new URL(input);
-    const hostname = url.hostname.toLowerCase();
-
-    // Remove trailing slash and split path
-    const pathParts = url.pathname.replace(/\/$/, '').split('/').filter(Boolean);
-
-    if (pathParts.length < 2) {
-      throw new Error('Could not parse repo URL. Use format: owner/repo (GitHub), github:owner/repo, gitlab:group/project, or full URL.');
-    }
-
-    if (hostname === 'github.com') {
-      return {
-        platform: 'github',
-        owner: pathParts[0],
-        repo: pathParts[1]
-      };
-    }
-
-    if (hostname === 'gitlab.com') {
-      // GitLab supports nested groups: group/subgroup/project
-      const repo = pathParts[pathParts.length - 1];
-      const owner = pathParts.slice(0, -1).join('/');
-      return {
-        platform: 'gitlab',
-        owner,
-        repo
-      };
-    }
-
-    throw new Error('Could not parse repo URL. Use format: github:owner/repo, gitlab:group/project, or full URL.');
-  } catch (e) {
-    if (e instanceof Error && e.message.includes('Could not parse')) {
-      throw e;
-    }
-    throw new Error('Could not parse repo URL. Use format: github:owner/repo, gitlab:group/project, or full URL.');
-  }
+  throw new Error(REPO_PARSE_ERROR);
 }
 
 /**

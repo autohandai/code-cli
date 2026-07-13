@@ -137,6 +137,21 @@ describe('webRepo', () => {
       expect(result).toEqual({ platform: 'github', owner: 'openai', repo: 'codex' });
     });
 
+    it.each([
+      'github.com/openai/codex',
+      'www.github.com/openai/codex.git',
+      'git://github.com/openai/codex.git',
+      'git@github.com:openai/codex.git',
+      'ssh://git@github.com/openai/codex.git',
+      'https://github.com/openai/codex/tree/main/packages/code',
+    ])('parses GitHub repository variant %s', (input) => {
+      expect(parseRepoUrl(input)).toEqual({
+        platform: 'github',
+        owner: 'openai',
+        repo: 'codex',
+      });
+    });
+
     it('parses GitLab full URL', () => {
       const result = parseRepoUrl('https://gitlab.com/inkscape/inkscape');
       expect(result).toEqual({ platform: 'gitlab', owner: 'inkscape', repo: 'inkscape' });
@@ -144,6 +159,11 @@ describe('webRepo', () => {
 
     it('parses GitLab nested group URL', () => {
       const result = parseRepoUrl('https://gitlab.com/group/subgroup/project');
+      expect(result).toEqual({ platform: 'gitlab', owner: 'group/subgroup', repo: 'project' });
+    });
+
+    it('strips the clone suffix from GitLab repository URLs', () => {
+      const result = parseRepoUrl('gitlab.com/group/subgroup/project.git');
       expect(result).toEqual({ platform: 'gitlab', owner: 'group/subgroup', repo: 'project' });
     });
 

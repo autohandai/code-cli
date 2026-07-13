@@ -18,7 +18,7 @@ import { getProviderConfig, loadConfig, resolveWorkspaceRoot, saveConfig } from 
 import { runStartupChecks, printStartupCheckResults, validateWorkspacePath } from './startup/checks.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/workspaceSafety.js';
 import { ensureAuthenticated } from './auth/index.js';
-import type { AuthUser, BuiltInProviderName, LoadedConfig, SkillInstallScope } from './types.js';
+import type { AuthUser, BuiltInProviderName, LoadedConfig, SearchProvider, SkillInstallScope } from './types.js';
 import { validateAuthOnStartup } from './auth/startupAuth.js';
 import { installProcessErrorHandlers } from './reporting/processErrorReporting.js';
 import { checkForUpdates, getInstallHint, type VersionCheckResult } from './utils/versionCheck.js';
@@ -55,6 +55,19 @@ import {
 import { AgentsGenerator } from './onboarding/agentsGenerator.js';
 import { looksLikeInlineAgents, parseInlineAgents } from './core/agents/AgentRegistry.js';
 import { getCustomProviderConfig, isCustomProviderName } from './providers/customProviders.js';
+
+const SEARCH_PROVIDERS = [
+  'browser-profile',
+  'exa',
+  'google',
+  'brave',
+  'duckduckgo',
+  'parallel',
+] as const satisfies readonly SearchProvider[];
+
+function isSearchProvider(value: string): value is SearchProvider {
+  return SEARCH_PROVIDERS.some((provider) => provider === value);
+}
 
 function applyCliModelOverride(config: LoadedConfig, model: string): void {
   const providerName = config.provider ?? 'openrouter';
@@ -213,7 +226,7 @@ program
   .option('--display-language <locale>', 'Set display language (e.g., en, id, zh-cn, fr, de, ja)')
   .option('--cc, --context-compact', 'Enable context compaction (default: on)')
   .option('--no-cc, --no-context-compact', 'Disable context compaction')
-  .option('--search-engine <provider>', 'Set web search provider (google, brave, duckduckgo, parallel)')
+  .option('--search-engine <provider>', 'Set web search provider (browser-profile, exa, google, brave, duckduckgo, parallel)')
   .option('--sys-prompt <value>', 'Replace entire system prompt (inline string or file path)')
   .option('--system-prompt <value>', 'Replace entire system prompt (inline string or file path)')
   .option('--system-prompt-file <path>', 'Replace entire system prompt with file contents')
@@ -488,12 +501,12 @@ program
     }
 
     // Map --search-engine flag to searchEngine option
-    if ((opts as any).searchEngine) {
-      const provider = (opts as any).searchEngine.toLowerCase();
-      if (['google', 'brave', 'duckduckgo', 'parallel'].includes(provider)) {
-        opts.searchEngine = provider as 'google' | 'brave' | 'duckduckgo' | 'parallel';
+    if (opts.searchEngine) {
+      const provider = opts.searchEngine.toLowerCase();
+      if (isSearchProvider(provider)) {
+        opts.searchEngine = provider;
       } else {
-        console.error(chalk.red(`Invalid search engine: ${provider}. Valid options: google, brave, duckduckgo, parallel`));
+        console.error(chalk.red(`Invalid search engine: ${provider}. Valid options: ${SEARCH_PROVIDERS.join(', ')}`));
         process.exit(1);
       }
     }
@@ -1453,15 +1466,11 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
     // Configure web search provider from CLI flag, config file, or environment
     const searchConfig = config.search ?? {};
-    const { configureSearch } = await awaitCliLifecycleStep(
+    const { configureSearchFromSettings } = await awaitCliLifecycleStep(
       import('./actions/web.js'),
       commandLifecycleController.signal,
     );
-    configureSearch({
-      provider: options.searchEngine ?? searchConfig.provider ?? 'google',
-      braveApiKey: searchConfig.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY,
-      parallelApiKey: searchConfig.parallelApiKey ?? process.env.PARALLEL_API_KEY,
-    });
+    configureSearchFromSettings(searchConfig, options.searchEngine);
 
     // Pipe mode: read stdin once if piped, then compose with prompt text (if any).
     // This must happen before AutohandAgent construction because dependency
@@ -2106,12 +2115,8 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
 
   // Configure web search provider
   const searchConfig = config.search ?? {};
-  const { configureSearch } = await import('./actions/web.js');
-  configureSearch({
-    provider: searchConfig.provider ?? 'google',
-    braveApiKey: searchConfig.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY,
-    parallelApiKey: searchConfig.parallelApiKey ?? process.env.PARALLEL_API_KEY,
-  });
+  const { configureSearchFromSettings } = await import('./actions/web.js');
+  configureSearchFromSettings(searchConfig);
 
   let agent: AutohandAgent | null = null;
   let exitCode = 0;
@@ -2333,12 +2338,8 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
 
     // Configure web search provider
     const searchConfig = config.search ?? {};
-    const { configureSearch } = await import('./actions/web.js');
-    configureSearch({
-      provider: searchConfig.provider ?? 'google',
-      braveApiKey: searchConfig.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY,
-      parallelApiKey: searchConfig.parallelApiKey ?? process.env.PARALLEL_API_KEY,
-    });
+    const { configureSearchFromSettings } = await import('./actions/web.js');
+    configureSearchFromSettings(searchConfig);
 
     const { AutohandAgent } = await import('./core/agent.js');
     agent = new AutohandAgent(llmProvider, files, runtime);

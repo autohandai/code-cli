@@ -33,6 +33,10 @@ export function setBrowserBridgeOutput(output: { write: (data: string) => boolea
   bridgeOutput = output;
 }
 
+export function hasBrowserBridgeOutput(): boolean {
+  return bridgeOutput !== null;
+}
+
 export function shutdownBrowserToolBridge(): void {
   bridgeOutput = null;
   for (const [requestId, request] of pending) {
