@@ -132,11 +132,22 @@ describe("model catalog issue automation", () => {
     ) as CatalogFixture;
     const issueForm = parseYaml(readFileSync(ISSUE_TEMPLATE_PATH, "utf8")) as IssueForm;
     const providerField = issueForm.body.find((field) => field.id === "provider");
+    const reasoningEffortField = issueForm.body.find(
+      (field) => field.id === "reasoning_effort",
+    );
 
     expect(issueForm.name).toBe("Add model catalog entry");
     expect(issueForm.title).toBe("[Model]: ");
     expect(providerField?.type).toBe("dropdown");
     expect(providerField?.attributes?.options).toEqual(Object.keys(catalog.providers));
+    expect(reasoningEffortField?.attributes?.options).toEqual([
+      "Not specified",
+      "No reasoning",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+    ]);
   });
 
   it("limits the workflow to trusted issue authors and minimum write permissions", () => {
@@ -256,6 +267,30 @@ describe("model catalog issue automation", () => {
       displayName: "New Model",
       contextWindow: 131072,
       reasoningEffort: "high",
+    });
+  });
+
+  it("maps the issue form's no-reasoning label to catalog metadata", () => {
+    const catalog: CatalogFixture = {
+      providers: {
+        openai: {
+          defaultModel: "gpt-existing",
+          runtimeDefaultModel: "gpt-existing",
+          models: ["gpt-existing"],
+        },
+      },
+    };
+
+    const updated = runUpdater(catalog, requestBody({
+      provider: "openai",
+      modelId: "gpt-no-reasoning",
+      reasoningEffort: "No reasoning",
+    }));
+
+    expect(updated.result.status).toBe("added");
+    expect(updated.catalog.providers.openai.models.at(-1)).toEqual({
+      id: "gpt-no-reasoning",
+      reasoningEffort: "none",
     });
   });
 

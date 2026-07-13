@@ -108,7 +108,10 @@ function parseRequest(body, catalog) {
     }
   }
 
-  const reasoningEffort = optionalValue(fields.get("Reasoning effort"));
+  const requestedReasoningEffort = optionalValue(fields.get("Reasoning effort"));
+  const reasoningEffort = requestedReasoningEffort === "No reasoning"
+    ? "none"
+    : requestedReasoningEffort;
   if (reasoningEffort && !REASONING_EFFORTS.has(reasoningEffort)) {
     return invalid("Reasoning effort is not supported");
   }

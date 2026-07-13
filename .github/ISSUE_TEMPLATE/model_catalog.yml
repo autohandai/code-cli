@@ -62,7 +62,7 @@ body:
       description: Optional reasoning-effort metadata for the model.
       options:
         - Not specified
-        - none
+        - No reasoning
         - low
         - medium
         - high
