@@ -144,8 +144,10 @@ describe('SDK Control RPC Methods', () => {
 
       expect(result.commands).toBeDefined();
       expect(result.commands.length).toBeGreaterThan(0);
-      expect(result.commands).toContain('help');
-      expect(result.commands).toContain('model');
+      expect(result.commands).toContain('/help');
+      expect(result.commands).toContain('/model');
+      expect(result.commands).toContain('/deep-research');
+      expect(result.commands).toContain('/goal');
     });
   });
 
