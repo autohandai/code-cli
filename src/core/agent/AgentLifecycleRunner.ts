@@ -30,6 +30,11 @@ export interface AgentLifecycleHost {
   [key: string]: any;
 }
 
+export interface RunAgentCommandModeOptions {
+  signal?: AbortSignal;
+  keepAlive?: boolean;
+}
+
 function buildProviderTelemetryMetadata(
   providerSettings: ProviderSettings | null,
 ): ProviderModelMetadata {
@@ -600,8 +605,12 @@ export async function initializeAgentForRPC(
 export async function runAgentCommandMode(
   host: AgentLifecycleHost,
   instruction: string,
-  signal?: AbortSignal,
+  commandOptions: AbortSignal | RunAgentCommandModeOptions = {},
 ): Promise<boolean> {
+    const options = 'aborted' in commandOptions
+      ? { signal: commandOptions }
+      : commandOptions;
+    const signal = options.signal;
     const previousCommandMode = host.runtime.isCommandMode;
     const previousUseInkRenderer = host.useInkRenderer;
     let initialized = false;
@@ -718,45 +727,35 @@ export async function runAgentCommandMode(
       throw error;
     } finally {
       try {
+        const commandCompleted = completedNormally && succeeded;
+        let finalizationError: unknown;
         if (initialized) {
-          const commandCompleted = completedNormally && succeeded;
-          let finalizationError: unknown;
           try {
             await finalizeCommandTurn();
           } catch (error) {
             finalizationError = error;
           }
-          let sessionId: string | undefined;
+
+        }
+
+        if (!options.keepAlive) {
           try {
-            sessionId = host.sessionManager.getCurrentSession()?.metadata.sessionId;
-          } catch (error) {
-            finalizationError ??= error;
-          }
-          try {
-            await awaitFinalizationStep(executeCommandHook('session-end', {
-              sessionId,
+            await awaitFinalizationStep(Promise.resolve(host.shutdown({
               sessionEndReason: commandCompleted ? 'exit' : 'error',
-              duration: Date.now() - host.sessionStartedAt,
-            }));
+              telemetryReason: commandCompleted ? 'completed' : 'crashed',
+              showSessionSummary: false,
+            })));
           } catch (error) {
             finalizationError ??= error;
           }
+        }
 
-          try {
-            await awaitFinalizationStep(Promise.resolve(
-              host.telemetryManager.endSession(commandCompleted ? 'completed' : 'crashed'),
-            ));
-          } catch (error) {
-            finalizationError ??= error;
-          }
-
-          if (
-            finalizationError !== undefined
-            && !executionFailed
-            && !finalizationDeadline.expired
-          ) {
-            throw finalizationError;
-          }
+        if (
+          finalizationError !== undefined
+          && !executionFailed
+          && !finalizationDeadline.expired
+        ) {
+          throw finalizationError;
         }
       } finally {
         finalizationDeadline.dispose();

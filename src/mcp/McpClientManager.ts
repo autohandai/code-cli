@@ -1030,6 +1030,7 @@ export class McpClientManager {
         // Keep persisted config intact; retry cache env is only a runtime override.
         await this.registerConnectedStdioServer(config, connected.connection, connected.tools, generation);
       } catch (retryError) {
+        if (retryError instanceof McpConnectionCancelledError) throw retryError;
         const initialMessage = error instanceof Error ? error.message : String(error);
         const retryMessage = retryError instanceof Error ? retryError.message : String(retryError);
         throw new Error(`${initialMessage}\nRetry with isolated npm cache failed: ${retryMessage}`);
@@ -1074,6 +1075,7 @@ export class McpClientManager {
       try {
         return await this.connectStdioWithFraming(config, 'newline', generation);
       } catch (newlineError) {
+        if (newlineError instanceof McpConnectionCancelledError) throw newlineError;
         const first = contentLengthError instanceof Error
           ? contentLengthError.message
           : String(contentLengthError);
