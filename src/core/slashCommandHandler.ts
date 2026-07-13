@@ -301,7 +301,7 @@ export class SlashCommandHandler {
         }
         case '/usage': {
           const { usage } = await import('../commands/usage.js');
-          return usage(this.ctx);
+          return usage(this.ctx, args);
         }
         case '/login': {
           const { login } = await import('../commands/login.js');

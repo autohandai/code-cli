@@ -1202,7 +1202,7 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   }, 60_000);
 
-  it('runs the usage_v2 dashboard from the interactive TUI', async () => {
+  it('runs the usage activity dashboard from the interactive TUI', async () => {
     const session = await launchInteractive({
       config: {
         provider: 'openai',
@@ -1213,7 +1213,7 @@ describe('interactive built CLI Tuistory tests', () => {
           reasoningEffort: 'high',
         },
         features: {
-          usageV2: true,
+          cliUsageV2: true,
         },
       },
     });
@@ -1221,15 +1221,19 @@ describe('interactive built CLI Tuistory tests', () => {
     await waitForComposer(session);
     await session.type('/usage');
     await session.press('enter');
-    await session.waitForText('Context window:', { timeout: 10_000 });
+    await session.waitForText('Token activity', { timeout: 10_000 });
     const output = session.readAll();
 
-    expect(output).toContain('Model:');
-    expect(output).toContain('gpt-5.5');
-    expect(output).toContain('Provider:');
-    expect(output).toContain('openai');
-    expect(output).toContain('Context window:');
-    expect(output).toContain('Provider limits:');
+    expect(output).toContain('/usage daily');
+    expect(output).toContain('last 12 months');
+    expect(output).toContain('Lifetime');
+    expect(output).toContain('Peak');
+    expect(output).toContain('Streak');
+    expect(output).toContain('Longest task');
+    expect(output).toContain('Less');
+    expect(output).toContain('More');
+    expect(output).toContain('daily · weekly · monthly');
+    expect(output).not.toContain('Provider limits:');
 
     await exitInteractive(session);
   });
