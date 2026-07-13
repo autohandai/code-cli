@@ -64,6 +64,31 @@ describe('browserToolBridge', () => {
     }
   });
 
+  it('detaches the configured output during shutdown', async () => {
+    const chunks: string[] = [];
+    const customStream = new Writable({
+      write(chunk, _encoding, callback) {
+        chunks.push(chunk.toString());
+        callback();
+      },
+    });
+    const {
+      invokeBrowserTool,
+      setBrowserBridgeOutput,
+      shutdownBrowserToolBridge,
+    } = await import('../../src/browser/browserToolBridge.js');
+    setBrowserBridgeOutput(customStream);
+    const pendingInvocation = invokeBrowserTool('browser_wait', {});
+
+    shutdownBrowserToolBridge();
+
+    await expect(pendingInvocation).rejects.toThrow('Browser tool bridge shut down');
+    const detachedInvocation = invokeBrowserTool('browser_after_shutdown', {});
+    expect(chunks).toHaveLength(1);
+    shutdownBrowserToolBridge();
+    await expect(detachedInvocation).rejects.toThrow('Browser tool bridge shut down');
+  });
+
   it('does NOT write to process.stdout by default', async () => {
     const { invokeBrowserTool } = await import('../../src/browser/browserToolBridge.js');
 
@@ -89,8 +114,10 @@ describe('browserToolBridge', () => {
       },
     });
 
-    const { invokeBrowserTool, setBrowserBridgeOutput } = await import('../../src/browser/browserToolBridge.js');
+    const { hasBrowserBridgeOutput, invokeBrowserTool, setBrowserBridgeOutput } = await import('../../src/browser/browserToolBridge.js');
+    expect(hasBrowserBridgeOutput()).toBe(false);
     setBrowserBridgeOutput(customStream);
+    expect(hasBrowserBridgeOutput()).toBe(true);
 
     const promise = invokeBrowserTool('browser_navigate', { url: 'https://example.com' });
 

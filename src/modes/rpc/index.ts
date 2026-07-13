@@ -68,6 +68,7 @@ import {
 import { getPlanModeManager } from '../../commands/plan.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { shutdownBrowserToolBridge } from '../../browser/browserToolBridge.js';
+import { configureSearchFromSettings } from '../../actions/web.js';
 
 // Store original console methods
 const originalConsole = {
@@ -196,6 +197,7 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
         ?? await loadConfig(options.config, process.cwd()),
       options
     );
+    configureSearchFromSettings(config.search, options.searchEngine);
 
     // Process --yolo flag BEFORE creating runtime (same as main CLI flow)
     const normalizedYolo = normalizeYoloInput(options.yolo as string | boolean | undefined);

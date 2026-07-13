@@ -4,7 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { configureSearch, getSearchConfig, webSearch } from '../src/actions/web.js';
+import {
+  configureSearch,
+  configureSearchFromSettings,
+  getSearchConfig,
+  webSearch,
+} from '../src/actions/web.js';
 
 describe('Search Configuration', () => {
   beforeEach(() => {
@@ -84,7 +89,61 @@ describe('Search Configuration', () => {
     });
   });
 
+  describe('configureSearchFromSettings', () => {
+    it('uses browser-profile when no provider is configured', () => {
+      configureSearch({ provider: 'google' });
+
+      configureSearchFromSettings();
+
+      expect(getSearchConfig().provider).toBe('browser-profile');
+    });
+
+    it('preserves explicit provider settings for protocol modes', () => {
+      configureSearchFromSettings({
+        provider: 'exa',
+        exaApiKey: 'exa-config-key',
+      });
+
+      expect(getSearchConfig()).toMatchObject({
+        provider: 'exa',
+        exaApiKey: 'exa-config-key',
+      });
+    });
+  });
+
   describe('webSearch provider selection', () => {
+    it('uses the connected browser tool bridge before headless browser-profile search', async () => {
+      configureSearch({ provider: 'browser-profile' });
+
+      const calls: Array<{ toolName: string; input: Record<string, unknown> }> = [];
+      const results = await webSearch('autohand code', {
+        browserToolInvoker: async (toolName, input) => {
+          calls.push({ toolName, input });
+          if (toolName === 'browser_execute_js') {
+            return JSON.stringify([{
+              title: 'Autohand Code',
+              url: 'https://autohand.ai/code/',
+              snippet: 'Terminal-native AI coding agent',
+            }]);
+          }
+          return 'ok';
+        },
+      });
+
+      expect(results).toEqual([{
+        title: 'Autohand Code',
+        url: 'https://autohand.ai/code/',
+        snippet: 'Terminal-native AI coding agent',
+      }]);
+      expect(calls.map((call) => call.toolName)).toEqual([
+        'browser_navigate',
+        'browser_wait_for_element',
+        'browser_execute_js',
+      ]);
+      expect(calls[0].input.url).toContain('https://www.google.com/search?');
+      expect(calls[0].input.url).toContain('autohand%20code');
+    });
+
     it('throws error for exa without API key', async () => {
       configureSearch({ provider: 'exa', exaApiKey: undefined });
 

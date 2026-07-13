@@ -253,13 +253,10 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
       await syncDynamicRuntimeExtensions(host, host.runtime);
       let definitions = host.toolManager.toFunctionDefinitions();
 
-      // Gate web tools: only offer web_search/fetch_url/web_repo when a
-      // reliable search provider is configured (Brave/Parallel with API key,
-      // or Google). DuckDuckGo (the default) is unreliable and causes the LLM
-      // to get stuck in retry loops.
+      // Direct URL and repository tools do not depend on a search provider.
+      // Hide only web_search when its configured provider cannot run.
       if (!isSearchConfigured()) {
-        const WEB_TOOLS = new Set(['web_search', 'fetch_url', 'web_repo']);
-        definitions = definitions.filter((tool) => !WEB_TOOLS.has(tool.name));
+        definitions = definitions.filter((tool) => tool.name !== 'web_search');
       }
 
       return definitions;

@@ -3,8 +3,9 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  *
- * Tests that web_search tool is excluded from LLM tool list
- * when no reliable search provider is configured.
+ * Tests that only web_search is excluded from the LLM tool list
+ * when no reliable search provider is configured. Direct URL and repository
+ * tools do not depend on a search provider and must remain available.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -13,16 +14,13 @@ import type { FunctionDefinition } from '../src/types.js';
 
 /**
  * Simulates the tool gating logic that should exist in agent.ts.
- * web_search (and fetch_url, web_repo) should be excluded when
- * no search provider is properly configured.
+ * web_search should be excluded when no search provider is configured.
  */
-const WEB_TOOLS = new Set(['web_search', 'fetch_url', 'web_repo']);
-
 function filterUnconfiguredWebTools(tools: FunctionDefinition[]): FunctionDefinition[] {
   if (isSearchConfigured()) {
     return tools;
   }
-  return tools.filter(t => !WEB_TOOLS.has(t.name));
+  return tools.filter(t => t.name !== 'web_search');
 }
 
 describe('web_search tool gating', () => {
@@ -43,8 +41,8 @@ describe('web_search tool gating', () => {
     const filtered = filterUnconfiguredWebTools(mockTools);
     const names = filtered.map(t => t.name);
     expect(names).not.toContain('web_search');
-    expect(names).not.toContain('fetch_url');
-    expect(names).not.toContain('web_repo');
+    expect(names).toContain('fetch_url');
+    expect(names).toContain('web_repo');
     expect(names).toContain('read_file');
     expect(names).toContain('write_file');
   });
@@ -67,7 +65,11 @@ describe('web_search tool gating', () => {
 
   it('preserves all non-web tools regardless of config', () => {
     const filtered = filterUnconfiguredWebTools(mockTools);
-    expect(filtered.length).toBe(2); // read_file + write_file
-    expect(filtered.every(t => !WEB_TOOLS.has(t.name))).toBe(true);
+    expect(filtered.map((tool) => tool.name)).toEqual([
+      'read_file',
+      'fetch_url',
+      'web_repo',
+      'write_file',
+    ]);
   });
 });

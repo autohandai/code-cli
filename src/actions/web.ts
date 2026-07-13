@@ -11,6 +11,7 @@ import * as https from 'https';
 import * as http from 'http';
 import { existsSync } from 'fs';
 import { spawn } from 'child_process';
+import { hasBrowserBridgeOutput } from '../browser/browserToolBridge.js';
 
 export interface WebSearchResult {
   title: string;
@@ -23,14 +24,23 @@ export interface WebSearchOptions {
   searchType?: 'general' | 'packages' | 'docs' | 'changelog';
   /** Override the default search provider */
   provider?: 'brave' | 'duckduckgo' | 'parallel' | 'google' | 'browser-profile' | 'exa';
+  /** Connected Chromium bridge used before launching a separate browser process. */
+  browserToolInvoker?: BrowserToolInvoker;
   signal?: AbortSignal;
 }
+
+export type BrowserToolInvoker = (
+  toolName: string,
+  input: Record<string, unknown>,
+) => Promise<string>;
 
 export interface FetchUrlOptions {
   selector?: string;
   maxLength?: number;
   timeoutMs?: number;
   signal?: AbortSignal;
+  /** Connected Chromium bridge used when direct HTTP fetching fails. */
+  browserToolInvoker?: BrowserToolInvoker;
 }
 
 export class WebActionAbortedError extends Error {
@@ -74,6 +84,18 @@ export function configureSearch(config: Partial<SearchConfig>): void {
   globalSearchConfig = { ...globalSearchConfig, ...config };
 }
 
+export function configureSearchFromSettings(
+  settings: Partial<SearchConfig> = {},
+  providerOverride?: SearchConfig['provider'],
+): void {
+  configureSearch({
+    provider: providerOverride ?? settings.provider ?? 'browser-profile',
+    braveApiKey: settings.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY,
+    parallelApiKey: settings.parallelApiKey ?? process.env.PARALLEL_API_KEY,
+    exaApiKey: settings.exaApiKey ?? process.env.EXA_API_KEY,
+  });
+}
+
 /**
  * Get the current search configuration
  */
@@ -103,7 +125,7 @@ export function isSearchConfigured(): boolean {
 
   switch (config.provider) {
     case 'browser-profile':
-      return !!findChromePath(); // Available if Chrome/Chromium is installed
+      return hasBrowserBridgeOutput() || !!findChromePath();
     case 'exa':
       return !!exaKey;
     case 'brave':
@@ -394,6 +416,10 @@ async function simpleRequest(url: string, options: SimpleRequestOptions = {}): P
 
   return new Promise((resolve, reject) => {
     const parsedUrl = new URL(url);
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      reject(new Error(`Unsupported URL protocol: ${parsedUrl.protocol}`));
+      return;
+    }
     const protocol = parsedUrl.protocol === 'https:' ? https : http;
 
     const defaultHeaders: Record<string, string> = {
@@ -466,7 +492,11 @@ async function simpleRequest(url: string, options: SimpleRequestOptions = {}): P
   });
 }
 
-async function simpleFetch(url: string, options: SimpleRequestOptions = {}): Promise<string> {
+async function simpleFetch(
+  url: string,
+  options: SimpleRequestOptions = {},
+  redirectCount = 0,
+): Promise<string> {
   const response = await simpleRequest(url, options);
   if (
     response.statusCode &&
@@ -474,8 +504,15 @@ async function simpleFetch(url: string, options: SimpleRequestOptions = {}): Pro
     response.statusCode < 400 &&
     response.location
   ) {
+    if (redirectCount >= 5) {
+      throw new Error('Too many redirects');
+    }
     const redirectedUrl = new URL(response.location, url).toString();
-    return simpleFetch(redirectedUrl, { ...options, method: 'GET', body: undefined });
+    return simpleFetch(
+      redirectedUrl,
+      { ...options, method: 'GET', body: undefined },
+      redirectCount + 1,
+    );
   }
   if (response.statusCode && response.statusCode >= 400) {
     throw new Error(`HTTP ${response.statusCode}: ${response.statusMessage}`);
@@ -552,13 +589,23 @@ export async function webSearch(query: string, options: WebSearchOptions = {}): 
   const exaApiKey = globalSearchConfig.exaApiKey ?? process.env.EXA_API_KEY;
 
   // Auto-fallback: if browser-profile selected but Chrome not available, use google
-  if (provider === 'browser-profile' && !findChromePath()) {
+  if (
+    provider === 'browser-profile'
+    && !options.browserToolInvoker
+    && !hasBrowserBridgeOutput()
+    && !findChromePath()
+  ) {
     provider = 'google';
   }
 
   switch (provider) {
     case 'browser-profile':
-      return browserProfileSearch(enhancedQuery, maxResults, options.signal);
+      return browserProfileSearch(
+        enhancedQuery,
+        maxResults,
+        options.browserToolInvoker,
+        options.signal,
+      );
 
     case 'exa':
       if (!exaApiKey) {
@@ -907,13 +954,32 @@ async function exaSearch(
 async function browserProfileSearch(
   query: string,
   maxResults: number,
+  browserToolInvoker?: BrowserToolInvoker,
   signal?: AbortSignal,
 ): Promise<WebSearchResult[]> {
   throwIfAborted(signal);
+  if (browserToolInvoker) {
+    try {
+      const localResults = await localBrowserProfileSearch(
+        query,
+        maxResults,
+        browserToolInvoker,
+        signal,
+      );
+      if (localResults.length > 0) {
+        return localResults;
+      }
+    } catch (error) {
+      rethrowAbort(error);
+      throwIfAborted(signal);
+      // Continue through the local Chrome fallback when the bridge is unavailable.
+    }
+  }
+
   const chromePath = findChromePath();
   if (!chromePath) {
     throw new Error(
-      'No Chrome/Chromium browser found. Install Chrome or configure a different search provider with /search.'
+      'No connected Chromium bridge or Chrome/Chromium installation was found. Connect Chromium or configure another provider with /search.'
     );
   }
 
@@ -953,6 +1019,111 @@ async function browserProfileSearch(
   }
 
   return googleSearch(query, maxResults, signal);
+}
+
+async function localBrowserProfileSearch(
+  query: string,
+  maxResults: number,
+  invokeBrowserTool: BrowserToolInvoker,
+  signal?: AbortSignal,
+): Promise<WebSearchResult[]> {
+  throwIfAborted(signal);
+  const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=${maxResults}&hl=en`;
+  await invokeBrowserTool('browser_navigate', { url: searchUrl });
+  throwIfAborted(signal);
+
+  try {
+    await invokeBrowserTool('browser_wait_for_element', {
+      selector: 'a h3',
+      timeout: 10000,
+    });
+  } catch {
+    // Google can render alternate result layouts; extraction still has a chance.
+  }
+  throwIfAborted(signal);
+
+  const extractionScript = `
+(() => {
+  const text = (value) => (value || '').replace(/\\s+/g, ' ').trim();
+  const normalizeUrl = (href) => {
+    if (!href) return '';
+    try {
+      const url = new URL(href, window.location.href);
+      if (url.pathname === '/url' && url.searchParams.has('q')) {
+        return url.searchParams.get('q') || '';
+      }
+      return url.href;
+    } catch {
+      return href;
+    }
+  };
+  const isGoogleUrl = (href) => {
+    try {
+      return /(^|\\.)google\\./i.test(new URL(href).hostname);
+    } catch {
+      return false;
+    }
+  };
+
+  const results = [];
+  for (const anchor of Array.from(document.querySelectorAll('a'))) {
+    if (results.length >= ${Math.max(1, maxResults)}) break;
+
+    const heading = anchor.querySelector('h3');
+    const title = text(heading ? heading.textContent : '');
+    const url = normalizeUrl(anchor.getAttribute('href'));
+    if (!title || !url || !/^https?:\\/\\//.test(url) || isGoogleUrl(url)) continue;
+
+    const container = anchor.closest('div');
+    const snippetCandidates = container
+      ? Array.from(container.querySelectorAll('div, span'))
+          .map((node) => text(node.textContent))
+          .filter((candidate) => candidate && candidate !== title && candidate.length > 30)
+      : [];
+
+    results.push({
+      title,
+      url,
+      snippet: (snippetCandidates[0] || '').slice(0, 300),
+    });
+  }
+
+  return JSON.stringify(results);
+})()
+`.trim();
+
+  const payload = await invokeBrowserTool('browser_execute_js', { code: extractionScript });
+  return parseBrowserSearchResults(payload, maxResults);
+}
+
+function parseBrowserSearchResults(payload: string, maxResults: number): WebSearchResult[] {
+  const arrayStart = payload.indexOf('[');
+  const arrayEnd = payload.lastIndexOf(']');
+  const candidates = [
+    payload.trim(),
+    arrayStart >= 0 && arrayEnd >= arrayStart ? payload.slice(arrayStart, arrayEnd + 1) : '',
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      const parsed: unknown = JSON.parse(candidate);
+      if (!Array.isArray(parsed)) continue;
+
+      return parsed
+        .filter((item): item is Record<string, unknown> => item !== null && typeof item === 'object')
+        .map((item) => ({
+          title: typeof item.title === 'string' ? item.title : '',
+          url: typeof item.url === 'string' ? item.url : '',
+          snippet: typeof item.snippet === 'string' ? item.snippet : '',
+        }))
+        .filter((item) => item.title.length > 0 && /^https?:\/\//.test(item.url))
+        .slice(0, maxResults);
+    } catch {
+      // Try the next supported bridge response shape.
+    }
+  }
+
+  return [];
 }
 
 /**
@@ -1032,9 +1203,10 @@ export async function fetchUrl(url: string, options: FetchUrlOptions = {}): Prom
   const maxLength = options.maxLength ?? 30000;
 
   try {
+    const fetchBudget = Math.min(Math.max(maxLength * 10, 200_000), 1_000_000);
     const content = await simpleFetch(url, {
       timeout: options.timeoutMs ?? 15000,
-      maxLength: maxLength * 2,
+      maxLength: fetchBudget,
       signal: options.signal,
     });
 
@@ -1053,8 +1225,83 @@ export async function fetchUrl(url: string, options: FetchUrlOptions = {}): Prom
     return text.slice(0, maxLength);
   } catch (error) {
     rethrowAbort(error);
+    throwIfAborted(options.signal);
+
+    if (options.browserToolInvoker) {
+      try {
+        return await fetchUrlWithBrowser(url, maxLength, options.browserToolInvoker, {
+          selector: options.selector,
+          signal: options.signal,
+        });
+      } catch (browserError) {
+        rethrowAbort(browserError);
+        throwIfAborted(options.signal);
+        throw new Error(
+          `Failed to fetch URL directly (${error instanceof Error ? error.message : String(error)}) `
+          + `or with Chromium (${browserError instanceof Error ? browserError.message : String(browserError)})`
+        );
+      }
+    }
+
     throw new Error(`Failed to fetch URL: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+async function fetchUrlWithBrowser(
+  url: string,
+  maxLength: number,
+  invokeBrowserTool: BrowserToolInvoker,
+  options: { selector?: string; signal?: AbortSignal },
+): Promise<string> {
+  throwIfAborted(options.signal);
+  await invokeBrowserTool('browser_navigate', { url });
+  throwIfAborted(options.signal);
+
+  const selector = options.selector?.trim() || 'body';
+  try {
+    await invokeBrowserTool('browser_wait_for_element', { selector, timeout: 10000 });
+  } catch {
+    // Dynamic pages may still expose useful document text after a wait timeout.
+  }
+  throwIfAborted(options.signal);
+
+  const extractionScript = `
+(() => {
+  const node = document.querySelector(${JSON.stringify(selector)});
+  const text = node ? (node.innerText || node.textContent || '') : '';
+  return JSON.stringify({ text: text.trim().slice(0, ${Math.max(1, maxLength)}) });
+})()
+`.trim();
+  const payload = await invokeBrowserTool('browser_execute_js', { code: extractionScript });
+  const text = parseBrowserText(payload);
+  if (!text) {
+    throw new Error(`No content found for selector ${selector}`);
+  }
+  return text.slice(0, maxLength);
+}
+
+function parseBrowserText(payload: string): string {
+  const objectStart = payload.indexOf('{');
+  const objectEnd = payload.lastIndexOf('}');
+  const candidates = [
+    payload.trim(),
+    objectStart >= 0 && objectEnd >= objectStart ? payload.slice(objectStart, objectEnd + 1) : '',
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      const parsed: unknown = JSON.parse(candidate);
+      if (typeof parsed === 'string') return parsed.trim();
+      if (parsed && typeof parsed === 'object' && 'text' in parsed) {
+        const text = (parsed as { text?: unknown }).text;
+        if (typeof text === 'string') return text.trim();
+      }
+    } catch {
+      // Try the next supported bridge response shape.
+    }
+  }
+
+  return '';
 }
 
 /**

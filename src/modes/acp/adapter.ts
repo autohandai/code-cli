@@ -51,6 +51,7 @@ import { isSessionWorktreeEnabled, prepareSessionWorktree } from '../../utils/se
 import { ApiError, classifyApiError, type ApiErrorCode } from '../../providers/errors.js';
 import type { SessionMessage } from '../../session/types.js';
 import { isGoalFeatureEnabled } from '../../goals/feature.js';
+import { configureSearchFromSettings } from '../../actions/web.js';
 
 import {
   ACP_HOOK_NOTIFICATIONS,
@@ -160,6 +161,7 @@ export class AutohandAcpAdapter implements Agent {
           ?? await loadConfig(this.cliOptions.config, process.cwd()),
         this.cliOptions
       );
+      configureSearchFromSettings(this.config.search, this.cliOptions.searchEngine);
     }
     return this.config;
   }

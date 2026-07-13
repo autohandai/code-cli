@@ -6,6 +6,9 @@ Autohand includes a powerful web search tool that allows the AI agent to search 
 
 | Provider | API Key Required | Free Tier | Best For |
 |----------|-----------------|-----------|----------|
+| **Browser Profile** | No | Unlimited | Default; searches through connected Chromium with the current profile |
+| **Google** | No | Unlimited | Local Chrome/HTTP fallback when browser-profile is unavailable |
+| **Exa.ai** | Yes | Provider plan | Neural search and research |
 | **DuckDuckGo** | No | Unlimited | Quick searches (may be rate-limited) |
 | **Brave Search** | Yes | 2,000 queries/month | Reliable, fast searches |
 | **Parallel.ai** | Yes | Contact for pricing | Deep research, cross-referenced facts |
@@ -17,13 +20,16 @@ Autohand includes a powerful web search tool that allows the AI agent to search 
 Set the search provider when starting Autohand:
 
 ```bash
+# Use the current connected Chromium profile (default)
+autohand --search-engine browser-profile
+
 # Use Brave Search
 autohand --search-engine brave
 
 # Use Parallel.ai
 autohand --search-engine parallel
 
-# Use DuckDuckGo (default)
+# Use DuckDuckGo
 autohand --search-engine duckduckgo
 ```
 
@@ -69,6 +75,10 @@ Edit `~/.autohand/config.json` directly:
 ```
 
 ## Provider Details
+
+### Browser Profile
+
+Browser Profile is the default and requires no search API key. When Chromium is connected, Autohand navigates that browser session and extracts results using the current profile. If no bridge is connected, it falls back to a local Chrome/Chromium installation. Choose another provider at any time with `/search`, `--search-engine`, or the config file.
 
 ### DuckDuckGo
 
@@ -179,6 +189,10 @@ Solutions:
 - Simplify the search query
 - Check network connectivity
 
+### Direct URL fetch fails
+
+`fetch_url` resolves relative redirects and, when Chromium is connected, retries failed direct requests through that browser session. This is useful for JavaScript-heavy documentation sites and pages that require the current browser context.
+
 ## Priority Order
 
 When determining which search provider to use, Autohand follows this priority:
@@ -186,7 +200,7 @@ When determining which search provider to use, Autohand follows this priority:
 1. **CLI flag** (`--search-engine`) - highest priority
 2. **Config file** (`~/.autohand/config.json`)
 3. **Environment variables** (for API keys only)
-4. **Default** (DuckDuckGo)
+4. **Default** (`browser-profile`, no API key required)
 
 ## Security Notes
 

@@ -800,7 +800,7 @@ export type SearchProvider = 'brave' | 'duckduckgo' | 'parallel' | 'google' | 'b
 
 /** Web search provider settings */
 export interface SearchSettings {
-  /** Active search provider (default: browser-profile when available, else google) */
+  /** Active search provider (default: browser-profile; explicit configuration takes precedence) */
   provider?: SearchProvider;
   /** Brave Search API key */
   braveApiKey?: string;
@@ -905,7 +905,7 @@ export interface CLIOptions {
   displayLanguage?: string;
   /** Enable/disable context compaction (default: true) */
   contextCompact?: boolean;
-  /** Web search provider (google, brave, duckduckgo, parallel) */
+  /** Web search provider */
   searchEngine?: SearchProvider;
   /** Replace entire system prompt (inline string or file path) */
   sysPrompt?: string;
