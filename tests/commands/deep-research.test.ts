@@ -8,11 +8,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  aliasMetadata,
   deepResearch,
   metadata,
   resolveAvailableResearchReportPath,
   slugifyResearchTopic,
 } from '../../src/commands/deep-research.js';
+import { markDeepResearchRunStarted } from '../../src/deepResearch/session.js';
 import type { SlashCommandContext } from '../../src/core/slashCommandTypes.js';
 
 describe('/deep-research command', () => {
@@ -41,6 +43,11 @@ describe('/deep-research command', () => {
 
   it('exports slash metadata', () => {
     expect(metadata.command).toBe('/deep-research');
+    expect(metadata.subcommands).toContainEqual({
+      name: 'status',
+      description: expect.stringContaining('active'),
+    });
+    expect(aliasMetadata.command).toBe('/deep-search');
     expect(metadata.implemented).toBe(true);
     expect(metadata.description).toContain('research');
   });
@@ -77,6 +84,7 @@ describe('/deep-research command', () => {
 
     expect(result).toContain('Deep research started');
     expect(result).toContain('.autohand/research/topic-hermes-self-evolving.md');
+    expect(result).toContain('/deep-research status');
     expect(activateSkill).toHaveBeenCalledWith('deep-research');
     expect(queueInstruction).toHaveBeenCalledOnce();
 
@@ -88,6 +96,84 @@ describe('/deep-research command', () => {
     expect(queued).toContain('write_file');
     expect(queued).toContain('Do not stop until');
     expect(queued).toContain('Research saved: .autohand/research/topic-hermes-self-evolving.md');
+    expect(queued).toMatch(/AUTOHAND_DEEP_RESEARCH_RUN_ID: [a-f0-9-]+/);
+  });
+
+  it('shows vital progress for the active research run', async () => {
+    ctx.currentSession = {
+      metadata: { sessionId: 'session-1' },
+      getMessages: () => [],
+    } as unknown as SlashCommandContext['currentSession'];
+    await deepResearch(ctx, ['Hermes', 'self', 'evolving']);
+    const queued = queueInstruction.mock.calls[0][0] as string;
+    const runId = queued.match(/AUTOHAND_DEEP_RESEARCH_RUN_ID: ([a-f0-9-]+)/)?.[1];
+    expect(runId).toBeDefined();
+    await markDeepResearchRunStarted(workspaceRoot, runId!);
+
+    ctx.getTotalTokensUsed = () => 12_345;
+    ctx.getTokenUsageStatus = () => 'actual';
+    ctx.getContextPercentLeft = () => 37;
+    ctx.currentSession = {
+      metadata: { sessionId: 'session-1' },
+      getMessages: () => [
+        {
+          role: 'assistant',
+          timestamp: new Date().toISOString(),
+          content: '',
+          toolCalls: [
+            {
+              id: 'todo-1',
+              tool: 'todo_write',
+              args: {
+                tasks: [
+                  { title: 'Scope the question', status: 'completed' },
+                  { title: 'Verify repository claims', status: 'in_progress' },
+                  { title: 'Write the cited report', status: 'pending' },
+                ],
+              },
+            },
+            { id: 'repo-1', tool: 'web_repo', args: { repo: 'github:pratic-ai/pratic' } },
+            { id: 'fetch-1', tool: 'fetch_url', args: { url: 'https://example.com/source' } },
+          ],
+        },
+        {
+          role: 'tool',
+          timestamp: new Date().toISOString(),
+          name: 'web_repo',
+          tool_call_id: 'repo-1',
+          content: 'Repository not found. Check the URL/shorthand is correct.',
+        },
+      ],
+    } as unknown as SlashCommandContext['currentSession'];
+
+    const result = await deepResearch(ctx, ['status']);
+
+    expect(result).toContain('State: Running');
+    expect(result).toContain('Topic: Hermes self evolving');
+    expect(result).toContain('Progress: 1/3 completed');
+    expect(result).toContain('Current: Verify repository claims');
+    expect(result).toContain('1 page fetched');
+    expect(result).toContain('1 repository checked');
+    expect(result).toContain('1 failed tool result');
+    expect(result).toContain('Report: .autohand/research/topic-hermes-self-evolving.md (not written yet)');
+    expect(result).toContain('Tokens: 12,345');
+    expect(result).toContain('Context remaining: 37%');
+  });
+
+  it('does not replace a queued research run with a second topic', async () => {
+    await deepResearch(ctx, ['first', 'topic']);
+    const second = await deepResearch(ctx, ['second', 'topic']);
+
+    expect(second).toContain('Deep research is already queued: first topic');
+    expect(second).toContain('/deep-research status');
+    expect(queueInstruction).toHaveBeenCalledOnce();
+  });
+
+  it('reports when no deep research run exists', async () => {
+    const result = await deepResearch(ctx, ['status']);
+
+    expect(result).toBe('No deep research run found. Start one with /deep-research <topic>.');
+    expect(queueInstruction).not.toHaveBeenCalled();
   });
 
   it('returns the prompt in non-interactive mode without queueing', async () => {

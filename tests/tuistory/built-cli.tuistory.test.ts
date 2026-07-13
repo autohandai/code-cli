@@ -871,6 +871,16 @@ describe('interactive built CLI Tuistory tests', () => {
       JSON.stringify({
         thought: 'Gather mocked fetch_url evidence and save the reusable research report.',
         toolCalls: [
+          {
+            tool: 'todo_write',
+            args: {
+              tasks: [
+                { title: 'Scope the research question', status: 'completed' },
+                { title: 'Gather and cross-check evidence', status: 'completed' },
+                { title: 'Write the cited report', status: 'completed' },
+              ],
+            },
+          },
           { tool: 'fetch_url', args: { url: `${evidenceServer.baseUrl}/hermes`, max_length: 2000 } },
           { tool: 'fetch_url', args: { url: `${evidenceServer.baseUrl}/dspy`, max_length: 2000 } },
           { tool: 'write_file', args: { path: reportPath, contents: report } },
@@ -934,6 +944,120 @@ describe('interactive built CLI Tuistory tests', () => {
 
     await exitInteractive(session);
   }, 90_000);
+
+  it('keeps premature deep research incomplete and exposes the blockers through status', async () => {
+    const openRouterServer = await createMockOpenRouterSequenceServer([
+      JSON.stringify({
+        thought: 'There is still substantial evidence to gather.',
+        toolCalls: [],
+        finalResponse: 'Completed the research.',
+      }),
+    ]);
+    mockServers.push(openRouterServer);
+
+    const state = await createTempAutohandHome({
+      config: {
+        openrouter: {
+          baseUrl: openRouterServer.baseUrl,
+        },
+        ui: {
+          promptSuggestions: false,
+        },
+        agent: {
+          maxIterations: 2,
+        },
+      },
+    });
+    tempStates.push(state);
+
+    const session = await trackSession(
+      launchBuiltAutohand([
+        '--path',
+        state.workspaceRoot,
+        '--config',
+        state.configPath,
+        '--y',
+      ], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        waitForDataTimeout: 15_000,
+      })
+    );
+
+    await waitForComposer(session);
+    await session.type('/deep-search premature completion audit');
+    await session.press('enter');
+    await session.waitForText('Deep research started', { timeout: 10_000 });
+    await session.waitForText('Deep research incomplete', { timeout: 30_000 });
+
+    await session.type('/deep-search status');
+    await session.press('enter');
+    await session.waitForText('State: Incomplete', { timeout: 10_000 });
+    const status = session.readAll();
+
+    expect(status).toContain('The report has not been written.');
+    expect(status).toContain('No research task plan was recorded.');
+    expect(status).not.toContain('Completed in');
+
+    await exitInteractive(session);
+  }, 60_000);
+
+  it('shows deep research status while the model turn is still active', async () => {
+    const openRouterServer = await createMockOpenRouterSequenceServer([
+      JSON.stringify({
+        thought: 'The delayed response should arrive after the live status check.',
+        toolCalls: [],
+        finalResponse: 'Research is still incomplete.',
+      }),
+    ], 5_000);
+    mockServers.push(openRouterServer);
+
+    const state = await createTempAutohandHome({
+      config: {
+        openrouter: {
+          baseUrl: openRouterServer.baseUrl,
+        },
+        ui: {
+          promptSuggestions: false,
+        },
+        agent: {
+          maxIterations: 2,
+        },
+      },
+    });
+    tempStates.push(state);
+
+    const session = await trackSession(
+      launchBuiltAutohand([
+        '--path',
+        state.workspaceRoot,
+        '--config',
+        state.configPath,
+        '--y',
+      ], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        waitForDataTimeout: 15_000,
+      })
+    );
+
+    await waitForComposer(session);
+    await session.type('/deep-research live progress audit');
+    await session.press('enter');
+    await session.waitForText('Deep research started', { timeout: 10_000 });
+
+    await session.type('/deep-research status');
+    await session.press('enter');
+    await session.waitForText('State: Running', { timeout: 3_000 });
+    const activeStatus = session.readAll();
+
+    expect(activeStatus).toContain('Progress: No task plan recorded yet.');
+    expect(activeStatus).toContain('Report: .autohand/research/topic-live-progress-audit.md (not written yet)');
+    expect(activeStatus).not.toContain('Research is still incomplete.');
+
+    await session.waitForText('Deep research incomplete', { timeout: 15_000 });
+    await exitInteractive(session);
+  }, 60_000);
 
   it('runs the usage_v2 dashboard from the interactive TUI', async () => {
     const session = await launchInteractive({

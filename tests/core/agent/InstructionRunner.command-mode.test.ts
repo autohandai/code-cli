@@ -4,7 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import fs from 'fs-extra';
+import os from 'node:os';
+import path from 'node:path';
 import { InstructionRunner, type AgentInstructionHost } from '../../../src/core/agent/InstructionRunner.js';
+import { startDeepResearchRun } from '../../../src/deepResearch/session.js';
 
 function overrideStreamTTY(
   stream: NodeJS.ReadStream | NodeJS.WriteStream,
@@ -89,7 +93,7 @@ function createHost(): AgentInstructionHost {
     saveUserMessage: vi.fn(async () => {}),
     updateContextUsage: vi.fn(),
     runReactLoop: vi.fn(async () => {}),
-    runQualityPipeline: vi.fn(async () => {}),
+    runQualityPipeline: vi.fn(async () => true),
     cleanupUI: vi.fn(),
     runInstruction: vi.fn(async () => true),
     isRetryableSessionError: vi.fn(() => false),
@@ -216,6 +220,56 @@ describe('InstructionRunner command mode UI', () => {
     expect(inkRenderer.pause).not.toHaveBeenCalled();
     expect(inkRenderer.resume).not.toHaveBeenCalled();
     expect(host.cleanupUI).toHaveBeenCalledWith(true);
+  });
+
+  it('marks the turn failed when project quality checks fail', async () => {
+    const host = createHost();
+    host.runtime = {
+      ...host.runtime,
+      options: {},
+      isCommandMode: false,
+    };
+    host.lastIntent = 'implementation';
+    host.intentDetector.detect = vi.fn(() => ({ intent: 'implementation', confidence: 1, reasons: [] }));
+    host.runReactLoop = vi.fn(async () => {
+      host.filesModifiedThisSession = true;
+    });
+    host.runQualityPipeline = vi.fn(async () => false);
+
+    const result = await new InstructionRunner(host).run('change the code');
+
+    expect(result).toBe(false);
+    expect(host.stopUI).toHaveBeenCalledWith(true, 'Quality checks failed');
+    expect(host.printCompletionSummary).toHaveBeenCalledWith(false, false);
+    expect(host.scheduleTurnMemoryReflection).toHaveBeenCalledWith(false);
+  });
+
+  it('marks a deep research turn incomplete when the report contract is unmet', async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-instruction-deep-research-'));
+    try {
+      const run = await startDeepResearchRun({
+        workspaceRoot,
+        topic: 'Hermes and DSPy',
+        reportPath: '.autohand/research/topic-hermes-and-dspy.md',
+      });
+      const host = createHost();
+      host.runtime = { ...host.runtime, workspaceRoot };
+      host.sessionManager = {
+        getCurrentSession: () => ({
+          getMessages: () => [],
+        }),
+      };
+
+      const result = await new InstructionRunner(host).run(
+        `Research deeply.\nAUTOHAND_DEEP_RESEARCH_RUN_ID: ${run.id}`,
+      );
+
+      expect(result).toBe(false);
+      expect(host.stopUI).toHaveBeenCalledWith(true, 'Deep research incomplete');
+      expect(host.printCompletionSummary).toHaveBeenCalledWith(false, false);
+    } finally {
+      await fs.remove(workspaceRoot);
+    }
   });
 
   it('marks the turn summary as failed when the provider run errors after retries', async () => {
