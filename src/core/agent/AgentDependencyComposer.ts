@@ -57,7 +57,8 @@ import { ActivityIndicator } from '../../ui/activityIndicator.js';
 import { NotificationService } from '../../utils/notification.js';
 import { formatPlanModeToggleMessage } from '../../commands/plan.js';
 import packageJson from '../../../package.json' with { type: 'json' };
-import { ImageManager } from '../ImageManager.js';
+import { ImageManager, type ImageMimeType } from '../ImageManager.js';
+import type { MobileImageAttachment } from '../../mobile/MobileHandoffClient.js';
 import { IntentDetector } from '../IntentDetector.js';
 import { EnvironmentBootstrap } from '../EnvironmentBootstrap.js';
 import { CodeQualityPipeline } from '../CodeQualityPipeline.js';
@@ -76,6 +77,7 @@ import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { SuggestionEngine } from '../SuggestionEngine.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { configureAgentRegistry } from './dynamicRuntimeExtensions.js';
+import type { MobileRelayController } from '../../mobile/MobileRelay.js';
 
 export interface AgentDependencyHost {
   [key: string]: any;
@@ -1332,6 +1334,59 @@ export function initializeAgentDependencies(
         } else {
           host.pendingInkInstructions.push(instruction);
         }
+      },
+      enqueueMobileInstruction: (instruction: string) => {
+        host.markMobileInstructionQueued?.();
+        if (host.inkRenderer) {
+          host.inkRenderer.addQueuedInstruction(instruction);
+        } else {
+          host.pendingInkInstructions.push(instruction);
+        }
+      },
+      enqueueInstructionWithImages: (instruction: string, images: MobileImageAttachment[]) => {
+        const placeholders = images.map((image) => {
+          const data = Buffer.from(image.data, 'base64');
+          const id = host.imageManager.add(data, image.mimeType as ImageMimeType, image.filename);
+          return host.imageManager.formatPlaceholder(id);
+        });
+        const instructionWithImages = placeholders.length > 0
+          ? `${instruction}\n\n${placeholders.join('\n')}`
+          : instruction;
+
+        if (host.inkRenderer) {
+          host.inkRenderer.addQueuedInstruction(instructionWithImages);
+        } else {
+          host.pendingInkInstructions.push(instructionWithImages);
+        }
+      },
+      enqueueMobileInstructionWithImages: (instruction: string, images: MobileImageAttachment[]) => {
+        host.markMobileInstructionQueued?.();
+        const placeholders = images.map((image) => {
+          const data = Buffer.from(image.data, 'base64');
+          const id = host.imageManager.add(data, image.mimeType as ImageMimeType, image.filename);
+          return host.imageManager.formatPlaceholder(id);
+        });
+        const instructionWithImages = placeholders.length > 0
+          ? `${instruction}\n\n${placeholders.join('\n')}`
+          : instruction;
+
+        if (host.inkRenderer) {
+          host.inkRenderer.addQueuedInstruction(instructionWithImages);
+        } else {
+          host.pendingInkInstructions.push(instructionWithImages);
+        }
+      },
+      onMobileRelayReady: (relay: MobileRelayController) => {
+        host.setMobileRelayController?.(relay);
+        host.setConfirmationCallback?.((message: string, context?: { tool?: string; path?: string; command?: string }) =>
+          relay.requestPermission(message, context));
+        host.setDirectoryAccessCallback?.((path: string, reason?: string) =>
+          relay.requestDirectoryAccess(path, reason));
+        relay.setSessionControlHandler((command) => {
+          if (command === 'cancel') {
+            host.cancelCurrentInstruction?.();
+          }
+        });
       },
       // Set/clear YOLO mode for /yolo and /no-yolo commands
       setYoloMode: (pattern: string | undefined) => {
