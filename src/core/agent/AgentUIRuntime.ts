@@ -94,6 +94,10 @@ function echoInkSubmittedInstructionImmediately(host: AgentUIRuntimeHost, text: 
   }
 }
 
+function isLiveDeepResearchStatusCommand(text: string): boolean {
+  return /^\/deep-(?:research|search)\s+status\s*$/i.test(text.trim());
+}
+
 function shouldSuppressDuplicateNotification(host: AgentUIRuntimeHost, message: string): boolean {
   const now = Date.now();
   const recentNotifications: Map<string, number> =
@@ -438,6 +442,22 @@ export function addAgentUIToolOutputs(host: AgentUIRuntimeHost, outputs: Array<{
 export async function handleAgentInkSubmittedInstruction(host: AgentUIRuntimeHost, text: string): Promise<void> {
     if (isShellCommand(text)) {
       await host.executeImmediateShellCommand(parseShellCommand(text));
+      return;
+    }
+
+    if (host.isInstructionActive && isLiveDeepResearchStatusCommand(text)) {
+      const normalized = text.trim();
+      const { command, args } = host.parseSlashCommand(normalized);
+      host.inkRenderer?.addUserMessage?.(normalized);
+      try {
+        const result = await host.handleSlashCommand(command, args);
+        if (result) {
+          host.inkRenderer?.addAssistantMessage?.(result);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        host.inkRenderer?.addAssistantMessage?.(`Command error: ${message}`);
+      }
       return;
     }
 

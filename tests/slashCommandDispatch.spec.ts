@@ -74,6 +74,7 @@ describe('slash command dispatch – output vs instruction', () => {
   it('/deep-research is registered in SLASH_COMMANDS', () => {
     const commands = SLASH_COMMANDS.map(c => c.command);
     expect(commands).toContain('/deep-research');
+    expect(commands).toContain('/deep-search');
   });
 
   it('/autoresearch is registered in SLASH_COMMANDS', () => {
@@ -158,6 +159,25 @@ describe('slash command dispatch – output vs instruction', () => {
       expect(result).toContain('Deep research started');
       expect(ctx.queueInstruction).toHaveBeenCalledWith(expect.stringContaining('Hermes self evolving'));
       expect(ctx.queueInstruction).toHaveBeenCalledWith(expect.stringContaining('.autohand/research/topic-hermes-self-evolving.md'));
+    } finally {
+      await fs.remove(workspaceRoot);
+    }
+  });
+
+  it('/deep-search status routes to the persisted deep research status', async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-dispatch-deep-search-'));
+    const ctx = {
+      ...createMinimalContext(),
+      workspaceRoot,
+      queueInstruction: vi.fn(),
+    };
+
+    try {
+      const handler = new SlashCommandHandler(ctx as any, SLASH_COMMANDS);
+      const result = await handler.handle('/deep-search', ['status']);
+
+      expect(result).toBe('No deep research run found. Start one with /deep-research <topic>.');
+      expect(ctx.queueInstruction).not.toHaveBeenCalled();
     } finally {
       await fs.remove(workspaceRoot);
     }

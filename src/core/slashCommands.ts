@@ -128,6 +128,7 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   chromeCmd.metadata,
   reviewCmd.metadata,
   deepResearchCmd.metadata,
+  deepResearchCmd.aliasMetadata,
   autoresearchCmd.metadata,
   prReviewCmd.metadata,
   setupCmd.metadata,

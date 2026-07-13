@@ -303,7 +303,7 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/language`        | Change display language                                                          |
 | `/cc`              | Toggle context compaction                                                        |
 | `/search`          | Search the web                                                                   |
-| `/deep-research`   | Research a topic and save a cited report to `.autohand/research/topic-*.md`      |
+| `/deep-research`   | Run cited research; use `status` for progress (`/deep-search` alias)             |
 | `/automode`        | Manage auto-mode                                                                 |
 | `/autoresearch`    | Run persisted benchmark loops under `.auto/`                                    |
 | `/goal`            | Set, review, or refine the current session goal                                  |

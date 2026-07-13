@@ -62,7 +62,9 @@ autohand --auto-skill
 /deep-research Hermes self evolving and DSPy
 ```
 
-`/deep-research <topic>` activates the bundled `deep-research` skill, uses Autohand's web search, fetch, task, and file tools, and saves a cited markdown report under `<project>/.autohand/research/topic-<slug>.md`. Saved reports are surfaced in later prompts so the next turn can reuse the research context.
+`/deep-research <topic>` activates the bundled `deep-research` skill, uses Autohand's web search, fetch, task, and file tools, and saves a cited markdown report under `<project>/.autohand/research/topic-<slug>.md`. `/deep-search` is an alias. Saved reports are surfaced in later prompts so the next turn can reuse the research context.
+
+While research is running, `/deep-research status` (or `/deep-search status`) shows the persisted run state, task progress, current tool, evidence and failure counts, report target, tokens, and remaining context. A run is only marked completed after all recorded research tasks finish, the cited report passes its required-section/source audit, the final response confirms the exact saved path, and any project quality checks pass. Otherwise the run remains incomplete with explicit blockers in its status.
 
 ---
 

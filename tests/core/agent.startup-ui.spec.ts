@@ -1960,6 +1960,27 @@ describe('agent startup and active input UI', () => {
     expect(agent.inkRenderer.addUserMessage).not.toHaveBeenCalled();
   });
 
+  it('handleInkSubmittedInstruction shows deep research status immediately during an active turn', async () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    agent.isInstructionActive = true;
+    agent.inkRenderer = {
+      addQueuedInstruction: vi.fn(),
+      addUserMessage: vi.fn(),
+      addAssistantMessage: vi.fn(),
+      isRunning: vi.fn(() => true),
+    };
+    agent.handleSlashCommand = vi.fn(async () => 'State: Running\nProgress: 2/6 completed');
+
+    await (agent as any).handleInkSubmittedInstruction('/deep-search status');
+
+    expect(agent.handleSlashCommand).toHaveBeenCalledWith('/deep-search', ['status']);
+    expect(agent.inkRenderer.addUserMessage).toHaveBeenCalledWith('/deep-search status');
+    expect(agent.inkRenderer.addAssistantMessage).toHaveBeenCalledWith(
+      'State: Running\nProgress: 2/6 completed',
+    );
+    expect(agent.inkRenderer.addQueuedInstruction).not.toHaveBeenCalled();
+  });
+
   it('does not force PTY for immediate Ink shell commands', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
 
