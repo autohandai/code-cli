@@ -189,7 +189,10 @@ describe('ensureAuthenticated', () => {
         { label: 'Exit', value: 'exit' },
       ],
     }));
-    expect(mockLogin).toHaveBeenCalledWith({ config: mockConfig });
+    expect(mockLogin).toHaveBeenCalledWith({
+      config: mockConfig,
+      restoreSync: false,
+    });
     expect(result.auth?.token).toBe('new-token');
     expect(exitSpy).not.toHaveBeenCalled();
   });
@@ -218,7 +221,10 @@ describe('ensureAuthenticated', () => {
         { label: 'Exit', value: 'exit' },
       ],
     }));
-    expect(mockLogin).toHaveBeenCalledWith({ config: mockConfig });
+    expect(mockLogin).toHaveBeenCalledWith({
+      config: mockConfig,
+      restoreSync: false,
+    });
     expect(result.auth?.token).toBe('new-token');
     expect(exitSpy).not.toHaveBeenCalled();
   });

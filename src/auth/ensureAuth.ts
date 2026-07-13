@@ -279,7 +279,7 @@ async function promptLogin(config: LoadedConfig): Promise<LoadedConfig> {
   }
 
   const { login } = await import('../commands/login.js');
-  await login({ config });
+  await login({ config, restoreSync: false });
 
   // Reload config to pick up the token saved by login()
   const refreshed = await loadConfig(config.configPath);
