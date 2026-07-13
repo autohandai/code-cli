@@ -40,6 +40,7 @@ import type {
   AutomodeStartParams,
   AutomodeCancelParams,
   AutomodeGetLogParams,
+  AutoresearchStartParams,
   PlanModeSetParams,
   GetHistoryParams,
   YoloSetParams,
@@ -702,6 +703,32 @@ async function handleSingleRequest(
       case RPC_METHODS.AUTOMODE_GET_LOG: {
         const logParams = params as AutomodeGetLogParams | undefined;
         result = adapter.handleAutomodeGetLog(id!, logParams?.limit);
+        break;
+      }
+
+      case RPC_METHODS.AUTORESEARCH_START: {
+        const startParams = params as AutoresearchStartParams | undefined;
+        if (!startParams?.objective) {
+          if (shouldRespond) {
+            return createErrorResponse(
+              id!,
+              JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+              'Missing required parameter: objective'
+            );
+          }
+          return null;
+        }
+        result = await adapter.handleAutoresearchStart(startParams);
+        break;
+      }
+
+      case RPC_METHODS.AUTORESEARCH_STATUS: {
+        result = await adapter.handleAutoresearchStatus();
+        break;
+      }
+
+      case RPC_METHODS.AUTORESEARCH_STOP: {
+        result = await adapter.handleAutoresearchStop();
         break;
       }
 

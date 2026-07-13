@@ -125,8 +125,8 @@ describe("TOOL_DISPLAY_NAMES", () => {
 // ===========================================================================
 
 describe("DEFAULT_ACP_COMMANDS", () => {
-  it("has exactly 36 commands", () => {
-    expect(DEFAULT_ACP_COMMANDS).toHaveLength(36);
+  it("has exactly 37 commands", () => {
+    expect(DEFAULT_ACP_COMMANDS).toHaveLength(37);
   });
 
   it("each command has name and description strings", () => {
@@ -150,6 +150,7 @@ describe("DEFAULT_ACP_COMMANDS", () => {
     expect(names).toContain("feedback");
     expect(names).toContain("agents");
     expect(names).toContain("automode");
+    expect(names).toContain("autoresearch");
     expect(names).toContain("lint");
     expect(names).toContain("mcp");
     expect(names).toContain("mcp install");

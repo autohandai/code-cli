@@ -1033,6 +1033,39 @@ program
     });
   });
 
+// ── Auto-research subcommand ─────────────────────────────────────────────
+program
+  .command('auto-research [args...]')
+  .alias('autoresearch')
+  .description('Start, inspect, or finalize an auto-research session under .auto/')
+  .allowUnknownOption(true)
+  .action(async (args: string[] = []) => {
+    const { runAutoResearchCli } = await import('./commands/autoresearch.js');
+    const result = await runAutoResearchCli(process.cwd(), withAutoResearchParentOptions(args, program.opts()));
+    if (result) {
+      console.log(result);
+    }
+    process.exit(0);
+  });
+
+function withAutoResearchParentOptions(args: string[], parentOptions: { maxIterations?: number | string; yes?: boolean; y?: boolean }): string[] {
+  const forwardedArgs = [...args];
+
+  if (parentOptions.maxIterations !== undefined && !hasFlag(forwardedArgs, '--max-iterations')) {
+    forwardedArgs.push('--max-iterations', String(parentOptions.maxIterations));
+  }
+
+  if ((parentOptions.yes === true || parentOptions.y === true) && !hasFlag(forwardedArgs, '--yes')) {
+    forwardedArgs.push('--yes');
+  }
+
+  return forwardedArgs;
+}
+
+function hasFlag(args: string[], flagName: string): boolean {
+  return args.some((arg) => arg === flagName || arg.startsWith(`${flagName}=`));
+}
+
 // ── Import subcommand ─────────────────────────────────────────────────
 program
   .command('import [source]')

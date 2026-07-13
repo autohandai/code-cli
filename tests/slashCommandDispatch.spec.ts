@@ -76,6 +76,11 @@ describe('slash command dispatch – output vs instruction', () => {
     expect(commands).toContain('/deep-research');
   });
 
+  it('/autoresearch is registered in SLASH_COMMANDS', () => {
+    const commands = SLASH_COMMANDS.map(c => c.command);
+    expect(commands).toContain('/autoresearch');
+  });
+
   it('/handoff session is registered in SLASH_COMMANDS', () => {
     const commands = SLASH_COMMANDS.map(c => c.command);
     expect(commands).toContain('/handoff session');
@@ -153,6 +158,27 @@ describe('slash command dispatch – output vs instruction', () => {
       expect(result).toContain('Deep research started');
       expect(ctx.queueInstruction).toHaveBeenCalledWith(expect.stringContaining('Hermes self evolving'));
       expect(ctx.queueInstruction).toHaveBeenCalledWith(expect.stringContaining('.autohand/research/topic-hermes-self-evolving.md'));
+    } finally {
+      await fs.remove(workspaceRoot);
+    }
+  });
+
+  it('/autoresearch starts a persisted experiment loop and queues its instruction', async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-dispatch-autoresearch-'));
+    const ctx = {
+      ...createMinimalContext(),
+      workspaceRoot,
+      queueInstruction: vi.fn(),
+      hookManager: { executeHooks: vi.fn(async () => []) },
+    };
+
+    try {
+      const handler = new SlashCommandHandler(ctx as any, SLASH_COMMANDS);
+      const result = await handler.handle('/autoresearch', ['optimize', 'test', 'runtime']);
+
+      expect(result).toContain('Auto-research session started');
+      expect(ctx.queueInstruction).toHaveBeenCalledWith(expect.stringContaining('Auto-research loop'));
+      expect(await fs.pathExists(path.join(workspaceRoot, '.auto', 'state.json'))).toBe(true);
     } finally {
       await fs.remove(workspaceRoot);
     }

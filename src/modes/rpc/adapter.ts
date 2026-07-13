@@ -43,6 +43,11 @@ import type {
   AutomodeCancelResult,
   AutomodeGetLogResult,
   AutomodeLogEntry,
+  AutoresearchStartParams,
+  AutoresearchStartResult,
+  AutoresearchStatusResult,
+  AutoresearchStopResult,
+  AutoresearchRpcState,
   GetHistoryParams,
   GetHistoryResult,
   YoloSetParams,
@@ -97,6 +102,46 @@ import type { GoalStatus } from '../../goals/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, isGoalFeatureEnabled } from '../../goals/feature.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { SLASH_COMMANDS } from '../../core/slashCommands.js';
+import { AutoResearchManager, type AutoResearchSnapshot, type AutoResearchState } from '../../autoresearch/manager.js';
+import { initExperiment } from '../../autoresearch/tools.js';
+import type { OptimizationDirection } from '../../autoresearch/session.js';
+
+type CompleteAutoresearchBenchmarkParams = AutoresearchStartParams & {
+  metricName: string;
+  metricUnit: string;
+  direction: OptimizationDirection;
+} & (
+  | { measureCommand: string }
+  | { measureScript: string }
+);
+
+function hasCompleteAutoresearchBenchmarkParams(
+  params: AutoresearchStartParams
+): params is CompleteAutoresearchBenchmarkParams {
+  return Boolean(
+    params.metricName &&
+    params.metricUnit &&
+    params.direction &&
+    (params.measureCommand || params.measureScript)
+  );
+}
+
+function commandToScript(command: string): string {
+  return command.startsWith('#!')
+    ? command
+    : ['#!/bin/bash', 'set -euo pipefail', command, ''].join('\n');
+}
+
+function measureScriptFromParams(params: CompleteAutoresearchBenchmarkParams): string {
+  if ('measureScript' in params && params.measureScript) return params.measureScript;
+  if ('measureCommand' in params && params.measureCommand) return commandToScript(params.measureCommand);
+  throw new Error('Missing measureCommand or measureScript');
+}
+
+function checksScriptFromParams(params: AutoresearchStartParams): string | undefined {
+  if (params.checksScript) return params.checksScript;
+  return params.checksCommand ? commandToScript(params.checksCommand) : undefined;
+}
 
 // ---------------------------------------------------------------------------
 // ApiErrorCode → RPC-specific error shape mapping
@@ -2818,6 +2863,110 @@ export class RPCAdapter {
       timestamp: new Date().toISOString(),
       toolCalls,
     };
+  }
+
+  // ============================================================================
+  // Auto-Research RPC Handlers
+  // ============================================================================
+
+  async handleAutoresearchStart(params: AutoresearchStartParams): Promise<AutoresearchStartResult> {
+    try {
+      const objective = params.objective.trim();
+      if (!objective) return { success: false, error: 'Missing required parameter: objective' };
+
+      const manager = new AutoResearchManager(this.workspace);
+      const canResume = await manager.canResume();
+      const started = canResume
+        ? await manager.resume(objective)
+        : await manager.start(objective, params.maxIterations);
+      let message = started.message;
+
+      if (!canResume && hasCompleteAutoresearchBenchmarkParams(params)) {
+        await initExperiment(this.workspace, {
+          name: objective,
+          metricName: params.metricName,
+          metricUnit: params.metricUnit,
+          direction: params.direction,
+          measureScript: measureScriptFromParams(params),
+          maxIterations: params.maxIterations,
+          timeoutMs: params.timeoutMs,
+          filesInScope: params.filesInScope ?? [],
+          checksScript: checksScriptFromParams(params),
+          subagents: params.subagents,
+        });
+        message = `${message}\nInitialized benchmark config from RPC options.`;
+      }
+
+      const snapshot = await manager.getSnapshot();
+      this.emitAutoresearchNotification(RPC_NOTIFICATIONS.AUTORESEARCH_START, snapshot, {
+        subcommand: canResume ? 'resume' : 'start', message,
+      });
+      return {
+        success: true,
+        message,
+        instruction: started.instruction,
+        ...this.formatAutoresearchSnapshot(snapshot),
+      };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  async handleAutoresearchStatus(): Promise<AutoresearchStatusResult> {
+    try {
+      const manager = new AutoResearchManager(this.workspace);
+      const snapshot = await manager.getSnapshot();
+      this.emitAutoresearchNotification(RPC_NOTIFICATIONS.AUTORESEARCH_STATUS, snapshot, { subcommand: 'status' });
+      return { success: true, ...this.formatAutoresearchSnapshot(snapshot) };
+    } catch (error) {
+      return {
+        success: false, active: false, statusText: 'No active auto-research session.', runsLogged: 0,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  async handleAutoresearchStop(): Promise<AutoresearchStopResult> {
+    try {
+      const manager = new AutoResearchManager(this.workspace);
+      const message = await manager.pause();
+      const snapshot = await manager.getSnapshot();
+      this.emitAutoresearchNotification(RPC_NOTIFICATIONS.AUTORESEARCH_PAUSE, snapshot, { subcommand: 'stop', message });
+      return { success: true, message, ...this.formatAutoresearchSnapshot(snapshot) };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  private formatAutoresearchSnapshot(snapshot: AutoResearchSnapshot): Omit<AutoresearchStatusResult, 'success'> {
+    return {
+      active: snapshot.active,
+      state: snapshot.state ? this.formatAutoresearchState(snapshot.state) : undefined,
+      statusText: snapshot.statusText,
+      runsLogged: snapshot.runs.length,
+    };
+  }
+
+  private formatAutoresearchState(state: AutoResearchState): AutoresearchRpcState {
+    return { active: state.active, goal: state.goal, iteration: state.iteration, maxIterations: state.maxIterations };
+  }
+
+  private emitAutoresearchNotification(
+    method: typeof RPC_NOTIFICATIONS.AUTORESEARCH_START | typeof RPC_NOTIFICATIONS.AUTORESEARCH_STATUS | typeof RPC_NOTIFICATIONS.AUTORESEARCH_PAUSE,
+    snapshot: AutoResearchSnapshot,
+    details: { subcommand: 'start' | 'resume' | 'status' | 'stop'; message?: string }
+  ): void {
+    writeNotification(method, {
+      active: snapshot.active,
+      goal: snapshot.state?.goal ?? snapshot.config?.name,
+      iteration: snapshot.state?.iteration ?? snapshot.runs.length,
+      maxIterations: snapshot.state?.maxIterations ?? snapshot.config?.maxIterations,
+      runsLogged: snapshot.runs.length,
+      statusText: snapshot.statusText,
+      subcommand: details.subcommand,
+      message: details.message,
+      timestamp: createTimestamp(),
+    });
   }
 
   // ============================================================================

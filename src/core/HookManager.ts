@@ -103,6 +103,18 @@ export interface HookContext {
   /** Auto-mode total cost */
   automodeTotalCost?: number;
 
+  // Auto-research hooks
+  /** Auto-research goal or objective text */
+  autoresearchGoal?: string;
+  /** Whether auto-research is active after the event */
+  autoresearchActive?: boolean;
+  /** Auto-research completed iteration count */
+  autoresearchIteration?: number;
+  /** Auto-research maximum iteration count */
+  autoresearchMaxIterations?: number;
+  /** Auto-research slash subcommand that triggered the event */
+  autoresearchSubcommand?: string;
+
   // Multi-directory support
   /** Additional workspace directories (from --add-dir or /add-dir) */
   additionalWorkspaces?: string[];
@@ -485,6 +497,23 @@ export class HookManager {
           context.automodeIteration,
         ].filter((part) => part !== undefined && part !== null).join(' ');
         break;
+      case 'autoresearch:start':
+      case 'autoresearch:pause':
+      case 'autoresearch:init':
+      case 'autoresearch:before':
+      case 'autoresearch:run':
+      case 'autoresearch:after':
+      case 'autoresearch:log':
+      case 'autoresearch:complete':
+      case 'autoresearch:error':
+        value = [
+          context.autoresearchGoal,
+          context.autoresearchSubcommand,
+          context.tool,
+          formatMatcherArgs(context.args),
+          context.error,
+        ].filter((part) => part !== undefined && part !== null).join(' ');
+        break;
       case 'review:start':
       case 'review:end':
       case 'review:paused':
@@ -597,6 +626,13 @@ export class HookManager {
     if (context.automodeCheckpointCommit) env.HOOK_AUTOMODE_CHECKPOINT = context.automodeCheckpointCommit;
     if (context.automodeTotalCost !== undefined) env.HOOK_AUTOMODE_COST = String(context.automodeTotalCost);
 
+    // Auto-research hooks
+    if (context.autoresearchGoal) env.HOOK_AUTORESEARCH_GOAL = context.autoresearchGoal;
+    if (context.autoresearchActive !== undefined) env.HOOK_AUTORESEARCH_ACTIVE = String(context.autoresearchActive);
+    if (context.autoresearchIteration !== undefined) env.HOOK_AUTORESEARCH_ITERATION = String(context.autoresearchIteration);
+    if (context.autoresearchMaxIterations !== undefined) env.HOOK_AUTORESEARCH_MAX_ITERATIONS = String(context.autoresearchMaxIterations);
+    if (context.autoresearchSubcommand) env.HOOK_AUTORESEARCH_SUBCOMMAND = context.autoresearchSubcommand;
+
     // Review hooks
     if (context.event.startsWith('review:')) {
       if (context.reviewPath) env.HOOK_REVIEW_PATH = context.reviewPath;
@@ -686,6 +722,12 @@ export class HookManager {
       automode_cancel_reason: context.automodeCancelReason,
       automode_checkpoint_commit: context.automodeCheckpointCommit,
       automode_total_cost: context.automodeTotalCost,
+      // Auto-research context
+      autoresearch_goal: context.autoresearchGoal,
+      autoresearch_active: context.autoresearchActive,
+      autoresearch_iteration: context.autoresearchIteration,
+      autoresearch_max_iterations: context.autoresearchMaxIterations,
+      autoresearch_subcommand: context.autoresearchSubcommand,
       // Review context
       review_path: context.reviewPath,
       review_scope: context.reviewScope,
@@ -996,6 +1038,16 @@ export class HookManager {
       'automode:cancel',
       'automode:complete',
       'automode:error',
+      // Auto-research events
+      'autoresearch:start',
+      'autoresearch:pause',
+      'autoresearch:init',
+      'autoresearch:before',
+      'autoresearch:run',
+      'autoresearch:after',
+      'autoresearch:log',
+      'autoresearch:complete',
+      'autoresearch:error',
       // Learn events
       'pre-learn',
       'post-learn',
@@ -1033,5 +1085,17 @@ export class HookManager {
     }
 
     return summary;
+  }
+}
+
+function formatMatcherArgs(args?: Record<string, unknown>): string | undefined {
+  if (!args) {
+    return undefined;
+  }
+
+  try {
+    return JSON.stringify(args);
+  } catch {
+    return undefined;
   }
 }

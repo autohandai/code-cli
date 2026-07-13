@@ -50,6 +50,7 @@ const DEFAULT_CONFIG: CompletionConfig = {
     '/search',
     '/skills',
     '/deep-research',
+    '/autoresearch',
   ],
   options: [
     { flag: '--prompt', description: 'Run a single instruction' },
