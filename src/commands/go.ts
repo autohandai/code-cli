@@ -15,10 +15,11 @@ import {
   getMobileApiBaseUrl,
   MobileHandoffClient,
   type MobileHandoffClientLike,
+  type MobileImageAttachment,
   type MobileSessionSnapshot,
   type MobileSessionSnapshotMessage,
 } from '../mobile/MobileHandoffClient.js';
-import { startMobileRelay } from '../mobile/MobileRelay.js';
+import { startMobileRelay, type MobileRelayController } from '../mobile/MobileRelay.js';
 
 export const metadata: SlashCommand = {
   command: '/go',
@@ -41,6 +42,10 @@ interface GoContext {
   config?: LoadedConfig;
   client?: MobileHandoffClientLike;
   enqueueInstruction?: (instruction: string) => void;
+  enqueueMobileInstruction?: (instruction: string) => void;
+  enqueueInstructionWithImages?: (instruction: string, images: MobileImageAttachment[]) => void;
+  enqueueMobileInstructionWithImages?: (instruction: string, images: MobileImageAttachment[]) => void;
+  onMobileRelayReady?: (controller: MobileRelayController) => void;
 }
 
 interface HandoffSessionContext extends GoContext {
@@ -183,7 +188,7 @@ export async function go(ctx: GoContext, args: string[] = []): Promise<string | 
     });
 
     if (mode === 'steer' && ctx.enqueueInstruction) {
-      startMobileRelay({
+      const relay = startMobileRelay({
         client,
         token,
         deviceId,
@@ -191,8 +196,13 @@ export async function go(ctx: GoContext, args: string[] = []): Promise<string | 
         pairingId: pairing.id,
         mode,
         pollIntervalMs: pairing.pollIntervalMs,
-        enqueueInstruction: ctx.enqueueInstruction,
+        workspaceRoot: ctx.workspaceRoot,
+        keepAwakeByDefault: true,
+        enqueueInstruction: ctx.enqueueMobileInstruction ?? ctx.enqueueInstruction,
+        enqueueInstructionWithImages: ctx.enqueueMobileInstructionWithImages ?? ctx.enqueueInstructionWithImages,
       });
+      ctx.onMobileRelayReady?.(relay);
+      void relay.refreshDeliveryStatus();
     }
 
     const appUrl = nativeAppUrl(pairing.pairingUrl);

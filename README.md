@@ -326,6 +326,23 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/chrome`          | Chrome browser integration                                                       |
 | `/review`          | Code review                                                                      |
 
+`/go --steer` and `/handoff session --steer` keep the paired iOS app updated
+with permission/change requests and read-only GitHub delivery metadata. While a
+relay is active, the CLI publishes the current pull request, checks, and GitHub
+deployment records when available; missing `gh` authentication does not stop
+the coding session. On macOS, steer handoff also keeps the computer awake with
+a CLI-owned `caffeinate` process; the paired phone can turn that assertion on
+or off, and it is always released when the relay stops or the CLI exits.
+Ready pull requests can be squash merged from the paired phone after a second
+explicit confirmation. The relay re-fetches the current PR and rejects the
+action unless its reviewed number and head branch still match, it remains open
+and mergeable, and all reported checks pass. Only then does it run the fixed
+`gh pr merge <number> --squash` command and publish the result to mobile.
+For mobile-originated completed work, explicitly referenced PNG/JPEG, MP4, and
+text/JSON artifacts inside the active workspace can be uploaded to the
+authenticated mobile session. Real-path confinement prevents symlink escapes,
+and uploads are capped at 12 files and 15 MB per file.
+
 ## Tool System
 
 Autohand Code CLI includes 40+ tools for autonomous coding:
