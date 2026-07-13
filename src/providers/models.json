@@ -40,7 +40,8 @@
         "gpt-5.4-mini",
         "gpt-5.4-nano",
         "gpt-5.3-codex",
-        "gpt-5.1-codex-max"
+        "gpt-5.1-codex-max",
+        "autohand/workflow-smoke-test-20260713132541"
       ]
     },
     "llmgateway": {
