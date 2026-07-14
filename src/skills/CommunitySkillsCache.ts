@@ -13,6 +13,14 @@ import type {
   CachedRegistry,
   SkillsCacheConfig,
 } from '../types.js';
+import {
+  assertCommunityPathSymlinkSafe,
+  resolveContainedCommunityPath,
+  validateCommunityRelativePath,
+  validateCommunitySkillFileMap,
+  validateCommunitySkillIdentifier,
+  validateCommunitySkillsRegistry,
+} from './communitySkillPaths.js';
 
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const DEFAULT_MAX_SKILLS_CACHE = 50;
@@ -83,12 +91,14 @@ export class CommunitySkillsCache {
    * Save registry to cache
    */
   async setRegistry(registry: CommunitySkillsRegistry, etag?: string): Promise<void> {
+    const validatedRegistry = validateCommunitySkillsRegistry(registry);
     const cached: CachedRegistry = {
-      registry,
+      registry: validatedRegistry,
       fetchedAt: Date.now(),
       etag,
     };
 
+    await assertCommunityPathSymlinkSafe(this.cacheDir, this.registryPath, 'registry cache path');
     await fs.ensureDir(this.cacheDir);
     await fs.writeJson(this.registryPath, cached, { spaces: 2 });
   }
@@ -97,14 +107,16 @@ export class CommunitySkillsCache {
    * Get a cached skill body by skill ID
    */
   async getSkillBody(skillId: string): Promise<string | null> {
-    const skillPath = this.getSkillBodyPath(skillId);
+    const validatedId = validateCommunitySkillIdentifier(skillId, 'community skill cache id');
+    const skillPath = this.getSkillBodyPath(validatedId);
 
-    if (await fs.pathExists(skillPath)) {
-      try {
+    try {
+      await assertCommunityPathSymlinkSafe(this.cacheDir, skillPath, 'community skill body cache path');
+      if (await fs.pathExists(skillPath)) {
         return await fs.readFile(skillPath, 'utf-8');
-      } catch {
-        return null;
       }
+    } catch {
+      return null;
     }
 
     return null;
@@ -114,13 +126,19 @@ export class CommunitySkillsCache {
    * Cache a skill body
    */
   async setSkillBody(skillId: string, body: string): Promise<void> {
+    const validatedId = validateCommunitySkillIdentifier(skillId, 'community skill cache id');
+    if (typeof body !== 'string') {
+      throw new Error('Invalid community skill body cache content');
+    }
     const skillsDir = path.join(this.cacheDir, 'skills');
-    await fs.ensureDir(skillsDir);
+    const skillPath = this.getSkillBodyPath(validatedId);
+    await assertCommunityPathSymlinkSafe(this.cacheDir, skillPath, 'community skill body cache path');
 
     // Enforce max cache size
     await this.enforceMaxSkillsCache();
 
-    await fs.writeFile(this.getSkillBodyPath(skillId), body, 'utf-8');
+    await fs.ensureDir(skillsDir);
+    await fs.writeFile(skillPath, body, 'utf-8');
   }
 
   /**
@@ -128,16 +146,21 @@ export class CommunitySkillsCache {
    * Returns Map of relative paths to contents, or null if not cached
    */
   async getSkillDirectory(skillId: string): Promise<Map<string, string> | null> {
-    const skillCacheDir = path.join(this.cacheDir, 'skills', skillId);
-
-    if (!(await fs.pathExists(skillCacheDir))) {
-      return null;
-    }
+    const validatedId = validateCommunitySkillIdentifier(skillId, 'community skill cache id');
+    const skillCacheDir = this.getSkillDirectoryPath(validatedId);
 
     try {
+      await assertCommunityPathSymlinkSafe(
+        this.cacheDir,
+        skillCacheDir,
+        'community skill directory cache path'
+      );
+      if (!(await fs.pathExists(skillCacheDir))) {
+        return null;
+      }
       const files = new Map<string, string>();
       await this.readDirRecursive(skillCacheDir, skillCacheDir, files);
-      return files.size > 0 ? files : null;
+      return files.size > 0 ? validateCommunitySkillFileMap(files) : null;
     } catch {
       return null;
     }
@@ -147,7 +170,25 @@ export class CommunitySkillsCache {
    * Cache a skill directory with all its files
    */
   async setSkillDirectory(skillId: string, files: Map<string, string>): Promise<void> {
-    const skillCacheDir = path.join(this.cacheDir, 'skills', skillId);
+    const validatedId = validateCommunitySkillIdentifier(skillId, 'community skill cache id');
+    const validatedFiles = validateCommunitySkillFileMap(files);
+    const skillCacheDir = this.getSkillDirectoryPath(validatedId);
+    const destinations = [...validatedFiles.keys()].map((relativePath) => (
+      resolveContainedCommunityPath(skillCacheDir, relativePath, 'community skill cache file')
+    ));
+
+    await assertCommunityPathSymlinkSafe(
+      this.cacheDir,
+      skillCacheDir,
+      'community skill directory cache path'
+    );
+    await Promise.all(destinations.map((destination) => (
+      assertCommunityPathSymlinkSafe(
+        skillCacheDir,
+        destination,
+        'community skill cache file path'
+      )
+    )));
 
     // Enforce max cache size
     await this.enforceMaxSkillsCache();
@@ -156,8 +197,12 @@ export class CommunitySkillsCache {
     await fs.remove(skillCacheDir);
 
     // Write all files
-    for (const [relativePath, content] of files) {
-      const fullPath = path.join(skillCacheDir, relativePath);
+    for (const [relativePath, content] of validatedFiles) {
+      const fullPath = resolveContainedCommunityPath(
+        skillCacheDir,
+        relativePath,
+        'community skill cache file'
+      );
       await fs.ensureDir(path.dirname(fullPath));
       await fs.writeFile(fullPath, content, 'utf-8');
     }
@@ -174,6 +219,7 @@ export class CommunitySkillsCache {
    * Clear only the registry cache (keep skill bodies)
    */
   async clearRegistry(): Promise<void> {
+    await assertCommunityPathSymlinkSafe(this.cacheDir, this.registryPath, 'registry cache path');
     await fs.remove(this.registryPath);
   }
 
@@ -189,9 +235,14 @@ export class CommunitySkillsCache {
     const skillsDir = path.join(this.cacheDir, 'skills');
     let cachedSkillCount = 0;
 
-    if (await fs.pathExists(skillsDir)) {
-      const entries = await fs.readdir(skillsDir);
-      cachedSkillCount = entries.length;
+    try {
+      await assertCommunityPathSymlinkSafe(this.cacheDir, skillsDir, 'community skills cache path');
+      if (await fs.pathExists(skillsDir)) {
+        const entries = await fs.readdir(skillsDir, { withFileTypes: true });
+        cachedSkillCount = entries.filter((entry) => !entry.isSymbolicLink()).length;
+      }
+    } catch {
+      cachedSkillCount = 0;
     }
 
     const cached = await this.readCachedRegistry();
@@ -212,15 +263,27 @@ export class CommunitySkillsCache {
   }
 
   private getSkillBodyPath(skillId: string): string {
-    return path.join(this.cacheDir, 'skills', `${skillId}.md`);
+    return resolveContainedCommunityPath(
+      path.join(this.cacheDir, 'skills'),
+      `${skillId}.md`,
+      'community skill body cache path'
+    );
+  }
+
+  private getSkillDirectoryPath(skillId: string): string {
+    return resolveContainedCommunityPath(
+      path.join(this.cacheDir, 'skills'),
+      skillId,
+      'community skill directory cache path'
+    );
   }
 
   private async readCachedRegistry(): Promise<CachedRegistry | null> {
-    if (!(await fs.pathExists(this.registryPath))) {
-      return null;
-    }
-
     try {
+      await assertCommunityPathSymlinkSafe(this.cacheDir, this.registryPath, 'registry cache path');
+      if (!(await fs.pathExists(this.registryPath))) {
+        return null;
+      }
       const data = await fs.readJson(this.registryPath);
 
       // Validate the cached data structure
@@ -231,7 +294,10 @@ export class CommunitySkillsCache {
         data.registry &&
         Array.isArray(data.registry.skills)
       ) {
-        return data as CachedRegistry;
+        return {
+          ...(data as CachedRegistry),
+          registry: validateCommunitySkillsRegistry(data.registry),
+        };
       }
 
       return null;
@@ -252,13 +318,18 @@ export class CommunitySkillsCache {
 
     for (const entry of entries) {
       const fullPath = path.join(currentDir, entry.name);
-      const relativePath = path.relative(baseDir, fullPath);
+      const relativePath = path.relative(baseDir, fullPath).split(path.sep).join('/');
+      validateCommunityRelativePath(relativePath, 'cached community skill file path');
 
-      if (entry.isDirectory()) {
+      if (entry.isSymbolicLink()) {
+        throw new Error(`Invalid cached community skill file path: symbolic link ${relativePath}`);
+      } else if (entry.isDirectory()) {
         await this.readDirRecursive(baseDir, fullPath, files);
       } else if (entry.isFile()) {
         const content = await fs.readFile(fullPath, 'utf-8');
         files.set(relativePath, content);
+      } else {
+        throw new Error(`Invalid cached community skill file path: ${relativePath}`);
       }
     }
   }
@@ -269,36 +340,67 @@ export class CommunitySkillsCache {
   private async enforceMaxSkillsCache(): Promise<void> {
     const skillsDir = path.join(this.cacheDir, 'skills');
 
+    await assertCommunityPathSymlinkSafe(this.cacheDir, skillsDir, 'community skills cache path');
     if (!(await fs.pathExists(skillsDir))) {
       return;
     }
 
-    const entries = await fs.readdir(skillsDir);
+    const entries = await fs.readdir(skillsDir, { withFileTypes: true });
+    const candidates = entries.filter((entry) => (
+      !entry.isSymbolicLink()
+      && (entry.isDirectory() || entry.isFile())
+      && isValidCacheEntryName(entry.name, entry.isFile())
+    ));
 
-    if (entries.length < this.maxSkillsCache) {
+    if (candidates.length < this.maxSkillsCache) {
       return;
     }
 
     // Get stats for each entry to sort by mtime
     const withStats = await Promise.all(
-      entries.map(async (name) => {
-        const entryPath = path.join(skillsDir, name);
+      candidates.map(async (entry) => {
+        const entryPath = resolveContainedCommunityPath(
+          skillsDir,
+          entry.name,
+          'community skill cache eviction path'
+        );
         try {
-          const stat = await fs.stat(entryPath);
-          return { name, path: entryPath, mtime: stat.mtime.getTime() };
+          await assertCommunityPathSymlinkSafe(
+            skillsDir,
+            entryPath,
+            'community skill cache eviction path'
+          );
+          const stat = await fs.lstat(entryPath);
+          return { name: entry.name, path: entryPath, mtime: stat.mtime.getTime() };
         } catch {
-          return { name, path: entryPath, mtime: 0 };
+          return null;
         }
       })
     );
+    const removableEntries = withStats.filter((entry): entry is NonNullable<typeof entry> => (
+      entry !== null
+    ));
 
     // Sort by mtime (oldest first) and remove extras
-    withStats.sort((a, b) => a.mtime - b.mtime);
+    removableEntries.sort((a, b) => a.mtime - b.mtime);
 
-    const toRemove = withStats.slice(0, entries.length - this.maxSkillsCache + 1);
+    const toRemove = removableEntries.slice(
+      0,
+      Math.max(0, removableEntries.length - this.maxSkillsCache + 1)
+    );
 
     for (const entry of toRemove) {
       await fs.remove(entry.path);
     }
+  }
+}
+
+function isValidCacheEntryName(name: string, isFile: boolean): boolean {
+  const identifier = isFile && name.endsWith('.md') ? name.slice(0, -3) : name;
+  try {
+    validateCommunitySkillIdentifier(identifier, 'community skill cache entry');
+    return !isFile || name.endsWith('.md');
+  } catch {
+    return false;
   }
 }

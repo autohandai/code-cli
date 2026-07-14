@@ -11,9 +11,14 @@ import { safePrompt } from '../utils/prompt.js';
 import { showInput, showModal } from '../ui/ink/components/Modal.js';
 import type { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import { SkillParser } from '../skills/SkillParser.js';
-import { isValidSkillName } from '../skills/types.js';
 import { GitHubRegistryFetcher } from '../skills/GitHubRegistryFetcher.js';
 import { CommunitySkillsCache } from '../skills/CommunitySkillsCache.js';
+import {
+  assertCommunityPathSymlinkSafe,
+  resolveContainedCommunityPath,
+  validateCommunitySkillFiles,
+  validateCommunitySkillMetadata,
+} from '../skills/communitySkillPaths.js';
 import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from '../constants.js';
 import type {
   GitHubCommunitySkill,
@@ -354,13 +359,12 @@ async function installSkill(
   scope: SkillInstallScope
 ): Promise<string | null> {
   const { skillsRegistry, workspaceRoot } = ctx;
-  const progress = createInstallProgress(skill.name);
-
-  progress.step(1, 'Validating skill metadata');
   const metadataError = validateInstallSkillMetadata(skill);
   if (metadataError) {
     return failPreflight(metadataError);
   }
+  const progress = createInstallProgress(skill.name);
+  progress.step(1, 'Validating skill metadata');
 
   // Determine target directory
   const targetDir =
@@ -369,14 +373,14 @@ async function installSkill(
       : AUTOHAND_PATHS.skills;
 
   progress.step(2, 'Checking target folder');
-  const targetError = validateInstallTarget(targetDir, skill.name);
+  const targetError = await validateInstallTarget(targetDir, skill.id);
   if (targetError) {
     return failPreflight(targetError);
   }
 
   // Check if already installed
   progress.step(3, 'Checking existing installation');
-  const isInstalled = await skillsRegistry.isSkillInstalled(skill.name, targetDir);
+  const isInstalled = await skillsRegistry.isSkillInstalled(skill.id, targetDir);
   if (isInstalled) {
     const confirm = await safePrompt<{ overwrite: boolean }>([
       {
@@ -417,7 +421,7 @@ async function installSkill(
 
     // Import using the registry
     const result = await skillsRegistry.importCommunitySkillDirectory(
-      skill.name,
+      skill.id,
       loadedFiles.files,
       targetDir,
       isInstalled // force if overwriting
@@ -426,12 +430,12 @@ async function installSkill(
     if (result.success) {
       console.log(chalk.green(`✓ Installed ${skill.name} to ${scope} skills`));
       console.log(chalk.gray(`  Path: ${result.path}`));
-      ctx.onSkillInstalled?.(skill.name);
+      ctx.onSkillInstalled?.(skill.id);
 
       if (ctx.showActivationHint !== false) {
         console.log();
         console.log(chalk.gray('To activate this skill, run:'));
-        console.log(chalk.gray(`  /skills use ${skill.name}`));
+        console.log(chalk.gray(`  /skills use ${skill.id}`));
       }
 
       return `Skill "${skill.name}" installed successfully.`;
@@ -454,61 +458,53 @@ async function loadSkillFilesForInstall(
   const cachedFiles = await cache.getSkillDirectory(skill.id);
   if (cachedFiles) {
     return {
-      files: cachedFiles,
+      files: validateCommunitySkillFiles(skill, cachedFiles),
       cacheAfterValidation: false,
     };
   }
 
   const files = await fetcher.fetchSkillDirectory(skill);
   return {
-    files,
+    files: validateCommunitySkillFiles(skill, files),
     cacheAfterValidation: true,
   };
 }
 
 function validateInstallSkillMetadata(skill: GitHubCommunitySkill): string | null {
-  if (!isValidSkillName(skill.name)) {
-    return `Invalid skill name "${skill.name}".`;
+  try {
+    validateCommunitySkillMetadata(skill);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : 'Invalid community skill metadata.';
   }
-
-  if (!skill.id.trim()) {
-    return 'Invalid skill registry entry: missing skill id.';
-  }
-
-  if (!skill.directory.trim()) {
-    return `Invalid skill registry entry for ${skill.name}: missing directory.`;
-  }
-
-  if (!Array.isArray(skill.files) || skill.files.length === 0) {
-    return `Invalid skill registry entry for ${skill.name}: no files listed.`;
-  }
-
-  if (!skill.files.includes('SKILL.md')) {
-    return `Invalid skill registry entry for ${skill.name}: missing required SKILL.md.`;
-  }
-
-  return null;
 }
 
-function validateInstallTarget(targetDir: string, skillName: string): string | null {
-  const resolvedTargetDir = path.resolve(targetDir);
-  const resolvedSkillDir = path.resolve(resolvedTargetDir, skillName);
-  const relative = path.relative(resolvedTargetDir, resolvedSkillDir);
-
-  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
-    return `Invalid install target for ${skillName}: ${resolvedSkillDir}`;
+async function validateInstallTarget(targetDir: string, skillName: string): Promise<string | null> {
+  try {
+    const resolvedSkillDir = resolveContainedCommunityPath(
+      targetDir,
+      skillName,
+      'community skill install directory'
+    );
+    await assertCommunityPathSymlinkSafe(
+      targetDir,
+      resolvedSkillDir,
+      'community skill install directory'
+    );
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : `Invalid install target for ${skillName}`;
   }
-
-  return null;
 }
 
 function validateInstallFiles(
   skill: GitHubCommunitySkill,
   files: Map<string, string>
 ): string | null {
-  const missingFiles = skill.files.filter((file) => !files.has(file));
-  if (missingFiles.length > 0) {
-    return `Validated source is missing required files for ${skill.name}: ${missingFiles.join(', ')}`;
+  try {
+    validateCommunitySkillFiles(skill, files);
+  } catch (error) {
+    return error instanceof Error ? error.message : `Invalid community skill files for ${skill.name}`;
   }
 
   const skillMd = files.get('SKILL.md');
@@ -518,7 +514,7 @@ function validateInstallFiles(
 
   const parseResult = new SkillParser().parseContent(
     skillMd,
-    path.join(skill.name, 'SKILL.md'),
+    path.join(skill.id, 'SKILL.md'),
     'community'
   );
   if (!parseResult.success) {

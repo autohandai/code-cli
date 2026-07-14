@@ -278,6 +278,189 @@ description: Duplicate
       expect(result.success).toBe(false);
       expect(result.skipped).toBe(true);
     });
+
+    it.each([
+      '../outside',
+      '/absolute',
+      'C:\\outside',
+      '\\\\server\\share',
+      '',
+      'Display Name',
+      'a'.repeat(65),
+    ])('rejects unsafe package names before filesystem access: %j', async (name) => {
+      const outsideSentinel = path.join(tempRoot, 'outside', 'SKILL.md');
+      await fs.outputFile(outsideSentinel, 'outside');
+      const pkg: CommunitySkillPackage = {
+        id: 'unsafe-package',
+        name,
+        description: 'Unsafe package',
+        body: '# Unsafe',
+      };
+
+      const result = await registry.importCommunitySkill(pkg, userSkillsDir);
+
+      expect(result.success).toBe(false);
+      expect(result.skipped).not.toBe(true);
+      expect(result.error).toMatch(/invalid/i);
+      expect(await fs.readFile(outsideSentinel, 'utf8')).toBe('outside');
+    });
+  });
+
+  describe('importCommunitySkillDirectory', () => {
+    it('validates the complete file map before force removal', async () => {
+      const existingSkillPath = path.join(userSkillsDir, 'safe-skill', 'SKILL.md');
+      const outsideSentinel = path.join(tempRoot, 'outside.txt');
+      await fs.outputFile(existingSkillPath, 'original');
+      await fs.writeFile(outsideSentinel, 'outside');
+
+      const result = await registry.importCommunitySkillDirectory(
+        'safe-skill',
+        new Map([
+          ['SKILL.md', '# Replacement'],
+          ['../../outside.txt', 'overwritten'],
+        ]),
+        userSkillsDir,
+        true
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/invalid/i);
+      expect(await fs.readFile(existingSkillPath, 'utf8')).toBe('original');
+      expect(await fs.readFile(outsideSentinel, 'utf8')).toBe('outside');
+    });
+
+    it.each(['../outside', '/absolute', 'C:\\outside', '', 'Display Name']) (
+      'rejects unsafe directory names before force removal: %j',
+      async (skillName) => {
+        const outsideSentinel = path.join(tempRoot, 'outside', 'sentinel.txt');
+        await fs.outputFile(outsideSentinel, 'outside');
+
+        const result = await registry.importCommunitySkillDirectory(
+          skillName,
+          new Map([['SKILL.md', '# Unsafe']]),
+          userSkillsDir,
+          true
+        );
+
+        expect(result.success).toBe(false);
+        expect(result.skipped).not.toBe(true);
+        expect(result.error).toMatch(/invalid/i);
+        expect(await fs.readFile(outsideSentinel, 'utf8')).toBe('outside');
+      }
+    );
+
+    it('rejects a symlinked install child that escapes the target root', async () => {
+      const outsideSkillDir = path.join(tempRoot, 'outside-skill');
+      const outsideSentinel = path.join(outsideSkillDir, 'SKILL.md');
+      await fs.outputFile(outsideSentinel, 'outside');
+      await fs.symlink(outsideSkillDir, path.join(userSkillsDir, 'safe-skill'), 'dir');
+
+      const result = await registry.importCommunitySkillDirectory(
+        'safe-skill',
+        new Map([['SKILL.md', '# Replacement']]),
+        userSkillsDir,
+        true
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/symlink|outside|contain/i);
+      expect(await fs.readFile(outsideSentinel, 'utf8')).toBe('outside');
+    });
+
+    it('validates nested destination ancestors before force removal', async () => {
+      const skillDir = path.join(userSkillsDir, 'safe-skill');
+      const outsideTemplates = path.join(tempRoot, 'outside-templates');
+      const outsideSentinel = path.join(outsideTemplates, 'example.md');
+      await fs.outputFile(path.join(skillDir, 'SKILL.md'), 'original');
+      await fs.outputFile(outsideSentinel, 'outside');
+      await fs.symlink(outsideTemplates, path.join(skillDir, 'templates'), 'dir');
+
+      const result = await registry.importCommunitySkillDirectory(
+        'safe-skill',
+        new Map([
+          ['SKILL.md', '# Replacement'],
+          ['templates/example.md', 'replacement'],
+        ]),
+        userSkillsDir,
+        true
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/symlink|outside|contain/i);
+      expect(await fs.readFile(path.join(skillDir, 'SKILL.md'), 'utf8')).toBe('original');
+      expect(await fs.readFile(outsideSentinel, 'utf8')).toBe('outside');
+    });
+
+    it('rejects a target root symlink before checking or writing skill files', async () => {
+      const outsideTarget = path.join(tempRoot, 'outside-target');
+      const linkedTarget = path.join(tempRoot, 'linked-target');
+      const outsideSentinel = path.join(outsideTarget, 'sentinel.txt');
+      await fs.outputFile(outsideSentinel, 'outside');
+      await fs.symlink(outsideTarget, linkedTarget, 'dir');
+
+      const result = await registry.importCommunitySkillDirectory(
+        'safe-skill',
+        new Map([['SKILL.md', '# Safe']]),
+        linkedTarget,
+        true
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/symlink|outside|contain/i);
+      expect(await fs.readFile(outsideSentinel, 'utf8')).toBe('outside');
+      expect(await fs.pathExists(path.join(outsideTarget, 'safe-skill'))).toBe(false);
+    });
+
+    it('rejects a missing target root beneath an escaping symlink ancestor', async () => {
+      const outsideTarget = path.join(tempRoot, 'outside-parent');
+      const linkedParent = path.join(tempRoot, 'linked-parent');
+      const targetDir = path.join(linkedParent, 'new-skills-root');
+      const outsideSentinel = path.join(outsideTarget, 'sentinel.txt');
+      await fs.outputFile(outsideSentinel, 'outside');
+      await fs.symlink(outsideTarget, linkedParent, 'dir');
+
+      const result = await registry.importCommunitySkillDirectory(
+        'safe-skill',
+        new Map([['SKILL.md', '# Safe']]),
+        targetDir
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/symlink|outside|contain/i);
+      expect(await fs.readFile(outsideSentinel, 'utf8')).toBe('outside');
+      expect(await fs.pathExists(path.join(outsideTarget, 'new-skills-root'))).toBe(false);
+    });
+
+    it('preserves valid nested assets', async () => {
+      const body = [
+        '---',
+        'name: nested-skill',
+        'description: Nested community skill',
+        '---',
+        '',
+        '# Nested',
+      ].join('\n');
+
+      const result = await registry.importCommunitySkillDirectory(
+        'nested-skill',
+        new Map([
+          ['SKILL.md', body],
+          ['templates/example.md', 'example'],
+          ['scripts/check.ts', 'export {};'],
+        ]),
+        userSkillsDir
+      );
+
+      expect(result.success).toBe(true);
+      expect(await fs.readFile(
+        path.join(userSkillsDir, 'nested-skill', 'templates', 'example.md'),
+        'utf8'
+      )).toBe('example');
+      expect(await fs.readFile(
+        path.join(userSkillsDir, 'nested-skill', 'scripts', 'check.ts'),
+        'utf8'
+      )).toBe('export {};');
+    });
   });
 
   describe('addLocationWithAutoCopyAndBackup', () => {

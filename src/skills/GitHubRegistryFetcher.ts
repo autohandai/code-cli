@@ -9,6 +9,17 @@ import type {
   CommunitySkillsRegistry,
   GitHubCommunitySkill,
 } from '../types.js';
+import {
+  encodeCommunityUrlPath,
+  parseGitHubSkillSourceUrl,
+  validateCommunityRelativePath,
+  validateCommunitySkillFiles,
+  validateCommunitySkillIdentifier,
+  validateCommunitySkillMetadata,
+  validateCommunitySkillsRegistry,
+  validateGitHubRepository,
+  validateGitHubUrlComponent,
+} from './communitySkillPaths.js';
 
 const DEFAULT_REPO = 'autohandai/community-skills';
 const DEFAULT_BRANCH = 'main';
@@ -36,7 +47,9 @@ export class GitHubRegistryFetcher {
   constructor(config: GitHubFetcherConfig = {}) {
     const repo = config.repo || DEFAULT_REPO;
     const branch = config.branch || DEFAULT_BRANCH;
-    this.baseUrl = `https://raw.githubusercontent.com/${repo}/${branch}`;
+    const validatedRepo = validateGitHubRepository(repo);
+    const validatedBranch = validateGitHubUrlComponent(branch, 'GitHub branch');
+    this.baseUrl = `https://raw.githubusercontent.com/${validatedRepo.owner}/${validatedRepo.repo}/${validatedBranch}`;
     this.registryUrl = config.registryUrl || `${this.baseUrl}/registry.json`;
     this.timeout = config.timeout || 15000;
   }
@@ -56,7 +69,12 @@ export class GitHubRegistryFetcher {
    * Fetch a single file from a skill directory
    */
   async fetchSkillFile(skillDirectory: string, filePath: string): Promise<string> {
-    const url = `${this.baseUrl}/${trimSlashes(skillDirectory)}/${normalizeRegistryFilePath(filePath)}`;
+    const directory = validateCommunityRelativePath(
+      skillDirectory,
+      'community skill source directory'
+    );
+    const file = validateCommunityRelativePath(filePath, 'community skill file path');
+    const url = `${this.baseUrl}/${encodeCommunityUrlPath(directory)}/${encodeCommunityUrlPath(file)}`;
 
     return this.fetchText(url, filePath);
   }
@@ -115,12 +133,14 @@ export class GitHubRegistryFetcher {
   }
 
   private resolveSkillFileUrl(skill: GitHubCommunitySkill, filePath: string): string {
-    const file = normalizeRegistryFilePath(filePath);
+    const file = validateCommunityRelativePath(filePath, 'community skill file path');
     const sourceBaseUrl = resolveGitHubSourceUrlBase(skill.sourceUrl)
       ?? resolveGitHubSourceBase(skill.source, skill.directory)
-      ?? `${this.baseUrl}/${trimSlashes(skill.directory)}`;
+      ?? `${this.baseUrl}/${encodeCommunityUrlPath(
+        validateCommunityRelativePath(skill.directory, 'community skill source directory')
+      )}`;
 
-    return `${sourceBaseUrl}/${file}`;
+    return `${sourceBaseUrl}/${encodeCommunityUrlPath(file)}`;
   }
 
   /**
@@ -130,9 +150,10 @@ export class GitHubRegistryFetcher {
   async fetchSkillDirectory(
     skill: GitHubCommunitySkill
   ): Promise<Map<string, string>> {
-    const catalogFiles = await this.fetchCatalogSkillDirectory(skill);
+    const validatedSkill = validateCommunitySkillMetadata(skill);
+    const catalogFiles = await this.fetchCatalogSkillDirectory(validatedSkill);
     if (catalogFiles) {
-      return catalogFiles;
+      return validateCommunitySkillFiles(validatedSkill, catalogFiles);
     }
 
     const contents = new Map<string, string>();
@@ -140,13 +161,13 @@ export class GitHubRegistryFetcher {
 
     // Fetch files in parallel with concurrency limit
     const concurrencyLimit = 5;
-    const files = [...skill.files];
+    const files = [...validatedSkill.files];
 
     for (let i = 0; i < files.length; i += concurrencyLimit) {
       const batch = files.slice(i, i + concurrencyLimit);
       const results = await Promise.allSettled(
         batch.map(async (file) => {
-          const content = await this.fetchSkillFileForSkill(skill, file);
+          const content = await this.fetchSkillFileForSkill(validatedSkill, file);
           return { file, content };
         })
       );
@@ -167,7 +188,7 @@ export class GitHubRegistryFetcher {
       );
     }
 
-    return contents;
+    return validateCommunitySkillFiles(validatedSkill, contents);
   }
 
   private async fetchCatalogSkillDirectory(
@@ -208,52 +229,7 @@ export class GitHubRegistryFetcher {
    * Validate and normalize the registry data
    */
   private validateRegistry(data: unknown): CommunitySkillsRegistry {
-    if (!data || typeof data !== 'object') {
-      throw new Error('Invalid registry: expected object');
-    }
-
-    const registry = data as Record<string, unknown>;
-
-    if (!Array.isArray(registry.skills)) {
-      throw new Error('Invalid registry: missing skills array');
-    }
-
-    if (!Array.isArray(registry.categories)) {
-      throw new Error('Invalid registry: missing categories array');
-    }
-
-    // Validate each skill has required fields
-    const validatedSkills: GitHubCommunitySkill[] = [];
-    for (const skill of registry.skills) {
-      if (this.isValidSkill(skill)) {
-        validatedSkills.push(skill);
-      }
-    }
-
-    return {
-      version: String(registry.version || '1.0.0'),
-      updatedAt: String(registry.updatedAt || new Date().toISOString()),
-      skills: validatedSkills,
-      categories: registry.categories as CommunitySkillsRegistry['categories'],
-    };
-  }
-
-  /**
-   * Type guard for valid skill objects
-   */
-  private isValidSkill(skill: unknown): skill is GitHubCommunitySkill {
-    if (!skill || typeof skill !== 'object') return false;
-
-    const s = skill as Record<string, unknown>;
-
-    return (
-      typeof s.id === 'string' &&
-      typeof s.name === 'string' &&
-      typeof s.description === 'string' &&
-      typeof s.directory === 'string' &&
-      Array.isArray(s.files) &&
-      s.files.includes('SKILL.md')
-    );
+    return validateCommunitySkillsRegistry(data);
   }
 
   /**
@@ -354,67 +330,23 @@ export class GitHubRegistryFetcher {
   }
 }
 
-function trimSlashes(value: string): string {
-  const trimmed = value.replace(/^\/+|\/+$/g, '');
-  if (!trimmed) {
-    throw new Error('Invalid empty registry path');
-  }
-  return trimmed;
-}
-
-function normalizeRegistryFilePath(filePath: string): string {
-  const normalized = trimSlashes(filePath);
-  const segments = normalized.split('/');
-  if (segments.some((segment) => segment === '.' || segment === '..' || segment === '')) {
-    throw new Error(`Invalid file path in registry: ${filePath}`);
-  }
-  return segments.join('/');
-}
-
 function resolveGitHubSourceUrlBase(sourceUrl?: string): string | null {
   if (!sourceUrl) {
     return null;
   }
 
-  try {
-    const url = new URL(sourceUrl);
-    if (url.hostname !== 'github.com' && url.hostname !== 'www.github.com') {
-      return null;
-    }
-
-    const [owner, repo, marker, branch, ...sourcePathParts] = url.pathname
-      .split('/')
-      .filter(Boolean);
-
-    if (
-      !owner ||
-      !repo ||
-      !branch ||
-      (marker !== 'tree' && marker !== 'blob') ||
-      sourcePathParts.length === 0
-    ) {
-      return null;
-    }
-
-    const sourcePath = marker === 'blob'
-      ? sourcePathParts.slice(0, -1)
-      : sourcePathParts;
-    if (sourcePath.length === 0) {
-      return null;
-    }
-
-    return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${sourcePath.join('/')}`;
-  } catch {
-    return null;
-  }
+  const source = parseGitHubSkillSourceUrl(sourceUrl);
+  return `https://raw.githubusercontent.com/${source.owner}/${source.repo}/${source.branch}/${encodeCommunityUrlPath(source.directory)}`;
 }
 
 function resolveGitHubSourceBase(source: string | undefined, directory: string): string | null {
-  if (!source || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(source)) {
+  if (!source) {
     return null;
   }
 
-  return `https://raw.githubusercontent.com/${source}/main/${trimSlashes(directory)}`;
+  const repository = validateGitHubRepository(source);
+  const sourceDirectory = validateCommunityRelativePath(directory, 'community skill source directory');
+  return `https://raw.githubusercontent.com/${repository.owner}/${repository.repo}/main/${encodeCommunityUrlPath(sourceDirectory)}`;
 }
 
 function resolveSkilledDetailUrl(skill: GitHubCommunitySkill): string | null {
@@ -428,13 +360,18 @@ function resolveSkilledDetailUrl(skill: GitHubCommunitySkill): string | null {
       return null;
     }
 
-    const [route, id] = url.pathname.split('/').filter(Boolean);
-    if (route !== 'skill' || !id) {
-      return null;
+    if (url.protocol !== 'https:' || url.search || url.hash || url.port || url.username || url.password) {
+      throw new Error(`Invalid Skilled skill URL for ${skill.id}`);
     }
 
-    return `https://${SKILLED_HOST}/skills/${encodeURIComponent(id)}.json`;
+    const [route, id] = url.pathname.split('/').filter(Boolean);
+    if (route !== 'skill' || !id || url.pathname.split('/').filter(Boolean).length !== 2) {
+      throw new Error(`Invalid Skilled skill URL for ${skill.id}`);
+    }
+
+    const validatedId = validateCommunitySkillIdentifier(id, 'Skilled skill id');
+    return `https://${SKILLED_HOST}/skills/${encodeURIComponent(validatedId)}.json`;
   } catch {
-    return null;
+    throw new Error(`Invalid Skilled skill URL for ${skill.id}`);
   }
 }
