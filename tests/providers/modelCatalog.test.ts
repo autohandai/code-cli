@@ -32,7 +32,12 @@ describe("modelCatalog", () => {
     expect(getBundledModelCatalogPath()).toMatch(/src\/providers\/models\.json$/);
     expect(getProviderDefaultModel("nvidia")).toBe("z-ai/glm-5.1");
     expect(getProviderModelIds("nvidia")).toContain("microsoft/phi-4-mini-instruct");
-    expect(getProviderModelIds("openai")).toContain("gpt-5.4");
+    expect(getProviderModelIds("openai")).toEqual(expect.arrayContaining([
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.4",
+    ]));
   });
 
   it("keeps runtime defaults separate from user-facing defaults when needed", async () => {
