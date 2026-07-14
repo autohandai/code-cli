@@ -10,13 +10,18 @@ import path from 'node:path';
 import os from 'node:os';
 
 import {
-  initExperiment,
+  initExperiment as initExperimentTool,
   runExperiment,
   logExperiment,
   MAX_LOG_OUTPUT_CHARS,
+  type InitExperimentInput,
 } from '../../src/autoresearch/tools.js';
 import { AutoResearchManager } from '../../src/autoresearch/manager.js';
 import { readConfigJson, readLogEntries, readMeasureSh, readPromptMd } from '../../src/autoresearch/session.js';
+
+function initExperiment(workspaceRoot: string, input: InitExperimentInput) {
+  return initExperimentTool(workspaceRoot, { ...input, replayable: false });
+}
 
 describe('autoresearch tools', () => {
   let workspaceRoot: string;
@@ -162,6 +167,21 @@ describe('autoresearch tools', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain('Benchmark timed out after 50ms');
     expect(durationMs).toBeLessThan(900);
+  });
+
+  it('preserves AbortError cancellation for legacy sessions', async () => {
+    await initExperiment(workspaceRoot, {
+      name: 'cancel benchmark',
+      metricName: 'total_ms',
+      metricUnit: 'ms',
+      direction: 'lower',
+      measureScript: '#!/bin/bash\nsleep 5\necho "METRIC total_ms=123"',
+    });
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 50);
+
+    await expect(runExperiment(workspaceRoot, 'cancel me', controller.signal))
+      .rejects.toMatchObject({ name: 'AbortError' });
   });
 
   it('log_experiment appends an entry with an auto-incremented run number', async () => {

@@ -356,7 +356,11 @@ export function initializeAgentDependencies(
         });
       },
       onAutoresearchHook: async (event, context) => {
-        await host.hookManager.executeHooks(event as HookEvent, context);
+        await host.hookManager.executeHooks(event as HookEvent, {
+          ...context,
+          autoresearchAttemptId: context.attemptId,
+          autoresearchDecision: context.decision,
+        });
       },
       onGoalWrittenCompleted: async (context) => {
         await host.hookManager.executeHooks('goal-written:completed', {

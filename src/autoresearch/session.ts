@@ -6,12 +6,40 @@
 
 import fs from 'fs-extra';
 import path from 'node:path';
+import { assertSafeAutoresearchStorage } from './ledger.js';
 
 /** Session files live in a single `.auto/` folder at the workspace root. */
 const AUTO_DIR_NAME = '.auto';
 
 /** Direction of optimization. */
 export type OptimizationDirection = 'lower' | 'higher';
+
+/** Additional metric tracked for Pareto analysis. */
+export interface SecondaryObjectiveConfig {
+  name: string;
+  unit: string;
+  direction: OptimizationDirection;
+}
+
+/** Hard metric boundary that every accepted candidate must conservatively satisfy. */
+export interface ExperimentConstraintConfig {
+  metricName: string;
+  operator: '<' | '<=' | '>' | '>=';
+  threshold: number;
+}
+
+/** Adaptive robust-sampling policy. */
+export interface ExperimentSamplingConfig {
+  minSamples: number;
+  maxSamples: number;
+  confidenceThreshold: number;
+}
+
+/** Optional content-addressed artifact retention limits. */
+export interface ExperimentRetentionConfig {
+  maxArtifactBytes?: number;
+  maxArtifactAgeDays?: number;
+}
 
 /** Optional subagent delegation phases for an auto-research session. */
 export interface SubagentDelegationConfig {
@@ -30,6 +58,24 @@ export interface SessionConfig {
   metricUnit: string;
   /** Whether a smaller or larger metric is better. */
   direction: OptimizationDirection;
+  /** Version of the immutable replay ledger used by this session. */
+  ledgerVersion?: 1;
+  /** Clean Git commit captured before the baseline evaluator ran. */
+  baselineCommit?: string;
+  /** Latest accepted commit from which new candidates may be captured. */
+  materializedCommit?: string;
+  /** Secondary advisory objectives used for Pareto ranking. */
+  secondaryObjectives?: SecondaryObjectiveConfig[];
+  /** Hard constraints applied by the deterministic decision engine. */
+  constraints?: ExperimentConstraintConfig[];
+  /** Adaptive robust-sampling policy. */
+  sampling?: ExperimentSamplingConfig;
+  /** Optional artifact retention limits. */
+  retention?: ExperimentRetentionConfig;
+  /** Explicit non-secret environment names included in replay fingerprints. */
+  environmentAllowlist?: string[];
+  /** Workspace-relative paths or globs candidates may change. */
+  filesInScope?: string[];
   /** Hard cap on the number of experiments. */
   maxIterations?: number;
   /** Maximum runtime for benchmark, check, and local hook scripts in milliseconds. */
@@ -88,6 +134,18 @@ export interface ExperimentLogEntry {
   nextFocus?: string;
   /** ISO timestamp when the entry was written. */
   timestamp: string;
+  /** Immutable ledger attempt associated with this compatibility projection. */
+  attemptId?: string;
+  /** Full objective vector for ledger-backed runs. */
+  metrics?: Record<string, number>;
+  /** Deterministic engine outcome used to derive status. */
+  decision?: 'accepted' | 'rejected' | 'inconclusive' | 'checks_failed' | 'crashed';
+  /** Whether immutable candidate artifacts are available. */
+  replayable?: boolean;
+  /** Whether this candidate was retained in the user's Git lineage. */
+  materialized?: boolean;
+  /** Replay compatibility differences observed for this evaluation. */
+  driftWarnings?: string[];
 }
 
 /** Summary statistics derived from the experiment log. */
@@ -117,7 +175,9 @@ function sessionPath(workspaceRoot: string, filename: string): string {
  * Ensure the `.auto/` directory exists.
  */
 export async function ensureSessionDir(workspaceRoot: string): Promise<void> {
+  await assertSafeAutoresearchStorage(workspaceRoot);
   await fs.ensureDir(getAutoResearchDir(workspaceRoot));
+  await assertSafeAutoresearchStorage(workspaceRoot);
 }
 
 /**
@@ -177,6 +237,7 @@ export async function writePromptMd(
  * Returns `null` if the file does not exist.
  */
 export async function readPromptMd(workspaceRoot: string): Promise<PromptDocument | null> {
+  await assertSafeAutoresearchStorage(workspaceRoot);
   const filePath = sessionPath(workspaceRoot, 'prompt.md');
   if (!(await fs.pathExists(filePath))) {
     return null;
@@ -265,6 +326,7 @@ export async function writeMeasureSh(
  * Read the benchmark script, returning `null` if it does not exist.
  */
 export async function readMeasureSh(workspaceRoot: string): Promise<string | null> {
+  await assertSafeAutoresearchStorage(workspaceRoot);
   const filePath = sessionPath(workspaceRoot, 'measure.sh');
   if (!(await fs.pathExists(filePath))) {
     return null;
@@ -287,6 +349,7 @@ export async function writeConfigJson(
  * Read session configuration, returning `null` if it does not exist.
  */
 export async function readConfigJson(workspaceRoot: string): Promise<SessionConfig | null> {
+  await assertSafeAutoresearchStorage(workspaceRoot);
   const filePath = sessionPath(workspaceRoot, 'config.json');
   if (!(await fs.pathExists(filePath))) {
     return null;
@@ -315,6 +378,7 @@ export async function appendLogEntry(
  * Read all experiment entries from `.auto/log.jsonl`.
  */
 export async function readLogEntries(workspaceRoot: string): Promise<ExperimentLogEntry[]> {
+  await assertSafeAutoresearchStorage(workspaceRoot);
   const filePath = sessionPath(workspaceRoot, 'log.jsonl');
   if (!(await fs.pathExists(filePath))) {
     return [];
@@ -330,6 +394,7 @@ export async function readLogEntries(workspaceRoot: string): Promise<ExperimentL
  * Remove all session state files while keeping the `.auto/` directory.
  */
 export async function clearSession(workspaceRoot: string): Promise<void> {
+  await assertSafeAutoresearchStorage(workspaceRoot);
   const dir = getAutoResearchDir(workspaceRoot);
   if (!(await fs.pathExists(dir))) {
     return;

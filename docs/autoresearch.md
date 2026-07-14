@@ -1,11 +1,15 @@
 # /autoresearch
 
-`/autoresearch` runs an autonomous experiment loop inside a workspace. The agent
-edits code, runs a benchmark, records the result, and either keeps the change
-(commit) or discards it (revert). It is inspired by the
-[pi-autoresearch](https://github.com/davebcn87/pi-autoresearch) spec.
+`/autoresearch` runs measured code experiments while preserving every candidate,
+evaluation, and decision in a replayable append-only ledger. Rejected and
+inconclusive candidates are removed from the working tree, but their immutable
+artifacts remain available for isolated replay, comparison, and rescoring.
 
-## Starting a session
+Only candidates accepted by the deterministic policy may advance the Git
+lineage. Replay, rescoring, Pareto analysis, and retention never silently create
+commits, switch branches, or rewrite historical decisions.
+
+## Start a replayable session
 
 ```text
 /autoresearch optimize unit test runtime
@@ -13,176 +17,213 @@ autohand auto-research optimize unit test runtime
 autohand autoresearch optimize unit test runtime
 ```
 
-This creates a `.auto/` directory in the workspace root and queues a loop
-instruction for the agent. When `.auto/config.json` or `.auto/measure.sh` is
-missing, the instruction requires the agent to infer the objective, benchmark
-command, metric name/unit/direction, editable scope, correctness checks, max
-iterations, benchmark timeout, and optional subagent phases from the goal and repo context. It
-asks concise setup questions only for fields that remain uncertain, then calls
-`init_experiment` before the first experiment run.
+New replayable sessions require the workspace to be the root of a clean Git
+repository with at least one commit. `init_experiment` captures that commit and
+runs a zero-diff baseline before candidate edits are allowed. Initialization
+blocks on dirty paths, changed submodules, unsafe scope, a drifting `HEAD`, an
+invalid environment allowlist, or an evaluator that does not satisfy the metric
+contract.
 
-When the objective includes enough explicit benchmark flags, Autohand writes the
-initial session files immediately instead of waiting for the agent to infer
-them:
+When enough fields are known, configure the session directly:
 
 ```text
-/autoresearch optimize test runtime --metric total_ms --unit ms --direction lower --measure "bun test --reporter dot" --checks "bun run lint" --max-iterations 12 --timeout-ms 600000 --scope src --scope tests --subagent-ideas --subagent-analysis
+/autoresearch optimize test runtime \
+  --metric total_ms --unit ms --direction lower \
+  --secondary-objective memory_mb:MB:lower \
+  --constraint memory_mb:<=:512 \
+  --measure "bun run benchmark" --checks "bun run lint" \
+  --min-samples 3 --max-samples 9 --confidence 2 \
+  --max-iterations 12 --timeout-ms 600000 \
+  --max-artifact-bytes 1073741824 --max-artifact-age-days 30 \
+  --scope src --scope tests --allow-env CI
 ```
 
-The supported start flags are `--metric`, `--unit`, `--direction`,
-`--measure`, `--checks`, `--max-iterations`, `--timeout-ms`, repeated `--scope`, and
-`--subagent-ideas`, `--subagent-analysis`, `--subagent-finalization`.
+Start options are additive to the original single-metric contract:
 
-If `.auto/state.json` is paused or missing but `.auto/prompt.md` exists,
-starting with more context resumes the persisted session instead of replacing
-the original goal. Use `/autoresearch clear --yes` before starting over.
+- `--metric`, `--unit`, `--direction`, and `--measure` define the primary
+  objective and evaluator.
+- Repeated `--secondary-objective name:unit:lower|higher` values participate in
+  Pareto ranking but do not decide automatic acceptance.
+- Repeated `--constraint metric:<|<=|>|>=:value` values are hard constraints and
+  fail closed.
+- `--min-samples`, `--max-samples`, and `--confidence` configure adaptive
+  sampling. Defaults are 3, 9, and 2.0.
+- `--max-artifact-bytes` and `--max-artifact-age-days` configure optional
+  retention. Both default to unlimited.
+- Repeated `--allow-env NAME` values add non-secret variables to the replay
+  fingerprint. Secret-like names are rejected even when explicitly supplied.
+- Existing `--checks`, `--timeout-ms`, repeated `--scope`, max-iteration, and
+  subagent flags remain supported.
 
-## Experiment tools
+If the benchmark contract is incomplete, the loop instruction asks only for
+the fields it cannot infer and calls `init_experiment` before editing candidate
+files.
 
-The agent uses three built-in tools:
+## Metric and decision policy
 
-- `init_experiment` — writes `.auto/config.json`, `.auto/measure.sh`, and a
-  starter `.auto/prompt.md`.
-- `run_experiment` — executes `.auto/measure.sh` and extracts the metric from
-  `METRIC <name>=<number>` lines. Benchmark, checks, and local hook scripts are
-  bounded by `timeoutMs` from `.auto/config.json` (default 600000 ms).
-- `log_experiment` — appends a result to `.auto/log.jsonl` and reports session
-  stats (including confidence after 3+ runs). It accepts optional `commit` and
-  `output` fields; output is persisted as a bounded excerpt.
+Every benchmark invocation must emit exactly one finite line for every
+configured objective:
 
-`init_experiment` also accepts an optional `subagents` object with
-`ideaGeneration`, `measurementAnalysis`, and `finalization` boolean phases. When
-set, the phase choices are stored in `.auto/config.json` and written into the
-`Subagent delegation` section of `.auto/prompt.md`; the loop instruction tells
-the agent to use existing `delegate_task` / `delegate_parallel` tools for those
-phases.
+```text
+METRIC total_ms=42.5
+METRIC memory_mb=310
+```
 
-## Session files
+The engine starts with three samples, adds one sample at a time when the robust
+noise bands overlap, and stops at nine samples by default. It aggregates each
+objective with the median and median absolute deviation (MAD). The signed
+primary improvement is measured against the latest materialized accepted
+evaluation.
+
+- `accepted`: all hard constraints conservatively pass and primary confidence
+  is at least the configured threshold.
+- `rejected`: a hard constraint conclusively fails or the primary metric
+  conclusively regresses.
+- `inconclusive`: measurements still overlap at the sample limit.
+- `checks_failed` or `crashed`: correctness or evaluator execution failed.
+
+Rejected, inconclusive, checks-failed, and crashed candidates are restored from
+the working tree after their records are persisted. Accepted changes remain in
+place so the agent can commit them. The exact accepted candidate must be
+committed and projected with `log_experiment` before another candidate can run.
+
+## Built-in tools
+
+- `init_experiment` writes the session contract, freezes evaluator artifacts,
+  fingerprints the safe environment, and records a sampled zero-diff baseline.
+- `run_experiment` captures a full binary Git patch plus untracked regular files
+  and symlink targets, samples every objective, persists the evaluation and
+  decision, and returns `attemptId`, metric vectors, samples, and the decision.
+- `log_experiment` accepts `attemptId` for ledger-backed runs and projects the
+  persisted decision into `.auto/log.jsonl`. Model-supplied metric/status fields
+  cannot override the engine. The legacy metric/status form remains available
+  for pre-ledger sessions.
+- `replay_experiment` reconstructs a candidate at its recorded base commit in a
+  detached temporary worktree. It defaults to the frozen original evaluator;
+  `current` uses the current session evaluator and records drift.
+- `analyze_experiments` exposes history, rescoring, comparison, Pareto, pinning,
+  and preview-first pruning to the agent runtime.
+
+Existing benchmark, check, and local hook timeouts, tool cancellation, approval
+flow, and lifecycle hooks remain in effect.
+
+## Immutable storage
 
 | File | Purpose |
 |------|---------|
-| `.auto/config.json` | Session name, metric, unit, direction, max iterations |
-| `.auto/measure.sh` | Benchmark script; must print `METRIC <name>=<number>` |
-| `.auto/prompt.md` | Living document of goal, scope, tried ideas, wins, dead ends |
-| `.auto/log.jsonl` | Append-only experiment history, including metric, status, optional commit, and bounded output excerpts |
-| `.auto/checks.sh` | Optional correctness checks run after a passing benchmark |
-| `.auto/hooks/before.sh` | Optional script run before each benchmark attempt |
-| `.auto/hooks/after.sh` | Optional script run after each benchmark attempt |
-| `.auto/state.json` | Active/paused state and iteration counter |
-| `.auto/dashboard.html` | Static dashboard generated by `/autoresearch export` |
-| `.auto/finalize.md` | Reviewable finalization plan generated by `/autoresearch finalize` |
-| `.auto/finalize-branches.json` | Structured branch manifest generated by `/autoresearch finalize` |
+| `.auto/ledger/events.jsonl` | Versioned append-only candidate, evaluation, decision, pin, and prune records |
+| `.auto/ledger/objects/<sha256>` | Deduplicated patches, untracked content, symlink targets, evaluator scripts/config, and raw outputs |
+| `.auto/config.json` | Objectives, constraints, sampling, retention, safe environment names, and lineage commits |
+| `.auto/measure.sh` | Current evaluator; emits one finite metric per objective |
+| `.auto/checks.sh` | Optional correctness checks |
+| `.auto/hooks/before.sh` | Optional hook frozen with each candidate and run before benchmark invocations |
+| `.auto/hooks/after.sh` | Optional hook frozen with each candidate and run after benchmark invocations |
+| `.auto/prompt.md` | Goal, editable scope, tried ideas, wins, and dead ends |
+| `.auto/log.jsonl` | Backward-compatible summary projection |
+| `.auto/state.json` | Active/paused loop state and iteration counter |
+| `.auto/dashboard.html` | Full history, replay drift, materialization, and advisory Pareto dashboard |
+| `.auto/finalize.md` | Review-only finalization report |
+| `.auto/finalize-branches.json` | Suggested branch commands for committed kept runs |
 
-## Autonomous loop
+The ledger loader tolerates a truncated final JSONL append, which can occur on a
+process crash. Invalid earlier records and schema-invalid complete records fail
+with an actionable line number. Object reads verify their SHA-256 content.
 
-The loop instruction tells the agent to:
+Existing summary-only sessions still load. History labels them non-replayable
+because no candidate artifact exists.
 
-1. Reflect on prior runs from `.auto/log.jsonl`.
-2. Optionally use `delegate_task` / `delegate_parallel` for research or analysis.
-3. Propose a single focused change.
-4. Run `run_experiment` to measure it.
-5. Run `log_experiment` with the result.
-6. Keep improvements with `git_commit` or revert regressions with `git_reset` / `git_checkout`.
-7. Update `.auto/prompt.md` and repeat.
-
-## Subcommands
+## Commands
 
 ```text
-/autoresearch <goal>      Start or resume a session
-/autoresearch off         Pause the loop
-/autoresearch clear --yes Delete all session state after explicit confirmation
-/autoresearch export      Write .auto/dashboard.html
-/autoresearch finalize    Write .auto/finalize.md for kept runs
-/autoresearch status      Show a text summary
+/autoresearch <goal>                         Start or resume
+/autoresearch off                           Pause
+/autoresearch status                        Show state, ledger, drift, and Pareto summary
+/autoresearch history                       List all attempts and materialization
+/autoresearch replay <id> [--evaluator original|current]
+/autoresearch rescore <id>|--all             Append decisions using the current policy
+/autoresearch compare <a> <b>                Compare samples, aggregates, checks, and decisions
+/autoresearch pareto                         List advisory non-dominated candidates
+/autoresearch pin <id>                       Protect candidate artifacts
+/autoresearch unpin <id>                     Release retention protection
+/autoresearch prune [--dry-run]              Preview retention (default)
+/autoresearch prune --yes                    Explicitly apply retention
+/autoresearch export                         Write the full HTML dashboard
+/autoresearch finalize                       Write reviewable finalization artifacts
+/autoresearch clear --yes                    Delete the complete session after confirmation
 ```
 
-The non-interactive CLI form accepts the same subcommands:
+Both `autohand auto-research` and `autohand autoresearch` accept the same
+subcommands and options.
+
+## Replay and environment safety
+
+Replay creates a detached temporary Git worktree at the candidate's recorded
+base commit, applies the stored binary patch and untracked artifacts, runs the
+selected evaluator, appends evaluation/decision records, and removes the
+worktree even after failure or cancellation. It never changes the user's
+branch, index, or working tree.
+
+The original evaluator freezes scripts and configuration; it does not restore
+arbitrary environment variables. The fingerprint contains only OS,
+architecture, CLI/Node/Bun/Git versions, lockfile and evaluator hashes, and
+explicitly allowlisted non-secret values. Complete process environments,
+tokens, credentials, cookies, and keys are never persisted.
+
+## Retention
+
+Retention limits are optional. Automatic retention considers only unpinned
+rejected or inconclusive candidate objects, oldest first. Metadata and decisions
+are permanent. Accepted and pinned artifacts are protected from automatic
+retention; deleting protected artifacts requires the explicit `prune --yes`
+path. Every applied deletion appends an `artifact_pruned` event so lost
+replayability remains visible.
+
+## JSON-RPC
+
+The original lifecycle names and result fields remain compatible:
 
 ```text
-autohand auto-research <goal>
-autohand autoresearch <goal>
-autohand auto-research status
-autohand autoresearch status
-autohand auto-research off
-autohand autoresearch off
-autohand auto-research clear --yes
-autohand autoresearch clear --yes
-autohand auto-research export
-autohand autoresearch export
-autohand auto-research finalize
-autohand autoresearch finalize
-```
-
-Both CLI spellings pass start flags such as `--metric`, `--unit`, `--direction`,
-`--measure`, and repeated `--scope` through to the shared `/autoresearch`
-handler instead of treating them as top-level Commander options.
-
-JSON-RPC clients can control the same `.auto/` session state without relying on
-terminal UI:
-
-```text
-autohand.autoresearch.start   { "objective": "...", "maxIterations": 30 }
+autohand.autoresearch.start
 autohand.autoresearch.status
 autohand.autoresearch.stop
 ```
 
-`autohand.autoresearch.start` accepts the same initial session contract as the
-slash command flags: `metricName`, `metricUnit`, `direction`,
-`measureCommand` or `measureScript`, optional `checksCommand` or
-`checksScript`, `timeoutMs`, `filesInScope`, and `subagents`. When the required benchmark
-fields are present, the RPC handler writes `.auto/config.json`,
-`.auto/measure.sh`, optional `.auto/checks.sh`, and `.auto/prompt.md`
-immediately.
+Additive methods expose the ledger:
 
-The start/status/stop handlers return structured state, a text status summary,
-and run counts derived from `.auto/state.json`, `.auto/config.json`, and
-`.auto/log.jsonl`. They emit `autohand.autoresearch.start`,
-`autohand.autoresearch.status`, and `autohand.autoresearch.pause`
-notifications respectively. Starting after `autohand.autoresearch.stop` or when
-`.auto/prompt.md` exists resumes the persisted session instead of resetting the
-original goal.
+```text
+autohand.autoresearch.history
+autohand.autoresearch.replay
+autohand.autoresearch.rescore
+autohand.autoresearch.compare
+autohand.autoresearch.pareto
+autohand.autoresearch.pin
+autohand.autoresearch.prune
+```
 
-ACP sessions advertise `/autoresearch` in their command metadata and use the
-same slash-command prompt path for `/autoresearch <goal>`, `/autoresearch
-status`, and `/autoresearch off`.
+`start` also accepts `secondaryObjectives`, `constraints`, `sampling`,
+`retention`, and `environmentAllowlist`. `status` adds optional attempts and
+Pareto IDs. Ledger operations emit `autohand.autoresearch.event` notifications
+with `started`, `completed`, or `failed` phases while existing
+start/status/pause notifications remain unchanged.
 
-## Hooks
+ACP continues to advertise `/autoresearch` and routes all subcommands through
+the shared command implementation.
 
-`/autoresearch <goal>` fires `autoresearch:start`, and `/autoresearch off`
-fires `autoresearch:pause` through `HookManager`. Hook payloads include the
-goal, active state, current iteration, max iterations, and triggering
-subcommand.
+## Hooks, dashboard, and finalization
 
-The tools fire `autoresearch:init`, `autoresearch:run`, and
-`autoresearch:log` lifecycle hooks through `HookManager`. ACP and RPC modes
-already emit pre-tool and post-tool hook notifications for every tool call, so
-the autoresearch tools are observable in both modes.
+In addition to the existing start, pause, init, before, run, after, log,
+complete, and error events, the runtime emits:
 
-`run_experiment` also emits `autoresearch:before` immediately before an
-iteration benchmark starts and `autoresearch:after` after the benchmark returns.
-Both events include the tool name and arguments, so hook matchers can target the
-experiment description.
+- `autoresearch:decision`
+- `autoresearch:replay`
+- `autoresearch:rescore`
+- `autoresearch:prune`
 
-For workspace-local automation, `run_experiment` also runs
-`.auto/hooks/before.sh` before `.auto/measure.sh` and `.auto/hooks/after.sh`
-after the benchmark attempt when those scripts exist. These scripts run with
-`AUTO_RESEARCH_WORKSPACE` and `AUTO_RESEARCH_HOOK` in the environment.
+Attempt IDs and decision outcomes are available in hook JSON and as
+`HOOK_AUTORESEARCH_ATTEMPT_ID` / `HOOK_AUTORESEARCH_DECISION`.
 
-## Dashboard
-
-`/autoresearch export` generates a self-contained HTML file at
-`.auto/dashboard.html` with a styled table of all runs, status highlighting, and
-confidence statistics.
-
-## Finalize
-
-`/autoresearch finalize` writes `.auto/finalize.md` from kept runs in
-`.auto/log.jsonl`. It groups kept experiments into suggested review branches and
-records metric, commit, hypothesis, and follow-up notes when available. It also
-writes `.auto/finalize-branches.json`, a structured manifest with one entry per
-kept run and exact `git branch <branch> <commit>` / `git switch <branch>`
-commands when the run has a recorded hex commit hash.
-
-Finalize does not create branches, switch branches, reset history, delete
-artifacts, force-update refs, or cherry-pick into an existing branch; those
-require a separate explicit approval.
+The dashboard and finalization report show full history, materialization,
+replayability, replay drift, and Pareto recommendations. Pareto candidates are
+explicitly advisory and are never presented as automatically committed winners.
+Finalize still performs no branch operation, reset, deletion, ref update, or
+cherry-pick without separate approval.

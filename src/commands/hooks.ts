@@ -45,6 +45,10 @@ export const HOOK_EVENTS: HookEvent[] = [
   'autoresearch:run',
   'autoresearch:after',
   'autoresearch:log',
+  'autoresearch:decision',
+  'autoresearch:replay',
+  'autoresearch:rescore',
+  'autoresearch:prune',
   'autoresearch:complete',
   'autoresearch:error',
   // Learn events
@@ -106,6 +110,10 @@ const EVENT_DESCRIPTIONS: Record<HookEvent, string> = {
   'autoresearch:run': 'When run_experiment executes the benchmark',
   'autoresearch:after': 'After run_experiment finishes an iteration',
   'autoresearch:log': 'When log_experiment records a result',
+  'autoresearch:decision': 'When the deterministic experiment decision is persisted',
+  'autoresearch:replay': 'When an isolated candidate replay completes',
+  'autoresearch:rescore': 'When stored measurements are rescored with the current policy',
+  'autoresearch:prune': 'When artifact retention is previewed or applied',
   'autoresearch:complete': 'When the auto-research loop completes',
   'autoresearch:error': 'When auto-research encounters an error',
   // Learn events

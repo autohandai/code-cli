@@ -510,6 +510,36 @@ describe('ToolManager', () => {
       expect(executor).toHaveBeenCalledTimes(10);
     });
 
+    it('requires delete authorization only when autoresearch pruning will be applied', async () => {
+      const permissionManager = new PermissionManager({ mode: 'interactive' });
+      const checkPermission = vi.spyOn(permissionManager, 'checkPermission');
+      const executor = vi.fn().mockResolvedValue(successfulOutcome('ok'));
+      const confirmApproval = vi.fn().mockResolvedValue({ decision: 'allow_once' });
+      const manager = new ToolManager({
+        executor,
+        confirmApproval,
+        definitions: [{ name: 'analyze_experiments', description: 'analyze experiments' }],
+        authorization: { permissionManager },
+      });
+
+      const results = await manager.execute([
+        { tool: 'analyze_experiments', args: { operation: 'history' } },
+        { tool: 'analyze_experiments', args: { operation: 'prune', yes: false } },
+        { tool: 'analyze_experiments', args: { operation: 'prune', yes: true, dryRun: true } },
+        { tool: 'analyze_experiments', args: { operation: 'prune', yes: true } },
+      ]);
+
+      expect(results.every((result) => result.success)).toBe(true);
+      expect(checkPermission.mock.calls.map(([context]) => context.tool)).toEqual([
+        'analyze_experiments',
+        'analyze_experiments',
+        'analyze_experiments',
+        'delete_path',
+      ]);
+      expect(confirmApproval).toHaveBeenCalledTimes(1);
+      expect(executor).toHaveBeenCalledTimes(4);
+    });
+
     it('does not prompt or execute after an explicit pattern denial', async () => {
       const permissionManager = new PermissionManager({
         mode: 'interactive',

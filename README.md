@@ -305,7 +305,7 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/search`          | Search the web                                                                   |
 | `/deep-research`   | Run cited research; use `status` for progress (`/deep-search` alias)             |
 | `/automode`        | Manage auto-mode                                                                 |
-| `/autoresearch`    | Run persisted benchmark loops under `.auto/`                                    |
+| `/autoresearch`    | Run replayable benchmark loops with history, replay, comparison, and Pareto analysis |
 | `/goal`            | Set, review, or refine the current session goal                                  |
 | `/goal writer`     | Draft one or more well-specified goals with the built-in `$goal-writer` skill    |
 | `/squad`           | Open/manage the local Autohand Squad runtime                                     |

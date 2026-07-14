@@ -627,6 +627,10 @@ export type HookEvent =
   | 'autoresearch:run'      // run_experiment executed the benchmark
   | 'autoresearch:after'    // After an auto-research experiment iteration runs
   | 'autoresearch:log'      // log_experiment recorded a result
+  | 'autoresearch:decision' // Deterministic ledger decision persisted
+  | 'autoresearch:replay'   // Detached replay completed
+  | 'autoresearch:rescore'  // Stored measurements were rescored
+  | 'autoresearch:prune'    // Artifact retention preview or apply completed
   | 'autoresearch:complete' // Auto-research loop completed
   | 'autoresearch:error'    // Auto-research error occurred
   // Learn events
@@ -1383,6 +1387,26 @@ export type AgentAction =
       timeoutMs?: number;
       filesInScope?: string[];
       checksScript?: string;
+      secondaryObjectives?: Array<{
+        name: string;
+        unit: string;
+        direction: 'lower' | 'higher';
+      }>;
+      constraints?: Array<{
+        metricName: string;
+        operator: '<' | '<=' | '>' | '>=';
+        threshold: number;
+      }>;
+      sampling?: {
+        minSamples?: number;
+        maxSamples?: number;
+        confidenceThreshold?: number;
+      };
+      retention?: {
+        maxArtifactBytes?: number;
+        maxArtifactAgeDays?: number;
+      };
+      environmentAllowlist?: string[];
       subagents?: {
         ideaGeneration?: boolean;
         measurementAnalysis?: boolean;
@@ -1392,14 +1416,25 @@ export type AgentAction =
   | { type: 'run_experiment'; description: string }
   | {
       type: 'log_experiment';
-      metric: number;
-      status: 'kept' | 'discarded' | 'checks_failed' | 'crashed';
+      attemptId?: string;
+      metric?: number;
+      status?: 'kept' | 'discarded' | 'checks_failed' | 'crashed';
       description: string;
       commit?: string;
       output?: string;
       hypothesis?: string;
       learned?: string;
       nextFocus?: string;
+    }
+  | { type: 'replay_experiment'; attemptId: string; evaluator?: 'original' | 'current' }
+  | {
+      type: 'analyze_experiments';
+      operation: 'history' | 'rescore' | 'compare' | 'pareto' | 'pin' | 'unpin' | 'prune';
+      attemptId?: string;
+      otherAttemptId?: string;
+      all?: boolean;
+      dryRun?: boolean;
+      yes?: boolean;
     };
 
 export type ExplorationEvent = { kind: 'read' | 'list' | 'search'; target: string };

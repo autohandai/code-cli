@@ -161,6 +161,12 @@ function resolveEffectivePermissionTool(
   action: AgentAction,
   values: Record<string, unknown>,
 ): string {
+  if (action.type === 'analyze_experiments'
+    && values.operation === 'prune'
+    && values.yes === true
+    && values.dryRun !== true) {
+    return 'delete_path';
+  }
   if (action.type === 'custom_command' || action.type === 'git_worktree_run_parallel') {
     return 'run_command';
   }
@@ -1733,13 +1739,61 @@ Actions:
             finalization: { type: 'boolean', description: 'Delegate final review of kept runs and changeset grouping recommendations' },
           },
         },
+        secondaryObjectives: {
+          type: 'array',
+          description: 'Optional advisory objectives used for Pareto ranking',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: 'Metric key emitted by every benchmark invocation' },
+              unit: { type: 'string', description: 'Display unit for this objective' },
+              direction: { type: 'string', description: 'Whether lower or higher values are better', enum: ['lower', 'higher'] },
+            },
+            required: ['name', 'unit', 'direction'],
+          },
+        },
+        constraints: {
+          type: 'array',
+          description: 'Optional hard metric constraints that fail closed',
+          items: {
+            type: 'object',
+            properties: {
+              metricName: { type: 'string', description: 'Configured objective name' },
+              operator: { type: 'string', description: 'Constraint comparison operator', enum: ['<', '<=', '>', '>='] },
+              threshold: { type: 'number', description: 'Finite constraint threshold' },
+            },
+            required: ['metricName', 'operator', 'threshold'],
+          },
+        },
+        sampling: {
+          type: 'object',
+          description: 'Adaptive robust-sampling policy (defaults to 3-9 samples and confidence 2.0)',
+          properties: {
+            minSamples: { type: 'number', description: 'Minimum samples before a decision (default: 3)' },
+            maxSamples: { type: 'number', description: 'Maximum adaptive samples (default: 9)' },
+            confidenceThreshold: { type: 'number', description: 'MAD-based acceptance/regression threshold (default: 2.0)' },
+          },
+        },
+        retention: {
+          type: 'object',
+          description: 'Optional content-addressed artifact limits; metadata remains permanent',
+          properties: {
+            maxArtifactBytes: { type: 'number', description: 'Maximum ledger object bytes (unlimited when omitted)' },
+            maxArtifactAgeDays: { type: 'number', description: 'Maximum rejected/inconclusive artifact age in days (unlimited when omitted)' },
+          },
+        },
+        environmentAllowlist: {
+          type: 'array',
+          description: 'Explicit non-secret environment variable names to fingerprint for replay drift',
+          items: { type: 'string', description: 'Safe environment variable name' },
+        },
       },
       required: ['name', 'metricName', 'metricUnit', 'direction', 'measureScript'],
     },
   },
   {
     name: 'run_experiment',
-    description: 'Run the auto-research benchmark script and extract the current metric value.',
+    description: 'Capture the current candidate, sample every objective adaptively, persist the engine decision, and retain only accepted working-tree changes.',
     parameters: {
       type: 'object',
       properties: {
@@ -1750,10 +1804,11 @@ Actions:
   },
   {
     name: 'log_experiment',
-    description: 'Record the result of an experiment in .auto/log.jsonl and decide whether to keep or discard the change.',
+    description: 'Project a persisted ledger decision into .auto/log.jsonl. For replayable sessions pass attemptId; model-supplied metric/status cannot override the engine.',
     parameters: {
       type: 'object',
       properties: {
+        attemptId: { type: 'string', description: 'Immutable attempt id returned by run_experiment' },
         metric: { type: 'number', description: 'Measured metric value' },
         status: { type: 'string', description: 'Outcome of the run', enum: ['kept', 'discarded', 'checks_failed', 'crashed'] },
         description: { type: 'string', description: 'What was tried' },
@@ -1763,7 +1818,35 @@ Actions:
         learned: { type: 'string', description: 'What the result teaches us' },
         nextFocus: { type: 'string', description: 'Suggested next focus area' },
       },
-      required: ['metric', 'status', 'description'],
+      required: ['description'],
+    },
+  },
+  {
+    name: 'replay_experiment',
+    description: 'Reconstruct a persisted candidate in a detached temporary Git worktree and evaluate it without changing the user branch or working tree.',
+    parameters: {
+      type: 'object',
+      properties: {
+        attemptId: { type: 'string', description: 'Immutable candidate attempt id' },
+        evaluator: { type: 'string', description: 'Use the frozen original evaluator by default or the current session evaluator', enum: ['original', 'current'] },
+      },
+      required: ['attemptId'],
+    },
+  },
+  {
+    name: 'analyze_experiments',
+    description: 'Inspect immutable history, rescore, compare, compute Pareto candidates, pin artifacts, or preview/apply retention.',
+    parameters: {
+      type: 'object',
+      properties: {
+        operation: { type: 'string', description: 'Ledger analysis operation', enum: ['history', 'rescore', 'compare', 'pareto', 'pin', 'unpin', 'prune'] },
+        attemptId: { type: 'string', description: 'Primary attempt id for rescore, compare, pin, or unpin' },
+        otherAttemptId: { type: 'string', description: 'Second attempt id for compare' },
+        all: { type: 'boolean', description: 'Rescore every persisted candidate' },
+        dryRun: { type: 'boolean', description: 'Preview retention without deleting objects (default: true)' },
+        yes: { type: 'boolean', description: 'Explicitly approve pruning, including protected artifacts when required' },
+      },
+      required: ['operation'],
     },
   },
 ];

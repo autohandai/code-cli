@@ -48,6 +48,18 @@ import type {
   AutoresearchStatusResult,
   AutoresearchStopResult,
   AutoresearchRpcState,
+  AutoresearchHistoryResult,
+  AutoresearchReplayParams,
+  AutoresearchReplayResult,
+  AutoresearchRescoreParams,
+  AutoresearchRescoreResult,
+  AutoresearchCompareParams,
+  AutoresearchCompareResult,
+  AutoresearchParetoResult,
+  AutoresearchPinParams,
+  AutoresearchPinResult,
+  AutoresearchPruneParams,
+  AutoresearchPruneResult,
   GetHistoryParams,
   GetHistoryResult,
   YoloSetParams,
@@ -105,6 +117,15 @@ import { SLASH_COMMANDS } from '../../core/slashCommands.js';
 import { AutoResearchManager, type AutoResearchSnapshot, type AutoResearchState } from '../../autoresearch/manager.js';
 import { initExperiment } from '../../autoresearch/tools.js';
 import type { OptimizationDirection } from '../../autoresearch/session.js';
+import { replayExperiment } from '../../autoresearch/replay.js';
+import {
+  compareExperiments,
+  getAutoresearchHistory,
+  getParetoExperiments,
+  pinExperiment,
+  pruneArtifacts,
+  rescoreExperiments,
+} from '../../autoresearch/analysis.js';
 
 type CompleteAutoresearchBenchmarkParams = AutoresearchStartParams & {
   metricName: string;
@@ -2876,13 +2897,9 @@ export class RPCAdapter {
 
       const manager = new AutoResearchManager(this.workspace);
       const canResume = await manager.canResume();
-      const started = canResume
-        ? await manager.resume(objective)
-        : await manager.start(objective, params.maxIterations);
-      let message = started.message;
-
+      let initialized: Awaited<ReturnType<typeof initExperiment>> | undefined;
       if (!canResume && hasCompleteAutoresearchBenchmarkParams(params)) {
-        await initExperiment(this.workspace, {
+        initialized = await initExperiment(this.workspace, {
           name: objective,
           metricName: params.metricName,
           metricUnit: params.metricUnit,
@@ -2893,8 +2910,21 @@ export class RPCAdapter {
           filesInScope: params.filesInScope ?? [],
           checksScript: checksScriptFromParams(params),
           subagents: params.subagents,
+          secondaryObjectives: params.secondaryObjectives,
+          constraints: params.constraints,
+          sampling: params.sampling,
+          retention: params.retention,
+          environmentAllowlist: params.environmentAllowlist,
         });
-        message = `${message}\nInitialized benchmark config from RPC options.`;
+        if (!initialized.success) return { success: false, error: initialized.message };
+      }
+      const started = canResume
+        ? await manager.resume(objective)
+        : await manager.start(objective, params.maxIterations);
+      let message = started.message;
+
+      if (initialized) {
+        message = `${message}\nInitialized benchmark config from RPC options. Replayable baseline: ${initialized.baselineAttemptId}.`;
       }
 
       const snapshot = await manager.getSnapshot();
@@ -2917,7 +2947,16 @@ export class RPCAdapter {
       const manager = new AutoResearchManager(this.workspace);
       const snapshot = await manager.getSnapshot();
       this.emitAutoresearchNotification(RPC_NOTIFICATIONS.AUTORESEARCH_STATUS, snapshot, { subcommand: 'status' });
-      return { success: true, ...this.formatAutoresearchSnapshot(snapshot) };
+      const [history, pareto] = await Promise.all([
+        getAutoresearchHistory(this.workspace),
+        getParetoExperiments(this.workspace),
+      ]);
+      return {
+        success: true,
+        ...this.formatAutoresearchSnapshot(snapshot),
+        attempts: history.attempts,
+        paretoAttemptIds: pareto.attemptIds,
+      };
     } catch (error) {
       return {
         success: false, active: false, statusText: 'No active auto-research session.', runsLogged: 0,
@@ -2938,12 +2977,116 @@ export class RPCAdapter {
     }
   }
 
+  async handleAutoresearchHistory(): Promise<AutoresearchHistoryResult> {
+    this.emitAutoresearchOperation('history', 'started', { success: true });
+    try {
+      const history = await getAutoresearchHistory(this.workspace);
+      this.emitAutoresearchOperation('history', 'completed', { success: true });
+      return { success: true, attempts: history.attempts };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.emitAutoresearchOperation('history', 'failed', { success: false, error: message });
+      return { success: false, attempts: [], error: message };
+    }
+  }
+
+  async handleAutoresearchReplay(params: AutoresearchReplayParams): Promise<AutoresearchReplayResult> {
+    this.emitAutoresearchOperation('replay', 'started', { success: true, attemptId: params.attemptId });
+    const result = await replayExperiment(this.workspace, params.attemptId, {
+      evaluator: params.evaluator,
+      signal: this.abortController?.signal,
+    });
+    this.emitAutoresearchOperation('replay', result.success ? 'completed' : 'failed', {
+      success: result.success,
+      attemptId: params.attemptId,
+      error: result.error,
+    });
+    return result;
+  }
+
+  async handleAutoresearchRescore(params: AutoresearchRescoreParams): Promise<AutoresearchRescoreResult> {
+    this.emitAutoresearchOperation('rescore', 'started', { success: true, attemptId: params.attemptId });
+    try {
+      const result = await rescoreExperiments(this.workspace, params);
+      this.emitAutoresearchOperation('rescore', 'completed', { success: true, attemptId: params.attemptId });
+      return { success: true, decisions: result.decisions };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.emitAutoresearchOperation('rescore', 'failed', { success: false, attemptId: params.attemptId, error: message });
+      return { success: false, decisions: [], error: message };
+    }
+  }
+
+  async handleAutoresearchCompare(params: AutoresearchCompareParams): Promise<AutoresearchCompareResult> {
+    this.emitAutoresearchOperation('compare', 'started', { success: true, attemptId: params.leftAttemptId });
+    try {
+      const comparison = await compareExperiments(this.workspace, params.leftAttemptId, params.rightAttemptId);
+      this.emitAutoresearchOperation('compare', 'completed', { success: true, attemptId: params.leftAttemptId });
+      return { success: true, comparison };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.emitAutoresearchOperation('compare', 'failed', { success: false, attemptId: params.leftAttemptId, error: message });
+      return {
+        success: false,
+        error: message,
+      };
+    }
+  }
+
+  async handleAutoresearchPareto(): Promise<AutoresearchParetoResult> {
+    this.emitAutoresearchOperation('pareto', 'started', { success: true });
+    try {
+      const result = await getParetoExperiments(this.workspace);
+      this.emitAutoresearchOperation('pareto', 'completed', { success: true });
+      return { success: true, attemptIds: result.attemptIds };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.emitAutoresearchOperation('pareto', 'failed', { success: false, error: message });
+      return { success: false, attemptIds: [], error: message };
+    }
+  }
+
+  async handleAutoresearchPin(params: AutoresearchPinParams): Promise<AutoresearchPinResult> {
+    this.emitAutoresearchOperation('pin', 'started', { success: true, attemptId: params.attemptId });
+    try {
+      await pinExperiment(this.workspace, params.attemptId, params.pinned);
+      this.emitAutoresearchOperation('pin', 'completed', { success: true, attemptId: params.attemptId });
+      return { success: true, attemptId: params.attemptId, pinned: params.pinned };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.emitAutoresearchOperation('pin', 'failed', { success: false, attemptId: params.attemptId, error: message });
+      return { success: false, attemptId: params.attemptId, pinned: params.pinned, error: message };
+    }
+  }
+
+  async handleAutoresearchPrune(params: AutoresearchPruneParams): Promise<AutoresearchPruneResult> {
+    this.emitAutoresearchOperation('prune', 'started', { success: true });
+    try {
+      const confirmed = params.yes === true;
+      const result = await pruneArtifacts(this.workspace, {
+        dryRun: confirmed ? params.dryRun === true : true,
+        includeProtected: true,
+      });
+      this.emitAutoresearchOperation('prune', 'completed', {
+        success: true,
+        applied: result.applied,
+      });
+      return { success: true, ...result };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.emitAutoresearchOperation('prune', 'failed', { success: false, error: message });
+      return { success: false, applied: false, candidates: [], bytesFreed: 0, remainingBytes: 0, error: message };
+    }
+  }
+
   private formatAutoresearchSnapshot(snapshot: AutoResearchSnapshot): Omit<AutoresearchStatusResult, 'success'> {
     return {
       active: snapshot.active,
       state: snapshot.state ? this.formatAutoresearchState(snapshot.state) : undefined,
       statusText: snapshot.statusText,
       runsLogged: snapshot.runs.length,
+      attempts: snapshot.attempts,
+      paretoAttemptIds: snapshot.paretoAttemptIds,
     };
   }
 
@@ -2965,6 +3108,19 @@ export class RPCAdapter {
       statusText: snapshot.statusText,
       subcommand: details.subcommand,
       message: details.message,
+      timestamp: createTimestamp(),
+    });
+  }
+
+  private emitAutoresearchOperation(
+    operation: 'history' | 'replay' | 'rescore' | 'compare' | 'pareto' | 'pin' | 'prune',
+    phase: 'started' | 'completed' | 'failed',
+    details: { success: boolean; attemptId?: string; applied?: boolean; error?: string }
+  ): void {
+    writeNotification(RPC_NOTIFICATIONS.AUTORESEARCH_EVENT, {
+      operation,
+      phase,
+      ...details,
       timestamp: createTimestamp(),
     });
   }
