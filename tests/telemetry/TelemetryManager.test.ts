@@ -52,18 +52,21 @@ describe('TelemetryManager', () => {
     });
     await manager.endSession('completed');
 
-    expect(trackSpy).toHaveBeenCalledWith(expect.objectContaining({
-      eventType: 'session_end',
-      sessionId: 'session-1',
-      eventData: expect.objectContaining({
-        status: 'completed',
-        duration: 300,
-        model: 'gpt-5',
-        provider: 'openai',
-        reasoningEffort: 'high',
-        contextWindow: 400000,
+    expect(trackSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'session_end',
+        sessionId: 'session-1',
+        eventData: expect.objectContaining({
+          status: 'completed',
+          duration: 300,
+          model: 'gpt-5',
+          provider: 'openai',
+          reasoningEffort: 'high',
+          contextWindow: 400000,
+        }),
       }),
-    }));
+      { signal: expect.any(AbortSignal) }
+    );
   });
 
   it('sends heartbeat uptime from the same app session start time and stops it at session end', async () => {
@@ -208,4 +211,166 @@ describe('TelemetryManager', () => {
       }),
     }));
   });
+
+  it('shares one bounded flush between concurrent endSession and shutdown calls', async () => {
+    let resolveSync: ((result: { sent: number; failed: number }) => void) | undefined;
+    const syncAllSpy = vi.spyOn(TelemetryClient.prototype, 'syncAll').mockImplementation(() => (
+      new Promise((resolve) => {
+        resolveSync = resolve;
+      })
+    ));
+    const manager = new TelemetryManager({ enabled: true });
+    await manager.startSession('session-1', 'gpt-5', 'openai');
+    trackSpy.mockClear();
+
+    let endSettled = false;
+    let shutdownSettled = false;
+    const endPromise = manager.endSession('completed').then(() => {
+      endSettled = true;
+    });
+    await vi.waitFor(() => {
+      expect(syncAllSpy).toHaveBeenCalledTimes(1);
+    });
+    const shutdownPromise = manager.shutdown().then(() => {
+      shutdownSettled = true;
+    });
+
+    expect(endSettled).toBe(false);
+    expect(shutdownSettled).toBe(false);
+    expect(syncAllSpy).toHaveBeenCalledTimes(1);
+    expect(syncAllSpy).toHaveBeenCalledWith({ timeoutMs: 1_500 });
+    expect(trackSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'session_end',
+        eventData: expect.objectContaining({ status: 'completed' }),
+      }),
+      { signal: expect.any(AbortSignal) }
+    );
+
+    resolveSync?.({ sent: 1, failed: 0 });
+    await Promise.all([endPromise, shutdownPromise]);
+
+    expect(endSettled).toBe(true);
+    expect(shutdownSettled).toBe(true);
+    expect(TelemetryClient.prototype.stopFlushTimer).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts the absolute shutdown deadline before enqueueing the session-end event', async () => {
+    vi.useFakeTimers();
+    const manager = new TelemetryManager({ enabled: true });
+    await manager.startSession('session-1', 'gpt-5', 'openai');
+    let resolveTrack: (() => void) | undefined;
+    trackSpy.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveTrack = resolve;
+    }));
+
+    try {
+      let settled = false;
+      const endPromise = manager.endSession('completed').then(() => {
+        settled = true;
+      });
+      now += 1_500;
+      await vi.advanceTimersByTimeAsync(1_500);
+
+      expect(settled).toBe(true);
+      expect(TelemetryClient.prototype.syncAll).toHaveBeenCalledWith({ timeoutMs: 0 });
+      await endPromise;
+    } finally {
+      resolveTrack?.();
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not restart the orderly sync deadline after endSession completes', async () => {
+    const manager = new TelemetryManager({ enabled: true });
+    await manager.startSession('session-1', 'gpt-5', 'openai');
+
+    await manager.endSession('completed');
+    now += 500;
+    await manager.shutdown();
+
+    const syncAllMock = vi.mocked(TelemetryClient.prototype.syncAll);
+    expect(syncAllMock).toHaveBeenNthCalledWith(1, { timeoutMs: 1_500 });
+    expect(syncAllMock).toHaveBeenNthCalledWith(2, { timeoutMs: 1_000 });
+  });
+
+  it('settles the prior session sync before starting a new shutdown generation', async () => {
+    let resolveFirstSync: ((result: { sent: number; failed: number }) => void) | undefined;
+    const syncAllMock = vi.mocked(TelemetryClient.prototype.syncAll);
+    syncAllMock
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveFirstSync = resolve;
+      }))
+      .mockResolvedValue({ sent: 0, failed: 0 });
+    const manager = new TelemetryManager({ enabled: true });
+    await manager.startSession('session-1', 'gpt-5', 'openai');
+    const firstEndPromise = manager.endSession('completed');
+    await vi.waitFor(() => {
+      expect(syncAllMock).toHaveBeenCalledTimes(1);
+    });
+
+    let secondStartSettled = false;
+    const secondStartPromise = manager.startSession('session-2', 'gpt-5', 'openai').then(() => {
+      secondStartSettled = true;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const settledBeforePriorSync = secondStartSettled;
+
+    resolveFirstSync?.({ sent: 0, failed: 0 });
+    await Promise.all([firstEndPromise, secondStartPromise]);
+    await manager.endSession('completed');
+
+    expect(settledBeforePriorSync).toBe(false);
+    expect(syncAllMock).toHaveBeenNthCalledWith(2, { timeoutMs: 1_500 });
+  });
+
+  it('cleans heartbeat and client timers before awaiting shutdown synchronization', async () => {
+    const heartbeatTimer = { unref: vi.fn() };
+    const setIntervalSpy = vi.spyOn(global, 'setInterval')
+      .mockReturnValue(heartbeatTimer as unknown as ReturnType<typeof setInterval>);
+    const clearIntervalSpy = vi.spyOn(global, 'clearInterval').mockImplementation(() => {});
+    const manager = new TelemetryManager({ enabled: true });
+    await manager.startSession('session-1', 'gpt-5', 'openai');
+
+    await manager.shutdown();
+
+    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 60_000);
+    expect(clearIntervalSpy).toHaveBeenCalledWith(heartbeatTimer);
+    expect(TelemetryClient.prototype.stopFlushTimer).toHaveBeenCalledTimes(1);
+    expect(clearIntervalSpy.mock.invocationCallOrder[0]).toBeLessThan(
+      syncAllSpyCallOrder()
+    );
+  });
+
+  it('does not resurrect a session heartbeat when startSession resumes after shutdown', async () => {
+    let releaseOrderlySync: ((value: { sent: number; failed: number }) => void) | undefined;
+    const syncAllMock = vi.mocked(TelemetryClient.prototype.syncAll);
+    syncAllMock.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseOrderlySync = resolve;
+    }));
+    const heartbeatTimer = { unref: vi.fn() };
+    const setIntervalSpy = vi.spyOn(global, 'setInterval')
+      .mockReturnValue(heartbeatTimer as unknown as ReturnType<typeof setInterval>);
+    const manager = new TelemetryManager({ enabled: true });
+    await manager.startSession('session-1', 'gpt-5', 'openai');
+
+    const ending = manager.endSession('completed');
+    await vi.waitFor(() => expect(syncAllMock).toHaveBeenCalledOnce());
+    const lateStart = manager.startSession('session-2', 'gpt-5', 'openai');
+    const firstShutdown = manager.shutdown();
+    const secondShutdown = manager.shutdown();
+
+    expect(secondShutdown).toBe(firstShutdown);
+    releaseOrderlySync?.({ sent: 0, failed: 0 });
+    await Promise.all([ending, lateStart, firstShutdown]);
+
+    expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+    expect(trackSpy.mock.calls.filter(([event]) => event.eventType === 'session_start')).toHaveLength(1);
+    expect(TelemetryClient.prototype.syncQueuedSessions).toHaveBeenCalledTimes(1);
+  });
+
+  function syncAllSpyCallOrder(): number {
+    const syncAllMock = vi.mocked(TelemetryClient.prototype.syncAll);
+    return syncAllMock.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER;
+  }
 });

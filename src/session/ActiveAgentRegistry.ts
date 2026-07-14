@@ -116,6 +116,9 @@ export interface ActiveAgentHeartbeatOptions {
 export class ActiveAgentHeartbeat {
   private timer: ReturnType<typeof setInterval> | null = null;
   private status: ActiveAgentStatus = 'idle';
+  private stopped = false;
+  private stopPromise: Promise<void> | null = null;
+  private readonly pendingUpdates = new Set<Promise<void>>();
 
   constructor(
     private readonly registry: ActiveAgentRegistry,
@@ -123,45 +126,72 @@ export class ActiveAgentHeartbeat {
   ) {}
 
   async start(): Promise<void> {
+    if (this.stopped || this.timer) return;
     await this.update('idle');
+    if (this.stopped || this.timer) return;
     this.timer = setInterval(() => {
       this.update().catch(() => {});
     }, ACTIVE_AGENT_HEARTBEAT_INTERVAL_MS);
     this.timer.unref?.();
   }
 
-  async update(status = this.status): Promise<void> {
+  update(status = this.status): Promise<void> {
+    if (this.stopped) return Promise.resolve();
+
     const session = this.options.getSession();
-    if (!session) return;
+    if (!session) return Promise.resolve();
 
     this.status = status;
     const snapshot = this.options.getStatusSnapshot();
     const now = new Date().toISOString();
-    await this.registry.write({
-      version: 1,
-      pid: process.pid,
-      sessionId: session.metadata.sessionId,
-      workspaceRoot: this.options.runtime.workspaceRoot,
-      projectName: path.basename(this.options.runtime.workspaceRoot),
-      provider: this.options.getProvider(),
-      model: snapshot.model,
-      mode: resolveActiveAgentMode(this.options.runtime),
-      status,
-      startedAt: session.metadata.createdAt,
-      updatedAt: now,
-      messageCount: session.metadata.messageCount,
-      contextPercent: snapshot.contextPercent,
-      tokensUsed: snapshot.tokensUsed,
-      tokensUsageStatus: snapshot.tokensUsageStatus,
-      sessionTokensUsed: snapshot.sessionTokensUsed,
-    });
+    const sessionId = session.metadata.sessionId;
+    const updatePromise = this.writeUpdate({
+        version: 1,
+        pid: process.pid,
+        sessionId,
+        workspaceRoot: this.options.runtime.workspaceRoot,
+        projectName: path.basename(this.options.runtime.workspaceRoot),
+        provider: this.options.getProvider(),
+        model: snapshot.model,
+        mode: resolveActiveAgentMode(this.options.runtime),
+        status,
+        startedAt: session.metadata.createdAt,
+        updatedAt: now,
+        messageCount: session.metadata.messageCount,
+        contextPercent: snapshot.contextPercent,
+        tokensUsed: snapshot.tokensUsed,
+        tokensUsageStatus: snapshot.tokensUsageStatus,
+        sessionTokensUsed: snapshot.sessionTokensUsed,
+      }, sessionId);
+    this.pendingUpdates.add(updatePromise);
+    void updatePromise.then(
+      () => this.pendingUpdates.delete(updatePromise),
+      () => this.pendingUpdates.delete(updatePromise),
+    );
+    return updatePromise;
   }
 
-  async stop(): Promise<void> {
+  stop(): Promise<void> {
+    if (this.stopPromise) return this.stopPromise;
+
+    this.stopped = true;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
     }
+    this.stopPromise = this.finishStop();
+    return this.stopPromise;
+  }
+
+  private async writeUpdate(record: ActiveAgentRecord, sessionId: string): Promise<void> {
+    await this.registry.write(record);
+    if (this.stopped) {
+      await this.registry.remove(sessionId).catch(() => {});
+    }
+  }
+
+  private async finishStop(): Promise<void> {
+    await Promise.allSettled([...this.pendingUpdates]);
     const session = this.options.getSession();
     if (session) {
       await this.registry.remove(session.metadata.sessionId);

@@ -18,6 +18,8 @@ import type {
 } from './types.js';
 import packageJson from '../../package.json' with { type: 'json' };
 
+const ORDERLY_TELEMETRY_SYNC_TIMEOUT_MS = 1_500;
+
 export class TelemetryManager {
   private client: TelemetryClient;
   private sessionId: string | null = null;
@@ -31,6 +33,11 @@ export class TelemetryManager {
   private currentProviderMetadata: ProviderModelMetadata = {};
   private telemetryEnabled: boolean;
   private readonly heartbeatIntervalMs: number;
+  private orderlySyncDeadlineAt: number | null = null;
+  private orderlySyncPromise: Promise<void> | null = null;
+  private shutdownStarted = false;
+  private shutdownPromise: Promise<void> | null = null;
+  private readonly shutdownController = new AbortController();
 
   constructor(config: Partial<TelemetryConfig> = {}) {
     this.client = new TelemetryClient(config);
@@ -59,9 +66,11 @@ export class TelemetryManager {
    */
   private async trackEvent(
     eventType: TelemetryEventType,
-    eventData?: Record<string, unknown>
+    eventData?: Record<string, unknown>,
+    signal?: AbortSignal
   ): Promise<void> {
-    await this.client.track({
+    if (this.shutdownStarted || signal?.aborted) return;
+    const event = {
       eventType,
       eventData,
       sessionId: this.sessionId || 'unknown',
@@ -69,7 +78,12 @@ export class TelemetryManager {
       interactionCount: this.interactionCount,
       toolsUsed: Array.from(this.toolsUsed),
       errorsCount: this.errorsCount
-    });
+    };
+    if (signal) {
+      await this.client.track(event, { signal });
+      return;
+    }
+    await this.client.track(event);
   }
 
   /**
@@ -82,6 +96,12 @@ export class TelemetryManager {
     startedAt?: number | string | Date,
     providerMetadata: ProviderModelMetadata = {}
   ): Promise<void> {
+    if (this.shutdownStarted) return;
+    if (this.orderlySyncPromise) {
+      await this.orderlySyncPromise;
+    }
+    if (this.shutdownStarted) return;
+    this.orderlySyncDeadlineAt = null;
     this.sessionId = sessionId;
     this.sessionStartTime = this.normalizeSessionStartTime(startedAt);
     this.interactionCount = 0;
@@ -96,7 +116,8 @@ export class TelemetryManager {
       model,
       provider,
       ...providerMetadata,
-    });
+    }, this.shutdownController.signal);
+    if (this.shutdownStarted) return;
 
     // Try to sync any queued sessions from previous offline periods
     await this.client.syncQueuedSessions();
@@ -107,18 +128,22 @@ export class TelemetryManager {
    */
   async endSession(status: 'completed' | 'crashed' | 'abandoned' = 'completed'): Promise<void> {
     this.stopHeartbeatTimer();
+    this.ensureOrderlySyncDeadline();
     const duration = this.getSessionDurationSeconds();
+    const deadlineSignal = this.createOrderlyDeadlineSignal();
+    try {
+      await this.awaitUntilOrderlyAbort(this.trackEvent('session_end', {
+        status,
+        duration,
+        model: this.currentModel,
+        provider: this.currentProvider,
+        ...this.currentProviderMetadata,
+      }, deadlineSignal.signal), deadlineSignal.signal);
+    } finally {
+      deadlineSignal.dispose();
+    }
 
-    await this.trackEvent('session_end', {
-      status,
-      duration,
-      model: this.currentModel,
-      provider: this.currentProvider,
-      ...this.currentProviderMetadata,
-    });
-
-    // Flush all pending events
-    await this.client.syncAll();
+    await this.syncForOrderlyShutdown();
   }
 
   /**
@@ -351,10 +376,90 @@ export class TelemetryManager {
   /**
    * Stop and cleanup
    */
-  async shutdown(): Promise<void> {
+  shutdown(): Promise<void> {
+    if (this.shutdownPromise) return this.shutdownPromise;
+
+    this.shutdownStarted = true;
+    this.shutdownController.abort();
+    this.shutdownPromise = this.performShutdown();
+    return this.shutdownPromise;
+  }
+
+  private async performShutdown(): Promise<void> {
     this.stopHeartbeatTimer();
     this.client.stopFlushTimer();
-    await this.client.syncAll();
+    await this.syncForOrderlyShutdown();
+  }
+
+  private syncForOrderlyShutdown(): Promise<void> {
+    if (this.orderlySyncPromise) {
+      return this.orderlySyncPromise;
+    }
+
+    const now = Date.now();
+    const deadlineAt = this.ensureOrderlySyncDeadline(now);
+    const timeoutMs = Math.max(0, deadlineAt - now);
+    const syncPromise = this.client.syncAll({ timeoutMs }).then(
+      () => undefined,
+      () => undefined
+    );
+    const sharedPromise = syncPromise.finally(() => {
+      if (this.orderlySyncPromise === sharedPromise) {
+        this.orderlySyncPromise = null;
+      }
+    });
+    this.orderlySyncPromise = sharedPromise;
+    return sharedPromise;
+  }
+
+  private ensureOrderlySyncDeadline(now = Date.now()): number {
+    this.orderlySyncDeadlineAt ??= now + ORDERLY_TELEMETRY_SYNC_TIMEOUT_MS;
+    return this.orderlySyncDeadlineAt;
+  }
+
+  private createOrderlyDeadlineSignal(): { signal: AbortSignal; dispose: () => void } {
+    const controller = new AbortController();
+    const timeoutMs = Math.max(0, (this.orderlySyncDeadlineAt ?? Date.now()) - Date.now());
+    if (timeoutMs === 0) {
+      controller.abort();
+      return { signal: controller.signal, dispose: () => {} };
+    }
+
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    timeout.unref?.();
+    return {
+      signal: controller.signal,
+      dispose: () => clearTimeout(timeout),
+    };
+  }
+
+  private async awaitUntilOrderlyAbort(
+    operation: Promise<void>,
+    signal: AbortSignal
+  ): Promise<void> {
+    if (signal.aborted) {
+      operation.catch(() => {});
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = (): void => signal.removeEventListener('abort', handleAbort);
+      const handleAbort = (): void => {
+        cleanup();
+        resolve();
+      };
+      signal.addEventListener('abort', handleAbort, { once: true });
+      operation.then(
+        () => {
+          cleanup();
+          resolve();
+        },
+        (error: unknown) => {
+          cleanup();
+          reject(error);
+        }
+      );
+    });
   }
 
   private normalizeSessionStartTime(startedAt?: number | string | Date): Date {
@@ -376,6 +481,7 @@ export class TelemetryManager {
   }
 
   private startHeartbeatTimer(): void {
+    if (this.shutdownStarted) return;
     this.stopHeartbeatTimer();
     if (!this.telemetryEnabled) return;
 

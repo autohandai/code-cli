@@ -8,11 +8,13 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import os from 'node:os';
 import { AUTOHAND_HOME, AUTOHAND_FILES } from '../constants.js';
+import { atomicWriteJson } from '../utils/atomicFile.js';
 
 const PING_INTERVAL_MS = 45 * 60 * 1000; // 45 minutes
 const PING_CACHE_FILE = path.join(AUTOHAND_HOME, 'last-ping.json');
 const API_BASE_URL = process.env.AUTOHAND_API_URL || 'https://api.autohand.ai';
 const REQUEST_TIMEOUT_MS = 5000;
+const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2500;
 
 interface PingCache {
   lastPing: string;
@@ -26,6 +28,16 @@ export class PingService {
   private clientType: string;
   private pingTimer: NodeJS.Timeout | null = null;
   private isPinging = false;
+  private started = false;
+  private stopped = false;
+  private generation = 0;
+  private requestController: AbortController | null = null;
+  private activePingPromise: Promise<{
+    success: boolean;
+    updateAvailable?: boolean;
+    latestVersion?: string;
+  }> | null = null;
+  private shutdownPromise: Promise<void> | null = null;
 
   constructor(options: {
     cliVersion: string;
@@ -79,14 +91,17 @@ export class PingService {
   /**
    * Update the ping cache
    */
-  private async updateCache(): Promise<void> {
+  private async updateCache(generation: number): Promise<void> {
     try {
       await fs.ensureDir(path.dirname(PING_CACHE_FILE));
+      this.assertActive(generation);
       const cache: PingCache = {
         lastPing: new Date().toISOString(),
         pingDate: new Date().toISOString().split('T')[0],
       };
-      await fs.writeJson(PING_CACHE_FILE, cache, { spaces: 2 });
+      await atomicWriteJson(PING_CACHE_FILE, cache, {
+        beforeCommit: () => this.assertActive(generation),
+      });
     } catch {
       // Silently fail - ping should never break the CLI
     }
@@ -96,7 +111,7 @@ export class PingService {
    * Send a ping to the API
    */
   async ping(): Promise<{ success: boolean; updateAvailable?: boolean; latestVersion?: string }> {
-    if (this.isPinging) {
+    if (this.isPinging || this.stopped) {
       return { success: false };
     }
 
@@ -105,62 +120,27 @@ export class PingService {
       return { success: false };
     }
 
-    // Check cache to avoid excessive pings
-    const shouldPing = await this.shouldPing();
-    if (!shouldPing) {
-      return { success: true };
-    }
-
     this.isPinging = true;
+    const generation = this.generation;
+    const activePing = this.performPing(generation);
+    this.activePingPromise = activePing;
 
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-      const response = await fetch(`${API_BASE_URL}/v1/version/check`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CLI-Version': this.cliVersion,
-          'X-Device-ID': this.deviceId,
-        },
-        body: JSON.stringify({
-          deviceId: this.deviceId,
-          currentVersion: this.cliVersion,
-          platform: this.platform,
-          clientType: this.clientType,
-        }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeout);
-
-      if (response.ok) {
-        await this.updateCache();
-        const data = await response.json() as {
-          success: boolean;
-          updateAvailable?: boolean;
-          latestVersion?: string;
-        };
-        return {
-          success: true,
-          updateAvailable: data.updateAvailable,
-          latestVersion: data.latestVersion,
-        };
-      }
-    } catch {
-      // Network error, timeout, or abort - silently fail
+      return await activePing;
     } finally {
       this.isPinging = false;
+      if (this.activePingPromise === activePing) {
+        this.activePingPromise = null;
+      }
     }
-
-    return { success: false };
   }
 
   /**
    * Start periodic ping timer (every 45 minutes)
    */
   start(): void {
+    if (this.started || this.stopped) return;
+    this.started = true;
     // Ping immediately on start
     this.ping().catch(() => {});
 
@@ -182,10 +162,25 @@ export class PingService {
    * Stop periodic ping timer
    */
   stop(): void {
+    if (!this.stopped) {
+      this.stopped = true;
+      this.generation++;
+      this.requestController?.abort();
+    }
     if (this.pingTimer) {
       clearInterval(this.pingTimer);
       this.pingTimer = null;
     }
+    this.started = false;
+  }
+
+  shutdown(options: { timeoutMs?: number } = {}): Promise<void> {
+    if (!this.shutdownPromise) {
+      this.shutdownPromise = this.performShutdown(
+        options.timeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS,
+      );
+    }
+    return this.shutdownPromise;
   }
 
   /**
@@ -193,6 +188,94 @@ export class PingService {
    */
   getDeviceId(): string {
     return this.deviceId;
+  }
+
+  private async performPing(generation: number): Promise<{
+    success: boolean;
+    updateAvailable?: boolean;
+    latestVersion?: string;
+  }> {
+    try {
+      const shouldPing = await this.shouldPing();
+      this.assertActive(generation);
+      if (!shouldPing) {
+        return { success: true };
+      }
+
+      const controller = new AbortController();
+      this.requestController = controller;
+      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      timeout.unref?.();
+      try {
+        const response = await fetch(`${API_BASE_URL}/v1/version/check`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CLI-Version': this.cliVersion,
+            'X-Device-ID': this.deviceId,
+          },
+          body: JSON.stringify({
+            deviceId: this.deviceId,
+            currentVersion: this.cliVersion,
+            platform: this.platform,
+            clientType: this.clientType,
+          }),
+          signal: controller.signal,
+        });
+        this.assertActive(generation);
+
+        if (response.ok) {
+          const data = await response.json() as {
+            success: boolean;
+            updateAvailable?: boolean;
+            latestVersion?: string;
+          };
+          this.assertActive(generation);
+          await this.updateCache(generation);
+          this.assertActive(generation);
+          return {
+            success: true,
+            updateAvailable: data.updateAvailable,
+            latestVersion: data.latestVersion,
+          };
+        }
+      } finally {
+        clearTimeout(timeout);
+        if (this.requestController === controller) {
+          this.requestController = null;
+        }
+      }
+    } catch {
+      // Network error, timeout, lifecycle cancellation, or cache failure.
+    }
+
+    return { success: false };
+  }
+
+  private assertActive(generation: number): void {
+    if (this.stopped || generation !== this.generation) {
+      throw new DOMException('Ping service stopped', 'AbortError');
+    }
+  }
+
+  private async performShutdown(timeoutMs: number): Promise<void> {
+    this.stop();
+    const activePing = this.activePingPromise;
+    if (!activePing) return;
+
+    let deadline: ReturnType<typeof setTimeout> | null = null;
+    const timedOut = new Promise<void>((resolve) => {
+      deadline = setTimeout(resolve, timeoutMs);
+      deadline.unref?.();
+    });
+    try {
+      await Promise.race([
+        activePing.then(() => undefined, () => undefined),
+        timedOut,
+      ]);
+    } finally {
+      if (deadline) clearTimeout(deadline);
+    }
   }
 }
 
@@ -231,4 +314,10 @@ export function startPingService(): void {
  */
 export function stopPingService(): void {
   pingServiceInstance?.stop();
+}
+
+export async function shutdownPingService(
+  options?: { timeoutMs?: number },
+): Promise<void> {
+  await pingServiceInstance?.shutdown(options);
 }

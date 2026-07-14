@@ -15,6 +15,15 @@ import type {
 } from "../../src/import/types.js";
 import type { SessionMessage } from "../../src/session/types.js";
 
+const atomicFileMocks = vi.hoisted(() => ({
+  atomicWriteJson: vi.fn(),
+  withFileLock: vi.fn(
+    (_lockPath: string, operation: () => Promise<unknown>) => operation(),
+  ),
+}));
+
+vi.mock("../../src/utils/atomicFile.js", () => atomicFileMocks);
+
 // Mock fs-extra before importing BaseImporter
 vi.mock("fs-extra", () => ({
   default: {
@@ -24,6 +33,7 @@ vi.mock("fs-extra", () => ({
     writeJson: vi.fn(),
     readJson: vi.fn(),
     writeFile: vi.fn(),
+    copy: vi.fn(),
   },
 }));
 
@@ -122,6 +132,11 @@ describe("BaseImporter", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    atomicFileMocks.atomicWriteJson.mockImplementation(
+      async (filePath: string, value: unknown) => {
+        await fse.writeJson(filePath, value, { spaces: 2 });
+      },
+    );
     importer = new TestImporter();
   });
 

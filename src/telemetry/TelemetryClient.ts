@@ -7,17 +7,166 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import type { TelemetryEvent, TelemetryConfig } from './types.js';
 import { AUTOHAND_PATHS, AUTOHAND_FILES } from '../constants.js';
+import { atomicWriteJson } from '../utils/atomicFile.js';
 
 const TELEMETRY_DIR = AUTOHAND_PATHS.telemetry;
 const QUEUE_FILE = AUTOHAND_FILES.telemetryQueue;
+const SESSION_SYNC_QUEUE_FILE = AUTOHAND_FILES.sessionSyncQueue;
 const DEVICE_ID_FILE = AUTOHAND_FILES.deviceId;
+const HEALTH_REQUEST_TIMEOUT_MS = 3_000;
+const TELEMETRY_REQUEST_TIMEOUT_MS = 5_000;
+const DEFAULT_SYNC_TIMEOUT_MS = 1_500;
+const DEFAULT_MAX_QUEUE_SIZE = 500;
+const MAX_SESSION_SYNC_QUEUE_SIZE = 10;
+const TELEMETRY_EVENT_TYPES = new Set<TelemetryEvent['eventType']>([
+  'session_start',
+  'session_end',
+  'tool_use',
+  'error',
+  'model_switch',
+  'command_use',
+  'heartbeat',
+  'session_sync',
+  'skill_use',
+  'session_failure_bug',
+]);
+const TELEMETRY_CLIENT_TYPES = new Set<TelemetryEvent['clientType']>([
+  'cli',
+  'vscode',
+  'zed',
+  'unknown',
+]);
+
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isOptionalString(value: unknown): boolean {
+  return value === undefined || typeof value === 'string';
+}
+
+function isOptionalFiniteNumber(value: unknown): boolean {
+  return value === undefined || (typeof value === 'number' && Number.isFinite(value));
+}
+
+function isTelemetryEvent(value: unknown): value is TelemetryEvent {
+  if (!isRecord(value)) return false;
+  if (
+    typeof value.id !== 'string'
+    || value.id.length === 0
+    || typeof value.eventType !== 'string'
+    || !TELEMETRY_EVENT_TYPES.has(value.eventType as TelemetryEvent['eventType'])
+    || typeof value.deviceId !== 'string'
+    || value.deviceId.length === 0
+    || typeof value.sessionId !== 'string'
+    || value.sessionId.length === 0
+    || typeof value.clientType !== 'string'
+    || !TELEMETRY_CLIENT_TYPES.has(value.clientType as TelemetryEvent['clientType'])
+    || typeof value.cliVersion !== 'string'
+    || typeof value.platform !== 'string'
+    || typeof value.timestamp !== 'string'
+    || Number.isNaN(Date.parse(value.timestamp))
+  ) {
+    return false;
+  }
+
+  if (value.eventData !== undefined && !isRecord(value.eventData)) return false;
+  if (
+    !isOptionalString(value.clientVersion)
+    || !isOptionalString(value.osVersion)
+    || !isOptionalString(value.nodeVersion)
+    || !isOptionalString(value.cpuArch)
+  ) {
+    return false;
+  }
+  if (
+    !isOptionalFiniteNumber(value.cpuCores)
+    || !isOptionalFiniteNumber(value.memoryTotal)
+    || !isOptionalFiniteNumber(value.memoryFree)
+    || !isOptionalFiniteNumber(value.sessionDuration)
+    || !isOptionalFiniteNumber(value.interactionCount)
+    || !isOptionalFiniteNumber(value.errorsCount)
+  ) {
+    return false;
+  }
+  return value.toolsUsed === undefined || (
+    Array.isArray(value.toolsUsed)
+    && value.toolsUsed.every((tool) => typeof tool === 'string')
+  );
+}
+
+interface SessionSyncQueueEntry {
+  sessionId: string;
+  messages: Array<{ role: string; content: string; timestamp?: string }>;
+  metadata?: {
+    model?: string;
+    provider?: string;
+    totalTokens?: number;
+    startTime?: string;
+    endTime?: string;
+    durationSeconds?: number;
+    workspaceRoot?: string;
+  };
+}
+
+function isSessionSyncQueueEntry(value: unknown): value is SessionSyncQueueEntry {
+  if (
+    !isRecord(value)
+    || typeof value.sessionId !== 'string'
+    || value.sessionId.length === 0
+    || !Array.isArray(value.messages)
+    || !value.messages.every((message) => (
+      isRecord(message)
+      && typeof message.role === 'string'
+      && typeof message.content === 'string'
+      && isOptionalString(message.timestamp)
+    ))
+  ) {
+    return false;
+  }
+  if (value.metadata === undefined) return true;
+  if (!isRecord(value.metadata)) return false;
+  return isOptionalString(value.metadata.model)
+    && isOptionalString(value.metadata.provider)
+    && isOptionalFiniteNumber(value.metadata.totalTokens)
+    && isOptionalString(value.metadata.startTime)
+    && isOptionalString(value.metadata.endTime)
+    && isOptionalFiniteNumber(value.metadata.durationSeconds)
+    && isOptionalString(value.metadata.workspaceRoot);
+}
+
+interface TelemetryFlushOptions {
+  signal?: AbortSignal;
+}
+
+interface TelemetryTrackOptions {
+  signal?: AbortSignal;
+}
+
+interface TelemetrySyncOptions {
+  timeoutMs?: number;
+}
+
+interface TelemetryFlushResult {
+  sent: number;
+  failed: number;
+  queued: number;
+}
+
+interface ActiveFlush {
+  controller: AbortController;
+  promise: Promise<TelemetryFlushResult>;
+}
 
 export class TelemetryClient {
   private config: TelemetryConfig;
   private queue: TelemetryEvent[] = [];
   private deviceId: string;
   private flushTimer: NodeJS.Timeout | null = null;
-  private isFlushing = false;
+  private activeFlush: ActiveFlush | null = null;
+  private queueWritePromise: Promise<void> = Promise.resolve();
 
   constructor(config: Partial<TelemetryConfig> = {}) {
     this.config = {
@@ -25,7 +174,7 @@ export class TelemetryClient {
       apiBaseUrl: 'https://api.autohand.ai',
       batchSize: 20,
       flushIntervalMs: 60000, // 1 minute
-      maxQueueSize: 500,
+      maxQueueSize: DEFAULT_MAX_QUEUE_SIZE,
       maxRetries: 3,
       enableSessionSync: true,
       companySecret: '',
@@ -33,6 +182,9 @@ export class TelemetryClient {
       clientVersion: undefined,
       ...config
     };
+    if (!Number.isSafeInteger(this.config.maxQueueSize) || this.config.maxQueueSize <= 0) {
+      this.config.maxQueueSize = DEFAULT_MAX_QUEUE_SIZE;
+    }
 
     this.deviceId = this.getOrCreateDeviceId();
     this.loadQueue();
@@ -65,23 +217,67 @@ export class TelemetryClient {
       fs.ensureDirSync(TELEMETRY_DIR);
       if (fs.existsSync(QUEUE_FILE)) {
         const data = fs.readFileSync(QUEUE_FILE, 'utf8');
-        this.queue = JSON.parse(data);
+        const parsed = JSON.parse(data) as unknown;
+        if (!Array.isArray(parsed) || !parsed.every(isTelemetryEvent)) {
+          throw new Error('Invalid telemetry queue structure');
+        }
+        const eventIds = new Set(parsed.map((event) => event.id));
+        if (eventIds.size !== parsed.length) {
+          throw new Error('Invalid telemetry queue: duplicate event identifiers');
+        }
+        this.queue = parsed.slice(-this.config.maxQueueSize);
       }
     } catch {
       this.queue = [];
+      this.backupMalformedQueue(QUEUE_FILE);
+    }
+  }
+
+  private backupMalformedQueue(queueFile: string): void {
+    if (!fs.existsSync(queueFile)) return;
+    const backupPath = `${queueFile}.corrupt-${Date.now()}-${crypto.randomUUID()}`;
+    try {
+      fs.renameSync(queueFile, backupPath);
+    } catch {
+      // Telemetry recovery is best-effort; retaining the source is safer than deleting it.
+    }
+  }
+
+  private loadSessionSyncQueue(): SessionSyncQueueEntry[] | null {
+    if (!fs.existsSync(SESSION_SYNC_QUEUE_FILE)) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(fs.readFileSync(SESSION_SYNC_QUEUE_FILE, 'utf8')) as unknown;
+      if (!Array.isArray(parsed) || !parsed.every(isSessionSyncQueueEntry)) {
+        throw new Error('Invalid session sync queue structure');
+      }
+      return parsed.slice(-MAX_SESSION_SYNC_QUEUE_SIZE);
+    } catch {
+      this.backupMalformedQueue(SESSION_SYNC_QUEUE_FILE);
+      return [];
     }
   }
 
   /**
    * Persist queue to disk for offline support
    */
-  private saveQueue(): void {
+  private saveQueue(signal?: AbortSignal): Promise<void> {
+    let queueSnapshot: TelemetryEvent[];
     try {
-      fs.ensureDirSync(TELEMETRY_DIR);
-      fs.writeFileSync(QUEUE_FILE, JSON.stringify(this.queue, null, 2));
+      queueSnapshot = JSON.parse(JSON.stringify(this.queue)) as TelemetryEvent[];
     } catch {
-      // Silently fail - telemetry should never break the CLI
+      return Promise.resolve();
     }
+
+    const writePromise = this.queueWritePromise
+      .then(() => atomicWriteJson(QUEUE_FILE, queueSnapshot))
+      .catch(() => {});
+    this.queueWritePromise = writePromise;
+    if (!signal) {
+      return writePromise;
+    }
+    return this.awaitWithAbort(writePromise, signal).catch(() => {});
   }
 
   /**
@@ -94,6 +290,7 @@ export class TelemetryClient {
     this.flushTimer = setInterval(() => {
       this.flush().catch(() => {});
     }, this.config.flushIntervalMs);
+    this.flushTimer.unref?.();
   }
 
   /**
@@ -116,15 +313,14 @@ export class TelemetryClient {
   /**
    * Check if online
    */
-  private async isOnline(): Promise<boolean> {
+  private async isOnline(signal?: AbortSignal): Promise<boolean> {
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3000);
-      const response = await fetch(`${this.config.apiBaseUrl}/health`, {
-        method: 'GET',
-        signal: controller.signal
-      });
-      clearTimeout(timeout);
+      const response = await this.fetchWithTimeout(
+        `${this.config.apiBaseUrl}/health`,
+        { method: 'GET' },
+        HEALTH_REQUEST_TIMEOUT_MS,
+        signal
+      );
       return response.ok;
     } catch {
       return false;
@@ -134,7 +330,10 @@ export class TelemetryClient {
   /**
    * Queue an event for sending
    */
-  async track(event: Omit<TelemetryEvent, 'id' | 'deviceId' | 'timestamp' | 'clientType' | 'clientVersion'>): Promise<void> {
+  async track(
+    event: Omit<TelemetryEvent, 'id' | 'deviceId' | 'timestamp' | 'clientType' | 'clientVersion'>,
+    options: TelemetryTrackOptions = {}
+  ): Promise<void> {
     if (!this.config.enabled) return;
 
     const fullEvent: TelemetryEvent = {
@@ -153,42 +352,63 @@ export class TelemetryClient {
       this.queue = this.queue.slice(-this.config.maxQueueSize);
     }
 
-    this.saveQueue();
+    await this.saveQueue(options.signal);
 
     // Auto-flush if batch size reached
-    if (this.queue.length >= this.config.batchSize) {
-      await this.flush();
+    if (!options.signal?.aborted && this.queue.length >= this.config.batchSize) {
+      this.flush().catch(() => {});
     }
   }
 
   /**
    * Flush queued events to the server
    */
-  async flush(): Promise<{ sent: number; failed: number; queued: number }> {
-    if (!this.config.enabled || this.isFlushing || this.queue.length === 0) {
+  async flush(options: TelemetryFlushOptions = {}): Promise<TelemetryFlushResult> {
+    if (!this.config.enabled || this.queue.length === 0) {
       return { sent: 0, failed: 0, queued: this.queue.length };
     }
 
-    // Check if online first
-    const online = await this.isOnline();
-    if (!online) {
-      return { sent: 0, failed: 0, queued: this.queue.length };
+    if (this.activeFlush) {
+      const removeAbortForwarder = this.forwardAbort(options.signal, this.activeFlush.controller);
+      try {
+        return await this.activeFlush.promise;
+      } finally {
+        removeAbortForwarder();
+      }
     }
 
-    this.isFlushing = true;
+    const controller = new AbortController();
+    const removeAbortForwarder = this.forwardAbort(options.signal, controller);
+    const promise = this.performFlush(controller.signal);
+    const activeFlush: ActiveFlush = { controller, promise };
+    this.activeFlush = activeFlush;
 
     try {
-      // Take events to send
-      const eventsToSend = this.queue.slice(0, this.config.batchSize);
-      let sent = 0;
-      let failed = 0;
+      return await promise;
+    } finally {
+      removeAbortForwarder();
+      if (this.activeFlush === activeFlush) {
+        this.activeFlush = null;
+      }
+    }
+  }
 
-      for (let attempt = 0; attempt < this.config.maxRetries; attempt++) {
-        try {
-          // Build auth token: {device_id}.{company_secret}
-          const authToken = `${this.deviceId}.${this.config.companySecret}`;
+  private async performFlush(signal: AbortSignal): Promise<TelemetryFlushResult> {
+    const online = await this.isOnline(signal);
+    if (!online || signal.aborted) {
+      return { sent: 0, failed: 0, queued: this.queue.length };
+    }
 
-          const response = await fetch(`${this.config.apiBaseUrl}/v1/telemetry`, {
+    const eventsToSend = this.queue.slice(0, this.config.batchSize);
+    let sent = 0;
+    let failed = 0;
+
+    for (let attempt = 0; attempt < this.config.maxRetries && !signal.aborted; attempt++) {
+      try {
+        const authToken = `${this.deviceId}.${this.config.companySecret}`;
+        const response = await this.fetchWithTimeout(
+          `${this.config.apiBaseUrl}/v1/telemetry`,
+          {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -196,76 +416,181 @@ export class TelemetryClient {
               'X-CLI-Version': eventsToSend[0]?.cliVersion || 'unknown'
             },
             body: JSON.stringify({ events: eventsToSend })
-          });
+          },
+          TELEMETRY_REQUEST_TIMEOUT_MS,
+          signal
+        );
 
-          if (response.ok) {
-            // Remove sent events from queue
-            this.queue = this.queue.slice(eventsToSend.length);
-            sent = eventsToSend.length;
-            this.saveQueue();
-            break;
-          } else {
-            failed = eventsToSend.length;
-          }
-        } catch {
-          failed = eventsToSend.length;
-          // Wait before retry
-          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+        if (response.ok) {
+          const acknowledgedIds = new Set(eventsToSend.map((event) => event.id));
+          this.queue = this.queue.filter((event) => !acknowledgedIds.has(event.id));
+          sent = eventsToSend.length;
+          await this.saveQueue(signal);
+          break;
         }
-      }
 
-      return { sent, failed, queued: this.queue.length };
-    } finally {
-      this.isFlushing = false;
+        failed = eventsToSend.length;
+      } catch {
+        failed = eventsToSend.length;
+        if (signal.aborted || attempt === this.config.maxRetries - 1) {
+          break;
+        }
+        await this.waitForRetry(1_000 * (attempt + 1), signal);
+      }
     }
+
+    if (sent === 0 && eventsToSend.length > 0) {
+      failed = eventsToSend.length;
+      await this.saveQueue(signal);
+    }
+
+    return { sent, failed, queued: this.queue.length };
   }
 
   /**
    * Force sync all queued events (called on graceful shutdown)
    */
-  async syncAll(): Promise<{ sent: number; failed: number }> {
+  async syncAll(options: TelemetrySyncOptions = {}): Promise<{ sent: number; failed: number }> {
     if (!this.config.enabled || this.queue.length === 0) {
       return { sent: 0, failed: 0 };
     }
 
-    const online = await this.isOnline();
-    if (!online) {
-      this.saveQueue();
-      return { sent: 0, failed: this.queue.length };
+    const timeoutMs = this.normalizeTimeout(options.timeoutMs);
+    const controller = new AbortController();
+    const timeout = timeoutMs === 0
+      ? null
+      : setTimeout(() => controller.abort(), timeoutMs);
+    timeout?.unref?.();
+    if (timeoutMs === 0) {
+      controller.abort();
     }
-
     let totalSent = 0;
-    let totalFailed = 0;
 
-    // Flush in batches
-    while (this.queue.length > 0) {
-      const result = await this.flush();
-      totalSent += result.sent;
-      if (result.sent === 0) {
-        totalFailed += result.queued;
-        break;
+    try {
+      while (this.queue.length > 0 && !controller.signal.aborted) {
+        const result = await this.flush({ signal: controller.signal });
+        totalSent += result.sent;
+        if (result.sent === 0) {
+          break;
+        }
+      }
+    } catch {
+      // Telemetry remains best-effort; unsent events are persisted below.
+    } finally {
+      try {
+        await this.saveQueue(controller.signal);
+      } finally {
+        if (timeout) {
+          clearTimeout(timeout);
+        }
       }
     }
 
-    return { sent: totalSent, failed: totalFailed };
+    return { sent: totalSent, failed: this.queue.length };
+  }
+
+  private normalizeTimeout(timeoutMs: number | undefined): number {
+    if (timeoutMs === undefined || !Number.isFinite(timeoutMs)) {
+      return DEFAULT_SYNC_TIMEOUT_MS;
+    }
+    return Math.max(0, timeoutMs);
+  }
+
+  private async fetchWithTimeout(
+    input: string,
+    init: RequestInit,
+    timeoutMs: number,
+    signal?: AbortSignal
+  ): Promise<Response> {
+    const controller = new AbortController();
+    const removeAbortForwarder = this.forwardAbort(signal, controller);
+    if (controller.signal.aborted) {
+      removeAbortForwarder();
+      throw this.createAbortError();
+    }
+
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    timeout.unref?.();
+
+    try {
+      const request = fetch(input, { ...init, signal: controller.signal });
+      return await this.awaitWithAbort(request, controller.signal);
+    } finally {
+      clearTimeout(timeout);
+      removeAbortForwarder();
+    }
+  }
+
+  private async waitForRetry(timeoutMs: number, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) return;
+
+    await new Promise<void>((resolve) => {
+      const cleanup = (): void => {
+        clearTimeout(timeout);
+        signal.removeEventListener('abort', handleAbort);
+      };
+      const finish = (): void => {
+        cleanup();
+        resolve();
+      };
+      const handleAbort = (): void => finish();
+      const timeout = setTimeout(finish, timeoutMs);
+      timeout.unref?.();
+      signal.addEventListener('abort', handleAbort, { once: true });
+    });
+  }
+
+  private awaitWithAbort<T>(request: Promise<T>, signal: AbortSignal): Promise<T> {
+    if (signal.aborted) {
+      return Promise.reject(this.createAbortError());
+    }
+
+    return new Promise<T>((resolve, reject) => {
+      const cleanup = (): void => signal.removeEventListener('abort', handleAbort);
+      const handleAbort = (): void => {
+        cleanup();
+        reject(this.createAbortError());
+      };
+
+      signal.addEventListener('abort', handleAbort, { once: true });
+      request.then(
+        (value) => {
+          cleanup();
+          resolve(value);
+        },
+        (error: unknown) => {
+          cleanup();
+          reject(error);
+        }
+      );
+    });
+  }
+
+  private forwardAbort(signal: AbortSignal | undefined, controller: AbortController): () => void {
+    if (!signal) return () => {};
+
+    const handleAbort = (): void => controller.abort();
+    if (signal.aborted) {
+      handleAbort();
+      return () => {};
+    }
+
+    signal.addEventListener('abort', handleAbort, { once: true });
+    return () => signal.removeEventListener('abort', handleAbort);
+  }
+
+  private createAbortError(): Error {
+    const error = new Error('Telemetry operation aborted');
+    error.name = 'AbortError';
+    return error;
   }
 
   /**
    * Upload session data for cloud sync
    */
-  async uploadSession(sessionData: {
-    sessionId: string;
-    messages: Array<{ role: string; content: string; timestamp?: string }>;
-    metadata?: {
-      model?: string;
-      provider?: string;
-      totalTokens?: number;
-      startTime?: string;
-      endTime?: string;
-      durationSeconds?: number;
-      workspaceRoot?: string;
-    };
-  }): Promise<{ success: boolean; id?: string; error?: string }> {
+  async uploadSession(
+    sessionData: SessionSyncQueueEntry
+  ): Promise<{ success: boolean; id?: string; error?: string }> {
     if (!this.config.enableSessionSync) {
       return { success: false, error: 'Session sync disabled' };
     }
@@ -278,17 +603,12 @@ export class TelemetryClient {
     if (!online) {
       // Queue for later - store in a separate file
       try {
-        const syncQueueFile = path.join(TELEMETRY_DIR, 'session-sync-queue.json');
-        let syncQueue: typeof sessionData[] = [];
-        if (fs.existsSync(syncQueueFile)) {
-          syncQueue = JSON.parse(fs.readFileSync(syncQueueFile, 'utf8'));
-        }
+        let syncQueue = this.loadSessionSyncQueue() ?? [];
         syncQueue.push(sessionData);
-        // Keep only last 10 sessions in queue
-        if (syncQueue.length > 10) {
-          syncQueue = syncQueue.slice(-10);
+        if (syncQueue.length > MAX_SESSION_SYNC_QUEUE_SIZE) {
+          syncQueue = syncQueue.slice(-MAX_SESSION_SYNC_QUEUE_SIZE);
         }
-        fs.writeFileSync(syncQueueFile, JSON.stringify(syncQueue, null, 2));
+        await atomicWriteJson(SESSION_SYNC_QUEUE_FILE, syncQueue);
         return { success: false, error: 'Offline - queued for sync' };
       } catch {
         return { success: false, error: 'Failed to queue session' };
@@ -326,33 +646,37 @@ export class TelemetryClient {
    * Sync queued sessions (call when back online)
    */
   async syncQueuedSessions(): Promise<{ synced: number; failed: number }> {
-    const syncQueueFile = path.join(TELEMETRY_DIR, 'session-sync-queue.json');
-    if (!fs.existsSync(syncQueueFile)) {
+    if (!this.config.enableSessionSync || !this.config.authToken) {
+      return { synced: 0, failed: 0 };
+    }
+
+    const syncQueue = this.loadSessionSyncQueue();
+    if (syncQueue === null) {
       return { synced: 0, failed: 0 };
     }
 
     try {
-      const syncQueue = JSON.parse(fs.readFileSync(syncQueueFile, 'utf8'));
       let synced = 0;
       let failed = 0;
-      const remaining: typeof syncQueue = [];
+      const remaining: SessionSyncQueueEntry[] = [];
 
       for (const session of syncQueue) {
         const result = await this.uploadSession(session);
         if (result.success) {
           synced++;
-        } else if (result.error !== 'Offline - queued for sync') {
-          failed++;
         } else {
+          if (result.error !== 'Offline - queued for sync') {
+            failed++;
+          }
           remaining.push(session);
         }
       }
 
       // Update queue with remaining sessions
       if (remaining.length > 0) {
-        fs.writeFileSync(syncQueueFile, JSON.stringify(remaining, null, 2));
+        await atomicWriteJson(SESSION_SYNC_QUEUE_FILE, remaining);
       } else {
-        fs.removeSync(syncQueueFile);
+        await fs.remove(SESSION_SYNC_QUEUE_FILE);
       }
 
       return { synced, failed };
