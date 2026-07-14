@@ -26,7 +26,9 @@ This directory contains automated CI/CD workflows for the Autohand CLI project.
 
 4. **Creates GitHub Release** with binaries attached
 
-5. **Publishes to npm** (stable releases only)
+5. **Updates the public Homebrew tap** from the verified release archives (stable releases only)
+
+6. **Publishes to npm** (stable releases only)
 
 **Release Channels:**
 - **main push** → `v1.2.4-alpha.abc1234` (next patch from the latest stable tag plus short SHA)
@@ -75,6 +77,10 @@ Add these secrets in GitHub Settings → Secrets → Actions:
    - Fine-grained token with repository Contents, Issues, and Pull requests read/write access
    - When omitted, the workflow uses the repository `GITHUB_TOKEN`
    - Configure this token when automated pull requests must trigger other GitHub Actions workflows
+
+3. **`TAP_GITHUB_TOKEN`** (required for stable releases)
+   - Fine-grained token with Contents read/write access to `autohandai/homebrew-code`
+   - The tap repository must remain public so Homebrew users can install without GitHub credentials
 
 ### Repository Settings
 

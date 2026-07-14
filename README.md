@@ -43,6 +43,14 @@ Install it, run `autohand`, and describe the outcome you want in natural languag
 curl -fsSL https://autohand.ai/install.sh | bash
 ```
 
+### Homebrew
+
+```bash
+brew install autohandai/code/autohand-code
+```
+
+The fully qualified command installs and trusts only the Autohand formula. Start the CLI with `autohand`; the previous `autohand-code` command remains available as an alias.
+
 ### Manual Installation
 
 ```bash

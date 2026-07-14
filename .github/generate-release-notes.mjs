@@ -169,6 +169,11 @@ function appendInstallSection(lines, channel) {
       'npm install -g autohand-cli',
       '```',
       '',
+      '**Via Homebrew:**',
+      '```bash',
+      'brew install autohandai/code/autohand-code',
+      '```',
+      '',
     );
   }
 
