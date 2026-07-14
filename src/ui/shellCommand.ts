@@ -19,6 +19,7 @@ import { buildAutohandChildProcessEnv } from '../utils/childProcessEnv.js';
  */
 const DEFAULT_SHELL_TIMEOUT = 30000;
 const DEFAULT_KILL_GRACE_PERIOD_MS = 1_000;
+const SUPPORTS_PROCESS_GROUP_SIGNALS = process.platform !== 'win32';
 
 export class ShellCommandAbortedError extends Error {
   readonly output: string;
@@ -29,6 +30,23 @@ export class ShellCommandAbortedError extends Error {
     this.name = 'AbortError';
     this.output = output;
     this.stderr = stderr;
+  }
+}
+
+function signalForegroundProcessGroup(
+  child: ReturnType<typeof spawn>,
+  signal: NodeJS.Signals
+): void {
+  const pid = child.pid;
+  if (!SUPPORTS_PROCESS_GROUP_SIGNALS || pid === undefined) {
+    child.kill(signal);
+    return;
+  }
+
+  try {
+    process.kill(-pid, signal);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
   }
 }
 
@@ -510,6 +528,7 @@ export async function executeShellCommandAsync(
       child = spawn(trimmedCommand, {
         cwd: cwd ?? process.cwd(),
         shell: true,
+        detached: SUPPORTS_PROCESS_GROUP_SIGNALS,
         stdio: ['ignore', 'pipe', 'pipe'],
         env: buildAutohandChildProcessEnv(),
       });
@@ -526,9 +545,9 @@ export async function executeShellCommandAsync(
       if (resolved || aborted || timedOut) return;
       aborted = reason === 'abort';
       timedOut = reason === 'timeout';
-      child.kill('SIGTERM');
+      signalForegroundProcessGroup(child, 'SIGTERM');
       forceKillId = setTimeout(() => {
-        if (!resolved) child.kill('SIGKILL');
+        if (!resolved) signalForegroundProcessGroup(child, 'SIGKILL');
       }, killGracePeriodMs);
       forceKillId.unref?.();
     };
