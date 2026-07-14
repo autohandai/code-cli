@@ -138,8 +138,22 @@ export function buildSubcommandSuggestions(
     (cmd) => cmd.command.toLowerCase() === cmdPart
   );
 
-  if (!parent) return null;
-  if (!parent.subcommands || parent.subcommands.length === 0) return [];
+  if (!parent || !parent.subcommands || parent.subcommands.length === 0) {
+    const normalizedInput = trimmed.toLowerCase();
+    const registeredMultiwordMatches = slashCommands
+      .filter((command) => command.implemented && command.command.includes(' '))
+      .filter((command) => command.command.toLowerCase().startsWith(normalizedInput))
+      .slice(0, limit);
+
+    if (registeredMultiwordMatches.length > 0) {
+      return registeredMultiwordMatches.map((command) => ({
+        command: command.command,
+        description: command.description ?? '',
+      }));
+    }
+
+    return parent ? [] : null;
+  }
 
   const matches = parent.subcommands
     .filter((sub) =>

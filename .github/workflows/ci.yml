@@ -39,6 +39,9 @@ jobs:
       - name: Run tests
         run: bun run test
 
+      - name: Run built terminal tests
+        run: bun run test:tuistory
+
   build-test:
     needs: test
     runs-on: ${{ matrix.os }}

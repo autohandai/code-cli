@@ -133,6 +133,12 @@ jobs:
       - name: Run tests
         run: bun run test:ci
 
+      - name: Build CLI for terminal tests
+        run: bun run build
+
+      - name: Run built terminal tests
+        run: bun run test:tuistory
+
   build:
     needs: [prepare, test]
     if: needs.prepare.outputs.should_release == 'true'
@@ -210,6 +216,23 @@ jobs:
           echo "Testing --help..."
           run_with_timeout 10 ./binaries/${{ matrix.artifact }} --help < /dev/null > /dev/null
           echo "Smoke test passed!"
+
+      - name: Smoke test Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: 1
+        run: |
+          $binary = (Resolve-Path "./binaries/${{ matrix.artifact }}").Path
+
+          & $binary --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows --version smoke test failed with exit code $LASTEXITCODE"
+          }
+
+          & $binary --help | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows --help smoke test failed with exit code $LASTEXITCODE"
+          }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7

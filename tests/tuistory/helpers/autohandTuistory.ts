@@ -367,6 +367,50 @@ globalThis.fetch = async (input, init) => {
   };
 }
 
+export async function createFailingOpenRouterFetchPreload(
+  status = 503,
+): Promise<MockOpenRouterFetchPreload> {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'autohand-tuistory-fetch-failure-'));
+  const preloadPath = path.join(tempRoot, 'mock-openrouter-fetch-failure.mjs');
+  const moduleSource = `
+const status = ${JSON.stringify(status)};
+const originalFetch = globalThis.fetch?.bind(globalThis);
+
+globalThis.fetch = async (input, init) => {
+  const url = typeof input === 'string'
+    ? input
+    : input instanceof URL
+      ? input.toString()
+      : input.url;
+  const method = init?.method ?? (typeof input === 'object' && 'method' in input ? input.method : 'GET');
+
+  if (url.endsWith('/chat/completions') && method.toUpperCase() === 'POST') {
+    return new Response(JSON.stringify({
+      error: { message: 'Deterministic Tuistory provider failure' },
+    }), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  if (!originalFetch) {
+    throw new Error('fetch is not available in this runtime');
+  }
+
+  return originalFetch(input, init);
+};
+`;
+
+  await writeFile(preloadPath, moduleSource);
+
+  return {
+    importSpecifier: pathToFileURL(preloadPath).href,
+    cleanup: async () => {
+      await rm(tempRoot, { recursive: true, force: true });
+    },
+  };
+}
+
 export async function createMockOpenRouterFetchSequencePreload(
   responseContents: string[],
   delayMs = 0,
