@@ -15,14 +15,16 @@ describe('local install scripts', () => {
     expect(goScript).not.toContain('--skip-compile');
   });
 
-  it('runs proof without nested bun run scripts', () => {
+  it('runs unit and built Tuistory gates from the proof command', () => {
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
       scripts?: Record<string, string>;
     };
     const proofScript = packageJson.scripts?.proof ?? '';
+    const unitProofScript = packageJson.scripts?.['proof:unit'] ?? '';
 
-    expect(proofScript).toBe('eslint . && tsc --noEmit && node --max-old-space-size=8192 ./node_modules/vitest/vitest.mjs run');
-    expect(proofScript).not.toContain('bun run');
+    expect(proofScript).toBe('bun run proof:unit && bun run proof:build-tuistory');
+    expect(unitProofScript).toBe('eslint . && tsc --noEmit && node --max-old-space-size=8192 ./node_modules/vitest/vitest.mjs run');
+    expect(unitProofScript).not.toContain('bun run');
   });
 
   it('runs dev through a minimal bun environment', () => {
@@ -81,6 +83,15 @@ describe('dependency install guardrails', () => {
 
     expect(packageJson.scripts?.['test:ci']).toBe("node --max-old-space-size=8192 ./node_modules/vitest/vitest.mjs run --pool=threads --exclude 'tests/tuistory/**/*.tuistory.test.ts'");
     expect(releaseWorkflow).toContain('run: bun run test:ci');
+  });
+
+  it('smoke-tests the compiled Windows binary before publishing it', () => {
+    const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8');
+
+    expect(releaseWorkflow).toContain('- name: Smoke test Windows binary');
+    expect(releaseWorkflow).toContain("if: runner.os == 'Windows'");
+    expect(releaseWorkflow).toContain('& $binary --version');
+    expect(releaseWorkflow).toContain('& $binary --help');
   });
 
   it('bases alpha releases on the latest stable release tag before package.json fallback', () => {

@@ -16,6 +16,7 @@ import { SLASH_COMMANDS } from '../../src/core/slashCommands.js';
 import { getHelpOrderedSlashCommands } from '../../src/ui/inputPrompt.js';
 import {
   clearComposerInput,
+  createFailingOpenRouterFetchPreload,
   createMockAuthServer,
   createMockOpenRouterFetchPreload,
   createMockOpenRouterSequenceServer,
@@ -41,6 +42,23 @@ const mockServers: MockOllamaServer[] = [];
 const mockOpenRouterFetchPreloads: Array<{ cleanup: () => Promise<void> }> = [];
 const mockResearchEvidenceServers: Array<{ close: () => Promise<void> }> = [];
 const CURSOR_CHAR = '█';
+const MODAL_NUMERIC_SHORTCUTS = new Set<string>([
+  '1',
+  '2',
+  '3',
+  '4',
+  '5',
+  '6',
+  '7',
+  '8',
+  '9',
+]);
+
+type ModalNumericShortcut = '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9';
+
+function isModalNumericShortcut(value: string | undefined): value is ModalNumericShortcut {
+  return value !== undefined && MODAL_NUMERIC_SHORTCUTS.has(value);
+}
 
 async function trackSession(sessionPromise: Promise<Session>): Promise<Session> {
   const session = await sessionPromise;
@@ -233,6 +251,102 @@ describe('built CLI Tuistory smoke tests', () => {
 
     await waitForExit(session);
     expectCleanExit(session);
+  });
+
+  it('returns truthful process statuses for built command-mode turns', async () => {
+    const commandConfig = {
+      agent: {
+        sessionRetryLimit: 0,
+        sessionRetryDelay: 0,
+      },
+      network: {
+        maxRetries: 0,
+        retryDelay: 0,
+      },
+      openrouter: {
+        baseUrl: 'https://mock.openrouter.test/api/v1',
+      },
+    };
+    const failedState = await createTempAutohandHome({ config: commandConfig });
+    const successfulState = await createTempAutohandHome({ config: commandConfig });
+    tempStates.push(failedState, successfulState);
+
+    const failingPreload = await createFailingOpenRouterFetchPreload();
+    const successfulPreload = await createMockOpenRouterFetchPreload(
+      'Deterministic command success.',
+    );
+    mockOpenRouterFetchPreloads.push(failingPreload, successfulPreload);
+
+    const launchCommand = async (
+      state: TuistoryTempState,
+      importSpecifier: string,
+    ): Promise<Session> => trackSession(
+      launchBuiltAutohand([
+        '--path',
+        state.workspaceRoot,
+        '--config',
+        state.configPath,
+        '--prompt',
+        'Run the deterministic command-mode test.',
+      ], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        env: {
+          NODE_OPTIONS: [
+            process.env.NODE_OPTIONS,
+            `--import=${importSpecifier}`,
+          ].filter(Boolean).join(' '),
+        },
+        waitForDataTimeout: 15_000,
+      })
+    );
+
+    const failedSession = await launchCommand(failedState, failingPreload.importSpecifier);
+    await waitForExit(failedSession, 15_000);
+    expect(failedSession.exitInfo?.exitCode).toBe(1);
+    expect(failedSession.readAll()).not.toContain('Deterministic command success.');
+
+    const successfulSession = await launchCommand(successfulState, successfulPreload.importSpecifier);
+    await successfulSession.waitForText('Deterministic command success.', { timeout: 15_000 });
+    await waitForExit(successfulSession, 15_000);
+    expect(successfulSession.exitInfo?.exitCode).toBe(0);
+  });
+
+  it('does not publish a patch after a built command-mode failure', async () => {
+    const state = await createTempAutohandHome({
+      config: {
+        agent: { sessionRetryLimit: 0, sessionRetryDelay: 0 },
+        network: { maxRetries: 0, retryDelay: 0 },
+        openrouter: { baseUrl: 'https://mock.openrouter.test/api/v1' },
+      },
+    });
+    tempStates.push(state);
+    const failingPreload = await createFailingOpenRouterFetchPreload();
+    mockOpenRouterFetchPreloads.push(failingPreload);
+
+    const session = await trackSession(launchBuiltAutohand([
+      '--path',
+      state.workspaceRoot,
+      '--config',
+      state.configPath,
+      '--prompt',
+      'Run the deterministic patch-mode test.',
+      '--patch',
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      env: {
+        NODE_OPTIONS: [
+          process.env.NODE_OPTIONS,
+          `--import=${failingPreload.importSpecifier}`,
+        ].filter(Boolean).join(' '),
+      },
+      waitForDataTimeout: 15_000,
+    }));
+
+    await waitForExit(session, 15_000);
+    expect(session.exitInfo?.exitCode).toBe(1);
+    expect(session.readAll()).not.toMatch(/^diff --git /m);
   });
 
   it('opens the active agents dashboard and exits with Escape', async () => {
@@ -803,17 +917,11 @@ describe('interactive built CLI Tuistory tests', () => {
     await session.type('/deep-research Hermes self evolving and DSPy');
     await session.press('enter');
     await session.waitForText('Deep research started', { timeout: 10_000 });
-    const permissionOrSaved = await session.text({
-      timeout: 30_000,
-      waitFor: (text) => (
-        text.includes(`Create new file ${reportPath}?`) ||
-        text.includes(`Research saved: ${reportPath}`)
-      ),
-    });
-    if (permissionOrSaved.includes(`Create new file ${reportPath}?`)) {
-      await session.press('enter');
-    }
     await session.waitForText(`Research saved: ${reportPath}`, { timeout: 30_000 });
+
+    const output = session.readAll();
+    expect(output).not.toContain('Write to this file?');
+    expect(output).not.toContain(`Create new file ${reportPath}?`);
 
     const savedReportPath = path.join(state.workspaceRoot, reportPath);
     expect(existsSync(savedReportPath)).toBe(true);
@@ -932,8 +1040,19 @@ describe('interactive built CLI Tuistory tests', () => {
     await waitForComposer(session);
     await session.type('/model');
     await session.press('enter');
+    await session.waitForText('What would you like to change?', { timeout: 10_000 });
+    await session.press('3');
     await session.waitForText('Choose an LLM provider', { timeout: 10_000 });
-    await session.press('7');
+    const providerScreen = await session.text({ trimEnd: true });
+    const ollamaLine = providerScreen
+      .split('\n')
+      .find((line) => line.includes('Ollama'));
+    const ollamaShortcut = ollamaLine?.match(/^\s*(?:▸\s*)?([1-9])\.\s/)?.[1];
+    expect(isModalNumericShortcut(ollamaShortcut), providerScreen).toBe(true);
+    if (!isModalNumericShortcut(ollamaShortcut)) {
+      throw new Error('The visible Ollama option does not expose a numeric shortcut');
+    }
+    await session.press(ollamaShortcut);
     await session.waitForText('Select a model', { timeout: 10_000 });
     await session.press('enter');
     await session.waitForText(`Using ollama model ${selectedModel}`, { timeout: 10_000 });

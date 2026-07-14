@@ -211,6 +211,7 @@ describe('AgentUI composer suggestions', () => {
   const slashCommands = [
     { command: '/help', description: 'Show help', implemented: true },
     { command: '/model', description: 'Switch model', implemented: true },
+    { command: '/handoff session', description: 'Move the current session', implemented: true },
   ];
 
   it('syncs typed input to the renderer owner before the old throttle window', async () => {
@@ -406,6 +407,38 @@ describe('AgentUI composer suggestions', () => {
     expect(frame).toContain('Tab to accept');
   });
 
+  it('keeps a registered multiword command visible through exact input', async () => {
+    const state = createInitialUIState();
+    const { lastFrame, stdin } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+            slashCommands,
+          })
+        )
+      )
+    );
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    stdin.write('/handoff ');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    expect(stripAnsi(lastFrame() ?? '')).toContain('/handoff session');
+
+    stdin.write('session');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    const frame = stripAnsi(lastFrame() ?? '');
+    expect(frame).toContain('/handoff session');
+    expect(frame).toContain('Tab to accept');
+  });
+
   it('renders background notifications separately from the active work status', async () => {
     const state = {
       ...createInitialUIState(),
@@ -577,6 +610,79 @@ describe('AgentUI processing chat scrollback', () => {
 });
 
 describe('AgentUI bracketed paste input', () => {
+  function renderPasteComposer(onInstruction = vi.fn()) {
+    const state = createInitialUIState();
+    const instance = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction,
+            onEscape: () => {},
+            onCtrlC: () => {},
+          })
+        )
+      )
+    );
+
+    return { ...instance, onInstruction };
+  }
+
+  it('renders and submits a complete 101-line paste through Ink input exactly once', async () => {
+    const pastedText = Array.from({ length: 101 }, (_, index) => `pasted-line-${index + 1}`).join('\n');
+    const { stdin, lastFrame, onInstruction } = renderPasteComposer();
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    stdin.write(`\x1b[200~${pastedText}\x1b[201~`);
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    const frame = stripAnsi(lastFrame() ?? '');
+    expect(frame).toContain('[Text Pasted +101 lines]');
+    expect(frame).not.toContain('pasted-line-101');
+
+    stdin.write('\r');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(onInstruction).toHaveBeenCalledTimes(1);
+    expect(onInstruction).toHaveBeenCalledWith(pastedText);
+  });
+
+  it('buffers paste markers split across stdin chunks without leaking content', async () => {
+    const pastedText = Array.from({ length: 101 }, (_, index) => `split-line-${index + 1}`).join('\n');
+    const { stdin, lastFrame } = renderPasteComposer();
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    stdin.write('\x1b[20');
+    stdin.write(`0~${pastedText.slice(0, 300)}`);
+    stdin.write(`${pastedText.slice(300)}\x1b[2`);
+    stdin.write('01~');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    const frame = stripAnsi(lastFrame() ?? '');
+    expect(frame).toContain('[Text Pasted +101 lines]');
+    expect(frame).not.toContain('split-line-101');
+  });
+
+  it('does not submit hidden paste content after the rendered marker is deleted', async () => {
+    const pastedText = Array.from({ length: 5 }, (_, index) => `stale-line-${index + 1}`).join('\n');
+    const marker = '[Text Pasted +5 lines]';
+    const { stdin, onInstruction } = renderPasteComposer();
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    stdin.write(`\x1b[200~${pastedText}\x1b[201~`);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    stdin.write('\x7f'.repeat(marker.length));
+    stdin.write('replacement');
+    stdin.write('\r');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    expect(onInstruction).toHaveBeenCalledTimes(1);
+    expect(onInstruction).toHaveBeenCalledWith('replacement');
+  });
+
   it('consumes complete bracketed paste sequences from Ink input', () => {
     const pasteState = { isInPaste: false, buffer: '', hiddenContent: null, hiddenPlaceholder: null };
 
