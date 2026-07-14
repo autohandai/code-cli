@@ -2315,7 +2315,7 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
     const runIteration = async (
       iteration: number,
       prompt: string,
-      _abortSignal: AbortSignal
+      abortSignal: AbortSignal
     ) => {
       // Build iteration prompt
       const iterationPrompt = buildIterationPrompt(prompt, iteration);
@@ -2324,15 +2324,21 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
       activeAgent.getAndResetFileModCount();
       activeAgent.getAndResetExecutedActions();
 
-      let success = true;
       let error: string | undefined;
 
-      try {
-        await activeAgent.runCommandMode(iterationPrompt);
-      } catch (err) {
-        success = false;
-        error = (err as Error).message;
+      const success = await activeAgent.runCommandMode(
+        iterationPrompt,
+        abortSignal,
+      ).catch((err: unknown) => {
+        error = err instanceof Error ? err.message : String(err);
         console.error(chalk.red(`Iteration error: ${error}`));
+        return false;
+      });
+
+      if (!success && !error) {
+        error = abortSignal.aborted
+          ? 'Iteration aborted'
+          : 'Agent command did not complete successfully';
       }
 
       // Collect actual file change data and action names from this iteration

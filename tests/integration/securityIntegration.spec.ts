@@ -179,6 +179,50 @@ describe('Security Integration', () => {
       expect(executor).not.toHaveBeenCalled();
       expect(toolStart).not.toHaveBeenCalled();
     });
+
+    it.each([
+      ['--yes approval', 'interactive'],
+      ['YOLO approval', 'interactive'],
+      ['unrestricted mode', 'unrestricted'],
+    ] as const)('blocks sensitive-file deletion before %s can authorize it', async (_name, mode) => {
+      const sensitivePath = '.env';
+      const sensitiveContents = 'AUTOHAND_TEST_SECRET=preserve-me\n';
+      await fs.writeFile(path.join(testDir, sensitivePath), sensitiveContents);
+
+      const permissionManager = new PermissionManager({
+        settings: { mode },
+        workspaceRoot: testDir,
+      });
+      const sideEffect = vi.fn();
+      const executor = vi.fn(async (action) => {
+        sideEffect();
+        if (action.type === 'delete_path') {
+          await fileManager.deletePath(action.path);
+        }
+        return { success: true as const, output: 'deleted' };
+      });
+      const confirmApproval = vi.fn().mockResolvedValue({ decision: 'allow_once' as const });
+      const toolManager = new ToolManager({
+        executor,
+        confirmApproval,
+        definitions: [{ name: 'delete_path', description: 'delete', requiresApproval: true }],
+        authorization: { permissionManager },
+      });
+
+      const [result] = await toolManager.execute([
+        { tool: 'delete_path', args: { path: sensitivePath } },
+      ]);
+
+      expect(result).toMatchObject({
+        tool: 'delete_path',
+        success: false,
+        kind: 'authorization',
+      });
+      expect(confirmApproval).not.toHaveBeenCalled();
+      expect(executor).not.toHaveBeenCalled();
+      expect(sideEffect).not.toHaveBeenCalled();
+      await expect(fs.readFile(path.join(testDir, sensitivePath), 'utf8')).resolves.toBe(sensitiveContents);
+    });
   });
 
   describe('Path traversal protection', () => {

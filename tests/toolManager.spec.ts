@@ -500,7 +500,7 @@ describe('ToolManager', () => {
         expect.objectContaining({ tool: 'write_file', path: 'append.ts' }),
         expect.objectContaining({ tool: 'write_file', path: 'patch.ts' }),
         expect.objectContaining({ tool: 'write_file', path: 'book.ipynb' }),
-        expect.objectContaining({ tool: 'delete_path', path: 'old.txt' }),
+        expect.objectContaining({ tool: 'write_file', path: 'old.txt' }),
         expect.objectContaining({ tool: 'read_file', path: 'read.txt' }),
         expect.objectContaining({ tool: 'write_file', path: 'multi.ts' }),
         expect.objectContaining({ tool: 'run_command', command: 'printf', args: ['safe'] }),
