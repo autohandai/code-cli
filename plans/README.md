@@ -91,7 +91,7 @@ Plans 001-008 and all seven post-plan queue items are implemented. The authorita
 
 Final verification evidence:
 
-- `bun run proof`: 426 test files passed, 1 skipped; 6,783 tests passed, 25 skipped; build passed; all 23 built-CLI Tuistory scenarios passed.
+- `bun run proof`: 427 test files passed, 1 skipped; 6,788 tests passed, 25 skipped; build passed; all 23 built-CLI Tuistory scenarios passed.
 - `bun install --frozen-lockfile`: completed with no further change to the resolved package state.
 - `bun audit --json`: returned `{}`.
 - `bun pm pack --dry-run` and `npm pack --dry-run`: both passed with 529 packaged files.
