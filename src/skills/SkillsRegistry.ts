@@ -23,6 +23,12 @@ import {
 import type { TelemetryManager } from '../telemetry/TelemetryManager.js';
 import type { SkillUseData } from '../telemetry/types.js';
 import type { CommunitySkillsClient, CommunitySkillPackage, BackupPayload } from './CommunitySkillsClient.js';
+import {
+  assertCommunityPathSymlinkSafe,
+  resolveContainedCommunityPath,
+  validateCommunitySkillFileMap,
+  validateCommunitySkillIdentifier,
+} from './communitySkillPaths.js';
 
 const SIMILARITY_THRESHOLD = 0.3;
 const BUILTIN_SKILLS_DIR = 'builtin';
@@ -152,19 +158,34 @@ export class SkillsRegistry {
     pkg: CommunitySkillPackage,
     targetDir: string
   ): Promise<SkillImportResult> {
-    if (!pkg.name || !pkg.body) {
+    if (!pkg.body || typeof pkg.body !== 'string') {
       return { success: false, error: 'Invalid skill package: missing name or body' };
     }
 
-    const skillDir = path.join(targetDir, pkg.name);
-    const skillPath = path.join(skillDir, 'SKILL.md');
-
-    // Check if already exists
-    if (await fs.pathExists(skillPath)) {
-      return { success: false, skipped: true, error: 'Skill already exists' };
-    }
-
     try {
+      const skillName = validateCommunitySkillIdentifier(pkg.name, 'community skill name');
+      const skillDir = resolveContainedCommunityPath(
+        targetDir,
+        skillName,
+        'community skill install directory'
+      );
+      const skillPath = resolveContainedCommunityPath(
+        skillDir,
+        'SKILL.md',
+        'community skill file'
+      );
+      await assertCommunityPathSymlinkSafe(
+        targetDir,
+        skillDir,
+        'community skill install directory'
+      );
+      await assertCommunityPathSymlinkSafe(skillDir, skillPath, 'community skill file');
+
+      // Check if already exists only after the complete destination is validated.
+      if (await fs.pathExists(skillPath)) {
+        return { success: false, skipped: true, error: 'Skill already exists' };
+      }
+
       await fs.ensureDir(skillDir);
       await fs.writeFile(skillPath, pkg.body, 'utf-8');
 
@@ -197,27 +218,49 @@ export class SkillsRegistry {
     targetDir: string,
     force = false
   ): Promise<SkillImportResult> {
-    if (!files.has('SKILL.md')) {
-      return { success: false, error: 'Missing required SKILL.md file' };
-    }
-
-    const skillDir = path.join(targetDir, skillName);
-    const skillPath = path.join(skillDir, 'SKILL.md');
-
-    // Check if already exists (unless force is true)
-    if (!force && (await fs.pathExists(skillPath))) {
-      return { success: false, skipped: true, error: 'Skill already exists' };
-    }
-
     try {
+      const validatedName = validateCommunitySkillIdentifier(skillName, 'community skill name');
+      const validatedFiles = validateCommunitySkillFileMap(files);
+      const skillDir = resolveContainedCommunityPath(
+        targetDir,
+        validatedName,
+        'community skill install directory'
+      );
+      const destinations = [...validatedFiles.keys()].map((relativePath) => (
+        resolveContainedCommunityPath(skillDir, relativePath, 'community skill file')
+      ));
+      const skillPath = resolveContainedCommunityPath(
+        skillDir,
+        'SKILL.md',
+        'community skill file'
+      );
+
+      await assertCommunityPathSymlinkSafe(
+        targetDir,
+        skillDir,
+        'community skill install directory'
+      );
+      await Promise.all(destinations.map((destination) => (
+        assertCommunityPathSymlinkSafe(skillDir, destination, 'community skill file')
+      )));
+
+      // Check if already exists only after every destination is validated.
+      if (!force && (await fs.pathExists(skillPath))) {
+        return { success: false, skipped: true, error: 'Skill already exists' };
+      }
+
       // Remove existing skill directory if force is true
       if (force && (await fs.pathExists(skillDir))) {
         await fs.remove(skillDir);
       }
 
       // Write all files from the Map
-      for (const [relativePath, content] of files) {
-        const fullPath = path.join(skillDir, relativePath);
+      for (const [relativePath, content] of validatedFiles) {
+        const fullPath = resolveContainedCommunityPath(
+          skillDir,
+          relativePath,
+          'community skill file'
+        );
         await fs.ensureDir(path.dirname(fullPath));
         await fs.writeFile(fullPath, content, 'utf-8');
       }
@@ -239,8 +282,20 @@ export class SkillsRegistry {
   /**
    * Check if a skill is already installed
    */
-  isSkillInstalled(skillName: string, targetDir: string): Promise<boolean> {
-    const skillPath = path.join(targetDir, skillName, 'SKILL.md');
+  async isSkillInstalled(skillName: string, targetDir: string): Promise<boolean> {
+    const validatedName = validateCommunitySkillIdentifier(skillName, 'community skill name');
+    const skillDir = resolveContainedCommunityPath(
+      targetDir,
+      validatedName,
+      'community skill install directory'
+    );
+    const skillPath = resolveContainedCommunityPath(skillDir, 'SKILL.md', 'community skill file');
+    await assertCommunityPathSymlinkSafe(
+      targetDir,
+      skillDir,
+      'community skill install directory'
+    );
+    await assertCommunityPathSymlinkSafe(skillDir, skillPath, 'community skill file');
     return fs.pathExists(skillPath);
   }
 

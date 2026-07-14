@@ -23,6 +23,8 @@ function makeSkill(overrides: Partial<GitHubCommunitySkill> = {}): GitHubCommuni
     category: 'testing',
     tags: ['test'],
     author: 'tester',
+    directory: 'skills/test-skill',
+    files: ['SKILL.md'],
     ...overrides,
   };
 }
@@ -200,7 +202,7 @@ describe('injectLearnMetadata', () => {
 // ─── installSkillWithSecurity ─────────────────────────────────────────
 
 describe('installSkillWithSecurity', () => {
-  const skill = makeSkill({ id: 'test-skill', name: 'Test Skill' });
+  const skill = makeSkill();
 
   function makeContext(overrides: Record<string, any> = {}) {
     return {
@@ -276,7 +278,11 @@ describe('installSkillWithSecurity', () => {
     const fetcher = makeFetcher();
 
     await installSkillWithSecurity(ctx as any, skill, cache as any, fetcher as any);
-    expect(ctx.skillsRegistry.importCommunitySkillDirectory).toHaveBeenCalled();
+    expect(ctx.skillsRegistry.importCommunitySkillDirectory).toHaveBeenCalledWith(
+      'test-skill',
+      expect.any(Map),
+      expect.any(String)
+    );
   });
 
   it('tracks install telemetry on success', async () => {
@@ -331,6 +337,84 @@ describe('installSkillWithSecurity', () => {
       tool: 'learn',
       success: true,
     }));
+  });
+
+  it.each([
+    { id: '../outside' },
+    { id: 'C:\\outside' },
+    { name: '../outside' },
+    { directory: '../outside' },
+    { files: ['SKILL.md', '../outside.txt'] },
+  ])('rejects unsafe metadata before install side effects: %j', async (overrides) => {
+    const hookManager = { executeHooks: vi.fn() };
+    const ctx = makeContext({ hookManager });
+    const cache = makeCache();
+    const fetcher = makeFetcher();
+
+    const result = await installSkillWithSecurity(
+      ctx as any,
+      makeSkill(overrides),
+      cache as any,
+      fetcher as any
+    );
+
+    expect(result).toMatch(/invalid/i);
+    expect(ctx.skillsRegistry.isSkillInstalled).not.toHaveBeenCalled();
+    expect(cache.getSkillDirectory).not.toHaveBeenCalled();
+    expect(fetcher.fetchSkillDirectory).not.toHaveBeenCalled();
+    expect(hookManager.executeHooks).not.toHaveBeenCalled();
+    expect(ctx.skillsRegistry.importCommunitySkillDirectory).not.toHaveBeenCalled();
+    expect(ctx.skillsRegistry.trackSkillEvent).not.toHaveBeenCalled();
+  });
+
+  it('rejects poisoned cached file maps before hooks, import, or telemetry', async () => {
+    const hookManager = { executeHooks: vi.fn() };
+    const ctx = makeContext({ hookManager });
+    const cache = {
+      getSkillDirectory: vi.fn().mockResolvedValue(new Map([
+        ['SKILL.md', '# Safe'],
+        ['../../outside.txt', 'poison'],
+      ])),
+      setSkillDirectory: vi.fn(),
+    };
+    const fetcher = makeFetcher();
+
+    const result = await installSkillWithSecurity(
+      ctx as any,
+      skill,
+      cache as any,
+      fetcher as any
+    );
+
+    expect(result).toMatch(/invalid/i);
+    expect(hookManager.executeHooks).not.toHaveBeenCalled();
+    expect(ctx.skillsRegistry.importCommunitySkillDirectory).not.toHaveBeenCalled();
+    expect(ctx.skillsRegistry.trackSkillEvent).not.toHaveBeenCalled();
+  });
+
+  it('does not cache an unsafe map returned by a direct fetcher', async () => {
+    const ctx = makeContext();
+    const cache = {
+      getSkillDirectory: vi.fn().mockResolvedValue(null),
+      setSkillDirectory: vi.fn(),
+    };
+    const fetcher = {
+      fetchSkillDirectory: vi.fn().mockResolvedValue(new Map([
+        ['SKILL.md', '# Safe'],
+        ['templates\\escape.md', 'poison'],
+      ])),
+    };
+
+    const result = await installSkillWithSecurity(
+      ctx as any,
+      skill,
+      cache as any,
+      fetcher as any
+    );
+
+    expect(result).toMatch(/invalid/i);
+    expect(cache.setSkillDirectory).not.toHaveBeenCalled();
+    expect(ctx.skillsRegistry.importCommunitySkillDirectory).not.toHaveBeenCalled();
   });
 });
 

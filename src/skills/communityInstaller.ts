@@ -20,6 +20,12 @@ import type { SkillsRegistry } from './SkillsRegistry.js';
 import type { HookManager } from '../core/HookManager.js';
 import type { CommunitySkillsRegistry, GitHubCommunitySkill, SkillInstallScope } from '../types.js';
 import type { ProjectAnalysis } from './autoSkill.js';
+import {
+  assertCommunityPathSymlinkSafe,
+  resolveContainedCommunityPath,
+  validateCommunitySkillFiles,
+  validateCommunitySkillMetadata,
+} from './communitySkillPaths.js';
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -60,26 +66,53 @@ export async function installSkillWithSecurity(
   fetcher: GitHubRegistryFetcher,
   scope: SkillInstallScope = 'user',
 ): Promise<string> {
+  let validatedSkill: GitHubCommunitySkill;
+  try {
+    validatedSkill = validateCommunitySkillMetadata(skill);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Invalid community skill metadata';
+    return chalk.red(message);
+  }
+
   const targetDir = scope === 'project'
     ? path.join(ctx.workspaceRoot, PROJECT_DIR_NAME, 'skills')
     : AUTOHAND_PATHS.skills;
+  try {
+    const skillDir = resolveContainedCommunityPath(
+      targetDir,
+      validatedSkill.id,
+      'community skill install directory'
+    );
+    await assertCommunityPathSymlinkSafe(
+      targetDir,
+      skillDir,
+      'community skill install directory'
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Invalid community skill destination';
+    return chalk.red(message);
+  }
 
   // 1. Check already installed
-  const installed = await ctx.skillsRegistry.isSkillInstalled(skill.id, targetDir);
+  const installed = await ctx.skillsRegistry.isSkillInstalled(validatedSkill.id, targetDir);
   if (installed) {
-    return t('commands.learn.alreadyInstalled', { name: skill.name });
+    return t('commands.learn.alreadyInstalled', { name: validatedSkill.name });
   }
 
   // 2. Fetch skill files (cached)
-  let files = await cache.getSkillDirectory(skill.id);
-  if (!files) {
-    try {
-      files = await fetcher.fetchSkillDirectory(skill);
-      await cache.setSkillDirectory(skill.id, files);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
-      return chalk.red(`Failed to fetch skill files: ${msg}`);
+  let files: Map<string, string>;
+  try {
+    const cachedFiles = await cache.getSkillDirectory(validatedSkill.id);
+    if (cachedFiles) {
+      files = validateCommunitySkillFiles(validatedSkill, cachedFiles);
+    } else {
+      const fetchedFiles = await fetcher.fetchSkillDirectory(validatedSkill);
+      files = validateCommunitySkillFiles(validatedSkill, fetchedFiles);
+      await cache.setSkillDirectory(validatedSkill.id, files);
     }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    return chalk.red(`Failed to fetch skill files: ${msg}`);
   }
 
   // 3. Security scan all content
@@ -121,7 +154,7 @@ export async function installSkillWithSecurity(
   if (ctx.hookManager) {
     const hookResults = await ctx.hookManager.executeHooks('pre-learn', {
       tool: 'learn',
-      args: { slug: skill.id, name: skill.name, scope },
+      args: { slug: validatedSkill.id, name: validatedSkill.name, scope },
     });
     const blocked = hookResults.some((r) => r.blockingError);
     if (blocked) {
@@ -132,13 +165,13 @@ export async function installSkillWithSecurity(
   // 7. Inject agentskill metadata into SKILL.md frontmatter
   const skillMd = files.get('SKILL.md');
   if (skillMd) {
-    const enriched = injectLearnMetadata(skillMd, skill);
+    const enriched = injectLearnMetadata(skillMd, validatedSkill);
     files.set('SKILL.md', enriched);
   }
 
   // 8. Import via skillsRegistry
   const importResult = await ctx.skillsRegistry.importCommunitySkillDirectory(
-    skill.id,
+    validatedSkill.id,
     files,
     targetDir,
   );
@@ -151,7 +184,7 @@ export async function installSkillWithSecurity(
   if (ctx.hookManager) {
     await ctx.hookManager.executeHooks('post-learn', {
       tool: 'learn',
-      args: { slug: skill.id, name: skill.name, scope },
+      args: { slug: validatedSkill.id, name: validatedSkill.name, scope },
       path: importResult.path,
       success: true,
     });
@@ -159,14 +192,14 @@ export async function installSkillWithSecurity(
 
   // 10. Track install telemetry
   ctx.skillsRegistry.trackSkillEvent({
-    skillName: skill.name,
+    skillName: validatedSkill.name,
     source: 'community',
     activationType: 'explicit',
     action: 'install',
   });
 
   // 11. Success
-  return chalk.green(t('commands.learn.installed', { name: skill.name }));
+  return chalk.green(t('commands.learn.installed', { name: validatedSkill.name }));
 }
 
 // ─── Metadata Injection ─────────────────────────────────────────────
