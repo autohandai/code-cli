@@ -150,6 +150,7 @@ const WRITE_CAPABILITY_TOOLS = new Set<AgentAction['type']>([
   'search_replace',
   'format_file',
   'multi_file_edit',
+  'delete_path',
   'rename_path',
   'copy_path',
 ]);
