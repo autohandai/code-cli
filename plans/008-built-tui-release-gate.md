@@ -6,6 +6,7 @@
 
 ## Status
 
+- **Status**: DONE (verified 2026-07-14)
 - **Priority**: P1
 - **Effort**: M
 - **Risk**: MED
@@ -17,7 +18,7 @@
 
 The authoritative built CLI currently has two reproducible TUI regressions: a 101-line bracketed paste renders its full contents instead of one compact placeholder, and typing the registered multiword `/handoff session` command closes autocomplete. The normal test/proof and release paths do not run the built PTY suite, so these regressions can ship despite thousands of passing unit tests. Fix the real input/suggestion behavior and make the serial built Tuistory suite a mandatory proof, CI, and release gate.
 
-## Current state
+## Baseline state at planned commit
 
 - `tests/tuistory/built-cli.tuistory.test.ts:483-520` sends a real bracketed 101-line paste and requires `[Text Pasted +101 lines]` with no visible final line. This currently fails in the built PTY.
 - `src/ui/displayUtils.ts:63-99` correctly converts 5+ lines or 1500+ characters to a compact marker in isolation.
@@ -34,8 +35,8 @@ The authoritative built CLI currently has two reproducible TUI regressions: a 10
 
 | Purpose | Command | Expected on success |
 |---|---|---|
-| Paste unit/render | `bun test tests/ui/ink/AgentUI.test.ts tests/ui/displayUtils.spec.ts` | exit 0 |
-| Slash unit/render | `bun test tests/ui/ink/SlashCommandDropdown.test.ts tests/slashCommandDispatch.spec.ts` | exit 0 |
+| Paste unit/render | `bun run test tests/ui/ink/AgentUI.test.ts tests/ui/displayUtils.spec.ts` | exit 0 |
+| Slash unit/render | `bun run test tests/ui/ink/SlashCommandDropdown.test.ts tests/slashCommandDispatch.spec.ts` | exit 0 |
 | Built regression | `bun run proof:build-tuistory` | exit 0, all built PTY scenarios pass |
 | Full proof | `bun run proof` | exit 0 and visibly invokes build+Tuistory |
 | Lint | `bun run lint` | exit 0 |
@@ -107,7 +108,7 @@ First observe what Ink 7's `useInput` callback receives for the rendered test; d
 
 Do not add timing heuristics or infer paste from typing speed. Keep bracketed paste protocol-driven.
 
-**Verify**: `bun test tests/ui/ink/AgentUI.test.ts tests/ui/displayUtils.spec.ts` exits 0, then the existing built large-paste scenario passes.
+**Verify**: `bun run test tests/ui/ink/AgentUI.test.ts tests/ui/displayUtils.spec.ts` exits 0, then the existing built large-paste scenario passes.
 
 ### Step 3: Reproduce registered multiword matching
 
@@ -132,7 +133,7 @@ Ensure acceptance replaces the correct input range once and preserves any suppor
 **Verify**:
 
 ```sh
-bun test tests/ui/ink/SlashCommandDropdown.test.ts tests/slashCommandDispatch.spec.ts tests/core/agent/AgentCommandRuntime.slashParsing.test.ts
+bun run test tests/ui/ink/SlashCommandDropdown.test.ts tests/slashCommandDispatch.spec.ts tests/core/agent/AgentCommandRuntime.slashParsing.test.ts
 ```
 
 All pass.
@@ -164,7 +165,7 @@ Keep compiled-binary matrix smoke as-is. Ensure workflow YAML makes the release 
 **Verify**:
 
 ```sh
-bun test
+bun run test
 bun run lint
 bun run proof
 cd /Users/igorcosta/Documents/autohand/agentsdk/tin-wrapper/typescript
@@ -185,13 +186,13 @@ Every command exits 0. Confirm Ink remains `^7.0.5` or newer and React remains `
 
 ## Done criteria
 
-- [ ] Real 101-line paste renders one marker and submits full content once.
-- [ ] `/handoff session` remains a registered full-command suggestion through exact input.
-- [ ] No slash command name/feature behavior changed.
-- [ ] `bun run proof` builds and runs Tuistory.
-- [ ] CI and release test jobs run Tuistory as mandatory steps.
-- [ ] All unit, built, lint, proof, and SDK gates pass.
-- [ ] Ink/React versions are not downgraded; index updated.
+- [x] Real 101-line paste renders one marker and submits full content once.
+- [x] `/handoff session` remains a registered full-command suggestion through exact input.
+- [x] No slash command name/feature behavior changed.
+- [x] `bun run proof` builds and runs Tuistory.
+- [x] CI and release test jobs run Tuistory as mandatory steps.
+- [x] All unit, built, lint, proof, and SDK gates pass.
+- [x] Ink/React versions are not downgraded; index updated.
 
 ## STOP conditions
 

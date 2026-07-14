@@ -8,6 +8,7 @@
 
 ## Status
 
+- **Status**: DONE (verified 2026-07-14)
 - **Priority**: P0
 - **Effort**: L
 - **Risk**: HIGH
@@ -19,7 +20,7 @@
 
 Tool availability, prompting, permission policy, immutable blacklist checks, and pre-tool hooks currently run at different layers. That permits real execution paths to bypass the `PermissionManager`, lets `--yes`/unrestricted paths approve before the immutable blacklist is consulted, ignores pre-tool hook decisions, and only protects new `write_file` targets inside `ActionExecutor`. One canonical preflight must decide every tool call before a hook-visible tool start or side effect occurs, and any exception or malformed decision must fail closed.
 
-## Current state
+## Baseline state at planned commit
 
 - `src/permissions/PermissionManager.ts:265-334` owns the policy order. The security blacklist is deliberately first, ahead of patterns, session decisions, modes, and the default prompt decision:
 
@@ -61,9 +62,9 @@ For safe tools whose definition does not require approval, a `PermissionManager`
 
 | Purpose | Command | Expected on success |
 |---|---|---|
-| Focused tool tests | `bun test tests/toolManager.spec.ts tests/actionExecutor.spec.ts tests/actionExecutor-validation.spec.ts` | exit 0, all pass |
-| Security integration | `bun test tests/integration/securityIntegration.spec.ts tests/security/securityBlacklist.spec.ts tests/permissionManager.spec.ts` | exit 0, real execution regressions pass |
-| Hooks/RPC/ACP | `bun test tests/hookManager.spec.ts tests/rpcHooks.spec.ts tests/modes/acp/permissions.test.ts tests/modes/rpc/yoloMode.spec.ts` | exit 0, contracts unchanged |
+| Focused tool tests | `bun run test tests/toolManager.spec.ts tests/actionExecutor.spec.ts tests/actionExecutor-validation.spec.ts` | exit 0, all pass |
+| Security integration | `bun run test tests/integration/securityIntegration.spec.ts tests/security/securityBlacklist.spec.ts tests/permissionManager.spec.ts` | exit 0, real execution regressions pass |
+| Hooks/RPC/ACP | `bun run test tests/hookManager.spec.ts tests/rpcHooks.spec.ts tests/modes/acp/permissions.test.ts tests/modes/rpc/yoloMode.spec.ts` | exit 0, contracts unchanged |
 | Typecheck | `bun run typecheck` | exit 0, no errors |
 | Lint | `bun run lint` | exit 0 |
 | Full proof | `bun run proof` | exit 0 |
@@ -128,7 +129,7 @@ Extend `tests/toolManager.spec.ts` and `tests/integration/securityIntegration.sp
 
 Use harmless temp paths and recording functions; never run a destructive command in a test.
 
-**Verify**: `bun test tests/toolManager.spec.ts tests/integration/securityIntegration.spec.ts tests/security/securityBlacklist.spec.ts` must fail only on the new expectations.
+**Verify**: `bun run test tests/toolManager.spec.ts tests/integration/securityIntegration.spec.ts tests/security/securityBlacklist.spec.ts` must fail only on the new expectations.
 
 ### Step 2: Add failing EventHooks control-flow tests
 
@@ -144,7 +145,7 @@ Model hook process results after `tests/hookManager.spec.ts`. Add composer/prefl
 
 Lock the chosen event invariant: authorization denial emits no `tool_start`; any started tool must have exactly one matching `tool_end`.
 
-**Verify**: `bun test tests/hookManager.spec.ts tests/rpcHooks.spec.ts tests/toolManager.spec.ts` must fail only on the new integration cases.
+**Verify**: `bun run test tests/hookManager.spec.ts tests/rpcHooks.spec.ts tests/toolManager.spec.ts` must fail only on the new integration cases.
 
 ### Step 3: Implement the canonical preflight
 
@@ -154,7 +155,7 @@ Centralize action-to-`PermissionContext` mapping; cover command, args, `path`, `
 
 Move pre-tool hook execution out of the unconditional executor body into this preflight. Apply hook decisions in order. Never let a hook override an immutable or explicit policy denial. Recheck policy after any input/alternative mutation.
 
-**Verify**: `bun test tests/toolManager.spec.ts tests/hookManager.spec.ts tests/integration/securityIntegration.spec.ts` exits 0.
+**Verify**: `bun run test tests/toolManager.spec.ts tests/hookManager.spec.ts tests/integration/securityIntegration.spec.ts` exits 0.
 
 ### Step 4: Remove bypasses and double prompts
 
@@ -162,13 +163,13 @@ Update `AgentDependencyComposer` so the canonical preflight receives the real `P
 
 Update `ActionExecutor` branches that perform their own permission handling to respect `context.approvalHandled`. Keep direct-call defense-in-depth: if no canonical preflight marker is present, mutating or command actions must still run the same policy check and prompt path. Do not remove security from direct callers merely to eliminate a double prompt.
 
-**Verify**: `bun test tests/actionExecutor.spec.ts tests/actionExecutor-validation.spec.ts tests/modes/rpc/yoloMode.spec.ts tests/modes/acp/permissions.test.ts` exits 0.
+**Verify**: `bun run test tests/actionExecutor.spec.ts tests/actionExecutor-validation.spec.ts tests/modes/rpc/yoloMode.spec.ts tests/modes/acp/permissions.test.ts` exits 0.
 
 ### Step 5: Prove wire compatibility
 
 Verify permission requests retain `requestId`, `tool`, `description`, `context.command/path/args`, options, and timestamp. Preserve structured decisions and legacy RPC normalization. Preserve hook environment/JSON input and ACP permission modes.
 
-**Verify**: `bun test tests/modes/rpc/handlers.spec.ts tests/modes/rpc/types.spec.ts tests/rpcHooks.spec.ts tests/modes/acp/adapter.test.ts tests/modes/acp/permissions.test.ts` exits 0.
+**Verify**: `bun run test tests/modes/rpc/handlers.spec.ts tests/modes/rpc/types.spec.ts tests/rpcHooks.spec.ts tests/modes/acp/adapter.test.ts tests/modes/acp/permissions.test.ts` exits 0.
 
 ### Step 6: Run full repository gates
 
@@ -177,7 +178,7 @@ Run tests, lint, and proof in the required order.
 **Verify**:
 
 ```sh
-bun test
+bun run test
 bun run lint
 bun run proof
 ```
@@ -194,16 +195,16 @@ All commands must exit 0.
 
 ## Done criteria
 
-- [ ] Every registered tool call passes one canonical authorization preflight before side effects.
-- [ ] Immutable blacklist and explicit deny cannot be bypassed by `--yes`, YOLO, unrestricted, hooks, RPC, or ACP.
-- [ ] Pre-tool blocking/deny/ask/update semantics use the existing EventHooks contract.
-- [ ] Mutated inputs are re-authorized and cannot change tool type.
-- [ ] Denied calls emit no `tool_start`; started calls retain paired lifecycle events.
-- [ ] Direct `ActionExecutor` callers remain protected and normal calls do not double-prompt.
-- [ ] Focused security, hook, RPC, ACP, and tool tests pass.
-- [ ] `bun test`, `bun run lint`, and `bun run proof` exit 0.
-- [ ] No dependency/version change exists.
-- [ ] Only in-scope files are changed and `plans/README.md` is updated.
+- [x] Every registered tool call passes one canonical authorization preflight before side effects.
+- [x] Immutable blacklist and explicit deny cannot be bypassed by `--yes`, YOLO, unrestricted, hooks, RPC, or ACP.
+- [x] Pre-tool blocking/deny/ask/update semantics use the existing EventHooks contract.
+- [x] Mutated inputs are re-authorized and cannot change tool type.
+- [x] Denied calls emit no `tool_start`; started calls retain paired lifecycle events.
+- [x] Direct `ActionExecutor` callers remain protected and normal calls do not double-prompt.
+- [x] Focused security, hook, RPC, ACP, and tool tests pass.
+- [x] `bun run test`, `bun run lint`, and `bun run proof` exit 0.
+- [x] The Plan 001 slice introduced no dependency/version change; later audited queue work upgraded dependencies separately.
+- [x] Plan 001 remained within its implementation scope; the integrated delivery and `plans/README.md` include the other approved plans and queue items.
 
 ## STOP conditions
 
