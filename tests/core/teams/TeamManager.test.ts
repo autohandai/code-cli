@@ -3,7 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
 import { TeamManager } from '../../../src/core/teams/TeamManager.js';
 
 // Mock TeammateProcess to avoid real process spawning
@@ -40,6 +40,10 @@ describe('TeamManager', () => {
 
   beforeEach(() => {
     manager = new TeamManager({ leadSessionId: 'sess-123', workspacePath: '/tmp' });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('should create a team', () => {
@@ -141,5 +145,42 @@ describe('TeamManager', () => {
       teamName: 'test',
       teamTasksTotal: 1,
     }));
+  });
+
+  it('rejects new teammates while shutdown is in progress', async () => {
+    vi.useFakeTimers();
+    manager.createTeam('test');
+    manager.addTeammate({ name: 'worker', agentName: 'code-cleaner' });
+
+    const shutdown = manager.shutdown();
+
+    expect(() => manager.addTeammate({ name: 'late', agentName: 'researcher' }))
+      .toThrow(/shutting down/i);
+    await vi.runAllTimersAsync();
+    await shutdown;
+  });
+
+  it('rejects creating a replacement team until shutdown fully settles', async () => {
+    vi.useFakeTimers();
+    let resolveShutdownHook!: () => void;
+    const onHookEvent = vi.fn((event: string) => {
+      if (event === 'team-shutdown') {
+        return new Promise<void>((resolve) => {
+          resolveShutdownHook = resolve;
+        });
+      }
+      return undefined;
+    });
+    manager = new TeamManager({ leadSessionId: 'sess-123', workspacePath: '/tmp', onHookEvent });
+    manager.createTeam('test');
+    manager.addTeammate({ name: 'worker', agentName: 'code-cleaner' });
+
+    const shutdown = manager.shutdown();
+    await vi.advanceTimersByTimeAsync(750);
+
+    expect(() => manager.createTeam('replacement')).toThrow(/shutting down/i);
+    resolveShutdownHook();
+    await shutdown;
+    expect(manager.createTeam('replacement').name).toBe('replacement');
   });
 });

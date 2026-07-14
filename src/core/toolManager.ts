@@ -6,15 +6,21 @@
 import type {
   AgentAction,
   ToolCallRequest,
+  ToolActionOutcome,
   ToolExecutionContext,
   ToolExecutionResult,
+  ToolFailureKind,
   FunctionDefinition
 } from '../types.js';
 import {
+  getPermissionPolicyDisposition,
   isAllowedPermissionPrompt,
   normalizePermissionPromptResponse,
+  type PermissionContext,
   type PermissionPromptResponse,
 } from '../permissions/types.js';
+import { PermissionManager } from '../permissions/PermissionManager.js';
+import type { HookExecutionResult } from './HookManager.js';
 import {
   getToolCategory,
   ToolFilter,
@@ -23,11 +29,21 @@ import {
   type ToolPolicy
 } from './toolFilter.js';
 import { getPlanModeManager } from '../commands/plan.js';
+import { randomUUID } from 'node:crypto';
 
 type ReadyToolExecutionTask = {
   call: ToolCallRequest;
   index: number;
 };
+
+const TOOL_ABORTED_MESSAGE = 'Tool execution aborted.';
+
+class ToolExecutionAbortedError extends Error {
+  constructor() {
+    super(TOOL_ABORTED_MESSAGE);
+    this.name = 'AbortError';
+  }
+}
 
 const SEQUENTIAL_TOOL_CATEGORIES = new Set<ToolCategory>([
   'write',
@@ -36,6 +52,16 @@ const SEQUENTIAL_TOOL_CATEGORIES = new Set<ToolCategory>([
   'git_write',
   'shell'
 ]);
+
+export function shouldPromptForToolPermission(
+  tool: string,
+  explicitlyRequired = false,
+  authorizedTool = tool
+): boolean {
+  return explicitlyRequired
+    || SEQUENTIAL_TOOL_CATEGORIES.has(getToolCategory(tool))
+    || authorizedTool !== tool;
+}
 
 export interface ToolParameter {
   type: string;
@@ -87,7 +113,7 @@ export interface ToolDefinition {
 }
 
 export interface ToolManagerOptions {
-  executor: (action: AgentAction, context?: ToolExecutionContext) => Promise<string | undefined>;
+  executor: (action: AgentAction, context?: ToolExecutionContext) => Promise<ToolActionOutcome>;
   confirmApproval: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<PermissionPromptResponse>;
   definitions?: ToolDefinition[];
   /** Client context for tool filtering (default: 'cli') */
@@ -96,6 +122,114 @@ export interface ToolManagerOptions {
   customPolicy?: Partial<ToolPolicy>;
   /** Max concurrent tool executions (default: 5) */
   maxConcurrency?: number;
+  /** Canonical authorization dependencies used before any tool-side effects. */
+  authorization?: ToolAuthorizationOptions;
+}
+
+export interface PreToolHookContext {
+  tool: string;
+  toolCallId: string;
+  args: Record<string, unknown>;
+  path?: string;
+  signal?: AbortSignal;
+}
+
+export interface ToolAuthorizationOptions {
+  permissionManager: PermissionManager;
+  /** Resolve specialized contexts, such as the expanded shell command for a meta-tool. */
+  resolvePermissionContext?: (action: AgentAction) => PermissionContext | undefined;
+  runPreToolHooks?: (context: PreToolHookContext) => Promise<HookExecutionResult[]>;
+  onAdditionalContext?: (context: string) => void | Promise<void>;
+}
+
+const WRITE_CAPABILITY_TOOLS = new Set<AgentAction['type']>([
+  'write_file',
+  'append_file',
+  'apply_patch',
+  'notebook_edit',
+  'search_replace',
+  'format_file',
+  'multi_file_edit',
+  'rename_path',
+  'copy_path',
+]);
+
+function resolveEffectivePermissionTool(
+  action: AgentAction,
+  values: Record<string, unknown>,
+): string {
+  if (action.type === 'custom_command' || action.type === 'git_worktree_run_parallel') {
+    return 'run_command';
+  }
+  if ((action.type === 'code_review' && values.scope === 'file' && values.path !== undefined)
+    || (action.type === 'git_diff' && values.path !== undefined)
+    || (action.type === 'fff_grep' && values.path !== undefined)
+    || (action.type === 'find' && values.path !== undefined)
+    || action.type === 'checksum') {
+    return 'read_file';
+  }
+  if (action.type === 'git_checkout'
+    || action.type === 'add_dependency'
+    || action.type === 'remove_dependency'
+    || WRITE_CAPABILITY_TOOLS.has(action.type)) {
+    return 'write_file';
+  }
+  return action.type;
+}
+
+/** Build all standard permission contexts shared by canonical and direct callers. */
+export function buildToolPermissionContexts(action: AgentAction): PermissionContext[] {
+  const values = action as unknown as Record<string, unknown>;
+  const effectiveTool = resolveEffectivePermissionTool(action, values);
+  const context: PermissionContext = { tool: effectiveTool };
+
+  if (action.type === 'run_command'
+    || action.type === 'shell'
+    || action.type === 'custom_command'
+    || action.type === 'git_worktree_run_parallel') {
+    if (typeof values.command !== 'string' || values.command.length === 0) {
+      throw new Error(`Tool '${action.type}' requires a string command for authorization.`);
+    }
+    context.command = values.command;
+    if (values.args !== undefined) {
+      if (!Array.isArray(values.args) || values.args.some(value => typeof value !== 'string')) {
+        throw new Error(`Tool '${action.type}' requires string command arguments for authorization.`);
+      }
+      context.args = [...values.args];
+    }
+  }
+
+  if (action.type === 'add_dependency' || action.type === 'remove_dependency') {
+    return [{ ...context, path: 'package.json' }];
+  }
+
+  if (action.type === 'rename_path' || action.type === 'copy_path') {
+    if (typeof values.from !== 'string' || typeof values.to !== 'string') {
+      throw new Error(`Tool '${action.type}' requires string source and destination paths for authorization.`);
+    }
+    return [
+      { ...context, path: values.from },
+      { ...context, path: values.to },
+    ];
+  }
+
+  const pathValue = values.path ?? values.file_path ?? values.from ?? values.to;
+  if (pathValue !== undefined) {
+    if (typeof pathValue !== 'string') {
+      throw new Error(`Tool '${action.type}' requires a string path for authorization.`);
+    }
+    context.path = pathValue;
+  }
+
+  if (typeof values.description === 'string') {
+    context.description = values.description;
+  }
+  return [context];
+}
+
+/** Build the primary standard permission context for compatibility callers. */
+export function buildToolPermissionContext(action: AgentAction): PermissionContext {
+  return buildToolPermissionContexts(action)[0];
 }
 
 export const GOAL_TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -1584,12 +1718,20 @@ export class ToolManager {
   private readonly confirmApproval: ToolManagerOptions['confirmApproval'];
   private readonly toolFilter: ToolFilter;
   private readonly maxConcurrency: number;
+  private readonly permissionManager: PermissionManager;
+  private readonly resolveSpecializedPermissionContext?: ToolAuthorizationOptions['resolvePermissionContext'];
+  private readonly runPreToolHooks?: ToolAuthorizationOptions['runPreToolHooks'];
+  private readonly onAdditionalContext?: ToolAuthorizationOptions['onAdditionalContext'];
 
   constructor(options: ToolManagerOptions) {
     this.executor = options.executor;
     this.confirmApproval = options.confirmApproval;
     this.toolFilter = new ToolFilter(options.clientContext ?? 'cli', options.customPolicy);
     this.maxConcurrency = options.maxConcurrency ?? 5;
+    this.permissionManager = options.authorization?.permissionManager ?? new PermissionManager();
+    this.resolveSpecializedPermissionContext = options.authorization?.resolvePermissionContext;
+    this.runPreToolHooks = options.authorization?.runPreToolHooks;
+    this.onAdditionalContext = options.authorization?.onAdditionalContext;
     const defs = options.definitions ?? DEFAULT_TOOL_DEFINITIONS;
     for (const def of defs) {
       this.register(def);
@@ -1758,8 +1900,10 @@ export class ToolManager {
 
   async execute(
     toolCalls: ToolCallRequest[],
-    onToolComplete?: (index: number, result: ToolExecutionResult) => void
+    onToolComplete?: (index: number, result: ToolExecutionResult) => void,
+    executionContext: Pick<ToolExecutionContext, 'signal'> = {},
   ): Promise<ToolExecutionResult[]> {
+    const signal = executionContext.signal;
     const results = new Map<number, ToolExecutionResult>();
 
     // Get plan mode manager to check read-only enforcement
@@ -1772,115 +1916,189 @@ export class ToolManager {
     const readyToExecute: ReadyToolExecutionTask[] = [];
 
     for (let i = 0; i < toolCalls.length; i++) {
-      const call = toolCalls[i];
+      let call = this.cloneToolCallWithStableId(toolCalls[i]);
 
-      // Check if tool is allowed in current context
-      if (!this.toolFilter.isAllowed(call.tool)) {
+      const reject = (
+        error: string,
+        kind: ToolFailureKind = 'authorization',
+        output?: string,
+      ): void => {
+        const readableError = error.trim() || output?.trim() || 'Tool execution failed.';
         const result: ToolExecutionResult = {
           tool: call.tool,
           success: false,
-          error: `Tool '${call.tool}' is not available in the current context (${this.toolFilter.getContext()})`
+          kind,
+          error: readableError,
+          ...(output === undefined ? {} : { output }),
         };
         results.set(i, result);
         onToolComplete?.(i, result);
+      };
+
+      if (signal?.aborted) {
+        reject(TOOL_ABORTED_MESSAGE, 'aborted', TOOL_ABORTED_MESSAGE);
+        continue;
+      }
+
+      // Check if tool is allowed in current context
+      if (!this.toolFilter.isAllowed(call.tool)) {
+        reject(`Tool '${call.tool}' is not available in the current context (${this.toolFilter.getContext()})`, 'authorization');
         continue;
       }
 
       // Check plan mode restrictions - only read-only tools allowed during planning phase
       if (readOnlyTools && !readOnlyTools.has(call.tool)) {
-        const result: ToolExecutionResult = {
-          tool: call.tool,
-          success: false,
-          error: `Tool '${call.tool}' is not available in plan mode. Only read-only tools are allowed during planning. Use 'plan' tool to create a plan, then accept it to execute write operations.`
-        };
-        results.set(i, result);
-        onToolComplete?.(i, result);
+        reject(`Tool '${call.tool}' is not available in plan mode. Only read-only tools are allowed during planning. Use 'plan' tool to create a plan, then accept it to execute write operations.`, 'authorization');
         continue;
       }
 
       const definition = this.definitions.get(call.tool);
       if (!definition) {
-        const result: ToolExecutionResult = {
-          tool: call.tool,
-          success: false,
-          error: `Tool '${call.tool}' is not available. Use tool_search or tools_registry to find an available tool.`
-        };
-        results.set(i, result);
-        onToolComplete?.(i, result);
+        reject(`Tool '${call.tool}' is not available. Use tool_search or tools_registry to find an available tool.`, 'validation');
         continue;
       }
 
-      const requiresApproval = this.toolFilter.requiresApproval(call.tool, definition?.requiresApproval);
+      try {
+        this.assertValidUpdatedInput(definition, {}, this.getCallArgs(call));
+      } catch (error) {
+        reject(error instanceof Error ? error.message : String(error), 'validation');
+        continue;
+      }
 
-      if (requiresApproval) {
-        // Build detailed approval message with action context
-        let message = definition?.approvalMessage ?? `Allow tool ${call.tool}?`;
+      const requiresApproval = this.toolFilter.requiresApproval(call.tool, definition.requiresApproval);
 
-        // Add details based on tool type and build context for permission tracking
-        const permContext: { tool?: string; path?: string; command?: string } = { tool: call.tool };
-
-        if (call.tool === 'run_command' && call.args) {
-          const cmd = String(call.args.command || '');
-          const args = Array.isArray(call.args.args) ? call.args.args.join(' ') : '';
-          const fullCommand = args ? `${cmd} ${args}` : cmd;
-          const dir = call.args.directory ? ` (in ${call.args.directory})` : '';
-          message = `Run this command${dir}?\n  $ ${fullCommand}`;
-          permContext.command = fullCommand;
-        } else if (call.tool === 'shell' && call.args) {
-          const cmd = String(call.args.command || '');
-          const args = Array.isArray(call.args.args) ? call.args.args.join(' ') : '';
-          const fullCommand = args ? `${cmd} ${args}` : cmd;
-          const dir = call.args.directory ? ` (in ${call.args.directory})` : '';
-          message = `Run this shell command with live output${dir}?\n  $ ${fullCommand}`;
-          permContext.command = fullCommand;
-        } else if (call.tool === 'delete_path' && call.args?.path) {
-          message = `Delete this path?\n  ${call.args.path}`;
-          permContext.path = String(call.args.path);
-        } else if (call.tool === 'write_file' && call.args?.path) {
-          message = `Write to this file?\n  ${call.args.path}`;
-          permContext.path = String(call.args.path);
-        } else if (call.tool === 'multi_file_edit' && call.args?.file_path) {
-          const editCount = Array.isArray(call.args.edits) ? call.args.edits.length : 0;
-          message = `Edit this file (${editCount} change${editCount === 1 ? '' : 's'})?\n  ${call.args.file_path}`;
-          permContext.path = String(call.args.file_path);
+      try {
+        this.assertNotAborted(signal);
+        let action = this.toAction(call);
+        let permissionContexts = this.resolvePermissionContexts(action);
+        let policyEvaluation = this.evaluatePermissionContexts(permissionContexts);
+        if (policyEvaluation.denied) {
+          reject(`Tool '${call.tool}' was denied by the permission policy.`);
+          continue;
         }
 
-        const decision = normalizePermissionPromptResponse(await this.confirmApproval(message, permContext));
-        if (decision.decision === 'alternative' && typeof decision.alternative === 'string') {
-          if (call.tool === 'run_command' && call.args) {
-            call.args.command = decision.alternative;
-            call.args.args = [];
-          } else if (call.tool === 'shell' && call.args) {
-            call.args.command = decision.alternative;
-            call.args.args = [];
-          } else if (call.args?.path && typeof call.args.path === 'string') {
-            call.args.path = decision.alternative;
-          } else if (call.args?.file_path && typeof call.args.file_path === 'string') {
-            call.args.file_path = decision.alternative;
-          } else {
-            const result: ToolExecutionResult = {
-              tool: call.tool,
-              success: false,
-              output: 'Tool execution skipped because the alternative input could not be applied.',
-            };
-            results.set(i, result);
-            onToolComplete?.(i, result);
-            continue;
+        let permissionContext = policyEvaluation.promptContext;
+        let policyRequiresPrompt = policyEvaluation.requiresPrompt
+          && shouldPromptForToolPermission(call.tool, requiresApproval, permissionContext.tool);
+        let hookPromptOverride: boolean | undefined;
+
+        if (this.runPreToolHooks) {
+          const hookResults = await this.runPreToolHooks({
+            tool: call.tool,
+            toolCallId: call.id!,
+            args: this.getCallArgs(call),
+            path: permissionContext.path,
+            ...(signal === undefined ? {} : { signal }),
+          });
+          this.assertNotAborted(signal);
+
+          if (!Array.isArray(hookResults)) {
+            throw new Error('Pre-tool hooks returned an invalid result.');
+          }
+
+          for (const hookResult of hookResults) {
+            this.assertValidHookResult(hookResult);
+            if (!hookResult.success) {
+              throw new Error(hookResult.error ?? 'Pre-tool hook failed.');
+            }
+
+            const response = hookResult.response;
+            if (response === undefined) {
+              if (hookResult.stdout?.trim().startsWith('{')) {
+                throw new Error('Pre-tool hook returned malformed JSON output.');
+              }
+              continue;
+            }
+            this.assertValidHookResponse(response);
+
+            if (response.additionalContext !== undefined) {
+              if (!this.onAdditionalContext) {
+                throw new Error('Pre-tool hook supplied additional context without a conversation handler.');
+              }
+              await this.onAdditionalContext(response.additionalContext);
+              this.assertNotAborted(signal);
+            }
+
+            if (response.updatedInput !== undefined) {
+              const mergedArgs = {
+                ...this.getCallArgs(call),
+                ...response.updatedInput,
+              };
+              this.assertValidUpdatedInput(definition, response.updatedInput, mergedArgs);
+              call = this.cloneToolCall(call, mergedArgs);
+              action = this.toAction(call);
+              permissionContexts = this.resolvePermissionContexts(action);
+              policyEvaluation = this.evaluatePermissionContexts(permissionContexts);
+              if (policyEvaluation.denied) {
+                throw new Error(`Updated input for '${call.tool}' was denied by the permission policy.`);
+              }
+              permissionContext = policyEvaluation.promptContext;
+              policyRequiresPrompt = policyEvaluation.requiresPrompt
+                && shouldPromptForToolPermission(call.tool, requiresApproval, permissionContext.tool);
+            }
+
+            if (response.continue === false) {
+              throw new Error(response.stopReason ?? 'Pre-tool hook stopped execution.');
+            }
+
+            if (response.decision === 'deny' || response.decision === 'block') {
+              throw new Error(response.reason ?? `Pre-tool hook ${response.decision}ed execution.`);
+            }
+            if (response.decision === 'ask') {
+              hookPromptOverride = true;
+            } else if (response.decision === 'allow') {
+              hookPromptOverride = false;
+            }
           }
         }
 
-        if (!isAllowedPermissionPrompt(decision)) {
-          const result: ToolExecutionResult = {
-            tool: call.tool,
-            success: false,
-            output: 'Tool execution skipped by user.'
-          };
-          results.set(i, result);
-          onToolComplete?.(i, result);
-          continue;
+        const shouldPrompt = hookPromptOverride ?? policyRequiresPrompt;
+        if (shouldPrompt) {
+          const decision = normalizePermissionPromptResponse(
+            await this.confirmApproval(
+              this.buildApprovalMessage(call, definition),
+              this.toPromptContext(permissionContext)
+            )
+          );
+          this.assertNotAborted(signal);
+          for (const promptedContext of policyEvaluation.promptedContexts) {
+            await this.permissionManager.applyPromptDecision(promptedContext, decision);
+            this.assertNotAborted(signal);
+          }
+
+          if (!isAllowedPermissionPrompt(decision)) {
+            reject('Tool execution skipped by user.', 'authorization', 'Tool execution skipped by user.');
+            continue;
+          }
+
+          if (decision.decision === 'alternative') {
+            const alternativeArgs = this.applyAlternative(call, decision.alternative!);
+            this.assertValidUpdatedInput(definition, alternativeArgs.changed, alternativeArgs.args);
+            call = this.cloneToolCall(call, alternativeArgs.args);
+            action = this.toAction(call);
+            permissionContexts = this.resolvePermissionContexts(action);
+            policyEvaluation = this.evaluatePermissionContexts(permissionContexts);
+            permissionContext = policyEvaluation.promptContext;
+            if (policyEvaluation.denied) {
+              reject(`Alternative input for '${call.tool}' was denied by the permission policy.`);
+              continue;
+            }
+          }
         }
+        this.assertNotAborted(signal);
+      } catch (error) {
+        if (error instanceof ToolExecutionAbortedError) {
+          reject(error.message, 'aborted', error.message);
+        } else {
+          reject(error instanceof Error ? error.message : String(error));
+        }
+        continue;
       }
 
+      if (signal?.aborted) {
+        reject(TOOL_ABORTED_MESSAGE, 'aborted', TOOL_ABORTED_MESSAGE);
+        continue;
+      }
       readyToExecute.push({ call, index: i });
     }
 
@@ -1888,7 +2106,8 @@ export class ToolManager {
     if (readyToExecute.length > 0) {
       const execResults = await this.executeScheduled(
         readyToExecute,
-        onToolComplete
+        onToolComplete,
+        signal,
       );
       for (const [index, result] of execResults) {
         results.set(index, result);
@@ -1899,6 +2118,302 @@ export class ToolManager {
     return toolCalls.map((_, i) => results.get(i)!);
   }
 
+  private cloneToolCallWithStableId(call: ToolCallRequest): ToolCallRequest {
+    return {
+      ...call,
+      id: call.id ?? `tool_${randomUUID()}`,
+      args: { ...this.getCallArgs(call) } as ToolCallRequest['args'],
+    };
+  }
+
+  private cloneToolCall(call: ToolCallRequest, args: Record<string, unknown>): ToolCallRequest {
+    return {
+      ...call,
+      args: { ...args } as ToolCallRequest['args'],
+    };
+  }
+
+  private getCallArgs(call: ToolCallRequest): Record<string, unknown> {
+    return (call.args ?? {}) as Record<string, unknown>;
+  }
+
+  private resolvePermissionContexts(action: AgentAction): PermissionContext[] {
+    const specialized = this.resolveSpecializedPermissionContext?.(action);
+    const standardContexts = buildToolPermissionContexts(action);
+    const contexts = specialized === undefined
+      ? standardContexts
+      : [specialized, ...standardContexts.slice(1)];
+    for (const context of contexts) {
+      this.assertValidPermissionContext(context);
+    }
+    return contexts;
+  }
+
+  private evaluatePermissionContexts(contexts: PermissionContext[]): {
+    denied: boolean;
+    requiresPrompt: boolean;
+    promptContext: PermissionContext;
+    promptedContexts: PermissionContext[];
+  } {
+    if (contexts.length === 0) {
+      throw new Error('Permission context list is empty.');
+    }
+    const dispositions = contexts.map(context => getPermissionPolicyDisposition(
+      this.permissionManager.checkPermission(context)
+    ));
+    const promptIndex = dispositions.indexOf('prompt');
+    return {
+      denied: dispositions.includes('deny'),
+      requiresPrompt: promptIndex !== -1,
+      promptContext: promptIndex === -1 ? contexts[0] : contexts[promptIndex],
+      promptedContexts: contexts.filter((_, index) => dispositions[index] === 'prompt'),
+    };
+  }
+
+  private assertValidPermissionContext(context: unknown): asserts context is PermissionContext {
+    if (!this.isPlainObject(context) || typeof context.tool !== 'string' || context.tool.length === 0) {
+      throw new Error('Permission context is malformed.');
+    }
+    if (context.command !== undefined && typeof context.command !== 'string') {
+      throw new Error('Permission context command is malformed.');
+    }
+    if (context.command !== undefined && context.command.length === 0) {
+      throw new Error('Permission context command is empty.');
+    }
+    if (context.path !== undefined && typeof context.path !== 'string') {
+      throw new Error('Permission context path is malformed.');
+    }
+    if (context.args !== undefined
+      && (!Array.isArray(context.args) || context.args.some(value => typeof value !== 'string'))) {
+      throw new Error('Permission context arguments are malformed.');
+    }
+    if (context.description !== undefined && typeof context.description !== 'string') {
+      throw new Error('Permission context description is malformed.');
+    }
+  }
+
+  private assertValidHookResult(result: unknown): asserts result is HookExecutionResult {
+    if (!this.isPlainObject(result) || typeof result.success !== 'boolean') {
+      throw new Error('Pre-tool hook returned a malformed execution result.');
+    }
+    if (result.blockingError === true || result.exitCode === 2) {
+      throw new Error(typeof result.error === 'string' ? result.error : 'Pre-tool hook blocked execution.');
+    }
+    if (!this.isPlainObject(result.hook)
+      || result.hook.event !== 'pre-tool'
+      || typeof result.hook.command !== 'string') {
+      throw new Error('Pre-tool hook returned a malformed hook definition.');
+    }
+    if (typeof result.duration !== 'number' || !Number.isFinite(result.duration) || result.duration < 0) {
+      throw new Error('Pre-tool hook returned a malformed duration.');
+    }
+    if (result.blockingError !== undefined && typeof result.blockingError !== 'boolean') {
+      throw new Error('Pre-tool hook returned a malformed blocking status.');
+    }
+    if (result.exitCode !== undefined
+      && (typeof result.exitCode !== 'number' || !Number.isInteger(result.exitCode))) {
+      throw new Error('Pre-tool hook returned a malformed exit code.');
+    }
+    if (result.success && result.exitCode !== undefined && result.exitCode !== 0) {
+      throw new Error('Pre-tool hook returned a contradictory execution status.');
+    }
+    if (result.error !== undefined && typeof result.error !== 'string') {
+      throw new Error('Pre-tool hook returned a malformed error.');
+    }
+    if (result.stdout !== undefined && typeof result.stdout !== 'string') {
+      throw new Error('Pre-tool hook returned malformed stdout.');
+    }
+    if (result.stderr !== undefined && typeof result.stderr !== 'string') {
+      throw new Error('Pre-tool hook returned malformed stderr.');
+    }
+  }
+
+  private assertValidHookResponse(response: unknown): asserts response is NonNullable<HookExecutionResult['response']> {
+    if (!this.isPlainObject(response)) {
+      throw new Error('Pre-tool hook returned a malformed response.');
+    }
+    if (response.decision !== undefined
+      && !['allow', 'deny', 'ask', 'block'].includes(String(response.decision))) {
+      throw new Error('Pre-tool hook returned an unknown decision.');
+    }
+    if (response.continue !== undefined && typeof response.continue !== 'boolean') {
+      throw new Error('Pre-tool hook returned a malformed continue decision.');
+    }
+    for (const field of ['reason', 'stopReason', 'additionalContext'] as const) {
+      if (response[field] !== undefined && typeof response[field] !== 'string') {
+        throw new Error(`Pre-tool hook returned a malformed ${field}.`);
+      }
+    }
+    if (response.updatedInput !== undefined && !this.isPlainObject(response.updatedInput)) {
+      throw new Error('Pre-tool hook returned malformed updated input.');
+    }
+  }
+
+  private assertValidUpdatedInput(
+    definition: ToolDefinition,
+    changed: Record<string, unknown>,
+    args: Record<string, unknown>
+  ): void {
+    for (const forbiddenKey of ['type', 'tool', '__proto__', 'prototype', 'constructor']) {
+      if (Object.prototype.hasOwnProperty.call(changed, forbiddenKey)) {
+        throw new Error(`Updated tool input cannot change reserved field '${forbiddenKey}'.`);
+      }
+    }
+
+    const parameters = definition.parameters;
+    if (!parameters) {
+      if (Object.keys(changed).length > 0) {
+        throw new Error(`Tool '${definition.name}' does not accept updated input fields.`);
+      }
+      return;
+    }
+    for (const field of Object.keys(changed)) {
+      if (!Object.prototype.hasOwnProperty.call(parameters.properties, field)) {
+        throw new Error(`Updated input field '${field}' is not supported by '${definition.name}'.`);
+      }
+    }
+    for (const required of parameters.required ?? []) {
+      if (args[required] === undefined || args[required] === null) {
+        throw new Error(`Updated input for '${definition.name}' is missing required field '${required}'.`);
+      }
+    }
+    for (const [name, schema] of Object.entries(parameters.properties)) {
+      if (args[name] !== undefined && !this.matchesParameterSchema(args[name], schema)) {
+        throw new Error(`Updated input field '${name}' is invalid for '${definition.name}'.`);
+      }
+    }
+  }
+
+  private matchesParameterSchema(value: unknown, schema: ToolParameter): boolean {
+    if (schema.enum && (!schema.enum.includes(String(value)) || typeof value !== 'string')) {
+      return false;
+    }
+    switch (schema.type) {
+      case 'string':
+        return typeof value === 'string';
+      case 'number':
+      case 'integer':
+        return typeof value === 'number'
+          && Number.isFinite(value)
+          && (schema.type !== 'integer' || Number.isInteger(value));
+      case 'boolean':
+        return typeof value === 'boolean';
+      case 'array':
+        return Array.isArray(value) && (schema.items === undefined
+          || value.every(item => this.matchesItemSchema(item, schema.items!)));
+      case 'object':
+        return this.isPlainObject(value);
+      default:
+        return false;
+    }
+  }
+
+  private matchesItemSchema(
+    value: unknown,
+    schema: NonNullable<ToolParameter['items']>
+  ): boolean {
+    if (schema.enum && (!schema.enum.includes(String(value)) || typeof value !== 'string')) {
+      return false;
+    }
+    if (schema.type === 'object') {
+      if (!this.isPlainObject(value)) {
+        return false;
+      }
+      const objectSchema = schema as {
+        properties?: Record<string, ToolParameter>;
+        required?: string[];
+      };
+      for (const required of objectSchema.required ?? []) {
+        if (value[required] === undefined || value[required] === null) {
+          return false;
+        }
+      }
+      return Object.entries(objectSchema.properties ?? {}).every(([name, property]) =>
+        value[name] === undefined || this.matchesParameterSchema(value[name], property)
+      );
+    }
+    return this.matchesParameterSchema(value, {
+      type: schema.type,
+      description: schema.description ?? '',
+      enum: schema.enum,
+    });
+  }
+
+  private applyAlternative(
+    call: ToolCallRequest,
+    alternative: string
+  ): { args: Record<string, unknown>; changed: Record<string, unknown> } {
+    const args = this.getCallArgs(call);
+    let changed: Record<string, unknown>;
+    if (call.tool === 'run_command' || call.tool === 'shell') {
+      changed = { command: alternative, args: [] };
+    } else if (typeof args.path === 'string') {
+      changed = { path: alternative };
+    } else if (typeof args.file_path === 'string') {
+      changed = { file_path: alternative };
+    } else {
+      throw new Error('Tool execution skipped because the alternative input could not be applied.');
+    }
+    return { args: { ...args, ...changed }, changed };
+  }
+
+  private buildApprovalMessage(call: ToolCallRequest, definition: ToolDefinition): string {
+    const args = this.getCallArgs(call);
+    if (call.tool === 'run_command' || call.tool === 'shell') {
+      const command = String(args.command ?? '');
+      const commandArgs = Array.isArray(args.args) ? args.args.join(' ') : '';
+      const fullCommand = commandArgs ? `${command} ${commandArgs}` : command;
+      const directory = args.directory ? ` (in ${String(args.directory)})` : '';
+      return call.tool === 'shell'
+        ? `Run this shell command with live output${directory}?\n  $ ${fullCommand}`
+        : `Run this command${directory}?\n  $ ${fullCommand}`;
+    }
+    if (call.tool === 'delete_path' && args.path) {
+      return `Delete this path?\n  ${String(args.path)}`;
+    }
+    if (call.tool === 'write_file' && args.path) {
+      return `Write to this file?\n  ${String(args.path)}`;
+    }
+    if (call.tool === 'multi_file_edit' && args.file_path) {
+      const editCount = Array.isArray(args.edits) ? args.edits.length : 0;
+      return `Edit this file (${editCount} change${editCount === 1 ? '' : 's'})?\n  ${String(args.file_path)}`;
+    }
+    return definition.approvalMessage ?? `Allow tool ${call.tool}?`;
+  }
+
+  private toPromptContext(context: PermissionContext): { tool?: string; path?: string; command?: string } {
+    const args = context.args?.join(' ') ?? '';
+    return {
+      tool: context.tool,
+      path: context.path,
+      command: context.command ? (args ? `${context.command} ${args}` : context.command) : undefined,
+    };
+  }
+
+  private isPlainObject(value: unknown): value is Record<string, unknown> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return false;
+    }
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
+  }
+
+  private assertNotAborted(signal?: AbortSignal): void {
+    if (signal?.aborted) {
+      throw new ToolExecutionAbortedError();
+    }
+  }
+
+  private createAbortedResult(call: ToolCallRequest): ToolExecutionResult {
+    return {
+      tool: call.tool,
+      success: false,
+      kind: 'aborted',
+      error: TOOL_ABORTED_MESSAGE,
+      output: TOOL_ABORTED_MESSAGE,
+    };
+  }
+
   /**
    * Execute approved calls in model order while preserving safe parallelism.
    *
@@ -1907,7 +2422,8 @@ export class ToolManager {
    */
   private async executeScheduled(
     tasks: ReadyToolExecutionTask[],
-    onToolComplete?: (index: number, result: ToolExecutionResult) => void
+    onToolComplete?: (index: number, result: ToolExecutionResult) => void,
+    signal?: AbortSignal,
   ): Promise<Map<number, ToolExecutionResult>> {
     const results = new Map<number, ToolExecutionResult>();
     let parallelBatch: ReadyToolExecutionTask[] = [];
@@ -1925,7 +2441,8 @@ export class ToolManager {
       const batchResults = await this.executeWithConcurrency(
         parallelBatch,
         this.maxConcurrency,
-        onToolComplete
+        onToolComplete,
+        signal,
       );
       mergeResults(batchResults);
       parallelBatch = [];
@@ -1941,7 +2458,8 @@ export class ToolManager {
       const sequentialResult = await this.executeWithConcurrency(
         [task],
         1,
-        onToolComplete
+        onToolComplete,
+        signal,
       );
       mergeResults(sequentialResult);
     }
@@ -1960,30 +2478,40 @@ export class ToolManager {
   private async executeWithConcurrency(
     tasks: ReadyToolExecutionTask[],
     maxConcurrency: number,
-    onToolComplete?: (index: number, result: ToolExecutionResult) => void
+    onToolComplete?: (index: number, result: ToolExecutionResult) => void,
+    signal?: AbortSignal,
   ): Promise<Map<number, ToolExecutionResult>> {
     const results = new Map<number, ToolExecutionResult>();
     let cursor = 0;
 
     const runNext = async (): Promise<void> => {
       while (cursor < tasks.length) {
+        if (signal?.aborted) {
+          return;
+        }
         const taskIndex = cursor++;
         const { call, index } = tasks[taskIndex];
         let result: ToolExecutionResult;
         try {
           const action = this.toAction(call);
-          const output = await this.executor(action, {
+          const outcome = this.normalizeToolOutcome(await this.executor(action, {
             toolCallId: call.id,
             tool: call.tool,
             approvalHandled: true,
-          });
-          result = { tool: call.tool, success: true, output };
+            signal,
+          }));
+          result = signal?.aborted
+            ? this.createAbortedResult(call)
+            : { tool: call.tool, ...outcome };
         } catch (error) {
-          result = {
-            tool: call.tool,
-            success: false,
-            error: error instanceof Error ? error.message : String(error)
-          };
+          result = signal?.aborted || (error instanceof Error && error.name === 'AbortError')
+            ? this.createAbortedResult(call)
+            : {
+                tool: call.tool,
+                success: false,
+                kind: 'operational',
+                error: this.normalizeError(error),
+              };
         }
         results.set(index, result);
         onToolComplete?.(index, result);
@@ -1995,13 +2523,71 @@ export class ToolManager {
       () => runNext()
     );
     await Promise.all(workers);
+
+    while (cursor < tasks.length) {
+      const { call, index } = tasks[cursor++];
+      const result = this.createAbortedResult(call);
+      results.set(index, result);
+      onToolComplete?.(index, result);
+    }
     return results;
+  }
+
+  private normalizeToolOutcome(outcome: ToolActionOutcome): ToolActionOutcome {
+    if (!this.isPlainObject(outcome) || typeof outcome.success !== 'boolean') {
+      throw new Error('Tool executor returned a malformed outcome.');
+    }
+    if (outcome.success) {
+      if (outcome.output !== undefined && typeof outcome.output !== 'string') {
+        throw new Error('Tool executor returned malformed success output.');
+      }
+      return outcome.output === undefined
+        ? { success: true }
+        : { success: true, output: outcome.output };
+    }
+
+    const validKinds: ToolFailureKind[] = [
+      'authorization',
+      'validation',
+      'command',
+      'aborted',
+      'operational',
+    ];
+    if (!validKinds.includes(outcome.kind)) {
+      throw new Error('Tool executor returned an unknown failure kind.');
+    }
+    if (typeof outcome.error !== 'string' || outcome.error.trim().length === 0) {
+      throw new Error('Tool executor returned a failure without an error.');
+    }
+    if (outcome.output !== undefined && typeof outcome.output !== 'string') {
+      throw new Error('Tool executor returned malformed failure output.');
+    }
+    if (outcome.exitCode !== undefined
+      && outcome.exitCode !== null
+      && (typeof outcome.exitCode !== 'number' || !Number.isInteger(outcome.exitCode))) {
+      throw new Error('Tool executor returned a malformed exit code.');
+    }
+    return {
+      success: false,
+      kind: outcome.kind,
+      error: outcome.error,
+      ...(outcome.output === undefined ? {} : { output: outcome.output }),
+      ...(outcome.exitCode === undefined ? {} : { exitCode: outcome.exitCode }),
+    };
+  }
+
+  private normalizeError(error: unknown): string {
+    if (error instanceof Error && error.message.trim().length > 0) {
+      return error.message;
+    }
+    const message = String(error).trim();
+    return message || 'Tool execution failed.';
   }
 
   private toAction(call: ToolCallRequest): AgentAction {
     return {
+      ...(call.args ?? {}),
       type: call.tool,
-      ...(call.args ?? {})
     } as AgentAction;
   }
 }

@@ -142,8 +142,8 @@ describe('Tool Call ID Handling', () => {
   describe('ToolManager execution with IDs', () => {
     it('should execute tools while preserving order for ID matching', async () => {
       const executor = vi.fn()
-        .mockResolvedValueOnce('first result')
-        .mockResolvedValueOnce('second result');
+        .mockResolvedValueOnce({ success: true, output: 'first result' })
+        .mockResolvedValueOnce({ success: true, output: 'second result' });
       const confirm = vi.fn().mockResolvedValue(true);
 
       const definitions = [
@@ -165,11 +165,10 @@ describe('Tool Call ID Handling', () => {
       const results = await manager.execute(toolCalls);
 
       // Results should be in same order as calls for ID matching
-      expect(results).toHaveLength(2);
-      expect(results[0].tool).toBe('read_file');
-      expect(results[0].output).toBe('first result');
-      expect(results[1].tool).toBe('write_file');
-      expect(results[1].output).toBe('second result');
+      expect(results).toEqual([
+        { tool: 'read_file', success: true, output: 'first result' },
+        { tool: 'write_file', success: true, output: 'second result' },
+      ]);
     });
   });
 

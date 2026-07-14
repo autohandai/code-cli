@@ -18,6 +18,7 @@ import {
   createNotification,
   JSON_RPC_ERROR_CODES,
 } from './types.js';
+import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 
 // ============================================================================
 // Parsing
@@ -100,8 +101,7 @@ export function serialize(obj: JsonRpcRequest | JsonRpcResponse): string {
     return JSON.stringify(obj);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown serialization error';
-    // Log to stderr since stdout is reserved for RPC communication
-    process.stderr.write(`[RPC] Serialization error: ${message}\n`);
+    writeAutohandDebugLine(`[RPC] Serialization error: ${message}`);
     // Return a minimal error response that can still be serialized
     return JSON.stringify({
       jsonrpc: '2.0',
@@ -123,7 +123,7 @@ export function serializeBatch(responses: JsonRpcResponse[]): string {
     return JSON.stringify(responses);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown serialization error';
-    process.stderr.write(`[RPC] Batch serialization error: ${message}\n`);
+    writeAutohandDebugLine(`[RPC] Batch serialization error: ${message}`);
     // Return an array with a single error response
     return JSON.stringify([{
       jsonrpc: '2.0',
@@ -166,14 +166,21 @@ export function generateId(prefix: string = 'id'): string {
 export class LineReader {
   private buffer = '';
   private lineQueue: string[] = [];
-  private resolvers: Array<(line: string) => void> = [];
+  private pendingReads: Array<{
+    resolve: (line: string) => void;
+    reject: (error: Error) => void;
+  }> = [];
   private closed = false;
+  private disposed = false;
+  private readonly onData = (chunk: string): void => this.handleData(chunk);
+  private readonly onEnd = (): void => this.handleEnd();
+  private readonly onClose = (): void => this.handleClose();
 
   constructor(private stream: NodeJS.ReadableStream) {
     this.stream.setEncoding('utf8');
-    this.stream.on('data', (chunk: string) => this.handleData(chunk));
-    this.stream.on('end', () => this.handleEnd());
-    this.stream.on('close', () => this.handleClose());
+    this.stream.on('data', this.onData);
+    this.stream.on('end', this.onEnd);
+    this.stream.on('close', this.onClose);
   }
 
   private handleData(chunk: string): void {
@@ -197,19 +204,31 @@ export class LineReader {
       this.deliverLine(this.buffer);
     }
     this.buffer = '';
-    this.closed = true;
+    this.closePendingReads();
   }
 
   private handleClose(): void {
-    this.closed = true;
+    this.closePendingReads();
   }
 
   private deliverLine(line: string): void {
-    if (this.resolvers.length > 0) {
-      const resolver = this.resolvers.shift()!;
-      resolver(line);
+    if (this.pendingReads.length > 0) {
+      const pendingRead = this.pendingReads.shift()!;
+      pendingRead.resolve(line);
     } else {
       this.lineQueue.push(line);
+    }
+  }
+
+  private closePendingReads(): void {
+    if (this.closed) {
+      return;
+    }
+
+    this.closed = true;
+    const error = new Error('Stream closed');
+    for (const pendingRead of this.pendingReads.splice(0)) {
+      pendingRead.reject(error);
     }
   }
 
@@ -225,9 +244,24 @@ export class LineReader {
       throw new Error('Stream closed');
     }
 
-    return new Promise((resolve) => {
-      this.resolvers.push(resolve);
+    return new Promise((resolve, reject) => {
+      this.pendingReads.push({ resolve, reject });
     });
+  }
+
+  /**
+   * Detach stream listeners and settle any pending read.
+   */
+  dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+
+    this.disposed = true;
+    this.stream.removeListener('data', this.onData);
+    this.stream.removeListener('end', this.onEnd);
+    this.stream.removeListener('close', this.onClose);
+    this.closePendingReads();
   }
 
   /**
@@ -257,11 +291,11 @@ export function writeResponse(id: JsonRpcId, result: unknown): void {
   try {
     const response = createResponse(id, result);
     const serialized = serialize(response) + '\n';
-    process.stderr.write(`[RPC DEBUG] writeResponse id=${id} size=${serialized.length}b\n`);
+    writeAutohandDebugLine(`[RPC DEBUG] writeResponse id=${id} size=${serialized.length}b`);
     process.stdout.write(serialized);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown write error';
-    process.stderr.write(`[RPC] Failed to write response for id '${id}': ${message}\n`);
+    writeAutohandDebugLine(`[RPC] Failed to write response for id '${id}': ${message}`);
   }
 }
 
@@ -278,11 +312,11 @@ export function writeErrorResponse(
   try {
     const response = createErrorResponse(id, code, message, data);
     const serialized = serialize(response) + '\n';
-    process.stderr.write(`[RPC DEBUG] writeErrorResponse id=${id} size=${serialized.length}b\n`);
+    writeAutohandDebugLine(`[RPC DEBUG] writeErrorResponse id=${id} size=${serialized.length}b`);
     process.stdout.write(serialized);
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : 'Unknown write error';
-    process.stderr.write(`[RPC] Failed to write error response: ${errMsg}\n`);
+    writeAutohandDebugLine(`[RPC] Failed to write error response: ${errMsg}`);
   }
 }
 
@@ -294,11 +328,11 @@ export function writeBatchResponse(responses: JsonRpcResponse[]): void {
   if (responses.length > 0) {
     try {
       const serialized = serializeBatch(responses) + '\n';
-      process.stderr.write(`[RPC DEBUG] writeBatchResponse count=${responses.length} size=${serialized.length}b\n`);
+      writeAutohandDebugLine(`[RPC DEBUG] writeBatchResponse count=${responses.length} size=${serialized.length}b`);
       process.stdout.write(serialized);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown write error';
-      process.stderr.write(`[RPC] Failed to write batch response: ${message}\n`);
+      writeAutohandDebugLine(`[RPC] Failed to write batch response: ${message}`);
     }
   }
 }
@@ -312,12 +346,12 @@ export function writeNotification(method: string, params?: JsonRpcParams): void 
     const notification = createNotification(method, params);
     const serialized = serialize(notification) + '\n';
     if (method !== 'autohand.ping') {
-      process.stderr.write(`[RPC DEBUG] writeNotification method=${method} size=${serialized.length}b\n`);
+      writeAutohandDebugLine(`[RPC DEBUG] writeNotification method=${method} size=${serialized.length}b`);
     }
     process.stdout.write(serialized);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown write error';
-    process.stderr.write(`[RPC] Failed to write notification '${method}': ${message}\n`);
+    writeAutohandDebugLine(`[RPC] Failed to write notification '${method}': ${message}`);
   }
 }
 

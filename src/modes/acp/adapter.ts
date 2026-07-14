@@ -659,7 +659,9 @@ export class AutohandAcpAdapter implements Agent {
     const turnStart = Date.now();
     this.emitHookPrePrompt(params.sessionId, instruction, []);
     try {
-      const success = await agent.runInstruction(instruction);
+      const success = await agent.runInstruction(instruction, {
+        signal: session.abortController.signal,
+      });
       const turnDuration = Date.now() - turnStart;
       this.emitHookStop(params.sessionId, 0, 0, turnDuration);
       if (!success && this.cancelledSessions.has(params.sessionId)) {
@@ -1091,7 +1093,13 @@ export class AutohandAcpAdapter implements Agent {
         case 'tool_end':
           if (event.toolName) {
             const toolCallId = event.toolId ?? 'unknown';
-            const status: ToolCallStatus = event.toolSuccess !== false ? 'completed' : 'failed';
+            const status: ToolCallStatus = event.toolSuccess === true ? 'completed' : 'failed';
+            const rawOutput = event.toolOutput !== undefined || event.toolError !== undefined
+              ? {
+                  ...(event.toolOutput === undefined ? {} : { output: event.toolOutput }),
+                  ...(event.toolError === undefined ? {} : { error: event.toolError }),
+                }
+              : undefined;
 
             await this.connection.sessionUpdate({
               sessionId,
@@ -1099,9 +1107,7 @@ export class AutohandAcpAdapter implements Agent {
                 sessionUpdate: 'tool_call_update',
                 toolCallId,
                 status,
-                rawOutput: event.toolOutput
-                  ? { output: event.toolOutput }
-                  : undefined,
+                rawOutput,
               },
             });
 
@@ -1111,7 +1117,7 @@ export class AutohandAcpAdapter implements Agent {
             this.toolStartTimes.delete(toolCallId);
             this.emitHookPostTool(
               sessionId, toolCallId, event.toolName,
-              event.toolSuccess !== false, duration, event.toolOutput
+              event.toolSuccess === true, duration, event.toolOutput ?? event.toolError
             );
           }
           break;

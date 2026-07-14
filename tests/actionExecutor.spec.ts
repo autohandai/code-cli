@@ -8,14 +8,20 @@ import stripAnsi from 'strip-ansi';
 import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
-import type { AgentRuntime } from '../src/types.js';
+import type { AgentAction, AgentRuntime } from '../src/types.js';
 import type { FileActionManager } from '../src/actions/filesystem.js';
 import { ActionExecutor } from '../src/core/actionExecutor.js';
 import type { MetaToolDefinition } from '../src/core/toolsRegistry.js';
 import * as gitActions from '../src/actions/git.js';
 import * as commandActions from '../src/actions/command.js';
+import * as dependencyActions from '../src/actions/dependencies.js';
+import * as shellActions from '../src/ui/shellCommand.js';
+import * as webActions from '../src/actions/web.js';
+import * as webRepoActions from '../src/actions/webRepo.js';
+import { WorktreeManager } from '../src/actions/worktree.js';
 import * as modalComponents from '../src/ui/ink/components/Modal.js';
-import type { ToolDefinition } from '../src/core/toolManager.js';
+import { ToolManager, type ToolDefinition } from '../src/core/toolManager.js';
+import * as customCommandActions from '../src/core/customCommands.js';
 import { execSync } from 'node:child_process';
 import { PlanFileStorage } from '../src/modes/planMode/PlanFileStorage.js';
 import { PermissionManager } from '../src/permissions/PermissionManager.js';
@@ -28,6 +34,11 @@ vi.mock('node:child_process', async () => {
     execSync: vi.fn()
   };
 });
+
+vi.mock('../src/core/customCommands.js', () => ({
+  loadCustomCommand: vi.fn().mockResolvedValue(undefined),
+  saveCustomCommand: vi.fn().mockResolvedValue(undefined),
+}));
 
 // Mock fs-extra for pathExists control in write_file tests
 const mockPathExists = vi.fn().mockResolvedValue(false);
@@ -89,6 +100,8 @@ function createExecutor(
       goalObjective: string;
       goalSource: string;
     }) => Promise<void>;
+    onModalPause?: <T>(callback: () => Promise<T>) => Promise<T>;
+    onReviewHook?: (event: string) => Promise<void>;
   } = {}
 ): ActionExecutor {
   return new ActionExecutor({
@@ -99,6 +112,8 @@ function createExecutor(
     onFileModified: options.onFileModified,
     onExploration: options.onExploration,
     onGoalWrittenCompleted: options.onGoalWrittenCompleted,
+    onModalPause: options.onModalPause,
+    onReviewHook: options.onReviewHook,
   });
 }
 
@@ -193,6 +208,24 @@ describe('ActionExecutor', () => {
       await executor.execute({ type: 'write_file', path: 'src/new.ts', content: 'code' } as any);
 
       expect(onFileModified).toHaveBeenCalledWith('src/new.ts', 'create');
+    });
+
+    it('uses canonical write approval without prompting again for a new file', async () => {
+      mockPathExists.mockResolvedValueOnce(false);
+      const writeFile = vi.fn().mockResolvedValue(undefined);
+      const confirmDangerousAction = vi.fn().mockResolvedValue(false);
+      const executor = createExecutor(
+        { readFile: vi.fn().mockRejectedValue(new Error('not found')), writeFile },
+        { confirmDangerousAction },
+      );
+
+      await executor.execute(
+        { type: 'write_file', path: 'src/new.ts', content: 'code' },
+        { tool: 'write_file', toolCallId: 'call-write', approvalHandled: true },
+      );
+
+      expect(confirmDangerousAction).not.toHaveBeenCalled();
+      expect(writeFile).toHaveBeenCalledWith('src/new.ts', 'code');
     });
 
     it('throws error when write_file path is missing', async () => {
@@ -369,10 +402,25 @@ describe('ActionExecutor', () => {
 
       const result = await executor.execute({ type: 'delete_path', path: 'dist' });
 
+      expect(confirmDangerousAction).toHaveBeenCalledOnce();
       expect(deletePath).toHaveBeenCalledWith('dist');
       expect(onFileModified).toHaveBeenCalledWith('dist', 'delete');
       // File deletions now show diff preview with removal stats
       expect(result).toContain('removed');
+    });
+
+    it('does not prompt again when the canonical caller already handled approval', async () => {
+      const deletePath = vi.fn().mockResolvedValue(undefined);
+      const confirmDangerousAction = vi.fn().mockResolvedValue(false);
+      const executor = createExecutor({ deletePath }, { confirmDangerousAction });
+
+      await executor.execute(
+        { type: 'delete_path', path: 'dist' },
+        { tool: 'delete_path', toolCallId: 'call-1', approvalHandled: true },
+      );
+
+      expect(confirmDangerousAction).not.toHaveBeenCalled();
+      expect(deletePath).toHaveBeenCalledWith('dist');
     });
 
     it('deletes directories when readFile fails (directory)', async () => {
@@ -1217,6 +1265,559 @@ describe('ActionExecutor', () => {
   });
 
   describe('Command Execution', () => {
+    describe('typed runtime outcomes', () => {
+      it('classifies empty plan notes as validation failure', async () => {
+        const executor = createExecutor();
+
+        const outcome = await executor.executeForTool(
+          { type: 'plan', notes: '' },
+          { approvalHandled: true },
+        );
+
+        expect(outcome).toEqual({
+          success: false,
+          kind: 'validation',
+          error: 'No plan notes provided',
+          output: 'No plan notes provided',
+        });
+      });
+
+      it('classifies non-array todo tasks as validation failure', async () => {
+        const executor = createExecutor();
+
+        const outcome = await executor.executeForTool(
+          { type: 'todo_write', tasks: 42 } as unknown as AgentAction,
+          { approvalHandled: true },
+        );
+
+        expect(outcome).toMatchObject({
+          success: false,
+          kind: 'validation',
+          error: expect.stringContaining('tasks'),
+        });
+      });
+
+      it('classifies missing required command input as validation failure', async () => {
+        const executor = createExecutor();
+
+        const outcome = await executor.executeForTool({ type: 'run_command' } as AgentAction);
+
+        expect(outcome).toEqual({
+          success: false,
+          kind: 'validation',
+          error: 'run_command requires a "command" argument (string)',
+          output: 'Error: run_command requires a "command" argument (string)',
+        });
+        await expect(executor.execute({ type: 'run_command' } as AgentAction)).resolves.toEqual(
+          expect.stringContaining('command')
+        );
+      });
+
+      it('classifies a non-zero foreground command with output and exit code', async () => {
+        vi.spyOn(commandActions, 'runCommand').mockResolvedValue({
+          stdout: 'partial stdout',
+          stderr: 'command failed',
+          code: 19,
+        });
+        const executor = createExecutor();
+
+        const outcome = await executor.executeForTool({
+          type: 'run_command',
+          command: 'failing-command',
+        });
+
+        expect(outcome).toMatchObject({
+          success: false,
+          kind: 'command',
+          error: 'command failed',
+          exitCode: 19,
+          output: expect.stringContaining('partial stdout'),
+        });
+      });
+
+      it('classifies a non-zero interactive command', async () => {
+        vi.spyOn(commandActions, 'runCommand').mockResolvedValue({
+          stdout: '',
+          stderr: '',
+          code: 4,
+        });
+        const executor = createExecutor({}, {
+          onModalPause: async (callback) => callback(),
+        });
+
+        const outcome = await executor.executeForTool({
+          type: 'run_command',
+          command: 'interactive-command',
+          interactive: true,
+        });
+
+        expect(outcome).toMatchObject({
+          success: false,
+          kind: 'command',
+          exitCode: 4,
+          output: expect.stringContaining('(exit code: 4)'),
+        });
+      });
+
+      it('classifies command spawn errors without throwing', async () => {
+        const error = new Error('spawn failed') as NodeJS.ErrnoException;
+        error.code = 'ENOENT';
+        vi.spyOn(commandActions, 'runCommand').mockRejectedValue(error);
+        const executor = createExecutor();
+
+        const outcome = await executor.executeForTool({
+          type: 'run_command',
+          command: 'missing-command',
+        });
+
+        expect(outcome).toMatchObject({
+          success: false,
+          kind: 'command',
+          error: expect.stringContaining('missing-command'),
+          exitCode: null,
+        });
+      });
+
+      it('forwards the active signal and preserves partial command output on abort', async () => {
+        const controller = new AbortController();
+        const abortError = Object.assign(new Error('Command execution aborted.'), {
+          name: 'AbortError',
+          stdout: 'partial stdout',
+          stderr: 'partial stderr',
+        });
+        const runCommand = vi.spyOn(commandActions, 'runCommand').mockRejectedValue(abortError);
+        const executor = createExecutor();
+
+        const outcome = await executor.executeForTool(
+          { type: 'run_command', command: 'long-running-command' },
+          { approvalHandled: true, signal: controller.signal },
+        );
+
+        expect(runCommand).toHaveBeenCalledWith(
+          'long-running-command',
+          [],
+          '/repo',
+          expect.objectContaining({ signal: controller.signal }),
+        );
+        expect(outcome).toEqual({
+          success: false,
+          kind: 'aborted',
+          error: 'Command execution aborted.',
+          output: 'partial stdout\npartial stderr',
+        });
+      });
+
+      it('forwards the active signal to interactive commands', async () => {
+        const controller = new AbortController();
+        const abortError = Object.assign(new Error('Command execution aborted'), { name: 'AbortError' });
+        const runCommand = vi.spyOn(commandActions, 'runCommand').mockRejectedValue(abortError);
+        const executor = createExecutor({}, {
+          onModalPause: async (callback) => callback(),
+        });
+
+        const outcome = await executor.executeForTool(
+          { type: 'run_command', command: 'interactive-command', interactive: true },
+          { approvalHandled: true, signal: controller.signal },
+        );
+
+        expect(runCommand).toHaveBeenCalledWith(
+          'interactive-command',
+          [],
+          '/repo',
+          expect.objectContaining({ interactive: true, signal: controller.signal }),
+        );
+        expect(outcome).toMatchObject({ success: false, kind: 'aborted' });
+      });
+
+      it('classifies a failed live shell result as command failure', async () => {
+        vi.spyOn(shellActions, 'executeStreamingShellCommand').mockResolvedValue({
+          success: false,
+          output: 'partial shell output',
+          error: 'shell failed',
+        });
+        const executor = createExecutor({}, {
+          onModalPause: async (callback) => callback(),
+        });
+        Object.assign(executor as unknown as Record<string, unknown>, {
+          onLiveCommandStart: vi.fn(() => 'live-shell'),
+          onLiveCommandOutput: vi.fn(),
+          onLiveCommandRemove: vi.fn(),
+        });
+
+        const outcome = await executor.executeForTool({
+          type: 'shell',
+          command: 'failing-shell',
+        });
+
+        expect(outcome).toMatchObject({
+          success: false,
+          kind: 'command',
+          error: 'shell failed',
+          output: expect.stringContaining('partial shell output'),
+        });
+      });
+
+      it('forwards the active signal and classifies a live shell abort', async () => {
+        const controller = new AbortController();
+        const abortError = Object.assign(new Error('Shell command aborted.'), {
+          name: 'AbortError',
+          output: 'partial shell output',
+        });
+        const executeShell = vi
+          .spyOn(shellActions, 'executeStreamingShellCommand')
+          .mockRejectedValue(abortError);
+        const executor = createExecutor();
+        Object.assign(executor as unknown as Record<string, unknown>, {
+          onLiveCommandStart: vi.fn(() => 'live-shell'),
+          onLiveCommandOutput: vi.fn(),
+          onLiveCommandRemove: vi.fn(),
+        });
+
+        const outcome = await executor.executeForTool(
+          { type: 'shell', command: 'long-running-shell' },
+          { approvalHandled: true, signal: controller.signal },
+        );
+
+        expect(executeShell).toHaveBeenCalledWith(
+          'long-running-shell',
+          '/repo',
+          expect.objectContaining({ signal: controller.signal }),
+        );
+        expect(outcome).toEqual({
+          success: false,
+          kind: 'aborted',
+          error: 'Shell command aborted.',
+          output: 'partial shell output',
+        });
+      });
+
+      it('forwards the active signal to the non-live shell fallback', async () => {
+        const controller = new AbortController();
+        const abortError = Object.assign(new Error('Command execution aborted'), { name: 'AbortError' });
+        const runCommand = vi.spyOn(commandActions, 'runCommand').mockRejectedValue(abortError);
+        const executor = createExecutor();
+
+        const outcome = await executor.executeForTool(
+          { type: 'shell', command: 'fallback-shell' },
+          { approvalHandled: true, signal: controller.signal },
+        );
+
+        expect(runCommand).toHaveBeenCalledWith(
+          'fallback-shell',
+          [],
+          '/repo',
+          expect.objectContaining({ shell: true, signal: controller.signal }),
+        );
+        expect(outcome).toMatchObject({ success: false, kind: 'aborted' });
+      });
+
+      it('forwards the active signal and classifies a web action abort', async () => {
+        const controller = new AbortController();
+        const abortError = Object.assign(new Error('Web action aborted.'), { name: 'AbortError' });
+        const webSearch = vi.spyOn(webActions, 'webSearch').mockRejectedValue(abortError);
+        const executor = createExecutor();
+
+        const outcome = await executor.executeForTool(
+          { type: 'web_search', query: 'cancellation semantics' },
+          { approvalHandled: true, signal: controller.signal },
+        );
+
+        expect(webSearch).toHaveBeenCalledWith(
+          'cancellation semantics',
+          expect.objectContaining({ signal: controller.signal }),
+        );
+        expect(outcome).toEqual({
+          success: false,
+          kind: 'aborted',
+          error: 'Web action aborted.',
+        });
+      });
+
+      it('forwards the active signal to URL fetches', async () => {
+        const controller = new AbortController();
+        const abortError = Object.assign(new Error('Web action aborted.'), { name: 'AbortError' });
+        const fetchUrl = vi.spyOn(webActions, 'fetchUrl').mockRejectedValue(abortError);
+        const executor = createExecutor();
+
+        const outcome = await executor.executeForTool(
+          { type: 'fetch_url', url: 'https://example.com' },
+          { approvalHandled: true, signal: controller.signal },
+        );
+
+        expect(fetchUrl).toHaveBeenCalledWith(
+          'https://example.com',
+          expect.objectContaining({ signal: controller.signal }),
+        );
+        expect(outcome).toMatchObject({ success: false, kind: 'aborted' });
+      });
+
+      it('forwards the active signal to package metadata requests', async () => {
+        const controller = new AbortController();
+        const abortError = Object.assign(new Error('Web action aborted.'), { name: 'AbortError' });
+        const getPackageInfo = vi.spyOn(webActions, 'getPackageInfo').mockRejectedValue(abortError);
+        const executor = createExecutor();
+
+        const outcome = await executor.executeForTool(
+          { type: 'package_info', package_name: 'typescript', registry: 'npm' },
+          { approvalHandled: true, signal: controller.signal },
+        );
+
+        expect(getPackageInfo).toHaveBeenCalledWith(
+          'typescript',
+          expect.objectContaining({ signal: controller.signal }),
+        );
+        expect(outcome).toMatchObject({ success: false, kind: 'aborted' });
+      });
+
+      it('forwards the active signal and classifies a web repository abort', async () => {
+        const controller = new AbortController();
+        const abortError = Object.assign(new Error('Web repository request aborted'), { name: 'AbortError' });
+        const webRepo = vi.spyOn(webRepoActions, 'webRepo').mockRejectedValue(abortError);
+        const executor = createExecutor();
+
+        const outcome = await executor.executeForTool(
+          { type: 'web_repo', repo: 'github:autohandai/code-cli', operation: 'info' },
+          { approvalHandled: true, signal: controller.signal },
+        );
+
+        expect(webRepo).toHaveBeenCalledWith(expect.objectContaining({
+          signal: controller.signal,
+        }));
+        expect(outcome).toEqual({
+          success: false,
+          kind: 'aborted',
+          error: 'Web repository request aborted',
+        });
+      });
+
+      it('forwards the active signal and classifies parallel worktree aborts', async () => {
+        const controller = new AbortController();
+        const abortError = Object.assign(new Error('Command execution aborted'), { name: 'AbortError' });
+        const runParallel = vi.spyOn(WorktreeManager.prototype, 'runParallel').mockRejectedValue(abortError);
+        const executor = createExecutor({}, {
+          runtime: { workspaceRoot: process.cwd() },
+        });
+
+        const outcome = await executor.executeForTool(
+          {
+            type: 'git_worktree_run_parallel',
+            command: 'bun test',
+            max_concurrent: 2,
+          },
+          { approvalHandled: true, signal: controller.signal },
+        );
+
+        expect(runParallel).toHaveBeenCalledWith('bun test', expect.objectContaining({
+          maxConcurrent: 2,
+          signal: controller.signal,
+        }));
+        expect(outcome).toEqual({
+          success: false,
+          kind: 'aborted',
+          error: 'Command execution aborted',
+        });
+      });
+
+      it('normalizes thrown unknown errors as operational failures', async () => {
+        const executor = createExecutor({
+          readFile: vi.fn().mockRejectedValue('disk unavailable'),
+        });
+
+        const outcome = await executor.executeForTool({
+          type: 'read_file',
+          path: 'src/index.ts',
+        });
+
+        expect(outcome).toEqual({
+          success: false,
+          kind: 'operational',
+          error: 'disk unavailable',
+        });
+      });
+
+      it('classifies direct permission denial as authorization failure', async () => {
+        const executor = new ActionExecutor({
+          runtime: createRuntime(),
+          files: createFiles() as FileActionManager,
+          resolveWorkspacePath: (relativePath) => `/repo/${relativePath}`,
+          confirmDangerousAction: vi.fn().mockResolvedValue(true),
+          permissionManager: new PermissionManager({ mode: 'interactive' }),
+        });
+
+        const outcome = await executor.executeForTool({
+          type: 'run_command',
+          command: 'printenv',
+        });
+
+        expect(outcome).toMatchObject({
+          success: false,
+          kind: 'authorization',
+          error: expect.stringContaining('Permission policy denied'),
+        });
+      });
+
+      it('classifies dependency operation errors as operational failures', async () => {
+        vi.spyOn(dependencyActions, 'addDependency').mockRejectedValue(new Error('registry unavailable'));
+        const executor = createExecutor();
+
+        const outcome = await executor.executeForTool({
+          type: 'add_dependency',
+          name: 'missing-package',
+        });
+
+        expect(outcome).toEqual({
+          success: false,
+          kind: 'operational',
+          error: 'registry unavailable',
+        });
+      });
+
+      it('classifies a caught review failure instead of returning successful error text', async () => {
+        const onReviewHook = vi.fn(async (event: string) => {
+          if (event === 'review:completed') {
+            throw new Error('review hook failed');
+          }
+        });
+        const executor = createExecutor({}, { onReviewHook });
+
+        const outcome = await executor.executeForTool({
+          type: 'code_review',
+          scope: 'diff',
+        });
+
+        expect(outcome).toEqual({
+          success: false,
+          kind: 'operational',
+          error: 'review hook failed',
+          output: 'Review failed: review hook failed',
+        });
+      });
+
+      it('classifies a write permission-hook block as authorization failure', async () => {
+        mockPathExists.mockResolvedValue(false);
+        const executor = new ActionExecutor({
+          runtime: createRuntime(),
+          files: createFiles() as FileActionManager,
+          resolveWorkspacePath: (relativePath) => `/repo/${relativePath}`,
+          confirmDangerousAction: vi.fn().mockResolvedValue(true),
+          permissionManager: new PermissionManager({ mode: 'interactive', rememberSession: false }),
+          onPermissionRequest: vi.fn().mockResolvedValue({
+            decision: 'block',
+            reason: 'workspace policy blocked the write',
+          }),
+        });
+
+        const outcome = await executor.executeForTool({
+          type: 'write_file',
+          path: 'src/new.ts',
+          contents: 'export {};',
+        });
+
+        expect(outcome).toEqual({
+          success: false,
+          kind: 'authorization',
+          error: 'Blocked: workspace policy blocked the write',
+          output: 'Blocked: workspace policy blocked the write',
+        });
+      });
+
+      it('classifies an unavailable auto-commit state as operational failure', async () => {
+        vi.mocked(execSync).mockReturnValue('');
+        vi.spyOn(gitActions, 'getAutoCommitInfo').mockReturnValue({
+          canCommit: false,
+          error: 'No changes to commit',
+          suggestedMessage: '',
+          filesChanged: [],
+        });
+        const executor = createExecutor();
+
+        const outcome = await executor.executeForTool(
+          { type: 'auto_commit' },
+          { approvalHandled: true },
+        );
+
+        expect(outcome).toEqual({
+          success: false,
+          kind: 'operational',
+          error: 'No changes to commit',
+          output: 'No changes to commit',
+        });
+      });
+
+      it('classifies custom command rejection as authorization failure', async () => {
+        const confirmDangerousAction = vi.fn().mockResolvedValue(false);
+        const executor = createExecutor({}, {
+          confirmDangerousAction,
+        });
+
+        const outcome = await executor.executeForTool({
+          type: 'custom_command',
+          name: 'local-check',
+          command: 'echo ok',
+        });
+
+        expect(outcome).toEqual({
+          success: false,
+          kind: 'authorization',
+          error: 'Skipped custom_command.',
+          output: 'Skipped custom_command.',
+        });
+        expect(confirmDangerousAction).toHaveBeenCalledOnce();
+      });
+
+      it('does not prompt twice after canonical custom-command approval', async () => {
+        vi.spyOn(commandActions, 'runCommand').mockResolvedValue({
+          stdout: 'ok',
+          stderr: '',
+          code: 0,
+        });
+        const confirmDangerousAction = vi.fn().mockResolvedValue(false);
+        const executor = createExecutor({}, { confirmDangerousAction });
+        const confirmApproval = vi.fn().mockResolvedValue({ decision: 'allow_once' });
+        const manager = new ToolManager({
+          executor: (action, context) => executor.executeForTool(action, context),
+          confirmApproval,
+          authorization: {
+            permissionManager: new PermissionManager({ mode: 'interactive', rememberSession: false }),
+          },
+        });
+
+        const [outcome] = await manager.execute([{
+          tool: 'custom_command',
+          args: { name: 'local-check', command: 'echo ok' },
+        }]);
+
+        expect(outcome).toMatchObject({ success: true, output: expect.stringContaining('ok') });
+        expect(confirmApproval).toHaveBeenCalledOnce();
+        expect(confirmDangerousAction).not.toHaveBeenCalled();
+        expect(customCommandActions.saveCustomCommand).toHaveBeenCalledOnce();
+      });
+
+      it('forwards the active signal to custom commands and classifies aborts', async () => {
+        const controller = new AbortController();
+        const abortError = Object.assign(new Error('Command execution aborted'), { name: 'AbortError' });
+        const runCommand = vi.spyOn(commandActions, 'runCommand').mockRejectedValue(abortError);
+        const executor = createExecutor();
+
+        const outcome = await executor.executeForTool(
+          { type: 'custom_command', name: 'long-check', command: 'sleep 30' },
+          { approvalHandled: true, signal: controller.signal },
+        );
+
+        expect(runCommand).toHaveBeenCalledWith(
+          'sleep 30',
+          [],
+          '/repo',
+          { signal: controller.signal },
+        );
+        expect(outcome).toEqual({
+          success: false,
+          kind: 'aborted',
+          error: 'Command execution aborted',
+        });
+      });
+    });
+
     it('executes run_command', async () => {
       const runCommandSpy = vi.spyOn(commandActions, 'runCommand').mockResolvedValue({
         stdout: 'output',
@@ -2649,6 +3250,94 @@ describe('ActionExecutor', () => {
       expect(result).toContain("$ printf %s 'src/index.ts'");
     });
 
+    it('classifies a non-zero meta-tool command as a typed command failure', async () => {
+      vi.spyOn(commandActions, 'runCommand').mockResolvedValue({
+        stdout: 'partial meta output',
+        stderr: 'meta command failed',
+        code: 6,
+      });
+      const registry = {
+        listTools: vi.fn().mockResolvedValue([]),
+        getMetaTool: vi.fn().mockReturnValue({
+          schemaVersion: 1,
+          name: 'failing_meta',
+          description: 'Fail predictably',
+          parameters: { type: 'object', properties: {} },
+          handler: 'failing-command',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          fingerprint: '1234567890abcdef',
+          source: 'user',
+        }),
+      };
+      const executor = new ActionExecutor({
+        runtime: createRuntime(),
+        files: createFiles() as FileActionManager,
+        resolveWorkspacePath: (relativePath) => `/repo/${relativePath}`,
+        confirmDangerousAction: vi.fn().mockResolvedValue(true),
+        toolsRegistry: registry as unknown as ConstructorParameters<typeof ActionExecutor>[0]['toolsRegistry'],
+        getRegisteredTools: () => [],
+      });
+
+      const outcome = await executor.executeForTool(
+        { type: 'failing_meta' } as AgentAction,
+        { approvalHandled: true },
+      );
+
+      expect(outcome).toMatchObject({
+        success: false,
+        kind: 'command',
+        error: 'meta command failed',
+        output: expect.stringContaining('partial meta output'),
+        exitCode: 6,
+      });
+    });
+
+    it('forwards the active signal to meta-tool commands and classifies aborts', async () => {
+      const controller = new AbortController();
+      const abortError = Object.assign(new Error('Command execution aborted'), { name: 'AbortError' });
+      const runCommand = vi.spyOn(commandActions, 'runCommand').mockRejectedValue(abortError);
+      const registry = {
+        listTools: vi.fn().mockResolvedValue([]),
+        getMetaTool: vi.fn().mockReturnValue({
+          schemaVersion: 1,
+          name: 'long_meta',
+          description: 'Run until canceled',
+          parameters: { type: 'object', properties: {} },
+          handler: 'sleep 30',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          fingerprint: '1234567890abcdef',
+          source: 'user',
+        }),
+      };
+      const executor = new ActionExecutor({
+        runtime: createRuntime(),
+        files: createFiles() as FileActionManager,
+        resolveWorkspacePath: (relativePath) => `/repo/${relativePath}`,
+        confirmDangerousAction: vi.fn().mockResolvedValue(true),
+        toolsRegistry: registry as unknown as ConstructorParameters<typeof ActionExecutor>[0]['toolsRegistry'],
+        getRegisteredTools: () => [],
+      });
+
+      const outcome = await executor.executeForTool(
+        { type: 'long_meta' } as AgentAction,
+        { approvalHandled: true, signal: controller.signal },
+      );
+
+      expect(runCommand).toHaveBeenCalledWith(
+        'sleep 30',
+        [],
+        '/repo',
+        expect.objectContaining({ signal: controller.signal }),
+      );
+      expect(outcome).toEqual({
+        success: false,
+        kind: 'aborted',
+        error: 'Command execution aborted',
+      });
+    });
+
     it('blocks meta-tool execution when shell command permission is denied', async () => {
       const runCommandSpy = vi.spyOn(commandActions, 'runCommand').mockResolvedValue({
         stdout: 'should not run',
@@ -3517,6 +4206,16 @@ describe('ActionExecutor', () => {
       });
 
       expect(result).toContain('Error: Directory does not exist');
+
+      const outcome = await executor.executeForTool(
+        { type: 'request_directory_access', path: '/nonexistent/path' },
+        { approvalHandled: true },
+      );
+      expect(outcome).toMatchObject({
+        success: false,
+        kind: 'validation',
+        error: expect.stringContaining('Directory does not exist'),
+      });
     });
 
     it('returns already accessible when directory is workspace root', async () => {
@@ -3660,6 +4359,16 @@ describe('ActionExecutor', () => {
 
       expect(result).toContain('Access denied');
       expect(addAdditionalDirectory).not.toHaveBeenCalled();
+
+      const outcome = await executor.executeForTool(
+        { type: 'request_directory_access', path: '/external/path' },
+        { approvalHandled: true },
+      );
+      expect(outcome).toMatchObject({
+        success: false,
+        kind: 'authorization',
+        error: expect.stringContaining('Access denied'),
+      });
     });
 
     it('returns instructions when no callback and not yolo mode', async () => {

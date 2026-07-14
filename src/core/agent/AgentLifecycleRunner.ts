@@ -22,6 +22,9 @@ import { shouldForceAgentIdleLogout } from './AgentSessionAccounting.js';
 import { consumeAgentInkSubmittedInstructionEcho } from './AgentUIRuntime.js';
 
 const execFileAsync = promisify(execFile);
+const RUNTIME_RESOURCE_SHUTDOWN_TIMEOUT_MS = 2_500;
+const COMMAND_FINALIZATION_TIMEOUT_MS = 2_500;
+const COMMAND_HOOK_KILL_GRACE_PERIOD_MS = 100;
 
 export interface AgentLifecycleHost {
   [key: string]: any;
@@ -75,6 +78,11 @@ function activateStartupSkill(host: AgentLifecycleHost): void {
   if (!activated) {
     host.notifyUser?.(`Installed skill "${skillName}" could not be activated for this session.`);
   }
+}
+
+function isRuntimeResourceShutdownStarted(host: AgentLifecycleHost): boolean {
+  return Boolean(host.runtimeResourceShutdownPromise)
+    || host.runtimeResourceShutdownController?.signal.aborted === true;
 }
 
 export async function runAgentInteractive(host: AgentLifecycleHost, initialInstruction?: string): Promise<void> {
@@ -150,59 +158,154 @@ export function installAgentExitSignalHandlers(host: AgentLifecycleHost): void {
         process.exit(0);
       }
       host.shouldExit = true;
+      host.runtimeResourceShutdownController?.abort();
       console.log(formatExitCleanup());
       host.clearAllQueuesAndAbort();
     };
 
+    host.exitSignalHandler = handleExitSignal;
     process.on('SIGINT', handleExitSignal);
     process.on('SIGTERM', handleExitSignal);
   }
 
 export function removeAgentExitSignalHandlers(host: AgentLifecycleHost): void {
+    const handleExitSignal = host.exitSignalHandler;
+    if (handleExitSignal) {
+      process.off('SIGINT', handleExitSignal);
+      process.off('SIGTERM', handleExitSignal);
+      host.exitSignalHandler = null;
+    }
     host.exitSignalHandlersInstalled = false;
-    // Note: process.removeListener would require storing the handler reference.
-    // The shouldExit flag prevents handlers from doing anything after cleanup.
+  }
+
+function abortAgentRuntimeWork(host: AgentLifecycleHost): void {
+    // Clear pending instruction queues
+    callResourceCleanupSync(() => {
+      host.pendingInkInstructions.length = 0;
+    });
+    callResourceCleanupSync(() => host.inkRenderer?.clearQueue());
+    // Clear persistent input queue
+    callResourceCleanupSync(() => {
+      while (host.persistentInput?.hasQueued?.()) {
+        host.persistentInput.dequeue();
+      }
+    });
+
+    // Abort any active abort controllers to stop current work
+    const activeAbortController = host.activeAbortController;
+    host.activeAbortController = null;
+    callResourceCleanupSync(() => activeAbortController?.abort());
+    const currentInkAbortController = host.currentInkAbortController;
+    host.currentInkAbortController = null;
+    callResourceCleanupSync(() => currentInkAbortController?.abort());
+    const turnMemoryReflectionAbortController = host.turnMemoryReflectionAbortController;
+    host.turnMemoryReflectionAbortController = null;
+    callResourceCleanupSync(() => turnMemoryReflectionAbortController?.abort());
+    callResourceCleanupSync(() => host.shellSuggestionProvider?.abort());
+    callResourceCleanupSync(() => host.suggestionEngine?.cancel());
+    host.pendingSuggestion = null;
+    callResourceCleanupSync(() => host.persistentInput?.setPendingSuggestion?.(undefined));
+    callResourceCleanupSync(() => host.inkRenderer?.setPendingSuggestion?.(undefined));
+
+    // Resolve any pending ink instruction resolver to unblock the loop
+    const instructionResolver = host.inkInstructionResolver;
+    host.inkInstructionResolver = null;
+    callResourceCleanupSync(instructionResolver ?? undefined);
   }
 
 export function clearAgentQueuesAndAbort(host: AgentLifecycleHost): void {
-    // Clear pending instruction queues
-    host.pendingInkInstructions.length = 0;
-    if (host.inkRenderer) {
-      host.inkRenderer.clearQueue();
-    }
-    // Clear persistent input queue
-    while (host.persistentInput.hasQueued()) {
-      host.persistentInput.dequeue();
-    }
-
-    // Abort any active abort controllers to stop current work
-    if (host.activeAbortController) {
-      try {
-        host.activeAbortController.abort();
-      } catch {
-        // Ignore abort errors
-      }
-      host.activeAbortController = null;
-    }
-    if (host.currentInkAbortController) {
-      try {
-        host.currentInkAbortController.abort();
-      } catch {
-        // Ignore abort errors
-      }
-      host.currentInkAbortController = null;
-    }
-    host.shellSuggestionProvider?.abort();
+    abortAgentRuntimeWork(host);
 
     // Stop any active team processes
     if (host.teamManager) {
       host.teamManager.shutdown().catch(() => {});
     }
+  }
 
-    // Resolve any pending ink instruction resolver to unblock the loop
-    if (host.inkInstructionResolver) {
-      host.inkInstructionResolver();
-      host.inkInstructionResolver = null;
+export function requestAgentExit(host: AgentLifecycleHost): void {
+    host.shouldExit = true;
+    host.runtimeResourceShutdownController?.abort();
+    host.clearAllQueuesAndAbort();
+  }
+
+function callResourceCleanup(action: () => unknown): Promise<unknown> {
+    try {
+      return Promise.resolve(action());
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+
+function callResourceCleanupSync(action: (() => unknown) | undefined): void {
+    try {
+      action?.();
+    } catch {
+      // Cleanup remains best-effort so one faulty resource cannot skip the rest.
+    }
+  }
+
+/**
+ * Release process-scoped resources without finalizing the current session.
+ * Session hooks, telemetry endSession, and SessionManager.closeSession belong
+ * to the outer lifecycle boundary and must not be duplicated here.
+ */
+export async function shutdownAgentRuntimeResources(host: AgentLifecycleHost): Promise<void> {
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<void>((resolve) => {
+      deadlineTimer = setTimeout(resolve, RUNTIME_RESOURCE_SHUTDOWN_TIMEOUT_MS);
+    });
+
+    try {
+      abortAgentRuntimeWork(host);
+      removeAgentExitSignalHandlers(host);
+
+      callResourceCleanupSync(() => host.stopStatusUpdates?.());
+      callResourceCleanupSync(host.persistentConsoleBridgeCleanup ?? undefined);
+      host.persistentConsoleBridgeCleanup = null;
+
+      callResourceCleanupSync(() => host.repeatManager?.shutdown());
+      host.persistentInputActiveTurn = false;
+      callResourceCleanupSync(() => host.persistentInput?.dispose?.());
+      callResourceCleanupSync(() => process.stdin.pause());
+
+      const cleanupTasks: Promise<unknown>[] = [];
+      if (host.ui) {
+        const ui = host.ui;
+        host.ui = null;
+        host.inkRenderer = null;
+        if (host.runtime) host.runtime.inkRenderer = undefined;
+        cleanupTasks.push(callResourceCleanup(() => ui.stop()));
+      } else {
+        callResourceCleanupSync(() => host.cleanupUI?.(false));
+      }
+      callResourceCleanupSync(() => host.runtime?.spinner?.stop?.());
+      if (host.runtime) host.runtime.spinner = undefined;
+
+      const heartbeat = host.activeAgentHeartbeat;
+      host.activeAgentHeartbeat = null;
+
+      if (heartbeat) cleanupTasks.push(callResourceCleanup(() => heartbeat.stop()));
+      if (host.teamManager) cleanupTasks.push(callResourceCleanup(() => host.teamManager.shutdown()));
+      if (host.mcpManager) cleanupTasks.push(callResourceCleanup(() => host.mcpManager.disconnectAll()));
+      if (host.initReady) cleanupTasks.push(callResourceCleanup(() => host.initReady));
+      host.turnMemoryReflectionQueued = false;
+      if (host.flushTurnMemoryReflection) {
+        cleanupTasks.push(callResourceCleanup(() => host.flushTurnMemoryReflection()));
+      }
+      const snapshotFlush = host.flushScheduledSessionSnapshot
+        ? callResourceCleanup(() => host.flushScheduledSessionSnapshot())
+        : Promise.resolve().then(() => {
+            if (host.sessionSyncTimer) clearTimeout(host.sessionSyncTimer);
+            host.sessionSyncTimer = undefined;
+          });
+      cleanupTasks.push(snapshotFlush);
+      if (host.telemetryManager) {
+        cleanupTasks.push(callResourceCleanup(() => host.telemetryManager.shutdown()));
+      }
+
+      await Promise.race([Promise.allSettled(cleanupTasks), deadline]);
+    } finally {
+      if (deadlineTimer) clearTimeout(deadlineTimer);
     }
   }
 
@@ -236,10 +339,14 @@ export async function initializeAgentManagers(host: AgentLifecycleHost): Promise
     ], host.getParallelismLimit());
   }
 
-export async function performAgentBackgroundInit(host: AgentLifecycleHost): Promise<void> {
+export async function performAgentBackgroundInit(
+  host: AgentLifecycleHost,
+  signal?: AbortSignal,
+): Promise<void> {
     try {
       // Phase 1: Parallel manager initialization
-      await host.initializeManagers();
+      await awaitLifecycleStep(Promise.resolve(host.initializeManagers()), signal);
+      if (isRuntimeResourceShutdownStarted(host)) return;
 
       // Fire MCP connections in background (non-blocking, like Claude Code).
       // Servers connect asynchronously; tools become available once ready.
@@ -248,16 +355,24 @@ export async function performAgentBackgroundInit(host: AgentLifecycleHost): Prom
         host.mcpStartupCoordinator.markConnectStarted();
         host.mcpReady = host.mcpManager
           .connectAll(host.runtime.config.mcp?.servers ?? [])
-          .then(() => { host.syncMcpTools(); })
+          .then(() => {
+            if (!isRuntimeResourceShutdownStarted(host)) host.syncMcpTools();
+          })
           .catch(() => { /* individual server errors already captured by connectAll */ })
           .finally(() => {
-            host.mcpStartupCoordinator.markSummaryPending();
+            if (!isRuntimeResourceShutdownStarted(host)) {
+              host.mcpStartupCoordinator.markSummaryPending();
+            }
           });
       }
 
       // Phase 2: Sequential setup that depends on phase 1
 
-      await host.skillsRegistry.setWorkspace(host.runtime.workspaceRoot);
+      await awaitLifecycleStep(
+        Promise.resolve(host.skillsRegistry.setWorkspace(host.runtime.workspaceRoot)),
+        signal,
+      );
+      if (isRuntimeResourceShutdownStarted(host)) return;
       activateStartupSkill(host);
       if (host.runtime?.options?.bare !== true) {
         host.feedbackManager.startSession();
@@ -266,60 +381,172 @@ export async function performAgentBackgroundInit(host: AgentLifecycleHost): Prom
       const model = host.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
       const providerTelemetryMetadata = buildProviderTelemetryMetadata(providerSettings);
       host.sessionStartedAt = Date.now();
-      const [, session] = await Promise.all([
+      const [, session] = await awaitLifecycleStep(Promise.all([
         host.resetConversationContext(),
         host.sessionManager.createSession(host.runtime.workspaceRoot, model),
-      ]);
-      await startHostActiveAgentHeartbeat(host);
+      ]), signal);
+      if (isRuntimeResourceShutdownStarted(host)) return;
+      await awaitLifecycleStep(startHostActiveAgentHeartbeat(host), signal);
+      if (isRuntimeResourceShutdownStarted(host)) return;
 
       // Inject explicit session bootstrap so the LLM is consciously aware of
       // memories, AGENTS.md, skills, and project context from the first turn.
       if (host.runtime?.options?.bare !== true) {
-        await host.injectSessionBootstrap();
+        await awaitLifecycleStep(Promise.resolve(host.injectSessionBootstrap()), signal);
+        if (isRuntimeResourceShutdownStarted(host)) return;
       }
 
       // Phase 3: Telemetry (no stdout output)
       if (session && host.runtime?.options?.bare !== true) {
-        await host.telemetryManager.startSession(
+        if (isRuntimeResourceShutdownStarted(host)) return;
+        await awaitLifecycleStep(host.telemetryManager.startSession(
           session.metadata.sessionId,
           model,
           host.activeProvider,
           host.sessionStartedAt,
-          providerTelemetryMetadata
-        );
+          providerTelemetryMetadata,
+        ), signal);
       }
 
       // NOTE: session-start hook is fired in ensureInitComplete() AFTER the
       // prompt closes, so its output doesn't corrupt the readline display.
+    } catch (error) {
+      if (!(signal?.aborted && error instanceof Error && error.name === 'AbortError')) {
+        throw error;
+      }
     } finally {
       host.initDone = true;
     }
   }
 
-export async function ensureAgentInitComplete(host: AgentLifecycleHost): Promise<void> {
+export async function ensureAgentInitComplete(
+  host: AgentLifecycleHost,
+  signal?: AbortSignal,
+): Promise<void> {
     if (host.initReady) {
-      await host.initReady;
+      try {
+        await awaitLifecycleStep(host.initReady, signal);
+      } catch (error) {
+        if (signal?.aborted && error instanceof Error && error.name === 'AbortError') return;
+        throw error;
+      }
       host.initReady = null;
+      if (isRuntimeResourceShutdownStarted(host)) return;
 
-      // Keep MCP startup async and do not block first instruction execution.
-      // MCP tool calls still await mcpReady in the tool executor path.
+      // Connection starts while the user is typing, but the first model request
+      // must see the final registered MCP tool set.
+      if (host.mcpReady) {
+        try {
+          await awaitLifecycleStep(host.mcpReady, signal);
+        } catch (error) {
+          if (signal?.aborted && error instanceof Error && error.name === 'AbortError') return;
+          throw error;
+        }
+      }
+      if (isRuntimeResourceShutdownStarted(host)) return;
       host.flushMcpStartupSummaryIfPending();
 
       // Fire session-start hook now that the prompt is closed and stdout is clean
       const session = host.sessionManager.getCurrentSession();
       if (host.runtime?.options?.bare !== true) {
-        await host.hookManager.executeHooks('session-start', {
+        await awaitLifecycleStep(host.hookManager.executeHooks('session-start', {
           sessionId: session?.metadata.sessionId,
           sessionType: 'startup',
-        });
+        }), signal);
       }
     }
   }
 
-export async function initializeAgentForRPC(host: AgentLifecycleHost): Promise<void> {
+function createLifecycleAbortError(): Error {
+    const error = new Error('Agent initialization aborted');
+    error.name = 'AbortError';
+    return error;
+  }
+
+function awaitLifecycleStep<T>(task: Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (!signal) return task;
+    if (signal.aborted) {
+      void task.catch(() => {});
+      return Promise.reject(createLifecycleAbortError());
+    }
+
+    return new Promise<T>((resolve, reject) => {
+      const onAbort = (): void => reject(createLifecycleAbortError());
+      signal.addEventListener('abort', onAbort, { once: true });
+      task.then(resolve, reject).finally(() => {
+        signal.removeEventListener('abort', onAbort);
+      });
+    });
+  }
+
+interface CommandFinalizationDeadline {
+  readonly hardSignal: AbortSignal;
+  readonly hookSignal: AbortSignal;
+  readonly started: boolean;
+  readonly expired: boolean;
+  start(): void;
+  dispose(): void;
+}
+
+function createCommandFinalizationDeadline(
+  lifecycleSignal?: AbortSignal,
+): CommandFinalizationDeadline {
+    const hookController = new AbortController();
+    const hardController = new AbortController();
+    let started = false;
+    let hookTimer: ReturnType<typeof setTimeout> | undefined;
+    let hardTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const start = (): void => {
+      if (started) return;
+      started = true;
+      hookTimer = setTimeout(
+        () => hookController.abort(createLifecycleAbortError()),
+        Math.max(0, COMMAND_FINALIZATION_TIMEOUT_MS - COMMAND_HOOK_KILL_GRACE_PERIOD_MS),
+      );
+      hardTimer = setTimeout(
+        () => hardController.abort(createLifecycleAbortError()),
+        COMMAND_FINALIZATION_TIMEOUT_MS,
+      );
+      hookTimer.unref?.();
+      hardTimer.unref?.();
+    };
+
+    if (lifecycleSignal?.aborted) {
+      start();
+    } else {
+      lifecycleSignal?.addEventListener('abort', start, { once: true });
+    }
+
+    return {
+      get hardSignal() {
+        return hardController.signal;
+      },
+      get hookSignal() {
+        return hookController.signal;
+      },
+      get started() {
+        return started;
+      },
+      get expired() {
+        return hardController.signal.aborted;
+      },
+      start,
+      dispose: () => {
+        lifecycleSignal?.removeEventListener('abort', start);
+        if (hookTimer) clearTimeout(hookTimer);
+        if (hardTimer) clearTimeout(hardTimer);
+      },
+    };
+  }
+
+export async function initializeAgentForRPC(
+  host: AgentLifecycleHost,
+  signal?: AbortSignal,
+): Promise<void> {
     // Initialize managers in parallel for faster startup
-    await host.initializeManagers();
-    // Fire MCP connections in background (non-blocking)
+    await awaitLifecycleStep(Promise.resolve(host.initializeManagers()), signal);
+    // Start MCP connections concurrently with the remaining initialization.
     if (host.runtime.config.mcp?.enabled !== false) {
       host.mcpReady = host.mcpManager
         .connectAll(host.runtime.config.mcp?.servers ?? [])
@@ -330,96 +557,212 @@ export async function initializeAgentForRPC(host: AgentLifecycleHost): Promise<v
         });
     }
     // These must run sequentially after the parallel init
-    await host.skillsRegistry.setWorkspace(host.runtime.workspaceRoot);
+    await awaitLifecycleStep(
+      Promise.resolve(host.skillsRegistry.setWorkspace(host.runtime.workspaceRoot)),
+      signal,
+    );
     const providerSettings = getHostProviderSettings(host);
     const model = host.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
     const providerTelemetryMetadata = buildProviderTelemetryMetadata(providerSettings);
     host.sessionStartedAt = Date.now();
-    const [, session] = await Promise.all([
+    const [, session] = await awaitLifecycleStep(Promise.all([
       host.resetConversationContext(),
       host.sessionManager.createSession(host.runtime.workspaceRoot, model),
-    ]);
-    await startHostActiveAgentHeartbeat(host);
+    ]), signal);
+    await awaitLifecycleStep(startHostActiveAgentHeartbeat(host), signal);
 
-    await host.injectSessionBootstrap();
+    await awaitLifecycleStep(Promise.resolve(host.injectSessionBootstrap()), signal);
+
+    // Do not acknowledge initialization until the first RPC/command turn can
+    // advertise every successfully connected MCP tool.
+    if (host.mcpReady) {
+      await awaitLifecycleStep(host.mcpReady, signal);
+    }
 
     // Start telemetry session
     if (session) {
-      await host.telemetryManager.startSession(
+      await awaitLifecycleStep(host.telemetryManager.startSession(
         session.metadata.sessionId,
         model,
         host.activeProvider,
         host.sessionStartedAt,
         providerTelemetryMetadata
-      );
+      ), signal);
     }
 
     // Fire session-start hook
-    await host.hookManager.executeHooks('session-start', {
+    await awaitLifecycleStep(host.hookManager.executeHooks('session-start', {
       sessionId: session?.metadata.sessionId,
       sessionType: 'startup',
-    });
+    }), signal);
   }
 
-export async function runAgentCommandMode(host: AgentLifecycleHost, instruction: string): Promise<void> {
+export async function runAgentCommandMode(
+  host: AgentLifecycleHost,
+  instruction: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
     const previousCommandMode = host.runtime.isCommandMode;
     const previousUseInkRenderer = host.useInkRenderer;
+    let initialized = false;
+    let succeeded = false;
+    let completedNormally = false;
+    let executionFailed = false;
+    let turnStartedAt: number | null = null;
+    let stopHookFired = false;
+    const finalizationDeadline = createCommandFinalizationDeadline(signal);
     host.runtime.isCommandMode = true;
     host.useInkRenderer = false;
 
+    const executeCommandHook = (
+      event: 'stop' | 'session-end',
+      payload: Record<string, unknown>,
+    ): Promise<unknown> => {
+      if (signal || finalizationDeadline.started) {
+        return host.hookManager.executeHooks(event, payload, {
+          signal: finalizationDeadline.hookSignal,
+          killGracePeriodMs: COMMAND_HOOK_KILL_GRACE_PERIOD_MS,
+        });
+      }
+      return host.hookManager.executeHooks(event, payload);
+    };
+
+    const awaitFinalizationStep = <T>(task: Promise<T>): Promise<T> => (
+      awaitLifecycleStep(task, finalizationDeadline.hardSignal)
+    );
+
+    const finalizeCommandTurn = async (): Promise<void> => {
+      if (turnStartedAt === null || stopHookFired) return;
+      stopHookFired = true;
+
+      let finalizationError: unknown;
+      let sessionId: string | undefined;
+      let snapshot: { tokensUsed?: number; tokensUsageStatus?: string } | undefined;
+      try {
+        sessionId = host.sessionManager.getCurrentSession()?.metadata.sessionId;
+      } catch (error) {
+        finalizationError = error;
+      }
+      try {
+        snapshot = host.getStatusSnapshot();
+      } catch (error) {
+        finalizationError ??= error;
+      }
+      try {
+        await awaitFinalizationStep(executeCommandHook('stop', {
+          sessionId,
+          turnDuration: Date.now() - turnStartedAt,
+          tokensUsed: snapshot?.tokensUsed ?? 0,
+          tokensUsageStatus: snapshot?.tokensUsageStatus ?? 'unavailable',
+        }));
+      } catch {
+        // Stop hooks are best-effort and never change command completion.
+      }
+      if (finalizationError !== undefined) {
+        throw finalizationError;
+      }
+    };
+
     try {
-      await host.initializeForRPC();
+      if (signal?.aborted) {
+        throw createLifecycleAbortError();
+      }
+      await awaitLifecycleStep(
+        Promise.resolve(host.initializeForRPC(signal)),
+        signal,
+      );
+      initialized = true;
 
-      const turnStartTime = Date.now();
-      await host.runInstruction(instruction);
+      turnStartedAt = Date.now();
+      succeeded = await awaitLifecycleStep(
+        Promise.resolve(host.runInstruction(instruction, { signal })),
+        signal,
+      );
 
-      // Fire stop hook after turn completes (non-blocking)
-      const turnDuration = Date.now() - turnStartTime;
-      const session = host.sessionManager.getCurrentSession();
-      const snapshot = host.getStatusSnapshot();
-      host.hookManager.executeHooks('stop', {
-        sessionId: session?.metadata.sessionId,
-        turnDuration,
-        tokensUsed: snapshot.tokensUsed,
-        tokensUsageStatus: snapshot.tokensUsageStatus,
-      }).catch(() => {
-        // Ignore hook errors - they shouldn't block the user
-      });
+      if (!succeeded) {
+        finalizationDeadline.start();
+      }
+      await finalizeCommandTurn();
 
-      // Restore stdin to known state after hook execution
-      host.ensureStdinReady();
-
-      // Ring terminal bell to notify user (shows badge on terminal tab)
-      if (host.runtime.config.ui?.terminalBell !== false) {
-        process.stdout.write('\x07');
+      if (signal?.aborted) {
+        throw createLifecycleAbortError();
       }
 
-      // Native OS notification for task completion
-      if (host.runtime.config.ui?.showCompletionNotification !== false) {
-        host.notificationService.notify(
-          { body: host.getCompletionNotificationBody(), reason: 'task_complete' },
-          host.getNotificationGuards()
-        ).catch(() => {});
+      if (succeeded) {
+        if (host.runtime.config.ui?.terminalBell !== false) {
+          process.stdout.write('\x07');
+        }
+
+        if (host.runtime.config.ui?.showCompletionNotification !== false) {
+          host.notificationService.notify(
+            { body: host.getCompletionNotificationBody(), reason: 'task_complete' },
+            host.getNotificationGuards()
+          ).catch(() => {});
+        }
+
+        if (host.runtime.options.autoCommit) {
+          await awaitLifecycleStep(
+            Promise.resolve(host.performAutoCommit(signal)),
+            signal,
+          );
+        }
       }
-
-      if (host.runtime.options.autoCommit) {
-        await host.performAutoCommit();
+      completedNormally = true;
+      return succeeded;
+    } catch (error) {
+      executionFailed = true;
+      finalizationDeadline.start();
+      if (signal?.aborted && error instanceof Error && error.name === 'AbortError') {
+        return false;
       }
-
-      // Fire session-end hook for command mode
-      await host.hookManager.executeHooks('session-end', {
-        sessionId: session?.metadata.sessionId,
-        sessionEndReason: 'exit',
-        duration: Date.now() - host.sessionStartedAt,
-      });
-
-      // Restore stdin after session-end hook
-      host.ensureStdinReady();
-
-      await host.telemetryManager.endSession('completed');
+      throw error;
     } finally {
-      host.runtime.isCommandMode = previousCommandMode;
-      host.useInkRenderer = previousUseInkRenderer;
+      try {
+        if (initialized) {
+          const commandCompleted = completedNormally && succeeded;
+          let finalizationError: unknown;
+          try {
+            await finalizeCommandTurn();
+          } catch (error) {
+            finalizationError = error;
+          }
+          let sessionId: string | undefined;
+          try {
+            sessionId = host.sessionManager.getCurrentSession()?.metadata.sessionId;
+          } catch (error) {
+            finalizationError ??= error;
+          }
+          try {
+            await awaitFinalizationStep(executeCommandHook('session-end', {
+              sessionId,
+              sessionEndReason: commandCompleted ? 'exit' : 'error',
+              duration: Date.now() - host.sessionStartedAt,
+            }));
+          } catch (error) {
+            finalizationError ??= error;
+          }
+
+          try {
+            await awaitFinalizationStep(Promise.resolve(
+              host.telemetryManager.endSession(commandCompleted ? 'completed' : 'crashed'),
+            ));
+          } catch (error) {
+            finalizationError ??= error;
+          }
+
+          if (
+            finalizationError !== undefined
+            && !executionFailed
+            && !finalizationDeadline.expired
+          ) {
+            throw finalizationError;
+          }
+        }
+      } finally {
+        finalizationDeadline.dispose();
+        host.runtime.isCommandMode = previousCommandMode;
+        host.useInkRenderer = previousUseInkRenderer;
+      }
     }
   }
 

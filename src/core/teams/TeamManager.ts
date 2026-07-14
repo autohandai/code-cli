@@ -23,6 +23,20 @@ interface AddTeammateOptions {
   model?: string;
 }
 
+const TEAM_SHUTDOWN_TIMEOUT_MS = 2_000;
+const LEGACY_TEAMMATE_GRACE_MS = 750;
+
+function settleWithin(task: Promise<unknown>, timeoutMs: number): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<void>((resolve) => {
+    timeout = setTimeout(resolve, timeoutMs);
+    timeout.unref?.();
+  });
+  return Promise.race([task.then(() => undefined, () => undefined), deadline]).finally(() => {
+    if (timeout) clearTimeout(timeout);
+  });
+}
+
 /**
  * Orchestrates the full lifecycle of a team: creation, teammate management,
  * inter-agent message routing, task assignment, crash recovery, and shutdown.
@@ -35,6 +49,8 @@ export class TeamManager {
   private teammates: Map<string, TeammateProcess> = new Map();
   private _tasks = new TaskManager();
   private readonly opts: TeamManagerOptions;
+  private shutdownPromise: Promise<void> | null = null;
+  private closing = false;
 
   constructor(opts: TeamManagerOptions) {
     this.opts = opts;
@@ -50,6 +66,9 @@ export class TeamManager {
    * Resets the task manager for a fresh session.
    */
   createTeam(name: string): Team {
+    if (this.closing) {
+      throw new Error('Team is shutting down');
+    }
     if (this.team?.status === 'active') {
       throw new Error('A team is already active. Shut it down first.');
     }
@@ -60,6 +79,7 @@ export class TeamManager {
       status: 'active',
       members: [],
     };
+    this.shutdownPromise = null;
     this._tasks = new TaskManager();
     void this.emitHookEvent('team-created', {
       sessionId: this.opts.leadSessionId,
@@ -86,6 +106,7 @@ export class TeamManager {
    * wires up message and exit handlers.
    */
   addTeammate(opts: AddTeammateOptions): TeammateProcess {
+    if (this.closing) throw new Error('Team is shutting down');
     if (!this.team) throw new Error('No active team');
 
     const tp = new TeammateProcess({
@@ -235,26 +256,52 @@ export class TeamManager {
    * Gracefully shut down the team. Sends shutdown requests, waits briefly
    * for acknowledgement, then force-kills any remaining processes.
    */
-  async shutdown(): Promise<void> {
-    if (!this.team) return;
-    const teamName = this.team.name;
-    for (const [, tp] of this.teammates) {
-      tp.requestShutdown('Team shutting down');
+  shutdown(): Promise<void> {
+    if (!this.shutdownPromise) {
+      this.closing = true;
+      this.shutdownPromise = this.performShutdown();
     }
-    await new Promise((r) => setTimeout(r, 3000));
-    for (const [, tp] of this.teammates) {
-      tp.kill();
+    return this.shutdownPromise;
+  }
+
+  private async performShutdown(): Promise<void> {
+    try {
+      if (!this.team) return;
+      const teamName = this.team.name;
+      const teammates = [...this.teammates.values()];
+      for (const tp of teammates) {
+        tp.requestShutdown('Team shutting down');
+      }
+
+      await settleWithin(Promise.all(teammates.map(async (tp) => {
+        const terminate = (tp as TeammateProcess & {
+          terminate?: () => Promise<void>;
+        }).terminate;
+        if (typeof terminate === 'function') {
+          await terminate.call(tp);
+          return;
+        }
+
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(resolve, LEGACY_TEAMMATE_GRACE_MS);
+          timeout.unref?.();
+        });
+        tp.kill();
+      })), TEAM_SHUTDOWN_TIMEOUT_MS);
+
+      this.team.status = 'completed';
+      const tasks = this._tasks.listTasks();
+      await settleWithin(this.emitHookEvent('team-shutdown', {
+        sessionId: this.opts.leadSessionId,
+        teamName,
+        teamMemberCount: this.teammates.size,
+        teamTasksCompleted: tasks.filter((task) => task.status === 'completed').length,
+        teamTasksTotal: tasks.length,
+      }), TEAM_SHUTDOWN_TIMEOUT_MS);
+    } finally {
+      this.teammates.clear();
+      this.closing = false;
     }
-    this.team.status = 'completed';
-    const tasks = this._tasks.listTasks();
-    await this.emitHookEvent('team-shutdown', {
-      sessionId: this.opts.leadSessionId,
-      teamName,
-      teamMemberCount: this.teammates.size,
-      teamTasksCompleted: tasks.filter((task) => task.status === 'completed').length,
-      teamTasksTotal: tasks.length,
-    });
-    this.teammates.clear();
   }
 
   /**

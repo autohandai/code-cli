@@ -3,10 +3,11 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest';
 import { HookManager } from '../src/core/HookManager.js';
 import type { HooksSettings, HookDefinition } from '../src/types.js';
 import { EventEmitter } from 'node:events';
+import { spawn } from 'node:child_process';
 
 // Mock child_process.spawn
 vi.mock('node:child_process', () => {
@@ -15,17 +16,33 @@ vi.mock('node:child_process', () => {
       const mockProcess = new EventEmitter() as EventEmitter & {
         stdout: EventEmitter;
         stderr: EventEmitter;
-        kill: () => void;
+        kill: (signal?: NodeJS.Signals) => boolean;
       };
       mockProcess.stdout = new EventEmitter();
       mockProcess.stderr = new EventEmitter();
-      mockProcess.kill = vi.fn();
+      let closed = false;
+      mockProcess.kill = vi.fn((signal: NodeJS.Signals = 'SIGTERM') => {
+        if (command.includes('ignore-term') && signal === 'SIGTERM') {
+          return true;
+        }
+        setTimeout(() => {
+          if (closed) return;
+          closed = true;
+          mockProcess.emit('close', null, signal);
+        }, 0);
+        return true;
+      });
 
       // Simulate async behavior
-      setTimeout(() => {
+      if (!command.includes('ignore-term')) setTimeout(() => {
+        if (closed) return;
+        closed = true;
         // Simulate success for 'true' or commands not containing 'false' or 'nonexistent'
         if (command.includes('false')) {
           mockProcess.emit('close', 1);
+        } else if (command.includes('block')) {
+          mockProcess.stderr.emit('data', Buffer.from('blocked by hook'));
+          mockProcess.emit('close', 2);
         } else if (command.includes('nonexistent')) {
           mockProcess.emit('error', new Error('Command not found'));
         } else {
@@ -33,7 +50,7 @@ vi.mock('node:child_process', () => {
           mockProcess.stdout.emit('data', Buffer.from('mock output'));
           mockProcess.emit('close', 0);
         }
-      }, 10);
+      }, command.includes('slow') ? 200 : 10);
 
       return mockProcess;
     }),
@@ -45,12 +62,17 @@ describe('HookManager', () => {
   let mockOnPersist: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     mockOnPersist = vi.fn().mockResolvedValue(undefined);
     manager = new HookManager({
       settings: { enabled: true, hooks: [] },
       workspaceRoot: '/test/workspace',
       onPersist: mockOnPersist,
     });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe('initialization', () => {
@@ -316,6 +338,115 @@ describe('HookManager', () => {
       expect(results).toHaveLength(2);
       // Both should complete quickly since they run in parallel
       expect(duration).toBeLessThan(2000);
+    });
+
+    it('does not spawn synchronous hooks when already aborted', async () => {
+      await manager.addHook({ event: 'pre-tool', command: 'slow hook' });
+      const controller = new AbortController();
+      controller.abort();
+
+      const results = await manager.executeHooks('pre-tool', { tool: 'test' }, {
+        signal: controller.signal,
+      });
+
+      expect(results).toEqual([]);
+      expect(spawn).not.toHaveBeenCalled();
+    });
+
+    it('terminates an active synchronous hook and removes its abort listener', async () => {
+      await manager.addHook({ event: 'pre-tool', command: 'slow hook' });
+      const controller = new AbortController();
+      const addEventListener = vi.spyOn(controller.signal, 'addEventListener');
+      const removeEventListener = vi.spyOn(controller.signal, 'removeEventListener');
+      const resultsPromise = manager.executeHooks('pre-tool', { tool: 'test' }, {
+        signal: controller.signal,
+      });
+      await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(1));
+
+      controller.abort();
+      const results = await resultsPromise;
+
+      expect(vi.mocked(spawn).mock.results[0]?.value.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({ success: false, aborted: true, error: 'Hook execution aborted' });
+      expect(addEventListener).toHaveBeenCalledWith('abort', expect.any(Function), { once: true });
+      expect(removeEventListener).toHaveBeenCalledWith('abort', expect.any(Function));
+    });
+
+    it('suppresses hook output callbacks after lifecycle cancellation', async () => {
+      const onHookOutput = vi.fn();
+      const lifecycleManager = new HookManager({
+        settings: { enabled: true, hooks: [] },
+        workspaceRoot: '/test/workspace',
+        onHookOutput,
+      });
+      await lifecycleManager.addHook({ event: 'stop', command: 'slow hook' });
+      const controller = new AbortController();
+
+      const resultsPromise = lifecycleManager.executeHooks('stop', {}, {
+        signal: controller.signal,
+      });
+      await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(1));
+      controller.abort();
+      await resultsPromise;
+
+      expect(onHookOutput).not.toHaveBeenCalled();
+    });
+
+    it('aborts parallel hooks without leaving observational work running', async () => {
+      await manager.addHook({ event: 'post-tool', command: 'slow one', async: true });
+      await manager.addHook({ event: 'post-tool', command: 'slow two', async: true });
+      const controller = new AbortController();
+      const resultsPromise = manager.executeHooks('post-tool', { tool: 'test' }, {
+        signal: controller.signal,
+      });
+      await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(2));
+
+      controller.abort();
+      const results = await resultsPromise;
+
+      expect(results).toHaveLength(2);
+      expect(results.every((result) => result.aborted === true)).toBe(true);
+      for (const spawned of vi.mocked(spawn).mock.results) {
+        expect(spawned.value.kill).toHaveBeenCalledWith('SIGTERM');
+      }
+    });
+
+    it('forces a timed-out hook to exit and cleans all timers', async () => {
+      vi.useFakeTimers();
+      await manager.addHook({
+        event: 'pre-tool',
+        command: 'slow ignore-term',
+        timeout: 10,
+      });
+
+      const resultsPromise = manager.executeHooks('pre-tool', { tool: 'test' });
+      await vi.advanceTimersByTimeAsync(1_010);
+      await vi.runAllTimersAsync();
+      const results = await resultsPromise;
+
+      const child = vi.mocked(spawn).mock.results[0]?.value;
+      expect(child.kill).toHaveBeenNthCalledWith(1, 'SIGTERM');
+      expect(child.kill).toHaveBeenNthCalledWith(2, 'SIGKILL');
+      expect(results[0]).toMatchObject({
+        success: false,
+        aborted: false,
+        error: 'Hook timed out after 10ms',
+      });
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('preserves exit-code-2 blocking semantics', async () => {
+      await manager.addHook({ event: 'permission-request', command: 'block request' });
+
+      const results = await manager.executeHooks('permission-request', { tool: 'write_file' });
+
+      expect(results[0]).toMatchObject({
+        success: false,
+        exitCode: 2,
+        blockingError: true,
+        error: 'blocked by hook',
+      });
     });
   });
 

@@ -5,6 +5,7 @@
  */
 import chalk from 'chalk';
 import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import { FileActionManager } from '../../actions/filesystem.js';
 import { saveConfig, getProviderConfig } from '../../config.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
@@ -17,7 +18,13 @@ import { GitIgnoreParser } from '../../utils/gitIgnore.js';
 import { createToolFilter } from '../toolFilter.js';
 import { ConversationManager } from '../conversationManager.js';
 import { ContextOrchestrator } from '../context/orchestrator.js';
-import { ToolManager, DEFAULT_TOOL_DEFINITIONS, GOAL_TOOL_DEFINITIONS, type ToolDefinition } from '../toolManager.js';
+import {
+  ToolManager,
+  DEFAULT_TOOL_DEFINITIONS,
+  GOAL_TOOL_DEFINITIONS,
+  type ToolAuthorizationOptions,
+  type ToolDefinition,
+} from '../toolManager.js';
 import { ActionExecutor } from '../actionExecutor.js';
 import { SlashCommandHandler } from '../slashCommandHandler.js';
 import { routeOutput } from '../immediateCommandRouter.js';
@@ -27,7 +34,7 @@ import { parseYoloPattern, buildPermissionSettingsFromYolo } from '../../permiss
 import { SessionManager } from '../../session/SessionManager.js';
 import { ProjectManager } from '../../session/ProjectManager.js';
 import { createToolsRegistry } from '../toolsRegistry.js';
-import type { AgentRuntime } from '../../types.js';
+import type { AgentRuntime, ToolActionOutcome } from '../../types.js';
 import { AgentDelegator } from '../agents/AgentDelegator.js';
 import { ErrorLogger } from '../errorLogger.js';
 import { MemoryManager } from '../../memory/MemoryManager.js';
@@ -39,7 +46,7 @@ import { CommunitySkillsCache } from '../../skills/CommunitySkillsCache.js';
 import { GitHubRegistryFetcher } from '../../skills/GitHubRegistryFetcher.js';
 import { fetchRegistryWithFallback, installSkillWithSecurity } from '../../skills/communityInstaller.js';
 import { McpClientManager } from '../../mcp/McpClientManager.js';
-import { AUTOHAND_PATHS } from '../../constants.js';
+import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from '../../constants.js';
 import { createPersistentInput } from '../../ui/persistentInput.js';
 import { PermissionManager } from '../../permissions/PermissionManager.js';
 import { HookManager } from '../HookManager.js';
@@ -72,6 +79,36 @@ import { configureAgentRegistry } from './dynamicRuntimeExtensions.js';
 
 export interface AgentDependencyHost {
   [key: string]: any;
+}
+
+function normalizeMcpToolOutcome(result: unknown): ToolActionOutcome {
+  if (typeof result === 'string') {
+    return { success: true, output: result };
+  }
+
+  const output = result === undefined ? undefined : JSON.stringify(result);
+  if (isPlainRecord(result) && result.isError === true) {
+    const content = Array.isArray(result.content) ? result.content : [];
+    const contentErrors = content.flatMap((item) =>
+      isPlainRecord(item) && item.type === 'text' && typeof item.text === 'string'
+        ? [item.text]
+        : []
+    );
+    const error = typeof result.error === 'string' && result.error.trim().length > 0
+      ? result.error
+      : contentErrors.join('\n').trim() || 'MCP tool reported a failure.';
+    return {
+      success: false,
+      kind: 'operational',
+      error,
+      ...(output === undefined ? {} : { output }),
+    };
+  }
+  return output === undefined ? { success: true } : { success: true, output };
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 export function initializeAgentDependencies(
@@ -333,6 +370,25 @@ export function initializeAgentDependencies(
       },
     });
 
+    const toolAuthorization = {
+      permissionManager: host.permissionManager,
+      resolvePermissionContext: (action) => host.actionExecutor.getPermissionContext(action),
+      runPreToolHooks: (context) => {
+        const hookContext = {
+          tool: context.tool,
+          toolCallId: context.toolCallId,
+          args: context.args,
+          path: context.path,
+        };
+        return context.signal === undefined
+          ? host.hookManager.executeHooks('pre-tool', hookContext)
+          : host.hookManager.executeHooks('pre-tool', hookContext, { signal: context.signal });
+      },
+      onAdditionalContext: (context) => {
+        host.conversation.addSystemNote(context, '[Pre-tool Hook Context]');
+      },
+    } satisfies ToolAuthorizationOptions;
+
     host.activeProvider = runtime.config.provider ?? 'openrouter';
     const initialDebugProviderSettings = getProviderConfig(host.runtime.config, host.activeProvider);
     const initialDebugModel = host.runtime.options.model ?? initialDebugProviderSettings?.model ?? 'unconfigured';
@@ -347,6 +403,8 @@ export function initializeAgentDependencies(
       clientContext: delegatorContext,
       maxDepth: 3,
       featureConfig: runtime.config,
+      authorization: toolAuthorization,
+      confirmApproval: (message, context) => host.confirmDangerousAction(message, context),
       onSubagentStop: async (context) => {
         await host.hookManager.executeHooks('subagent-stop', {
           subagentId: context.subagentId,
@@ -629,29 +687,26 @@ export function initializeAgentDependencies(
       maxConcurrency: runtime.config.agent?.parallelToolConcurrency ?? 5,
       executor: async (action, context) => {
         const startTime = Date.now();
-        const toolId = `tool_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-        // Execute pre-tool hooks
-        await host.hookManager.executeHooks('pre-tool', {
-          tool: action.type,
-          toolCallId: toolId,
-          args: action as Record<string, unknown>,
-        });
-
-        // Emit tool_start event for RPC mode
-        host.emitOutput({
-          type: 'tool_start',
-          toolId,
-          toolName: action.type,
-          toolArgs: action as Record<string, unknown>,
-        });
+        const toolId = context?.toolCallId ?? `tool_${randomUUID()}`;
+        let toolSuccess = false;
+        let toolOutput: string | undefined;
+        let toolError: string | undefined;
 
         try {
+          // Emit tool_start only after ToolManager's canonical authorization.
+          host.emitOutput({
+            type: 'tool_start',
+            toolId,
+            toolName: action.type,
+            toolArgs: action as Record<string, unknown>,
+          });
+
+          let outcome: ToolActionOutcome | undefined;
           let result: string | undefined;
           if (action.type === 'delegate_task') {
-            result = await host.delegator.delegateTask(action.agent_name, action.task);
+            outcome = await host.delegator.delegateTaskForTool(action.agent_name, action.task);
           } else if (action.type === 'delegate_parallel') {
-            result = await host.delegator.delegateParallel(action.tasks);
+            outcome = await host.delegator.delegateParallelForTool(action.tasks);
           } else if (action.type === 'create_team') {
             // Handle existing team: same name → reuse, different name → replace
             let team = host.teamManager.getTeam();
@@ -698,9 +753,12 @@ export function initializeAgentDependencies(
             result = `Task ${task.id}: "${task.subject}" created (status: ${task.status})`;
           } else if (action.type === 'task_get') {
             const task = host.teamManager.tasks.getTask(action.task_id);
-            result = task
-              ? JSON.stringify(task, null, 2)
-              : `Task "${action.task_id}" not found.`;
+            if (task) {
+              result = JSON.stringify(task, null, 2);
+            } else {
+              const error = `Task "${action.task_id}" not found.`;
+              outcome = { success: false, kind: 'validation', error, output: error };
+            }
           } else if (action.type === 'task_list') {
             const filtered = host.teamManager.tasks
               .listTasks()
@@ -718,7 +776,8 @@ export function initializeAgentDependencies(
           } else if (action.type === 'task_stop') {
             const existingTask = host.teamManager.tasks.getTask(action.task_id);
             if (!existingTask) {
-              result = `Task "${action.task_id}" not found.`;
+              const error = `Task "${action.task_id}" not found.`;
+              outcome = { success: false, kind: 'validation', error, output: error };
             } else {
               const previousOwner = existingTask.owner;
               const task = host.teamManager.tasks.stopTask(action.task_id);
@@ -739,13 +798,14 @@ export function initializeAgentDependencies(
             const task = host.teamManager.tasks.setTaskOutput(action.task_id, action.output);
             result = `Task ${task.id} output updated.\n${JSON.stringify(task, null, 2)}`;
           } else if (action.type === 'skill') {
-            result = host.handleSkillTool(action);
+            outcome = host.handleSkillTool(action);
           } else if (action.type === 'sleep') {
             result = await host.executeSleepTool(action.seconds, action.reason);
           } else if (action.type === 'team_status') {
             const team = host.teamManager.getTeam();
             if (!team) {
-              result = 'No active team. Use create_team first.';
+              const error = 'No active team. Use create_team first.';
+              outcome = { success: false, kind: 'validation', error, output: error };
             } else {
               const status = host.teamManager.getStatus();
               const members = team.members.map((m: any) => `  ${m.name} (${m.agentName}) - ${m.status}`).join('\n');
@@ -795,9 +855,12 @@ export function initializeAgentDependencies(
             result = lines.join('\n');
           } else if (action.type === 'cron_delete') {
             const cancelled = host.repeatManager.cancel(action.schedule_id);
-            result = cancelled
-              ? `Cancelled schedule ${action.schedule_id}.`
-              : `No active schedule found with ID "${action.schedule_id}".`;
+            if (cancelled) {
+              result = `Cancelled schedule ${action.schedule_id}.`;
+            } else {
+              const error = `No active schedule found with ID "${action.schedule_id}".`;
+              outcome = { success: false, kind: 'validation', error, output: error };
+            }
           } else if (action.type === 'list_schedules') {
             const jobs = host.repeatManager.list();
             if (jobs.length === 0) {
@@ -811,17 +874,24 @@ export function initializeAgentDependencies(
           } else if (action.type === 'cancel_schedule') {
             const id = (action as { schedule_id: string }).schedule_id;
             if (!id) {
-              result = 'Error: schedule_id is required.';
+              const error = 'schedule_id is required.';
+              outcome = { success: false, kind: 'validation', error, output: `Error: ${error}` };
             } else {
               const cancelled = host.repeatManager.cancel(id);
-              result = cancelled ? `Cancelled schedule ${id}.` : `No active schedule found with ID "${id}".`;
+              if (cancelled) {
+                result = `Cancelled schedule ${id}.`;
+              } else {
+                const error = `No active schedule found with ID "${id}".`;
+                outcome = { success: false, kind: 'validation', error, output: error };
+              }
             }
           } else if (action.type === 'exit_plan_mode') {
-            result = await host.handleExitPlanMode((action as { summary?: string }).summary);
+            outcome = await host.handleExitPlanMode((action as { summary?: string }).summary);
           } else if (action.type === 'install_agent_skill') {
             const skillName = (action as { name: string }).name;
             if (!skillName) {
-              result = 'Error: install_agent_skill requires a "name" argument.';
+              const error = 'install_agent_skill requires a "name" argument.';
+              outcome = { success: false, kind: 'validation', error, output: `Error: ${error}` };
             } else {
               const scope = (action as { scope?: 'project' | 'user' }).scope ?? 'project';
               const activate = (action as { activate?: boolean }).activate !== false;
@@ -829,7 +899,8 @@ export function initializeAgentDependencies(
               const fetcher = new GitHubRegistryFetcher();
               const registry = await fetchRegistryWithFallback(cache, fetcher);
               if (!registry) {
-                result = 'Failed to fetch community skills registry. Please check your internet connection.';
+                const error = 'Failed to fetch community skills registry. Please check your internet connection.';
+                outcome = { success: false, kind: 'operational', error, output: error };
               } else {
                 const skill = fetcher.findSkill(registry.skills, skillName);
                 if (!skill) {
@@ -838,7 +909,7 @@ export function initializeAgentDependencies(
                   if (similar.length > 0) {
                     msg += `\nDid you mean: ${similar.map((s) => s.name).join(', ')}`;
                   }
-                  result = msg;
+                  outcome = { success: false, kind: 'validation', error: msg, output: msg };
                 } else {
                   const installResult = await installSkillWithSecurity(
                     {
@@ -852,10 +923,21 @@ export function initializeAgentDependencies(
                     fetcher,
                     scope,
                   );
-                  if (activate && !installResult.includes('Failed') && !installResult.includes('Blocked') && !installResult.includes('blocked') && !installResult.includes('Denied')) {
+                  const targetDir = scope === 'project'
+                    ? join(host.runtime.workspaceRoot, PROJECT_DIR_NAME, 'skills')
+                    : AUTOHAND_PATHS.skills;
+                  const installed = await host.skillsRegistry.isSkillInstalled(skill.id, targetDir);
+                  if (!installed) {
+                    outcome = {
+                      success: false,
+                      kind: 'operational',
+                      error: `Skill installation did not complete for ${skill.name}.`,
+                      output: installResult,
+                    };
+                  } else if (activate) {
                     // Try to activate after successful install
                     try {
-                      const activateResult = host.skillsRegistry.activateSkill(skill.name);
+                      const activateResult = host.skillsRegistry.activateSkill(skill.id);
                       if (activateResult) {
                         result = `${installResult}\n\nActivated skill: ${skill.name}`;
                       } else {
@@ -877,79 +959,110 @@ export function initializeAgentDependencies(
             const parsed = McpClientManager.parseMcpToolName(action.type);
             if (parsed) {
               const { ...mcpArgs } = action as Record<string, unknown>;
-              const mcpResult = await host.mcpManager.callTool(parsed.serverName, parsed.toolName, mcpArgs);
-              result = typeof mcpResult === 'string' ? mcpResult : JSON.stringify(mcpResult);
+              const mcpResult = await host.mcpManager.callTool(
+                parsed.serverName,
+                parsed.toolName,
+                mcpArgs,
+                { signal: context?.signal },
+              );
+              outcome = normalizeMcpToolOutcome(mcpResult);
             } else {
-              result = `Invalid MCP tool name: ${action.type}`;
+              const error = `Invalid MCP tool name: ${action.type}`;
+              outcome = { success: false, kind: 'validation', error, output: error };
             }
           } else {
-            result = await host.actionExecutor.execute(action, context);
+            outcome = await host.actionExecutor.executeForTool(action, context);
           }
+          const finalOutcome: ToolActionOutcome = outcome
+            ?? (result === undefined ? { success: true } : { success: true, output: result });
+          const readableOutput = finalOutcome.success
+            ? finalOutcome.output
+            : finalOutcome.output ?? finalOutcome.error;
+
           // Record action name for auto-mode tracking
           host.recordExecutedAction(action.type);
 
-          // Track successful tool use
+          // Track the same explicit outcome used by hooks and transports.
           await host.telemetryManager.trackToolUse({
             tool: action.type,
-            success: true,
-            duration: Date.now() - startTime
+            success: finalOutcome.success,
+            duration: Date.now() - startTime,
+            ...(finalOutcome.success ? {} : { error: finalOutcome.error }),
           });
 
-          // Execute post-tool hooks (success)
-          await host.hookManager.executeHooks('post-tool', {
+          const postToolContext = {
             tool: action.type,
             toolCallId: toolId,
             args: action as Record<string, unknown>,
-            success: true,
-            output: result,
+            success: finalOutcome.success,
+            output: readableOutput,
             duration: Date.now() - startTime,
-          });
+          };
+          if (context?.signal === undefined) {
+            await host.hookManager.executeHooks('post-tool', postToolContext);
+          } else {
+            await host.hookManager.executeHooks('post-tool', postToolContext, { signal: context.signal });
+          }
 
-          // Emit tool_end event for RPC mode
-          host.emitOutput({
-            type: 'tool_end',
-            toolId,
-            toolName: action.type,
-            toolSuccess: true,
-            toolOutput: result,
-          });
+          toolSuccess = finalOutcome.success;
+          toolOutput = readableOutput;
+          toolError = finalOutcome.success ? undefined : finalOutcome.error;
 
-          return result ?? '';
+          return finalOutcome;
         } catch (error) {
+          const rawMessage = error instanceof Error ? error.message : String(error);
+          const errorMessage = rawMessage.trim() || 'Tool execution failed.';
+          toolOutput = errorMessage;
+          toolError = errorMessage;
+
           // Track failed tool use
           await host.telemetryManager.trackToolUse({
             tool: action.type,
             success: false,
             duration: Date.now() - startTime,
-            error: (error as Error).message
+            error: errorMessage
           });
 
           // Execute post-tool hooks (failure)
-          await host.hookManager.executeHooks('post-tool', {
+          const failedPostToolContext = {
             tool: action.type,
             toolCallId: toolId,
             args: action as Record<string, unknown>,
             success: false,
-            output: (error as Error).message,
+            output: errorMessage,
             duration: Date.now() - startTime,
-          });
+          };
+          if (context?.signal === undefined) {
+            await host.hookManager.executeHooks('post-tool', failedPostToolContext);
+          } else {
+            await host.hookManager.executeHooks('post-tool', failedPostToolContext, { signal: context.signal });
+          }
 
-          // Emit tool_end event with error for RPC mode
+          return {
+            success: false,
+            kind: context?.signal?.aborted === true
+              || (error instanceof Error && error.name === 'AbortError')
+              ? 'aborted'
+              : 'operational',
+            error: errorMessage,
+          } satisfies ToolActionOutcome;
+        } finally {
+          // Every emitted tool_start has one terminal event with the same ID.
           host.emitOutput({
             type: 'tool_end',
             toolId,
             toolName: action.type,
-            toolSuccess: false,
-            toolOutput: (error as Error).message,
+            toolSuccess,
+            toolOutput,
+            toolError,
           });
-
-          throw error;
         }
       },
       confirmApproval: (message, context) => host.confirmDangerousAction(message, context),
       definitions: [...featureGatedToolDefinitions, ...delegationTools],
       clientContext,
-      customPolicy
+      customPolicy,
+      authorization: toolAuthorization,
     });
 
     host.sessionManager = new SessionManager();

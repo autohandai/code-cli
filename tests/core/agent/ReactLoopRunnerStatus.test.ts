@@ -101,6 +101,78 @@ describe('ReactLoopRunner composer status', () => {
     }
   });
 
+  it('passes the instruction signal to tools and skips the exhaustion summary after abort', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const parser = new ReactionParser();
+    const controller = new AbortController();
+    const llmComplete = vi.fn().mockResolvedValueOnce({
+      id: 'tool-call',
+      created: 1,
+      content: JSON.stringify({
+        thought: 'Inspect the file.',
+        toolCalls: [{ tool: 'read_file', args: { path: 'src/index.ts' } }],
+      }),
+      raw: {},
+    });
+    const host = createReactLoopTestHost(llmComplete, parser);
+    host.toolManager.execute = vi.fn(async () => {
+      controller.abort();
+      return [{
+        tool: 'read_file',
+        success: false,
+        kind: 'aborted',
+        error: 'Tool execution aborted.',
+      }];
+    });
+
+    try {
+      await runAgentReactLoop(host, controller);
+
+      expect(host.toolManager.execute).toHaveBeenCalledWith(
+        [expect.objectContaining({ tool: 'read_file' })],
+        expect.any(Function),
+        { signal: controller.signal },
+      );
+      expect(llmComplete).toHaveBeenCalledTimes(1);
+      expect(host.conversation.addSystemNote).not.toHaveBeenCalledWith(
+        expect.stringContaining('used all available iterations'),
+      );
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('does not account for or publish a completion returned after provider abort', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const parser = new ReactionParser();
+    const controller = new AbortController();
+    const llmComplete = vi.fn(async () => {
+      controller.abort();
+      return {
+        id: 'late-completion',
+        created: 1,
+        content: '{"finalResponse":"This must not be published."}',
+        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        raw: {},
+      };
+    });
+    const host = createReactLoopTestHost(llmComplete, parser);
+
+    try {
+      await runAgentReactLoop(host, controller);
+
+      expect(host.totalTokensUsed).toBe(0);
+      expect(host.conversation.addMessage).not.toHaveBeenCalled();
+      expect(host.saveAssistantMessage).not.toHaveBeenCalled();
+      expect(host.emitOutput).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'message' }));
+      expect(host.toolManager.execute).not.toHaveBeenCalled();
+      expect(host.stopStatusUpdates).toHaveBeenCalled();
+      expect(host.runtime.spinner?.stop).toHaveBeenCalled();
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it('does not interpolate model thought text into Ink status updates', () => {
     const source = readFileSync('src/core/agent/ReactLoopRunner.ts', 'utf-8');
 

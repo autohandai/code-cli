@@ -152,6 +152,8 @@ export interface HookContext {
 export interface HookExecutionResult {
   hook: HookDefinition;
   success: boolean;
+  /** Whether execution was cancelled through an AbortSignal. */
+  aborted?: boolean;
   stdout?: string;
   stderr?: string;
   error?: string;
@@ -174,8 +176,16 @@ export interface HookManagerOptions {
   onHookOutput?: (result: HookExecutionResult) => void;
 }
 
+/** Per-execution lifecycle controls for hooks. */
+export interface HookExecutionOptions {
+  signal?: AbortSignal;
+  /** Grace period between SIGTERM and SIGKILL. */
+  killGracePeriodMs?: number;
+}
+
 /** Default timeout for hooks (5 seconds) */
 const DEFAULT_HOOK_TIMEOUT = 5000;
+const DEFAULT_KILL_GRACE_PERIOD_MS = 1000;
 
 export class HookManager {
   private settings: HooksSettings;
@@ -721,11 +731,26 @@ export class HookManager {
   /**
    * Execute a single hook
    */
-  private async executeHook(hook: HookDefinition, context: HookContext): Promise<HookExecutionResult> {
+  private async executeHook(
+    hook: HookDefinition,
+    context: HookContext,
+    options: HookExecutionOptions = {},
+  ): Promise<HookExecutionResult> {
     const startTime = Date.now();
     const timeout = hook.timeout ?? DEFAULT_HOOK_TIMEOUT;
+    const killGracePeriodMs = options.killGracePeriodMs ?? DEFAULT_KILL_GRACE_PERIOD_MS;
     const env = this.buildEnvironment(context);
     const jsonInput = this.buildJsonInput(context);
+
+    if (options.signal?.aborted) {
+      return {
+        hook,
+        success: false,
+        aborted: true,
+        error: 'Hook execution aborted',
+        duration: 0,
+      };
+    }
 
     return new Promise((resolve) => {
       const child = spawn(hook.command, [], {
@@ -737,14 +762,49 @@ export class HookManager {
 
       let stdout = '';
       let stderr = '';
-      let killed = false;
+      let settled = false;
+      let terminationReason: 'abort' | 'timeout' | undefined;
+      let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
 
-      const timeoutId = setTimeout(() => {
-        killed = true;
+      const cleanup = (): void => {
+        clearTimeout(timeoutId);
+        if (forceKillTimer) {
+          clearTimeout(forceKillTimer);
+          forceKillTimer = undefined;
+        }
+        options.signal?.removeEventListener('abort', handleAbort);
+      };
+
+      const complete = (result: HookExecutionResult): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (!options.signal?.aborted) {
+          this.onHookOutput?.(result);
+        }
+        resolve(result);
+      };
+
+      const terminate = (reason: 'abort' | 'timeout'): void => {
+        if (settled || terminationReason) return;
+        terminationReason = reason;
         child.kill('SIGTERM');
-        // Force kill after 1 second if still running
-        setTimeout(() => child.kill('SIGKILL'), 1000);
-      }, timeout);
+        forceKillTimer = setTimeout(() => {
+          forceKillTimer = undefined;
+          if (!settled) {
+            child.kill('SIGKILL');
+          }
+        }, killGracePeriodMs);
+        forceKillTimer.unref?.();
+      };
+
+      function handleAbort(): void {
+        terminate('abort');
+      }
+
+      const timeoutId = setTimeout(() => terminate('timeout'), timeout);
+      timeoutId.unref?.();
+      options.signal?.addEventListener('abort', handleAbort, { once: true });
 
       // Write JSON context to stdin
       child.stdin?.write(jsonInput);
@@ -759,7 +819,6 @@ export class HookManager {
       });
 
       child.on('close', (code) => {
-        clearTimeout(timeoutId);
         const duration = Date.now() - startTime;
         const exitCode = code ?? 0;
 
@@ -774,11 +833,14 @@ export class HookManager {
 
         const result: HookExecutionResult = {
           hook,
-          success: !killed && exitCode === 0,
+          success: terminationReason === undefined && exitCode === 0,
+          aborted: terminationReason === 'abort',
           stdout: stdout.trim() || undefined,
           stderr: stderr.trim() || undefined,
-          error: killed
-            ? `Hook timed out after ${timeout}ms`
+          error: terminationReason === 'abort'
+            ? 'Hook execution aborted'
+            : terminationReason === 'timeout'
+              ? `Hook timed out after ${timeout}ms`
             : isBlockingError
               ? stderr.trim() || 'Hook blocked execution'
               : undefined,
@@ -788,30 +850,26 @@ export class HookManager {
           response,
         };
 
-        if (this.onHookOutput) {
-          this.onHookOutput(result);
-        }
-
-        resolve(result);
+        complete(result);
       });
 
       child.on('error', (err) => {
-        clearTimeout(timeoutId);
         const duration = Date.now() - startTime;
 
         const result: HookExecutionResult = {
           hook,
           success: false,
-          error: err.message,
+          aborted: terminationReason === 'abort',
+          error: terminationReason === 'abort'
+            ? 'Hook execution aborted'
+            : terminationReason === 'timeout'
+              ? `Hook timed out after ${timeout}ms`
+              : err.message,
           duration,
           exitCode: -1,
         };
 
-        if (this.onHookOutput) {
-          this.onHookOutput(result);
-        }
-
-        resolve(result);
+        complete(result);
       });
     });
   }
@@ -839,8 +897,12 @@ export class HookManager {
    * Sync hooks are executed sequentially and block until complete.
    * Async hooks are executed in parallel and don't block.
    */
-  async executeHooks(event: HookEvent, context: Omit<HookContext, 'event' | 'workspace'>): Promise<HookExecutionResult[]> {
-    if (!this.isEnabled()) {
+  async executeHooks(
+    event: HookEvent,
+    context: Omit<HookContext, 'event' | 'workspace'>,
+    options: HookExecutionOptions = {},
+  ): Promise<HookExecutionResult[]> {
+    if (!this.isEnabled() || options.signal?.aborted) {
       return [];
     }
 
@@ -865,7 +927,9 @@ export class HookManager {
 
     // Execute sync hooks sequentially
     for (const hook of syncHooks) {
-      const result = await this.executeHook(hook, fullContext);
+      if (options.signal?.aborted) break;
+
+      const result = await this.executeHook(hook, fullContext, options);
       results.push(result);
 
       // If hook returned continue: false, stop processing
@@ -875,9 +939,9 @@ export class HookManager {
     }
 
     // Execute async hooks in parallel (fire and forget, but still collect results)
-    if (asyncHooks.length > 0) {
+    if (asyncHooks.length > 0 && !options.signal?.aborted) {
       const asyncResults = await Promise.all(
-        asyncHooks.map(hook => this.executeHook(hook, fullContext))
+        asyncHooks.map(hook => this.executeHook(hook, fullContext, options))
       );
       results.push(...asyncResults);
     }
@@ -888,7 +952,7 @@ export class HookManager {
   /**
    * Test a hook by executing it with a sample context
    */
-  async testHook(hook: HookDefinition): Promise<HookExecutionResult> {
+  async testHook(hook: HookDefinition, options: HookExecutionOptions = {}): Promise<HookExecutionResult> {
     const context: HookContext = {
       event: hook.event,
       workspace: this.workspaceRoot,
@@ -902,7 +966,7 @@ export class HookManager {
       tokensUsed: 100,
     };
 
-    return this.executeHook(hook, context);
+    return this.executeHook(hook, context, options);
   }
 
   /**

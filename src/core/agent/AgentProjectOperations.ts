@@ -21,10 +21,14 @@ export interface AgentProjectOperationsHost {
   files: FileActionManager;
   memoryManager: MemoryManager;
   runtime: AgentRuntime;
-  runInstruction(instruction: string): Promise<boolean>;
+  runInstruction(instruction: string, options?: { signal?: AbortSignal }): Promise<boolean>;
 }
 
-export async function performAgentAutoCommit(host: AgentProjectOperationsHost): Promise<void> {
+export async function performAgentAutoCommit(
+  host: AgentProjectOperationsHost,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (signal?.aborted) return;
   const info = getAutoCommitInfo(host.runtime.workspaceRoot);
 
   if (!info.canCommit) {
@@ -66,7 +70,8 @@ If lint or tests fail, report the issues but do NOT commit.`;
   console.log(chalk.cyan('\n\ud83d\udd04 Running lint, test, and generating commit message...\n'));
 
   try {
-    await host.runInstruction(autoCommitPrompt);
+    if (signal?.aborted) return;
+    await host.runInstruction(autoCommitPrompt, { signal });
   } catch (error) {
     console.log(chalk.red(`\n\u2717 Auto-commit failed: ${(error as Error).message}`));
   }

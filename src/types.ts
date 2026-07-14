@@ -1375,18 +1375,37 @@ export interface AssistantReactPayload {
   response?: string;
 }
 
-export interface ToolExecutionResult {
+export type ToolFailureKind =
+  | 'authorization'
+  | 'validation'
+  | 'command'
+  | 'aborted'
+  | 'operational';
+
+export type ToolActionOutcome =
+  | {
+      success: true;
+      output?: string;
+    }
+  | {
+      success: false;
+      kind: ToolFailureKind;
+      error: string;
+      output?: string;
+      exitCode?: number | null;
+    };
+
+export type ToolExecutionResult = {
   tool: AgentAction['type'];
-  success: boolean;
-  output?: string;
-  error?: string;
-}
+} & ToolActionOutcome;
 
 export interface ToolExecutionContext {
   toolCallId?: string;
   tool?: AgentAction['type'];
   /** Whether approval was already handled by the caller */
   approvalHandled?: boolean;
+  /** Active instruction cancellation signal for foreground work. */
+  signal?: AbortSignal;
 }
 
 export interface ToolOutputChunk {
@@ -1429,6 +1448,7 @@ export interface AgentOutputEvent {
   toolArgs?: Record<string, unknown>;
   toolOutput?: string;
   toolSuccess?: boolean;
+  toolError?: string;
   scheduleId?: string;
   /** File path for file_modified events */
   filePath?: string;
