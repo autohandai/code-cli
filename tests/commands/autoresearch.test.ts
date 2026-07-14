@@ -12,6 +12,10 @@ import { autoresearch, metadata, runAutoResearchCli } from '../../src/commands/a
 import { AutoResearchManager } from '../../src/autoresearch/manager.js';
 import { appendLogEntry, readConfigJson, readMeasureSh, readPromptMd, writeConfigJson, writePromptMd } from '../../src/autoresearch/session.js';
 import type { SlashCommandContext } from '../../src/core/slashCommandTypes.js';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 
 describe('/autoresearch command', () => {
   let workspaceRoot: string;
@@ -21,6 +25,10 @@ describe('/autoresearch command', () => {
 
   beforeEach(async () => {
     workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autoresearch-cmd-'));
+    await execFileAsync('git', ['init'], { cwd: workspaceRoot });
+    await execFileAsync('git', ['config', 'user.email', 'tests@autohand.ai'], { cwd: workspaceRoot });
+    await execFileAsync('git', ['config', 'user.name', 'Autohand Tests'], { cwd: workspaceRoot });
+    await execFileAsync('git', ['commit', '--allow-empty', '-m', 'baseline'], { cwd: workspaceRoot });
     queuedInstructions = [];
     executeHooks = vi.fn(async () => []);
     ctx = {
@@ -86,9 +94,9 @@ describe('/autoresearch command', () => {
       '--direction',
       'lower',
       '--measure',
-      'bun test --reporter dot',
+      'echo "METRIC total_ms=42"',
       '--checks',
-      'bun run lint',
+      'echo checks',
       '--max-iterations',
       '12',
       '--timeout-ms',
@@ -125,8 +133,8 @@ describe('/autoresearch command', () => {
         finalization: true,
       },
     }));
-    expect(await readMeasureSh(workspaceRoot)).toContain('bun test --reporter dot');
-    expect(await fs.readFile(path.join(workspaceRoot, '.auto', 'checks.sh'), 'utf-8')).toContain('bun run lint');
+    expect(await readMeasureSh(workspaceRoot)).toContain('METRIC total_ms=42');
+    expect(await fs.readFile(path.join(workspaceRoot, '.auto', 'checks.sh'), 'utf-8')).toContain('echo checks');
 
     const prompt = await readPromptMd(workspaceRoot);
     expect(prompt?.filesInScope).toEqual(['src', 'tests']);

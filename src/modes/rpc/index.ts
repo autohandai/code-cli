@@ -41,6 +41,11 @@ import type {
   AutomodeCancelParams,
   AutomodeGetLogParams,
   AutoresearchStartParams,
+  AutoresearchReplayParams,
+  AutoresearchRescoreParams,
+  AutoresearchCompareParams,
+  AutoresearchPinParams,
+  AutoresearchPruneParams,
   PlanModeSetParams,
   GetHistoryParams,
   YoloSetParams,
@@ -745,6 +750,67 @@ async function handleSingleRequest(
 
       case RPC_METHODS.AUTORESEARCH_STOP: {
         result = await adapter.handleAutoresearchStop();
+        break;
+      }
+
+      case RPC_METHODS.AUTORESEARCH_HISTORY: {
+        result = await adapter.handleAutoresearchHistory();
+        break;
+      }
+
+      case RPC_METHODS.AUTORESEARCH_REPLAY: {
+        const replayParams = params as AutoresearchReplayParams | undefined;
+        if (!replayParams?.attemptId) {
+          if (shouldRespond) return createErrorResponse(id!, JSON_RPC_ERROR_CODES.INVALID_PARAMS, 'Missing required parameter: attemptId');
+          return null;
+        }
+        if (replayParams.evaluator !== undefined
+          && replayParams.evaluator !== 'original'
+          && replayParams.evaluator !== 'current') {
+          if (shouldRespond) return createErrorResponse(id!, JSON_RPC_ERROR_CODES.INVALID_PARAMS, 'Replay evaluator must be original or current');
+          return null;
+        }
+        result = await adapter.handleAutoresearchReplay(replayParams);
+        break;
+      }
+
+      case RPC_METHODS.AUTORESEARCH_RESCORE: {
+        const rescoreParams = params as AutoresearchRescoreParams | undefined;
+        if (!rescoreParams?.all && !rescoreParams?.attemptId) {
+          if (shouldRespond) return createErrorResponse(id!, JSON_RPC_ERROR_CODES.INVALID_PARAMS, 'Missing attemptId or all=true');
+          return null;
+        }
+        result = await adapter.handleAutoresearchRescore(rescoreParams);
+        break;
+      }
+
+      case RPC_METHODS.AUTORESEARCH_COMPARE: {
+        const compareParams = params as AutoresearchCompareParams | undefined;
+        if (!compareParams?.leftAttemptId || !compareParams.rightAttemptId) {
+          if (shouldRespond) return createErrorResponse(id!, JSON_RPC_ERROR_CODES.INVALID_PARAMS, 'Missing leftAttemptId or rightAttemptId');
+          return null;
+        }
+        result = await adapter.handleAutoresearchCompare(compareParams);
+        break;
+      }
+
+      case RPC_METHODS.AUTORESEARCH_PARETO: {
+        result = await adapter.handleAutoresearchPareto();
+        break;
+      }
+
+      case RPC_METHODS.AUTORESEARCH_PIN: {
+        const pinParams = params as AutoresearchPinParams | undefined;
+        if (!pinParams?.attemptId || pinParams.pinned === undefined) {
+          if (shouldRespond) return createErrorResponse(id!, JSON_RPC_ERROR_CODES.INVALID_PARAMS, 'Missing attemptId or pinned');
+          return null;
+        }
+        result = await adapter.handleAutoresearchPin(pinParams);
+        break;
+      }
+
+      case RPC_METHODS.AUTORESEARCH_PRUNE: {
+        result = await adapter.handleAutoresearchPrune((params as AutoresearchPruneParams | undefined) ?? {});
         break;
       }
 

@@ -24,6 +24,10 @@ describe('auto-research CLI subcommands', () => {
     workspaceRoot = path.join(tmpDir, 'workspace');
     configPath = path.join(tmpDir, 'config.json');
     await fs.ensureDir(workspaceRoot);
+    spawnSync('git', ['init'], { cwd: workspaceRoot, encoding: 'utf8' });
+    spawnSync('git', ['config', 'user.email', 'tests@autohand.ai'], { cwd: workspaceRoot, encoding: 'utf8' });
+    spawnSync('git', ['config', 'user.name', 'Autohand Tests'], { cwd: workspaceRoot, encoding: 'utf8' });
+    spawnSync('git', ['commit', '--allow-empty', '-m', 'baseline'], { cwd: workspaceRoot, encoding: 'utf8' });
     await fs.writeJson(configPath, {
       provider: 'openrouter',
       openrouter: { apiKey: 'test-key' },

@@ -20,6 +20,11 @@ import { RPCAdapter } from '../../../src/modes/rpc/adapter.js';
 import { RPC_METHODS, RPC_NOTIFICATIONS } from '../../../src/modes/rpc/types.js';
 import { AutoResearchManager } from '../../../src/autoresearch/manager.js';
 import { readConfigJson, readMeasureSh, readPromptMd } from '../../../src/autoresearch/session.js';
+import { initExperiment, runExperiment } from '../../../src/autoresearch/tools.js';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 
 describe('RPC autoresearch handlers', () => {
   let workspaceRoot: string;
@@ -29,6 +34,12 @@ describe('RPC autoresearch handlers', () => {
     vi.clearAllMocks();
     mockWriteNotification.mockClear();
     workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-rpc-autoresearch-'));
+    await execFileAsync('git', ['init'], { cwd: workspaceRoot });
+    await execFileAsync('git', ['config', 'user.email', 'tests@autohand.ai'], { cwd: workspaceRoot });
+    await execFileAsync('git', ['config', 'user.name', 'Autohand Tests'], { cwd: workspaceRoot });
+    await fs.writeFile(path.join(workspaceRoot, 'value.txt'), '100\n');
+    await execFileAsync('git', ['add', 'value.txt'], { cwd: workspaceRoot });
+    await execFileAsync('git', ['commit', '-m', 'baseline'], { cwd: workspaceRoot });
     adapter = new RPCAdapter();
     adapter.initialize(
       {
@@ -92,8 +103,8 @@ describe('RPC autoresearch handlers', () => {
       metricName: 'total_ms',
       metricUnit: 'ms',
       direction: 'lower',
-      measureCommand: 'bun test --reporter dot',
-      checksCommand: 'bun run lint',
+      measureCommand: 'echo "METRIC total_ms=42"',
+      checksCommand: 'echo checks',
       maxIterations: 12,
       timeoutMs: 5000,
       filesInScope: ['src', 'tests'],
@@ -121,8 +132,8 @@ describe('RPC autoresearch handlers', () => {
         finalization: true,
       },
     }));
-    expect(await readMeasureSh(workspaceRoot)).toContain('bun test --reporter dot');
-    expect(await fs.readFile(path.join(workspaceRoot, '.auto', 'checks.sh'), 'utf-8')).toContain('bun run lint');
+    expect(await readMeasureSh(workspaceRoot)).toContain('METRIC total_ms=42');
+    expect(await fs.readFile(path.join(workspaceRoot, '.auto', 'checks.sh'), 'utf-8')).toContain('echo checks');
 
     const prompt = await readPromptMd(workspaceRoot);
     expect(prompt?.filesInScope).toEqual(['src', 'tests']);
@@ -131,6 +142,21 @@ describe('RPC autoresearch handlers', () => {
       expect.stringContaining('measurement analysis'),
       expect.stringContaining('finalization'),
     ]));
+  });
+
+  it('does not persist resumable RPC state when clean-baseline initialization fails', async () => {
+    await fs.writeFile(path.join(workspaceRoot, 'value.txt'), 'dirty\n');
+
+    const started = await adapter.handleAutoresearchStart({
+      objective: 'optimize test runtime',
+      metricName: 'total_ms',
+      metricUnit: 'ms',
+      direction: 'lower',
+      measureCommand: 'echo "METRIC total_ms=42"',
+    });
+
+    expect(started).toMatchObject({ success: false, error: expect.stringMatching(/clean Git working tree/i) });
+    await expect(new AutoResearchManager(workspaceRoot).canResume()).resolves.toBe(false);
   });
 
   it('resumes a paused JSON-RPC session without resetting goal or iteration cap', async () => {
@@ -171,10 +197,86 @@ describe('RPC autoresearch handlers', () => {
     expect(RPC_METHODS.AUTORESEARCH_START).toBe('autohand.autoresearch.start');
     expect(RPC_METHODS.AUTORESEARCH_STATUS).toBe('autohand.autoresearch.status');
     expect(RPC_METHODS.AUTORESEARCH_STOP).toBe('autohand.autoresearch.stop');
+    expect(RPC_METHODS.AUTORESEARCH_HISTORY).toBe('autohand.autoresearch.history');
+    expect(RPC_METHODS.AUTORESEARCH_REPLAY).toBe('autohand.autoresearch.replay');
+    expect(RPC_METHODS.AUTORESEARCH_RESCORE).toBe('autohand.autoresearch.rescore');
+    expect(RPC_METHODS.AUTORESEARCH_COMPARE).toBe('autohand.autoresearch.compare');
+    expect(RPC_METHODS.AUTORESEARCH_PARETO).toBe('autohand.autoresearch.pareto');
+    expect(RPC_METHODS.AUTORESEARCH_PIN).toBe('autohand.autoresearch.pin');
+    expect(RPC_METHODS.AUTORESEARCH_PRUNE).toBe('autohand.autoresearch.prune');
 
     const source = await fs.readFile(path.join(process.cwd(), 'src/modes/rpc/index.ts'), 'utf-8');
     expect(source).toContain('RPC_METHODS.AUTORESEARCH_START');
     expect(source).toContain('RPC_METHODS.AUTORESEARCH_STATUS');
     expect(source).toContain('RPC_METHODS.AUTORESEARCH_STOP');
+    expect(source).toContain('RPC_METHODS.AUTORESEARCH_REPLAY');
+    expect(source).toContain('RPC_METHODS.AUTORESEARCH_PRUNE');
+  });
+
+  it('exposes immutable history, replay, rescoring, comparison, Pareto, pinning, and preview-first pruning', async () => {
+    const initialized = await initExperiment(workspaceRoot, {
+      name: 'runtime',
+      metricName: 'total_ms',
+      metricUnit: 'ms',
+      direction: 'lower',
+      measureScript: '#!/bin/bash\nvalue=$(cat value.txt)\necho "METRIC total_ms=$value"',
+      filesInScope: ['value.txt'],
+    });
+    await fs.writeFile(path.join(workspaceRoot, 'value.txt'), '120\n');
+    const candidate = await runExperiment(workspaceRoot, 'regression');
+
+    const history = await adapter.handleAutoresearchHistory();
+    expect(history).toMatchObject({ success: true });
+    expect(history.attempts.map((attempt) => attempt.attemptId)).toContain(candidate.attemptId);
+    expect(mockWriteNotification).toHaveBeenCalledWith(
+      RPC_NOTIFICATIONS.AUTORESEARCH_EVENT,
+      expect.objectContaining({ operation: 'history', phase: 'started' })
+    );
+
+    const replay = await adapter.handleAutoresearchReplay({
+      attemptId: candidate.attemptId!,
+      evaluator: 'original',
+    });
+    expect(replay).toMatchObject({ success: true, decision: { outcome: 'rejected' } });
+    expect(replay.samples).toHaveLength(3);
+
+    const compare = await adapter.handleAutoresearchCompare({
+      leftAttemptId: initialized.baselineAttemptId!,
+      rightAttemptId: candidate.attemptId!,
+    });
+    expect(compare).toMatchObject({ success: true });
+    expect(compare.comparison.right.aggregates.total_ms.median).toBe(120);
+
+    const rescore = await adapter.handleAutoresearchRescore({ attemptId: candidate.attemptId! });
+    expect(rescore.decisions[0]).toMatchObject({ source: 'rescore', materialized: false });
+
+    const pareto = await adapter.handleAutoresearchPareto();
+    expect(pareto.attemptIds).toContain(initialized.baselineAttemptId);
+
+    const pin = await adapter.handleAutoresearchPin({ attemptId: candidate.attemptId!, pinned: true });
+    expect(pin).toMatchObject({ success: true, pinned: true });
+
+    const prune = await adapter.handleAutoresearchPrune({ yes: false });
+    expect(prune).toMatchObject({ success: true, applied: false });
+    expect(mockWriteNotification).toHaveBeenCalledWith(
+      RPC_NOTIFICATIONS.AUTORESEARCH_EVENT,
+      expect.objectContaining({ operation: 'prune', phase: 'completed', applied: false })
+    );
+  });
+
+  it('rejects an unknown replay evaluator and emits a failed operation phase', async () => {
+    const result = await adapter.handleAutoresearchReplay({
+      attemptId: 'attempt_invalid',
+      evaluator: 'future' as 'original',
+    });
+
+    expect(result).toMatchObject({
+      success: false,
+      error: expect.stringMatching(/evaluator.*original.*current/i),
+    });
+    expect(mockWriteNotification).toHaveBeenCalledWith(
+      RPC_NOTIFICATIONS.AUTORESEARCH_EVENT,
+      expect.objectContaining({ operation: 'replay', phase: 'failed', success: false })
+    );
   });
 });
