@@ -39,6 +39,16 @@ describe("Sync Integration", () => {
   });
 
   describe("SyncApiClient", () => {
+    it.each([
+      "http://api.example.com",
+      "http://192.168.1.20:8787/api",
+    ])("rejects a non-loopback HTTP API base before any bearer request: %s", async (baseUrl) => {
+      const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
+
+      expect(() => new SyncApiClient({ baseUrl })).toThrow(/sync api base url/i);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
     it("constructs correct API URLs", async () => {
       const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
 
@@ -174,6 +184,90 @@ describe("Sync Integration", () => {
       );
     });
 
+    it("propagates caller cancellation into an active manifest fetch", async () => {
+      const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
+      const client = new SyncApiClient({
+        baseUrl: "https://test-api.example.com",
+        timeout: 5000,
+        maxRetries: 1,
+      });
+      mockFetch.mockImplementationOnce((_url: string, init: RequestInit) => (
+        new Promise((_resolve, reject) => {
+          const signal = init.signal as AbortSignal;
+          signal.addEventListener('abort', () => {
+            reject(new DOMException('Aborted', 'AbortError'));
+          }, { once: true });
+        })
+      ));
+      const controller = new AbortController();
+
+      const manifest = client.getRemoteManifest('test-token', controller.signal);
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledOnce());
+      controller.abort(new DOMException('Lifecycle closed', 'AbortError'));
+
+      await expect(manifest).rejects.toMatchObject({ name: 'AbortError' });
+      const requestSignal = mockFetch.mock.calls[0]?.[1]?.signal as AbortSignal;
+      expect(requestSignal.aborted).toBe(true);
+    });
+
+    it("cancels a held download body reader after response headers resolve", async () => {
+      const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
+      const client = new SyncApiClient({ maxRetries: 1, timeout: 5000 });
+      const reader = {
+        read: vi.fn(() => new Promise<never>(() => {})),
+        cancel: vi.fn().mockRejectedValue(new Error('reader cancellation failed')),
+        releaseLock: vi.fn(),
+      };
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        body: { getReader: () => reader },
+      });
+      const controller = new AbortController();
+
+      const download = client.downloadFile(
+        'https://storage.example.com/download/held',
+        undefined,
+        controller.signal,
+      );
+      await vi.waitFor(() => expect(reader.read).toHaveBeenCalledOnce());
+      controller.abort(new DOMException('Lifecycle closed', 'AbortError'));
+      const settled = await Promise.race([
+        download.then(
+          () => true,
+          () => true,
+        ),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50)),
+      ]);
+
+      expect(settled).toBe(true);
+      expect(reader.cancel).toHaveBeenCalledOnce();
+      await expect(download).rejects.toMatchObject({ name: 'AbortError' });
+      expect(reader.releaseLock).toHaveBeenCalledOnce();
+    });
+
+    it("cancels held manifest JSON consumption after response headers resolve", async () => {
+      const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
+      const client = new SyncApiClient({ maxRetries: 1, timeout: 5000 });
+      const cancel = vi.fn().mockRejectedValue(new Error('body cancellation failed'));
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        body: { cancel },
+        json: () => new Promise<never>(() => {}),
+      });
+      const controller = new AbortController();
+
+      const manifest = client.getRemoteManifest('test-token', controller.signal);
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledOnce());
+      controller.abort(new DOMException('Lifecycle closed', 'AbortError'));
+
+      await expect(manifest).rejects.toMatchObject({ name: 'AbortError' });
+      expect(cancel).toHaveBeenCalledOnce();
+    });
+
     it("respects file size limits", async () => {
       const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
 
@@ -189,10 +283,28 @@ describe("Sync Integration", () => {
       ).rejects.toThrow("exceeds max size");
     });
 
-    it("authenticates generated file upload URLs with the session token", async () => {
+    it("rejects downloaded content that exceeds the file size limit", async () => {
+      const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
+      const client = new SyncApiClient({
+        maxFileSize: 100,
+        maxRetries: 1,
+      });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        arrayBuffer: () => Promise.resolve(new Uint8Array(101).buffer),
+      });
+
+      await expect(
+        client.downloadFile("https://storage.example.com/download/file"),
+      ).rejects.toThrow("exceeds max size");
+    });
+
+    it("authenticates exact-origin file upload URLs with the session token", async () => {
       const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
 
       const client = new SyncApiClient({
+        baseUrl: "https://test-api.example.com/api",
         maxRetries: 1,
       });
 
@@ -218,10 +330,11 @@ describe("Sync Integration", () => {
       );
     });
 
-    it("authenticates generated file download URLs with the session token", async () => {
+    it("authenticates exact-origin file download URLs with the session token", async () => {
       const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
 
       const client = new SyncApiClient({
+        baseUrl: "https://test-api.example.com/api",
         maxRetries: 1,
       });
 
@@ -245,6 +358,89 @@ describe("Sync Integration", () => {
           }),
         }),
       );
+    });
+
+    it.each([
+      ['upload', 'https://storage.example.com/upload/file'],
+      ['download', 'https://storage.example.com/download/file'],
+    ])("does not forward application authorization to cross-origin HTTPS %s URLs", async (kind, transferUrl) => {
+      const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
+      const client = new SyncApiClient({
+        baseUrl: "https://test-api.example.com/v1",
+        maxRetries: 1,
+      });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        arrayBuffer: () => Promise.resolve(new Uint8Array([123, 125]).buffer),
+      });
+
+      if (kind === 'upload') {
+        await client.uploadFile(transferUrl, Buffer.from('{}'), 'application-token');
+      } else {
+        await client.downloadFile(transferUrl, 'application-token');
+      }
+
+      const options = mockFetch.mock.calls[0]?.[1] as RequestInit;
+      const headers = new Headers(options.headers);
+      expect(headers.has('Authorization')).toBe(false);
+    });
+
+    it("compares transfer authorization by exact origin rather than base URL path", async () => {
+      const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
+      const client = new SyncApiClient({
+        baseUrl: "https://test-api.example.com/api/v2",
+        maxRetries: 1,
+      });
+      mockFetch.mockResolvedValueOnce({ ok: true, status: 200 });
+
+      await client.uploadFile(
+        "https://test-api.example.com/a/different/path",
+        Buffer.from('{}'),
+        'application-token',
+      );
+
+      const options = mockFetch.mock.calls[0]?.[1] as RequestInit;
+      expect(new Headers(options.headers).get('Authorization')).toBe('Bearer application-token');
+    });
+
+    it("allows authenticated HTTP transfers only for a configured same-origin loopback API", async () => {
+      const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
+      const client = new SyncApiClient({
+        baseUrl: "http://127.0.0.1:8787/api",
+        maxRetries: 1,
+      });
+      mockFetch.mockResolvedValueOnce({ ok: true, status: 200 });
+
+      await client.uploadFile(
+        "http://127.0.0.1:8787/upload/file",
+        Buffer.from('{}'),
+        'application-token',
+      );
+
+      const options = mockFetch.mock.calls[0]?.[1] as RequestInit;
+      expect(new Headers(options.headers).get('Authorization')).toBe('Bearer application-token');
+    });
+
+    it.each([
+      ['cross-origin HTTP', 'http://storage.example.com/file'],
+      ['credential-bearing HTTPS', 'https://user:password@storage.example.com/file'],
+      ['unsupported protocol', 'ftp://storage.example.com/file'],
+      ['invalid URL', 'not a url'],
+    ])("rejects %s transfer URLs before fetch", async (_label, transferUrl) => {
+      const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
+      const client = new SyncApiClient({ baseUrl: 'https://test-api.example.com/v1', maxRetries: 1 });
+
+      await expect(client.uploadFile(
+        transferUrl,
+        Buffer.from('{}'),
+        'application-token',
+      )).rejects.toThrow(/transfer url/i);
+      await expect(client.downloadFile(
+        transferUrl,
+        'application-token',
+      )).rejects.toThrow(/transfer url/i);
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it("sends the manifest with every upload batch because the API validates each batch", async () => {

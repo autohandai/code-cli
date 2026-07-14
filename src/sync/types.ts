@@ -141,6 +141,9 @@ export const SYNC_EXCLUDE_ALWAYS = [
   'version-*.json',
   '.sync-lock',
   '.sync-state.json',
+  'sessions/index.json.lock',
+  '.*.tmp',
+  '.*.tombstone',
 ] as const;
 
 /**
