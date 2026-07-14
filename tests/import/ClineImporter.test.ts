@@ -7,6 +7,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import os from 'node:os';
 import path from 'node:path';
 
+const atomicFileMocks = vi.hoisted(() => ({
+  atomicWriteJson: vi.fn().mockResolvedValue(undefined),
+  withFileLock: vi.fn(
+    (_lockPath: string, operation: () => Promise<unknown>) => operation(),
+  ),
+}));
+
+vi.mock('../../src/utils/atomicFile.js', () => atomicFileMocks);
+
 vi.mock('fs-extra', () => ({
   default: {
     pathExists: vi.fn().mockResolvedValue(false),
