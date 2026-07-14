@@ -3,6 +3,7 @@ set -e
 
 REPO="autohandai/code-cli"
 BINARY_NAME="autohand"
+COMPAT_BINARY_NAME="autohand-code"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -38,6 +39,7 @@ EOF
     need_cmd curl
     need_cmd uname
     need_cmd chmod
+    need_cmd ln
 
     # Determine channel from flags or environment
     local _channel="stable"
@@ -139,6 +141,7 @@ EOF
     chmod +x "${_tmp_dir}/autohand"
 
     install_file "${_tmp_dir}/autohand" "$_dir/$BINARY_NAME"
+    install_symlink "$BINARY_NAME" "$_dir/$COMPAT_BINARY_NAME"
 
     rm -rf "$_tmp_dir"
 
@@ -237,6 +240,18 @@ install_file() {
     else
         printf "${YELLOW}Elevated permissions required to install to $(dirname "$_dest")${NC}\n"
         sudo cp "$_source" "$_dest"
+    fi
+}
+
+install_symlink() {
+    local _target="$1"
+    local _dest="$2"
+
+    if [ -w "$(dirname "$_dest")" ]; then
+        ln -sfn "$_target" "$_dest"
+    else
+        printf "${YELLOW}Elevated permissions required to create alias in $(dirname "$_dest")${NC}\n"
+        sudo ln -sfn "$_target" "$_dest"
     fi
 }
 
