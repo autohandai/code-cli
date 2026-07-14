@@ -55,7 +55,7 @@ async function runUpgrade(): Promise<void> {
   } else if (os === 'darwin') {
     // macOS - try brew first, fallback to curl
     command = 'sh';
-    args = ['-c', 'brew tap autohandai/code && brew install autohand-code || curl -fsSL https://autohand.ai/install.sh | sh'];
+    args = ['-c', 'brew install autohandai/code/autohand-code || curl -fsSL https://autohand.ai/install.sh | sh'];
   } else {
     // Linux - use curl
     command = 'sh';
@@ -86,7 +86,7 @@ async function runUpgrade(): Promise<void> {
           console.log(chalk.gray('  iwr -useb https://autohand.ai/install.ps1 | iex'));
         } else {
           console.log(chalk.gray('  curl -fsSL https://autohand.ai/install.sh | sh'));
-          console.log(chalk.gray('  or: brew tap autohandai/code && brew install autohand-code'));
+          console.log(chalk.gray('  or: brew install autohandai/code/autohand-code'));
         }
         console.log(chalk.gray('  or: npm i -g autohand-cli'));
         console.log(chalk.gray('  or: bun i -g autohand-cli'));
