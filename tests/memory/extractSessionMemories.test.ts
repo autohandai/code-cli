@@ -113,6 +113,70 @@ describe('extractAndSaveSessionMemories', () => {
     );
   });
 
+  it('forwards cancellation to the LLM and skips stores when a noncooperative response arrives after abort', async () => {
+    const abortController = new AbortController();
+    let releaseResponse: ((response: LLMResponse) => void) | undefined;
+    const provider = createMockProvider('');
+    (provider.complete as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      () => new Promise<LLMResponse>((resolve) => {
+        releaseResponse = resolve;
+      }),
+    );
+
+    const extraction = extractAndSaveSessionMemories({
+      llm: provider,
+      memoryManager,
+      conversationHistory: buildHistory(3),
+      workspaceRoot: '/workspace',
+      signal: abortController.signal,
+    });
+
+    expect(provider.complete).toHaveBeenCalledWith(expect.objectContaining({
+      signal: abortController.signal,
+    }));
+
+    abortController.abort();
+    releaseResponse?.(makeLLMResponse(JSON.stringify([
+      { content: 'Late memory', level: 'project', tags: ['shutdown'] },
+    ])));
+
+    await expect(extraction).resolves.toEqual([]);
+    expect(memoryManager.store).not.toHaveBeenCalled();
+  });
+
+  it('cannot cancel a store already in flight but does not start later stores after abort', async () => {
+    const abortController = new AbortController();
+    let releaseStore: (() => void) | undefined;
+    const provider = createMockProvider(JSON.stringify([
+      { content: 'Already storing', level: 'project', tags: ['first'] },
+      { content: 'Must not start', level: 'project', tags: ['second'] },
+    ]));
+    (memoryManager.store as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        releaseStore = () => resolve({ id: 'stored-before-abort' });
+      }),
+    );
+
+    const extraction = extractAndSaveSessionMemories({
+      llm: provider,
+      memoryManager,
+      conversationHistory: buildHistory(3),
+      workspaceRoot: '/workspace',
+      signal: abortController.signal,
+    });
+
+    await vi.waitFor(() => {
+      expect(memoryManager.store).toHaveBeenCalledOnce();
+    });
+    abortController.abort();
+    releaseStore?.();
+
+    await expect(extraction).resolves.toEqual([
+      { content: 'Already storing', level: 'project', tags: ['first'] },
+    ]);
+    expect(memoryManager.store).toHaveBeenCalledOnce();
+  });
+
   // 2. Returns empty array when conversation is too short (< 2 user messages)
   it('returns empty array when conversation has fewer than 2 user messages', async () => {
     const provider = createMockProvider('[]');

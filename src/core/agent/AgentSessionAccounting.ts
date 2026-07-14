@@ -49,6 +49,7 @@ export interface AgentSessionAccountingHost {
   };
   sessionStartedAt: number;
   sessionSyncInFlight?: boolean;
+  sessionSyncPromise?: Promise<void>;
   sessionSyncTimer?: ReturnType<typeof setTimeout>;
   sessionTokensUsed?: number;
   statusListener?: (snapshot: AgentStatusSnapshot) => void;
@@ -155,25 +156,34 @@ function buildSessionSyncMetadata(
     : metadata;
 }
 
-export async function syncAgentSessionSnapshot(
+export function syncAgentSessionSnapshot(
   host: AgentSessionAccountingHost,
   options: { force?: boolean; session?: SyncableSession; endTimeMs?: number } = {}
 ): Promise<void> {
-  if (!options.force && host.sessionSyncInFlight) return;
+  const existing = host.sessionSyncPromise;
+  if (existing && !options.force) return existing;
 
-  const session = options.session ?? host.sessionManager.getCurrentSession();
-  if (!session) return;
+  const run = (async () => {
+    await existing?.catch(() => {});
+    const session = options.session ?? host.sessionManager.getCurrentSession();
+    if (!session) return;
 
-  const endTimeMs = options.endTimeMs ?? Date.now();
-  host.sessionSyncInFlight = true;
-  try {
-    await host.telemetryManager.syncSession({
-      messages: toSyncMessages(session.getMessages()),
-      metadata: buildSessionSyncMetadata(host, endTimeMs, { final: options.force }),
-    });
-  } finally {
-    host.sessionSyncInFlight = false;
-  }
+    const endTimeMs = options.endTimeMs ?? Date.now();
+    host.sessionSyncInFlight = true;
+    try {
+      await host.telemetryManager.syncSession({
+        messages: toSyncMessages(session.getMessages()),
+        metadata: buildSessionSyncMetadata(host, endTimeMs, { final: options.force }),
+      });
+    } finally {
+      host.sessionSyncInFlight = false;
+    }
+  })();
+  const tracked = run.finally(() => {
+    if (host.sessionSyncPromise === tracked) host.sessionSyncPromise = undefined;
+  });
+  host.sessionSyncPromise = tracked;
+  return tracked;
 }
 
 export function scheduleAgentSessionSnapshotSync(host: AgentSessionAccountingHost): void {
@@ -193,6 +203,19 @@ function clearScheduledSessionSnapshotSync(host: AgentSessionAccountingHost): vo
   if (!host.sessionSyncTimer) return;
   clearTimeout(host.sessionSyncTimer);
   host.sessionSyncTimer = undefined;
+}
+
+export async function flushScheduledAgentSessionSnapshot(
+  host: AgentSessionAccountingHost,
+): Promise<void> {
+  const hadScheduledSync = Boolean(host.sessionSyncTimer);
+  clearScheduledSessionSnapshotSync(host);
+  if (hadScheduledSync) {
+    await host.sessionSyncPromise?.catch(() => {});
+    await syncAgentSessionSnapshot(host);
+    return;
+  }
+  await host.sessionSyncPromise?.catch(() => {});
 }
 
 export async function forceAgentIdleLogout(host: AgentSessionAccountingHost): Promise<void> {
@@ -434,15 +457,15 @@ export function normalizeAgentCompletionNotificationBody(
 
 export function setAgentStatusListener(
   host: AgentSessionAccountingHost,
-  listener: (snapshot: AgentStatusSnapshot) => void
+  listener?: (snapshot: AgentStatusSnapshot) => void
 ): void {
   host.statusListener = listener;
-  host.emitStatus();
+  if (listener) host.emitStatus();
 }
 
 export function setAgentOutputListener(
   host: AgentSessionAccountingHost,
-  listener: (event: AgentOutputEvent) => void
+  listener?: (event: AgentOutputEvent) => void
 ): void {
   host.outputListener = listener;
 }

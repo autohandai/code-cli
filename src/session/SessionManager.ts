@@ -13,6 +13,81 @@ import type {
     SessionIndex
 } from './types.js';
 import { AUTOHAND_PATHS } from '../constants.js';
+import { atomicWriteJson, withFileLock } from '../utils/atomicFile.js';
+
+const SESSION_INDEX_FILE = 'index.json';
+const SESSION_INDEX_LOCK_FILE = 'index.json.lock';
+const SESSION_INDEX_LOCK_OPTIONS = {
+    staleMs: 5 * 60 * 1000,
+    waitTimeoutMs: 10 * 1000,
+    retryDelayMs: 10,
+} as const;
+
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is UnknownRecord {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isOptionalString(value: unknown): boolean {
+    return value === undefined || typeof value === 'string';
+}
+
+function isSessionIndexEntry(value: unknown): boolean {
+    if (!isRecord(value)) return false;
+    if (
+        typeof value.id !== 'string'
+        || typeof value.projectPath !== 'string'
+        || typeof value.createdAt !== 'string'
+        || !isOptionalString(value.summary)
+    ) {
+        return false;
+    }
+
+    if (value.importedFrom !== undefined) {
+        if (
+            !isRecord(value.importedFrom)
+            || typeof value.importedFrom.source !== 'string'
+            || typeof value.importedFrom.originalId !== 'string'
+        ) {
+            return false;
+        }
+    }
+
+    if (value.branch !== undefined) {
+        if (
+            !isRecord(value.branch)
+            || (value.branch.type !== 'fork' && value.branch.type !== 'clone')
+            || typeof value.branch.sourceSessionId !== 'string'
+            || typeof value.branch.createdAt !== 'string'
+            || (
+                value.branch.sourceMessageIndex !== undefined
+                && !Number.isSafeInteger(value.branch.sourceMessageIndex)
+            )
+            || (
+                value.branch.sourceUserMessageOrdinal !== undefined
+                && !Number.isSafeInteger(value.branch.sourceUserMessageOrdinal)
+            )
+        ) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+export function isSessionIndex(value: unknown): value is SessionIndex {
+    if (!isRecord(value) || !Array.isArray(value.sessions) || !isRecord(value.byProject)) {
+        return false;
+    }
+    if (!value.sessions.every(isSessionIndexEntry)) {
+        return false;
+    }
+    return Object.values(value.byProject).every(
+        (sessionIds) => Array.isArray(sessionIds)
+            && sessionIds.every((sessionId) => typeof sessionId === 'string'),
+    );
+}
 
 export interface BranchSessionOptions {
     type: 'fork' | 'clone';
@@ -219,65 +294,86 @@ export class SessionManager {
         return `${uuid}-${timestamp}`;
     }
 
-    private async loadIndex(): Promise<void> {
-        const indexPath = path.join(this.sessionsDir, 'index.json');
-        if (await fs.pathExists(indexPath)) {
-            try {
-                this.index = await fs.readJson(indexPath) as SessionIndex;
-            } catch (error) {
-                const backupPath = `${indexPath}.corrupt-${Date.now()}`;
-                await fs.move(indexPath, backupPath, { overwrite: true });
-                const reason = error instanceof Error ? error.message : String(error);
-                console.warn(`Session index was corrupt and has been reset: ${reason}. Backup saved to ${backupPath}`);
-                this.index = { sessions: [], byProject: {} };
-                await this.saveIndex();
+    private get indexPath(): string {
+        return path.join(this.sessionsDir, SESSION_INDEX_FILE);
+    }
+
+    private get indexLockPath(): string {
+        return path.join(this.sessionsDir, SESSION_INDEX_LOCK_FILE);
+    }
+
+    private createEmptyIndex(): SessionIndex {
+        return { sessions: [], byProject: {} };
+    }
+
+    private async readIndexFromDisk(): Promise<SessionIndex> {
+        if (!(await fs.pathExists(this.indexPath))) {
+            return this.createEmptyIndex();
+        }
+
+        try {
+            const loaded: unknown = await fs.readJson(this.indexPath);
+            if (!isSessionIndex(loaded)) {
+                throw new Error('Session index has an invalid structure');
             }
-        } else {
-            this.index = { sessions: [], byProject: {} };
+            return loaded;
+        } catch (error) {
+            const backupPath = `${this.indexPath}.corrupt-${Date.now()}-${crypto.randomUUID()}`;
+            await fs.copy(this.indexPath, backupPath, { overwrite: false });
+            const emptyIndex = this.createEmptyIndex();
+            await atomicWriteJson(this.indexPath, emptyIndex);
+            const reason = error instanceof Error ? error.message : String(error);
+            console.warn(`Session index was corrupt and has been reset: ${reason}. Backup saved to ${backupPath}`);
+            return emptyIndex;
         }
     }
 
-    private async saveIndex(): Promise<void> {
-        const indexPath = path.join(this.sessionsDir, 'index.json');
-        await fs.writeJson(indexPath, this.index, { spaces: 2 });
+    private async loadIndex(): Promise<void> {
+        await withFileLock(this.indexLockPath, async () => {
+            this.index = await this.readIndexFromDisk();
+        }, SESSION_INDEX_LOCK_OPTIONS);
+    }
+
+    private async mutateIndex(mutation: (index: SessionIndex) => void): Promise<void> {
+        await withFileLock(this.indexLockPath, async () => {
+            const latestIndex = await this.readIndexFromDisk();
+            mutation(latestIndex);
+            await atomicWriteJson(this.indexPath, latestIndex);
+            this.index = latestIndex;
+        }, SESSION_INDEX_LOCK_OPTIONS);
     }
 
     private async addToIndex(metadata: SessionMetadata): Promise<void> {
-        if (!this.index) await this.loadIndex();
-        if (!this.index) return;
+        await this.mutateIndex((index) => {
+            index.sessions.push({
+                id: metadata.sessionId,
+                projectPath: metadata.projectPath,
+                createdAt: metadata.createdAt,
+                summary: metadata.summary,
+                importedFrom: metadata.importedFrom
+                    ? {
+                        source: metadata.importedFrom.source,
+                        originalId: metadata.importedFrom.originalId,
+                    }
+                    : undefined,
+                branch: metadata.branch,
+            });
 
-        this.index.sessions.push({
-            id: metadata.sessionId,
-            projectPath: metadata.projectPath,
-            createdAt: metadata.createdAt,
-            summary: metadata.summary,
-            importedFrom: metadata.importedFrom
-                ? {
-                    source: metadata.importedFrom.source,
-                    originalId: metadata.importedFrom.originalId,
-                }
-                : undefined,
-            branch: metadata.branch,
+            if (!index.byProject[metadata.projectPath]) {
+                index.byProject[metadata.projectPath] = [];
+            }
+            index.byProject[metadata.projectPath].push(metadata.sessionId);
         });
-
-        if (!this.index.byProject[metadata.projectPath]) {
-            this.index.byProject[metadata.projectPath] = [];
-        }
-        this.index.byProject[metadata.projectPath].push(metadata.sessionId);
-
-        await this.saveIndex();
     }
 
     private async updateIndex(metadata: SessionMetadata): Promise<void> {
-        if (!this.index) return;
-
-        const session = this.index.sessions.find(s => s.id === metadata.sessionId);
-        if (session) {
-            session.summary = metadata.summary;
-            session.branch = metadata.branch;
-        }
-
-        await this.saveIndex();
+        await this.mutateIndex((index) => {
+            const session = index.sessions.find(s => s.id === metadata.sessionId);
+            if (session) {
+                session.summary = metadata.summary;
+                session.branch = metadata.branch;
+            }
+        });
     }
 }
 

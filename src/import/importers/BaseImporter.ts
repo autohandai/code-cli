@@ -16,7 +16,17 @@ import type {
   ProgressCallback,
 } from '../types.js';
 import type { SessionMetadata, SessionMessage, SessionIndex } from '../../session/types.js';
+import { isSessionIndex } from '../../session/SessionManager.js';
 import { AUTOHAND_PATHS } from '../../constants.js';
+import { atomicWriteJson, withFileLock } from '../../utils/atomicFile.js';
+
+const SESSION_INDEX_LOCK_OPTIONS = {
+  staleMs: 5 * 60 * 1000,
+  waitTimeoutMs: 10 * 1000,
+  retryDelayMs: 10,
+} as const;
+const SESSION_INDEX_FILE = 'index.json';
+const SESSION_INDEX_LOCK_FILE = 'index.json.lock';
 
 /**
  * Options for writing an imported session to the Autohand session store.
@@ -143,48 +153,45 @@ export abstract class BaseImporter implements Importer {
    * (deduplication by source + originalId).
    */
   protected async writeAutohandSession(opts: WriteSessionOptions): Promise<string | null> {
-    // Dedup check: skip if already imported with same source + originalId
-    if (await this.isAlreadyImported(opts.source, opts.originalId)) {
-      return null;
-    }
+    const indexPath = path.join(AUTOHAND_PATHS.sessions, SESSION_INDEX_FILE);
+    const lockPath = path.join(AUTOHAND_PATHS.sessions, SESSION_INDEX_LOCK_FILE);
 
-    const timestamp = Date.now();
-    const uuid = crypto.randomUUID();
-    const sessionId = `${uuid}-${timestamp}`;
+    return withFileLock(lockPath, async () => {
+      const index = await this.readSessionIndex(indexPath, true);
+      if (this.indexContainsImport(index, opts.source, opts.originalId)) {
+        return null;
+      }
 
-    const sessionDir = path.join(AUTOHAND_PATHS.sessions, sessionId);
-    await fse.ensureDir(sessionDir);
+      const sessionId = `${crypto.randomUUID()}-${Date.now()}`;
+      const sessionDir = path.join(AUTOHAND_PATHS.sessions, sessionId);
+      await fse.ensureDir(sessionDir);
 
-    // Build metadata
-    const metadata: SessionMetadata = {
-      sessionId,
-      createdAt: opts.createdAt,
-      lastActiveAt: opts.closedAt ?? opts.createdAt,
-      closedAt: opts.closedAt,
-      projectPath: opts.projectPath,
-      projectName: opts.projectName,
-      model: opts.model,
-      messageCount: opts.messages.length,
-      summary: opts.summary,
-      status: opts.status ?? 'completed',
-      importedFrom: {
-        source: opts.source,
-        originalId: opts.originalId,
-        importedAt: new Date().toISOString(),
-      },
-    };
+      const metadata: SessionMetadata = {
+        sessionId,
+        createdAt: opts.createdAt,
+        lastActiveAt: opts.closedAt ?? opts.createdAt,
+        closedAt: opts.closedAt,
+        projectPath: opts.projectPath,
+        projectName: opts.projectName,
+        model: opts.model,
+        messageCount: opts.messages.length,
+        summary: opts.summary,
+        status: opts.status ?? 'completed',
+        importedFrom: {
+          source: opts.source,
+          originalId: opts.originalId,
+          importedAt: new Date().toISOString(),
+        },
+      };
 
-    // Write metadata.json
-    await fse.writeJson(path.join(sessionDir, 'metadata.json'), metadata, { spaces: 2 });
+      await fse.writeJson(path.join(sessionDir, 'metadata.json'), metadata, { spaces: 2 });
+      const jsonl = opts.messages.map(msg => JSON.stringify(msg)).join('\n') + '\n';
+      await fse.writeFile(path.join(sessionDir, 'conversation.jsonl'), jsonl, 'utf-8');
+      this.appendSessionIndexEntry(index, metadata);
+      await atomicWriteJson(indexPath, index);
 
-    // Write conversation.jsonl
-    const jsonl = opts.messages.map(msg => JSON.stringify(msg)).join('\n') + '\n';
-    await fse.writeFile(path.join(sessionDir, 'conversation.jsonl'), jsonl, 'utf-8');
-
-    // Update the session index
-    await this.updateSessionIndex(metadata);
-
-    return sessionId;
+      return sessionId;
+    }, SESSION_INDEX_LOCK_OPTIONS);
   }
 
   /**
@@ -192,20 +199,15 @@ export abstract class BaseImporter implements Importer {
    * Uses the session index for O(n) lookup with `importedFrom` field.
    */
   protected async isAlreadyImported(source: string, originalId: string): Promise<boolean> {
-    const indexPath = path.join(AUTOHAND_PATHS.sessions, 'index.json');
+    const indexPath = path.join(AUTOHAND_PATHS.sessions, SESSION_INDEX_FILE);
 
     if (!(await fse.pathExists(indexPath))) {
       return false;
     }
 
     try {
-      const loaded = await fse.readJson(indexPath);
-      if (!loaded || !Array.isArray(loaded.sessions)) return false;
-
-      return loaded.sessions.some(
-        (s: { importedFrom?: { source: string; originalId: string } }) =>
-          s.importedFrom?.source === source && s.importedFrom?.originalId === originalId,
-      );
+      const loaded: unknown = await fse.readJson(indexPath);
+      return isSessionIndex(loaded) && this.indexContainsImport(loaded, source, originalId);
     } catch {
       return false;
     }
@@ -220,30 +222,45 @@ export abstract class BaseImporter implements Importer {
    * Creates the file if it does not exist.
    */
   protected async updateSessionIndex(metadata: SessionMetadata): Promise<void> {
-    const indexPath = path.join(AUTOHAND_PATHS.sessions, 'index.json');
+    const indexPath = path.join(AUTOHAND_PATHS.sessions, SESSION_INDEX_FILE);
+    const lockPath = path.join(AUTOHAND_PATHS.sessions, SESSION_INDEX_LOCK_FILE);
 
-    let index: SessionIndex = { sessions: [], byProject: {} };
+    await withFileLock(lockPath, async () => {
+      const index = await this.readSessionIndex(indexPath, true);
+      this.appendSessionIndexEntry(index, metadata);
+      await fse.ensureDir(AUTOHAND_PATHS.sessions);
+      await atomicWriteJson(indexPath, index);
+    }, SESSION_INDEX_LOCK_OPTIONS);
+  }
 
-    if (await fse.pathExists(indexPath)) {
-      try {
-        const loaded = await fse.readJson(indexPath);
-        // Validate structure before trusting it
-        if (
-          loaded &&
-          typeof loaded === 'object' &&
-          Array.isArray(loaded.sessions) &&
-          loaded.byProject &&
-          typeof loaded.byProject === 'object'
-        ) {
-          index = loaded as SessionIndex;
-        }
-        // Otherwise keep the fresh empty index (corrupted file recovery)
-      } catch {
-        // Corrupted/empty JSON file — reset to empty index
-      }
+  private async readSessionIndex(indexPath: string, backupMalformed: boolean): Promise<SessionIndex> {
+    if (!(await fse.pathExists(indexPath))) {
+      return { sessions: [], byProject: {} };
     }
 
-    // Append session entry (include importedFrom for future dedup checks)
+    try {
+      const loaded: unknown = await fse.readJson(indexPath);
+      if (!isSessionIndex(loaded)) {
+        throw new Error('Session index has an invalid structure');
+      }
+      return loaded;
+    } catch {
+      if (backupMalformed) {
+        const backupPath = `${indexPath}.corrupt-${Date.now()}-${crypto.randomUUID()}`;
+        await fse.copy(indexPath, backupPath, { overwrite: false });
+      }
+      return { sessions: [], byProject: {} };
+    }
+  }
+
+  private indexContainsImport(index: SessionIndex, source: string, originalId: string): boolean {
+    return index.sessions.some((session) =>
+      session.importedFrom?.source === source
+      && session.importedFrom.originalId === originalId,
+    );
+  }
+
+  private appendSessionIndexEntry(index: SessionIndex, metadata: SessionMetadata): void {
     const entry: SessionIndex['sessions'][number] = {
       id: metadata.sessionId,
       projectPath: metadata.projectPath,
@@ -258,14 +275,10 @@ export abstract class BaseImporter implements Importer {
     }
     index.sessions.push(entry);
 
-    // Group by project
     if (!index.byProject[metadata.projectPath]) {
       index.byProject[metadata.projectPath] = [];
     }
     index.byProject[metadata.projectPath].push(metadata.sessionId);
-
-    await fse.ensureDir(AUTOHAND_PATHS.sessions);
-    await fse.writeJson(indexPath, index, { spaces: 2 });
   }
 
   // ---------------------------------------------------------------

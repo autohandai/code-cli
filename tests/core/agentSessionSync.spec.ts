@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  flushScheduledAgentSessionSnapshot,
   recordAgentExecutedAction,
   saveAgentAssistantMessage,
   saveAgentUserMessage,
@@ -93,6 +94,53 @@ describe('agent near-real-time session sync', () => {
         durationSeconds: 120,
       }),
     });
+  });
+
+  it('flushes a pending snapshot immediately during runtime shutdown', async () => {
+    const { host, syncSession } = createHost();
+
+    await saveAgentUserMessage(host, 'persist before shutdown');
+    expect(syncSession).not.toHaveBeenCalled();
+
+    await flushScheduledAgentSessionSnapshot(host);
+
+    expect(host.sessionSyncTimer).toBeUndefined();
+    expect(syncSession).toHaveBeenCalledTimes(1);
+    expect(syncSession.mock.calls[0][0].metadata).not.toHaveProperty('endTime');
+
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(syncSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('flushes newer pending state after an earlier snapshot finishes', async () => {
+    let finishFirstSync!: () => void;
+    const firstSync = new Promise<void>((resolve) => {
+      finishFirstSync = resolve;
+    });
+    const { host, syncSession } = createHost();
+    syncSession
+      .mockImplementationOnce(() => firstSync)
+      .mockResolvedValueOnce(undefined);
+
+    await saveAgentUserMessage(host, 'first');
+    vi.advanceTimersByTime(5000);
+    await Promise.resolve();
+    expect(syncSession).toHaveBeenCalledTimes(1);
+
+    await saveAgentUserMessage(host, 'newer state');
+    const flushing = flushScheduledAgentSessionSnapshot(host);
+    await Promise.resolve();
+    expect(syncSession).toHaveBeenCalledTimes(1);
+
+    finishFirstSync();
+    await flushing;
+
+    expect(syncSession).toHaveBeenCalledTimes(2);
+    expect(syncSession.mock.calls[1][0].messages).toEqual([
+      expect.objectContaining({ role: 'user', content: 'first' }),
+      expect.objectContaining({ role: 'user', content: 'newer state' }),
+    ]);
+    expect(syncSession.mock.calls[1][0].metadata).not.toHaveProperty('endTime');
   });
 
   it('schedules a snapshot after tool action batches', async () => {

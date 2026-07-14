@@ -24,6 +24,7 @@ export interface ExtractionDeps {
   memoryManager: MemoryManager;
   conversationHistory: LLMMessage[];
   workspaceRoot: string;
+  signal?: AbortSignal;
   options?: {
     minUserMessages?: number;
     source?: string;
@@ -102,9 +103,13 @@ function normaliseTags(raw: unknown): string[] {
 export async function extractAndSaveSessionMemories(
   deps: ExtractionDeps,
 ): Promise<ExtractedMemory[]> {
-  const { llm, memoryManager, conversationHistory } = deps;
+  const { llm, memoryManager, conversationHistory, signal } = deps;
   const minUserMessages = deps.options?.minUserMessages ?? MIN_USER_MESSAGES;
   const source = deps.options?.source ?? 'session-extraction';
+
+  if (signal?.aborted) {
+    return [];
+  }
 
   // Gate: need at least MIN_USER_MESSAGES user messages
   if (countUserMessages(conversationHistory) < minUserMessages) {
@@ -121,6 +126,7 @@ export async function extractAndSaveSessionMemories(
       ],
       temperature: 0.3,
       maxTokens: 1024,
+      signal,
     });
     rawContent = response.content;
   } catch {
@@ -147,6 +153,7 @@ export async function extractAndSaveSessionMemories(
 
   for (const raw of parsed) {
     if (!isValidMemory(raw)) continue;
+    if (signal?.aborted) break;
 
     // `raw` is narrowed to ExtractedMemory by the guard, but tags may be any
     // shape from the LLM -- normalise defensively via the untyped object.
