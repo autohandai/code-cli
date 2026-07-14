@@ -8,6 +8,7 @@
 
 ## Status
 
+- **Status**: DONE (verified 2026-07-14)
 - **Priority**: P1
 - **Effort**: L
 - **Risk**: HIGH
@@ -19,7 +20,7 @@
 
 The runtime currently treats every resolved executor string as success, even when the string says `Error:`, `Blocked:`, `Denied:`, or represents a non-zero command. As a result, telemetry, post-tool hooks, RPC `toolEnd`, ACP tool status, and the model can receive contradictory success state. A discriminated internal outcome must carry failure kind and readable output without parsing English strings or changing the SDK's existing wire fields.
 
-## Current state
+## Baseline state at planned commit
 
 - `src/types.ts:1378-1383` permits contradictory optional fields:
 
@@ -62,10 +63,10 @@ Preserve the broad direct `ActionExecutor.execute(): Promise<string | undefined>
 
 | Purpose | Command | Expected on success |
 |---|---|---|
-| Tool manager | `bun test tests/toolManager.spec.ts` | exit 0 |
-| Executor | `bun test tests/actionExecutor-validation.spec.ts tests/actionExecutor.spec.ts tests/actionExecutorLiveOutput.spec.ts tests/command.spec.ts` | exit 0 |
-| Agent bridge | `bun test tests/core/agent/ToolLoopSignature.test.ts tests/rpcHooks.spec.ts` | exit 0 |
-| RPC/ACP | `bun test tests/modes/rpc/handlers.spec.ts tests/modes/rpc/types.spec.ts tests/modes/acp/adapter.test.ts` | exit 0 |
+| Tool manager | `bun run test tests/toolManager.spec.ts` | exit 0 |
+| Executor | `bun run test tests/actionExecutor-validation.spec.ts tests/actionExecutor.spec.ts tests/actionExecutorLiveOutput.spec.ts tests/command.spec.ts` | exit 0 |
+| Agent bridge | `bun run test tests/core/agent/ToolLoopSignature.test.ts tests/rpcHooks.spec.ts` | exit 0 |
+| RPC/ACP | `bun run test tests/modes/rpc/handlers.spec.ts tests/modes/rpc/types.spec.ts tests/modes/acp/adapter.test.ts` | exit 0 |
 | Typecheck | `bun run typecheck` | exit 0 |
 | Lint | `bun run lint` | exit 0 |
 | Proof | `bun run proof` | exit 0 |
@@ -122,7 +123,7 @@ Add bridge tests proving the same outcome produces:
 
 Also prove successful empty output remains success.
 
-**Verify**: `bun test tests/toolManager.spec.ts tests/rpcHooks.spec.ts tests/modes/acp/adapter.test.ts` fails only on the new assertions.
+**Verify**: `bun run test tests/toolManager.spec.ts tests/rpcHooks.spec.ts tests/modes/acp/adapter.test.ts` fails only on the new assertions.
 
 ### Step 2: Define the discriminated runtime types
 
@@ -146,7 +147,7 @@ Add `executeForTool(action, context)` while preserving `execute(action, context)
 
 Keep existing human-readable strings as `error` or `output` so the model and terminal remain understandable. Use explicit branch knowledge or a typed lower-layer result, never text classification.
 
-**Verify**: `bun test tests/actionExecutor-validation.spec.ts tests/actionExecutor.spec.ts tests/actionExecutorLiveOutput.spec.ts tests/command.spec.ts` exits 0 with new outcome cases passing.
+**Verify**: `bun run test tests/actionExecutor-validation.spec.ts tests/actionExecutor.spec.ts tests/actionExecutorLiveOutput.spec.ts tests/command.spec.ts` exits 0 with new outcome cases passing.
 
 ### Step 4: Make `ToolManager` preserve outcomes
 
@@ -154,7 +155,7 @@ Update scheduling/concurrency code so both resolved failure outcomes and thrown 
 
 Do not change safe parallelism barriers. Authorization denials from Plan 001 must remain pre-execution failures and must not become successful skipped output.
 
-**Verify**: `bun test tests/toolManager.spec.ts` exits 0, including batch ordering and callback tests.
+**Verify**: `bun run test tests/toolManager.spec.ts` exits 0, including batch ordering and callback tests.
 
 ### Step 5: Make all lifecycle consumers truthful
 
@@ -164,7 +165,7 @@ In `ReactLoopRunner`, keep adding one tool message per call in model order. Use 
 
 Update RPC adapter mapping so it does not default an absent status to true on runtime-generated events. Populate the already-supported optional `error`. Update ACP mapping to `failed` on explicit failure and retain existing content.
 
-**Verify**: `bun test tests/core/agent/ToolLoopSignature.test.ts tests/rpcHooks.spec.ts tests/modes/rpc/handlers.spec.ts tests/modes/acp/adapter.test.ts` exits 0.
+**Verify**: `bun run test tests/core/agent/ToolLoopSignature.test.ts tests/rpcHooks.spec.ts tests/modes/rpc/handlers.spec.ts tests/modes/acp/adapter.test.ts` exits 0.
 
 ### Step 6: Run compatibility and full gates
 
@@ -173,7 +174,7 @@ Run the CLI gates, then the read-only SDK consumer gate.
 **Verify**:
 
 ```sh
-bun test
+bun run test
 bun run lint
 bun run proof
 cd /Users/igorcosta/Documents/autohand/agentsdk/tin-wrapper/typescript
@@ -195,14 +196,14 @@ Every command exits 0.
 
 ## Done criteria
 
-- [ ] Runtime executor outcomes form a discriminated union.
-- [ ] No runtime failure classification uses `startsWith`, regex, or localized error text.
-- [ ] Non-zero commands, validation errors, denials, abort placeholders, and operational errors are false.
-- [ ] Post-tool hooks, telemetry, RPC, and ACP all receive the same truthful status.
-- [ ] Direct `ActionExecutor.execute()` callers retain compatible behavior.
-- [ ] SDK `tool_end` mapping tests pass unchanged.
-- [ ] Full CLI test, lint, and proof gates pass.
-- [ ] Only in-scope files changed; plan index updated.
+- [x] Runtime executor outcomes form a discriminated union.
+- [x] No runtime failure classification uses `startsWith`, regex, or localized error text.
+- [x] Non-zero commands, validation errors, denials, abort placeholders, and operational errors are false.
+- [x] Post-tool hooks, telemetry, RPC, and ACP all receive the same truthful status.
+- [x] Direct `ActionExecutor.execute()` callers retain compatible behavior.
+- [x] SDK `tool_end` mapping tests pass unchanged.
+- [x] Full CLI test, lint, and proof gates pass.
+- [x] The typed-outcome slice remained in scope; the integrated delivery and plan index include the other approved plans and queue items.
 
 ## STOP conditions
 

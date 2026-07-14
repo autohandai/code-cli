@@ -6,6 +6,7 @@
 
 ## Status
 
+- **Status**: DONE (verified 2026-07-14)
 - **Priority**: P0
 - **Effort**: M
 - **Risk**: HIGH
@@ -17,7 +18,7 @@
 
 The sync server controls manifest paths and transfer URLs. The client currently joins remote paths directly under its local base, sends the application bearer token to any returned URL, and advances successful sync state even when upload finalization returns `{success:false}`. A compromised/misconfigured response could write or delete outside the sync root, exfiltrate credentials, or report/persist a sync that the server never committed.
 
-## Current state
+## Baseline state at planned commit
 
 - `src/sync/SyncService.ts:231-280` downloads to and deletes `path.join(this.basePath, file.path)` without remote-path validation.
 - The force path at `src/sync/SyncService.ts:695-731` duplicates the same behavior.
@@ -41,10 +42,10 @@ The sync server controls manifest paths and transfer URLs. The client currently 
 
 | Purpose | Command | Expected on success |
 |---|---|---|
-| Service | `bun test tests/sync/SyncService.test.ts` | exit 0 |
-| API integration | `bun test tests/sync/integration.test.ts` | exit 0 |
-| Encryption regression | `bun test tests/sync/encryption.test.ts` | exit 0 |
-| i18n if messages change | `bun test tests/i18n/i18n.test.ts` | exit 0 |
+| Service | `bun run test tests/sync/SyncService.test.ts` | exit 0 |
+| API integration | `bun run test tests/sync/integration.test.ts` | exit 0 |
+| Encryption regression | `bun run test tests/sync/encryption.test.ts` | exit 0 |
+| i18n if messages change | `bun run test tests/i18n/i18n.test.ts` | exit 0 |
 | Typecheck | `bun run typecheck` | exit 0 |
 | Lint | `bun run lint` | exit 0 |
 | Proof | `bun run proof` | exit 0 |
@@ -66,7 +67,7 @@ The sync server controls manifest paths and transfer URLs. The client currently 
 
 - Authentication token format, config encryption algorithm, API endpoints, event names, CLI `/sync` contract, or environment variable names.
 - Server-side changes.
-- Atomic cross-process locking/state indexes; that separate audited item remains in `plans/README.md`'s post-plan queue.
+- Atomic cross-process locking/state indexes; that separate audited item was completed in the integrated post-plan delivery recorded in `plans/README.md`.
 - Deleting or sanitizing unsafe remote names into alternate local names; unsafe data must fail explicitly.
 - New dependencies.
 
@@ -92,7 +93,7 @@ Add temp-filesystem tests for remote paths containing:
 
 Place sentinel files outside `basePath` and assert no outside write/delete and no URL request occur. A malicious manifest should fail as a whole with a stable non-secret error.
 
-**Verify**: `bun test tests/sync/SyncService.test.ts` fails only on the new path cases.
+**Verify**: `bun run test tests/sync/SyncService.test.ts` fails only on the new path cases.
 
 ### Step 2: Implement one contained sync-path resolver
 
@@ -100,7 +101,7 @@ Create a pure lexical validator plus a sink resolver. Canonicalize relative sepa
 
 Validate every remote manifest entry immediately after `getRemoteManifest`. Use the same helper for upload reads, download writes, and local deletes in both normal and force paths. Consolidate duplicated transfer helpers where doing so reduces the chance of one path bypassing validation.
 
-**Verify**: `bun test tests/sync/SyncService.test.ts tests/sync/encryption.test.ts` exits 0.
+**Verify**: `bun run test tests/sync/SyncService.test.ts tests/sync/encryption.test.ts` exits 0.
 
 ### Step 3: Reproduce and fix credential forwarding
 
@@ -113,7 +114,7 @@ In `tests/sync/integration.test.ts`, add distinct cases:
 
 Implement origin-aware headers inside `SyncApiClient`; do not trust a caller-provided boolean or server-returned metadata to authorize a foreign origin. Never include the token in errors/logs.
 
-**Verify**: `bun test tests/sync/integration.test.ts` exits 0.
+**Verify**: `bun run test tests/sync/integration.test.ts` exits 0.
 
 ### Step 4: Make partial transfer and finalization failure terminal
 
@@ -127,21 +128,21 @@ Add failing tests for:
 
 Require all requested uploads to finish successfully before calling finalization. Check the returned result. Do not publish a full manifest after partial upload. For downloads, fail the operation rather than reporting a fully successful sync when a requested file was skipped. Preserve accurate uploaded/downloaded counters in the failure result.
 
-**Verify**: `bun test tests/sync/SyncService.test.ts tests/sync/integration.test.ts` exits 0.
+**Verify**: `bun run test tests/sync/SyncService.test.ts tests/sync/integration.test.ts` exits 0.
 
 ### Step 5: Preserve config encryption, events, and messages
 
 Prove `config.json` still strips unsynced fields, encrypts/decrypts allowed secrets, and merges local-only values. Keep current event names and `/sync` return shape. If new user-facing errors pass through localized command UI, reuse an existing generic error key or add every supported locale key according to project convention.
 
-**Verify**: `bun test tests/sync/encryption.test.ts tests/i18n/i18n.test.ts` exits 0.
+**Verify**: `bun run test tests/sync/encryption.test.ts tests/i18n/i18n.test.ts` exits 0.
 
 ### Step 6: Run full gates
 
 **Verify**:
 
 ```sh
-bun test tests/sync/SyncService.test.ts tests/sync/integration.test.ts tests/sync/encryption.test.ts
-bun test
+bun run test tests/sync/SyncService.test.ts tests/sync/integration.test.ts tests/sync/encryption.test.ts
+bun run test
 bun run lint
 bun run proof
 ```
@@ -159,13 +160,13 @@ Every command exits 0.
 
 ## Done criteria
 
-- [ ] No remote path can write/read/delete outside enabled sync roots or through escaping symlinks.
-- [ ] The entire remote manifest is validated before remote/local side effects.
-- [ ] Cross-origin transfer requests never receive the application bearer token.
-- [ ] Invalid/insecure transfer URLs fail before fetch.
-- [ ] Missing/failed transfers and failed finalization return failure and do not save success state.
-- [ ] Config encryption and public sync shapes remain compatible.
-- [ ] Focused tests, full tests, lint, and proof pass; index updated.
+- [x] No network-controlled remote path or pre-existing symlink can write/read/delete outside enabled sync roots; the same-user concurrent replacement limit is recorded in `plans/README.md`.
+- [x] The entire remote manifest is validated before remote/local side effects.
+- [x] Cross-origin transfer requests never receive the application bearer token.
+- [x] Invalid/insecure transfer URLs fail before fetch.
+- [x] Missing/failed transfers and failed finalization return failure and do not save success state.
+- [x] Config encryption and public sync shapes remain compatible.
+- [x] Focused tests, full tests, lint, and proof pass; index updated.
 
 ## STOP conditions
 
@@ -182,4 +183,4 @@ Stop and report if:
 
 - Every new synced category must be added to the allowlisted roots and covered by traversal tests.
 - Reviewers should inspect credential headers and every filesystem sink, not only manifest parsing.
-- Atomic locking/state persistence is intentionally deferred to the post-plan queue and must not be forgotten.
+- Atomic locking/state persistence was intentionally separated from this slice and completed in the integrated post-plan delivery.
