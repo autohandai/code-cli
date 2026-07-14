@@ -171,33 +171,35 @@ describe('runCommand', () => {
   });
 
   it('aborts a foreground command and preserves output captured before termination', async () => {
-    const markerPath = join(testDir, 'foreground-abort-pid');
     const controller = new AbortController();
     let streamedOutput = '';
+    let resolveStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
     const commandPromise = runCommand(
       process.execPath,
       ['-e', [
-        `require('node:fs').writeFileSync(${JSON.stringify(markerPath)}, String(process.pid))`,
         `process.stdout.write('started\\n')`,
-        'setTimeout(() => process.exit(0), 500)',
+        'setInterval(() => {}, 1000)',
       ].join(';')],
       testDir,
       {
         signal: controller.signal,
-        timeout: 750,
         onStdout: (chunk) => {
           streamedOutput += chunk;
+          if (streamedOutput.includes('started\n')) {
+            resolveStarted();
+          }
         },
       }
     );
-    const pid = await waitForProcessId(markerPath);
-    await vi.waitFor(() => expect(streamedOutput).toContain('started'));
+    await started;
 
     controller.abort();
     const error = await commandPromise.catch((caught: unknown) => caught);
 
     expect(error).toMatchObject({ name: 'AbortError', stdout: 'started\n' });
-    await waitForProcessExit(pid);
   });
 
   it('forces a foreground command to exit when it ignores SIGTERM', async () => {
