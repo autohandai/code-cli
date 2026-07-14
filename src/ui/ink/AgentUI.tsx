@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
-import { Box, Static, Text, useInput, useStdout, type Key as InkKey } from 'ink';
+import { Box, Static, Text, useInput, usePaste, useStdout, type Key as InkKey } from 'ink';
 import {
   StatusLine,
   formatLineSegments,
@@ -1604,6 +1604,17 @@ export function AgentUI({
     handleInputRef.current(char, key);
   }, []);
 
+  const handlePaste = useCallback((pastedText: string) => {
+    if (isWorkingRef.current && !enableQueueInputRef.current) {
+      return;
+    }
+    insertPastedText(pastedText);
+  }, [insertPastedText]);
+
+  // Ink owns bracketed-paste framing at the stdin parser boundary. Its paste
+  // channel buffers split protocol markers and keeps pasted bytes out of
+  // useInput, so the composer receives the complete payload exactly once.
+  usePaste(handlePaste);
   useInput(stableHandleInput);
 
   // Memoize tool outputs to prevent unnecessary re-renders

@@ -187,6 +187,30 @@ describe('SlashCommandDropdown utilities', () => {
   });
 
   describe('buildSubcommandSuggestions', () => {
+    const commandsWithRegisteredMultiword: SlashCommand[] = [
+      ...mockSlashCommands,
+      {
+        command: '/handoff session',
+        description: 'Move the current session',
+        implemented: true,
+      },
+    ];
+
+    it('keeps a registered multiword command visible after its first token and space', () => {
+      expect(buildSubcommandSuggestions('/handoff ', commandsWithRegisteredMultiword)).toEqual([
+        { command: '/handoff session', description: 'Move the current session' },
+      ]);
+    });
+
+    it('narrows and retains a registered multiword command through exact input', () => {
+      expect(buildSubcommandSuggestions('/handoff s', commandsWithRegisteredMultiword)).toEqual([
+        { command: '/handoff session', description: 'Move the current session' },
+      ]);
+      expect(buildSubcommandSuggestions('/handoff session', commandsWithRegisteredMultiword)).toEqual([
+        { command: '/handoff session', description: 'Move the current session' },
+      ]);
+    });
+
     it('returns null when input has no space (not in subcommand mode)', () => {
       expect(buildSubcommandSuggestions('/skills', mockSlashCommands)).toBeNull();
     });
