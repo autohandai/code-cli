@@ -220,14 +220,17 @@ describe('executeStreamingShellCommand', () => {
     await waitForProcessExit(pid);
   });
 
-  it('forces a non-PTY foreground command to exit after its grace period', async () => {
+  it('forces an entire non-PTY foreground process group to exit after its grace period', async () => {
     const markerPath = join(tmpdir(), `autohand-shell-force-pid-${Date.now()}`);
     const controller = new AbortController();
-    const startedAt = Date.now();
-    const script = [
-      `require('node:fs').writeFileSync(${JSON.stringify(markerPath)}, String(process.pid))`,
+    const stubbornChildScript = [
       "process.on('SIGTERM', () => {})",
+      `require('node:fs').writeFileSync(${JSON.stringify(markerPath)}, String(process.pid))`,
       'setTimeout(() => process.exit(0), 800)',
+    ].join(';');
+    const script = [
+      `const child = require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(stubbornChildScript)}], { stdio: 'inherit' })`,
+      'child.on(\'exit\', (code) => process.exit(code ?? 0))',
     ].join(';');
     const commandPromise = executeStreamingShellCommand(
       `${process.execPath} -e ${JSON.stringify(script)}`,
@@ -236,11 +239,12 @@ describe('executeStreamingShellCommand', () => {
     );
     const pid = await waitForProcessId(markerPath);
 
+    const abortedAt = Date.now();
     controller.abort();
     const error = await commandPromise.catch((caught: unknown) => caught);
 
     expect(error).toMatchObject({ name: 'AbortError' });
-    expect(Date.now() - startedAt).toBeLessThan(500);
+    expect(Date.now() - abortedAt).toBeLessThan(500);
     await waitForProcessExit(pid);
   });
 
