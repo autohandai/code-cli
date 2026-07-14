@@ -40,12 +40,19 @@ echo "🧹 Removing existing autohand installations..."
 
 POSSIBLE_PATHS=(
     "/usr/local/bin/autohand"
+    "/usr/local/bin/autohand-code"
     "/usr/bin/autohand"
+    "/usr/bin/autohand-code"
     "/opt/homebrew/bin/autohand"
+    "/opt/homebrew/bin/autohand-code"
     "$HOME/.local/bin/autohand"
+    "$HOME/.local/bin/autohand-code"
     "$HOME/bin/autohand"
+    "$HOME/bin/autohand-code"
     "$HOME/.bun/bin/autohand"
+    "$HOME/.bun/bin/autohand-code"
     "$HOME/.autohand/bin/autohand"
+    "$HOME/.autohand/bin/autohand-code"
 )
 
 for path in "${POSSIBLE_PATHS[@]}"; do
@@ -107,14 +114,17 @@ else
     mkdir -p "$HOME/.local/bin"
     INSTALL_PATH="$HOME/.local/bin/autohand"
 fi
+ALIAS_PATH="$(dirname "$INSTALL_PATH")/autohand-code"
 
 echo "📥 Installing to $INSTALL_PATH..."
 if [ -w "$(dirname "$INSTALL_PATH")" ]; then
     cp "binaries/$BINARY" "$INSTALL_PATH"
     chmod +x "$INSTALL_PATH"
+    ln -sfn "$(basename "$INSTALL_PATH")" "$ALIAS_PATH"
 else
     sudo cp "binaries/$BINARY" "$INSTALL_PATH"
     sudo chmod +x "$INSTALL_PATH"
+    sudo ln -sfn "$(basename "$INSTALL_PATH")" "$ALIAS_PATH"
 fi
 
 # Verify installation

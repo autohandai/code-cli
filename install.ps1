@@ -37,6 +37,7 @@ $ErrorActionPreference = "Stop"
 
 $REPO = "autohandai/code-cli"
 $BINARY_NAME = "autohand.exe"
+$COMPAT_BINARY_NAME = "autohand-code.cmd"
 
 function Write-Logo {
     $logo = @"
@@ -195,9 +196,13 @@ function Remove-ExistingInstallation {
     # Common installation locations
     $locations = @(
         "$env:LOCALAPPDATA\autohand\autohand.exe",
+        "$env:LOCALAPPDATA\autohand\autohand-code.cmd",
         "$env:LOCALAPPDATA\Programs\autohand\autohand.exe",
+        "$env:LOCALAPPDATA\Programs\autohand\autohand-code.cmd",
         "$env:ProgramFiles\autohand\autohand.exe",
-        "$env:USERPROFILE\.local\bin\autohand.exe"
+        "$env:ProgramFiles\autohand\autohand-code.cmd",
+        "$env:USERPROFILE\.local\bin\autohand.exe",
+        "$env:USERPROFILE\.local\bin\autohand-code.cmd"
     )
 
     foreach ($loc in $locations) {
@@ -296,6 +301,7 @@ function Install-Autohand {
         New-Item -ItemType Directory -Path $installPath -Force | Out-Null
     }
     $binaryPath = Join-Path $installPath $BINARY_NAME
+    $compatBinaryPath = Join-Path $installPath $COMPAT_BINARY_NAME
     $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("autohand-install-" + [System.Guid]::NewGuid().ToString("N"))
     $archivePath = Join-Path $tempRoot $archiveName
     $checksumPath = "$archivePath.sha256"
@@ -353,7 +359,14 @@ function Install-Autohand {
         }
 
         Copy-Item -Path $extractedAutohand -Destination $binaryPath -Force
+        $compatShim = @(
+            '@echo off',
+            '"%~dp0autohand.exe" %*',
+            'exit /b %ERRORLEVEL%'
+        )
+        [System.IO.File]::WriteAllLines($compatBinaryPath, $compatShim, [System.Text.Encoding]::ASCII)
         Write-Success "Installed to $binaryPath"
+        Write-Success "Installed compatibility alias to $compatBinaryPath"
     }
     finally {
         if (Test-Path $tempRoot) {
