@@ -127,6 +127,31 @@ describe('skillsInstall direct install Skilled catalog fallback', () => {
     );
   });
 
+  it('uses the catalog ID for the install directory while preserving the display name', async () => {
+    const skilledSkill = makeSkill({ name: 'ASP.NET Core' });
+    mocks.cache.getRegistry.mockResolvedValue(makeRegistry([skilledSkill]));
+
+    const result = await skillsInstall(
+      {
+        skillsRegistry: skillsRegistry as unknown as SkillsRegistry,
+        workspaceRoot: '/workspace',
+      },
+      'dotnet-aspnetcore'
+    );
+
+    expect(result).toBe('Skill "ASP.NET Core" installed successfully.');
+    expect(skillsRegistry.isSkillInstalled).toHaveBeenCalledWith(
+      'dotnet-aspnetcore',
+      expect.any(String)
+    );
+    expect(skillsRegistry.importCommunitySkillDirectory).toHaveBeenCalledWith(
+      'dotnet-aspnetcore',
+      expect.any(Map),
+      expect.any(String),
+      false
+    );
+  });
+
   it('validates Skilled detail content before printing install status or importing files', async () => {
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const skilledSkill = makeSkill({
@@ -240,5 +265,29 @@ describe('skillsInstall direct install Skilled catalog fallback', () => {
     expect(logs.some((line) => line.includes('HTTP 500'))).toBe(true);
     expect(logs.some((line) => line.includes('No files were written.'))).toBe(true);
     expect(logs.some((line) => line.includes('Installing validated files'))).toBe(false);
+  });
+
+  it('rejects an unsafe cached file map before checking source content or importing', async () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const skilledSkill = makeSkill({
+      sourceUrl: 'https://github.com/dotnet/skills/tree/main/plugins/dotnet-aspnetcore',
+    });
+    mocks.cache.getRegistry.mockResolvedValue(makeRegistry([skilledSkill]));
+    mocks.cache.getSkillDirectory.mockResolvedValue(new Map([
+      ['SKILL.md', '---\nname: dotnet-aspnetcore\ndescription: Safe\n---\n'],
+      ['../../outside.txt', 'poison'],
+    ]));
+
+    const result = await skillsInstall(
+      {
+        skillsRegistry: skillsRegistry as unknown as SkillsRegistry,
+        workspaceRoot: '/workspace',
+      },
+      'dotnet-aspnetcore'
+    );
+
+    expect(result).toBeNull();
+    expect(skillsRegistry.importCommunitySkillDirectory).not.toHaveBeenCalled();
+    expect(consoleSpy.mock.calls.some((call) => String(call[0]).includes('No files were written.'))).toBe(true);
   });
 });
