@@ -24,14 +24,14 @@ SDK compatibility source: `/Users/igorcosta/Documents/autohand/agentsdk/tin-wrap
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 001 | Enforce one fail-closed tool authorization preflight | P0 | L | - | TODO |
-| 002 | Make tool failures typed and truthful across CLI, RPC, and ACP | P1 | L | 001 | TODO |
-| 003 | Propagate command-mode failure to lifecycle state and process exit | P1 | M | 002 | TODO |
-| 004 | Carry cancellation through RPC, the ReAct loop, tools, and child processes | P1 | L | 002 | TODO |
-| 005 | Validate cloud-sync paths, credentials, URLs, and finalization | P0 | M | - | TODO |
-| 006 | Contain community-skill identifiers and files to trusted roots | P0 | M | - | TODO |
-| 007 | Prevent search walkers from following symlinks outside allowed roots | P1 | S | - | TODO |
-| 008 | Fix built-TUI regressions and make Tuistory a release gate | P1 | M | 001-007 | TODO |
+| 001 | Enforce one fail-closed tool authorization preflight | P0 | L | - | DONE |
+| 002 | Make tool failures typed and truthful across CLI, RPC, and ACP | P1 | L | 001 | DONE |
+| 003 | Propagate command-mode failure to lifecycle state and process exit | P1 | M | 002 | DONE |
+| 004 | Carry cancellation through RPC, the ReAct loop, tools, and child processes | P1 | L | 002 | DONE |
+| 005 | Validate cloud-sync paths, credentials, URLs, and finalization | P0 | M | - | DONE |
+| 006 | Contain community-skill identifiers and files to trusted roots | P0 | M | - | DONE |
+| 007 | Prevent search walkers from following symlinks outside allowed roots | P1 | S | - | DONE |
+| 008 | Fix built-TUI regressions and make Tuistory a release gate | P1 | M | 001-007 | DONE |
 
 Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`, or `REJECTED: <rationale>`.
 
@@ -48,14 +48,14 @@ Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`, or `REJECTED:
 From this repository:
 
 ```sh
-bun test
+bun run test
 bun run lint
 bun run proof
 bun run proof:build-tuistory
 git status --short
 ```
 
-Expected: every command exits 0; Tuistory has no product regression failures; `git status --short` contains only intentional plan/index updates, if any.
+Expected: every command exits 0; Tuistory has no product regression failures; `git status --short` contains only intentional reliability implementation, test, workflow, and plan updates, plus any explicitly excluded concurrent work.
 
 From the TypeScript SDK wrapper:
 
@@ -73,17 +73,38 @@ Expected: all commands exit 0 without changing the SDK's JSON-RPC method names, 
 
 ## Post-plan completion queue
 
-The parent reliability goal does not end after these plan files land. After Plans 001-008 are executed and verified, continue test-first through these audited lower-priority findings:
+The parent reliability goal also included these audited lower-priority findings, completed test-first after Plans 001-008:
 
-1. Remove or explicitly debug-gate unconditional RPC stderr logging, including raw instructions, generated text, thoughts, and stacks. Preserve JSON-RPC stdout framing and useful opt-in diagnostics.
-2. Reproduce and close the first-turn MCP registration race so initialized MCP tools are available before the first model request.
-3. Prove command-mode and RPC sessions close background managers and child resources instead of relying on unconditional `process.exit(0)`.
-4. Make cross-process sync locks, sync state, and session indexes atomic and crash-safe.
-5. Await telemetry flushes during orderly shutdown without delaying abort or fatal exits indefinitely.
-6. Add a Windows compiled-binary `--version`/`--help` smoke step; the release workflow currently skips Windows execution.
-7. Resolve the dependency audit findings with compatibility-preserving upgrades and rerun build, unit, Tuistory, package, RPC/ACP, and SDK gates.
+1. [x] Remove or explicitly debug-gate unconditional RPC stderr logging, including raw instructions, generated text, thoughts, and stacks. Preserve JSON-RPC stdout framing and useful opt-in diagnostics.
+2. [x] Reproduce and close the first-turn MCP registration race so initialized MCP tools are available before the first model request.
+3. [x] Prove command-mode and RPC sessions close background managers and child resources instead of relying on unconditional `process.exit(0)`.
+4. [x] Make cross-process sync locks, sync state, and session indexes atomic and crash-safe.
+5. [x] Await telemetry flushes during orderly shutdown without delaying abort or fatal exits indefinitely.
+6. [x] Add mandatory Windows compiled-binary `--version`/`--help` smoke steps to CI and the release workflow, which previously skipped Windows execution.
+7. [x] Resolve the dependency audit findings with compatibility-preserving upgrades and rerun build, unit, Tuistory, package, RPC/ACP, and SDK gates.
 
-Create focused failing tests before implementing each item. If any item expands a public SDK contract, stop and coordinate a paired SDK change rather than silently breaking the wrapper.
+Each item was implemented from focused failing tests. Any future item that expands a public SDK contract must coordinate a paired SDK change rather than silently breaking the wrapper.
+
+## Completion record (2026-07-14)
+
+Plans 001-008 and all seven post-plan queue items are implemented. The authoritative CLI test command in this Vitest repository is `bun run test`; bare `bun test` selects Bun's native runner, so the command examples in these plans now name the intended runner explicitly. SDK commands remain Bun-native.
+
+Final verification evidence:
+
+- `bun run proof`: 426 test files passed, 1 skipped; 6,783 tests passed, 25 skipped; build passed; all 23 built-CLI Tuistory scenarios passed.
+- `bun install --frozen-lockfile`: completed with no further change to the resolved package state.
+- `bun audit --json`: returned `{}`.
+- `bun pm pack --dry-run` and `npm pack --dry-run`: both passed with 529 packaged files.
+- `actionlint` and `git diff --check`: passed.
+- TypeScript SDK wrapper: focused RPC/API/config suite passed 43/43; `bun run prepublishOnly` passed typecheck, all 62 tests, build, and lint.
+- Ink is `^7.1.0` and React is `^19.2.7`; neither compatibility floor was downgraded.
+
+Portability and trust-boundary limits retained intentionally:
+
+- Cancellation stops cancellable foreground work, associated child resources, and post-abort local output; intentionally detached background jobs remain detached, and a remote service may already have accepted a request before its transport observes the abort.
+- Path validation rejects network-controlled traversal and pre-existing symlink escapes. Portable Node APIs cannot eliminate a same-user check-to-syscall pathname replacement race without directory-handle-relative operations such as `openat`.
+- Atomic persistence treats dispatch of the final OS rename as the logical commit point; an already-dispatched rename cannot be cancelled, and stale tombstone cleanup remains best effort.
+- The Windows compiled-binary smoke is mandatory in CI; it was not executed locally on macOS.
 
 ## Findings deliberately not folded into these plans
 

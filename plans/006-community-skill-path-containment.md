@@ -6,6 +6,7 @@
 
 ## Status
 
+- **Status**: DONE (verified 2026-07-14)
 - **Priority**: P0
 - **Effort**: M
 - **Risk**: HIGH
@@ -17,7 +18,7 @@
 
 Community catalog IDs, names, directories, and file-map keys cross a network-to-filesystem boundary. Registry validation is incomplete, cache methods join and even remove paths built from untrusted IDs, and installation writes map keys below a directory built from an untrusted name. A malicious registry or poisoned legacy cache can escape cache/install roots, overwrite unrelated files, or remove an outside directory during force install.
 
-## Current state
+## Baseline state at planned commit
 
 - `src/skills/GitHubRegistryFetcher.ts:210-256` checks required field types and `SKILL.md` presence but does not fully constrain `id`, `name`, or `directory`.
 - `normalizeRegistryFilePath` at lines 365-371 rejects `.`/`..` segments after trimming slashes, but does not reject backslashes, drives/UNC, NUL, URL query/fragment injection, and raw map keys are retained after fetch.
@@ -41,10 +42,10 @@ Community catalog IDs, names, directories, and file-map keys cross a network-to-
 
 | Purpose | Command | Expected on success |
 |---|---|---|
-| Registry/cache | `bun test tests/skills/GitHubRegistryFetcher.spec.ts tests/skills/CommunitySkillsCache.spec.ts` | exit 0 |
-| Registry/import | `bun test tests/skills/SkillsRegistry.community.spec.ts tests/skills/communityInstaller.test.ts` | exit 0 |
-| Commands | `bun test tests/commands/skills-install.spec.ts tests/commands/skills-install-fallback.spec.ts` | exit 0 |
-| Tool surface | `bun test tests/tools/install-agent-skill.test.ts tests/core/agent.skillTools.spec.ts` | exit 0 |
+| Registry/cache | `bun run test tests/skills/GitHubRegistryFetcher.spec.ts tests/skills/CommunitySkillsCache.spec.ts` | exit 0 |
+| Registry/import | `bun run test tests/skills/SkillsRegistry.community.spec.ts tests/skills/communityInstaller.test.ts` | exit 0 |
+| Commands | `bun run test tests/commands/skills-install.spec.ts tests/commands/skills-install-fallback.spec.ts` | exit 0 |
+| Tool surface | `bun run test tests/tools/install-agent-skill.test.ts tests/core/agent.skillTools.spec.ts` | exit 0 |
 | Typecheck | `bun run typecheck` | exit 0 |
 | Lint | `bun run lint` | exit 0 |
 | Proof | `bun run proof` | exit 0 |
@@ -108,7 +109,7 @@ Create `communitySkillPaths.ts` with:
 
 Keep errors free of secrets and stable enough for tests. The validator must not perform writes or removals.
 
-**Verify**: add direct table tests if needed, then `bun test tests/skills/CommunitySkillsCache.spec.ts tests/skills/GitHubRegistryFetcher.spec.ts` exits 0.
+**Verify**: add direct table tests if needed, then `bun run test tests/skills/CommunitySkillsCache.spec.ts tests/skills/GitHubRegistryFetcher.spec.ts` exits 0.
 
 ### Step 3: Reject unsafe registry entries before fetch/cache
 
@@ -116,7 +117,7 @@ Strengthen `validateRegistry`/`isValidSkill` so unsafe entries are rejected dete
 
 Validate source URL-derived owner/repo/branch/path segments before constructing raw GitHub URLs. Preserve legitimate nested directories.
 
-**Verify**: `bun test tests/skills/GitHubRegistryFetcher.spec.ts` exits 0 and asserts no fetch for unsafe metadata.
+**Verify**: `bun run test tests/skills/GitHubRegistryFetcher.spec.ts` exits 0 and asserts no fetch for unsafe metadata.
 
 ### Step 4: Secure cache reads, removals, and writes
 
@@ -124,7 +125,7 @@ Validate `skillId` before `getSkillBody`, `setSkillBody`, `getSkillDirectory`, a
 
 Ensure cache eviction enumerates only actual direct children and does not follow symlinks outside the skills cache.
 
-**Verify**: `bun test tests/skills/CommunitySkillsCache.spec.ts` exits 0 with outside sentinels intact.
+**Verify**: `bun run test tests/skills/CommunitySkillsCache.spec.ts` exits 0 with outside sentinels intact.
 
 ### Step 5: Secure both import sinks before side effects
 
@@ -132,7 +133,7 @@ In `SkillsRegistry.importCommunitySkill` and `importCommunitySkillDirectory`, va
 
 Keep failure results compatible (`success:false`, readable `error`, and `skipped` only for a valid existing skill).
 
-**Verify**: `bun test tests/skills/SkillsRegistry.community.spec.ts tests/skills/SkillsRegistry.spec.ts` exits 0.
+**Verify**: `bun run test tests/skills/SkillsRegistry.community.spec.ts tests/skills/SkillsRegistry.spec.ts` exits 0.
 
 ### Step 6: Unify interactive and shared installer validation
 
@@ -143,8 +144,8 @@ Preserve displayed name, catalog ID, frontmatter name, scope, hook payloads, and
 **Verify**:
 
 ```sh
-bun test tests/skills/communityInstaller.test.ts tests/commands/skills-install.spec.ts tests/commands/skills-install-fallback.spec.ts
-bun test tests/tools/install-agent-skill.test.ts tests/core/agent.skillTools.spec.ts
+bun run test tests/skills/communityInstaller.test.ts tests/commands/skills-install.spec.ts tests/commands/skills-install-fallback.spec.ts
+bun run test tests/tools/install-agent-skill.test.ts tests/core/agent.skillTools.spec.ts
 ```
 
 All pass.
@@ -154,7 +155,7 @@ All pass.
 **Verify**:
 
 ```sh
-bun test
+bun run test
 bun run lint
 bun run proof
 ```
@@ -173,13 +174,13 @@ Every command exits 0.
 
 ## Done criteria
 
-- [ ] Registry, cache, interactive install, runtime install, and import sinks use one policy.
-- [ ] No untrusted ID/name/file key can escape cache or install roots.
-- [ ] No validation happens after remove/write/side-effect callbacks.
-- [ ] Poisoned cached data is revalidated and cannot install.
-- [ ] Valid nested skill assets still work.
-- [ ] No collision-prone sanitization was added.
-- [ ] Focused and full tests, lint, and proof pass; index updated.
+- [x] Registry, cache, interactive install, runtime install, and import sinks use one policy.
+- [x] No untrusted ID/name/file key or pre-existing symlink can escape cache or install roots; the same-user concurrent replacement limit is recorded in `plans/README.md`.
+- [x] No validation happens after remove/write/side-effect callbacks.
+- [x] Poisoned cached data is revalidated and cannot install.
+- [x] Valid nested skill assets still work.
+- [x] No collision-prone sanitization was added.
+- [x] Focused and full tests, lint, and proof pass; index updated.
 
 ## STOP conditions
 

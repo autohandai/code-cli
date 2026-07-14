@@ -6,6 +6,7 @@
 
 ## Status
 
+- **Status**: DONE (verified 2026-07-14)
 - **Priority**: P1
 - **Effort**: M
 - **Risk**: MED
@@ -17,7 +18,7 @@
 
 `InstructionRunner` already reports failure, but command-mode orchestration discards it, announces task completion, may auto-commit, records completed telemetry, and exits zero. Shell scripts, CI jobs, users, and patch mode therefore cannot distinguish a completed turn from an aborted or failed one. The existing boolean should be propagated without changing RPC mode, ACP, or the SDK child process contract.
 
-## Current state
+## Baseline state at planned commit
 
 - `src/core/agent/InstructionRunner.ts` returns `Promise<boolean>` and `false` for abort/unrecovered errors. `tests/core/agent/InstructionRunner.command-mode.test.ts:169-185` already proves a provider failure returns false.
 - `src/core/agent/AgentLifecycleRunner.ts:364-420` ignores that value:
@@ -43,8 +44,8 @@
 
 | Purpose | Command | Expected on success |
 |---|---|---|
-| Runner | `bun test tests/core/agent/InstructionRunner.command-mode.test.ts tests/core/agent/AgentLifecycleRunner.command-mode.test.ts` | exit 0 |
-| Entry behavior | `bun test tests/index.pipeHandoffOrder.spec.ts tests/core/agent.exit-handling.spec.ts` | exit 0 |
+| Runner | `bun run test tests/core/agent/InstructionRunner.command-mode.test.ts tests/core/agent/AgentLifecycleRunner.command-mode.test.ts` | exit 0 |
+| Entry behavior | `bun run test tests/index.pipeHandoffOrder.spec.ts tests/core/agent.exit-handling.spec.ts` | exit 0 |
 | Built CLI | `bun run build && bun run test:tuistory` | exit 0, failure exit regression passes |
 | Lint | `bun run lint` | exit 0 |
 | Proof | `bun run proof` | exit 0 |
@@ -92,7 +93,7 @@ Create a focused host fixture for `runAgentCommandMode`. For a `runInstruction` 
 
 For true, assert current success behavior remains: notification, optional auto-commit, `session-end: exit`, and completed telemetry.
 
-**Verify**: `bun test tests/core/agent/AgentLifecycleRunner.command-mode.test.ts` fails only on the new false-path expectations.
+**Verify**: `bun run test tests/core/agent/AgentLifecycleRunner.command-mode.test.ts` fails only on the new false-path expectations.
 
 ### Step 2: Propagate the boolean through the public CLI surface
 
@@ -100,7 +101,7 @@ Change `runAgentCommandMode` and `AutohandAgent.runCommandMode` to `Promise<bool
 
 Do not infer command failure from terminal text. Use the existing boolean produced by `InstructionRunner` after Plan 002's truthful outcomes.
 
-**Verify**: `bun test tests/core/agent/InstructionRunner.command-mode.test.ts tests/core/agent/AgentLifecycleRunner.command-mode.test.ts` exits 0.
+**Verify**: `bun run test tests/core/agent/InstructionRunner.command-mode.test.ts tests/core/agent/AgentLifecycleRunner.command-mode.test.ts` exits 0.
 
 ### Step 3: Make prompt and patch entrypoints exit truthfully
 
@@ -127,8 +128,8 @@ Run RPC/ACP tests to prove the child remains alive after turn failures, then ful
 **Verify**:
 
 ```sh
-bun test tests/modes/rpc/handlers.spec.ts tests/modes/acp/adapter.test.ts
-bun test
+bun run test tests/modes/rpc/handlers.spec.ts tests/modes/acp/adapter.test.ts
+bun run test
 bun run lint
 bun run proof
 ```
@@ -144,13 +145,13 @@ All commands exit 0.
 
 ## Done criteria
 
-- [ ] `runInstruction(false)` reaches `runCommandMode(false)` and exit 1.
-- [ ] Failed/aborted command turns do not notify completion or auto-commit.
-- [ ] Stop/session-end hooks and telemetry describe the real outcome with existing vocabulary.
-- [ ] Patch mode never publishes partial output after a failed turn.
-- [ ] RPC/ACP remain long-lived and wire-compatible.
-- [ ] Built Tuistory proves both exit statuses.
-- [ ] Tests, lint, and proof pass; index updated.
+- [x] `runInstruction(false)` reaches `runCommandMode(false)` and exit 1.
+- [x] Failed/aborted command turns do not notify completion or auto-commit.
+- [x] Stop/session-end hooks and telemetry describe the real outcome with existing vocabulary.
+- [x] Patch mode never publishes partial output after a failed turn.
+- [x] RPC/ACP remain long-lived and wire-compatible.
+- [x] Built Tuistory proves both exit statuses.
+- [x] Tests, lint, and proof pass; index updated.
 
 ## STOP conditions
 

@@ -6,6 +6,7 @@
 
 ## Status
 
+- **Status**: DONE (verified 2026-07-14)
 - **Priority**: P1
 - **Effort**: S
 - **Risk**: MED
@@ -17,7 +18,7 @@
 
 Direct file paths are realpath-checked against the workspace and additional roots, but the in-process semantic and fallback search walkers use `statSync`, which follows symlinks. A symlink inside the workspace can therefore make search read arbitrary outside text; cycles can also cause repeated traversal. Search must reuse the allowed-root trust boundary while still supporting contained symlinks and configured additional directories.
 
-## Current state
+## Baseline state at planned commit
 
 - `src/actions/filesystem.ts:537-593` resolves a direct target through the nearest existing ancestor and checks its real path against workspace plus additional roots.
 - `semanticSearch` at lines 440-517 pushes lexical paths, calls `fs.statSync`, follows directory/file symlinks, and reads matching text.
@@ -38,9 +39,9 @@ Direct file paths are realpath-checked against the workspace and additional root
 
 | Purpose | Command | Expected on success |
 |---|---|---|
-| New regression | `bun test tests/security/filesystemSearchSymlinks.spec.ts` | exit 0 |
-| Existing security | `bun test tests/security/resourceLimits.spec.ts` | exit 0 |
-| Search regression | `bun test tests/searchReplace.spec.ts tests/actionExecutor.spec.ts` | exit 0 |
+| New regression | `bun run test tests/security/filesystemSearchSymlinks.spec.ts` | exit 0 |
+| Existing security | `bun run test tests/security/resourceLimits.spec.ts` | exit 0 |
+| Search regression | `bun run test tests/searchReplace.spec.ts tests/actionExecutor.spec.ts` | exit 0 |
 | Typecheck | `bun run typecheck` | exit 0 |
 | Lint | `bun run lint` | exit 0 |
 | Proof | `bun run proof` | exit 0 |
@@ -85,7 +86,7 @@ Add:
 
 On Windows, skip only individual symlink creation cases when the OS returns a known privilege error; do not skip the entire file preemptively.
 
-**Verify**: `bun test tests/security/filesystemSearchSymlinks.spec.ts` fails on the outside/cycle cases before implementation.
+**Verify**: `bun run test tests/security/filesystemSearchSymlinks.spec.ts` fails on the outside/cycle cases before implementation.
 
 ### Step 2: Extract one safe traversal admission helper
 
@@ -101,15 +102,15 @@ Replace raw `statSync` recursion in both walkers. Deduplicate by real path while
 
 Do not add `-L` to the ripgrep path. Primary ripgrep and fallback should both remain non-escaping.
 
-**Verify**: `bun test tests/security/filesystemSearchSymlinks.spec.ts tests/security/resourceLimits.spec.ts` exits 0.
+**Verify**: `bun run test tests/security/filesystemSearchSymlinks.spec.ts tests/security/resourceLimits.spec.ts` exits 0.
 
 ### Step 4: Run search and full gates
 
 **Verify**:
 
 ```sh
-bun test tests/searchReplace.spec.ts tests/actionExecutor.spec.ts
-bun test
+bun run test tests/searchReplace.spec.ts tests/actionExecutor.spec.ts
+bun run test
 bun run lint
 bun run proof
 ```
@@ -126,12 +127,12 @@ Every command exits 0.
 
 ## Done criteria
 
-- [ ] Neither in-process walker reads outside configured roots.
-- [ ] Cycles terminate with a visited-realpath set.
-- [ ] Contained/additional-root symlinks still work once.
-- [ ] Result paths never expose an escaping relative path.
-- [ ] Existing ignore/binary/size/result limits remain.
-- [ ] Focused/full tests, lint, and proof pass; index updated.
+- [x] Neither in-process walker follows a pre-existing path outside configured roots; the same-user concurrent replacement limit is recorded in `plans/README.md`.
+- [x] Cycles terminate with a visited-realpath set.
+- [x] Contained/additional-root symlinks still work once.
+- [x] Result paths never expose an escaping relative path.
+- [x] Existing ignore/binary/size/result limits remain.
+- [x] Focused/full tests, lint, and proof pass; index updated.
 
 ## STOP conditions
 

@@ -6,6 +6,7 @@
 
 ## Status
 
+- **Status**: DONE (verified 2026-07-14)
 - **Priority**: P1
 - **Effort**: L
 - **Risk**: HIGH
@@ -17,7 +18,7 @@
 
 RPC abort currently cancels only an adapter-local controller, marks the session idle immediately, and emits terminal notifications while the agent and its tools may keep running. The stale turn can later emit a second terminal sequence or mutate files after cancellation, while a new prompt is accepted concurrently. Cancellation must have one owner, propagate through every foreground operation, quiesce before idle, and remain compatible with the SDK's `autohand.abort` result and ACP's `cancelled` stop reason.
 
-## Current state
+## Baseline state at planned commit
 
 - `src/core/agent/InstructionRunner.ts:232-285` owns an instruction `AbortController`; cancellation returns false when its signal is aborted.
 - `src/core/agent/ReactLoopRunner.ts:408-417` passes the signal to the LLM, but `toolManager.execute` at lines 724-731 receives no signal.
@@ -41,10 +42,10 @@ RPC abort currently cancels only an adapter-local controller, marks the session 
 
 | Purpose | Command | Expected on success |
 |---|---|---|
-| RPC/ACP | `bun test tests/modes/rpc/handlers.spec.ts tests/modes/rpc/protocol.spec.ts tests/modes/acp/adapter.test.ts` | exit 0 |
-| Instruction/loop | `bun test tests/core/agent/InstructionRunner.command-mode.test.ts tests/core/agent/ToolLoopSignature.test.ts` | exit 0 |
-| Scheduling | `bun test tests/toolManager.spec.ts` | exit 0 |
-| Children/hooks | `bun test tests/command.spec.ts tests/ui/shellCommand.test.ts tests/hookManager.spec.ts` | exit 0 |
+| RPC/ACP | `bun run test tests/modes/rpc/handlers.spec.ts tests/modes/rpc/protocol.spec.ts tests/modes/acp/adapter.test.ts` | exit 0 |
+| Instruction/loop | `bun run test tests/core/agent/InstructionRunner.command-mode.test.ts tests/core/agent/ToolLoopSignature.test.ts` | exit 0 |
+| Scheduling | `bun run test tests/toolManager.spec.ts` | exit 0 |
+| Children/hooks | `bun run test tests/command.spec.ts tests/ui/shellCommand.test.ts tests/hookManager.spec.ts` | exit 0 |
 | Network/MCP | Run the existing focused suites containing `McpClientManager` and web action tests found by `rg -l "McpClientManager|fetch_url" tests` | exit 0 |
 | Lint | `bun run lint` | exit 0 |
 | Proof | `bun run proof` | exit 0 |
@@ -107,7 +108,7 @@ Add a slow fake `agent.runInstruction` in `tests/modes/rpc/handlers.spec.ts`. St
 
 Do not weaken the test by filtering duplicate events after the fact.
 
-**Verify**: `bun test tests/modes/rpc/handlers.spec.ts` fails only on the new race assertions.
+**Verify**: `bun run test tests/modes/rpc/handlers.spec.ts` fails only on the new race assertions.
 
 ### Step 2: Link external and instruction signals
 
@@ -115,7 +116,7 @@ Add an optional `{signal?: AbortSignal}` argument to `runInstruction`/`Instructi
 
 Pass the RPC active-prompt signal and ACP session signal. Keep ACP's call to `cancelCurrentInstruction()` and `stopReason:'cancelled'`.
 
-**Verify**: add tests for already-aborted, in-flight abort, and listener cleanup; then run `bun test tests/core/agent/InstructionRunner.command-mode.test.ts tests/modes/acp/adapter.test.ts`.
+**Verify**: add tests for already-aborted, in-flight abort, and listener cleanup; then run `bun run test tests/core/agent/InstructionRunner.command-mode.test.ts tests/modes/acp/adapter.test.ts`.
 
 ### Step 3: Give ToolManager cancellation-aware scheduling
 
@@ -131,7 +132,7 @@ Not-yet-started calls return Plan 002's typed `aborted` failure and invoke compl
 
 Pass the signal from `ReactLoopRunner`. When abort is detected after/between tools, return from the loop; never enter the max-iteration summary call.
 
-**Verify**: `bun test tests/toolManager.spec.ts tests/core/agent/ToolLoopSignature.test.ts` exits 0 with new pre-abort/mid-batch tests.
+**Verify**: `bun run test tests/toolManager.spec.ts tests/core/agent/ToolLoopSignature.test.ts` exits 0 with new pre-abort/mid-batch tests.
 
 ### Step 4: Abort foreground commands and PTYs
 
@@ -145,7 +146,7 @@ Add `signal?: AbortSignal` to `RunCommandOptions` and streaming shell options. F
 
 For PTY, call the supported kill method and dispose data/exit handlers. For `background:true`, document and test that a spawned detached child is not killed, while an already-aborted signal prevents spawning.
 
-**Verify**: `bun test tests/command.spec.ts tests/ui/shellCommand.test.ts tests/actionExecutor.spec.ts` exits 0; tests prove a slow foreground child is no longer alive after abort.
+**Verify**: `bun run test tests/command.spec.ts tests/ui/shellCommand.test.ts tests/actionExecutor.spec.ts` exits 0; tests prove a slow foreground child is no longer alive after abort.
 
 ### Step 5: Propagate through hooks, web, and MCP
 
@@ -163,15 +164,15 @@ Refactor the adapter's active prompt state so `handleAbort` requests cancellatio
 
 Keep immediate prompt acknowledgement. Keep status truthful until all foreground work settles.
 
-**Verify**: `bun test tests/modes/rpc/handlers.spec.ts tests/modes/rpc/protocol.spec.ts tests/modes/rpc/types.spec.ts` exits 0.
+**Verify**: `bun run test tests/modes/rpc/handlers.spec.ts tests/modes/rpc/protocol.spec.ts tests/modes/rpc/types.spec.ts` exits 0.
 
 ### Step 7: Run ACP, SDK, and full gates
 
 **Verify**:
 
 ```sh
-bun test tests/modes/acp/adapter.test.ts tests/modes/acp/permissions.test.ts
-bun test
+bun run test tests/modes/acp/adapter.test.ts tests/modes/acp/permissions.test.ts
+bun run test
 bun run lint
 bun run proof
 cd /Users/igorcosta/Documents/autohand/agentsdk/tin-wrapper/typescript
@@ -194,15 +195,15 @@ All commands exit 0.
 
 ## Done criteria
 
-- [ ] RPC abort reaches the instruction's active controller.
-- [ ] State remains non-idle and new prompts remain busy until quiescence.
-- [ ] Exactly one message/turn terminal sequence is emitted.
-- [ ] No additional model summary call occurs after abort.
-- [ ] Not-yet-started tools are typed aborted; foreground commands/hooks/web/MCP stop.
-- [ ] Detached background semantics are explicit and tested.
-- [ ] ACP and SDK abort contracts remain unchanged.
-- [ ] Signal listeners/timers are disposed.
-- [ ] Tests, lint, proof, and SDK gates pass; index updated.
+- [x] RPC abort reaches the instruction's active controller.
+- [x] State remains non-idle and new prompts remain busy until quiescence.
+- [x] Exactly one message/turn terminal sequence is emitted.
+- [x] No additional model summary call occurs after abort.
+- [x] Not-yet-started tools are typed aborted; foreground commands/hooks/web/MCP stop.
+- [x] Detached background semantics are explicit and tested.
+- [x] ACP and SDK abort contracts remain unchanged.
+- [x] Signal listeners/timers are disposed.
+- [x] Tests, lint, proof, and SDK gates pass; index updated.
 
 ## STOP conditions
 
@@ -221,4 +222,4 @@ Stop and report if:
 
 - Every new foreground tool must accept the instruction signal; detached/background behavior must be explicit.
 - Reviewers should inspect race ownership and cleanup more than error wording.
-- Shutdown/session-resource leaks remain in the post-plan completion queue; this plan covers active-turn cancellation.
+- Shutdown/session-resource ownership was tracked separately and completed in the integrated post-plan delivery; this plan's slice covers active-turn cancellation.
