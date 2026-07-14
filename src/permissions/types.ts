@@ -58,6 +58,71 @@ export interface PermissionDecision {
   cached?: boolean;
 }
 
+export type PermissionPolicyDisposition = 'allow' | 'prompt' | 'deny';
+
+const ALLOW_REASONS = new Set<PermissionDecision['reason']>([
+  'allow_list',
+  'rule_match',
+  'user_approved',
+  'mode_unrestricted',
+  'external_approved',
+  'pattern_allowed',
+  'all_paths_allowed',
+  'all_urls_allowed',
+  'session_allow_list',
+  'project_allow_list',
+  'user_allow_list',
+]);
+
+const DENY_REASONS = new Set<PermissionDecision['reason']>([
+  'deny_list',
+  'blacklisted',
+  'user_denied',
+  'mode_restricted',
+  'external_denied',
+  'external_error',
+  'pattern_denied',
+  'not_in_available',
+  'excluded',
+  'session_deny_list',
+  'project_deny_list',
+  'user_deny_list',
+]);
+
+/**
+ * Convert a permission-manager result into an execution disposition.
+ * Unknown, contradictory, or malformed results are denied so an authorization
+ * integration failure cannot silently turn into approval.
+ */
+export function getPermissionPolicyDisposition(decision: unknown): PermissionPolicyDisposition {
+  if (!decision || typeof decision !== 'object') {
+    return 'deny';
+  }
+
+  const candidate = decision as { allowed?: unknown; reason?: unknown };
+  if (typeof candidate.allowed !== 'boolean' || typeof candidate.reason !== 'string') {
+    return 'deny';
+  }
+
+  if (DENY_REASONS.has(candidate.reason as PermissionDecision['reason'])) {
+    return 'deny';
+  }
+
+  if (candidate.reason === 'default') {
+    return candidate.allowed ? 'deny' : 'prompt';
+  }
+
+  if (candidate.reason === 'rule_match') {
+    return candidate.allowed ? 'allow' : 'deny';
+  }
+
+  if (ALLOW_REASONS.has(candidate.reason as PermissionDecision['reason'])) {
+    return candidate.allowed ? 'allow' : 'deny';
+  }
+
+  return 'deny';
+}
+
 export interface PermissionContext {
   tool: string;
   command?: string;
@@ -123,6 +188,18 @@ export interface PermissionPromptResult {
 
 export type PermissionPromptResponse = boolean | PermissionPromptResult;
 
+const PERMISSION_PROMPT_DECISIONS = new Set<PermissionPromptDecision>([
+  'allow_once',
+  'deny_once',
+  'allow_session',
+  'deny_session',
+  'allow_always_project',
+  'allow_always_user',
+  'deny_always_project',
+  'deny_always_user',
+  'alternative',
+]);
+
 export interface PermissionScopeSnapshot {
   path: string;
   allowList: string[];
@@ -147,7 +224,26 @@ export function normalizePermissionPromptResponse(
   if (!response) {
     return { decision: 'deny_once' };
   }
+  if (!isPermissionPromptResult(response)) {
+    return { decision: 'deny_once' };
+  }
   return response;
+}
+
+export function isPermissionPromptResult(value: unknown): value is PermissionPromptResult {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as { decision?: unknown; alternative?: unknown };
+  if (typeof candidate.decision !== 'string'
+    || !PERMISSION_PROMPT_DECISIONS.has(candidate.decision as PermissionPromptDecision)) {
+    return false;
+  }
+  if (candidate.alternative !== undefined && typeof candidate.alternative !== 'string') {
+    return false;
+  }
+  return candidate.decision !== 'alternative'
+    || (typeof candidate.alternative === 'string' && candidate.alternative.length > 0);
 }
 
 export function isAllowedPermissionPrompt(result: PermissionPromptResult): boolean {

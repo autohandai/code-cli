@@ -22,7 +22,8 @@ describe('AutohandAgent skill and sleep tools', () => {
     };
 
     const result = agent.handleSkillTool({ command: 'list' });
-    const parsed = JSON.parse(result);
+    expect(result.success).toBe(true);
+    const parsed = JSON.parse(result.output);
 
     expect(parsed).toEqual([
       {
@@ -58,7 +59,10 @@ describe('AutohandAgent skill and sleep tools', () => {
     const result = agent.handleSkillTool({ command: 'activate', name: 'reviewer' });
 
     expect(agent.skillsRegistry.activateSkill).toHaveBeenCalledWith('reviewer');
-    expect(result).toContain('Activated skill: reviewer');
+    expect(result).toEqual({
+      success: true,
+      output: 'Activated skill: reviewer\nReview code',
+    });
   });
 
   it('sleeps for the requested duration and returns a summary', async () => {

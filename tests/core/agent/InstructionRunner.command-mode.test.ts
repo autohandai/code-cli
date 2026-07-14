@@ -113,6 +113,58 @@ describe('InstructionRunner command mode UI', () => {
     }
   });
 
+  it('returns before starting work when the external signal is already aborted', async () => {
+    const host = createHost();
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(new InstructionRunner(host).run('do not start', {
+      signal: controller.signal,
+    })).resolves.toBe(false);
+
+    expect(host.initializeUI).not.toHaveBeenCalled();
+    expect(host.runReactLoop).not.toHaveBeenCalled();
+    expect(host.isInstructionActive).toBe(false);
+  });
+
+  it('links an in-flight external abort and removes its listener after settlement', async () => {
+    const host = createHost();
+    const controller = new AbortController();
+    const addListener = vi.spyOn(controller.signal, 'addEventListener');
+    const removeListener = vi.spyOn(controller.signal, 'removeEventListener');
+    let instructionSignal: AbortSignal | undefined;
+    host.runReactLoop = vi.fn(async (internalController) => {
+      instructionSignal = internalController.signal;
+      await new Promise<void>((resolve) => {
+        internalController.signal.addEventListener('abort', () => resolve(), { once: true });
+      });
+    });
+
+    const run = new InstructionRunner(host).run('cancel this turn', {
+      signal: controller.signal,
+    });
+    await vi.waitFor(() => expect(host.runReactLoop).toHaveBeenCalledOnce());
+
+    controller.abort();
+
+    await expect(run).resolves.toBe(false);
+    expect(instructionSignal?.aborted).toBe(true);
+    expect(addListener).toHaveBeenCalledWith('abort', expect.any(Function), { once: true });
+    expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function));
+  });
+
+  it('removes the external abort listener after a normal turn', async () => {
+    const host = createHost();
+    const controller = new AbortController();
+    const removeListener = vi.spyOn(controller.signal, 'removeEventListener');
+
+    await expect(new InstructionRunner(host).run('finish normally', {
+      signal: controller.signal,
+    })).resolves.toBe(true);
+
+    expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function));
+  });
+
   it('does not activate the persistent queue composer for --prompt turns', async () => {
     restoreFns.push(overrideStreamTTY(process.stdout, true));
     restoreFns.push(overrideStreamTTY(process.stdin, true));
@@ -232,6 +284,41 @@ describe('InstructionRunner command mode UI', () => {
       expect(host.sessionRetryCount).toBe(0);
       expect(host.stopUI).not.toHaveBeenCalledWith(true, 'Session failed');
       expect(host.printCompletionSummary).toHaveBeenCalledWith(false, true);
+    } finally {
+      consoleLogSpy.mockRestore();
+    }
+  });
+
+  it('stops retry recovery when the instruction is aborted during backoff', async () => {
+    const host = createHost();
+    const controller = new AbortController();
+    host.runtime = {
+      ...host.runtime,
+      config: {
+        ...host.runtime.config,
+        agent: {
+          enableRequestQueue: true,
+          sessionRetryLimit: 3,
+          sessionRetryDelay: 1,
+        },
+      },
+    };
+    host.isRetryableSessionError = vi.fn(() => true);
+    host.runReactLoop = vi.fn().mockRejectedValueOnce(new Error('provider timeout'));
+    host.sleep = vi.fn(async () => {
+      controller.abort();
+    });
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    try {
+      const result = await new InstructionRunner(host).run('cancel recovery', {
+        signal: controller.signal,
+      });
+
+      expect(result).toBe(false);
+      expect(host.runReactLoop).toHaveBeenCalledTimes(1);
+      expect(host.injectContinuationMessage).not.toHaveBeenCalled();
+      expect(host.stopUI).not.toHaveBeenCalledWith(true, 'Session failed');
     } finally {
       consoleLogSpy.mockRestore();
     }

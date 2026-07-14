@@ -415,6 +415,11 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
           maxTokens: 16000,  // Allow large outputs for file generation
           thinkingLevel,
         });
+        if (abortController.signal.aborted) {
+          host.stopStatusUpdates();
+          host.runtime.spinner?.stop();
+          return;
+        }
         if (debugMode) host.writeDebugLine(`[AGENT DEBUG] LLM returned: content length=${completion.content?.length ?? 0}, toolCalls=${completion.toolCalls?.length ?? 0}`);
       } catch (llmError) {
         const errMsg = llmError instanceof Error ? llmError.message : String(llmError);
@@ -728,7 +733,13 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
               host.setSpinnerStatus(`Running tools (${completedCount}/${totalTools})...`);
             }
             renderToolResult(result, otherCalls[index], completedCount === 1 ? thought : undefined);
-          });
+          }, { signal: abortController.signal });
+
+          if (abortController.signal.aborted) {
+            host.stopStatusUpdates();
+            host.runtime.spinner?.stop();
+            return;
+          }
 
           if (!host.inkRenderer && displayToolOutput) {
             // Ora mode: batch output
@@ -927,6 +938,11 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
         thought: payload.thought,
         usedThoughtAsResponse: turnOutcome.usedThoughtAsResponse,
       });
+      return;
+    }
+    if (abortController.signal.aborted) {
+      host.stopStatusUpdates();
+      host.runtime.spinner?.stop();
       return;
     }
     host.stopStatusUpdates();

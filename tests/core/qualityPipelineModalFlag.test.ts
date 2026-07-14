@@ -42,7 +42,10 @@ describe('Quality Pipeline modalActive flag', () => {
     expect(agentSource).toContain('private instructionRunner!: InstructionRunner');
     expect(agentSource).toContain('this.instructionRunner = new InstructionRunner');
     expect(agentSource).toContain('this.instructionRunner ??= new InstructionRunner');
-    expect(agentSource).toContain('return this.instructionRunner.run(instruction)');
+    expect(agentSource).toContain(
+      'async runInstruction(instruction: string, options?: RunInstructionOptions): Promise<boolean>'
+    );
+    expect(agentSource).toContain('return this.instructionRunner.run(instruction, options)');
   });
 
   it('should set modalActive=true before quality pipeline runs', async () => {

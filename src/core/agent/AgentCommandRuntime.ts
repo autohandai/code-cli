@@ -7,7 +7,7 @@ import chalk from 'chalk';
 import fs from 'fs-extra';
 import path from 'node:path';
 import { getContextWindow } from '../context/tokenizer.js';
-import type { AgentAction } from '../../types.js';
+import type { AgentAction, ToolActionOutcome } from '../../types.js';
 import type { McpServerConfig } from '../../mcp/types.js';
 import { GitIgnoreParser } from '../../utils/gitIgnore.js';
 import { prepareSessionWorktree } from '../../utils/sessionWorktree.js';
@@ -382,17 +382,22 @@ export async function handleAgentPlanCreated(host: AgentCommandRuntimeHost, plan
     return `Plan saved to ${filePath} (${plan.steps.length} step(s)).\n\nCall \`exit_plan_mode\` when you are ready to present host plan to the user for approval.`;
   }
 
-export async function handleAgentExitPlanMode(host: AgentCommandRuntimeHost, _summary?: string): Promise<string> {
+export async function handleAgentExitPlanMode(
+  host: AgentCommandRuntimeHost,
+  _summary?: string,
+): Promise<ToolActionOutcome> {
     const planManager = getPlanModeManager();
 
     // Guard: must be in plan mode
     if (!planManager.isEnabled()) {
-      return 'Error: Plan mode is not active. You can only call `exit_plan_mode` when plan mode is enabled.';
+      const error = 'Plan mode is not active. You can only call `exit_plan_mode` when plan mode is enabled.';
+      return { success: false, kind: 'validation', error };
     }
 
     const plan = planManager.getPlan();
     if (!plan) {
-      return 'Error: No plan has been created yet. Call the `plan` tool first to create a plan before calling `exit_plan_mode`.';
+      const error = 'No plan has been created yet. Call the `plan` tool first to create a plan before calling `exit_plan_mode`.';
+      return { success: false, kind: 'validation', error };
     }
 
     // Non-interactive mode: auto-accept with default option
@@ -402,7 +407,10 @@ export async function handleAgentExitPlanMode(host: AgentCommandRuntimeHost, _su
       host.conversation.addSystemNote(
         `Plan accepted with option: ${config.option}. You may now proceed to execution.`
       );
-      return `Plan accepted with option: ${config.option}. Starting execution...`;
+      return {
+        success: true,
+        output: `Plan accepted with option: ${config.option}. Starting execution...`,
+      };
     }
 
     // Get acceptance options from PlanModeManager
@@ -427,7 +435,10 @@ export async function handleAgentExitPlanMode(host: AgentCommandRuntimeHost, _su
           'Do NOT call the `plan` tool again automatically. ' +
           'Instead, ask the user what changes they would like, or provide your response summarizing the current plan.'
         );
-        return 'Plan not accepted. Staying in planning mode for revisions.';
+        return {
+          success: true,
+          output: 'Plan not accepted. Staying in planning mode for revisions.',
+        } satisfies ToolActionOutcome;
       }
 
       if (result.type === 'custom' && result.customText) {
@@ -437,7 +448,10 @@ export async function handleAgentExitPlanMode(host: AgentCommandRuntimeHost, _su
           'Do NOT call the `plan` tool again automatically. ' +
           'Revise the plan based on the user feedback and present the updated plan.'
         );
-        return `User feedback on plan: ${result.customText}. Please revise the plan accordingly.`;
+        return {
+          success: true,
+          output: `User feedback on plan: ${result.customText}. Please revise the plan accordingly.`,
+        } satisfies ToolActionOutcome;
       }
 
       if (result.type === 'option' && result.optionId) {
@@ -459,7 +473,10 @@ export async function handleAgentExitPlanMode(host: AgentCommandRuntimeHost, _su
           host.conversation.addSystemNote(
             `Plan accepted with option: ${config.option}. You may now proceed to execution.`
           );
-          return `Plan accepted with option: ${config.option}. Ready for execution.\n\nSteps:\n${plan.steps.map(s => `${s.number}. ${s.description}`).join('\n')}`;
+          return {
+            success: true,
+            output: `Plan accepted with option: ${config.option}. Ready for execution.\n\nSteps:\n${plan.steps.map(s => `${s.number}. ${s.description}`).join('\n')}`,
+          } satisfies ToolActionOutcome;
         }
       }
 
@@ -470,7 +487,10 @@ export async function handleAgentExitPlanMode(host: AgentCommandRuntimeHost, _su
         'Plan accepted with option: manual_approve. You may now proceed to execution.'
       );
 
-      return `Plan accepted. Starting execution with manual edit approval.\n\nSteps:\n${plan.steps.map(s => `${s.number}. ${s.description}`).join('\n')}`;
+      return {
+        success: true,
+        output: `Plan accepted. Starting execution with manual edit approval.\n\nSteps:\n${plan.steps.map(s => `${s.number}. ${s.description}`).join('\n')}`,
+      } satisfies ToolActionOutcome;
     });
   }
 
@@ -561,7 +581,10 @@ export async function enterAgentSessionWorktree(host: AgentCommandRuntimeHost, n
     ].join('\n');
   }
 
-export function handleAgentSkillTool(host: AgentCommandRuntimeHost, action: Extract<AgentAction, { type: 'skill' }>): string {
+export function handleAgentSkillTool(
+  host: AgentCommandRuntimeHost,
+  action: Extract<AgentAction, { type: 'skill' }>,
+): ToolActionOutcome {
     if (action.command === 'list') {
       const skills = host.skillsRegistry.listSkills().map((skill: SkillSummary) => ({
         name: skill.name,
@@ -569,7 +592,7 @@ export function handleAgentSkillTool(host: AgentCommandRuntimeHost, action: Extr
         source: skill.source,
         active: skill.isActive,
       }));
-      return JSON.stringify(skills, null, 2);
+      return { success: true, output: JSON.stringify(skills, null, 2) };
     }
 
     if (!action.name?.trim()) {
@@ -585,38 +608,50 @@ export function handleAgentSkillTool(host: AgentCommandRuntimeHost, action: Extr
       const suggestion = similar.length > 0
         ? `\nDid you mean: ${similar.join(', ')}`
         : '';
-      return `Skill "${name}" not found.${suggestion}`;
+      const error = `Skill "${name}" not found.${suggestion}`;
+      return { success: false, kind: 'validation', error };
     }
 
     if (action.command === 'info') {
-      return JSON.stringify({
-        name: skill.name,
-        description: skill.description,
-        source: skill.source,
-        path: skill.path,
-        active: skill.isActive,
-        allowedTools: skill['allowed-tools'] ?? null,
-      }, null, 2);
+      return {
+        success: true,
+        output: JSON.stringify({
+          name: skill.name,
+          description: skill.description,
+          source: skill.source,
+          path: skill.path,
+          active: skill.isActive,
+          allowedTools: skill['allowed-tools'] ?? null,
+        }, null, 2),
+      };
     }
 
     if (action.command === 'activate') {
       if (skill.isActive) {
-        return `Skill "${name}" is already active.`;
+        return { success: true, output: `Skill "${name}" is already active.` };
       }
       const success = host.skillsRegistry.activateSkill(name);
       return success
-        ? `Activated skill: ${name}\n${skill.description}`
-        : `Failed to activate skill: ${name}`;
+        ? { success: true, output: `Activated skill: ${name}\n${skill.description}` }
+        : {
+            success: false,
+            kind: 'operational',
+            error: `Failed to activate skill: ${name}`,
+          };
     }
 
     if (action.command === 'deactivate') {
       if (!skill.isActive) {
-        return `Skill "${name}" is not active.`;
+        return { success: true, output: `Skill "${name}" is not active.` };
       }
       const success = host.skillsRegistry.deactivateSkill(name);
       return success
-        ? `Deactivated skill: ${name}`
-        : `Failed to deactivate skill: ${name}`;
+        ? { success: true, output: `Deactivated skill: ${name}` }
+        : {
+            success: false,
+            kind: 'operational',
+            error: `Failed to deactivate skill: ${name}`,
+          };
     }
 
     throw new Error(`Unsupported skill command: ${action.command}`);

@@ -113,7 +113,7 @@ export interface AgentInstructionHost {
   runReactLoop(abortController: AbortController): Promise<void>;
   runQualityPipeline(): Promise<void>;
   cleanupUI(keepInkAlive?: boolean): void;
-  runInstruction(instruction: string): Promise<boolean>;
+  runInstruction(instruction: string, options?: RunInstructionOptions): Promise<boolean>;
   isRetryableSessionError(error: Error): boolean;
   submitSessionFailureBugReport(
     error: Error,
@@ -131,11 +131,42 @@ export interface AgentInstructionHost {
   writeDebugLine?(message: string): void;
 }
 
+export interface RunInstructionOptions {
+  signal?: AbortSignal;
+}
+
 export class InstructionRunner {
   constructor(private readonly host: AgentInstructionHost) {}
 
-  async run(instruction: string): Promise<boolean> {
+  async run(instruction: string, options: RunInstructionOptions = {}): Promise<boolean> {
+    if (options.signal?.aborted) {
+      return false;
+    }
+
+    const abortController = new AbortController();
+    const forwardExternalAbort = (): void => abortController.abort();
+    options.signal?.addEventListener('abort', forwardExternalAbort, { once: true });
+    if (options.signal?.aborted) {
+      forwardExternalAbort();
+    }
+
+    try {
+      return await this.runWithController(instruction, abortController, options);
+    } finally {
+      options.signal?.removeEventListener('abort', forwardExternalAbort);
+    }
+  }
+
+  private async runWithController(
+    instruction: string,
+    abortController: AbortController,
+    options: RunInstructionOptions,
+  ): Promise<boolean> {
     const host = this.host;
+
+    if (abortController.signal.aborted) {
+      return false;
+    }
 
     host.isInstructionActive = true;
     host.clearExplorationLog();
@@ -150,6 +181,10 @@ export class InstructionRunner {
         autoApprove: host.runtime.options.unrestricted || host.runtime.options.yes || false,
       };
       await checkAndPromptForDirectoryPermissions(instruction, dirPermissionOptions);
+      if (abortController.signal.aborted) {
+        host.isInstructionActive = false;
+        return false;
+      }
     }
 
     // Initialize task-level tracking
@@ -177,9 +212,12 @@ export class InstructionRunner {
         host.isInstructionActive = false;
         return false;
       }
+      if (abortController.signal.aborted) {
+        host.isInstructionActive = false;
+        return false;
+      }
     }
 
-    const abortController = new AbortController();
     host.activeAbortController = abortController;
     let canceledByUser = false;
     let success = true;
@@ -260,6 +298,11 @@ export class InstructionRunner {
       host.updateContextUsage(host.conversation.history());
       await host.runReactLoop(abortController);
 
+      if (abortController.signal.aborted) {
+        success = false;
+        return false;
+      }
+
       if (host.lastIntent === 'implementation' && host.filesModifiedThisSession) {
         host.modalActive = true;
         try {
@@ -290,7 +333,7 @@ export class InstructionRunner {
         console.log(chalk.yellow(`\nNo provider is configured yet. Let's set one up!\n`));
         await host.providerConfigManager.promptModelSelection();
         // After configuration, retry the instruction
-        return host.runInstruction(instruction);
+        return host.runInstruction(instruction, options);
       }
 
       // Loop guard aborts are handled gracefully inside runReactLoop
@@ -321,6 +364,9 @@ export class InstructionRunner {
             err instanceof ApiError ? err.retryAfterMs ?? 0 : 0
           );
           await host.sleep(delay);
+          if (abortController.signal.aborted) {
+            return false;
+          }
 
           // Retry plain transport/service outages without mutating the prompt.
           // Injecting "continue the task" guidance after a dropped connection
@@ -334,6 +380,9 @@ export class InstructionRunner {
           try {
             host.setUIStatus('Recovering session...');
             await host.runReactLoop(abortController);
+            if (abortController.signal.aborted) {
+              return false;
+            }
 
             // If we get here, retry succeeded - reset counter
             host.sessionRetryCount = 0;

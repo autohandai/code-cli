@@ -13,7 +13,10 @@ describe('index pipe handoff startup ordering', () => {
 
     const pipeDetectionIndex = source.indexOf('const stdinType = detectStdinType();');
     const ttyRebindIndex = source.indexOf("openSync('/dev/tty', 'r')");
-    const agentConstructionIndex = source.indexOf('const agent = new AutohandAgent(llmProvider, files, runtime);');
+    const agentConstructionIndex = source.indexOf(
+      'agent = new AutohandAgent(llmProvider, files, runtime);',
+      pipeDetectionIndex,
+    );
 
     expect(pipeDetectionIndex).toBeGreaterThan(-1);
     expect(ttyRebindIndex).toBeGreaterThan(pipeDetectionIndex);

@@ -100,6 +100,31 @@ describe('agent startup and active input UI', () => {
     expect(agent.permissionManager.setMode).toHaveBeenCalledWith('interactive');
   });
 
+  it('syncInteractiveAutomodePermissions preserves the --yes CLI baseline', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+
+    agent.runtime = {
+      options: {
+        yes: true,
+        unrestricted: false,
+        restricted: false,
+      },
+    };
+    agent.permissionManager = {
+      setMode: vi.fn(),
+    };
+    agent.basePermissionMode = 'interactive';
+    agent.baseYesMode = true;
+    agent.interactiveAutomodeEnabled = false;
+
+    (agent as any).syncInteractiveAutomodePermissions();
+
+    expect(agent.runtime.options.yes).toBe(true);
+    expect(agent.runtime.options.unrestricted).toBe(false);
+    expect(agent.runtime.options.restricted).toBe(false);
+    expect(agent.permissionManager.setMode).toHaveBeenCalledWith('interactive');
+  });
+
   it('syncInteractiveAutomodePermissions respects --unrestricted CLI flag', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
 
@@ -249,11 +274,14 @@ describe('agent startup and active input UI', () => {
     expect(confirmationCallback).not.toHaveBeenCalled();
   });
 
-  it('ensureInitComplete does not block on unresolved mcpReady', async () => {
+  it('keeps the first instruction behind MCP registration', async () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
+    let resolveMcp: (() => void) | undefined;
 
     agent.initReady = Promise.resolve();
-    agent.mcpReady = new Promise<void>(() => {});
+    agent.mcpReady = new Promise<void>((resolve) => {
+      resolveMcp = resolve;
+    });
     agent.flushMcpStartupSummaryIfPending = vi.fn();
     agent.sessionManager = {
       getCurrentSession: () => ({ metadata: { sessionId: 'session-1' } }),
@@ -262,10 +290,17 @@ describe('agent startup and active input UI', () => {
       executeHooks: vi.fn().mockResolvedValue(undefined),
     };
 
-    await Promise.race([
-      (agent as any).ensureInitComplete(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('ensureInitComplete timed out')), 150)),
-    ]);
+    let completed = false;
+    const completion = (agent as any).ensureInitComplete().then(() => {
+      completed = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(completed).toBe(false);
+    expect(agent.hookManager.executeHooks).not.toHaveBeenCalled();
+
+    resolveMcp?.();
+    await completion;
 
     expect(agent.initReady).toBeNull();
     expect(agent.flushMcpStartupSummaryIfPending).toHaveBeenCalledTimes(1);
@@ -687,17 +722,26 @@ describe('agent startup and active input UI', () => {
     }
   });
 
-  it('setupEscListener resumes stdin so queue input can be captured while working', () => {
+  it('setupEscListener restores paused stdin after queue capture finishes', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const originalStdin = process.stdin;
     const mockInput = new EventEmitter() as NodeJS.ReadStream;
+    let paused = true;
     (mockInput as any).isTTY = true;
     (mockInput as any).isRaw = false;
+    (mockInput as any).isPaused = vi.fn(() => paused);
     (mockInput as any).setRawMode = vi.fn((mode: boolean) => {
       (mockInput as any).isRaw = mode;
       return mockInput;
     });
-    (mockInput as any).resume = vi.fn(() => mockInput);
+    (mockInput as any).resume = vi.fn(() => {
+      paused = false;
+      return mockInput;
+    });
+    (mockInput as any).pause = vi.fn(() => {
+      paused = true;
+      return mockInput;
+    });
 
     agent.runtime = {
       config: {
@@ -723,7 +767,10 @@ describe('agent startup and active input UI', () => {
     try {
       const cleanup = (agent as any).setupEscListener(new AbortController(), vi.fn());
       expect((mockInput as any).resume).toHaveBeenCalled();
+      expect((mockInput as any).isPaused()).toBe(false);
       cleanup();
+      expect((mockInput as any).pause).toHaveBeenCalledOnce();
+      expect((mockInput as any).isPaused()).toBe(true);
     } finally {
       Object.defineProperty(process, 'stdin', {
         configurable: true,

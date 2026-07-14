@@ -9,7 +9,8 @@ import { AgentRegistry } from './AgentRegistry.js';
 import { SubAgent, type SubAgentOptions } from './SubAgent.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
 import { ActionExecutor } from '../actionExecutor.js';
-import type { ClientContext, LoadedConfig } from '../../types.js';
+import type { ClientContext, LoadedConfig, ToolActionOutcome } from '../../types.js';
+import type { ToolAuthorizationOptions, ToolManagerOptions } from '../toolManager.js';
 
 /** Default maximum delegation depth to prevent infinite loops */
 const DEFAULT_MAX_DEPTH = 3;
@@ -41,6 +42,10 @@ export interface DelegatorOptions {
     onSubagentStop?: (context: SubagentStopContext) => Promise<void>;
     /** Active CLI config for feature-gated tools inherited by sub-agents. */
     featureConfig?: LoadedConfig;
+    /** Parent authorization policy and hook bridge inherited by every nested tool call. */
+    authorization?: ToolAuthorizationOptions;
+    /** Parent confirmation seam inherited by every nested tool call. */
+    confirmApproval?: ToolManagerOptions['confirmApproval'];
 }
 
 export class AgentDelegator {
@@ -50,6 +55,8 @@ export class AgentDelegator {
     private readonly maxDepth: number;
     private readonly onSubagentStop?: (context: SubagentStopContext) => Promise<void>;
     private readonly featureConfig?: LoadedConfig;
+    private readonly authorization?: ToolAuthorizationOptions;
+    private readonly confirmApproval?: ToolManagerOptions['confirmApproval'];
     private subagentCounter = 0;
 
     constructor(
@@ -63,6 +70,8 @@ export class AgentDelegator {
         this.maxDepth = options.maxDepth ?? DEFAULT_MAX_DEPTH;
         this.onSubagentStop = options.onSubagentStop;
         this.featureConfig = options.featureConfig;
+        this.authorization = options.authorization;
+        this.confirmApproval = options.confirmApproval;
     }
 
     private generateSubagentId(): string {
@@ -70,16 +79,22 @@ export class AgentDelegator {
     }
 
     public async delegateTask(agentName: string, task: string): Promise<string> {
+        return this.toLegacyOutput(await this.delegateTaskForTool(agentName, task));
+    }
+
+    public async delegateTaskForTool(agentName: string, task: string): Promise<ToolActionOutcome> {
         // Check depth limit to prevent infinite delegation loops
         if (this.currentDepth >= this.maxDepth) {
-            return `Error: Maximum delegation depth (${this.maxDepth}) reached. Cannot delegate to '${agentName}'.`;
+            const error = `Maximum delegation depth (${this.maxDepth}) reached. Cannot delegate to '${agentName}'.`;
+            return { success: false, kind: 'validation', error, output: `Error: ${error}` };
         }
 
         await this.registry.loadAgents();
         const agentConfig = this.registry.getAgent(agentName);
 
         if (!agentConfig) {
-            return `Error: Agent '${agentName}' not found. Use /agents to list available agents.`;
+            const error = `Agent '${agentName}' not found. Use /agents to list available agents.`;
+            return { success: false, kind: 'validation', error, output: `Error: ${error}` };
         }
 
         // Create sub-agent options with inherited context and incremented depth
@@ -88,6 +103,8 @@ export class AgentDelegator {
             depth: this.currentDepth + 1,
             maxDepth: this.maxDepth,
             featureConfig: this.featureConfig,
+            authorization: this.authorization,
+            confirmApproval: this.confirmApproval,
         };
 
         const subagentId = this.generateSubagentId();
@@ -108,7 +125,7 @@ export class AgentDelegator {
                 });
             }
 
-            return result;
+            return { success: true, output: result };
         } catch (error) {
             const errorMessage = (error as Error).message;
 
@@ -124,18 +141,27 @@ export class AgentDelegator {
                 });
             }
 
-            return `Error running agent '${agentName}': ${errorMessage}`;
+            const output = `Error running agent '${agentName}': ${errorMessage}`;
+            return { success: false, kind: 'operational', error: errorMessage, output };
         }
     }
 
     public async delegateParallel(tasks: Array<{ agent_name: string; task: string }>): Promise<string> {
+        return this.toLegacyOutput(await this.delegateParallelForTool(tasks));
+    }
+
+    public async delegateParallelForTool(
+        tasks: Array<{ agent_name: string; task: string }>
+    ): Promise<ToolActionOutcome> {
         // Check depth limit
         if (this.currentDepth >= this.maxDepth) {
-            return `Error: Maximum delegation depth (${this.maxDepth}) reached. Cannot delegate parallel tasks.`;
+            const error = `Maximum delegation depth (${this.maxDepth}) reached. Cannot delegate parallel tasks.`;
+            return { success: false, kind: 'validation', error, output: `Error: ${error}` };
         }
 
         if (tasks.length > 5) {
-            return `Error: Maximum 5 parallel agents allowed. You requested ${tasks.length}.`;
+            const error = `Maximum 5 parallel agents allowed. You requested ${tasks.length}.`;
+            return { success: false, kind: 'validation', error, output: `Error: ${error}` };
         }
 
         await this.registry.loadAgents();
@@ -146,12 +172,19 @@ export class AgentDelegator {
             depth: this.currentDepth + 1,
             maxDepth: this.maxDepth,
             featureConfig: this.featureConfig,
+            authorization: this.authorization,
+            confirmApproval: this.confirmApproval,
         };
 
-        const promises = tasks.map(async ({ agent_name, task }) => {
+        const promises = tasks.map(async ({ agent_name, task }): Promise<{
+            success: boolean;
+            text: string;
+            error?: string;
+        }> => {
             const agentConfig = this.registry.getAgent(agent_name);
             if (!agentConfig) {
-                return `[${agent_name}] Error: Agent not found.`;
+                const error = `Agent '${agent_name}' not found.`;
+                return { success: false, text: `[${agent_name}] Error: Agent not found.`, error };
             }
 
             const subagentId = this.generateSubagentId();
@@ -172,7 +205,7 @@ export class AgentDelegator {
                     });
                 }
 
-                return `[${agent_name}] Result:\n${result}`;
+                return { success: true, text: `[${agent_name}] Result:\n${result}` };
             } catch (error) {
                 const errorMessage = (error as Error).message;
 
@@ -188,12 +221,39 @@ export class AgentDelegator {
                     });
                 }
 
-                return `[${agent_name}] Failed: ${errorMessage}`;
+                return {
+                    success: false,
+                    text: `[${agent_name}] Failed: ${errorMessage}`,
+                    error: errorMessage,
+                };
             }
         });
 
         const results = await Promise.all(promises);
-        return results.join('\n\n' + chalk.gray('─'.repeat(40)) + '\n\n');
+        const output = results.map(result => result.text)
+            .join('\n\n' + chalk.gray('─'.repeat(40)) + '\n\n');
+        const failures = results.filter(result => !result.success);
+        if (failures.length > 0) {
+            return {
+                success: false,
+                kind: 'operational',
+                error: failures.map(result => result.error ?? 'Delegated task failed.').join('; '),
+                output,
+            };
+        }
+        return { success: true, output };
+    }
+
+    private toLegacyOutput(outcome: ToolActionOutcome): string {
+        return outcome.output ?? (outcome.success ? '' : outcome.error);
+    }
+
+    public getAuthorizationOptions(): ToolAuthorizationOptions | undefined {
+        return this.authorization;
+    }
+
+    public getConfirmApproval(): ToolManagerOptions['confirmApproval'] | undefined {
+        return this.confirmApproval;
     }
 
     /**

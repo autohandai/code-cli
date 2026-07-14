@@ -3,11 +3,42 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { runCommand, runShellCommand } from '../src/actions/command.js';
-import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+
+async function waitForProcessId(filePath: string, timeoutMs = 1_000): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (existsSync(filePath)) {
+      const pid = Number.parseInt(readFileSync(filePath, 'utf8').trim(), 10);
+      if (Number.isSafeInteger(pid) && pid > 0) return pid;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for a process ID in ${filePath}`);
+}
+
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForProcessExit(pid: number, timeoutMs = 1_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (isProcessRunning(pid)) {
+    if (Date.now() >= deadline) {
+      throw new Error(`Process ${pid} did not exit`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
 
 describe('runCommand', () => {
   const testDir = join(tmpdir(), 'autohand-command-test-' + Date.now());
@@ -121,6 +152,123 @@ describe('runCommand', () => {
     const result = await runCommand('sleep', ['10'], testDir, { timeout: 100 });
     // Should be killed by timeout
     expect(result.signal).toBe('SIGTERM');
+  });
+
+  it('does not spawn a foreground command when its signal is already aborted', async () => {
+    const markerPath = join(testDir, 'already-aborted-marker');
+    const controller = new AbortController();
+    controller.abort();
+
+    const error = await runCommand(
+      process.execPath,
+      ['-e', `require('node:fs').writeFileSync(${JSON.stringify(markerPath)}, 'spawned')`],
+      testDir,
+      { signal: controller.signal }
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ name: 'AbortError' });
+    expect(existsSync(markerPath)).toBe(false);
+  });
+
+  it('aborts a foreground command and preserves output captured before termination', async () => {
+    const markerPath = join(testDir, 'foreground-abort-pid');
+    const controller = new AbortController();
+    let streamedOutput = '';
+    const commandPromise = runCommand(
+      process.execPath,
+      ['-e', [
+        `require('node:fs').writeFileSync(${JSON.stringify(markerPath)}, String(process.pid))`,
+        `process.stdout.write('started\\n')`,
+        'setTimeout(() => process.exit(0), 500)',
+      ].join(';')],
+      testDir,
+      {
+        signal: controller.signal,
+        timeout: 750,
+        onStdout: (chunk) => {
+          streamedOutput += chunk;
+        },
+      }
+    );
+    const pid = await waitForProcessId(markerPath);
+    await vi.waitFor(() => expect(streamedOutput).toContain('started'));
+
+    controller.abort();
+    const error = await commandPromise.catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ name: 'AbortError', stdout: 'started\n' });
+    await waitForProcessExit(pid);
+  });
+
+  it('forces a foreground command to exit when it ignores SIGTERM', async () => {
+    const markerPath = join(testDir, 'forced-abort-pid');
+    const controller = new AbortController();
+    const startedAt = Date.now();
+    const commandPromise = runCommand(
+      process.execPath,
+      ['-e', [
+        `require('node:fs').writeFileSync(${JSON.stringify(markerPath)}, String(process.pid))`,
+        "process.on('SIGTERM', () => {})",
+        'setTimeout(() => process.exit(0), 800)',
+      ].join(';')],
+      testDir,
+      { signal: controller.signal, killGracePeriodMs: 30 }
+    );
+    const pid = await waitForProcessId(markerPath);
+
+    controller.abort();
+    const error = await commandPromise.catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ name: 'AbortError' });
+    expect(Date.now() - startedAt).toBeLessThan(500);
+    await waitForProcessExit(pid);
+  });
+
+  it('keeps an already-started detached command alive after abort', async () => {
+    const controller = new AbortController();
+    const result = await runCommand(
+      process.execPath,
+      ['-e', 'setTimeout(() => process.exit(0), 1000)'],
+      testDir,
+      { background: true, signal: controller.signal }
+    );
+    const pid = result.backgroundPid!;
+
+    controller.abort();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    expect(isProcessRunning(pid)).toBe(true);
+    process.kill(pid, 'SIGTERM');
+    await waitForProcessExit(pid);
+  });
+
+  it('does not spawn a detached command when its signal is already aborted', async () => {
+    const markerPath = join(testDir, 'already-aborted-background-marker');
+    const controller = new AbortController();
+    controller.abort();
+
+    const error = await runCommand(
+      process.execPath,
+      ['-e', `require('node:fs').writeFileSync(${JSON.stringify(markerPath)}, 'spawned')`],
+      testDir,
+      { background: true, signal: controller.signal }
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ name: 'AbortError' });
+    expect(existsSync(markerPath)).toBe(false);
+  });
+
+  it('removes the abort listener after a foreground command closes', async () => {
+    const controller = new AbortController();
+    const addEventListener = vi.spyOn(controller.signal, 'addEventListener');
+    const removeEventListener = vi.spyOn(controller.signal, 'removeEventListener');
+
+    await runCommand(process.execPath, ['-e', 'process.exit(0)'], testDir, {
+      signal: controller.signal,
+    });
+
+    expect(addEventListener).toHaveBeenCalledWith('abort', expect.any(Function), { once: true });
+    expect(removeEventListener).toHaveBeenCalledWith('abort', expect.any(Function));
   });
 
   it('rejects with "Command not found" for non-existent command', async () => {

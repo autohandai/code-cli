@@ -23,6 +23,35 @@ export interface WebSearchOptions {
   searchType?: 'general' | 'packages' | 'docs' | 'changelog';
   /** Override the default search provider */
   provider?: 'brave' | 'duckduckgo' | 'parallel' | 'google' | 'browser-profile' | 'exa';
+  signal?: AbortSignal;
+}
+
+export interface FetchUrlOptions {
+  selector?: string;
+  maxLength?: number;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
+export class WebActionAbortedError extends Error {
+  constructor(message = 'Web action aborted') {
+    super(message);
+    this.name = 'AbortError';
+  }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new WebActionAbortedError();
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof WebActionAbortedError || (
+    error instanceof Error && error.name === 'AbortError'
+  );
+}
+
+function rethrowAbort(error: unknown): void {
+  if (isAbortError(error)) throw error;
 }
 
 /** Search provider configuration */
@@ -225,7 +254,84 @@ export function parseGoogleResultsFromDOM(html: string, maxResults: number): Web
  * Execute headless Chrome to render a URL and return the DOM.
  * Uses --headless=new --dump-dom for modern headless mode.
  */
-async function chromeHeadlessFetch(url: string, timeout = 20000): Promise<string> {
+async function executeChromeDom(
+  chromePath: string,
+  args: string[],
+  timeout: number,
+  signal?: AbortSignal,
+): Promise<string> {
+  throwIfAborted(signal);
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn(chromePath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    let terminationReason: 'abort' | 'timeout' | 'truncated' | undefined;
+    let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const cleanup = (): void => {
+      clearTimeout(timeoutTimer);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      signal?.removeEventListener('abort', handleAbort);
+    };
+
+    const finish = (error?: Error, result?: string): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) reject(error);
+      else resolve(result ?? '');
+    };
+
+    const terminate = (reason: 'abort' | 'timeout' | 'truncated'): void => {
+      if (settled || terminationReason) return;
+      terminationReason = reason;
+      proc.kill('SIGTERM');
+      forceKillTimer = setTimeout(() => {
+        forceKillTimer = undefined;
+        if (!settled) proc.kill('SIGKILL');
+      }, 1000);
+      forceKillTimer.unref?.();
+    };
+
+    function handleAbort(): void {
+      terminate('abort');
+    }
+
+    const timeoutTimer = setTimeout(() => terminate('timeout'), timeout);
+    timeoutTimer.unref?.();
+    signal?.addEventListener('abort', handleAbort, { once: true });
+
+    proc.stdout.on('data', (data: Buffer) => {
+      stdout += data.toString();
+      if (stdout.length > 500000) terminate('truncated');
+    });
+    proc.stderr.on('data', (data: Buffer) => {
+      stderr += data.toString();
+    });
+    proc.on('close', (code) => {
+      if (terminationReason === 'abort') {
+        finish(new WebActionAbortedError());
+      } else if (terminationReason === 'timeout') {
+        finish(new Error(`Chrome request timed out after ${timeout}ms`));
+      } else if (terminationReason === 'truncated') {
+        finish(undefined, stdout.slice(0, 500000));
+      } else if (code !== 0 && code !== null) {
+        finish(new Error(`Chrome exited with code ${code}: ${stderr.slice(0, 500)}`));
+      } else {
+        finish(undefined, stdout);
+      }
+    });
+    proc.on('error', (error) => {
+      if (terminationReason === 'abort') finish(new WebActionAbortedError());
+      else finish(new Error(`Failed to launch Chrome: ${error.message}`));
+    });
+  });
+}
+
+async function chromeHeadlessFetch(url: string, timeout = 20000, signal?: AbortSignal): Promise<string> {
+  throwIfAborted(signal);
   const chromePath = findChromePath();
   if (!chromePath) {
     throw new Error(
@@ -233,60 +339,20 @@ async function chromeHeadlessFetch(url: string, timeout = 20000): Promise<string
     );
   }
 
-  return new Promise((resolve, reject) => {
-    const args = [
-      '--headless=new',
-      '--dump-dom',
-      '--no-sandbox',
-      '--disable-gpu',
-      '--disable-extensions',
-      '--disable-dev-shm-usage',
-      '--disable-background-networking',
-      '--disable-default-apps',
-      '--disable-sync',
-      '--no-first-run',
-      '--mute-audio',
-      url,
-    ];
-
-    let stdout = '';
-    let stderr = '';
-    let killed = false;
-
-    const proc = spawn(chromePath, args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout,
-    });
-
-    proc.stdout.on('data', (data: Buffer) => {
-      stdout += data.toString();
-      // Safety limit: 500KB
-      if (stdout.length > 500000) {
-        killed = true;
-        proc.kill('SIGTERM');
-      }
-    });
-
-    proc.stderr.on('data', (data: Buffer) => {
-      stderr += data.toString();
-    });
-
-    proc.on('close', (code) => {
-      if (killed) {
-        resolve(stdout.slice(0, 500000));
-        return;
-      }
-      if (code !== 0 && code !== null) {
-        reject(new Error(`Chrome exited with code ${code}: ${stderr.slice(0, 500)}`));
-        return;
-      }
-      resolve(stdout);
-    });
-
-    proc.on('error', (err) => {
-      reject(new Error(`Failed to launch Chrome: ${err.message}`));
-    });
-  });
+  return executeChromeDom(chromePath, [
+    '--headless=new',
+    '--dump-dom',
+    '--no-sandbox',
+    '--disable-gpu',
+    '--disable-extensions',
+    '--disable-dev-shm-usage',
+    '--disable-background-networking',
+    '--disable-default-apps',
+    '--disable-sync',
+    '--no-first-run',
+    '--mute-audio',
+    url,
+  ], timeout, signal);
 }
 
 export interface NpmPackageInfo {
@@ -305,9 +371,26 @@ export interface NpmPackageInfo {
 /**
  * Simple HTTP/HTTPS fetch that works without external dependencies
  */
-async function simpleFetch(url: string, options: { timeout?: number; maxLength?: number; headers?: Record<string, string> } = {}): Promise<string> {
+interface SimpleRequestOptions {
+  timeout?: number;
+  maxLength?: number;
+  headers?: Record<string, string>;
+  method?: 'GET' | 'POST';
+  body?: string;
+  signal?: AbortSignal;
+}
+
+interface SimpleResponse {
+  body: string;
+  statusCode?: number;
+  statusMessage?: string;
+  location?: string;
+}
+
+async function simpleRequest(url: string, options: SimpleRequestOptions = {}): Promise<SimpleResponse> {
   const timeout = options.timeout ?? 10000;
   const maxLength = options.maxLength ?? 50000;
+  throwIfAborted(options.signal);
 
   return new Promise((resolve, reject) => {
     const parsedUrl = new URL(url);
@@ -319,39 +402,85 @@ async function simpleFetch(url: string, options: { timeout?: number; maxLength?:
       'Accept-Language': 'en-US,en;q=0.9'
     };
 
-    const req = protocol.get(url, {
-      timeout,
+    let settled = false;
+    let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+    const cleanup = (): void => {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      options.signal?.removeEventListener('abort', handleAbort);
+    };
+    const finishResolve = (response: SimpleResponse): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(response);
+    };
+    const finishReject = (error: Error): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+
+    const req = protocol.request(url, {
+      method: options.method ?? 'GET',
       headers: options.headers ?? defaultHeaders
     }, (res) => {
-      // Handle redirects
-      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        simpleFetch(res.headers.location, options).then(resolve).catch(reject);
-        return;
-      }
-
-      if (res.statusCode && res.statusCode >= 400) {
-        reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
-        return;
-      }
-
       let data = '';
       res.on('data', (chunk) => {
+        if (settled) return;
         data += chunk;
         if (data.length > maxLength) {
           res.destroy();
-          resolve(data.slice(0, maxLength) + '\n... (truncated)');
+          finishResolve({
+            body: data.slice(0, maxLength) + '\n... (truncated)',
+            statusCode: res.statusCode,
+            statusMessage: res.statusMessage,
+            location: res.headers.location,
+          });
         }
       });
-      res.on('end', () => resolve(data));
-      res.on('error', reject);
+      res.on('end', () => finishResolve({
+        body: data,
+        statusCode: res.statusCode,
+        statusMessage: res.statusMessage,
+        location: res.headers.location,
+      }));
+      res.on('error', (error) => finishReject(error));
     });
 
-    req.on('error', reject);
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error('Request timed out'));
-    });
+    function handleAbort(): void {
+      const error = new WebActionAbortedError();
+      req.destroy(error);
+      finishReject(error);
+    }
+
+    options.signal?.addEventListener('abort', handleAbort, { once: true });
+    req.on('error', (error) => finishReject(error));
+    if (timeout > 0) timeoutTimer = setTimeout(() => {
+      const error = new Error('Request timed out');
+      req.destroy(error);
+      finishReject(error);
+    }, timeout);
+    timeoutTimer?.unref?.();
+    req.end(options.body);
   });
+}
+
+async function simpleFetch(url: string, options: SimpleRequestOptions = {}): Promise<string> {
+  const response = await simpleRequest(url, options);
+  if (
+    response.statusCode &&
+    response.statusCode >= 300 &&
+    response.statusCode < 400 &&
+    response.location
+  ) {
+    const redirectedUrl = new URL(response.location, url).toString();
+    return simpleFetch(redirectedUrl, { ...options, method: 'GET', body: undefined });
+  }
+  if (response.statusCode && response.statusCode >= 400) {
+    throw new Error(`HTTP ${response.statusCode}: ${response.statusMessage}`);
+  }
+  return response.body;
 }
 
 /**
@@ -396,6 +525,7 @@ function htmlToText(html: string): string {
  * - Parallel.ai Search API (requires API key)
  */
 export async function webSearch(query: string, options: WebSearchOptions = {}): Promise<WebSearchResult[]> {
+  throwIfAborted(options.signal);
   const maxResults = options.maxResults ?? 5;
   const searchType = options.searchType ?? 'general';
 
@@ -428,7 +558,7 @@ export async function webSearch(query: string, options: WebSearchOptions = {}): 
 
   switch (provider) {
     case 'browser-profile':
-      return browserProfileSearch(enhancedQuery, maxResults);
+      return browserProfileSearch(enhancedQuery, maxResults, options.signal);
 
     case 'exa':
       if (!exaApiKey) {
@@ -437,7 +567,7 @@ export async function webSearch(query: string, options: WebSearchOptions = {}): 
           'Get an API key at: https://exa.ai'
         );
       }
-      return exaSearch(enhancedQuery, exaApiKey, maxResults);
+      return exaSearch(enhancedQuery, exaApiKey, maxResults, options.signal);
 
     case 'brave':
       if (!braveApiKey) {
@@ -446,7 +576,7 @@ export async function webSearch(query: string, options: WebSearchOptions = {}): 
           'Get a free API key at: https://brave.com/search/api/'
         );
       }
-      return braveSearch(enhancedQuery, braveApiKey, maxResults);
+      return braveSearch(enhancedQuery, braveApiKey, maxResults, options.signal);
 
     case 'parallel':
       if (!parallelApiKey) {
@@ -455,14 +585,14 @@ export async function webSearch(query: string, options: WebSearchOptions = {}): 
           'Get an API key at: https://platform.parallel.ai'
         );
       }
-      return parallelSearch(enhancedQuery, parallelApiKey, maxResults);
+      return parallelSearch(enhancedQuery, parallelApiKey, maxResults, options.signal);
 
     case 'google':
-      return googleSearch(enhancedQuery, maxResults);
+      return googleSearch(enhancedQuery, maxResults, options.signal);
 
     case 'duckduckgo':
     default:
-      return duckduckgoSearch(enhancedQuery, maxResults);
+      return duckduckgoSearch(enhancedQuery, maxResults, options.signal);
   }
 }
 
@@ -471,14 +601,15 @@ export async function webSearch(query: string, options: WebSearchOptions = {}): 
  * Uses the system Chrome installation to render JS-heavy search pages.
  * Falls back to HTTP scraping if Chrome is not installed.
  */
-async function googleSearch(query: string, maxResults: number): Promise<WebSearchResult[]> {
+async function googleSearch(query: string, maxResults: number, signal?: AbortSignal): Promise<WebSearchResult[]> {
+  throwIfAborted(signal);
   const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=${maxResults}&hl=en`;
 
   // Strategy 1: Headless Chrome (renders JS, most reliable)
   const chromePath = findChromePath();
   if (chromePath) {
     try {
-      const html = await chromeHeadlessFetch(searchUrl, 25000);
+      const html = await chromeHeadlessFetch(searchUrl, 25000, signal);
       const results = parseGoogleResultsFromDOM(html, maxResults);
 
       if (results.length > 0) {
@@ -493,6 +624,7 @@ async function googleSearch(query: string, maxResults: number): Promise<WebSearc
         );
       }
     } catch (error) {
+      rethrowAbort(error);
       // If Chrome failed entirely, try HTTP fallback
       const msg = error instanceof Error ? error.message : String(error);
       if (msg.includes('CAPTCHA') || msg.includes('blocked')) {
@@ -511,7 +643,8 @@ async function googleSearch(query: string, maxResults: number): Promise<WebSearc
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
-      }
+      },
+      signal,
     });
 
     // Check for CAPTCHA / block
@@ -527,6 +660,7 @@ async function googleSearch(query: string, maxResults: number): Promise<WebSearc
       return results;
     }
   } catch (error) {
+    rethrowAbort(error);
     const msg = error instanceof Error ? error.message : String(error);
     if (msg.includes('blocked') || msg.includes('CAPTCHA')) {
       throw new Error(`Google search failed: ${msg}`);
@@ -545,10 +679,11 @@ async function googleSearch(query: string, maxResults: number): Promise<WebSearc
 /**
  * Search using DuckDuckGo HTML (no API key required, but may be blocked)
  */
-async function duckduckgoSearch(query: string, maxResults: number): Promise<WebSearchResult[]> {
+async function duckduckgoSearch(query: string, maxResults: number, signal?: AbortSignal): Promise<WebSearchResult[]> {
+  throwIfAborted(signal);
   try {
     const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-    const html = await simpleFetch(searchUrl, { timeout: 15000, maxLength: 100000 });
+    const html = await simpleFetch(searchUrl, { timeout: 15000, maxLength: 100000, signal });
 
     // Check for bot detection CAPTCHA
     if (html.includes('anomaly-modal') || html.includes('bots use DuckDuckGo') || html.includes('cc=botnet')) {
@@ -595,6 +730,7 @@ async function duckduckgoSearch(query: string, maxResults: number): Promise<WebS
 
     return results;
   } catch (error) {
+    rethrowAbort(error);
     throw new Error(`DuckDuckGo search failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
@@ -602,138 +738,123 @@ async function duckduckgoSearch(query: string, maxResults: number): Promise<WebS
 /**
  * Search using Parallel.ai API
  */
-async function parallelSearch(query: string, apiKey: string, maxResults: number): Promise<WebSearchResult[]> {
-  return new Promise((resolve, reject) => {
-    const postData = JSON.stringify({
-      objective: query,
-      search_queries: [query],
-      max_results: maxResults,
-      excerpts: {
-        max_chars_per_result: 500
-      }
-    });
-
-    const options = {
-      hostname: 'api.parallel.ai',
-      port: 443,
-      path: '/v1beta/search',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(postData),
-        'x-api-key': apiKey,
-        'parallel-beta': 'search-extract-2025-10-10'
-      }
-    };
-
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        if (res.statusCode && res.statusCode >= 400) {
-          reject(new Error(`Parallel.ai API error: HTTP ${res.statusCode} - ${data}`));
-          return;
-        }
-
-        try {
-          const json = JSON.parse(data);
-
-          // Parse Parallel.ai response format
-          const results: WebSearchResult[] = [];
-
-          if (json.results && Array.isArray(json.results)) {
-            for (const result of json.results.slice(0, maxResults)) {
-              results.push({
-                title: result.title || result.url || 'Untitled',
-                url: result.url || '',
-                snippet: result.excerpt || result.content?.slice(0, 300) || ''
-              });
-            }
-          } else if (json.search_results && Array.isArray(json.search_results)) {
-            // Alternative response format
-            for (const result of json.search_results.slice(0, maxResults)) {
-              results.push({
-                title: result.title || result.url || 'Untitled',
-                url: result.url || '',
-                snippet: result.snippet || result.description || ''
-              });
-            }
-          }
-
-          resolve(results);
-        } catch (parseError) {
-          reject(new Error(`Failed to parse Parallel.ai response: ${parseError instanceof Error ? parseError.message : String(parseError)}`));
-        }
-      });
-      res.on('error', reject);
-    });
-
-    req.on('error', reject);
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error('Parallel.ai request timed out'));
-    });
-
-    req.write(postData);
-    req.end();
+async function parallelSearch(
+  query: string,
+  apiKey: string,
+  maxResults: number,
+  signal?: AbortSignal,
+): Promise<WebSearchResult[]> {
+  const postData = JSON.stringify({
+    objective: query,
+    search_queries: [query],
+    max_results: maxResults,
+    excerpts: { max_chars_per_result: 500 },
   });
+  const response = await simpleRequest('https://api.parallel.ai/v1beta/search', {
+    method: 'POST',
+    body: postData,
+    timeout: 30000,
+    maxLength: 500000,
+    signal,
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': String(Buffer.byteLength(postData)),
+      'x-api-key': apiKey,
+      'parallel-beta': 'search-extract-2025-10-10',
+    },
+  });
+  if (response.statusCode && response.statusCode >= 400) {
+    throw new Error(`Parallel.ai API error: HTTP ${response.statusCode} - ${response.body}`);
+  }
+
+  let json: {
+    results?: Array<{
+      title?: string;
+      url?: string;
+      excerpt?: string;
+      content?: string;
+      snippet?: string;
+      description?: string;
+    }>;
+    search_results?: Array<{
+      title?: string;
+      url?: string;
+      excerpt?: string;
+      content?: string;
+      snippet?: string;
+      description?: string;
+    }>;
+  };
+  try {
+    json = JSON.parse(response.body);
+  } catch (parseError) {
+    throw new Error(`Failed to parse Parallel.ai response: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+  }
+
+  const results: WebSearchResult[] = [];
+  const source = Array.isArray(json.results)
+    ? json.results
+    : Array.isArray(json.search_results)
+      ? json.search_results
+      : [];
+  for (const result of source.slice(0, maxResults)) {
+    results.push({
+      title: result.title || result.url || 'Untitled',
+      url: result.url || '',
+      snippet: result.excerpt || result.content?.slice(0, 300) || result.snippet || result.description || '',
+    });
+  }
+  return results;
 }
 
 /**
  * Search using Brave Search API
  */
-async function braveSearch(query: string, apiKey: string, maxResults: number): Promise<WebSearchResult[]> {
+async function braveSearch(
+  query: string,
+  apiKey: string,
+  maxResults: number,
+  signal?: AbortSignal,
+): Promise<WebSearchResult[]> {
   const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${maxResults}`;
-
-  return new Promise((resolve, reject) => {
-    const req = https.get(url, {
-      headers: {
-        'Accept': 'application/json',
-        'Accept-Encoding': 'gzip',
-        'X-Subscription-Token': apiKey
-      }
-    }, (res) => {
-      if (res.statusCode && res.statusCode >= 400) {
-        reject(new Error(`Brave Search API error: HTTP ${res.statusCode}`));
-        return;
-      }
-
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-
-          if (json.web?.results) {
-            const results: WebSearchResult[] = json.web.results.slice(0, maxResults).map((r: any) => ({
-              title: r.title || '',
-              url: r.url || '',
-              snippet: r.description || ''
-            }));
-            resolve(results);
-          } else {
-            resolve([]);
-          }
-        } catch (parseError) {
-          reject(new Error(`Failed to parse Brave Search response: ${parseError instanceof Error ? parseError.message : String(parseError)}`));
-        }
-      });
-      res.on('error', reject);
-    });
-
-    req.on('error', reject);
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error('Brave Search request timed out'));
-    });
+  const response = await simpleRequest(url, {
+    timeout: 15000,
+    maxLength: 500000,
+    signal,
+    headers: {
+      'Accept': 'application/json',
+      'Accept-Encoding': 'identity',
+      'X-Subscription-Token': apiKey,
+    },
   });
+  if (response.statusCode && response.statusCode >= 400) {
+    throw new Error(`Brave Search API error: HTTP ${response.statusCode}`);
+  }
+
+  try {
+    const json = JSON.parse(response.body) as {
+      web?: { results?: Array<{ title?: string; url?: string; description?: string }> };
+    };
+    return json.web?.results?.slice(0, maxResults).map((result) => ({
+      title: result.title || '',
+      url: result.url || '',
+      snippet: result.description || '',
+    })) ?? [];
+  } catch (parseError) {
+    throw new Error(`Failed to parse Brave Search response: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+  }
 }
 
 /**
  * Search using Exa.ai API
  * https://exa.ai/docs/reference/search-api-guide
  */
-async function exaSearch(query: string, apiKey: string, maxResults: number): Promise<WebSearchResult[]> {
+async function exaSearch(
+  query: string,
+  apiKey: string,
+  maxResults: number,
+  signal?: AbortSignal,
+): Promise<WebSearchResult[]> {
   const postData = JSON.stringify({
     query,
     numResults: maxResults,
@@ -742,64 +863,53 @@ async function exaSearch(query: string, apiKey: string, maxResults: number): Pro
     }
   });
 
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: 'api.exa.ai',
-      port: 443,
-      path: '/search',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Length': Buffer.byteLength(postData)
-      }
-    };
-
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        if (res.statusCode && res.statusCode >= 400) {
-          reject(new Error(`Exa.ai API error: HTTP ${res.statusCode} - ${data}`));
-          return;
-        }
-
-        try {
-          const json = JSON.parse(data);
-
-          if (json.results && Array.isArray(json.results)) {
-            const results: WebSearchResult[] = json.results.slice(0, maxResults).map((r: any) => ({
-              title: r.title || r.url || 'Untitled',
-              url: r.url || '',
-              snippet: r.text?.slice(0, 300) || r.highlight?.slice(0, 300) || ''
-            }));
-            resolve(results);
-          } else {
-            resolve([]);
-          }
-        } catch (parseError) {
-          reject(new Error(`Failed to parse Exa.ai response: ${parseError instanceof Error ? parseError.message : String(parseError)}`));
-        }
-      });
-      res.on('error', reject);
-    });
-
-    req.on('error', reject);
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error('Exa.ai request timed out'));
-    });
-
-    req.write(postData);
-    req.end();
+  const response = await simpleRequest('https://api.exa.ai/search', {
+    method: 'POST',
+    body: postData,
+    timeout: 30000,
+    maxLength: 1000000,
+    signal,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Length': String(Buffer.byteLength(postData)),
+    },
   });
+  if (response.statusCode && response.statusCode >= 400) {
+    throw new Error(`Exa.ai API error: HTTP ${response.statusCode} - ${response.body}`);
+  }
+
+  try {
+    const json = JSON.parse(response.body) as {
+      results?: Array<{
+        title?: string;
+        url?: string;
+        text?: string;
+        highlight?: string;
+      }>;
+    };
+    return Array.isArray(json.results)
+      ? json.results.slice(0, maxResults).map((result) => ({
+          title: result.title || result.url || 'Untitled',
+          url: result.url || '',
+          snippet: result.text?.slice(0, 300) || result.highlight?.slice(0, 300) || '',
+        }))
+      : [];
+  } catch (parseError) {
+    throw new Error(`Failed to parse Exa.ai response: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+  }
 }
 
 /**
  * Search using user's browser profile via Chrome DevTools Protocol.
  * Leverages user's cookies, login state, and browsing history for reliable results.
  */
-async function browserProfileSearch(query: string, maxResults: number): Promise<WebSearchResult[]> {
+async function browserProfileSearch(
+  query: string,
+  maxResults: number,
+  signal?: AbortSignal,
+): Promise<WebSearchResult[]> {
+  throwIfAborted(signal);
   const chromePath = findChromePath();
   if (!chromePath) {
     throw new Error(
@@ -809,16 +919,17 @@ async function browserProfileSearch(query: string, maxResults: number): Promise<
 
   // Find a user profile to use
   const profile = await findBrowserProfile();
+  throwIfAborted(signal);
   if (!profile) {
     // Fall back to headless search without profile
-    return googleSearch(query, maxResults);
+    return googleSearch(query, maxResults, signal);
   }
 
   const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=${maxResults}&hl=en`;
+  const port = 9222 + Math.floor(Math.random() * 1000);
 
-  return new Promise((resolve, reject) => {
-    const port = 9222 + Math.floor(Math.random() * 1000); // Random port to avoid conflicts
-    const args = [
+  try {
+    const stdout = await executeChromeDom(chromePath, [
       `--remote-debugging-port=${port}`,
       '--no-first-run',
       '--no-default-browser-check',
@@ -830,61 +941,18 @@ async function browserProfileSearch(query: string, maxResults: number): Promise<
       '--headless=new',
       '--dump-dom',
       searchUrl,
-    ];
+    ], 30000, signal);
 
-    let stdout = '';
-    let killed = false;
+    const results = parseGoogleResultsFromDOM(stdout, maxResults);
+    const wasBlocked = stdout.includes('unusual traffic') ||
+      stdout.includes('captcha') ||
+      stdout.includes('g-recaptcha');
+    if (!wasBlocked && results.length > 0) return results;
+  } catch (error) {
+    rethrowAbort(error);
+  }
 
-    const proc = spawn(chromePath, args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 30000,
-    });
-
-    proc.stdout.on('data', (data: Buffer) => {
-      stdout += data.toString();
-      if (stdout.length > 500000) {
-        killed = true;
-        proc.kill('SIGTERM');
-      }
-    });
-
-    proc.stderr.resume();
-
-    proc.on('close', (code) => {
-      if (killed) {
-        const results = parseGoogleResultsFromDOM(stdout.slice(0, 500000), maxResults);
-        resolve(results.length > 0 ? results : []);
-        return;
-      }
-
-      if (code !== 0 && code !== null) {
-        // Profile search failed, fall back to regular google search
-        googleSearch(query, maxResults).then(resolve).catch(reject);
-        return;
-      }
-
-      const results = parseGoogleResultsFromDOM(stdout, maxResults);
-
-      // Check for CAPTCHA
-      if (stdout.includes('unusual traffic') || stdout.includes('captcha') || stdout.includes('g-recaptcha')) {
-        // Fall back to regular google search which has its own fallbacks
-        googleSearch(query, maxResults).then(resolve).catch(reject);
-        return;
-      }
-
-      if (results.length > 0) {
-        resolve(results);
-      } else {
-        // No results from profile search, try regular google search
-        googleSearch(query, maxResults).then(resolve).catch(reject);
-      }
-    });
-
-    proc.on('error', () => {
-      // Launch failed, fall back to regular google search
-      googleSearch(query, maxResults).then(resolve).catch(reject);
-    });
-  });
+  return googleSearch(query, maxResults, signal);
 }
 
 /**
@@ -959,11 +1027,16 @@ async function findBrowserProfile(): Promise<{ userDataDir: string; profileDirec
 /**
  * Fetch and extract content from a URL
  */
-export async function fetchUrl(url: string, options: { selector?: string; maxLength?: number } = {}): Promise<string> {
+export async function fetchUrl(url: string, options: FetchUrlOptions = {}): Promise<string> {
+  throwIfAborted(options.signal);
   const maxLength = options.maxLength ?? 30000;
 
   try {
-    const content = await simpleFetch(url, { timeout: 15000, maxLength: maxLength * 2 });
+    const content = await simpleFetch(url, {
+      timeout: options.timeoutMs ?? 15000,
+      maxLength: maxLength * 2,
+      signal: options.signal,
+    });
 
     // Check if it's JSON
     if (content.trim().startsWith('{') || content.trim().startsWith('[')) {
@@ -979,6 +1052,7 @@ export async function fetchUrl(url: string, options: { selector?: string; maxLen
     const text = htmlToText(content);
     return text.slice(0, maxLength);
   } catch (error) {
+    rethrowAbort(error);
     throw new Error(`Failed to fetch URL: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
@@ -1004,13 +1078,18 @@ export interface PackageInfo {
 /**
  * Get npm package information from the registry
  */
-export async function getNpmInfo(packageName: string, version?: string): Promise<PackageInfo> {
+export async function getNpmInfo(
+  packageName: string,
+  version?: string,
+  signal?: AbortSignal,
+): Promise<PackageInfo> {
+  throwIfAborted(signal);
   try {
     const url = version
       ? `https://registry.npmjs.org/${encodeURIComponent(packageName)}/${encodeURIComponent(version)}`
       : `https://registry.npmjs.org/${encodeURIComponent(packageName)}/latest`;
 
-    const content = await simpleFetch(url, { timeout: 10000 });
+    const content = await simpleFetch(url, { timeout: 10000, signal });
     const data = JSON.parse(content);
 
     return {
@@ -1026,6 +1105,7 @@ export async function getNpmInfo(packageName: string, version?: string): Promise
       authors: data.maintainers?.map((m: any) => m.name || m.email)
     };
   } catch (error) {
+    rethrowAbort(error);
     throw new Error(`Failed to get npm info for ${packageName}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
@@ -1033,13 +1113,18 @@ export async function getNpmInfo(packageName: string, version?: string): Promise
 /**
  * Get PyPI package information (Python)
  */
-export async function getPyPIInfo(packageName: string, version?: string): Promise<PackageInfo> {
+export async function getPyPIInfo(
+  packageName: string,
+  version?: string,
+  signal?: AbortSignal,
+): Promise<PackageInfo> {
+  throwIfAborted(signal);
   try {
     const url = version
       ? `https://pypi.org/pypi/${encodeURIComponent(packageName)}/${encodeURIComponent(version)}/json`
       : `https://pypi.org/pypi/${encodeURIComponent(packageName)}/json`;
 
-    const content = await simpleFetch(url, { timeout: 10000 });
+    const content = await simpleFetch(url, { timeout: 10000, signal });
     const data = JSON.parse(content);
     const info = data.info;
 
@@ -1060,6 +1145,7 @@ export async function getPyPIInfo(packageName: string, version?: string): Promis
       authors: info.author ? [info.author] : []
     };
   } catch (error) {
+    rethrowAbort(error);
     throw new Error(`Failed to get PyPI info for ${packageName}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
@@ -1067,10 +1153,15 @@ export async function getPyPIInfo(packageName: string, version?: string): Promis
 /**
  * Get Cargo package information (Rust - crates.io)
  */
-export async function getCargoInfo(packageName: string, version?: string): Promise<PackageInfo> {
+export async function getCargoInfo(
+  packageName: string,
+  version?: string,
+  signal?: AbortSignal,
+): Promise<PackageInfo> {
+  throwIfAborted(signal);
   try {
     const url = `https://crates.io/api/v1/crates/${encodeURIComponent(packageName)}`;
-    const content = await simpleFetch(url, { timeout: 10000 });
+    const content = await simpleFetch(url, { timeout: 10000, signal });
     const data = JSON.parse(content);
     const crate = data.crate;
     const ver = version
@@ -1089,6 +1180,7 @@ export async function getCargoInfo(packageName: string, version?: string): Promi
       authors: ver?.published_by?.name ? [ver.published_by.name] : []
     };
   } catch (error) {
+    rethrowAbort(error);
     throw new Error(`Failed to get Cargo info for ${packageName}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
@@ -1096,13 +1188,18 @@ export async function getCargoInfo(packageName: string, version?: string): Promi
 /**
  * Get RubyGems package information (Ruby)
  */
-export async function getRubyGemsInfo(packageName: string, version?: string): Promise<PackageInfo> {
+export async function getRubyGemsInfo(
+  packageName: string,
+  version?: string,
+  signal?: AbortSignal,
+): Promise<PackageInfo> {
+  throwIfAborted(signal);
   try {
     const url = version
       ? `https://rubygems.org/api/v1/versions/${encodeURIComponent(packageName)}.json`
       : `https://rubygems.org/api/v1/gems/${encodeURIComponent(packageName)}.json`;
 
-    const content = await simpleFetch(url, { timeout: 10000 });
+    const content = await simpleFetch(url, { timeout: 10000, signal });
     const data = JSON.parse(content);
 
     // If fetching specific version, it returns an array
@@ -1122,6 +1219,7 @@ export async function getRubyGemsInfo(packageName: string, version?: string): Pr
       authors: gem.authors ? [gem.authors] : []
     };
   } catch (error) {
+    rethrowAbort(error);
     throw new Error(`Failed to get RubyGems info for ${packageName}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
@@ -1129,11 +1227,16 @@ export async function getRubyGemsInfo(packageName: string, version?: string): Pr
 /**
  * Get Go module information (pkg.go.dev)
  */
-export async function getGoModuleInfo(modulePath: string, _version?: string): Promise<PackageInfo> {
+export async function getGoModuleInfo(
+  modulePath: string,
+  _version?: string,
+  signal?: AbortSignal,
+): Promise<PackageInfo> {
+  throwIfAborted(signal);
   try {
     // Go proxy API
     const url = `https://proxy.golang.org/${encodeURIComponent(modulePath)}/@latest`;
-    const content = await simpleFetch(url, { timeout: 10000 });
+    const content = await simpleFetch(url, { timeout: 10000, signal });
     const data = JSON.parse(content);
 
     return {
@@ -1148,6 +1251,7 @@ export async function getGoModuleInfo(modulePath: string, _version?: string): Pr
       authors: []
     };
   } catch (error) {
+    rethrowAbort(error);
     throw new Error(`Failed to get Go module info for ${modulePath}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
@@ -1157,24 +1261,25 @@ export async function getGoModuleInfo(modulePath: string, _version?: string): Pr
  */
 export async function getPackageInfo(
   packageName: string,
-  options: { registry?: PackageRegistry; version?: string } = {}
+  options: { registry?: PackageRegistry; version?: string; signal?: AbortSignal } = {}
 ): Promise<PackageInfo> {
+  throwIfAborted(options.signal);
   const registry = options.registry || detectRegistry(packageName);
 
   switch (registry) {
     case 'npm':
-      return getNpmInfo(packageName, options.version);
+      return getNpmInfo(packageName, options.version, options.signal);
     case 'pypi':
-      return getPyPIInfo(packageName, options.version);
+      return getPyPIInfo(packageName, options.version, options.signal);
     case 'crates':
-      return getCargoInfo(packageName, options.version);
+      return getCargoInfo(packageName, options.version, options.signal);
     case 'rubygems':
-      return getRubyGemsInfo(packageName, options.version);
+      return getRubyGemsInfo(packageName, options.version, options.signal);
     case 'go':
-      return getGoModuleInfo(packageName, options.version);
+      return getGoModuleInfo(packageName, options.version, options.signal);
     default:
       // Default to npm
-      return getNpmInfo(packageName, options.version);
+      return getNpmInfo(packageName, options.version, options.signal);
   }
 }
 

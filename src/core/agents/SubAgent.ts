@@ -8,7 +8,14 @@ import chalk from 'chalk';
 import { AgentDefinition } from './AgentRegistry.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
 import { ConversationManager } from '../conversationManager.js';
-import { ToolManager, DEFAULT_TOOL_DEFINITIONS, GOAL_TOOL_DEFINITIONS, type ToolDefinition } from '../toolManager.js';
+import {
+    ToolManager,
+    DEFAULT_TOOL_DEFINITIONS,
+    GOAL_TOOL_DEFINITIONS,
+    type ToolAuthorizationOptions,
+    type ToolDefinition,
+    type ToolManagerOptions,
+} from '../toolManager.js';
 import { ToolFilter } from '../toolFilter.js';
 import { ActionExecutor } from '../actionExecutor.js';
 import { AgentDelegator } from './AgentDelegator.js';
@@ -29,6 +36,10 @@ export interface SubAgentOptions {
     maxConcurrency?: number;
     /** Active CLI config for feature-gated tools inherited by sub-agents. */
     featureConfig?: LoadedConfig;
+    /** Parent authorization policy and hooks for nested tool calls. */
+    authorization?: ToolAuthorizationOptions;
+    /** Parent confirmation seam for nested permission prompts. */
+    confirmApproval?: ToolManagerOptions['confirmApproval'];
 }
 
 /** Tool definitions for delegation (added only if sub-agent can delegate further) */
@@ -105,6 +116,8 @@ export class SubAgent {
                 currentDepth: options.depth,
                 maxDepth: options.maxDepth,
                 featureConfig: options.featureConfig,
+                authorization: options.authorization,
+                confirmApproval: options.confirmApproval,
             });
         }
 
@@ -119,20 +132,21 @@ export class SubAgent {
             executor: async (action, context) => {
                 // Handle delegation actions
                 if (action.type === 'delegate_task' && this.delegator) {
-                    return this.delegator.delegateTask(
+                    return this.delegator.delegateTaskForTool(
                         (action as any).agent_name,
                         (action as any).task
                     );
                 }
                 if (action.type === 'delegate_parallel' && this.delegator) {
-                    return this.delegator.delegateParallel((action as any).tasks);
+                    return this.delegator.delegateParallelForTool((action as any).tasks);
                 }
-                return this.actionExecutor.execute(action, context);
+                return this.actionExecutor.executeForTool(action, context);
             },
-            confirmApproval: async () => true, // Sub-agents auto-approve (inherit from main agent in future)
+            confirmApproval: options.confirmApproval ?? (async () => false),
             definitions,
             clientContext: options.clientContext,
-            maxConcurrency: scaledConcurrency
+            maxConcurrency: scaledConcurrency,
+            authorization: options.authorization,
         });
 
         // Build enhanced system prompt with tool signatures

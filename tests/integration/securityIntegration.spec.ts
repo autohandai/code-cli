@@ -5,8 +5,9 @@
  *
  * Security Integration Tests - Verifies security layers work together
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PermissionManager, DEFAULT_SECURITY_BLACKLIST } from '../../src/permissions/PermissionManager.js';
+import { ToolManager } from '../../src/core/toolManager.js';
 import { FileActionManager, FILE_LIMITS } from '../../src/actions/filesystem.js';
 import { GIT_SAFETY } from '../../src/actions/git.js';
 import fs from 'fs-extra';
@@ -149,6 +150,34 @@ describe('Security Integration', () => {
 
       expect(result.allowed).toBe(false);
       expect(result.reason).toBe('blacklisted');
+    });
+
+    it('blocks a blacklisted command through the real ToolManager execution path', async () => {
+      const unrestrictedManager = new PermissionManager({
+        settings: { mode: 'unrestricted' },
+        workspaceRoot: testDir,
+      });
+      const toolStart = vi.fn();
+      const executor = vi.fn(async () => {
+        toolStart();
+        return 'should not run';
+      });
+      const confirmApproval = vi.fn().mockResolvedValue({ decision: 'allow_once' });
+      const toolManager = new ToolManager({
+        executor,
+        confirmApproval,
+        definitions: [{ name: 'run_command', description: 'run', requiresApproval: true }],
+        authorization: { permissionManager: unrestrictedManager },
+      });
+
+      const [result] = await toolManager.execute([
+        { tool: 'run_command', args: { command: 'printenv' } },
+      ]);
+
+      expect(result.success).toBe(false);
+      expect(confirmApproval).not.toHaveBeenCalled();
+      expect(executor).not.toHaveBeenCalled();
+      expect(toolStart).not.toHaveBeenCalled();
     });
   });
 

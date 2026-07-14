@@ -8,6 +8,20 @@ import type { SpawnOptions } from 'node:child_process';
 import { isAbsolute, join } from 'node:path';
 import { buildAutohandChildProcessEnv } from '../utils/childProcessEnv.js';
 
+const DEFAULT_KILL_GRACE_PERIOD_MS = 1_000;
+
+export class CommandAbortedError extends Error {
+  readonly stdout: string;
+  readonly stderr: string;
+
+  constructor(stdout = '', stderr = '') {
+    super('Command execution aborted');
+    this.name = 'AbortError';
+    this.stdout = stdout;
+    this.stderr = stderr;
+  }
+}
+
 export interface CommandResult {
   stdout: string;
   stderr: string;
@@ -35,6 +49,10 @@ export interface RunCommandOptions {
   onStderr?: (chunk: string) => void;
   /** Run command with inherited stdio for interactive prompts (passwords, etc.) */
   interactive?: boolean;
+  /** Cancel a foreground command. Already-started detached commands ignore later aborts. */
+  signal?: AbortSignal;
+  /** Grace period between SIGTERM and SIGKILL for foreground termination. */
+  killGracePeriodMs?: number;
 }
 
 /**
@@ -54,6 +72,9 @@ export function runCommand(
 ): Promise<CommandResult> {
   if (!cmd || typeof cmd !== 'string') {
     return Promise.reject(new Error('Command is required and must be a string'));
+  }
+  if (options.signal?.aborted) {
+    return Promise.reject(new CommandAbortedError());
   }
 
   return new Promise((resolve, reject) => {
@@ -106,58 +127,103 @@ export function runCommand(
       return;
     }
 
-    // For interactive mode, output goes directly to terminal
-    // Just wait for the process to close
-    if (options.interactive) {
-      child.once('error', (error: NodeJS.ErrnoException) => {
-        if (error.code === 'ENOENT') {
-          reject(new Error(`Command not found: ${cmd}`));
-        } else {
-          reject(error);
-        }
-      });
-
-      child.once('close', (code, signal) => {
-        resolve({ stdout: '', stderr: '', code, signal });
-      });
-      return;
-    }
-
     let stdout = '';
     let stderr = '';
     let timeoutId: NodeJS.Timeout | undefined;
+    let forceKillId: NodeJS.Timeout | undefined;
+    let settled = false;
+    let terminationReason: 'abort' | 'timeout' | null = null;
+    const killGracePeriodMs = Math.max(0, options.killGracePeriodMs ?? DEFAULT_KILL_GRACE_PERIOD_MS);
+
+    const cleanup = (): void => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = undefined;
+      }
+      if (forceKillId) {
+        clearTimeout(forceKillId);
+        forceKillId = undefined;
+      }
+      options.signal?.removeEventListener('abort', handleAbort);
+    };
+
+    const finishWithError = (error: Error): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+
+    const finishWithResult = (result: CommandResult): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+
+    const terminate = (reason: 'abort' | 'timeout'): void => {
+      if (settled || terminationReason) return;
+      terminationReason = reason;
+      child.kill('SIGTERM');
+      forceKillId = setTimeout(() => {
+        if (!settled) {
+          child.kill('SIGKILL');
+        }
+      }, killGracePeriodMs);
+      forceKillId.unref?.();
+    };
+
+    function handleAbort(): void {
+      terminate('abort');
+    }
+
+    if (options.signal) {
+      options.signal.addEventListener('abort', handleAbort, { once: true });
+      if (options.signal.aborted) {
+        handleAbort();
+      }
+    }
 
     // Set up timeout if specified
     if (options.timeout && options.timeout > 0) {
       timeoutId = setTimeout(() => {
-        child.kill('SIGTERM');
+        terminate('timeout');
       }, options.timeout);
+      timeoutId.unref?.();
     }
 
-    child.stdout?.on('data', (chunk: Buffer | string) => {
-      const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-      stdout += text;
-      options.onStdout?.(text);
-    });
+    if (!options.interactive) {
+      child.stdout?.on('data', (chunk: Buffer | string) => {
+        const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+        stdout += text;
+        options.onStdout?.(text);
+      });
 
-    child.stderr?.on('data', (chunk: Buffer | string) => {
-      const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-      stderr += text;
-      options.onStderr?.(text);
-    });
+      child.stderr?.on('data', (chunk: Buffer | string) => {
+        const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+        stderr += text;
+        options.onStderr?.(text);
+      });
+    }
 
     child.once('error', (error: NodeJS.ErrnoException) => {
-      if (timeoutId) clearTimeout(timeoutId);
+      if (terminationReason === 'abort') {
+        finishWithError(new CommandAbortedError(stdout, stderr));
+        return;
+      }
       if (error.code === 'ENOENT') {
-        reject(new Error(`Command not found: ${cmd}`));
+        finishWithError(new Error(`Command not found: ${cmd}`));
       } else {
-        reject(error);
+        finishWithError(error);
       }
     });
 
     child.once('close', (code, signal) => {
-      if (timeoutId) clearTimeout(timeoutId);
-      resolve({ stdout, stderr, code, signal });
+      if (terminationReason === 'abort') {
+        finishWithError(new CommandAbortedError(stdout, stderr));
+        return;
+      }
+      finishWithResult({ stdout, stderr, code, signal });
     });
   });
 }

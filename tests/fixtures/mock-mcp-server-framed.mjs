@@ -4,7 +4,16 @@
  * This matches the MCP/LSP-style transport used by modern MCP servers.
  */
 
+import { appendFileSync } from 'node:fs';
+
 let inputBuffer = Buffer.alloc(0);
+
+function record(event) {
+  if (!process.env.MCP_TEST_EVENT_LOG) return;
+  appendFileSync(process.env.MCP_TEST_EVENT_LOG, `${JSON.stringify(event)}\n`);
+}
+
+record({ event: 'started', pid: process.pid });
 
 function send(obj) {
   const json = JSON.stringify(obj);
@@ -13,20 +22,27 @@ function send(obj) {
 }
 
 function handleRequest(msg) {
-  // Ignore notifications (no id)
-  if (msg.id === undefined) return;
+  if (msg.id === undefined) {
+    if (msg.method === 'notifications/cancelled') {
+      record({ event: 'cancelled', ...msg.params });
+    }
+    return;
+  }
 
   switch (msg.method) {
     case 'initialize':
-      send({
-        jsonrpc: '2.0',
-        id: msg.id,
-        result: {
-          protocolVersion: '2024-11-05',
-          capabilities: { tools: {} },
-          serverInfo: { name: 'mock-mcp-server-framed', version: '1.0.0' },
-        },
-      });
+      record({ event: 'initialize_received', pid: process.pid });
+      setTimeout(() => {
+        send({
+          jsonrpc: '2.0',
+          id: msg.id,
+          result: {
+            protocolVersion: '2024-11-05',
+            capabilities: { tools: {} },
+            serverInfo: { name: 'mock-mcp-server-framed', version: '1.0.0' },
+          },
+        });
+      }, Number(process.env.MCP_TEST_INITIALIZE_DELAY_MS ?? 0));
       break;
 
     case 'tools/list':
@@ -46,12 +62,37 @@ function handleRequest(msg) {
                 required: ['message'],
               },
             },
+            {
+              name: 'slow_test',
+              description: 'Returns after a delay, even after cancellation',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  delayMs: { type: 'number' },
+                },
+              },
+            },
           ],
         },
       });
       break;
 
     case 'tools/call':
+      if (msg.params?.name === 'slow_test') {
+        record({ event: 'request', requestId: msg.id });
+        setTimeout(() => {
+          record({ event: 'late_response', requestId: msg.id });
+          send({
+            jsonrpc: '2.0',
+            id: msg.id,
+            result: {
+              content: [{ type: 'text', text: 'Slow result' }],
+            },
+          });
+        }, msg.params?.arguments?.delayMs ?? 150);
+        break;
+      }
+
       if (msg.params?.name === 'echo_test') {
         if (
           msg.params?.arguments

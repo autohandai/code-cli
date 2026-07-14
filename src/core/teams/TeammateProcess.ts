@@ -19,6 +19,16 @@ interface TeammateSpawnOptions {
 
 type MessageHandler = (msg: { method: string; params: Record<string, unknown> }) => void;
 
+export interface TeammateTerminationOptions {
+  gracefulTimeoutMs?: number;
+  termTimeoutMs?: number;
+  killTimeoutMs?: number;
+}
+
+const DEFAULT_GRACEFUL_TIMEOUT_MS = 750;
+const DEFAULT_TERM_TIMEOUT_MS = 750;
+const DEFAULT_KILL_TIMEOUT_MS = 250;
+
 /**
  * Manages spawning and communicating with a single autohand teammate child process.
  *
@@ -34,6 +44,7 @@ type MessageHandler = (msg: { method: string; params: Record<string, unknown> })
  */
 export class TeammateProcess {
   private child: ChildProcess | null = null;
+  private childClosed = false;
   private router = new MessageRouter();
   private _status: TeamMemberStatus = 'spawning';
   private readonly opts: TeammateSpawnOptions;
@@ -88,6 +99,7 @@ export class TeammateProcess {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, AUTOHAND_TEAMMATE: '1' },
     });
+    this.childClosed = false;
 
     if (this.child.stdout) {
       this.router.onMessage(this.child.stdout, onMessage);
@@ -115,13 +127,16 @@ export class TeammateProcess {
       this._status = 'shutdown';
       onExit(code);
     });
+    this.child.on('close', () => {
+      this.childClosed = true;
+    });
   }
 
   /**
    * Send an arbitrary JSON-RPC message to the child process via stdin.
    */
   send(msg: { method: string; params: Record<string, unknown> }): void {
-    if (this.child?.stdin && !this.child.killed) {
+    if (this.child?.stdin && this.isChildRunning(this.child)) {
       this.router.send(this.child.stdin, msg);
     }
   }
@@ -158,13 +173,54 @@ export class TeammateProcess {
     this.send({ method: 'team.shutdown', params: { reason } });
   }
 
-  /**
-   * Force-terminate the child process with SIGTERM.
-   */
-  kill(): void {
-    if (this.child && !this.child.killed) {
-      this.child.kill('SIGTERM');
+  kill(signal: NodeJS.Signals = 'SIGTERM'): void {
+    if (this.child && this.isChildRunning(this.child)) {
+      this.child.kill(signal);
     }
+  }
+
+  /** Wait briefly for graceful exit, then escalate to SIGTERM and SIGKILL. */
+  async terminate(options: TeammateTerminationOptions = {}): Promise<void> {
+    const child = this.child;
+    if (!child || this.childClosed) return;
+
+    const gracefulTimeoutMs = options.gracefulTimeoutMs ?? DEFAULT_GRACEFUL_TIMEOUT_MS;
+    const termTimeoutMs = options.termTimeoutMs ?? DEFAULT_TERM_TIMEOUT_MS;
+    const killTimeoutMs = options.killTimeoutMs ?? DEFAULT_KILL_TIMEOUT_MS;
+
+    if (await this.waitForChildExit(child, gracefulTimeoutMs)) return;
+    this.kill('SIGTERM');
+    if (await this.waitForChildExit(child, termTimeoutMs)) return;
+    this.kill('SIGKILL');
+    await this.waitForChildExit(child, killTimeoutMs);
+  }
+
+  private isChildRunning(child: ChildProcess): boolean {
+    return child.exitCode === null && child.signalCode === null;
+  }
+
+  private waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+    if (this.childClosed) return Promise.resolve(true);
+
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (exited: boolean): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        child.off('close', onClose);
+        resolve(exited);
+      };
+      const onClose = (): void => {
+        this.childClosed = true;
+        finish(true);
+      };
+      const timeout = setTimeout(() => finish(false), timeoutMs);
+      timeout.unref?.();
+      child.once('close', onClose);
+
+      if (this.childClosed) finish(true);
+    });
   }
 
   /**

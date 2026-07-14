@@ -65,16 +65,33 @@ import { webSearch, fetchUrl, getPackageInfo, formatSearchResults, formatPackage
 import { webRepo, formatRepoInfo, formatRepoDir } from '../actions/webRepo.js';
 import { projectTracker } from '../actions/projectTracker.js';
 import { PermissionManager } from '../permissions/PermissionManager.js';
-import type { PermissionContext } from '../permissions/types.js';
+import {
+  getPermissionPolicyDisposition,
+  type PermissionContext,
+} from '../permissions/types.js';
 import {
   normalizeYoloInput,
   parseYoloPattern,
   isToolAllowedByYolo,
 } from '../permissions/yoloMode.js';
 import type { ProjectManager } from '../session/ProjectManager.js';
-import type { AgentAction, AgentRuntime, ExplorationEvent, ToolExecutionContext, ToolOutputChunk } from '../types.js';
+import type {
+  AgentAction,
+  AgentRuntime,
+  ExplorationEvent,
+  ToolActionOutcome,
+  ToolExecutionContext,
+  ToolFailureKind,
+  ToolOutputChunk,
+} from '../types.js';
 import type { FileActionManager } from '../actions/filesystem.js';
-import type { ToolDefinition } from './toolManager.js';
+import {
+  buildToolPermissionContexts,
+  DEFAULT_TOOL_DEFINITIONS,
+  shouldPromptForToolPermission,
+  type ToolDefinition,
+  type ToolParameter,
+} from './toolManager.js';
 import type { FFFSearchProvider } from '../search/fffSearchProvider.js';
 import { ToolsRegistry, createToolsRegistry, type MetaToolDefinition } from './toolsRegistry.js';
 import { MetaToolService } from './metaTools/MetaToolService.js';
@@ -150,6 +167,12 @@ export interface ActionExecutorOptions {
 }
 
 type AgentExecutorDeps = ActionExecutorOptions;
+type ToolFailureOutcome = Extract<ToolActionOutcome, { success: false }>;
+
+interface ToolOutcomeCapture {
+  failure?: ToolFailureOutcome;
+}
+
 const GOAL_TOOL_TYPES = new Set<string>([
   'get_goal',
   'create_goal',
@@ -302,20 +325,377 @@ export class ActionExecutor {
     }
   }
 
+  /**
+   * Build the permission context for an action. Dynamic meta-tools are expanded
+   * to the exact shell command that will execute so blacklist checks cannot be
+   * bypassed by authorizing only the friendly tool name.
+   */
+  getPermissionContext(action: AgentAction): PermissionContext {
+    return this.getPermissionContexts(action)[0];
+  }
+
+  getPermissionContexts(action: AgentAction): PermissionContext[] {
+    if (!action || typeof action.type !== 'string' || action.type.length === 0) {
+      throw new Error('Cannot authorize an action without a valid tool type.');
+    }
+
+    const values = action as unknown as Record<string, unknown>;
+    const metaTool = this.toolsRegistry.getMetaTool(action.type);
+    if (metaTool) {
+      return [{
+        tool: 'run_command',
+        command: this.buildMetaToolCommand(metaTool, values),
+        description: `Meta-tool ${metaTool.name}: ${metaTool.description}`,
+      }];
+    }
+
+    return buildToolPermissionContexts(action);
+  }
+
+  private async authorizeDirectAction(
+    action: AgentAction
+  ): Promise<{ allowed: boolean; approvalHandled: boolean; output?: string }> {
+    let permissionContexts: PermissionContext[];
+    let permissionContext: PermissionContext;
+    let dispositions: Array<ReturnType<typeof getPermissionPolicyDisposition>>;
+    try {
+      permissionContexts = this.getPermissionContexts(action);
+      permissionContext = permissionContexts[0];
+    } catch (error) {
+      return {
+        allowed: false,
+        approvalHandled: false,
+        output: `Error: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+
+    let permissionReason = 'unknown';
+    try {
+      const decisions = permissionContexts.map(context => this.permissionManager.checkPermission(context));
+      const deniedIndex = decisions.findIndex(decision => getPermissionPolicyDisposition(decision) === 'deny');
+      if (deniedIndex !== -1) {
+        permissionReason = typeof decisions[deniedIndex]?.reason === 'string'
+          ? decisions[deniedIndex].reason
+          : 'unknown';
+      }
+      dispositions = decisions.map(decision => getPermissionPolicyDisposition(decision));
+    } catch (error) {
+      return {
+        allowed: false,
+        approvalHandled: false,
+        output: `Blocked: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+
+    if (dispositions.includes('deny')) {
+      return {
+        allowed: false,
+        approvalHandled: false,
+        output: `Blocked: Permission policy denied ${action.type} (${permissionReason}).`,
+      };
+    }
+    if (dispositions.every(disposition => disposition === 'allow')) {
+      return { allowed: true, approvalHandled: true };
+    }
+
+    const promptIndex = dispositions.indexOf('prompt');
+    permissionContext = promptIndex === -1 ? permissionContexts[0] : permissionContexts[promptIndex];
+
+    const metaTool = this.toolsRegistry.getMetaTool(action.type);
+    if (action.type === 'write_file' || metaTool) {
+      // Preserve the richer legacy preview/permission-hook flows for direct
+      // callers. Canonical ToolManager calls bypass these with approvalHandled.
+      return { allowed: true, approvalHandled: false };
+    }
+    const definition = this.getRegisteredTools().find(tool => tool.name === action.type)
+      ?? DEFAULT_TOOL_DEFINITIONS.find(tool => tool.name === action.type);
+    const requiresApproval = shouldPromptForToolPermission(
+      action.type,
+      definition?.requiresApproval === true,
+      permissionContext.tool,
+    );
+    if (!requiresApproval) {
+      return { allowed: true, approvalHandled: true };
+    }
+
+    const commandArgs = permissionContext.args?.join(' ') ?? '';
+    const fullCommand = permissionContext.command
+      ? (commandArgs ? `${permissionContext.command} ${commandArgs}` : permissionContext.command)
+      : undefined;
+    const message = definition?.approvalMessage ?? `Allow tool ${action.type}?`;
+    const confirmed = await this.confirmDangerousAction(message, {
+      tool: permissionContext.tool,
+      path: permissionContext.path,
+      command: fullCommand,
+    });
+    if (!confirmed) {
+      return {
+        allowed: false,
+        approvalHandled: false,
+        output: `Skipped ${action.type}.`,
+      };
+    }
+    return { allowed: true, approvalHandled: true };
+  }
+
+  private validateToolAction(action: AgentAction): ToolFailureOutcome | undefined {
+    if (!action || typeof action.type !== 'string' || action.type.length === 0) {
+      return {
+        success: false,
+        kind: 'validation',
+        error: 'Unsupported action type',
+        output: 'Error: Unsupported action type',
+      };
+    }
+
+    const values = action as unknown as Record<string, unknown>;
+    if ((action.type === 'run_command' || action.type === 'shell')
+      && (typeof values.command !== 'string' || values.command.length === 0)) {
+      const error = `${action.type} requires a "command" argument (string)`;
+      return {
+        success: false,
+        kind: 'validation',
+        error,
+        output: `Error: ${error}`,
+      };
+    }
+
+    const metaTool = this.toolsRegistry.getMetaTool(action.type);
+    const registeredDefinition = this.getRegisteredTools().find(tool => tool.name === action.type)
+      ?? DEFAULT_TOOL_DEFINITIONS.find(tool => tool.name === action.type);
+    const parameters = metaTool
+      ? metaTool.parameters as unknown as ToolDefinition['parameters']
+      : registeredDefinition?.parameters;
+    if (!parameters) {
+      return undefined;
+    }
+
+    for (const required of parameters.required ?? []) {
+      const value = values[required];
+      if (value === undefined || value === null || value === '') {
+        const error = `${action.type} requires a "${required}" argument.`;
+        return {
+          success: false,
+          kind: 'validation',
+          error,
+          output: `Error: ${error}`,
+        };
+      }
+    }
+
+    for (const [name, schema] of Object.entries(parameters.properties)) {
+      if (values[name] !== undefined && !this.matchesToolParameter(values[name], schema)) {
+        const error = `${action.type} requires "${name}" to be ${schema.type}.`;
+        return {
+          success: false,
+          kind: 'validation',
+          error,
+          output: `Error: ${error}`,
+        };
+      }
+    }
+    return undefined;
+  }
+
+  private matchesToolParameter(value: unknown, schema: ToolParameter): boolean {
+    if (schema.enum && (typeof value !== 'string' || !schema.enum.includes(value))) {
+      return false;
+    }
+    switch (schema.type) {
+      case 'string':
+        return typeof value === 'string';
+      case 'number':
+        return typeof value === 'number' && Number.isFinite(value);
+      case 'integer':
+        return typeof value === 'number' && Number.isInteger(value);
+      case 'boolean':
+        return typeof value === 'boolean';
+      case 'array':
+        return Array.isArray(value) && (schema.items === undefined
+          || value.every(item => this.matchesToolArrayItem(item, schema.items!)));
+      case 'object':
+        return value !== null && typeof value === 'object' && !Array.isArray(value);
+      default:
+        return false;
+    }
+  }
+
+  private matchesToolArrayItem(
+    value: unknown,
+    schema: NonNullable<ToolParameter['items']>,
+  ): boolean {
+    if (schema.enum && (typeof value !== 'string' || !schema.enum.includes(value))) {
+      return false;
+    }
+    if (schema.type === 'object') {
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        return false;
+      }
+      const record = value as Record<string, unknown>;
+      const objectSchema = schema as {
+        properties?: Record<string, ToolParameter>;
+        required?: string[];
+      };
+      if ((objectSchema.required ?? []).some(name => record[name] === undefined || record[name] === null)) {
+        return false;
+      }
+      return Object.entries(objectSchema.properties ?? {}).every(([name, property]) =>
+        record[name] === undefined || this.matchesToolParameter(record[name], property)
+      );
+    }
+    return this.matchesToolParameter(value, {
+      type: schema.type,
+      description: schema.description ?? '',
+      enum: schema.enum,
+    });
+  }
+
+  private recordToolFailure(
+    capture: ToolOutcomeCapture | undefined,
+    kind: ToolFailureKind,
+    error: string,
+    output?: string,
+    exitCode?: number | null,
+  ): string {
+    const normalizedError = error.trim() || output?.trim() || 'Tool execution failed.';
+    if (capture && !capture.failure) {
+      capture.failure = {
+        success: false,
+        kind,
+        error: normalizedError,
+        ...(output === undefined ? {} : { output }),
+        ...(exitCode === undefined ? {} : { exitCode }),
+      };
+    }
+    return output ?? normalizedError;
+  }
+
+  private normalizeToolError(error: unknown): string {
+    if (error instanceof Error && error.message.trim().length > 0) {
+      return error.message;
+    }
+    const message = String(error).trim();
+    return message || 'Tool execution failed.';
+  }
+
+  private isAbortFailure(error: unknown, signal?: AbortSignal): boolean {
+    return signal?.aborted === true
+      || (error instanceof Error && error.name === 'AbortError');
+  }
+
+  private createAbortedOutcome(error?: unknown): ToolActionOutcome {
+    const details = error !== null && typeof error === 'object'
+      ? error as Record<string, unknown>
+      : undefined;
+    const stdout = typeof details?.stdout === 'string' ? details.stdout : '';
+    const output = typeof details?.output === 'string' ? details.output : '';
+    const stderr = typeof details?.stderr === 'string' ? details.stderr : '';
+    const partialOutput = [stdout || output, stderr].filter(Boolean).join('\n') || undefined;
+
+    return {
+      success: false,
+      kind: 'aborted',
+      error: error === undefined ? 'Tool execution aborted.' : this.normalizeToolError(error),
+      ...(partialOutput === undefined ? {} : { output: partialOutput }),
+    };
+  }
+
+  private rethrowAbortFailure(error: unknown, signal?: AbortSignal): void {
+    if (this.isAbortFailure(error, signal)) {
+      throw error;
+    }
+  }
+
   async execute(action: AgentAction, context?: ToolExecutionContext): Promise<string | undefined> {
+    return this.executeLegacy(action, context);
+  }
+
+  async executeForTool(
+    action: AgentAction,
+    context?: ToolExecutionContext,
+  ): Promise<ToolActionOutcome> {
+    if (context?.signal?.aborted) {
+      return this.createAbortedOutcome();
+    }
+
+    const validationFailure = this.validateToolAction(action);
+    if (validationFailure) {
+      return validationFailure;
+    }
+
+    const capture: ToolOutcomeCapture = {};
+    try {
+      const output = await this.executeLegacy(action, context, capture);
+      if (context?.signal?.aborted) {
+        return this.createAbortedOutcome();
+      }
+      if (capture.failure) {
+        return capture.failure;
+      }
+      return output === undefined ? { success: true } : { success: true, output };
+    } catch (error) {
+      if (this.isAbortFailure(error, context?.signal)) {
+        return this.createAbortedOutcome(error);
+      }
+      return {
+        success: false,
+        kind: 'operational',
+        error: this.normalizeToolError(error),
+      };
+    }
+  }
+
+  private async executeLegacy(
+    action: AgentAction,
+    context?: ToolExecutionContext,
+    capture?: ToolOutcomeCapture,
+  ): Promise<string | undefined> {
+    if (!action || typeof action.type !== 'string' || action.type.length === 0) {
+      throw new Error('Unsupported action type');
+    }
+    if ((action.type === 'rename_path' || action.type === 'copy_path')
+      && (typeof action.from !== 'string' || typeof action.to !== 'string')) {
+      throw new Error(`${action.type} requires "from" and "to" arguments.`);
+    }
     if (GOAL_TOOL_TYPES.has(action.type) && !isGoalFeatureEnabled(this.runtime.config)) {
-      return GOAL_FEATURE_DISABLED_MESSAGE;
+      return this.recordToolFailure(
+        capture,
+        'validation',
+        GOAL_FEATURE_DISABLED_MESSAGE,
+        GOAL_FEATURE_DISABLED_MESSAGE,
+      );
     }
 
     if (this.runtime.options.dryRun && !['fff_grep', 'fff_find', 'find', 'search', 'search_with_context', 'semantic_search', 'glob', 'plan'].includes(action.type)) {
-      return 'Dry-run mode: skipped mutation';
+      return this.recordToolFailure(
+        capture,
+        'authorization',
+        'Dry-run mode skipped the mutation.',
+        'Dry-run mode: skipped mutation',
+      );
+    }
+
+    if (!context?.approvalHandled) {
+      const authorization = await this.authorizeDirectAction(action);
+      if (!authorization.allowed) {
+        const output = authorization.output ?? `Blocked: Authorization failed for ${action.type}.`;
+        return this.recordToolFailure(capture, 'authorization', output, output);
+      }
+      if (authorization.approvalHandled) {
+        context = { ...context, approvalHandled: true };
+      }
     }
 
     switch (action.type) {
       case 'plan': {
         const notes = action.notes ?? '';
         if (!notes) {
-          return 'No plan notes provided';
+          return this.recordToolFailure(
+            capture,
+            'validation',
+            'No plan notes provided',
+            'No plan notes provided',
+          );
         }
 
         const storage = new PlanFileStorage();
@@ -561,61 +941,61 @@ export class ActionExecutor {
         let resultOutput: string | null = null;
 
         if (!exists) {
-          // NEW FILE CREATION - check permission system
-          const permContext: PermissionContext = {
-            tool: 'write_file',
-            path: action.path
-          };
-
-          const decision = this.permissionManager.checkPermission(permContext);
-
-          if (decision.reason === 'blacklisted' || decision.reason === 'mode_restricted') {
-            // Explicitly denied
-            return `Blocked: Cannot create ${action.path} (${decision.reason})`;
-          }
-
-          if (decision.allowed) {
-            // Whitelisted or already approved in this session - proceed
+          if (context?.approvalHandled) {
             console.log(chalk.cyan(`\n✨ Creating: ${action.path}`));
           } else {
-            // Check permission hooks first
-            const hookResult = await this.checkPermissionHook({
+            // Legacy direct callers retain the richer new-file preview flow.
+            const permContext: PermissionContext = {
               tool: 'write_file',
-              path: action.path,
-              args: { content: newContent }
-            });
+              path: action.path
+            };
+            const decision = this.permissionManager.checkPermission(permContext);
 
-            if (hookResult.blocked) {
-              return `Blocked: ${hookResult.reason}`;
+            if (getPermissionPolicyDisposition(decision) === 'deny') {
+              const output = `Blocked: Cannot create ${action.path} (${decision.reason})`;
+              return this.recordToolFailure(capture, 'authorization', output, output);
             }
 
-            if (hookResult.allowed !== undefined) {
-              // Hook made a decision
-              if (hookResult.allowed) {
-                console.log(chalk.cyan(`\n✨ Creating: ${action.path}`));
-                await this.permissionManager.recordDecision(permContext, true);
-              } else {
-                await this.permissionManager.recordDecision(permContext, false);
-                return `Denied: ${hookResult.reason}`;
-              }
+            if (decision.allowed) {
+              console.log(chalk.cyan(`\n✨ Creating: ${action.path}`));
             } else {
-              // Needs user approval - show preview and ask
-              console.log(chalk.cyan(`\n✨ Creating new file: ${action.path}`));
-              const preview = newContent.length > 500
-                ? newContent.substring(0, 500) + '\n... (truncated)'
-                : newContent;
-              console.log(chalk.gray(preview));
+              const hookResult = await this.checkPermissionHook({
+                tool: 'write_file',
+                path: action.path,
+                args: { content: newContent }
+              });
 
-              const confirmed = await this.confirmDangerousAction(
-                `Create new file ${action.path}?`,
-                { tool: 'write_file', path: action.path }
-              );
+              if (hookResult.blocked) {
+                const output = `Blocked: ${hookResult.reason}`;
+                return this.recordToolFailure(capture, 'authorization', output, output);
+              }
 
-              // Record decision and persist to config
-              await this.permissionManager.recordDecision(permContext, confirmed);
+              if (hookResult.allowed !== undefined) {
+                if (hookResult.allowed) {
+                  console.log(chalk.cyan(`\n✨ Creating: ${action.path}`));
+                  await this.permissionManager.recordDecision(permContext, true);
+                } else {
+                  await this.permissionManager.recordDecision(permContext, false);
+                  const output = `Denied: ${hookResult.reason}`;
+                  return this.recordToolFailure(capture, 'authorization', output, output);
+                }
+              } else {
+                console.log(chalk.cyan(`\n✨ Creating new file: ${action.path}`));
+                const preview = newContent.length > 500
+                  ? newContent.substring(0, 500) + '\n... (truncated)'
+                  : newContent;
+                console.log(chalk.gray(preview));
 
-              if (!confirmed) {
-                return `Skipped creating ${action.path}`;
+                const confirmed = await this.confirmDangerousAction(
+                  `Create new file ${action.path}?`,
+                  { tool: 'write_file', path: action.path }
+                );
+                await this.permissionManager.recordDecision(permContext, confirmed);
+
+                if (!confirmed) {
+                  const output = `Skipped creating ${action.path}`;
+                  return this.recordToolFailure(capture, 'authorization', output, output);
+                }
               }
             }
           }
@@ -717,7 +1097,10 @@ export class ActionExecutor {
           action.args ?? '',
         ));
         if (!resolution.ok) {
-          return `Error: ${'notTemplate' in resolution ? `Unknown goal template '${action.template}'.` : resolution.error}`;
+          const error = 'notTemplate' in resolution
+            ? `Unknown goal template '${action.template}'.`
+            : resolution.error;
+          return this.recordToolFailure(capture, 'validation', error, `Error: ${error}`);
         }
         const created = await manager.createOrQueueGoal({
           objective: resolution.template.objective,
@@ -832,12 +1215,14 @@ export class ActionExecutor {
         if (!action.path) {
           throw new Error('delete_path requires a "path" argument.');
         }
-        const confirmed = await this.confirmDangerousAction(
-          `Delete ${action.path}?`,
-          { tool: 'delete_path', path: action.path }
-        );
-        if (!confirmed) {
-          return `Skipped deleting ${action.path}`;
+        if (!context?.approvalHandled) {
+          const confirmed = await this.confirmDangerousAction(
+            `Delete ${action.path}?`,
+            { tool: 'delete_path', path: action.path }
+          );
+          if (!confirmed) {
+            return `Skipped deleting ${action.path}`;
+          }
         }
         const oldDeleteContent = await this.files.readFile(action.path).catch(() => null);
         await this.files.deletePath(action.path);
@@ -940,17 +1325,21 @@ export class ActionExecutor {
                     directory: action.directory,
                     shell: true,
                     interactive: true,
+                    signal: context?.signal,
                   }
                 );
               } catch (err) {
+                this.rethrowAbortFailure(err, context?.signal);
                 const error = err as NodeJS.ErrnoException;
                 if (
                   error.code === 'ENOENT' ||
                   error.message.includes('Command not found')
                 ) {
-                  return `Error: Command not found: "${action.command}". Make sure it is installed and available on your PATH.`;
+                  const output = `Error: Command not found: "${action.command}". Make sure it is installed and available on your PATH.`;
+                  return this.recordToolFailure(capture, 'command', output, output, null);
                 }
-                return `Error running "${cmdStr}": ${error.message}`;
+                const output = `Error running "${cmdStr}": ${error.message}`;
+                return this.recordToolFailure(capture, 'command', output, output, null);
               }
 
               const header = action.description
@@ -961,7 +1350,17 @@ export class ActionExecutor {
               if (result.code !== 0) {
                 parts.push(`(exit code: ${result.code})`);
               }
-              return parts.join('\n');
+              const output = parts.join('\n');
+              if (result.code !== 0) {
+                return this.recordToolFailure(
+                  capture,
+                  'command',
+                  `Command exited with code ${result.code ?? 'unknown'}.`,
+                  output,
+                  result.code,
+                );
+              }
+              return output;
             });
           }
         }
@@ -994,6 +1393,7 @@ export class ActionExecutor {
               directory: action.directory,
               background: action.background,
               shell: true,
+              signal: context?.signal,
               onStdout: (chunk) => {
                 emitOutput('stdout', chunk);
                 emitLiveOutput('stdout', chunk);
@@ -1011,14 +1411,17 @@ export class ActionExecutor {
           if (liveCommandId) {
             this.onLiveCommandRemove?.(liveCommandId);
           }
+          this.rethrowAbortFailure(err, context?.signal);
           const error = err as NodeJS.ErrnoException;
           if (
             error.code === 'ENOENT' ||
             error.message.includes('Command not found')
           ) {
-            return `Error: Command not found: "${action.command}". Make sure it is installed and available on your PATH.`;
+            const output = `Error: Command not found: "${action.command}". Make sure it is installed and available on your PATH.`;
+            return this.recordToolFailure(capture, 'command', output, output, null);
           }
-          return `Error running "${cmdStr}": ${error.message}`;
+          const output = `Error running "${cmdStr}": ${error.message}`;
+          return this.recordToolFailure(capture, 'command', output, output, null);
         }
 
         // Build output header with description if provided
@@ -1041,7 +1444,17 @@ export class ActionExecutor {
           parts.push(`[Background PID: ${result.backgroundPid}]`);
         }
 
-        return parts.join('\n');
+        const output = parts.join('\n');
+        if (result.code !== 0) {
+          return this.recordToolFailure(
+            capture,
+            'command',
+            result.stderr.trim() || `Command exited with code ${result.code ?? 'unknown'}.`,
+            output,
+            result.code,
+          );
+        }
+        return output;
       }
       case 'shell': {
         if (!action.command || typeof action.command !== 'string') {
@@ -1067,6 +1480,7 @@ export class ActionExecutor {
                 columns: process.stdout.columns,
                 rows: process.stdout.rows,
                 background: action.background,
+                signal: context?.signal,
               }
             );
             this.onLiveCommandRemove!(liveId);
@@ -1078,11 +1492,22 @@ export class ActionExecutor {
             if (result.output) parts.push(result.output);
             if (result.error) parts.push(result.error);
             if (result.backgroundPid) parts.push(`[Background PID: ${result.backgroundPid}]`);
-            return parts.join('\n');
+            const output = parts.join('\n');
+            if (!result.success) {
+              return this.recordToolFailure(
+                capture,
+                'command',
+                result.error?.trim() || 'Shell command failed.',
+                output,
+              );
+            }
+            return output;
           } catch (err) {
             this.onLiveCommandRemove!(liveId);
-            const error = err as Error;
-            return `Error running "${cmdStr}": ${error.message}`;
+            this.rethrowAbortFailure(err, context?.signal);
+            const errorMessage = this.normalizeToolError(err);
+            const output = `Error running "${cmdStr}": ${errorMessage}`;
+            return this.recordToolFailure(capture, 'command', output, output, null);
           }
         }
 
@@ -1097,17 +1522,21 @@ export class ActionExecutor {
               directory: action.directory,
               shell: true,
               background: action.background,
+              signal: context?.signal,
             }
           );
         } catch (err) {
+          this.rethrowAbortFailure(err, context?.signal);
           const error = err as NodeJS.ErrnoException;
           if (
             error.code === 'ENOENT' ||
             error.message.includes('Command not found')
           ) {
-            return `Error: Command not found: "${action.command}". Make sure it is installed and available on your PATH.`;
+            const output = `Error: Command not found: "${action.command}". Make sure it is installed and available on your PATH.`;
+            return this.recordToolFailure(capture, 'command', output, output, null);
           }
-          return `Error running "${cmdStr}": ${error.message}`;
+          const output = `Error running "${cmdStr}": ${error.message}`;
+          return this.recordToolFailure(capture, 'command', output, output, null);
         }
 
         const header = action.description
@@ -1119,7 +1548,17 @@ export class ActionExecutor {
           result.stdout,
           result.stderr,
         ].filter(Boolean);
-        return parts.join('\n');
+        const output = parts.join('\n');
+        if (result.code !== 0) {
+          return this.recordToolFailure(
+            capture,
+            'command',
+            result.stderr.trim() || `Command exited with code ${result.code ?? 'unknown'}.`,
+            output,
+            result.code,
+          );
+        }
+        return output;
       }
       case 'add_dependency': {
         const fseAdd = (await import('fs-extra')).default;
@@ -1291,7 +1730,8 @@ export class ActionExecutor {
 
         const results = await manager.runParallel(action.command, {
           timeout: action.timeout,
-          maxConcurrent: action.max_concurrent
+          maxConcurrent: action.max_concurrent,
+          signal: context?.signal,
         });
 
         const lines: string[] = [];
@@ -1449,7 +1889,7 @@ export class ActionExecutor {
         // Security scan before commit
         const scanResult = await this.scanBeforeCommit();
         if (scanResult) {
-          return scanResult; // Return error message if blocked
+          return this.recordToolFailure(capture, 'authorization', scanResult, scanResult);
         }
         return gitCommit(this.runtime.workspaceRoot, {
           message: action.message,
@@ -1465,7 +1905,12 @@ export class ActionExecutor {
         // Security scan before commit
         const autoCommitScanResult = await this.scanBeforeCommit();
         if (autoCommitScanResult) {
-          return autoCommitScanResult; // Return error message if blocked
+          return this.recordToolFailure(
+            capture,
+            'authorization',
+            autoCommitScanResult,
+            autoCommitScanResult,
+          );
         }
 
         // Get commit info and auto-generate message
@@ -1473,7 +1918,8 @@ export class ActionExecutor {
 
         if (!info.canCommit) {
           console.log(chalk.yellow(`\n⚠ ${info.error}`));
-          return info.error || 'Cannot commit';
+          const output = info.error || 'Cannot commit';
+          return this.recordToolFailure(capture, 'operational', output, output);
         }
 
         // Use provided message or auto-generated one
@@ -1512,7 +1958,7 @@ export class ActionExecutor {
             return result.message;
           }
           console.log(chalk.red(`\n✗ ${result.message}`));
-          return result.message;
+          return this.recordToolFailure(capture, 'command', result.message, result.message);
         }
 
         // Ask for confirmation with y/n/e - include the message in the modal
@@ -1550,7 +1996,12 @@ export class ActionExecutor {
 
         if (modalOutcome.cancelled) {
           console.log(chalk.yellow('Commit cancelled.'));
-          return 'Commit cancelled by user';
+          return this.recordToolFailure(
+            capture,
+            'authorization',
+            'Commit cancelled by user',
+            'Commit cancelled by user',
+          );
         }
 
         if (modalOutcome.editedMessage) {
@@ -1565,7 +2016,7 @@ export class ActionExecutor {
           return result.message;
         } else {
           console.log(chalk.red(`\n✗ ${result.message}`));
-          return result.message;
+          return this.recordToolFailure(capture, 'command', result.message, result.message);
         }
       }
       // Git Log Operations
@@ -1587,7 +2038,12 @@ export class ActionExecutor {
           setUpstream: action.set_upstream
         });
       case 'custom_command':
-        return this.executeCustomCommand(action);
+        return this.executeCustomCommand(
+          action,
+          context?.approvalHandled === true,
+          context?.signal,
+          capture,
+        );
       case 'multi_file_edit': {
         if (!action.file_path) {
           return 'Error: multi_file_edit requires a "file_path" argument.';
@@ -1832,7 +2288,8 @@ export class ActionExecutor {
         console.log(chalk.cyan(`\n🔍 Searching web: "${action.query}"...`));
         const results = await webSearch(action.query, {
           maxResults: action.max_results,
-          searchType: action.search_type
+          searchType: action.search_type,
+          signal: context?.signal,
         });
         const formatted = formatSearchResults(results);
         console.log(chalk.gray(formatted.split('\n').slice(0, 10).join('\n')));
@@ -1847,7 +2304,8 @@ export class ActionExecutor {
         }
         console.log(chalk.cyan(`\n🌐 Fetching: ${action.url}...`));
         const content = await fetchUrl(action.url, {
-          maxLength: action.max_length
+          maxLength: action.max_length,
+          signal: context?.signal,
         });
         // Show preview
         const preview = content.slice(0, 500);
@@ -1862,7 +2320,8 @@ export class ActionExecutor {
         console.log(chalk.cyan(`\n📦 Getting package info: ${action.package_name}${action.version ? `@${action.version}` : ''}${registryLabel}...`));
         const info = await getPackageInfo(action.package_name, {
           registry: action.registry,
-          version: action.version
+          version: action.version,
+          signal: context?.signal,
         });
         const formatted = formatPackageInfo(info);
         console.log(chalk.gray(formatted));
@@ -1881,7 +2340,8 @@ export class ActionExecutor {
           repo: action.repo,
           operation: action.operation,
           path: action.path,
-          branch: action.branch
+          branch: action.branch,
+          signal: context?.signal,
         });
 
         let formattedResult: string;
@@ -1996,10 +2456,17 @@ export class ActionExecutor {
       // Code review tool
       // Directory access tool
       case 'request_directory_access': {
-        return this.executeRequestDirectoryAccess(action as { type: 'request_directory_access'; path: string; reason?: string });
+        return this.executeRequestDirectoryAccess(
+          action as { type: 'request_directory_access'; path: string; reason?: string },
+          capture,
+        );
       }
       case 'code_review': {
-        return this.executeCodeReview(action as { type: 'code_review'; path?: string; scope?: string; instructions?: string });
+        return this.executeCodeReview(
+          action as { type: 'code_review'; path?: string; scope?: string; instructions?: string },
+          context?.signal,
+          capture,
+        );
       }
       // Browser tools — forwarded to Chrome extension via RPC
       case 'browser_screenshot':
@@ -2025,7 +2492,7 @@ export class ActionExecutor {
         const metaTool = this.toolsRegistry.getMetaTool(actionType);
 
         if (metaTool) {
-          return this.executeMetaTool(metaTool, action as Record<string, unknown>);
+          return this.executeMetaTool(metaTool, action as Record<string, unknown>, context, capture);
         }
 
         throw new Error(`Unsupported action type ${actionType}`);
@@ -2041,7 +2508,10 @@ export class ActionExecutor {
   }
 
 
-  private async executeRequestDirectoryAccess(action: { type: 'request_directory_access'; path: string; reason?: string }): Promise<string> {
+  private async executeRequestDirectoryAccess(
+    action: { type: 'request_directory_access'; path: string; reason?: string },
+    capture?: ToolOutcomeCapture,
+  ): Promise<string> {
     const path = await import('node:path');
     const fs = (await import('fs-extra')).default;
     const { checkWorkspaceSafety } = await import('../startup/workspaceSafety.js');
@@ -2051,19 +2521,22 @@ export class ActionExecutor {
 
     // Check if directory exists
     if (!await fs.pathExists(resolvedPath)) {
-      return `Error: Directory does not exist: ${resolvedPath}`;
+      const output = `Error: Directory does not exist: ${resolvedPath}`;
+      return this.recordToolFailure(capture, 'validation', output, output);
     }
 
     // Check if it's actually a directory
     const stats = await fs.stat(resolvedPath);
     if (!stats.isDirectory()) {
-      return `Error: Path is not a directory: ${resolvedPath}`;
+      const output = `Error: Path is not a directory: ${resolvedPath}`;
+      return this.recordToolFailure(capture, 'validation', output, output);
     }
 
     // Safety check
     const safetyResult = checkWorkspaceSafety(resolvedPath);
     if (!safetyResult.safe) {
-      return `Error: Unsafe directory: ${resolvedPath}. ${safetyResult.reason}`;
+      const output = `Error: Unsafe directory: ${resolvedPath}. ${safetyResult.reason}`;
+      return this.recordToolFailure(capture, 'validation', output, output);
     }
 
     // Check if already in workspace
@@ -2097,7 +2570,8 @@ export class ActionExecutor {
         this.files.addAdditionalDirectory(resolvedPath);
         return `Access granted to directory: ${resolvedPath}\n\nYou can now use file tools (read_file, write_file, glob, find, etc.) to work with files in this directory.`;
       } else {
-        return `Access denied to directory: ${resolvedPath}`;
+        const output = `Access denied to directory: ${resolvedPath}`;
+        return this.recordToolFailure(capture, 'authorization', output, output);
       }
     }
 
@@ -2115,10 +2589,15 @@ export class ActionExecutor {
     }
 
     // Interactive mode without callback - inform user
-    return `Directory access required: ${resolvedPath}\n\nTo grant access, use:\n  /add-dir ${resolvedPath}\n\nOr restart with:\n  --add-dir ${resolvedPath}`;
+    const output = `Directory access required: ${resolvedPath}\n\nTo grant access, use:\n  /add-dir ${resolvedPath}\n\nOr restart with:\n  --add-dir ${resolvedPath}`;
+    return this.recordToolFailure(capture, 'authorization', `Directory access required: ${resolvedPath}`, output);
   }
 
-  private async executeCodeReview(action: { type: 'code_review'; path?: string; scope?: string; instructions?: string }): Promise<string> {
+  private async executeCodeReview(
+    action: { type: 'code_review'; path?: string; scope?: string; instructions?: string },
+    signal?: AbortSignal,
+    capture?: ToolOutcomeCapture,
+  ): Promise<string> {
     const targetPath = action.path
       ? this.resolveWorkspacePath(action.path)
       : this.runtime.workspaceRoot;
@@ -2141,7 +2620,11 @@ export class ActionExecutor {
         const result = await execFileAsync('git', ['diff', '--stat'], {
           cwd: this.runtime.workspaceRoot,
           encoding: 'utf8',
-        }).catch(() => null);
+          signal,
+        }).catch((error: unknown) => {
+          this.rethrowAbortFailure(error, signal);
+          return null;
+        });
         context = result?.stdout || 'No uncommitted changes found.';
       } else if (scope === 'file' && action.path) {
         const fse = (await import('fs-extra')).default;
@@ -2158,7 +2641,11 @@ export class ActionExecutor {
         ], {
           cwd: this.runtime.workspaceRoot,
           encoding: 'utf8',
-        }).catch(() => null);
+          signal,
+        }).catch((error: unknown) => {
+          this.rethrowAbortFailure(error, signal);
+          return null;
+        });
         context = tree?.stdout || '';
       }
 
@@ -2180,6 +2667,7 @@ export class ActionExecutor {
 
       return result;
     } catch (error) {
+      this.rethrowAbortFailure(error, signal);
       const message = error instanceof Error ? error.message : String(error);
 
       // Fire 'review:failed' hook
@@ -2190,7 +2678,8 @@ export class ActionExecutor {
         reviewError: message,
       });
 
-      return `Review failed: ${message}`;
+      const output = `Review failed: ${message}`;
+      return this.recordToolFailure(capture, 'operational', message, output);
     }
   }
 
@@ -2466,7 +2955,12 @@ export class ActionExecutor {
     this.logExploration?.({ kind, target });
   }
 
-  private async executeCustomCommand(action: Extract<AgentAction, { type: 'custom_command' }>): Promise<string> {
+  private async executeCustomCommand(
+    action: Extract<AgentAction, { type: 'custom_command' }>,
+    approvalHandled: boolean,
+    signal?: AbortSignal,
+    capture?: ToolOutcomeCapture,
+  ): Promise<string> {
     const existing = await loadCustomCommand(action.name);
     const definition = existing ?? {
       name: action.name,
@@ -2478,7 +2972,8 @@ export class ActionExecutor {
 
     // Validate command is present
     if (!definition.command || typeof definition.command !== 'string') {
-      return `Error: custom_command "${action.name}" requires a "command" argument (string)`;
+      const output = `Error: custom_command "${action.name}" requires a "command" argument (string)`;
+      return this.recordToolFailure(capture, 'validation', output, output);
     }
 
     if (!existing) {
@@ -2488,20 +2983,39 @@ export class ActionExecutor {
       if (this.isDestructiveCommand(definition.command)) {
         console.log(chalk.red('Warning: command may be destructive.'));
       }
-      const answer = await this.confirmDangerousAction(
-        'Add and run this custom command?',
-        { tool: 'run_command', command: definition.command }
-      );
-      if (!answer) {
-        return 'Custom command rejected by user.';
+      if (!approvalHandled) {
+        const answer = await this.confirmDangerousAction(
+          'Add and run this custom command?',
+          { tool: 'run_command', command: definition.command }
+        );
+        if (!answer) {
+          return this.recordToolFailure(
+            capture,
+            'authorization',
+            'Custom command rejected by user.',
+            'Custom command rejected by user.',
+          );
+        }
       }
       await saveCustomCommand(definition);
     }
 
-    const result = await runCommand(definition.command, definition.args ?? [], this.runtime.workspaceRoot);
-    return [`$ ${definition.command} ${(definition.args ?? []).join(' ')}`, result.stdout, result.stderr]
+    const result = await runCommand(definition.command, definition.args ?? [], this.runtime.workspaceRoot, {
+      signal,
+    });
+    const output = [`$ ${definition.command} ${(definition.args ?? []).join(' ')}`, result.stdout, result.stderr]
       .filter(Boolean)
       .join('\n');
+    if (result.code !== 0) {
+      return this.recordToolFailure(
+        capture,
+        'command',
+        result.stderr.trim() || `Custom command exited with code ${result.code ?? 'unknown'}.`,
+        output,
+        result.code,
+      );
+    }
+    return output;
   }
 
   private isDestructiveCommand(command: string): boolean {
@@ -2520,14 +3034,10 @@ export class ActionExecutor {
     return "'" + value.replace(/'/g, "'\"'\"'") + "'";
   }
 
-  /**
-   * Execute a dynamic meta-tool by substituting {{param}} placeholders
-   */
-  private async executeMetaTool(
+  private buildMetaToolCommand(
     metaTool: import('./toolsRegistry.js').MetaToolDefinition,
     args: Record<string, unknown>
-  ): Promise<string> {
-    // Replace {{param}} placeholders in handler template
+  ): string {
     let command = metaTool.handler;
 
     // Extract all {{param}} placeholders
@@ -2547,51 +3057,63 @@ export class ActionExecutor {
       command = command.replace(new RegExp(`\\{\\{${paramName}\\}\\}`, 'g'), safeValue);
     }
 
+    return command;
+  }
+
+  /**
+   * Execute a dynamic meta-tool by substituting {{param}} placeholders
+   */
+  private async executeMetaTool(
+    metaTool: import('./toolsRegistry.js').MetaToolDefinition,
+    args: Record<string, unknown>,
+    context?: ToolExecutionContext,
+    capture?: ToolOutcomeCapture,
+  ): Promise<string> {
+    const command = this.buildMetaToolCommand(metaTool, args);
+
     console.log(chalk.cyan(`\n🔧 Running meta-tool: ${metaTool.name}`));
     console.log(chalk.gray(`   $ ${command}`));
 
-    const permissionContext: PermissionContext = {
-      tool: 'run_command',
-      command,
-      description: `Meta-tool ${metaTool.name}: ${metaTool.description}`,
-    };
-    const decision = this.permissionManager.checkPermission(permissionContext);
-    if (decision.reason === 'blacklisted'
-      || decision.reason === 'mode_restricted'
-      || decision.reason === 'pattern_denied'
-      || decision.reason === 'not_in_available'
-      || decision.reason === 'excluded'
-      || decision.reason === 'deny_list'
-      || decision.reason === 'session_deny_list'
-      || decision.reason === 'project_deny_list'
-      || decision.reason === 'user_deny_list') {
-      return `Blocked: Cannot run meta-tool ${metaTool.name} (${decision.reason})`;
-    }
-
-    if (!decision.allowed) {
-      const hookResult = await this.checkPermissionHook({
+    if (!context?.approvalHandled) {
+      const permissionContext: PermissionContext = {
         tool: 'run_command',
         command,
-        args,
-      });
-
-      if (hookResult.blocked) {
-        return `Blocked: ${hookResult.reason}`;
+        description: `Meta-tool ${metaTool.name}: ${metaTool.description}`,
+      };
+      const decision = this.permissionManager.checkPermission(permissionContext);
+      if (getPermissionPolicyDisposition(decision) === 'deny') {
+        const output = `Blocked: Cannot run meta-tool ${metaTool.name} (${decision.reason})`;
+        return this.recordToolFailure(capture, 'authorization', output, output);
       }
 
-      if (hookResult.allowed !== undefined) {
-        await this.permissionManager.recordDecision(permissionContext, hookResult.allowed);
-        if (!hookResult.allowed) {
-          return `Denied: ${hookResult.reason ?? `meta-tool ${metaTool.name}`}`;
+      if (!decision.allowed) {
+        const hookResult = await this.checkPermissionHook({
+          tool: 'run_command',
+          command,
+          args,
+        });
+
+        if (hookResult.blocked) {
+          const output = `Blocked: ${hookResult.reason}`;
+          return this.recordToolFailure(capture, 'authorization', output, output);
         }
-      } else {
-        const confirmed = await this.confirmDangerousAction(
-          `Run meta-tool ${metaTool.name}?`,
-          { tool: 'run_command', command }
-        );
-        await this.permissionManager.recordDecision(permissionContext, confirmed);
-        if (!confirmed) {
-          return `Skipped running meta-tool ${metaTool.name}`;
+
+        if (hookResult.allowed !== undefined) {
+          await this.permissionManager.recordDecision(permissionContext, hookResult.allowed);
+          if (!hookResult.allowed) {
+            const output = `Denied: ${hookResult.reason ?? `meta-tool ${metaTool.name}`}`;
+            return this.recordToolFailure(capture, 'authorization', output, output);
+          }
+        } else {
+          const confirmed = await this.confirmDangerousAction(
+            `Run meta-tool ${metaTool.name}?`,
+            { tool: 'run_command', command }
+          );
+          await this.permissionManager.recordDecision(permissionContext, confirmed);
+          if (!confirmed) {
+            const output = `Skipped running meta-tool ${metaTool.name}`;
+            return this.recordToolFailure(capture, 'authorization', output, output);
+          }
         }
       }
     }
@@ -2599,11 +3121,22 @@ export class ActionExecutor {
     // Execute via shell (meta-tools expect shell syntax for piping, etc.)
     const result = await runCommand(command, [], this.runtime.workspaceRoot, {
       shell: true,
-      timeout: 120_000
+      timeout: 120_000,
+      signal: context?.signal,
     });
     const stdout = this.truncateMetaToolOutput(result.stdout);
     const stderr = this.truncateMetaToolOutput(result.stderr);
-    return [`$ ${command}`, stdout, stderr].filter(Boolean).join('\n');
+    const output = [`$ ${command}`, stdout, stderr].filter(Boolean).join('\n');
+    if (result.code !== 0) {
+      return this.recordToolFailure(
+        capture,
+        'command',
+        stderr.trim() || `Meta-tool exited with code ${result.code ?? 'unknown'}.`,
+        output,
+        result.code,
+      );
+    }
+    return output;
   }
 
   private truncateMetaToolOutput(output: string): string {

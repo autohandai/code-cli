@@ -246,6 +246,39 @@ describe('webRepo', () => {
   });
 
   describe('webRepo (main entry point)', () => {
+    it('destroys an in-flight request and removes its abort listener', async () => {
+      const request = new EventEmitter() as EventEmitter & { destroy: ReturnType<typeof vi.fn> };
+      request.destroy = vi.fn();
+      vi.mocked(httpsGet).mockImplementationOnce(() => request as any);
+      const controller = new AbortController();
+      const removeEventListener = vi.spyOn(controller.signal, 'removeEventListener');
+
+      const result = webRepo({
+        repo: 'github:octocat/Hello-World',
+        operation: 'info',
+        signal: controller.signal,
+      });
+      controller.abort();
+
+      await expect(result).rejects.toMatchObject({ name: 'AbortError' });
+      expect(request.destroy).toHaveBeenCalledTimes(1);
+      expect(removeEventListener).toHaveBeenCalledWith('abort', expect.any(Function));
+    });
+
+    it('does not start a request when already aborted', async () => {
+      const controller = new AbortController();
+      controller.abort();
+      vi.mocked(httpsGet).mockClear();
+
+      await expect(webRepo({
+        repo: 'github:octocat/Hello-World',
+        operation: 'info',
+        signal: controller.signal,
+      })).rejects.toMatchObject({ name: 'AbortError' });
+
+      expect(httpsGet).not.toHaveBeenCalled();
+    });
+
     it('routes to info operation', async () => {
       const result = await webRepo({ repo: 'github:octocat/Hello-World', operation: 'info' });
       expect(result.type).toBe('info');

@@ -612,6 +612,7 @@ describe("AutohandAcpAdapter", () => {
       expect(result.stopReason).toBe("end_turn");
       expect(mockAgent.runInstruction).toHaveBeenCalledWith(
         "Add unit tests for the auth module",
+        { signal: expect.any(AbortSignal) },
       );
     });
 
@@ -733,9 +734,13 @@ describe("AutohandAcpAdapter", () => {
 
     it("returns cancelled stopReason when prompt is cancelled while instruction is in flight", async () => {
       mockAgent.isSlashCommand.mockReturnValue(false);
-      mockAgent.runInstruction.mockImplementation(
-        () => new Promise((resolve) => setTimeout(() => resolve(false), 40)),
-      );
+      let instructionSignal: AbortSignal | undefined;
+      mockAgent.runInstruction.mockImplementation((_instruction, options) => {
+        instructionSignal = options?.signal;
+        return new Promise((resolve) => {
+          options?.signal?.addEventListener('abort', () => resolve(false), { once: true });
+        });
+      });
 
       const promptPromise = adapter.prompt({
         sessionId,
@@ -747,6 +752,7 @@ describe("AutohandAcpAdapter", () => {
 
       const result = await promptPromise;
       expect(result.stopReason).toBe("cancelled");
+      expect(instructionSignal?.aborted).toBe(true);
       expect(mockAgent.cancelCurrentInstruction).toHaveBeenCalledTimes(1);
     });
   });
@@ -1345,6 +1351,42 @@ describe("AutohandAcpAdapter", () => {
         success: true,
         duration: expect.any(Number),
         output: "file contents",
+      });
+    });
+
+    it("maps runtime tool failures to failed ACP updates with readable details", async () => {
+      const outputListener = mockAgent.setOutputListener.mock.calls[0][0];
+
+      await outputListener({
+        type: "tool_end",
+        toolId: "tool-failed",
+        toolName: "run_command",
+        toolSuccess: false,
+        toolOutput: "partial stdout",
+        toolError: "Command exited with code 12.",
+      });
+
+      expect(connection.sessionUpdate).toHaveBeenCalledWith({
+        sessionId,
+        update: expect.objectContaining({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "tool-failed",
+          status: "failed",
+          rawOutput: {
+            output: "partial stdout",
+            error: "Command exited with code 12.",
+          },
+        }),
+      });
+
+      const extNotif = connection.extNotification as ReturnType<typeof vi.fn>;
+      const postToolCall = extNotif.mock.calls.find(
+        (call: unknown[]) => call[0] === "autohand.hook.postTool"
+          && (call[1] as { toolId?: string }).toolId === "tool-failed",
+      );
+      expect(postToolCall?.[1]).toMatchObject({
+        success: false,
+        output: "partial stdout",
       });
     });
 
