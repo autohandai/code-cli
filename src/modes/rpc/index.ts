@@ -65,6 +65,8 @@ import {
   writeInternalError,
 } from './protocol.js';
 import { getPlanModeManager } from '../../commands/plan.js';
+import { writeAutohandDebugLine } from '../../utils/debugLog.js';
+import { shutdownBrowserToolBridge } from '../../browser/browserToolBridge.js';
 
 // Store original console methods
 const originalConsole = {
@@ -98,6 +100,52 @@ export function restoreConsole(): void {
   console.debug = originalConsole.debug;
 }
 
+async function flushRpcOutput(): Promise<void> {
+  if (!process.stdout.writable) return;
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve();
+    };
+    const timeout = setTimeout(finish, 250);
+    try {
+      process.stdout.write('', finish);
+    } catch {
+      finish();
+    }
+  });
+}
+
+class RpcModeExit extends Error {
+  constructor(readonly exitCode: number) {
+    super(`RPC mode requested exit ${exitCode}`);
+  }
+}
+
+function createRpcLifecycleAbortError(): Error {
+  const error = new Error('RPC lifecycle aborted');
+  error.name = 'AbortError';
+  return error;
+}
+
+function awaitRpcLifecycleStep<T>(task: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    void task.catch(() => {});
+    return Promise.reject(createRpcLifecycleAbortError());
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(createRpcLifecycleAbortError());
+    signal.addEventListener('abort', onAbort, { once: true });
+    task.then(resolve, reject).finally(() => {
+      signal.removeEventListener('abort', onAbort);
+    });
+  });
+}
+
 /**
  * Run the CLI in JSON-RPC 2.0 mode
  */
@@ -105,25 +153,42 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
   // Suppress console output - all communication via JSON-RPC
   suppressConsole();
 
-  // In RPC mode, stdout IS the communication channel — wire the browser bridge
-  const { setBrowserBridgeOutput } = await import('../../browser/browserToolBridge.js');
-  setBrowserBridgeOutput(process.stdout);
-
-  // Log stream errors so we can detect broken pipes / disconnects
-  process.stdout.on('error', (err) => {
-    process.stderr.write(`[RPC] stdout error: ${err.message}\n`);
-  });
-  process.stdin.on('error', (err) => {
-    process.stderr.write(`[RPC] stdin error: ${err.message}\n`);
-  });
-  process.stdin.on('end', () => {
-    process.stderr.write('[RPC] stdin end (extension disconnected)\n');
-  });
+  const handleStdoutError = (err: Error): void => {
+    writeAutohandDebugLine(`[RPC] stdout error: ${err.message}`);
+  };
+  const handleStdinError = (err: Error): void => {
+    writeAutohandDebugLine(`[RPC] stdin error: ${err.message}`);
+  };
+  const handleStdinEnd = (): void => {
+    writeAutohandDebugLine('[RPC] stdin end (extension disconnected)');
+  };
 
   let adapter: RPCAdapter | null = null;
   let agent: AutohandAgent | null = null;
+  let reader: LineReader | null = null;
+  let exitCode = 0;
+  let shutdownReason: 'error' | 'disconnected' = 'disconnected';
+  let terminationRequested = false;
+  const terminationController = new AbortController();
+  const handleTerminationSignal = (): void => {
+    terminationRequested = true;
+    shutdownReason = 'disconnected';
+    terminationController.abort();
+    reader?.dispose();
+  };
+
+  // Keep the stdout guard installed until the final protocol notification drains.
+  process.stdout.on('error', handleStdoutError);
+  process.stdin.on('error', handleStdinError);
+  process.stdin.on('end', handleStdinEnd);
+  process.on('SIGINT', handleTerminationSignal);
+  process.on('SIGTERM', handleTerminationSignal);
 
   try {
+    // In RPC mode, stdout IS the communication channel — wire the browser bridge.
+    const { setBrowserBridgeOutput } = await import('../../browser/browserToolBridge.js');
+    setBrowserBridgeOutput(process.stdout);
+
     // Load configuration
     const config = await prepareBareModeConfig(
       (options as CLIOptions & { _authConfig?: LoadedConfig })._authConfig
@@ -144,7 +209,7 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         writeErrorResponse(null, JSON_RPC_ERROR_CODES.INTERNAL_ERROR, message);
-        process.exit(1);
+        throw new RpcModeExit(1);
       }
     }
 
@@ -160,7 +225,7 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
         JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
         workspacePathValidation.error || 'Invalid workspace path'
       );
-      process.exit(1);
+      throw new RpcModeExit(1);
     }
     const safetyCheck = checkWorkspaceSafety(originalWorkspaceRoot);
     if (!safetyCheck.safe) {
@@ -169,7 +234,7 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
         JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
         `Unsafe workspace: ${safetyCheck.reason || originalWorkspaceRoot}`
       );
-      process.exit(1);
+      throw new RpcModeExit(1);
     }
 
     // Non-interactive auth check — RPC mode cannot prompt for login
@@ -180,7 +245,7 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
         JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
         'Authentication required. Run `autohand login` first.'
       );
-      process.exit(1);
+      throw new RpcModeExit(1);
     }
 
 
@@ -197,7 +262,7 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
         mode: 'rpc',
       });
       workspaceRoot = sessionWorktree.worktreePath;
-      process.stderr.write(`[RPC] Using git worktree ${sessionWorktree.worktreePath} (${sessionWorktree.branchName})\n`);
+      writeAutohandDebugLine(`[RPC] Using git worktree ${sessionWorktree.worktreePath} (${sessionWorktree.branchName})`);
     }
 
     // Validate and resolve additional directories from --add-dir flag
@@ -247,7 +312,13 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
     agent = new AutohandAgent(provider, files, runtime);
 
     // Initialize agent for RPC mode (sets up conversation, sessions, etc.)
-    await agent.initializeForRPC();
+    await awaitRpcLifecycleStep(
+      agent.initializeForRPC(terminationController.signal),
+      terminationController.signal,
+    );
+    if (terminationController.signal.aborted) {
+      throw createRpcLifecycleAbortError();
+    }
 
     // Get conversation manager
     const conversation = ConversationManager.getInstance();
@@ -294,42 +365,80 @@ export async function runRpcMode(options: CLIOptions): Promise<void> {
     });
 
     // Setup stdin reader
-    const reader = new LineReader(process.stdin);
+    reader = new LineReader(process.stdin);
+    if (terminationRequested) reader.dispose();
 
     // Main request loop
     while (true) {
       try {
-        const line = await reader.readLine();
-        process.stderr.write(`[RPC DEBUG] stdin read line size=${line.length}b\n`);
-        await handleLine(line, adapter);
+        const line = await awaitRpcLifecycleStep(
+          reader.readLine(),
+          terminationController.signal,
+        );
+        writeAutohandDebugLine(`[RPC DEBUG] stdin read line size=${line.length}b`);
+        await awaitRpcLifecycleStep(
+          handleLine(line, adapter, terminationController.signal),
+          terminationController.signal,
+        );
       } catch (error) {
+        if (terminationRequested && error instanceof Error && error.name === 'AbortError') {
+          break;
+        }
         // Stream closed or fatal error
         if (error instanceof Error && error.message === 'Stream closed') {
-          process.stderr.write('[RPC] Extension disconnected (stdin closed). Shutting down gracefully.\n');
+          writeAutohandDebugLine('[RPC] Extension disconnected (stdin closed). Shutting down gracefully.');
           break;
         }
         const message = error instanceof Error ? error.message : String(error);
-        process.stderr.write(`[RPC] Fatal error in request loop: ${message}\n`);
+        writeAutohandDebugLine(`[RPC] Fatal error in request loop: ${message}`);
         writeInternalError(null, message);
       }
     }
 
-    // Extension/native host disconnected — clean up session and exit.
-    adapter?.shutdown('disconnected');
-    process.exit(0);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    writeErrorResponse(null, JSON_RPC_ERROR_CODES.INTERNAL_ERROR, `Initialization error: ${message}`);
-    adapter?.shutdown('error');
-    process.exit(1);
+    const terminatedDuringLifecycle = terminationRequested
+      && error instanceof Error
+      && error.name === 'AbortError';
+    shutdownReason = terminatedDuringLifecycle ? 'disconnected' : 'error';
+    exitCode = terminatedDuringLifecycle
+      ? 0
+      : error instanceof RpcModeExit
+        ? error.exitCode
+        : 1;
+    if (!terminatedDuringLifecycle && !(error instanceof RpcModeExit)) {
+      const message = error instanceof Error ? error.message : String(error);
+      writeErrorResponse(null, JSON_RPC_ERROR_CODES.INTERNAL_ERROR, `Initialization error: ${message}`);
+    }
+  } finally {
+    reader?.dispose();
+    process.stdin.off('error', handleStdinError);
+    process.stdin.off('end', handleStdinEnd);
+    process.off('SIGINT', handleTerminationSignal);
+    process.off('SIGTERM', handleTerminationSignal);
+
+    await Promise.resolve()
+      .then(() => shutdownBrowserToolBridge())
+      .catch(() => {});
+    await adapter?.shutdown(shutdownReason).catch(() => {});
+    await agent?.shutdownRuntimeResources().catch(() => {});
+    await flushRpcOutput();
+    process.stdout.off('error', handleStdoutError);
+    restoreConsole();
   }
+
+  process.exitCode = exitCode;
 }
 
 /**
  * Handle a single line of input (may contain single request or batch)
  */
-async function handleLine(line: string, adapter: RPCAdapter): Promise<void> {
-  process.stderr.write(`[RPC DEBUG] handleLine received: ${line.slice(0, 100)}\n`);
+async function handleLine(
+  line: string,
+  adapter: RPCAdapter,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (signal?.aborted) return;
+  writeAutohandDebugLine(`[RPC DEBUG] handleLine received: ${line.slice(0, 100)}`);
   const parseResult = parseRequest(line);
 
   if (parseResult.type === 'error') {
@@ -342,6 +451,7 @@ async function handleLine(line: string, adapter: RPCAdapter): Promise<void> {
     const responses = await Promise.all(
       parseResult.requests.map((req) => handleSingleRequest(req, adapter))
     );
+    if (signal?.aborted) return;
 
     // Filter out null responses (from notifications)
     const validResponses = responses.filter((r): r is JsonRpcResponse => r !== null);
@@ -353,6 +463,7 @@ async function handleLine(line: string, adapter: RPCAdapter): Promise<void> {
 
   // Handle single request
   const response = await handleSingleRequest(parseResult.request, adapter);
+  if (signal?.aborted) return;
   if (response !== null) {
     process.stdout.write(JSON.stringify(response) + '\n');
   }
@@ -393,7 +504,7 @@ async function handleSingleRequest(
 
       case RPC_METHODS.ABORT: {
         // Abort can be called as notification (no id) for instant response
-        process.stderr.write(`[RPC DEBUG] ABORT received! id=${id}, isNotification=${!shouldRespond}\n`);
+        writeAutohandDebugLine(`[RPC DEBUG] ABORT received! id=${id}, isNotification=${!shouldRespond}`);
         result = adapter.handleAbort(id ?? null);
         break;
       }
@@ -612,7 +723,7 @@ async function handleSingleRequest(
         } else {
           planModeManager.disable();
         }
-        process.stderr.write(`[RPC DEBUG] Plan mode set to: ${planParams.enabled}\n`);
+        writeAutohandDebugLine(`[RPC DEBUG] Plan mode set to: ${planParams.enabled}`);
         result = { success: true };
         break;
       }

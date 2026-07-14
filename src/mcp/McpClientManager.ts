@@ -58,12 +58,50 @@ interface JsonRpcResponse {
   };
 }
 
+export interface McpRequestOptions {
+  signal?: AbortSignal;
+}
+
+export class McpRequestAbortedError extends Error {
+  constructor(message = 'MCP request aborted') {
+    super(message);
+    this.name = 'AbortError';
+  }
+}
+
+class McpConnectionCancelledError extends Error {
+  constructor() {
+    super('MCP connection cancelled during shutdown');
+    this.name = 'AbortError';
+  }
+}
+
+const MCP_STOP_GRACE_MS = 1_000;
+const MCP_STOP_FORCE_WAIT_MS = 1_000;
+
+function waitForChildClose(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (closed: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      child.off('close', onClose);
+      resolve(closed);
+    };
+    const onClose = (): void => finish(true);
+    const timeout = setTimeout(() => finish(false), timeoutMs);
+    timeout.unref?.();
+    child.once('close', onClose);
+  });
+}
+
 // ============================================================================
 // MCP Stdio Connection
 // ============================================================================
 
 /** Manages a single stdio connection to an MCP server process */
-class McpStdioConnection extends EventEmitter {
+export class McpStdioConnection extends EventEmitter {
   private process: ChildProcess | null = null;
   private lineBuffer = '';
   private frameBuffer = Buffer.alloc(0);
@@ -74,8 +112,10 @@ class McpStdioConnection extends EventEmitter {
       resolve: (value: unknown) => void;
       reject: (error: Error) => void;
       timer: ReturnType<typeof setTimeout>;
+      removeAbortListener?: () => void;
     }
   >();
+  private stopPromise: Promise<void> | null = null;
 
   /** Default timeout for RPC requests in milliseconds */
   private static readonly REQUEST_TIMEOUT_MS = 30_000;
@@ -136,7 +176,14 @@ class McpStdioConnection extends EventEmitter {
   /**
    * Sends a JSON-RPC 2.0 request and waits for the response.
    */
-  async request(method: string, params?: Record<string, unknown>): Promise<unknown> {
+  async request(
+    method: string,
+    params?: Record<string, unknown>,
+    options: McpRequestOptions = {},
+  ): Promise<unknown> {
+    if (options.signal?.aborted) {
+      throw new McpRequestAbortedError();
+    }
     if (!this.process?.stdin?.writable) {
       throw new Error(`MCP server "${this.config.name}" is not connected`);
     }
@@ -150,15 +197,50 @@ class McpStdioConnection extends EventEmitter {
     };
 
     return new Promise<unknown>((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const failRequest = (error: Error): void => {
+        const pending = this.pendingRequests.get(id);
+        if (!pending) return;
         this.pendingRequests.delete(id);
-        reject(new Error(`MCP request "${method}" timed out after ${McpStdioConnection.REQUEST_TIMEOUT_MS}ms`));
-      }, McpStdioConnection.REQUEST_TIMEOUT_MS);
+        clearTimeout(pending.timer);
+        pending.removeAbortListener?.();
+        pending.reject(error);
+      };
 
-      this.pendingRequests.set(id, { resolve, reject, timer });
+      const timer = setTimeout(() => {
+        failRequest(new Error(
+          `MCP request "${method}" timed out after ${McpStdioConnection.REQUEST_TIMEOUT_MS}ms`
+        ));
+      }, McpStdioConnection.REQUEST_TIMEOUT_MS);
+      timer.unref?.();
+
+      const handleAbort = (): void => {
+        if (!this.pendingRequests.has(id)) return;
+        failRequest(new McpRequestAbortedError());
+        try {
+          this.notify('notifications/cancelled', {
+            requestId: id,
+            reason: 'Request aborted by client',
+          });
+        } catch {
+          // The local request is already cancelled; notification is best-effort.
+        }
+      };
+
+      const removeAbortListener = options.signal
+        ? () => options.signal?.removeEventListener('abort', handleAbort)
+        : undefined;
+      options.signal?.addEventListener('abort', handleAbort, { once: true });
+
+      this.pendingRequests.set(id, { resolve, reject, timer, removeAbortListener });
 
       const message = this.serializeMessage(request);
-      this.process!.stdin!.write(message);
+      try {
+        this.process!.stdin!.write(message, (error) => {
+          if (error) failRequest(error);
+        });
+      } catch (error) {
+        failRequest(error instanceof Error ? error : new Error(String(error)));
+      }
     });
   }
 
@@ -184,28 +266,35 @@ class McpStdioConnection extends EventEmitter {
    * Stops the server process and cleans up resources.
    */
   async stop(): Promise<void> {
-    if (this.process) {
-      this.process.stdin?.end();
-      this.process.kill('SIGTERM');
+    this.stopPromise ??= this.performStop();
+    return this.stopPromise;
+  }
 
-      // Force kill after timeout
-      const forceKillTimer = setTimeout(() => {
-        if (this.process && !this.process.killed) {
-          this.process.kill('SIGKILL');
-        }
-      }, 5000);
+  private async performStop(): Promise<void> {
+    const child = this.process;
+    if (child) {
+      const gracefulClose = waitForChildClose(child, MCP_STOP_GRACE_MS);
+      try {
+        child.stdin?.end();
+      } catch {
+        // A concurrently closing stream may already be destroyed.
+      }
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        // The process may have exited between capture and signal.
+      }
 
-      await new Promise<void>((resolve) => {
-        if (this.process) {
-          this.process.on('close', () => {
-            clearTimeout(forceKillTimer);
-            resolve();
-          });
-        } else {
-          clearTimeout(forceKillTimer);
-          resolve();
+      const closedGracefully = await gracefulClose;
+      if (!closedGracefully) {
+        const forcedClose = waitForChildClose(child, MCP_STOP_FORCE_WAIT_MS);
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          // Best-effort hard kill; cleanup below still settles pending calls.
         }
-      });
+        await forcedClose;
+      }
     }
 
     this.cleanup();
@@ -231,6 +320,7 @@ class McpStdioConnection extends EventEmitter {
       const pending = this.pendingRequests.get(message.id)!;
       this.pendingRequests.delete(message.id);
       clearTimeout(pending.timer);
+      pending.removeAbortListener?.();
 
       if (message.error) {
         pending.reject(
@@ -239,7 +329,7 @@ class McpStdioConnection extends EventEmitter {
       } else {
         pending.resolve(message.result);
       }
-    } else {
+    } else if (message.id === undefined) {
       // Server-initiated notification or unmatched response
       this.emit('notification', message);
     }
@@ -251,6 +341,7 @@ class McpStdioConnection extends EventEmitter {
   private cleanup(): void {
     for (const [id, pending] of this.pendingRequests) {
       clearTimeout(pending.timer);
+      pending.removeAbortListener?.();
       pending.reject(new Error('MCP connection closed'));
       this.pendingRequests.delete(id);
     }
@@ -399,6 +490,8 @@ class McpStdioConnection extends EventEmitter {
 class McpHttpConnection extends EventEmitter {
   private nextId = 1;
   private sessionId: string | null = null;
+  private readonly lifetimeController = new AbortController();
+  private stopped = false;
 
   /** Default timeout for HTTP requests in milliseconds */
   private static readonly REQUEST_TIMEOUT_MS = 30_000;
@@ -417,7 +510,15 @@ class McpHttpConnection extends EventEmitter {
   /**
    * Sends a JSON-RPC 2.0 request via HTTP POST and returns the response.
    */
-  async request(method: string, params?: Record<string, unknown>): Promise<unknown> {
+  async request(
+    method: string,
+    params?: Record<string, unknown>,
+    options: McpRequestOptions = {},
+  ): Promise<unknown> {
+    if (options.signal?.aborted) {
+      throw new McpRequestAbortedError();
+    }
+    if (this.stopped) throw new McpRequestAbortedError('MCP connection closed');
     if (!this.config.url) {
       throw new Error(`MCP HTTP server "${this.config.name}" has no URL configured`);
     }
@@ -442,20 +543,48 @@ class McpHttpConnection extends EventEmitter {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), McpHttpConnection.REQUEST_TIMEOUT_MS);
+    let timedOut = false;
+    let rejectCancellation: ((error: Error) => void) | undefined;
+    const cancellation = new Promise<never>((_resolve, reject) => {
+      rejectCancellation = reject;
+    });
+
+    const handleAbort = (): void => {
+      controller.abort();
+      rejectCancellation?.(new McpRequestAbortedError());
+    };
+    const handleLifetimeAbort = (): void => {
+      controller.abort();
+      rejectCancellation?.(new McpRequestAbortedError('MCP connection closed'));
+    };
+    options.signal?.addEventListener('abort', handleAbort, { once: true });
+    this.lifetimeController.signal.addEventListener('abort', handleLifetimeAbort, { once: true });
+
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      rejectCancellation?.(
+        new Error(`MCP HTTP request "${method}" timed out after ${McpHttpConnection.REQUEST_TIMEOUT_MS}ms`)
+      );
+    }, McpHttpConnection.REQUEST_TIMEOUT_MS);
+    timeout.unref?.();
+
+    const raceCancellation = <T>(operation: Promise<T>): Promise<T> =>
+      Promise.race([operation, cancellation]);
 
     try {
-      const response = await fetch(this.config.url, {
+      const response = await raceCancellation(fetch(this.config.url, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
         signal: controller.signal,
-      });
-
-      clearTimeout(timeout);
+      }));
 
       if (!response.ok) {
-        const text = await response.text().catch(() => '');
+        const text = await raceCancellation(response.text()).catch((error) => {
+          if (error instanceof McpRequestAbortedError || timedOut) throw error;
+          return '';
+        });
         throw new Error(
           `MCP HTTP request "${method}" failed: ${response.status} ${response.statusText}${text ? ` - ${text}` : ''}`
         );
@@ -471,12 +600,12 @@ class McpHttpConnection extends EventEmitter {
 
       // Handle SSE response (text/event-stream) - extract the last JSON-RPC result
       if (contentType.includes('text/event-stream')) {
-        const text = await response.text();
+        const text = await raceCancellation(response.text());
         return this.parseSSEResponse(text, id);
       }
 
       // Handle standard JSON response
-      const result = (await response.json()) as JsonRpcResponse;
+      const result = (await raceCancellation(response.json())) as JsonRpcResponse;
 
       if (result.error) {
         throw new Error(
@@ -486,11 +615,23 @@ class McpHttpConnection extends EventEmitter {
 
       return result.result;
     } catch (error) {
-      clearTimeout(timeout);
       if (error instanceof Error && error.name === 'AbortError') {
+        if ((options.signal?.aborted || this.lifetimeController.signal.aborted) && !timedOut) {
+          throw error instanceof McpRequestAbortedError
+            ? error
+            : new McpRequestAbortedError(
+              this.lifetimeController.signal.aborted
+                ? 'MCP connection closed'
+                : 'MCP request aborted'
+            );
+        }
         throw new Error(`MCP HTTP request "${method}" timed out after ${McpHttpConnection.REQUEST_TIMEOUT_MS}ms`);
       }
       throw error;
+    } finally {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener('abort', handleAbort);
+      this.lifetimeController.signal.removeEventListener('abort', handleLifetimeAbort);
     }
   }
 
@@ -498,7 +639,7 @@ class McpHttpConnection extends EventEmitter {
    * Sends a JSON-RPC 2.0 notification via HTTP POST (fire-and-forget).
    */
   notify(method: string, params?: Record<string, unknown>): void {
-    if (!this.config.url) return;
+    if (!this.config.url || this.stopped) return;
 
     const body: JsonRpcNotification = {
       jsonrpc: '2.0',
@@ -520,6 +661,7 @@ class McpHttpConnection extends EventEmitter {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
+      signal: this.lifetimeController.signal,
     }).catch(() => {
       // Notifications are best-effort
     });
@@ -529,6 +671,8 @@ class McpHttpConnection extends EventEmitter {
    * No persistent process to stop for HTTP transport.
    */
   async stop(): Promise<void> {
+    this.stopped = true;
+    this.lifetimeController.abort();
     this.sessionId = null;
   }
 
@@ -592,6 +736,10 @@ class McpHttpConnection extends EventEmitter {
 export class McpClientManager {
   private servers = new Map<string, McpServerState>();
   private connections = new Map<string, McpStdioConnection | McpHttpConnection>();
+  private inFlightConnections = new Set<McpStdioConnection | McpHttpConnection>();
+  private connectionAttempts = new Map<string, Promise<void>>();
+  private connectionGeneration = 0;
+  private disconnectAllPromise: Promise<void> | null = null;
 
   // ============================================================================
   // Static Helper Methods
@@ -648,6 +796,7 @@ export class McpClientManager {
         try {
           await this.connect(config);
         } catch (error) {
+          if (error instanceof McpConnectionCancelledError) return;
           // Store the error state but don't throw
           this.servers.set(config.name, {
             config,
@@ -669,17 +818,38 @@ export class McpClientManager {
    * @throws {Error} If the configuration is invalid or connection fails
    */
   async connect(config: McpServerConfig): Promise<void> {
+    if (this.disconnectAllPromise) {
+      throw new McpConnectionCancelledError();
+    }
     validateMcpServerConfig(config);
+    const existingAttempt = this.connectionAttempts.get(config.name);
+    if (existingAttempt) return existingAttempt;
 
+    const generation = this.connectionGeneration;
+    const connecting = this.performConnect(config, generation);
+    const tracked = connecting.finally(() => {
+      if (this.connectionAttempts.get(config.name) === tracked) {
+        this.connectionAttempts.delete(config.name);
+      }
+    });
+    this.connectionAttempts.set(config.name, tracked);
+    return tracked;
+  }
+
+  private async performConnect(config: McpServerConfig, generation: number): Promise<void> {
     // Disconnect existing connection if any
     if (this.servers.has(config.name)) {
       await this.disconnect(config.name);
     }
+    this.assertConnectionGeneration(generation);
+    if (this.disconnectAllPromise) {
+      throw new McpConnectionCancelledError();
+    }
 
     if (config.transport === 'stdio') {
-      await this.connectStdio(config);
+      await this.connectStdio(config, generation);
     } else if (config.transport === 'http') {
-      await this.connectHttp(config);
+      await this.connectHttp(config, generation);
     } else if (config.transport === 'sse') {
       await this.connectSse(config);
     }
@@ -708,13 +878,27 @@ export class McpClientManager {
   /**
    * Disconnects from all connected MCP servers.
    */
-  async disconnectAll(): Promise<void> {
-    const disconnectPromises = Array.from(this.servers.keys()).map((name) =>
-      this.disconnect(name).catch(() => {
-        // Best-effort cleanup, ignore errors
-      })
-    );
-    await Promise.all(disconnectPromises);
+  disconnectAll(): Promise<void> {
+    if (this.disconnectAllPromise) return this.disconnectAllPromise;
+
+    this.connectionGeneration += 1;
+    const connections = new Set([
+      ...this.connections.values(),
+      ...this.inFlightConnections.values(),
+    ]);
+    const connectionAttempts = [...this.connectionAttempts.values()];
+    this.connections.clear();
+    this.inFlightConnections.clear();
+    this.servers.clear();
+    const closing = Promise.all([
+      ...[...connections].map((connection) => connection.stop().catch(() => {})),
+      ...connectionAttempts.map((attempt) => attempt.catch(() => {})),
+    ]).then(() => undefined);
+    const tracked = closing.finally(() => {
+      if (this.disconnectAllPromise === tracked) this.disconnectAllPromise = null;
+    });
+    this.disconnectAllPromise = tracked;
+    return tracked;
   }
 
   // ============================================================================
@@ -778,7 +962,8 @@ export class McpClientManager {
   async callTool(
     serverName: string,
     toolName: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    options: McpRequestOptions = {},
   ): Promise<unknown> {
     const connection = this.connections.get(serverName);
     const state = this.servers.get(serverName);
@@ -794,7 +979,7 @@ export class McpClientManager {
     const result = await connection.request('tools/call', {
       name: toolName,
       arguments: toolArgs,
-    });
+    }, options);
 
     return result;
   }
@@ -825,11 +1010,12 @@ export class McpClientManager {
    * Spawns the server process, performs the MCP initialize handshake,
    * and discovers available tools.
    */
-  private async connectStdio(config: McpServerConfig): Promise<void> {
+  private async connectStdio(config: McpServerConfig, generation: number): Promise<void> {
     try {
-      const connected = await this.connectStdioWithFallbackFraming(config);
-      this.registerConnectedStdioServer(config, connected.connection, connected.tools);
+      const connected = await this.connectStdioWithFallbackFraming(config, generation);
+      await this.registerConnectedStdioServer(config, connected.connection, connected.tools, generation);
     } catch (error) {
+      if (error instanceof McpConnectionCancelledError) throw error;
       if (!this.shouldRetryNpxWithIsolatedCache(config, error)) {
         throw error;
       }
@@ -840,9 +1026,9 @@ export class McpClientManager {
       };
 
       try {
-        const connected = await this.connectStdioWithFallbackFraming(retryConfig);
+        const connected = await this.connectStdioWithFallbackFraming(retryConfig, generation);
         // Keep persisted config intact; retry cache env is only a runtime override.
-        this.registerConnectedStdioServer(config, connected.connection, connected.tools);
+        await this.registerConnectedStdioServer(config, connected.connection, connected.tools, generation);
       } catch (retryError) {
         const initialMessage = error instanceof Error ? error.message : String(error);
         const retryMessage = retryError instanceof Error ? retryError.message : String(retryError);
@@ -874,17 +1060,19 @@ export class McpClientManager {
   }
 
   private async connectStdioWithFallbackFraming(
-    config: McpServerConfig
+    config: McpServerConfig,
+    generation: number,
   ): Promise<{ connection: McpStdioConnection; tools: McpToolDefinition[] }> {
     try {
-      return await this.connectStdioWithFraming(config, 'content-length');
+      return await this.connectStdioWithFraming(config, 'content-length', generation);
     } catch (contentLengthError) {
+      if (contentLengthError instanceof McpConnectionCancelledError) throw contentLengthError;
       if (!this.shouldRetryWithNewlineFraming(contentLengthError)) {
         throw contentLengthError;
       }
 
       try {
-        return await this.connectStdioWithFraming(config, 'newline');
+        return await this.connectStdioWithFraming(config, 'newline', generation);
       } catch (newlineError) {
         const first = contentLengthError instanceof Error
           ? contentLengthError.message
@@ -900,9 +1088,12 @@ export class McpClientManager {
    */
   private async connectStdioWithFraming(
     config: McpServerConfig,
-    framing: 'content-length' | 'newline'
+    framing: 'content-length' | 'newline',
+    generation: number,
   ): Promise<{ connection: McpStdioConnection; tools: McpToolDefinition[] }> {
+    this.assertConnectionGeneration(generation);
     const connection = new McpStdioConnection(config, framing);
+    this.inFlightConnections.add(connection);
 
     // Track error state
     let connectionError: Error | null = null;
@@ -938,6 +1129,7 @@ export class McpClientManager {
 
     try {
       await connection.start();
+      this.assertConnectionGeneration(generation);
 
       if (connectionError) {
         throw connectionError;
@@ -954,6 +1146,7 @@ export class McpClientManager {
           version: '1.0.0',
         },
       });
+      this.assertConnectionGeneration(generation);
 
       // Send initialized notification to complete handshake
       connection.notify('notifications/initialized');
@@ -962,6 +1155,7 @@ export class McpClientManager {
       const toolsResult = (await connection.request('tools/list', {})) as {
         tools?: McpRawTool[];
       };
+      this.assertConnectionGeneration(generation);
 
       const tools: McpToolDefinition[] = (toolsResult?.tools ?? []).map((rawTool) =>
         convertMcpToolToAutohand(rawTool, config.name)
@@ -972,6 +1166,7 @@ export class McpClientManager {
     } catch (error) {
       // Clean up on failure
       await connection.stop().catch(() => {});
+      if (error instanceof McpConnectionCancelledError) throw error;
 
       let errMsg = error instanceof Error ? error.message : String(error);
       if (errMsg === 'MCP connection closed') {
@@ -988,17 +1183,25 @@ export class McpClientManager {
       }
 
       throw new Error(errMsg);
+    } finally {
+      if (!handshakeComplete) this.inFlightConnections.delete(connection);
     }
   }
 
   /**
    * Stores connected server state and attaches lifecycle listeners.
    */
-  private registerConnectedStdioServer(
+  private async registerConnectedStdioServer(
     config: McpServerConfig,
     connection: McpStdioConnection,
-    tools: McpToolDefinition[]
-  ): void {
+    tools: McpToolDefinition[],
+    generation: number,
+  ): Promise<void> {
+    if (generation !== this.connectionGeneration) {
+      this.inFlightConnections.delete(connection);
+      await connection.stop().catch(() => {});
+      throw new McpConnectionCancelledError();
+    }
     connection.on('close', (code: number | null | undefined) => {
       const state = this.servers.get(config.name);
       // Only mutate state if currently connected.
@@ -1019,17 +1222,21 @@ export class McpClientManager {
     });
 
     this.connections.set(config.name, connection);
+    this.inFlightConnections.delete(connection);
   }
 
   /**
    * Connects to an MCP server via HTTP (Streamable HTTP) transport.
    * Sends JSON-RPC requests as HTTP POST to the configured URL.
    */
-  private async connectHttp(config: McpServerConfig): Promise<void> {
+  private async connectHttp(config: McpServerConfig, generation: number): Promise<void> {
+    this.assertConnectionGeneration(generation);
     const connection = new McpHttpConnection(config);
+    this.inFlightConnections.add(connection);
 
     try {
       await connection.start();
+      this.assertConnectionGeneration(generation);
 
       // MCP Initialize handshake
       await connection.request('initialize', {
@@ -1042,6 +1249,7 @@ export class McpClientManager {
           version: '1.0.0',
         },
       });
+      this.assertConnectionGeneration(generation);
 
       // Send initialized notification to complete handshake
       connection.notify('notifications/initialized');
@@ -1050,6 +1258,7 @@ export class McpClientManager {
       const toolsResult = (await connection.request('tools/list', {})) as {
         tools?: McpRawTool[];
       };
+      this.assertConnectionGeneration(generation);
 
       const tools: McpToolDefinition[] = (toolsResult?.tools ?? []).map((rawTool) =>
         convertMcpToolToAutohand(rawTool, config.name)
@@ -1066,6 +1275,14 @@ export class McpClientManager {
     } catch (error) {
       await connection.stop().catch(() => {});
       throw error;
+    } finally {
+      this.inFlightConnections.delete(connection);
+    }
+  }
+
+  private assertConnectionGeneration(generation: number): void {
+    if (generation !== this.connectionGeneration) {
+      throw new McpConnectionCancelledError();
     }
   }
 

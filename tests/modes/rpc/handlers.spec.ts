@@ -50,6 +50,7 @@ const mockAgent = {
   handleSlashCommand: vi.fn(),
   parseSlashCommand: vi.fn(),
   runInstruction: vi.fn().mockResolvedValue(true),
+  cancelCurrentInstruction: vi.fn(),
 };
 
 const mockConversation = {
@@ -72,6 +73,7 @@ vi.mock('../../../src/browser/chrome.js', () => ({
 
 // Import after mocks
 import { RPCAdapter } from '../../../src/modes/rpc/adapter.js';
+import { writeNotification } from '../../../src/modes/rpc/protocol.js';
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -105,6 +107,44 @@ describe('RPC Adapter - P2 Handlers', () => {
     vi.useRealTimers();
   });
 
+  describe('tool lifecycle notifications', () => {
+    it('preserves explicit runtime failure output and error on toolEnd', () => {
+      const outputListener = mockAgent.setOutputListener.mock.calls[0]?.[0];
+
+      outputListener({
+        type: 'tool_end',
+        toolId: 'tool_failed',
+        toolName: 'run_command',
+        toolSuccess: false,
+        toolOutput: 'partial stdout',
+        toolError: 'Command exited with code 9.',
+      });
+
+      expect(writeNotification).toHaveBeenCalledWith('autohand.toolEnd', expect.objectContaining({
+        toolId: 'tool_failed',
+        toolName: 'run_command',
+        success: false,
+        output: 'partial stdout',
+        error: 'Command exited with code 9.',
+      }));
+    });
+
+    it('does not infer success when a runtime tool_end omits status', () => {
+      const outputListener = mockAgent.setOutputListener.mock.calls[0]?.[0];
+
+      outputListener({
+        type: 'tool_end',
+        toolId: 'tool_missing_status',
+        toolName: 'read_file',
+      });
+
+      expect(writeNotification).toHaveBeenCalledWith('autohand.toolEnd', expect.objectContaining({
+        toolId: 'tool_missing_status',
+        success: false,
+      }));
+    });
+  });
+
   // -------------------------------------------------------------------------
   // prompt handling
   // -------------------------------------------------------------------------
@@ -125,7 +165,9 @@ describe('RPC Adapter - P2 Handlers', () => {
 
       await new Promise<void>((resolve) => setImmediate(resolve));
 
-      expect(mockAgent.runInstruction).toHaveBeenCalledWith('hello');
+      expect(mockAgent.runInstruction).toHaveBeenCalledWith('hello', {
+        signal: expect.any(AbortSignal),
+      });
 
       resolveRun(true);
       await runPromise;
@@ -133,6 +175,125 @@ describe('RPC Adapter - P2 Handlers', () => {
       await Promise.resolve();
 
       expect(adapter.getState().status).toBe('idle');
+    });
+
+    it('keeps an aborted prompt busy until quiescence and finalizes it exactly once', async () => {
+      let resolveRun!: (success: boolean) => void;
+      mockAgent.runInstruction.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+        resolveRun = resolve;
+      }));
+
+      adapter.startPrompt('req_abort', { message: 'keep working' });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(mockAgent.runInstruction).toHaveBeenCalledOnce();
+
+      const permission = adapter.requestPermission(
+        'run_command',
+        'Run a command?',
+        { command: 'sleep 30' },
+      );
+      const directoryAccess = adapter.requestDirectoryAccess('/outside', 'Read a file');
+      expect(adapter.getState().status).toBe('waiting_permission');
+
+      expect(adapter.handleAbort(null)).toEqual({ success: true });
+      expect(adapter.handleAbort(null)).toEqual({ success: true });
+      await expect(permission).resolves.toEqual({ decision: 'deny_once' });
+      await expect(directoryAccess).resolves.toBeUndefined();
+      expect(mockAgent.cancelCurrentInstruction).toHaveBeenCalledTimes(1);
+      expect(adapter.getState().status).toBe('processing');
+      expect(() => adapter.startPrompt('req_busy', { message: 'too soon' })).toThrow(
+        'Agent is already processing',
+      );
+
+      const outputListener = mockAgent.setOutputListener.mock.calls[0]?.[0];
+      const terminalCountBeforeLateOutput = vi.mocked(writeNotification).mock.calls.filter(
+        ([method]) => method === 'autohand.messageEnd' || method === 'autohand.turnEnd',
+      ).length;
+      outputListener({ type: 'thinking', thought: 'late thought' });
+      outputListener({ type: 'message', content: 'late answer' });
+      expect(vi.mocked(writeNotification).mock.calls).not.toContainEqual([
+        'autohand.messageUpdate',
+        expect.objectContaining({ thought: 'late thought' }),
+      ]);
+      expect(vi.mocked(writeNotification).mock.calls).not.toContainEqual([
+        'autohand.messageUpdate',
+        expect.objectContaining({ delta: 'late answer' }),
+      ]);
+      expect(vi.mocked(writeNotification).mock.calls.filter(
+        ([method]) => method === 'autohand.messageEnd' || method === 'autohand.turnEnd',
+      )).toHaveLength(terminalCountBeforeLateOutput);
+
+      resolveRun(true);
+      await vi.waitFor(() => expect(adapter.getState().status).toBe('idle'));
+
+      const terminalMethods = vi.mocked(writeNotification).mock.calls
+        .map(([method]) => method)
+        .filter((method) => method === 'autohand.messageEnd' || method === 'autohand.turnEnd');
+      expect(terminalMethods).toEqual(['autohand.messageEnd', 'autohand.turnEnd']);
+      expect(vi.mocked(writeNotification)).toHaveBeenCalledWith(
+        'autohand.messageEnd',
+        expect.objectContaining({ aborted: true }),
+      );
+    });
+
+    it('rejects a second prompt while the active prompt is waiting for permission', async () => {
+      let resolveRun!: (success: boolean) => void;
+      mockAgent.runInstruction.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+        resolveRun = resolve;
+      }));
+      adapter.startPrompt('req_first', { message: 'first' });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const permission = adapter.requestPermission('write_file', 'Write?', { path: 'README.md' });
+
+      expect(adapter.getState().status).toBe('waiting_permission');
+      expect(() => adapter.startPrompt('req_second', { message: 'second' })).toThrow(
+        'Agent is already processing',
+      );
+
+      adapter.handlePermissionResponse('req_permission', 'perm_test123', false);
+      await permission;
+      resolveRun(true);
+      await vi.waitFor(() => expect(adapter.getState().status).toBe('idle'));
+    });
+
+    it('does not let a stale prompt finalizer clear a newer active prompt', async () => {
+      let resolveRun!: (success: boolean) => void;
+      mockAgent.runInstruction.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+        resolveRun = resolve;
+      }));
+      adapter.startPrompt('req_active', { message: 'active' });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      const internals = adapter as unknown as {
+        finalizePrompt(prompt: {
+          identity: symbol;
+          abortController: AbortController;
+          turnId: null;
+          turnStartTime: null;
+          messageId: null;
+          messageContent: string;
+          cancelRequested: boolean;
+          finalized: boolean;
+        }): void;
+      };
+      internals.finalizePrompt({
+        identity: Symbol('stale-prompt'),
+        abortController: new AbortController(),
+        turnId: null,
+        turnStartTime: null,
+        messageId: null,
+        messageContent: '',
+        cancelRequested: false,
+        finalized: false,
+      });
+
+      expect(adapter.getState().status).toBe('processing');
+      expect(() => adapter.startPrompt('req_second', { message: 'second' })).toThrow(
+        'Agent is already processing',
+      );
+
+      resolveRun(true);
+      await vi.waitFor(() => expect(adapter.getState().status).toBe('idle'));
     });
   });
 

@@ -33,6 +33,15 @@ export function setBrowserBridgeOutput(output: { write: (data: string) => boolea
   bridgeOutput = output;
 }
 
+export function shutdownBrowserToolBridge(): void {
+  bridgeOutput = null;
+  for (const [requestId, request] of pending) {
+    clearTimeout(request.timer);
+    request.reject(new Error('Browser tool bridge shut down'));
+    pending.delete(requestId);
+  }
+}
+
 /**
  * Send a browser tool invoke request and wait for the response.
  */

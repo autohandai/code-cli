@@ -35,6 +35,7 @@ import type {
   ExplorationEvent,
   ProviderName,
   ToolOutputChunk,
+  ToolActionOutcome,
   TurnUsage,
 } from '../types.js';
 
@@ -86,6 +87,7 @@ import { initializeAgentDependencies, type AgentDependencyHost } from './agent/A
 import {
   InstructionRunner,
   type AgentInstructionHost,
+  type RunInstructionOptions,
   type SessionFailureBugReportOptions,
 } from './agent/InstructionRunner.js';
 import { buildStatusLineExtension, getConfigStatusLineSettings } from './agent/StatusLineSettings.js';
@@ -111,12 +113,14 @@ import {
   installAgentExitSignalHandlers,
   logAgentQueuedProcessingMessage,
   performAgentBackgroundInit,
+  requestAgentExit,
   removeAgentExitSignalHandlers,
   restoreAgentSessionState,
   resumeAgentSession,
   runAgentCommandMode,
   runAgentInteractive,
   runAgentInteractiveLoop,
+  shutdownAgentRuntimeResources,
 } from './agent/AgentLifecycleRunner.js';
 import { promptForAgentInstruction, type AgentPromptInstructionHost } from './agent/PromptInstructionReader.js';
 import {
@@ -212,6 +216,7 @@ import {
   emitAgentOutput,
   emitAgentStatus,
   forceAgentIdleLogout,
+  flushScheduledAgentSessionSnapshot,
   getAgentCompletionNotificationBody,
   getAgentNotificationGuards,
   getAgentStatusSnapshot,
@@ -264,6 +269,7 @@ export class AutohandAgent {
   private memoryManager!: MemoryManager;
   private turnMemoryReflectionInFlight: Promise<void> | null = null;
   private turnMemoryReflectionQueued = false;
+  private turnMemoryReflectionAbortController: AbortController | null = null;
   private permissionManager!: PermissionManager;
   private hookManager!: HookManager;
   private delegator!: AgentDelegator;
@@ -298,6 +304,8 @@ export class AutohandAgent {
   private instructionRunner!: InstructionRunner;
   private sessionDiffStatsTracker?: SessionDiffStatsTracker;
   private activeAgentHeartbeat: ActiveAgentHeartbeat | null = null;
+  private readonly runtimeResourceShutdownController = new AbortController();
+  private runtimeResourceShutdownPromise: Promise<void> | null = null;
 
   private taskStartedAt: number | null = null;
   private totalTokensUsed = 0;
@@ -314,6 +322,7 @@ export class AutohandAgent {
   private lastContextTokens = 0;
   private statusInterval: NodeJS.Timeout | null = null;
   private resizeHandler: (() => void) | null = null;
+  private sessionSyncTimer?: ReturnType<typeof setTimeout>;
   private sessionStartedAt: number = Date.now();
   private sessionTokensUsed = 0;
   // UI Manager - unified interface for Ink or Plain terminal UI
@@ -329,6 +338,7 @@ export class AutohandAgent {
   private queueInput = '';
   private promptSeedInput = '';
   private interactiveAutomodeEnabled = false;
+  private baseYesMode = false;
   private basePermissionMode: PermissionMode = 'interactive';
   private lastRenderedStatus = '';
   private activityIndicator!: ActivityIndicator;
@@ -356,6 +366,7 @@ export class AutohandAgent {
   // Exit flag - set when SIGINT/SIGTERM received to stop queue processing immediately
   private shouldExit = false;
   private exitSignalHandlersInstalled = false;
+  private exitSignalHandler: (() => void) | null = null;
 
   // Context compaction - auto-compresses context to prevent "context too long" errors
   private contextOrchestrator!: ContextOrchestrator;
@@ -365,6 +376,7 @@ export class AutohandAgent {
     private readonly files: FileActionManager,
     private readonly runtime: AgentRuntime
   ) {
+    this.baseYesMode = runtime.options.yes === true;
     initializeAgentDependencies(this as unknown as AgentDependencyHost, llm, files, runtime);
     this.sessionDiffStatsTracker = new SessionDiffStatsTracker(runtime.workspaceRoot);
     this.instructionRunner = new InstructionRunner(this as unknown as AgentInstructionHost);
@@ -431,6 +443,13 @@ export class AutohandAgent {
     return runAgentInteractive(this, initialInstruction);
   }
 
+  /** Release process resources without ending or closing the current session. */
+  shutdownRuntimeResources(): Promise<void> {
+    this.runtimeResourceShutdownController?.abort();
+    this.runtimeResourceShutdownPromise ??= shutdownAgentRuntimeResources(this);
+    return this.runtimeResourceShutdownPromise;
+  }
+
   /**
    * Install SIGINT/SIGTERM handlers to trigger immediate exit with queue cleanup.
    * This ensures queued requests and child processes are terminated when user exits.
@@ -467,7 +486,7 @@ export class AutohandAgent {
    * NOTE: Must NOT write to stdout - the prompt is already rendering.
    */
   private async performBackgroundInit(): Promise<void> {
-    return performAgentBackgroundInit(this);
+    return performAgentBackgroundInit(this, this.runtimeResourceShutdownController?.signal);
   }
 
   /**
@@ -476,25 +495,33 @@ export class AutohandAgent {
    * Also fires the session-start hook here so output renders cleanly.
    */
   private async ensureInitComplete(): Promise<void> {
-    return ensureAgentInitComplete(this);
+    return ensureAgentInitComplete(this, this.runtimeResourceShutdownController?.signal);
   }
 
   /**
    * Initialize the agent for RPC mode (no interactive loop or command mode)
    */
-  async initializeForRPC(): Promise<void> {
-    return initializeAgentForRPC(this);
+  async initializeForRPC(signal?: AbortSignal): Promise<void> {
+    return initializeAgentForRPC(this, signal);
   }
 
-  async runCommandMode(instruction: string): Promise<void> {
-    return runAgentCommandMode(this, instruction);
+  async runCommandMode(instruction: string, signal?: AbortSignal): Promise<boolean> {
+    return runAgentCommandMode(
+      this,
+      instruction,
+      signal ?? this.runtimeResourceShutdownController?.signal,
+    );
+  }
+
+  requestExit(): void {
+    requestAgentExit(this);
   }
 
   /**
    * Auto-commit: Run lint, test, then use LLM to generate commit message
    */
-  private async performAutoCommit(): Promise<void> {
-    return performAgentAutoCommit(this as unknown as AgentProjectOperationsHost);
+  private async performAutoCommit(signal?: AbortSignal): Promise<void> {
+    return performAgentAutoCommit(this as unknown as AgentProjectOperationsHost, signal);
   }
 
   private async restoreSessionState(sessionId: string) {
@@ -574,6 +601,9 @@ export class AutohandAgent {
   }
 
   private scheduleTurnMemoryReflection(success: boolean): void {
+    if (this.runtimeResourceShutdownPromise) {
+      return;
+    }
     if (!this.shouldRunTurnMemoryReflection(success)) {
       return;
     }
@@ -608,33 +638,43 @@ export class AutohandAgent {
   }
 
   private async runTurnMemoryReflectionOnce(): Promise<void> {
-    const conversationHistory = this.conversation.history().filter((message) =>
-      !(message.role === 'system' && typeof message.content === 'string' && message.content.includes('[Auto Memory Update]'))
-    );
+    const abortController = new AbortController();
+    this.turnMemoryReflectionAbortController = abortController;
 
-    const saved = await extractAndSaveSessionMemories({
-      llm: this.llm,
-      memoryManager: this.memoryManager,
-      conversationHistory,
-      workspaceRoot: this.runtime.workspaceRoot,
-      options: {
-        minUserMessages: 1,
-        source: 'turn-reflection',
-      },
-    });
+    try {
+      const conversationHistory = this.conversation.history().filter((message) =>
+        !(message.role === 'system' && typeof message.content === 'string' && message.content.includes('[Auto Memory Update]'))
+      );
 
-    if (saved.length === 0) {
-      return;
+      const saved = await extractAndSaveSessionMemories({
+        llm: this.llm,
+        memoryManager: this.memoryManager,
+        conversationHistory,
+        workspaceRoot: this.runtime.workspaceRoot,
+        signal: abortController.signal,
+        options: {
+          minUserMessages: 1,
+          source: 'turn-reflection',
+        },
+      });
+
+      if (abortController.signal.aborted || this.runtimeResourceShutdownPromise || saved.length === 0) {
+        return;
+      }
+
+      this.conversation.addSystemNote(formatTurnMemoryUpdate(saved), '[Auto Memory Update]');
+      this.writeTurnMemoryDebugLine(
+        `[memory] turn reflection saved ${saved.length} ${saved.length === 1 ? 'memory' : 'memories'}`,
+      );
+    } finally {
+      if (this.turnMemoryReflectionAbortController === abortController) {
+        this.turnMemoryReflectionAbortController = null;
+      }
     }
-
-    this.conversation.addSystemNote(formatTurnMemoryUpdate(saved), '[Auto Memory Update]');
-    this.writeTurnMemoryDebugLine(
-      `[memory] turn reflection saved ${saved.length} ${saved.length === 1 ? 'memory' : 'memories'}`,
-    );
   }
 
   private writeTurnMemoryDebugLine(message: string): void {
-    if (!isAutohandDebugEnabled()) {
+    if (this.runtimeResourceShutdownPromise || !isAutohandDebugEnabled()) {
       return;
     }
 
@@ -646,10 +686,16 @@ export class AutohandAgent {
       return;
     }
 
-    await Promise.race([
-      this.turnMemoryReflectionInFlight,
-      new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
-    ]);
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<void>((resolve) => {
+      deadlineTimer = setTimeout(resolve, timeoutMs);
+      deadlineTimer.unref?.();
+    });
+    try {
+      await Promise.race([this.turnMemoryReflectionInFlight, deadline]);
+    } finally {
+      if (deadlineTimer) clearTimeout(deadlineTimer);
+    }
   }
 
   private printGitDiff(): void {
@@ -678,7 +724,8 @@ export class AutohandAgent {
       return;
     }
 
-    this.runtime.options.yes = result.value === 'prompt';
+    this.baseYesMode = result.value === 'prompt';
+    this.runtime.options.yes = this.baseYesMode;
     console.log(
       result.value === 'prompt'
         ? chalk.yellow('Auto-confirm enabled. Use responsibly.')
@@ -712,9 +759,9 @@ export class AutohandAgent {
     return this.getSimpleChatHandler().handle(instruction);
   }
 
-  async runInstruction(instruction: string): Promise<boolean> {
+  async runInstruction(instruction: string, options?: RunInstructionOptions): Promise<boolean> {
     this.instructionRunner ??= new InstructionRunner(this as unknown as AgentInstructionHost);
-    return this.instructionRunner.run(instruction);
+    return this.instructionRunner.run(instruction, options);
   }
 
   private handleToolOutput(chunk: ToolOutputChunk): void {
@@ -756,6 +803,10 @@ export class AutohandAgent {
   private async closeSession(): Promise<void> {
     await this.flushTurnMemoryReflection();
     return closeAgentSession(this as unknown as AgentSessionAccountingHost);
+  }
+
+  private flushScheduledSessionSnapshot(): Promise<void> {
+    return flushScheduledAgentSessionSnapshot(this as unknown as AgentSessionAccountingHost);
   }
 
   private async runReactLoop(abortController: AbortController): Promise<void> {
@@ -1429,6 +1480,14 @@ export class AutohandAgent {
       return;
     }
 
+    if (this.baseYesMode) {
+      this.runtime.options.yes = true;
+      this.runtime.options.unrestricted = false;
+      this.runtime.options.restricted = false;
+      this.permissionManager.setMode('interactive');
+      return;
+    }
+
     if (this.basePermissionMode === 'restricted') {
       this.runtime.options.yes = false;
       this.runtime.options.unrestricted = false;
@@ -1820,7 +1879,7 @@ export class AutohandAgent {
    * This transitions from planning phase to execution (or back to planning
    * if the user rejects).
    */
-  private async handleExitPlanMode(_summary?: string): Promise<string> {
+  private async handleExitPlanMode(_summary?: string): Promise<ToolActionOutcome> {
     return handleAgentExitPlanMode(this, _summary);
   }
 
@@ -1838,7 +1897,7 @@ export class AutohandAgent {
 
   private handleSkillTool(
     action: Extract<AgentAction, { type: 'skill' }>
-  ): string {
+  ): ToolActionOutcome {
     return handleAgentSkillTool(this, action);
   }
 
@@ -1854,11 +1913,11 @@ export class AutohandAgent {
     return isAgentDestructiveCommand(this, command);
   }
 
-  setStatusListener(listener: (snapshot: AgentStatusSnapshot) => void): void {
+  setStatusListener(listener?: (snapshot: AgentStatusSnapshot) => void): void {
     return setAgentStatusListener(this as unknown as AgentSessionAccountingHost, listener);
   }
 
-  setOutputListener(listener: (event: AgentOutputEvent) => void): void {
+  setOutputListener(listener?: (event: AgentOutputEvent) => void): void {
     return setAgentOutputListener(this as unknown as AgentSessionAccountingHost, listener);
   }
 
@@ -1947,8 +2006,13 @@ export class AutohandAgent {
   }
 
   private async startActiveAgentHeartbeat(): Promise<void> {
-    await this.activeAgentHeartbeat?.stop().catch(() => {});
-    this.activeAgentHeartbeat = new ActiveAgentHeartbeat(
+    if (this.runtimeResourceShutdownPromise || this.runtimeResourceShutdownController?.signal.aborted) return;
+
+    const previousHeartbeat = this.activeAgentHeartbeat;
+    await previousHeartbeat?.stop().catch(() => {});
+    if (this.runtimeResourceShutdownPromise || this.runtimeResourceShutdownController?.signal.aborted) return;
+
+    const heartbeat = new ActiveAgentHeartbeat(
       new ActiveAgentRegistry(),
       {
         runtime: this.runtime,
@@ -1957,7 +2021,16 @@ export class AutohandAgent {
         getStatusSnapshot: () => this.getStatusSnapshot(),
       },
     );
-    await this.activeAgentHeartbeat.start();
+    this.activeAgentHeartbeat = heartbeat;
+    await heartbeat.start();
+    if (
+      this.runtimeResourceShutdownPromise
+      || this.runtimeResourceShutdownController?.signal.aborted
+      || this.activeAgentHeartbeat !== heartbeat
+    ) {
+      if (this.activeAgentHeartbeat === heartbeat) this.activeAgentHeartbeat = null;
+      await heartbeat.stop().catch(() => {});
+    }
   }
 
   private async stopActiveAgentHeartbeat(): Promise<void> {

@@ -18,6 +18,19 @@ import { buildAutohandChildProcessEnv } from '../utils/childProcessEnv.js';
  * Default timeout for shell commands (30 seconds)
  */
 const DEFAULT_SHELL_TIMEOUT = 30000;
+const DEFAULT_KILL_GRACE_PERIOD_MS = 1_000;
+
+export class ShellCommandAbortedError extends Error {
+  readonly output: string;
+  readonly stderr: string;
+
+  constructor(output = '', stderr = '') {
+    super('Shell command execution aborted');
+    this.name = 'AbortError';
+    this.output = output;
+    this.stderr = stderr;
+  }
+}
 
 const SHELL_HOT_TIP_SUGGESTIONS = [
   'git status',
@@ -288,9 +301,11 @@ type ExecAsyncError = Error & {
   stderr?: string | Buffer;
 };
 
-interface ExecuteShellCommandAsyncOptions {
+export interface ExecuteShellCommandAsyncOptions {
   onStdout?: (chunk: string) => void;
   onStderr?: (chunk: string) => void;
+  signal?: AbortSignal;
+  killGracePeriodMs?: number;
 }
 
 export interface ExecuteStreamingShellCommandOptions extends ExecuteShellCommandAsyncOptions {
@@ -448,26 +463,49 @@ export async function executeShellCommandAsync(
   options: ExecuteShellCommandAsyncOptions = {}
 ): Promise<ShellCommandResult> {
   const trimmedCommand = command.trim();
+  if (options.signal?.aborted) {
+    throw new ShellCommandAbortedError();
+  }
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let stdout = '';
     let stderr = '';
     let resolved = false;
     let timedOut = false;
     let timeoutId: NodeJS.Timeout | undefined;
+    let forceKillId: NodeJS.Timeout | undefined;
+    let aborted = false;
+    const killGracePeriodMs = Math.max(0, options.killGracePeriodMs ?? DEFAULT_KILL_GRACE_PERIOD_MS);
+
+    const cleanup = (): void => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = undefined;
+      }
+      if (forceKillId) {
+        clearTimeout(forceKillId);
+        forceKillId = undefined;
+      }
+      options.signal?.removeEventListener('abort', handleAbort);
+    };
 
     const finish = (result: ShellCommandResult): void => {
       if (resolved) {
         return;
       }
       resolved = true;
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
+      cleanup();
       resolve(result);
     };
 
-    let child;
+    const finishAborted = (): void => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      reject(new ShellCommandAbortedError(stdout, stderr));
+    };
+
+    let child: ReturnType<typeof spawn>;
     try {
       child = spawn(trimmedCommand, {
         cwd: cwd ?? process.cwd(),
@@ -484,11 +522,31 @@ export async function executeShellCommandAsync(
       return;
     }
 
+    const terminate = (reason: 'abort' | 'timeout'): void => {
+      if (resolved || aborted || timedOut) return;
+      aborted = reason === 'abort';
+      timedOut = reason === 'timeout';
+      child.kill('SIGTERM');
+      forceKillId = setTimeout(() => {
+        if (!resolved) child.kill('SIGKILL');
+      }, killGracePeriodMs);
+      forceKillId.unref?.();
+    };
+
+    function handleAbort(): void {
+      terminate('abort');
+    }
+
+    if (options.signal) {
+      options.signal.addEventListener('abort', handleAbort, { once: true });
+      if (options.signal.aborted) handleAbort();
+    }
+
     if (timeout > 0) {
       timeoutId = setTimeout(() => {
-        timedOut = true;
-        child.kill('SIGTERM');
+        terminate('timeout');
       }, timeout);
+      timeoutId.unref?.();
     }
 
     child.stdout?.on('data', (chunk: Buffer | string) => {
@@ -504,6 +562,10 @@ export async function executeShellCommandAsync(
     });
 
     child.once('error', (error: ExecAsyncError) => {
+      if (aborted) {
+        finishAborted();
+        return;
+      }
       finish({
         success: false,
         error: stderr || error.stderr?.toString() || error.message || 'Unknown error'
@@ -511,6 +573,10 @@ export async function executeShellCommandAsync(
     });
 
     child.once('close', (code, signal) => {
+      if (aborted) {
+        finishAborted();
+        return;
+      }
       if (code === 0) {
         finish({
           success: true,
@@ -533,12 +599,19 @@ export async function executeShellCommandAsync(
 
 export async function executeInteractiveShellCommand(
   command: string,
-  cwd?: string
+  cwd?: string,
+  options: Pick<ExecuteShellCommandAsyncOptions, 'signal' | 'killGracePeriodMs'> = {}
 ): Promise<ShellCommandResult> {
   const trimmedCommand = command.trim();
+  if (options.signal?.aborted) {
+    throw new ShellCommandAbortedError();
+  }
 
-  return new Promise((resolve) => {
-    let child;
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let forceKillId: NodeJS.Timeout | undefined;
+    let aborted = false;
+    let child: ReturnType<typeof spawn>;
     try {
       child = spawn(trimmedCommand, {
         cwd: cwd ?? process.cwd(),
@@ -555,20 +628,58 @@ export async function executeInteractiveShellCommand(
       return;
     }
 
+    const cleanup = (): void => {
+      if (forceKillId) clearTimeout(forceKillId);
+      options.signal?.removeEventListener('abort', handleAbort);
+    };
+    const finish = (result: ShellCommandResult): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+    const finishAborted = (): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new ShellCommandAbortedError());
+    };
+    function handleAbort(): void {
+      if (settled || aborted) return;
+      aborted = true;
+      child.kill('SIGTERM');
+      forceKillId = setTimeout(() => {
+        if (!settled) child.kill('SIGKILL');
+      }, Math.max(0, options.killGracePeriodMs ?? DEFAULT_KILL_GRACE_PERIOD_MS));
+      forceKillId.unref?.();
+    }
+    if (options.signal) {
+      options.signal.addEventListener('abort', handleAbort, { once: true });
+      if (options.signal.aborted) handleAbort();
+    }
+
     child.once('error', (error: ExecAsyncError) => {
-      resolve({
+      if (aborted) {
+        finishAborted();
+        return;
+      }
+      finish({
         success: false,
         error: error.stderr?.toString() || error.message || 'Unknown error'
       });
     });
 
     child.once('close', (code, signal) => {
+      if (aborted) {
+        finishAborted();
+        return;
+      }
       if (code === 0) {
-        resolve({ success: true, output: '' });
+        finish({ success: true, output: '' });
         return;
       }
 
-      resolve({
+      finish({
         success: false,
         error: signal ? `Command terminated by ${signal}` : `Command failed with exit code ${code ?? 'unknown'}`
       });
@@ -606,11 +717,14 @@ export async function executeStreamingShellCommand(
   options: ExecuteStreamingShellCommandOptions = {}
 ): Promise<ShellCommandResult> {
   const trimmedCommand = command.trim();
+  if (options.signal?.aborted) {
+    throw new ShellCommandAbortedError();
+  }
   
   // Handle background mode - spawn detached process and return immediately
   if (options.background) {
     return new Promise((resolve) => {
-      let child;
+      let child: ReturnType<typeof spawn>;
       try {
         child = spawn(trimmedCommand, {
           cwd: cwd ?? process.cwd(),
@@ -647,11 +761,14 @@ export async function executeStreamingShellCommand(
   }
 
   const nodePty = await loadNodePty();
+  if (options.signal?.aborted) {
+    throw new ShellCommandAbortedError();
+  }
   if (!nodePty) {
     return executeShellCommandAsync(trimmedCommand, cwd, DEFAULT_SHELL_TIMEOUT, options);
   }
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const { file, args } = getPtyShellLaunch(trimmedCommand);
     const ptyProcess = nodePty.spawn(file, args, {
       name: process.env.TERM || 'xterm-256color',
@@ -662,27 +779,47 @@ export async function executeStreamingShellCommand(
     });
 
     let output = '';
-    const dataDisposable = ptyProcess.onData((data) => {
+    let settled = false;
+    function cleanup(): void {
+      dataDisposable.dispose();
+      exitDisposable.dispose();
+      options.signal?.removeEventListener('abort', handleAbort);
+    }
+    const finish = (result: ShellCommandResult): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+    function handleAbort(): void {
+      if (settled) return;
+      settled = true;
+      ptyProcess.kill();
+      cleanup();
+      reject(new ShellCommandAbortedError(output.replace(/\r\n/g, '\n')));
+    }
+    const dataDisposable: PtyDisposable = ptyProcess.onData((data) => {
       output += data;
       options.onStdout?.(data);
     });
-    const exitDisposable = ptyProcess.onExit((event) => {
-      dataDisposable.dispose();
-      exitDisposable.dispose();
-
+    const exitDisposable: PtyDisposable = ptyProcess.onExit((event) => {
       const normalized = output.replace(/\r\n/g, '\n');
       if (event.exitCode === 0) {
-        resolve({
+        finish({
           success: true,
           output: normalized,
         });
         return;
       }
 
-      resolve({
+      finish({
         success: false,
         error: normalized || `Command failed with exit code ${event.exitCode}`,
       });
     });
+    if (options.signal) {
+      options.signal.addEventListener('abort', handleAbort, { once: true });
+      if (options.signal.aborted) handleAbort();
+    }
   });
 }

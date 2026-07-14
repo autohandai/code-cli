@@ -100,4 +100,18 @@ describe('goal tools', () => {
 
     expect(result).toContain('slash_goal');
   });
+
+  it('classifies an unknown goal template as validation failure', async () => {
+    const outcome = await executor.executeForTool(
+      { type: 'create_goal_from_template', template: 'missing-template' },
+      { approvalHandled: true },
+    );
+
+    expect(outcome).toEqual({
+      success: false,
+      kind: 'validation',
+      error: "Unknown goal template 'missing-template'.",
+      output: "Error: Unknown goal template 'missing-template'.",
+    });
+  });
 });

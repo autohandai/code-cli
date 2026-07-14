@@ -3,16 +3,28 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   parseRequest,
   serialize,
   LineReader,
   generateId,
   createTimestamp,
+  writeNotification,
 } from '../../../src/modes/rpc/protocol.js';
 import { JSON_RPC_ERROR_CODES } from '../../../src/modes/rpc/types.js';
-import { Readable } from 'stream';
+import { PassThrough, Readable } from 'stream';
+
+const originalDebugValue = process.env.AUTOHAND_DEBUG;
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  if (originalDebugValue === undefined) {
+    delete process.env.AUTOHAND_DEBUG;
+  } else {
+    process.env.AUTOHAND_DEBUG = originalDebugValue;
+  }
+});
 
 describe('JSON-RPC 2.0 Protocol', () => {
   describe('parseRequest', () => {
@@ -175,6 +187,56 @@ describe('JSON-RPC 2.0 Protocol', () => {
 
       expect(parsed).toEqual(batch);
     });
+
+    it('keeps serialization diagnostics silent unless debug logging is enabled', () => {
+      const circular: Record<string, unknown> = {};
+      circular.self = circular;
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+      delete process.env.AUTOHAND_DEBUG;
+      const quietResult = serialize(circular as never);
+
+      expect(JSON.parse(quietResult)).toMatchObject({
+        jsonrpc: '2.0',
+        error: { code: JSON_RPC_ERROR_CODES.INTERNAL_ERROR },
+        id: null,
+      });
+      expect(stderr).not.toHaveBeenCalled();
+
+      process.env.AUTOHAND_DEBUG = '1';
+      const debugResult = serialize(circular as never);
+
+      expect(debugResult).toBe(quietResult);
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('[RPC] Serialization error:'));
+    });
+  });
+
+  describe('output diagnostics', () => {
+    it('preserves stdout framing while debug metadata remains opt-in', () => {
+      const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      const params = { content: 'sentinel-secret' };
+
+      delete process.env.AUTOHAND_DEBUG;
+      writeNotification('autohand.messageUpdate', params);
+      const quietOutput = stdout.mock.calls[0]?.[0];
+
+      expect(quietOutput).toBe(`${JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'autohand.messageUpdate',
+        params,
+      })}\n`);
+      expect(stderr).not.toHaveBeenCalled();
+
+      stdout.mockClear();
+      process.env.AUTOHAND_DEBUG = 'true';
+      writeNotification('autohand.messageUpdate', params);
+
+      expect(stdout.mock.calls[0]?.[0]).toBe(quietOutput);
+      expect(stderr).toHaveBeenCalledWith(
+        expect.stringMatching(/^\[RPC DEBUG\] writeNotification method=autohand\.messageUpdate size=\d+b\n$/)
+      );
+    });
   });
 
   describe('generateId', () => {
@@ -256,6 +318,39 @@ describe('JSON-RPC 2.0 Protocol', () => {
       // LineReader returns lines with CR if present, caller should trim if needed
       expect(line1).toBe('hello\r');
       expect(line2).toBe('world\r');
+    });
+
+    it('rejects a pending read when the stream ends', async () => {
+      const stream = new PassThrough();
+      const reader = new LineReader(stream);
+      const pendingRead = expect(reader.readLine()).rejects.toThrow('Stream closed');
+
+      stream.end();
+
+      await pendingRead;
+    });
+
+    it('disposes stream listeners and pending reads idempotently', async () => {
+      const stream = new PassThrough();
+      const baseline = {
+        data: stream.listenerCount('data'),
+        end: stream.listenerCount('end'),
+        close: stream.listenerCount('close'),
+      };
+      const reader = new LineReader(stream);
+      const pendingRead = expect(reader.readLine()).rejects.toThrow('Stream closed');
+
+      expect(stream.listenerCount('data')).toBe(baseline.data + 1);
+      expect(stream.listenerCount('end')).toBe(baseline.end + 1);
+      expect(stream.listenerCount('close')).toBe(baseline.close + 1);
+
+      reader.dispose();
+      reader.dispose();
+
+      await pendingRead;
+      expect(stream.listenerCount('data')).toBe(baseline.data);
+      expect(stream.listenerCount('end')).toBe(baseline.end);
+      expect(stream.listenerCount('close')).toBe(baseline.close);
     });
   });
 });

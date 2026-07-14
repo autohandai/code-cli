@@ -34,6 +34,19 @@ export interface RepoFile {
   size?: number;
 }
 
+export class WebRepoAbortedError extends Error {
+  constructor() {
+    super('Web repository request aborted');
+    this.name = 'AbortError';
+  }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new WebRepoAbortedError();
+  }
+}
+
 /**
  * Parse a repository URL or shorthand into platform, owner, and repo.
  *
@@ -127,10 +140,36 @@ export function parseRepoUrl(input: string): ParsedRepo {
  * @returns Parsed JSON response
  * @throws Error on network failure, timeout, rate limit, or 404
  */
-async function fetchJson<T>(url: string, headers: Record<string, string> = {}): Promise<T> {
+async function fetchJson<T>(
+  url: string,
+  headers: Record<string, string> = {},
+  signal?: AbortSignal,
+): Promise<T> {
   const TIMEOUT_MS = 15000;
+  throwIfAborted(signal);
 
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const cleanup = (): void => {
+      signal?.removeEventListener('abort', handleAbort);
+    };
+    const finishResolve = (value: T): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+    const finishReject = (error: unknown): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const handleAbort = (): void => {
+      req.destroy();
+      finishReject(new WebRepoAbortedError());
+    };
+
     const req = https.get(url, {
       timeout: TIMEOUT_MS,
       headers: {
@@ -141,19 +180,19 @@ async function fetchJson<T>(url: string, headers: Record<string, string> = {}): 
     }, (res) => {
       // Handle rate limiting
       if (res.statusCode === 403) {
-        reject(new Error('Rate limited. Hint: Set GITHUB_TOKEN or GITLAB_TOKEN in env or ~/.autohand/config.json to increase limits.'));
+        finishReject(new Error('Rate limited. Hint: Set GITHUB_TOKEN or GITLAB_TOKEN in env or ~/.autohand/config.json to increase limits.'));
         return;
       }
 
       // Handle not found
       if (res.statusCode === 404) {
-        reject(new Error('Repository not found. Check the URL/shorthand is correct.'));
+        finishReject(new Error('Repository not found. Check the URL/shorthand is correct.'));
         return;
       }
 
       // Handle other HTTP errors
       if (res.statusCode && res.statusCode >= 400) {
-        reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
+        finishReject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
         return;
       }
 
@@ -164,19 +203,23 @@ async function fetchJson<T>(url: string, headers: Record<string, string> = {}): 
       res.on('end', () => {
         try {
           const json = JSON.parse(data) as T;
-          resolve(json);
+          finishResolve(json);
         } catch (parseError) {
-          reject(new Error(`Failed to parse JSON response: ${parseError instanceof Error ? parseError.message : String(parseError)}`));
+          finishReject(new Error(`Failed to parse JSON response: ${parseError instanceof Error ? parseError.message : String(parseError)}`));
         }
       });
-      res.on('error', reject);
+      res.on('error', finishReject);
     });
 
-    req.on('error', reject);
+    req.on('error', finishReject);
     req.on('timeout', () => {
       req.destroy();
-      reject(new Error('Request timed out'));
+      finishReject(new Error('Request timed out'));
     });
+    signal?.addEventListener('abort', handleAbort, { once: true });
+    if (signal?.aborted) {
+      handleAbort();
+    }
   });
 }
 
@@ -206,7 +249,7 @@ interface GitLabProjectResponse {
  * @param parsed - Parsed repo info with owner and repo
  * @returns Normalized RepoInfo
  */
-async function fetchGitHubInfo(parsed: ParsedRepo): Promise<RepoInfo> {
+async function fetchGitHubInfo(parsed: ParsedRepo, signal?: AbortSignal): Promise<RepoInfo> {
   const url = `https://api.github.com/repos/${parsed.owner}/${parsed.repo}`;
 
   // Check for token in environment
@@ -216,7 +259,7 @@ async function fetchGitHubInfo(parsed: ParsedRepo): Promise<RepoInfo> {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const data = await fetchJson<GitHubRepoResponse>(url, headers);
+  const data = await fetchJson<GitHubRepoResponse>(url, headers, signal);
 
   return {
     platform: 'github',
@@ -238,7 +281,7 @@ async function fetchGitHubInfo(parsed: ParsedRepo): Promise<RepoInfo> {
  * @param parsed - Parsed repo info with owner and repo
  * @returns Normalized RepoInfo
  */
-async function fetchGitLabInfo(parsed: ParsedRepo): Promise<RepoInfo> {
+async function fetchGitLabInfo(parsed: ParsedRepo, signal?: AbortSignal): Promise<RepoInfo> {
   // GitLab requires URL-encoded project path
   const projectPath = encodeURIComponent(`${parsed.owner}/${parsed.repo}`);
   const url = `https://gitlab.com/api/v4/projects/${projectPath}`;
@@ -250,7 +293,7 @@ async function fetchGitLabInfo(parsed: ParsedRepo): Promise<RepoInfo> {
     headers['PRIVATE-TOKEN'] = token;
   }
 
-  const data = await fetchJson<GitLabProjectResponse>(url, headers);
+  const data = await fetchJson<GitLabProjectResponse>(url, headers, signal);
 
   return {
     platform: 'gitlab',
@@ -273,12 +316,13 @@ async function fetchGitLabInfo(parsed: ParsedRepo): Promise<RepoInfo> {
  * @returns Normalized repository info
  * @throws Error on network failure, rate limiting, or repo not found
  */
-export async function fetchRepoInfo(parsed: ParsedRepo): Promise<RepoInfo> {
+export async function fetchRepoInfo(parsed: ParsedRepo, signal?: AbortSignal): Promise<RepoInfo> {
+  throwIfAborted(signal);
   switch (parsed.platform) {
     case 'github':
-      return fetchGitHubInfo(parsed);
+      return fetchGitHubInfo(parsed, signal);
     case 'gitlab':
-      return fetchGitLabInfo(parsed);
+      return fetchGitLabInfo(parsed, signal);
     default:
       throw new Error(`Unsupported platform: ${parsed.platform}`);
   }
@@ -307,7 +351,12 @@ interface GitLabTreeItem {
  * @param branch - Optional branch/ref to list (defaults to default branch)
  * @returns Array of files and directories
  */
-async function listGitHubDir(parsed: ParsedRepo, path: string, branch?: string): Promise<RepoFile[]> {
+async function listGitHubDir(
+  parsed: ParsedRepo,
+  path: string,
+  branch?: string,
+  signal?: AbortSignal,
+): Promise<RepoFile[]> {
   const encodedPath = path ? encodeURIComponent(path).replace(/%2F/g, '/') : '';
   let url = `https://api.github.com/repos/${parsed.owner}/${parsed.repo}/contents/${encodedPath}`;
 
@@ -322,7 +371,7 @@ async function listGitHubDir(parsed: ParsedRepo, path: string, branch?: string):
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const data = await fetchJson<GitHubContentItem[]>(url, headers);
+  const data = await fetchJson<GitHubContentItem[]>(url, headers, signal);
 
   return data.map((item) => ({
     name: item.name,
@@ -342,7 +391,12 @@ async function listGitHubDir(parsed: ParsedRepo, path: string, branch?: string):
  * @param branch - Optional branch/ref to list (defaults to default branch)
  * @returns Array of files and directories
  */
-async function listGitLabDir(parsed: ParsedRepo, path: string, branch?: string): Promise<RepoFile[]> {
+async function listGitLabDir(
+  parsed: ParsedRepo,
+  path: string,
+  branch?: string,
+  signal?: AbortSignal,
+): Promise<RepoFile[]> {
   // GitLab requires URL-encoded project path
   const projectPath = encodeURIComponent(`${parsed.owner}/${parsed.repo}`);
   let url = `https://gitlab.com/api/v4/projects/${projectPath}/repository/tree?per_page=100`;
@@ -362,7 +416,7 @@ async function listGitLabDir(parsed: ParsedRepo, path: string, branch?: string):
     headers['PRIVATE-TOKEN'] = token;
   }
 
-  const data = await fetchJson<GitLabTreeItem[]>(url, headers);
+  const data = await fetchJson<GitLabTreeItem[]>(url, headers, signal);
 
   return data.map((item) => ({
     name: item.name,
@@ -383,12 +437,18 @@ async function listGitLabDir(parsed: ParsedRepo, path: string, branch?: string):
  * @returns Array of files and directories
  * @throws Error on network failure, rate limiting, or path not found
  */
-export async function listRepoDir(parsed: ParsedRepo, path: string, branch?: string): Promise<RepoFile[]> {
+export async function listRepoDir(
+  parsed: ParsedRepo,
+  path: string,
+  branch?: string,
+  signal?: AbortSignal,
+): Promise<RepoFile[]> {
+  throwIfAborted(signal);
   switch (parsed.platform) {
     case 'github':
-      return listGitHubDir(parsed, path, branch);
+      return listGitHubDir(parsed, path, branch, signal);
     case 'gitlab':
-      return listGitLabDir(parsed, path, branch);
+      return listGitLabDir(parsed, path, branch, signal);
     default:
       throw new Error(`Unsupported platform: ${parsed.platform}`);
   }
@@ -407,11 +467,34 @@ export async function listRepoDir(parsed: ParsedRepo, path: string, branch?: str
 async function fetchText(
   url: string,
   headers: Record<string, string> = {},
-  maxRedirects = 5
+  maxRedirects = 5,
+  signal?: AbortSignal,
 ): Promise<string> {
   const TIMEOUT_MS = 15000;
+  throwIfAborted(signal);
 
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const cleanup = (): void => {
+      signal?.removeEventListener('abort', handleAbort);
+    };
+    const finishResolve = (value: string): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+    const finishReject = (error: unknown): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const handleAbort = (): void => {
+      req.destroy();
+      finishReject(new WebRepoAbortedError());
+    };
+
     const req = https.get(url, {
       timeout: TIMEOUT_MS,
       headers: {
@@ -422,32 +505,32 @@ async function fetchText(
       // Handle redirects
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         if (maxRedirects <= 0) {
-          reject(new Error('Too many redirects'));
+          finishReject(new Error('Too many redirects'));
           return;
         }
         // Resolve relative URLs
         const redirectUrl = new URL(res.headers.location, url).toString();
-        fetchText(redirectUrl, headers, maxRedirects - 1)
-          .then(resolve)
-          .catch(reject);
+        fetchText(redirectUrl, headers, maxRedirects - 1, signal)
+          .then(finishResolve)
+          .catch(finishReject);
         return;
       }
 
       // Handle rate limiting
       if (res.statusCode === 403) {
-        reject(new Error('Rate limited. Hint: Set GITHUB_TOKEN or GITLAB_TOKEN in env or ~/.autohand/config.json to increase limits.'));
+        finishReject(new Error('Rate limited. Hint: Set GITHUB_TOKEN or GITLAB_TOKEN in env or ~/.autohand/config.json to increase limits.'));
         return;
       }
 
       // Handle not found
       if (res.statusCode === 404) {
-        reject(new Error("File not found. Use operation 'list' to see available files."));
+        finishReject(new Error("File not found. Use operation 'list' to see available files."));
         return;
       }
 
       // Handle other HTTP errors
       if (res.statusCode && res.statusCode >= 400) {
-        reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
+        finishReject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
         return;
       }
 
@@ -456,16 +539,20 @@ async function fetchText(
         data += chunk;
       });
       res.on('end', () => {
-        resolve(data);
+        finishResolve(data);
       });
-      res.on('error', reject);
+      res.on('error', finishReject);
     });
 
-    req.on('error', reject);
+    req.on('error', finishReject);
     req.on('timeout', () => {
       req.destroy();
-      reject(new Error('Request timed out'));
+      finishReject(new Error('Request timed out'));
     });
+    signal?.addEventListener('abort', handleAbort, { once: true });
+    if (signal?.aborted) {
+      handleAbort();
+    }
   });
 }
 
@@ -479,7 +566,12 @@ async function fetchText(
  * @param branch - Optional branch/ref (defaults to 'HEAD')
  * @returns Raw file content as string
  */
-async function fetchGitHubFile(parsed: ParsedRepo, path: string, branch = 'HEAD'): Promise<string> {
+async function fetchGitHubFile(
+  parsed: ParsedRepo,
+  path: string,
+  branch = 'HEAD',
+  signal?: AbortSignal,
+): Promise<string> {
   // Construct raw content URL
   const url = `https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${branch}/${path}`;
 
@@ -490,7 +582,7 @@ async function fetchGitHubFile(parsed: ParsedRepo, path: string, branch = 'HEAD'
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  return fetchText(url, headers);
+  return fetchText(url, headers, 5, signal);
 }
 
 /**
@@ -503,7 +595,12 @@ async function fetchGitHubFile(parsed: ParsedRepo, path: string, branch = 'HEAD'
  * @param branch - Optional branch/ref (defaults to 'HEAD')
  * @returns Raw file content as string
  */
-async function fetchGitLabFile(parsed: ParsedRepo, path: string, branch = 'HEAD'): Promise<string> {
+async function fetchGitLabFile(
+  parsed: ParsedRepo,
+  path: string,
+  branch = 'HEAD',
+  signal?: AbortSignal,
+): Promise<string> {
   // GitLab requires URL-encoded project path and file path
   const projectPath = encodeURIComponent(`${parsed.owner}/${parsed.repo}`);
   const encodedFilePath = encodeURIComponent(path);
@@ -516,7 +613,7 @@ async function fetchGitLabFile(parsed: ParsedRepo, path: string, branch = 'HEAD'
     headers['PRIVATE-TOKEN'] = token;
   }
 
-  return fetchText(url, headers);
+  return fetchText(url, headers, 5, signal);
 }
 
 /**
@@ -530,12 +627,18 @@ async function fetchGitLabFile(parsed: ParsedRepo, path: string, branch = 'HEAD'
  * @returns Raw file content as string
  * @throws Error on network failure, rate limiting, or file not found
  */
-export async function fetchRepoFile(parsed: ParsedRepo, path: string, branch?: string): Promise<string> {
+export async function fetchRepoFile(
+  parsed: ParsedRepo,
+  path: string,
+  branch?: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  throwIfAborted(signal);
   switch (parsed.platform) {
     case 'github':
-      return fetchGitHubFile(parsed, path, branch);
+      return fetchGitHubFile(parsed, path, branch, signal);
     case 'gitlab':
-      return fetchGitLabFile(parsed, path, branch);
+      return fetchGitLabFile(parsed, path, branch, signal);
     default:
       throw new Error(`Unsupported platform: ${parsed.platform}`);
   }
@@ -645,6 +748,7 @@ export interface WebRepoOptions {
   operation: WebRepoOperation;
   path?: string;
   branch?: string;
+  signal?: AbortSignal;
 }
 
 export type WebRepoResult =
@@ -665,21 +769,22 @@ export type WebRepoResult =
  * @throws Error on invalid repo format or unsupported operation
  */
 export async function webRepo(options: WebRepoOptions): Promise<WebRepoResult> {
+  throwIfAborted(options.signal);
   const parsed = parseRepoUrl(options.repo);
 
   switch (options.operation) {
     case 'info': {
-      const data = await fetchRepoInfo(parsed);
+      const data = await fetchRepoInfo(parsed, options.signal);
       return { type: 'info', data };
     }
     case 'list': {
       const path = options.path ?? '';
-      const data = await listRepoDir(parsed, path, options.branch);
+      const data = await listRepoDir(parsed, path, options.branch, options.signal);
       return { type: 'list', data, path };
     }
     case 'fetch': {
       const path = options.path ?? 'README.md';
-      const data = await fetchRepoFile(parsed, path, options.branch);
+      const data = await fetchRepoFile(parsed, path, options.branch, options.signal);
       return { type: 'fetch', data, path };
     }
     default:

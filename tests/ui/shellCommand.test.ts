@@ -4,20 +4,53 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { afterEach, describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { existsSync, readFileSync } from 'node:fs';
 import {
   executeStreamingShellCommand,
   isImmediateCommand,
   isShellCommand,
   parseShellCommand,
+  setNodePtyLoaderForTests,
 } from '../../src/ui/shellCommand.js';
 
 const originalAutohandHome = process.env.AUTOHAND_HOME;
 const originalCodexHome = process.env.CODEX_HOME;
 
+async function waitForProcessId(filePath: string, timeoutMs = 1_000): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (existsSync(filePath)) {
+      const pid = Number.parseInt(readFileSync(filePath, 'utf8').trim(), 10);
+      if (Number.isSafeInteger(pid) && pid > 0) return pid;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for a process ID in ${filePath}`);
+}
+
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForProcessExit(pid: number, timeoutMs = 1_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (isProcessRunning(pid)) {
+    if (Date.now() >= deadline) throw new Error(`Process ${pid} did not exit`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 afterEach(() => {
+  setNodePtyLoaderForTests();
+  vi.restoreAllMocks();
   if (originalAutohandHome === undefined) {
     delete process.env.AUTOHAND_HOME;
   } else {
@@ -139,5 +172,150 @@ describe('executeStreamingShellCommand', () => {
 
     expect(result.success).toBe(true);
     expect(result.output?.trim().split('\n')).toEqual([autohandHome, autohandHome]);
+  });
+
+  it('does not spawn when its signal is already aborted', async () => {
+    const markerPath = join(tmpdir(), `autohand-shell-aborted-${Date.now()}`);
+    const controller = new AbortController();
+    controller.abort();
+    const script = `require('node:fs').writeFileSync(${JSON.stringify(markerPath)}, 'spawned')`;
+
+    const error = await executeStreamingShellCommand(
+      `${process.execPath} -e ${JSON.stringify(script)}`,
+      tmpdir(),
+      { preferPty: false, signal: controller.signal }
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ name: 'AbortError' });
+    expect(existsSync(markerPath)).toBe(false);
+  });
+
+  it('aborts a non-PTY foreground command and preserves streamed output', async () => {
+    const markerPath = join(tmpdir(), `autohand-shell-pid-${Date.now()}`);
+    const controller = new AbortController();
+    const script = [
+      `require('node:fs').writeFileSync(${JSON.stringify(markerPath)}, String(process.pid))`,
+      `process.stdout.write('started\\n')`,
+      'setTimeout(() => process.exit(0), 500)',
+    ].join(';');
+    let streamedOutput = '';
+    const commandPromise = executeStreamingShellCommand(
+      `${process.execPath} -e ${JSON.stringify(script)}`,
+      tmpdir(),
+      {
+        preferPty: false,
+        signal: controller.signal,
+        onStdout: (chunk) => {
+          streamedOutput += chunk;
+        },
+      }
+    );
+    const pid = await waitForProcessId(markerPath);
+    await vi.waitFor(() => expect(streamedOutput).toContain('started'));
+
+    controller.abort();
+    const error = await commandPromise.catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ name: 'AbortError', output: 'started\n' });
+    await waitForProcessExit(pid);
+  });
+
+  it('forces a non-PTY foreground command to exit after its grace period', async () => {
+    const markerPath = join(tmpdir(), `autohand-shell-force-pid-${Date.now()}`);
+    const controller = new AbortController();
+    const startedAt = Date.now();
+    const script = [
+      `require('node:fs').writeFileSync(${JSON.stringify(markerPath)}, String(process.pid))`,
+      "process.on('SIGTERM', () => {})",
+      'setTimeout(() => process.exit(0), 800)',
+    ].join(';');
+    const commandPromise = executeStreamingShellCommand(
+      `${process.execPath} -e ${JSON.stringify(script)}`,
+      tmpdir(),
+      { preferPty: false, signal: controller.signal, killGracePeriodMs: 30 }
+    );
+    const pid = await waitForProcessId(markerPath);
+
+    controller.abort();
+    const error = await commandPromise.catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ name: 'AbortError' });
+    expect(Date.now() - startedAt).toBeLessThan(500);
+    await waitForProcessExit(pid);
+  });
+
+  it('keeps an already-started detached shell command alive after abort', async () => {
+    const controller = new AbortController();
+    const result = await executeStreamingShellCommand(
+      `${process.execPath} -e ${JSON.stringify('setTimeout(() => process.exit(0), 1000)')}`,
+      tmpdir(),
+      { background: true, signal: controller.signal }
+    );
+    const pid = result.backgroundPid!;
+
+    controller.abort();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    expect(isProcessRunning(pid)).toBe(true);
+    process.kill(pid, 'SIGTERM');
+    await waitForProcessExit(pid);
+  });
+
+  it('kills a PTY and disposes handlers when aborted', async () => {
+    let exitHandler: ((event: { exitCode: number; signal?: number }) => void) | undefined;
+    const dataDispose = vi.fn();
+    const exitDispose = vi.fn();
+    const kill = vi.fn();
+    setNodePtyLoaderForTests(async () => ({
+      spawn: () => ({
+        onData: () => ({ dispose: dataDispose }),
+        onExit: (handler) => {
+          exitHandler = handler;
+          return { dispose: exitDispose };
+        },
+        kill,
+      }),
+    }));
+    const stdinIsTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const stdoutIsTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+    try {
+      const controller = new AbortController();
+      const commandPromise = executeStreamingShellCommand('slow command', tmpdir(), {
+        preferPty: true,
+        signal: controller.signal,
+      });
+      await vi.waitFor(() => expect(exitHandler).toBeDefined());
+
+      controller.abort();
+      setTimeout(() => exitHandler?.({ exitCode: 0 }), 50);
+      const error = await commandPromise.catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({ name: 'AbortError' });
+      expect(kill).toHaveBeenCalledTimes(1);
+      expect(dataDispose).toHaveBeenCalledTimes(1);
+      expect(exitDispose).toHaveBeenCalledTimes(1);
+    } finally {
+      if (stdinIsTty) Object.defineProperty(process.stdin, 'isTTY', stdinIsTty);
+      else delete (process.stdin as { isTTY?: boolean }).isTTY;
+      if (stdoutIsTty) Object.defineProperty(process.stdout, 'isTTY', stdoutIsTty);
+      else delete (process.stdout as { isTTY?: boolean }).isTTY;
+    }
+  });
+
+  it('removes its abort listener after non-PTY completion', async () => {
+    const controller = new AbortController();
+    const addEventListener = vi.spyOn(controller.signal, 'addEventListener');
+    const removeEventListener = vi.spyOn(controller.signal, 'removeEventListener');
+
+    await executeStreamingShellCommand(
+      `${process.execPath} -e ${JSON.stringify('process.exit(0)')}`,
+      tmpdir(),
+      { preferPty: false, signal: controller.signal }
+    );
+
+    expect(addEventListener).toHaveBeenCalledWith('abort', expect.any(Function), { once: true });
+    expect(removeEventListener).toHaveBeenCalledWith('abort', expect.any(Function));
   });
 });

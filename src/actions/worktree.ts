@@ -10,6 +10,7 @@ import { spawnSync, spawn } from 'node:child_process';
 import path from 'node:path';
 import fs from 'fs-extra';
 import os from 'node:os';
+import { CommandAbortedError, runCommand } from './command.js';
 
 // ============ Types ============
 
@@ -330,52 +331,76 @@ export class WorktreeManager {
       filter?: (wt: WorktreeInfo) => boolean;
       timeout?: number;
       maxConcurrent?: number;
+      signal?: AbortSignal;
     } = {}
   ): Promise<ParallelResult[]> {
     const worktrees = this.list().filter(wt => !wt.bare);
     const filtered = options.filter ? worktrees.filter(options.filter) : worktrees;
-    const maxConcurrent = options.maxConcurrent || os.cpus().length;
+    const maxConcurrent = Math.max(1, options.maxConcurrent || os.cpus().length);
     const timeout = options.timeout || 300000; // 5 minutes default
+    const results: Array<ParallelResult | undefined> = new Array(filtered.length);
+    let nextIndex = 0;
+    let abortError: CommandAbortedError | undefined;
 
-    const results: ParallelResult[] = [];
-    const running: Promise<void>[] = [];
-
-    for (const wt of filtered) {
-      const task = (async () => {
+    const runWorker = async (): Promise<void> => {
+      while (!options.signal?.aborted) {
+        const index = nextIndex;
+        if (index >= filtered.length) {
+          return;
+        }
+        nextIndex += 1;
+        const wt = filtered[index];
         const start = Date.now();
         try {
-          const output = await this.runInWorktreeWithTimeout(wt.path, command, timeout);
-          results.push({
+          const result = await runCommand(command, [], wt.path, {
+            shell: true,
+            timeout,
+            signal: options.signal,
+          });
+          const output = [result.stdout, result.stderr].filter(Boolean).join('\n');
+          results[index] = {
             worktree: wt.path,
             branch: wt.branch,
-            success: true,
+            success: result.code === 0,
             output,
-            exitCode: 0,
-            duration: Date.now() - start
-          });
-        } catch (error: any) {
-          results.push({
+            ...(result.code === 0
+              ? {}
+              : { error: result.stderr || `Command failed with code ${result.code ?? 'unknown'}` }),
+            exitCode: result.code ?? 1,
+            duration: Date.now() - start,
+          };
+        } catch (error) {
+          if (error instanceof Error && error.name === 'AbortError') {
+            abortError ??= error instanceof CommandAbortedError
+              ? error
+              : new CommandAbortedError();
+            continue;
+          }
+          const message = error instanceof Error ? error.message : String(error);
+          const exitCode = error !== null && typeof error === 'object'
+            && 'exitCode' in error && typeof error.exitCode === 'number'
+            ? error.exitCode
+            : 1;
+          results[index] = {
             worktree: wt.path,
             branch: wt.branch,
             success: false,
             output: '',
-            error: error.message,
-            exitCode: error.exitCode || 1,
-            duration: Date.now() - start
-          });
+            error: message,
+            exitCode,
+            duration: Date.now() - start,
+          };
         }
-      })();
-
-      running.push(task);
-
-      // Limit concurrency
-      if (running.length >= maxConcurrent) {
-        await Promise.race(running);
       }
-    }
+    };
 
-    await Promise.all(running);
-    return results;
+    const workerCount = Math.min(maxConcurrent, filtered.length);
+    await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+
+    if (options.signal?.aborted) {
+      throw abortError ?? new CommandAbortedError();
+    }
+    return results.filter((result): result is ParallelResult => result !== undefined);
   }
 
   /**

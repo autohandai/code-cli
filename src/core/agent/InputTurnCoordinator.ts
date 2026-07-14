@@ -67,6 +67,7 @@ export function setupAgentEscListener(host: AgentInputTurnHost, controller: Abor
     if (!input.isTTY) {
       return () => { };
     }
+    const wasPaused = typeof input.isPaused === 'function' && input.isPaused();
     // Use safe version to prevent duplicate listener registration across turns
     safeEmitKeypressEvents(input);
     const supportsRaw = typeof input.setRawMode === 'function';
@@ -274,6 +275,9 @@ export function setupAgentEscListener(host: AgentInputTurnHost, controller: Abor
       host.queueInput = ''; // Clear input on cleanup
       if (!wasRaw && supportsRaw) {
         safeSetRawMode(input, false);
+      }
+      if (wasPaused) {
+        input.pause();
       }
     };
   }

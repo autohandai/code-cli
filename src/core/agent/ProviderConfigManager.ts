@@ -3514,6 +3514,8 @@ export class ProviderConfigManager {
       clientContext: delegatorContext,
       maxDepth: 3,
       featureConfig: this.runtime.config,
+      authorization: this.getDelegator()?.getAuthorizationOptions(),
+      confirmApproval: this.getDelegator()?.getConfirmApproval(),
     });
     this.setDelegator(newDelegator);
     this.setActiveProvider(provider);

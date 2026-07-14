@@ -23,7 +23,7 @@ import { validateAuthOnStartup } from './auth/startupAuth.js';
 import { installProcessErrorHandlers } from './reporting/processErrorReporting.js';
 import { checkForUpdates, getInstallHint, type VersionCheckResult } from './utils/versionCheck.js';
 import { initI18n, detectLocale } from './i18n/index.js';
-import { initPingService, startPingService, stopPingService } from './telemetry/index.js';
+import { initPingService, shutdownPingService, startPingService } from './telemetry/index.js';
 import { detectStdinType, readPipedStdin } from './utils/stdinDetector.js';
 import { buildPipePrompt } from './modes/pipeMode.js';
 import { shouldUseInteractivePipeHandoff } from './modes/pipeRouting.js';
@@ -33,6 +33,12 @@ import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessio
 import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
 import { registerChromeCommand } from './browser/cliCommand.js';
 import { prepareBareModeConfig } from './runtime/bareMode.js';
+import {
+  awaitCliLifecycleStep,
+  CliRuntimeResourceOwner,
+} from './runtime/CliRuntimeResourceOwner.js';
+import { setSyncService as setRuntimeSyncService } from './sync/runtimeSyncService.js';
+import type { SyncService } from './sync/SyncService.js';
 import { getFeatureState } from './features/featureRegistry.js';
 import { getTerminalColumns, renderAutohandLogo } from './utils/asciiArt.js';
 import {
@@ -1048,10 +1054,41 @@ program
   });
 
 async function runCLI(options: CLIOptions): Promise<void> {
+  const agentHolder: { current: AutohandAgent | null } = { current: null };
+  const commandLifecycleController = new AbortController();
+  let agent: AutohandAgent | null = null;
+  const runtimeResourceOwner = new CliRuntimeResourceOwner<
+    AuthUser,
+    VersionCheckResult,
+    SyncService
+  >({
+    process,
+    stopPing: () => shutdownPingService(),
+    setSyncService: setRuntimeSyncService,
+    onSignal: (signal) => {
+      const existingExitCode = Number(process.exitCode ?? 0);
+      if (!Number.isFinite(existingExitCode) || existingExitCode === 0) {
+        process.exitCode = signal === 'SIGINT' ? 130 : 143;
+      }
+      commandLifecycleController.abort(
+        new DOMException(`Received ${signal}`, 'AbortError'),
+      );
+      agentHolder.current?.requestExit();
+    },
+  });
   try {
-    let config = (options as any)._authConfig ?? await loadConfig(options.config, process.cwd());
+    let config = (options as any)._authConfig ?? await awaitCliLifecycleStep(
+      loadConfig(options.config, process.cwd()),
+      commandLifecycleController.signal,
+    );
     if (options.bare) {
-      config = await prepareBareModeConfig(config, options);
+      config = await awaitCliLifecycleStep(
+        prepareBareModeConfig(config, options),
+        commandLifecycleController.signal,
+      );
+    }
+    if (commandLifecycleController.signal.aborted) {
+      return;
     }
     const originalWorkspaceRoot = resolveWorkspaceRoot(config, options.path);
     let workspaceRoot = originalWorkspaceRoot;
@@ -1062,13 +1099,22 @@ async function runCLI(options: CLIOptions): Promise<void> {
       cliOverride: options.displayLanguage,
       configLocale: config.ui?.locale,
     });
-    await initI18n(detectedLocale);
+    await awaitCliLifecycleStep(
+      initI18n(detectedLocale),
+      commandLifecycleController.signal,
+    );
+    if (commandLifecycleController.signal.aborted) {
+      return;
+    }
 
     const {
       buildPermissionSettingsFromYolo,
       normalizeYoloInput,
       parseYoloPattern,
-    } = await import('./permissions/yoloMode.js');
+    } = await awaitCliLifecycleStep(
+      import('./permissions/yoloMode.js'),
+      commandLifecycleController.signal,
+    );
     const normalizedYolo = normalizeYoloInput(options.yolo as string | boolean | undefined);
     if (normalizedYolo) {
       try {
@@ -1080,7 +1126,8 @@ async function runCLI(options: CLIOptions): Promise<void> {
         };
       } catch (error) {
         console.error(chalk.red(error instanceof Error ? error.message : String(error)));
-        process.exit(1);
+        process.exitCode = 1;
+        return;
       }
     }
 
@@ -1090,34 +1137,55 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
     if (!providerConfig) {
       // No valid provider config - run the setup wizard
-      const { SetupWizard } = await import('./onboarding/index.js');
+      const { SetupWizard } = await awaitCliLifecycleStep(
+        import('./onboarding/index.js'),
+        commandLifecycleController.signal,
+      );
       const wizard = new SetupWizard(originalWorkspaceRoot, config);
-      const result = await wizard.run({ skipWelcome: !config.isNewConfig });
+      const result = await awaitCliLifecycleStep(
+        wizard.run({ skipWelcome: !config.isNewConfig }),
+        commandLifecycleController.signal,
+      );
 
       if (result.cancelled) {
         console.log(chalk.gray('\nSetup cancelled.'));
-        process.exit(0);
+        process.exitCode = 0;
+        return;
       }
 
       if (result.success) {
         // Merge wizard config into existing config
         config = { ...config, ...result.config };
-        await saveConfig(config);
+        await awaitCliLifecycleStep(
+          saveConfig(config),
+          commandLifecycleController.signal,
+        );
         console.log(); // Add spacing after wizard
       }
     }
+    if (commandLifecycleController.signal.aborted) {
+      return;
+    }
 
     // Check for dangerous workspace directories (home, root, system dirs)
-    const workspacePathValidation = await validateWorkspacePath(originalWorkspaceRoot);
+    const workspacePathValidation = await awaitCliLifecycleStep(
+      validateWorkspacePath(originalWorkspaceRoot),
+      commandLifecycleController.signal,
+    );
+    if (commandLifecycleController.signal.aborted) {
+      return;
+    }
     if (!workspacePathValidation.valid) {
       console.error(chalk.red(`Error: ${workspacePathValidation.error}`));
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
 
     const safetyCheck = checkWorkspaceSafety(originalWorkspaceRoot);
     if (!safetyCheck.safe) {
       printDangerousWorkspaceWarning(originalWorkspaceRoot, safetyCheck);
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
 
     // Optional isolated git worktree for interactive/prompt sessions
@@ -1132,7 +1200,8 @@ async function runCLI(options: CLIOptions): Promise<void> {
       const worktreeSafetyCheck = checkWorkspaceSafety(workspaceRoot);
       if (!worktreeSafetyCheck.safe) {
         printDangerousWorkspaceWarning(workspaceRoot, worktreeSafetyCheck);
-        process.exit(1);
+        process.exitCode = 1;
+        return;
       }
     }
 
@@ -1143,16 +1212,31 @@ async function runCLI(options: CLIOptions): Promise<void> {
         const resolvedDir = path.resolve(dir);
 
         // Check if directory exists
-        if (!await fs.pathExists(resolvedDir)) {
+        const additionalPathExists = await awaitCliLifecycleStep(
+          fs.pathExists(resolvedDir),
+          commandLifecycleController.signal,
+        );
+        if (commandLifecycleController.signal.aborted) {
+          return;
+        }
+        if (!additionalPathExists) {
           console.error(chalk.red(`Error: Additional directory does not exist: ${dir}`));
-          process.exit(1);
+          process.exitCode = 1;
+          return;
         }
 
         // Check if it's a directory
-        const stats = await fs.stat(resolvedDir);
+        const stats = await awaitCliLifecycleStep(
+          fs.stat(resolvedDir),
+          commandLifecycleController.signal,
+        );
+        if (commandLifecycleController.signal.aborted) {
+          return;
+        }
         if (!stats.isDirectory()) {
           console.error(chalk.red(`Error: Additional path is not a directory: ${dir}`));
-          process.exit(1);
+          process.exitCode = 1;
+          return;
         }
 
         // Safety check for the additional directory
@@ -1160,7 +1244,8 @@ async function runCLI(options: CLIOptions): Promise<void> {
         if (!addDirSafetyCheck.safe) {
           console.error(chalk.red(`Error: Unsafe additional directory: ${dir}`));
           console.error(chalk.yellow(`  ${addDirSafetyCheck.reason}`));
-          process.exit(1);
+          process.exitCode = 1;
+          return;
         }
 
         additionalDirs.push(resolvedDir);
@@ -1182,23 +1267,25 @@ async function runCLI(options: CLIOptions): Promise<void> {
     }
     // Store whether Ink will be enabled so we can synchronize startup.
     // Ink is code-defaulted, not controlled by stale config.ui.useInkRenderer.
-    const { shouldUseInkRenderer } = await import('./ui/inkMode.js');
+    const { shouldUseInkRenderer } = await awaitCliLifecycleStep(
+      import('./ui/inkMode.js'),
+      commandLifecycleController.signal,
+    );
     const inkEnabled = shouldUseInkRenderer();
+    if (commandLifecycleController.signal.aborted) {
+      return;
+    }
 
     // Initialize and start ping service (45-minute intervals for usage tracking)
     // This runs independently of telemetry opt-in for basic usage counting
     if (!options.bare) {
-      initPingService({
-        cliVersion: packageJson.version,
-        clientType: 'cli',
+      runtimeResourceOwner.startPing(() => {
+        initPingService({
+          cliVersion: packageJson.version,
+          clientType: 'cli',
+        });
+        startPingService();
       });
-      startPingService();
-
-      // Stop ping service on process exit
-      const stopPing = () => stopPingService();
-      process.on('exit', stopPing);
-      process.on('SIGINT', stopPing);
-      process.on('SIGTERM', stopPing);
     }
 
     // Print welcome immediately with no version/auth info - don't block on network
@@ -1211,15 +1298,14 @@ async function runCLI(options: CLIOptions): Promise<void> {
       process.stdout.write('\x1b[u'); // Restore cursor position (forces flush)
     }
 
-    // Mutable reference so the background startup IIFE can reach the agent
-    // once it's constructed (after synchronous setup below).
-    const agentHolder: { current: AutohandAgent | null } = { current: null };
-
     // Run startup checks synchronously before prompt to prevent output racing.
     // git init, tool checks etc. must finish printing BEFORE the prompt renders.
     if (!options.bare) {
       try {
-        const checkResults = await runStartupChecks(workspaceRoot);
+        const checkResults = await awaitCliLifecycleStep(
+          runStartupChecks(workspaceRoot),
+          commandLifecycleController.signal,
+        );
         printStartupCheckResults(checkResults);
         if (!checkResults.allRequiredMet) {
           console.log(chalk.yellow('Continuing anyway, but some features may not work correctly.\n'));
@@ -1228,77 +1314,57 @@ async function runCLI(options: CLIOptions): Promise<void> {
         // Non-critical - continue without startup check output
       }
     }
+    if (commandLifecycleController.signal.aborted) {
+      return;
+    }
 
     // Run auth, version check, sync in background (fire-and-forget).
     // These are network-bound and should not block the prompt.
-    if (!options.bare) {
-      (async () => {
-        try {
+    if (!options.bare && runtimeResourceOwner) {
+      runtimeResourceOwner.startBackgroundStartup({
+        resolveAuthAndVersion: async () => {
           const versionCheckPromise = config.ui?.checkForUpdates !== false
             ? checkForUpdates(packageJson.version, {
                 checkIntervalHours: config.ui?.updateCheckInterval ?? 24,
               })
             : Promise.resolve(null);
 
-        const [authUser, versionResult] = await Promise.all([
-          validateAuthOnStartup(config),
-          versionCheckPromise,
-        ]);
-
-        // Pass version check result to agent for status bar display
-        if (versionResult && agentHolder.current) {
-          agentHolder.current.setVersionCheckResult(versionResult);
-        }
-
-        // Start settings sync service for logged-in users
-        if (authUser && config.auth?.token) {
-          const syncEnabled = options.syncSettings !== false &&
-            config.sync?.enabled !== false;
-
-          if (syncEnabled) {
-            try {
-              const { createSyncService, DEFAULT_SYNC_CONFIG } = await import('./sync/index.js');
-              const { setSyncService } = await import('./commands/sync.js');
-              const syncService = createSyncService({
-                authToken: config.auth.token,
-                userId: authUser.id,
-                config: {
-                  ...DEFAULT_SYNC_CONFIG,
-                  ...config.sync,
-                  enabled: true,
-                },
-                onAuthFailure: async () => {
-                  // Notify the user but do NOT wipe local credentials automatically.
-                  // The startup auth gate already trusts locally-valid tokens;
-                  // destroying them here would force re-login on transient sync issues.
-                  const message = 'Session sync failed. Run /logout and /login if you continue to see this message.';
-                  if (agentHolder.current) {
-                    agentHolder.current.notifyUser(message);
-                  } else {
-                    const { promptNotify } = await import('./ui/inputPrompt.js');
-                    promptNotify(chalk.yellow(message));
-                  }
-                },
-              });
-              syncService.start();
-              setSyncService(syncService);
-
-              const stopSync = () => {
-                syncService?.stop();
-                setSyncService(null);
-              };
-              process.on('exit', stopSync);
-              process.on('SIGINT', stopSync);
-              process.on('SIGTERM', stopSync);
-            } catch {
-              // Sync service failed to start, continue without it
-            }
-          }
-        }
-        } catch {
-          // Non-critical startup tasks - don't crash on failure
-        }
-      })();
+          const [authUser, versionResult] = await Promise.all([
+            validateAuthOnStartup(config),
+            versionCheckPromise,
+          ]);
+          return { authUser: authUser ?? null, versionResult };
+        },
+        onVersionResult: (versionResult) => {
+          agentHolder.current?.setVersionCheckResult(versionResult);
+        },
+        shouldStartSync: () => Boolean(
+          config.auth?.token
+          && options.syncSettings !== false
+          && config.sync?.enabled !== false
+        ),
+        createSyncService: async (authUser) => {
+          const { createSyncService, DEFAULT_SYNC_CONFIG } = await import('./sync/index.js');
+          return createSyncService({
+            authToken: config.auth?.token ?? '',
+            userId: authUser.id,
+            config: {
+              ...DEFAULT_SYNC_CONFIG,
+              ...config.sync,
+              enabled: true,
+            },
+            onAuthFailure: async () => {
+              const message = 'Session sync failed. Run /logout and /login if you continue to see this message.';
+              if (agentHolder.current) {
+                agentHolder.current.notifyUser(message);
+              } else {
+                const { promptNotify } = await import('./ui/inputPrompt.js');
+                promptNotify(chalk.yellow(message));
+              }
+            },
+          });
+        },
+      });
     }
 
     // Note: Git repo check is passed to the agent via runtime.
@@ -1318,16 +1384,34 @@ async function runCLI(options: CLIOptions): Promise<void> {
       config.agent.debug = true;
     }
 
-    const { ProviderFactory } = await import('./providers/ProviderFactory.js');
-    const { FileActionManager } = await import('./actions/filesystem.js');
+    if (commandLifecycleController.signal.aborted) {
+      return;
+    }
+    const { ProviderFactory } = await awaitCliLifecycleStep(
+      import('./providers/ProviderFactory.js'),
+      commandLifecycleController.signal,
+    );
+    const { FileActionManager } = await awaitCliLifecycleStep(
+      import('./actions/filesystem.js'),
+      commandLifecycleController.signal,
+    );
+    if (commandLifecycleController.signal.aborted) {
+      return;
+    }
     const llmProvider = ProviderFactory.create(config);
     const files = new FileActionManager(workspaceRoot, runtime.additionalDirs);
 
     // Handle --auto-skill flag
     if (options.autoSkill) {
       console.log(chalk.cyan('\nAuto-generating skills for this project...\n'));
-      const { runAutoSkillGeneration } = await import('./skills/autoSkill.js');
-      const result = await runAutoSkillGeneration(workspaceRoot, llmProvider);
+      const { runAutoSkillGeneration } = await awaitCliLifecycleStep(
+        import('./skills/autoSkill.js'),
+        commandLifecycleController.signal,
+      );
+      const result = await awaitCliLifecycleStep(
+        runAutoSkillGeneration(workspaceRoot, llmProvider),
+        commandLifecycleController.signal,
+      );
       if (!result.success) {
         console.log(chalk.yellow(result.error || 'Failed to generate skills'));
       }
@@ -1336,7 +1420,10 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
     // Configure web search provider from CLI flag, config file, or environment
     const searchConfig = config.search ?? {};
-    const { configureSearch } = await import('./actions/web.js');
+    const { configureSearch } = await awaitCliLifecycleStep(
+      import('./actions/web.js'),
+      commandLifecycleController.signal,
+    );
     configureSearch({
       provider: options.searchEngine ?? searchConfig.provider ?? 'google',
       braveApiKey: searchConfig.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY,
@@ -1353,7 +1440,10 @@ async function runCLI(options: CLIOptions): Promise<void> {
     const stdinType = detectStdinType();
     let pipeInitialInstruction: string | undefined;
     if (stdinType === 'pipe') {
-      const pipedInput = await readPipedStdin();
+      const pipedInput = await awaitCliLifecycleStep(
+        readPipedStdin(),
+        commandLifecycleController.signal,
+      );
       const hasExplicitPromptFlag = process.argv.some(a => a === '-p' || a === '--prompt');
       if (options.prompt) {
         // Both -p "text" and stdin: combine them -> command mode
@@ -1394,10 +1484,19 @@ async function runCLI(options: CLIOptions): Promise<void> {
       }
     }
 
-    const { AutohandAgent } = await import('./core/agent.js');
-    const agent = new AutohandAgent(llmProvider, files, runtime);
+    const { AutohandAgent } = await awaitCliLifecycleStep(
+      import('./core/agent.js'),
+      commandLifecycleController.signal,
+    );
+    if (commandLifecycleController.signal.aborted) {
+      return;
+    }
+    agent = new AutohandAgent(llmProvider, files, runtime);
     agentHolder.current = agent;
-
+    if (commandLifecycleController.signal.aborted) {
+      agent.requestExit();
+      return;
+    }
 
     // Handle --chrome flag: trigger Chrome handoff before entering interactive mode
     if (options.chrome) {
@@ -1437,39 +1536,54 @@ async function runCLI(options: CLIOptions): Promise<void> {
     }
 
     if (options.fork) {
-      const forkEnabled = getFeatureState(config, 'experimental_fork')?.enabled === true;
-      if (!forkEnabled) {
-        console.error(chalk.red('The --fork flag is behind experimental_fork. Run /features enable experimental_fork, then try again.'));
-        process.exit(1);
-      }
-      const sessionManager = agent.getSessionManager();
-      await sessionManager.initialize();
-      const forked = await sessionManager.branchSession(options.fork, { type: 'fork' });
-      console.log(chalk.green(`\nForked session ${forked.metadata.sessionId}.`));
-      await agent.resumeSession(forked.metadata.sessionId);
-      process.exit(0);
+        const forkEnabled = getFeatureState(config, 'experimental_fork')?.enabled === true;
+        if (!forkEnabled) {
+          console.error(chalk.red('The --fork flag is behind experimental_fork. Run /features enable experimental_fork, then try again.'));
+          process.exitCode = 1;
+          return;
+        }
+        const sessionManager = agent.getSessionManager();
+        await sessionManager.initialize();
+        const forked = await sessionManager.branchSession(options.fork, { type: 'fork' });
+        console.log(chalk.green(`\nForked session ${forked.metadata.sessionId}.`));
+        await agent.resumeSession(forked.metadata.sessionId);
+        if (!commandLifecycleController.signal.aborted) {
+          process.exitCode = 0;
+        }
     } else if (options.prompt) {
-      await agent.runCommandMode(options.prompt);
-      // Explicitly exit after prompt mode to prevent hanging
-      // Some managers may keep event loop alive
-      process.exit(0);
+      const succeeded = await agent.runCommandMode(
+        options.prompt,
+        commandLifecycleController.signal,
+      );
+      if (!commandLifecycleController.signal.aborted) {
+        process.exitCode = succeeded ? 0 : 1;
+      }
     } else if (options.resumeSessionId) {
       await agent.resumeSession(options.resumeSessionId);
-      // Explicitly exit to prevent hanging from open handles
-      process.exit(0);
+      if (!commandLifecycleController.signal.aborted) {
+        process.exitCode = 0;
+      }
     } else {
       await agent.runInteractive(pipeInitialInstruction);
-      // Explicitly exit after interactive mode to prevent hanging.
-      // Background managers (telemetry, MCP, hooks) may keep the event loop alive.
-      process.exit(0);
+      if (!commandLifecycleController.signal.aborted) {
+        process.exitCode = 0;
+      }
     }
   } catch (error) {
-    if (error instanceof Error) {
-      console.error(chalk.red(error.message));
-    } else {
-      console.error(error);
+    if (!commandLifecycleController.signal.aborted) {
+      if (error instanceof Error) {
+        console.error(chalk.red(error.message));
+      } else {
+        console.error(error);
+      }
+      process.exitCode = 1;
     }
-    process.exitCode = 1;
+  } finally {
+    await Promise.allSettled([
+      agent?.shutdownRuntimeResources(),
+      runtimeResourceOwner?.shutdown(),
+    ]);
+    agentHolder.current = null;
   }
 }
 
@@ -1966,45 +2080,49 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
     parallelApiKey: searchConfig.parallelApiKey ?? process.env.PARALLEL_API_KEY,
   });
 
+  let agent: AutohandAgent | null = null;
+  let exitCode = 0;
   try {
     const { AutohandAgent } = await import('./core/agent.js');
-    const agent = new AutohandAgent(llmProvider, files, runtime);
+    agent = new AutohandAgent(llmProvider, files, runtime);
 
     // Run the instruction (changes will be batched in preview mode)
-    await agent.runCommandMode(opts.prompt);
-
-    // Get all pending changes
-    const changes = files.getPendingChanges();
-
-    if (changes.length === 0) {
-      console.error(chalk.yellow('\nNo changes were made.'));
-      process.exit(0);
-    }
-
-    // Generate unified patch
-    const patch = generateUnifiedPatch(changes);
-
-    // Show summary to stderr (so it doesn't pollute stdout when piping)
-    console.error(chalk.green(`\n✓ ${formatChangeSummary(changes)}`));
-
-    // Output patch
-    if (opts.output) {
-      await fs.default.ensureDir((await import('path')).dirname(opts.output));
-      await fs.default.writeFile(opts.output, patch);
-      console.error(chalk.green(`✓ Patch written to ${opts.output}`));
-      console.error(chalk.gray('\nTo apply: git apply ' + opts.output));
+    const succeeded = await agent.runCommandMode(opts.prompt);
+    if (!succeeded) {
+      exitCode = 1;
     } else {
-      // Output to stdout
-      process.stdout.write(patch);
-    }
+      // Get all pending changes
+      const changes = files.getPendingChanges();
 
-    files.exitPreviewMode();
-    process.exit(0);
+      if (changes.length === 0) {
+        console.error(chalk.yellow('\nNo changes were made.'));
+      } else {
+        // Generate unified patch
+        const patch = generateUnifiedPatch(changes);
+
+        // Show summary to stderr (so it doesn't pollute stdout when piping)
+        console.error(chalk.green(`\n✓ ${formatChangeSummary(changes)}`));
+
+        // Output patch
+        if (opts.output) {
+          await fs.default.ensureDir((await import('path')).dirname(opts.output));
+          await fs.default.writeFile(opts.output, patch);
+          console.error(chalk.green(`✓ Patch written to ${opts.output}`));
+          console.error(chalk.gray('\nTo apply: git apply ' + opts.output));
+        } else {
+          // Output to stdout
+          process.stdout.write(patch);
+        }
+      }
+    }
   } catch (error) {
-    files.exitPreviewMode();
     console.error(chalk.red(`\nError: ${(error as Error).message}`));
-    process.exit(1);
+    exitCode = 1;
+  } finally {
+    files.exitPreviewMode();
+    await agent?.shutdownRuntimeResources();
   }
+  process.exitCode = exitCode;
 }
 
 /**
@@ -2139,30 +2257,35 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
   const { FileActionManager } = await import('./actions/filesystem.js');
   const files = new FileActionManager(effectiveWorkspace, additionalDirs);
   const { safeSetRawMode } = await import('./ui/rawMode.js');
+  let agent: AutohandAgent | null = null;
+  let automodeKeypressHandler: ((_str: string, key: { name?: string; ctrl?: boolean }) => void) | null = null;
+  let signalExitStarted = false;
 
   // Set up ESC key handling for cancellation
   if (process.stdin.isTTY) {
     readline.emitKeypressEvents(process.stdin);
     safeSetRawMode(process.stdin, true);
 
-    process.stdin.on('keypress', (_str, key) => {
+    automodeKeypressHandler = (_str, key) => {
       if (key && key.name === 'escape') {
         console.log(chalk.yellow('\n⚠️  Cancelling auto-mode...'));
-        automodeManager.cancel('user_escape');
+        void automodeManager.cancel('user_escape').catch(() => {});
       }
       // Ctrl+C also cancels
-      if (key && key.ctrl && key.name === 'c') {
+      if (key && key.ctrl && key.name === 'c' && !signalExitStarted) {
+        signalExitStarted = true;
         console.log(chalk.yellow('\n⚠️  Cancelling auto-mode...'));
-        automodeManager.cancel('user_escape');
-        // Restore terminal and exit
-        if (process.stdin.isTTY) {
-          safeSetRawMode(process.stdin, false);
-        }
-        process.exit(0);
+        void (async () => {
+          await automodeManager.cancel('user_escape').catch(() => {});
+          if (process.stdin.isTTY) safeSetRawMode(process.stdin, false);
+          process.exitCode = 0;
+        })();
       }
-    });
+    };
+    process.stdin.on('keypress', automodeKeypressHandler);
   }
 
+  let exitCode = 1;
   try {
     // Create agent runtime with effective workspace (worktree if available)
     const runtime: AgentRuntime = {
@@ -2185,7 +2308,8 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
     });
 
     const { AutohandAgent } = await import('./core/agent.js');
-    const agent = new AutohandAgent(llmProvider, files, runtime);
+    agent = new AutohandAgent(llmProvider, files, runtime);
+    const activeAgent = agent;
 
     // Define the iteration callback
     const runIteration = async (
@@ -2197,14 +2321,14 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
       const iterationPrompt = buildIterationPrompt(prompt, iteration);
 
       // Reset per-iteration counters before running
-      agent.getAndResetFileModCount();
-      agent.getAndResetExecutedActions();
+      activeAgent.getAndResetFileModCount();
+      activeAgent.getAndResetExecutedActions();
 
       let success = true;
       let error: string | undefined;
 
       try {
-        await agent.runCommandMode(iterationPrompt);
+        await activeAgent.runCommandMode(iterationPrompt);
       } catch (err) {
         success = false;
         error = (err as Error).message;
@@ -2212,8 +2336,8 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
       }
 
       // Collect actual file change data and action names from this iteration
-      const fileChanges = agent.getAndResetFileModCount();
-      const actions = agent.getAndResetExecutedActions();
+      const fileChanges = activeAgent.getAndResetFileModCount();
+      const actions = activeAgent.getAndResetExecutedActions();
       if (actions.length === 0) {
         actions.push('Executed agent iteration');
       }
@@ -2244,7 +2368,7 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
     }
 
     const statusText = finalState?.status === 'completed' ? 'completed' : `ended (${finalState?.status})`;
-    const exitCode = finalState?.status === 'completed' ? 0 : 1;
+    exitCode = signalExitStarted ? 0 : finalState?.status === 'completed' ? 0 : 1;
     const shouldHandoffToInteractive = opts.interactiveOnComplete === true && process.stdin.isTTY;
 
     if (opts.interactiveOnComplete && !process.stdin.isTTY) {
@@ -2254,12 +2378,11 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
     if (!shouldHandoffToInteractive) {
       await sessionManager.closeSession(`Auto-mode ${statusText} after ${finalState?.currentIteration ?? 0} iterations: ${opts.autoMode?.slice(0, 50)}...`);
       console.log(chalk.gray(`\n📁 Session saved: ${session.metadata.sessionId}`));
-      process.exit(exitCode);
+    } else {
+      console.log(chalk.cyan('\n▶️ Auto-mode finished. Handing off to interactive mode (--interactive-on-complete).\n'));
+      await activeAgent.runInteractive();
+      exitCode = 0;
     }
-
-    console.log(chalk.cyan('\n▶️ Auto-mode finished. Handing off to interactive mode (--interactive-on-complete).\n'));
-    await agent.runInteractive();
-    process.exit(0);
 
   } catch (error) {
     // Restore terminal
@@ -2271,8 +2394,17 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
     await sessionManager.closeSession(`Auto-mode failed: ${(error as Error).message}`);
 
     console.error(chalk.red(`\nAuto-mode error: ${(error as Error).message}`));
-    process.exit(1);
+    exitCode = 1;
+  } finally {
+    if (automodeKeypressHandler) {
+      process.stdin.off('keypress', automodeKeypressHandler);
+    }
+    if (process.stdin.isTTY) {
+      safeSetRawMode(process.stdin, false);
+    }
+    await agent?.shutdownRuntimeResources();
   }
+  process.exitCode = exitCode;
 }
 
 /**

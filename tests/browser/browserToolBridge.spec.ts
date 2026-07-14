@@ -19,8 +19,49 @@ describe('browserToolBridge', () => {
     stdoutWriteSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    const { shutdownBrowserToolBridge } = await import('../../src/browser/browserToolBridge.js');
+    shutdownBrowserToolBridge();
     stdoutWriteSpy?.mockRestore();
+  });
+
+  it('clears pending timers and rejects browser invocations during shutdown', async () => {
+    vi.useFakeTimers();
+    const chunks: string[] = [];
+    const customStream = new Writable({
+      write(chunk, _encoding, callback) {
+        chunks.push(chunk.toString());
+        callback();
+      },
+    });
+    const {
+      invokeBrowserTool,
+      setBrowserBridgeOutput,
+      shutdownBrowserToolBridge,
+    } = await import('../../src/browser/browserToolBridge.js');
+    setBrowserBridgeOutput(customStream);
+    const pendingInvocation = invokeBrowserTool('browser_wait', {});
+    const rejection = pendingInvocation.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    expect(vi.getTimerCount()).toBe(1);
+
+    try {
+      shutdownBrowserToolBridge();
+
+      expect(vi.getTimerCount()).toBe(0);
+      await expect(rejection).resolves.toMatchObject({
+        message: 'Browser tool bridge shut down',
+      });
+    } finally {
+      if (vi.getTimerCount() > 0) {
+        await vi.runAllTimersAsync();
+        await rejection;
+      }
+      vi.useRealTimers();
+    }
   });
 
   it('does NOT write to process.stdout by default', async () => {
