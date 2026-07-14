@@ -85,13 +85,35 @@ describe('dependency install guardrails', () => {
     expect(releaseWorkflow).toContain('run: bun run test:ci');
   });
 
-  it('smoke-tests the compiled Windows binary before publishing it', () => {
-    const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8');
+  it('smoke-tests compiled Windows binaries in CI and release workflows', () => {
+    const workflows = [
+      {
+        path: '.github/workflows/ci.yml',
+        binaryResolution: '$binary = (Resolve-Path "./binaries/autohand-test.exe").Path',
+      },
+      {
+        path: '.github/workflows/release.yml',
+        binaryResolution: '$binary = (Resolve-Path "./binaries/${{ matrix.artifact }}").Path',
+      },
+    ];
 
-    expect(releaseWorkflow).toContain('- name: Smoke test Windows binary');
-    expect(releaseWorkflow).toContain("if: runner.os == 'Windows'");
-    expect(releaseWorkflow).toContain('& $binary --version');
-    expect(releaseWorkflow).toContain('& $binary --help');
+    for (const workflow of workflows) {
+      const content = readFileSync(workflow.path, 'utf8');
+
+      expect(content).toContain('- name: Smoke test Windows binary');
+      expect(content).toContain("if: runner.os == 'Windows'");
+      expect(content).toContain('shell: pwsh');
+      expect(content).toContain('timeout-minutes: 1');
+      expect(content).toContain(workflow.binaryResolution);
+      expect(content).toContain('& $binary --version');
+      expect(content).toContain('& $binary --help');
+    }
+
+    const ciWorkflow = readFileSync('.github/workflows/ci.yml', 'utf8');
+    expect(ciWorkflow).toContain('- name: Verify binary (Unix)');
+    expect(ciWorkflow).toContain("if: runner.os != 'Windows'");
+    expect(ciWorkflow).toContain('chmod +x ./binaries/autohand-test');
+    expect(ciWorkflow).toContain('./binaries/autohand-test --help');
   });
 
   it('bases alpha releases on the latest stable release tag before package.json fallback', () => {

@@ -76,3 +76,20 @@ jobs:
         run: |
           chmod +x ./binaries/autohand-test
           ./binaries/autohand-test --help
+
+      - name: Smoke test Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: 1
+        run: |
+          $binary = (Resolve-Path "./binaries/autohand-test.exe").Path
+
+          & $binary --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows --version smoke test failed with exit code $LASTEXITCODE"
+          }
+
+          & $binary --help | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows --help smoke test failed with exit code $LASTEXITCODE"
+          }
