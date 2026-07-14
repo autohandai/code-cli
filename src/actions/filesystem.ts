@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import fs from 'fs-extra';
+import type { Stats } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -64,10 +65,23 @@ export interface SearchOptions {
   relativePath?: string;
 }
 
+interface AdmittedSearchEntry {
+  realPath: string;
+  stats: Stats;
+}
+
+const SEARCH_EXCLUDED_DIRECTORIES = new Set([
+  'node_modules',
+  'dist',
+  'build',
+  'binaries',
+]);
+
 export class FileActionManager {
   private undoStack: UndoEntry[] = [];
   private workspaceRoot: string;
   private readonly additionalDirs: string[];
+  private readonly resolveSearchCommand: () => string;
 
   // Preview mode state
   private previewMode = false;
@@ -78,7 +92,12 @@ export class FileActionManager {
   private currentToolId = '';
   private currentToolName = '';
 
-  constructor(workspaceRoot: string, additionalDirs: string[] = []) {
+  constructor(
+    workspaceRoot: string,
+    additionalDirs: string[] = [],
+    resolveSearchCommand: () => string = resolveRipgrepCommand
+  ) {
+    this.resolveSearchCommand = resolveSearchCommand;
     // Resolve and normalize with realpathSync to handle:
     // 1. Symlinks (security: prevent symlink attacks)
     // 2. Case normalization on case-insensitive filesystems (macOS)
@@ -386,7 +405,7 @@ export class FileActionManager {
   search(query: string, relativePath?: string): SearchHit[] {
     const searchDir = this.resolvePath(relativePath ?? '.');
     // Exclude binary files and common non-text files to avoid wasting tokens
-    const rgResult = spawnSync(resolveRipgrepCommand(), [
+    const rgResult = spawnSync(this.resolveSearchCommand(), [
       '--line-number',
       '--color', 'never',
       '--no-binary',  // Skip binary files
@@ -402,7 +421,7 @@ export class FileActionManager {
       '--glob', '!**/dist/**',
       '--glob', '!**/build/**',
       '--glob', '!**/binaries/**',
-      query, '.'
+      '--', query, '.'
     ], {
       cwd: searchDir,
       encoding: 'utf8'
@@ -417,7 +436,7 @@ export class FileActionManager {
         .map((line: string) => {
           const [file, lineNo, ...rest] = line.split(':');
           return {
-            file: path.relative(this.workspaceRoot, path.join(searchDir, file)),
+            file: this.getSearchDisplayPath(path.join(searchDir, file)),
             line: Number(lineNo),
             text: rest.join(':')
           };
@@ -444,23 +463,37 @@ export class FileActionManager {
     const ignoreFilter = new GitIgnoreParser(baseDir);
     const results: Array<{ file: string; snippet: string }> = [];
     const stack = [baseDir];
+    const visitedRealPaths = new Set<string>();
+    const realPathIgnoreFilters = this.createAllowedRootIgnoreFilters();
     const lowerQuery = query.toLowerCase();
 
     while (stack.length && results.length < limit) {
       const current = stack.pop();
       if (!current) continue;
-      const relative = path.relative(this.workspaceRoot, current);
-      const normalizedRel = relative.replace(/\\/g, '/');
+      const displayPath = this.getSearchDisplayPath(current);
+      const normalizedRel = displayPath.replace(/\\/g, '/');
+      const logicalRelative = path.relative(baseDir, path.resolve(current)).replace(/\\/g, '/');
 
       // Skip hidden files/directories and ignored paths
-      if (path.basename(current).startsWith('.') || ignoreFilter.isIgnored(normalizedRel)) {
+      if (
+        this.hasHiddenOrExcludedPathSegment(logicalRelative)
+        || ignoreFilter.isIgnored(logicalRelative)
+      ) {
+        continue;
+      }
+
+      const admitted = this.admitSearchEntry(current, visitedRealPaths);
+      if (!admitted) {
+        continue;
+      }
+      if (this.isAdmittedSearchPathExcluded(admitted.realPath, realPathIgnoreFilters)) {
         continue;
       }
 
       try {
-        const stats = fs.statSync(current);
+        const { realPath, stats } = admitted;
         if (stats.isDirectory()) {
-          const entries = fs.readdirSync(current);
+          const entries = fs.readdirSync(realPath);
           for (const entry of entries) {
             // Skip hidden entries
             if (!entry.startsWith('.')) {
@@ -470,6 +503,10 @@ export class FileActionManager {
           continue;
         }
         if (!stats.isFile()) {
+          continue;
+        }
+
+        if (stats.size > FILE_LIMITS.MAX_READ_SIZE) {
           continue;
         }
 
@@ -493,7 +530,7 @@ export class FileActionManager {
           continue;
         }
 
-        const contents = fs.readFileSync(current, 'utf8');
+        const contents = fs.readFileSync(realPath, 'utf8');
         const haystack = contents.toLowerCase();
         const idx = haystack.indexOf(lowerQuery);
         if (idx === -1) continue;
@@ -505,7 +542,7 @@ export class FileActionManager {
         const snippet = `${prefixEllipsis}${contents.slice(start, end)}${suffixEllipsis}`;
 
         results.push({
-          file: normalizedRel || path.basename(current),
+          file: displayPath,
           snippet
         });
       } catch {
@@ -592,39 +629,145 @@ export class FileActionManager {
     }
   }
 
+  private admitSearchEntry(
+    logicalPath: string,
+    visitedRealPaths: Set<string>
+  ): AdmittedSearchEntry | null {
+    try {
+      const logicalStats = fs.lstatSync(logicalPath);
+      const realPath = fs.realpathSync(logicalPath);
+
+      if (!this.isRealPathWithinAllowedRoots(realPath) || visitedRealPaths.has(realPath)) {
+        return null;
+      }
+
+      const stats = logicalStats.isSymbolicLink()
+        ? fs.statSync(realPath)
+        : logicalStats;
+      visitedRealPaths.add(realPath);
+
+      return { realPath, stats };
+    } catch {
+      return null;
+    }
+  }
+
+  private isRealPathWithinAllowedRoots(realPath: string): boolean {
+    return this.getAllowedDirectories().some((allowedRoot) => {
+      const realRoot = this.resolveRealPathOrAncestor(path.resolve(allowedRoot));
+      return this.isPathWithinRoot(realPath, realRoot);
+    });
+  }
+
+  private isPathWithinRoot(candidatePath: string, rootPath: string): boolean {
+    const relative = path.relative(rootPath, candidatePath);
+    return relative === '' || (
+      !path.isAbsolute(relative) &&
+      relative !== '..' &&
+      !relative.startsWith(`..${path.sep}`)
+    );
+  }
+
+  private getSearchDisplayPath(logicalPath: string): string {
+    const resolvedLogicalPath = path.resolve(logicalPath);
+
+    for (const allowedRoot of this.getAllowedDirectories()) {
+      const relative = path.relative(path.resolve(allowedRoot), resolvedLogicalPath);
+      if (this.isPathWithinRoot(resolvedLogicalPath, path.resolve(allowedRoot))) {
+        return relative || path.basename(resolvedLogicalPath);
+      }
+    }
+
+    return path.basename(resolvedLogicalPath);
+  }
+
+  private createAllowedRootIgnoreFilters(): Map<string, GitIgnoreParser> {
+    const filters = new Map<string, GitIgnoreParser>();
+    for (const allowedRoot of this.getAllowedDirectories()) {
+      const realRoot = this.resolveRealPathOrAncestor(path.resolve(allowedRoot));
+      if (!filters.has(realRoot)) {
+        filters.set(realRoot, new GitIgnoreParser(realRoot));
+      }
+    }
+    return filters;
+  }
+
+  private isAdmittedSearchPathExcluded(
+    realPath: string,
+    ignoreFilters: ReadonlyMap<string, GitIgnoreParser>
+  ): boolean {
+    let matchedAllowedRoot = false;
+    for (const [realRoot, ignoreFilter] of ignoreFilters) {
+      if (!this.isPathWithinRoot(realPath, realRoot)) {
+        continue;
+      }
+      matchedAllowedRoot = true;
+      const relative = path.relative(realRoot, realPath).replace(/\\/g, '/');
+      if (this.hasHiddenOrExcludedPathSegment(relative) || ignoreFilter.isIgnored(relative)) {
+        return true;
+      }
+    }
+    return !matchedAllowedRoot;
+  }
+
+  private hasHiddenOrExcludedPathSegment(relativePath: string): boolean {
+    if (!relativePath) {
+      return false;
+    }
+    return relativePath.split('/').some((segment) => (
+      segment.startsWith('.') || SEARCH_EXCLUDED_DIRECTORIES.has(segment)
+    ));
+  }
+
   private walkFallback(query: string, baseDir: string): SearchHit[] {
     const hits: SearchHit[] = [];
     const stack = [baseDir];
+    const visitedRealPaths = new Set<string>();
+    const logicalIgnoreFilter = new GitIgnoreParser(baseDir);
+    const realPathIgnoreFilters = this.createAllowedRootIgnoreFilters();
     while (stack.length && hits.length < FILE_LIMITS.MAX_SEARCH_RESULTS) {
       const current = stack.pop();
       if (!current) {
         continue;
       }
       const basename = path.basename(current);
-      const relative = path.relative(this.workspaceRoot, current);
+      const relative = this.getSearchDisplayPath(current);
+      const logicalRelative = path.relative(baseDir, path.resolve(current)).replace(/\\/g, '/');
 
       // Skip hidden files/directories and common excludes
-      if (basename.startsWith('.') || relative.includes('node_modules') || relative.startsWith('dist')) {
+      if (
+        basename.startsWith('.')
+        || this.hasHiddenOrExcludedPathSegment(logicalRelative)
+        || logicalIgnoreFilter.isIgnored(logicalRelative)
+      ) {
         continue;
       }
+      const admitted = this.admitSearchEntry(current, visitedRealPaths);
+      if (!admitted) {
+        continue;
+      }
+      if (this.isAdmittedSearchPathExcluded(admitted.realPath, realPathIgnoreFilters)) {
+        continue;
+      }
+
       try {
-        const stats = fs.statSync(current);
+        const { realPath, stats } = admitted;
         if (stats.isDirectory()) {
-          const entries = fs.readdirSync(current);
+          const entries = fs.readdirSync(realPath);
           for (const entry of entries) {
             // Skip hidden entries
             if (!entry.startsWith('.')) {
               stack.push(path.join(current, entry));
             }
           }
-        } else if (stats.isFile()) {
-          const contents = fs.readFileSync(current, 'utf8');
+        } else if (stats.isFile() && stats.size <= FILE_LIMITS.MAX_READ_SIZE) {
+          const contents = fs.readFileSync(realPath, 'utf8');
           const lines = contents.split(/\r?\n/);
           for (let idx = 0; idx < lines.length && hits.length < FILE_LIMITS.MAX_SEARCH_RESULTS; idx++) {
             const line = lines[idx];
             if (line.includes(query)) {
               hits.push({
-                file: path.relative(this.workspaceRoot, current),
+                file: relative,
                 line: idx + 1,
                 text: line.trim()
               });
