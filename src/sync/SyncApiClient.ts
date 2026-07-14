@@ -17,6 +17,7 @@ const MAX_FILES_PER_REQUEST = 100; // API limit for files array
 
 export class SyncApiClient {
   private readonly baseUrl: string;
+  private readonly baseOrigin: string;
   private readonly timeout: number;
   private readonly maxFileSize: number;
   private readonly maxTotalSize: number;
@@ -24,12 +25,69 @@ export class SyncApiClient {
   private readonly retryDelay: number;
 
   constructor(config?: SyncApiConfig) {
-    this.baseUrl = config?.baseUrl || DEFAULT_BASE_URL;
+    const configuredBaseUrl = config?.baseUrl || DEFAULT_BASE_URL;
+    let parsedBaseUrl: URL;
+    try {
+      parsedBaseUrl = new URL(configuredBaseUrl);
+    } catch {
+      throw new Error('Invalid sync API base URL');
+    }
+    if (
+      (parsedBaseUrl.protocol !== 'https:' && parsedBaseUrl.protocol !== 'http:') ||
+      parsedBaseUrl.username !== '' ||
+      parsedBaseUrl.password !== '' ||
+      (parsedBaseUrl.protocol === 'http:' && !this.isLoopbackHostname(parsedBaseUrl.hostname))
+    ) {
+      throw new Error('Invalid sync API base URL');
+    }
+
+    this.baseUrl = configuredBaseUrl.replace(/\/+$/, '');
+    this.baseOrigin = parsedBaseUrl.origin;
     this.timeout = config?.timeout || DEFAULT_TIMEOUT;
     this.maxFileSize = config?.maxFileSize || DEFAULT_MAX_FILE_SIZE;
     this.maxTotalSize = config?.maxTotalSize || DEFAULT_MAX_TOTAL_SIZE;
     this.maxRetries = config?.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.retryDelay = config?.retryDelay ?? DEFAULT_RETRY_DELAY;
+  }
+
+  private getTransferAuthorization(transferUrl: string, token?: string): string | undefined {
+    if (
+      transferUrl.trim() !== transferUrl ||
+      /[\u0000-\u001F\u007F\\]/.test(transferUrl)
+    ) {
+      throw new Error('Invalid transfer URL');
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(transferUrl);
+    } catch {
+      throw new Error('Invalid transfer URL');
+    }
+
+    if (parsedUrl.username !== '' || parsedUrl.password !== '') {
+      throw new Error('Invalid transfer URL: embedded credentials are not allowed');
+    }
+    if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+      throw new Error('Invalid transfer URL: unsupported protocol');
+    }
+
+    const sameOrigin = parsedUrl.origin === this.baseOrigin;
+    if (parsedUrl.protocol === 'http:') {
+      if (!sameOrigin || !this.isLoopbackHostname(parsedUrl.hostname)) {
+        throw new Error('Invalid transfer URL: insecure HTTP endpoint');
+      }
+    }
+
+    return sameOrigin && token ? `Bearer ${token}` : undefined;
+  }
+
+  private isLoopbackHostname(hostname: string): boolean {
+    const normalizedHostname = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    return normalizedHostname === 'localhost' ||
+      normalizedHostname.endsWith('.localhost') ||
+      normalizedHostname === '::1' ||
+      /^127(?:\.\d{1,3}){3}$/.test(normalizedHostname);
   }
 
   /**
@@ -38,13 +96,18 @@ export class SyncApiClient {
   private async fetchWithRetry(
     url: string,
     options: RequestInit,
-    timeoutMs: number = this.timeout
+    timeoutMs: number = this.timeout,
+    signal?: AbortSignal,
   ): Promise<Response> {
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt < this.maxRetries; attempt++) {
+      this.throwIfAborted(signal);
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      timeoutId.unref?.();
+      const abortRequest = (): void => controller.abort(signal?.reason);
+      signal?.addEventListener('abort', abortRequest, { once: true });
 
       try {
         const response = await fetch(url, {
@@ -62,15 +125,18 @@ export class SyncApiClient {
             : this.retryDelay * Math.pow(2, attempt);
 
           if (attempt < this.maxRetries - 1) {
-            await this.sleep(waitTime);
+            await this.cancelResponseBody(response);
+            await this.sleep(waitTime, signal);
             continue;
           }
+          await this.cancelResponseBody(response);
           throw new Error('Rate limited: too many requests');
         }
 
         // Handle server errors with retry (500, 502, 503, 504)
         if (response.status >= 500 && attempt < this.maxRetries - 1) {
-          await this.sleep(this.retryDelay * Math.pow(2, attempt));
+          await this.cancelResponseBody(response);
+          await this.sleep(this.retryDelay * Math.pow(2, attempt), signal);
           continue;
         }
 
@@ -79,6 +145,12 @@ export class SyncApiClient {
         clearTimeout(timeoutId);
         lastError = error as Error;
 
+        if (signal?.aborted) {
+          throw signal.reason instanceof Error
+            ? signal.reason
+            : new DOMException('Sync request aborted', 'AbortError');
+        }
+
         // Don't retry on abort (timeout)
         if ((error as Error).name === 'AbortError') {
           throw new Error('Request timeout');
@@ -86,9 +158,12 @@ export class SyncApiClient {
 
         // Retry on network errors
         if (attempt < this.maxRetries - 1) {
-          await this.sleep(this.retryDelay * Math.pow(2, attempt));
+          await this.sleep(this.retryDelay * Math.pow(2, attempt), signal);
           continue;
         }
+      } finally {
+        clearTimeout(timeoutId);
+        signal?.removeEventListener('abort', abortRequest);
       }
     }
 
@@ -98,15 +173,100 @@ export class SyncApiClient {
   /**
    * Sleep for a specified duration
    */
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+  private sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    this.throwIfAborted(signal);
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        signal?.removeEventListener('abort', abortSleep);
+        resolve();
+      }, ms);
+      const abortSleep = (): void => {
+        clearTimeout(timeout);
+        reject(signal?.reason instanceof Error
+          ? signal.reason
+          : new DOMException('Sync request aborted', 'AbortError'));
+      };
+      signal?.addEventListener('abort', abortSleep, { once: true });
+    });
+  }
+
+  private throwIfAborted(signal?: AbortSignal): void {
+    if (!signal?.aborted) return;
+    throw signal.reason instanceof Error
+      ? signal.reason
+      : new DOMException('Sync request aborted', 'AbortError');
+  }
+
+  private waitForSignal<T>(
+    work: Promise<T>,
+    signal?: AbortSignal,
+    onAbort?: () => void | Promise<void>,
+  ): Promise<T> {
+    if (!signal) return work;
+    if (signal.aborted) {
+      this.runAbortCleanup(onAbort);
+      return Promise.reject(signal.reason instanceof Error
+        ? signal.reason
+        : new DOMException('Sync request aborted', 'AbortError'));
+    }
+
+    return new Promise<T>((resolve, reject) => {
+      const handleAbort = (): void => {
+        this.runAbortCleanup(onAbort);
+        reject(signal.reason instanceof Error
+          ? signal.reason
+          : new DOMException('Sync request aborted', 'AbortError'));
+      };
+      signal.addEventListener('abort', handleAbort, { once: true });
+      void work.then(
+        (value) => {
+          signal.removeEventListener('abort', handleAbort);
+          resolve(value);
+        },
+        (error: unknown) => {
+          signal.removeEventListener('abort', handleAbort);
+          reject(error);
+        },
+      );
+    });
+  }
+
+  private runAbortCleanup(onAbort?: () => void | Promise<void>): void {
+    if (!onAbort) return;
+    try {
+      void Promise.resolve(onAbort()).catch(() => undefined);
+    } catch {
+      // Request cancellation is best-effort; lifecycle abort still wins the race.
+    }
+  }
+
+  private async cancelResponseBody(response: Response, reason?: unknown): Promise<void> {
+    const body = response.body;
+    if (!body || typeof body.cancel !== 'function') return;
+    await body.cancel(reason).catch(() => {});
+  }
+
+  private readResponseText(response: Response, signal?: AbortSignal): Promise<string> {
+    return this.waitForSignal(
+      response.text(),
+      signal,
+      () => this.cancelResponseBody(response, signal?.reason),
+    );
+  }
+
+  private readResponseJson<T>(response: Response, signal?: AbortSignal): Promise<T> {
+    return this.waitForSignal(
+      response.json() as Promise<T>,
+      signal,
+      () => this.cancelResponseBody(response, signal?.reason),
+    );
   }
 
   /**
    * Get the remote sync manifest for a user
    * Returns null if no sync data exists
    */
-  async getRemoteManifest(token: string): Promise<SyncManifest | null> {
+  async getRemoteManifest(token: string, signal?: AbortSignal): Promise<SyncManifest | null> {
     const response = await this.fetchWithRetry(
       `${this.baseUrl}/v1/sync/manifest`,
       {
@@ -115,19 +275,23 @@ export class SyncApiClient {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-      }
+      },
+      this.timeout,
+      signal,
     );
 
     if (response.status === 404) {
+      await this.cancelResponseBody(response);
       return null; // No sync data yet
     }
 
     if (!response.ok) {
-      const error = await response.text().catch(() => 'Unknown error');
+      const error = await this.readResponseText(response, signal).catch(() => 'Unknown error');
+      this.throwIfAborted(signal);
       throw new Error(`API error: ${response.status} ${error}`);
     }
 
-    const data = (await response.json()) as SyncApiResponse;
+    const data = await this.readResponseJson<SyncApiResponse>(response, signal);
     return data.manifest || null;
   }
 
@@ -138,7 +302,8 @@ export class SyncApiClient {
   async initiateUpload(
     token: string,
     manifest: SyncManifest,
-    filePaths: string[]
+    filePaths: string[],
+    signal?: AbortSignal,
   ): Promise<{ uploadUrls: Record<string, string> }> {
     // Batch files into chunks of MAX_FILES_PER_REQUEST
     const batches: string[][] = [];
@@ -163,15 +328,18 @@ export class SyncApiClient {
             manifest,
             files: batch,
           }),
-        }
+        },
+        this.timeout,
+        signal,
       );
 
       if (!response.ok) {
-        const error = await response.text().catch(() => 'Unknown error');
+        const error = await this.readResponseText(response, signal).catch(() => 'Unknown error');
+        this.throwIfAborted(signal);
         throw new Error(`API error: ${response.status} ${error}`);
       }
 
-      const data = (await response.json()) as SyncApiResponse;
+      const data = await this.readResponseJson<SyncApiResponse>(response, signal);
       const batchUrls = data.uploadUrls || {};
 
       // Merge batch URLs into result
@@ -186,7 +354,14 @@ export class SyncApiClient {
   /**
    * Upload a file to a pre-signed URL
    */
-  async uploadFile(uploadUrl: string, content: Buffer, token?: string): Promise<void> {
+  async uploadFile(
+    uploadUrl: string,
+    content: Buffer,
+    token?: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const authorization = this.getTransferAuthorization(uploadUrl, token);
+
     if (content.length > this.maxFileSize) {
       throw new Error(`File exceeds max size of ${this.maxFileSize} bytes`);
     }
@@ -195,8 +370,8 @@ export class SyncApiClient {
       'Content-Type': 'application/octet-stream',
       'Content-Length': content.length.toString(),
     };
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
+    if (authorization) {
+      headers.Authorization = authorization;
     }
 
     const response = await this.fetchWithRetry(
@@ -205,18 +380,26 @@ export class SyncApiClient {
         method: 'PUT',
         headers,
         body: new Uint8Array(content),
-      }
+      },
+      this.timeout,
+      signal,
     );
 
     if (!response.ok) {
+      await this.cancelResponseBody(response);
       throw new Error(`Upload failed: ${response.status}`);
     }
+    await this.cancelResponseBody(response);
   }
 
   /**
    * Complete the upload and finalize the manifest
    */
-  async completeUpload(token: string, manifest: SyncManifest): Promise<SyncResult> {
+  async completeUpload(
+    token: string,
+    manifest: SyncManifest,
+    signal?: AbortSignal,
+  ): Promise<SyncResult> {
     try {
       const response = await this.fetchWithRetry(
         `${this.baseUrl}/v1/sync/complete`,
@@ -227,11 +410,14 @@ export class SyncApiClient {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ manifest }),
-        }
+        },
+        this.timeout,
+        signal,
       );
 
       if (!response.ok) {
-        const error = await response.text().catch(() => 'Unknown error');
+        const error = await this.readResponseText(response, signal).catch(() => 'Unknown error');
+        this.throwIfAborted(signal);
         return {
           success: false,
           uploaded: 0,
@@ -241,6 +427,7 @@ export class SyncApiClient {
         };
       }
 
+      await this.cancelResponseBody(response);
       return {
         success: true,
         uploaded: manifest.files.length,
@@ -262,7 +449,11 @@ export class SyncApiClient {
    * Request pre-signed URLs for file downloads
    * Batches requests to stay within API limits (max 100 files per request)
    */
-  async initiateDownload(token: string, filePaths: string[]): Promise<{ downloadUrls: Record<string, string> }> {
+  async initiateDownload(
+    token: string,
+    filePaths: string[],
+    signal?: AbortSignal,
+  ): Promise<{ downloadUrls: Record<string, string> }> {
     // Batch files into chunks of MAX_FILES_PER_REQUEST
     const batches: string[][] = [];
     for (let i = 0; i < filePaths.length; i += MAX_FILES_PER_REQUEST) {
@@ -282,15 +473,18 @@ export class SyncApiClient {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ files: batch }),
-        }
+        },
+        this.timeout,
+        signal,
       );
 
       if (!response.ok) {
-        const error = await response.text().catch(() => 'Unknown error');
+        const error = await this.readResponseText(response, signal).catch(() => 'Unknown error');
+        this.throwIfAborted(signal);
         throw new Error(`API error: ${response.status} ${error}`);
       }
 
-      const data = (await response.json()) as SyncApiResponse;
+      const data = await this.readResponseJson<SyncApiResponse>(response, signal);
       const batchUrls = data.downloadUrls || {};
 
       // Merge batch URLs into result
@@ -305,19 +499,71 @@ export class SyncApiClient {
   /**
    * Download a file from a pre-signed URL
    */
-  async downloadFile(downloadUrl: string, token?: string): Promise<Buffer> {
-    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+  async downloadFile(
+    downloadUrl: string,
+    token?: string,
+    signal?: AbortSignal,
+  ): Promise<Buffer> {
+    const authorization = this.getTransferAuthorization(downloadUrl, token);
+    const headers = authorization ? { Authorization: authorization } : undefined;
     const response = await this.fetchWithRetry(
       downloadUrl,
-      { method: 'GET', ...(headers ? { headers } : {}) }
+      { method: 'GET', ...(headers ? { headers } : {}) },
+      this.timeout,
+      signal,
     );
 
     if (!response.ok) {
       throw new Error(`Download failed: ${response.status}`);
     }
 
-    const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
+    this.throwIfAborted(signal);
+    const content = await this.readDownloadContent(response, signal);
+    this.throwIfAborted(signal);
+    return content;
+  }
+
+  private async readDownloadContent(response: Response, signal?: AbortSignal): Promise<Buffer> {
+    const declaredSize = Number(response.headers?.get('Content-Length'));
+    if (Number.isFinite(declaredSize) && declaredSize > this.maxFileSize) {
+      throw new Error(`File exceeds max size of ${this.maxFileSize} bytes`);
+    }
+
+    if (!response.body) {
+      const content = Buffer.from(await this.waitForSignal(
+        response.arrayBuffer(),
+        signal,
+      ));
+      if (content.length > this.maxFileSize) {
+        throw new Error(`File exceeds max size of ${this.maxFileSize} bytes`);
+      }
+      return content;
+    }
+
+    const reader = response.body.getReader();
+    const chunks: Buffer[] = [];
+    let totalSize = 0;
+    try {
+      while (true) {
+        this.throwIfAborted(signal);
+        const { done, value } = await this.waitForSignal(
+          reader.read(),
+          signal,
+          () => reader.cancel(signal?.reason),
+        );
+        if (done) break;
+        if (!value) continue;
+        totalSize += value.byteLength;
+        if (totalSize > this.maxFileSize) {
+          await reader.cancel();
+          throw new Error(`File exceeds max size of ${this.maxFileSize} bytes`);
+        }
+        chunks.push(Buffer.from(value));
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    return Buffer.concat(chunks, totalSize);
   }
 
   /**
