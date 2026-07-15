@@ -39,11 +39,28 @@ jobs:
       - name: Run tests
         run: bun run test
 
+  terminal-test:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.22
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build CLI for terminal tests
+        run: bun run build
+
       - name: Run built terminal tests
         run: bun run test:tuistory
 
   build-test:
-    needs: test
+    needs: [test, terminal-test]
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
