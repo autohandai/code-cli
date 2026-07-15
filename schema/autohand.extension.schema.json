@@ -65,11 +65,15 @@
         },
         "agents": {
           "$ref": "#/$defs/contributionPaths"
+        },
+        "skills": {
+          "$ref": "#/$defs/contributionPaths"
         }
       },
       "anyOf": [
         { "required": ["tools"] },
-        { "required": ["agents"] }
+        { "required": ["agents"] },
+        { "required": ["skills"] }
       ]
     }
   },

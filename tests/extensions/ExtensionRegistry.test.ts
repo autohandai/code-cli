@@ -15,6 +15,8 @@ interface PackageOptions {
   toolName?: string;
   agentName?: string;
   invalidTool?: boolean;
+  skillName?: string;
+  invalidSkill?: boolean;
 }
 
 describe('ExtensionRegistry', () => {
@@ -34,8 +36,10 @@ describe('ExtensionRegistry', () => {
     const packageRoot = path.join(extensionsRoot, options.id);
     const toolName = options.toolName ?? 'inspect_code';
     const agentName = options.agentName ?? 'code-reviewer';
+    const skillName = options.skillName ?? `${options.id.split('.').at(-1)}-skill`;
     await fs.ensureDir(path.join(packageRoot, 'tools'));
     await fs.ensureDir(path.join(packageRoot, 'agents'));
+    await fs.ensureDir(path.join(packageRoot, 'skills', skillName));
     await fs.writeJson(path.join(packageRoot, 'autohand.extension.json'), {
       schemaVersion: 1,
       extensionApi: 1,
@@ -46,6 +50,7 @@ describe('ExtensionRegistry', () => {
       contributes: {
         tools: [`tools/${toolName}.json`],
         agents: [`agents/${agentName}.md`],
+        skills: [`skills/${skillName}/SKILL.md`],
       },
     });
     await fs.writeJson(path.join(packageRoot, 'tools', `${toolName}.json`), options.invalidTool
@@ -60,6 +65,12 @@ describe('ExtensionRegistry', () => {
     await fs.writeFile(
       path.join(packageRoot, 'agents', `${agentName}.md`),
       `# ${agentName}\n\nAgent from ${options.id}.\n`,
+    );
+    await fs.writeFile(
+      path.join(packageRoot, 'skills', skillName, 'SKILL.md'),
+      options.invalidSkill
+        ? '# Missing frontmatter\n'
+        : `---\nname: ${skillName}\ndescription: Skill from ${options.id}\n---\n\nUse ${skillName}.\n`,
     );
     return packageRoot;
   }
@@ -77,6 +88,7 @@ describe('ExtensionRegistry', () => {
     ]);
     expect(snapshot.tools.map((tool) => tool.definition.name)).toEqual(['alpha_tool', 'zeta_tool']);
     expect(snapshot.agents.map((agent) => agent.name)).toEqual(['alpha-agent', 'zeta-agent']);
+    expect(snapshot.skills.map((skill) => skill.definition.name)).toEqual(['alpha-skill', 'zeta-skill']);
     expect(snapshot.tools[0]?.provenance).toMatchObject({
       extensionId: 'autohand.alpha',
       extensionVersion: '1.0.0',
@@ -110,6 +122,12 @@ describe('ExtensionRegistry', () => {
     });
     expect(snapshot.tools.map((tool) => tool.definition.name)).toEqual(['project_tool']);
     expect(snapshot.agents.map((agent) => agent.name)).toEqual(['project-agent']);
+    expect(snapshot.skills).toEqual([
+      expect.objectContaining({
+        definition: expect.objectContaining({ name: 'shared-skill', source: 'extension' }),
+        provenance: expect.objectContaining({ extensionId: 'autohand.shared', scope: 'project' }),
+      }),
+    ]);
   });
 
   it('excludes an invalid package without preventing other packages from loading', async () => {
@@ -158,6 +176,7 @@ describe('ExtensionRegistry', () => {
     ]);
     expect(snapshot.tools).toEqual([]);
     expect(snapshot.agents).toEqual([]);
+    expect(snapshot.skills).toEqual([]);
   });
 
   it('rejects a whole package when a contribution conflicts with reserved runtime names', async () => {
@@ -171,17 +190,60 @@ describe('ExtensionRegistry', () => {
     const snapshot = await new ExtensionRegistry({ userRoot }).load({
       reservedToolNames: ['read_file'],
       reservedAgentNames: ['reviewer'],
+      reservedSkillNames: ['conflicting-skill'],
     });
 
     expect(snapshot.extensions).toEqual([]);
     expect(snapshot.tools).toEqual([]);
     expect(snapshot.agents).toEqual([]);
+    expect(snapshot.skills).toEqual([]);
     expect(snapshot.diagnostics).toEqual([
       expect.objectContaining({
         code: 'contribution_conflict',
         extensionId: 'autohand.conflicting',
         message: expect.stringMatching(/read_file.*reserved runtime tool/i),
       }),
+    ]);
+  });
+
+  it('rejects invalid extension skills without hiding healthy packages', async () => {
+    const userRoot = await makeRoot('user-extension-skills');
+    await writePackage(userRoot, {
+      id: 'autohand.invalid-skill',
+      skillName: 'invalid-skill',
+      invalidSkill: true,
+    });
+    await writePackage(userRoot, {
+      id: 'autohand.valid-skill',
+      skillName: 'valid-skill',
+    });
+
+    const snapshot = await new ExtensionRegistry({ userRoot }).load();
+
+    expect(snapshot.extensions.map((extension) => extension.manifest.id)).toEqual([
+      'autohand.valid-skill',
+    ]);
+    expect(snapshot.skills.map((skill) => skill.definition.name)).toEqual(['valid-skill']);
+    expect(snapshot.diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'invalid_skill',
+        extensionId: 'autohand.invalid-skill',
+        message: expect.stringMatching(/frontmatter/i),
+      }),
+    ]);
+  });
+
+  it('rejects skill name conflicts across extensions deterministically', async () => {
+    const userRoot = await makeRoot('user-extension-skill-conflicts');
+    await writePackage(userRoot, { id: 'autohand.alpha', skillName: 'shared-skill' });
+    await writePackage(userRoot, { id: 'autohand.beta', skillName: 'shared-skill' });
+
+    const snapshot = await new ExtensionRegistry({ userRoot }).load();
+
+    expect(snapshot.extensions.map((extension) => extension.manifest.id)).toEqual(['autohand.alpha']);
+    expect(snapshot.skills.map((skill) => skill.definition.name)).toEqual(['shared-skill']);
+    expect(snapshot.diagnostics).toEqual([
+      expect.objectContaining({ code: 'contribution_conflict', extensionId: 'autohand.beta' }),
     ]);
   });
 

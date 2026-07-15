@@ -16,6 +16,7 @@ import { ToolsRegistry } from '../../../src/core/toolsRegistry.js';
 import type { ToolDefinition, ToolManager } from '../../../src/core/toolManager.js';
 import { AgentRegistry } from '../../../src/core/agents/AgentRegistry.js';
 import { ExtensionRegistry } from '../../../src/extensions/ExtensionRegistry.js';
+import { SkillsRegistry } from '../../../src/skills/SkillsRegistry.js';
 
 describe('syncDynamicRuntimeExtensions', () => {
   const tempRoots: string[] = [];
@@ -88,13 +89,14 @@ describe('syncDynamicRuntimeExtensions', () => {
     expect(AgentRegistry.getInstance().getExternalPaths()).toEqual([externalAgentsDir]);
   });
 
-  it('loads extension tools and agents through the existing runtime registries', async () => {
+  it('loads extension tools, agents, and skills through the existing runtime registries', async () => {
     const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-dynamic-ext-package-'));
     tempRoots.push(tempRoot);
     const extensionsRoot = path.join(tempRoot, 'extensions');
     const packageRoot = path.join(extensionsRoot, 'autohand.test-triage');
     await fs.ensureDir(path.join(packageRoot, 'tools'));
     await fs.ensureDir(path.join(packageRoot, 'agents'));
+    await fs.ensureDir(path.join(packageRoot, 'skills', 'test-triage'));
     await fs.writeJson(path.join(packageRoot, 'autohand.extension.json'), {
       schemaVersion: 1,
       extensionApi: 1,
@@ -105,6 +107,7 @@ describe('syncDynamicRuntimeExtensions', () => {
       contributes: {
         tools: ['tools/run-focused-test.json'],
         agents: ['agents/failure-triage.md'],
+        skills: ['skills/test-triage/SKILL.md'],
       },
     });
     await fs.writeJson(path.join(packageRoot, 'tools', 'run-focused-test.json'), {
@@ -122,12 +125,18 @@ describe('syncDynamicRuntimeExtensions', () => {
       path.join(packageRoot, 'agents', 'failure-triage.md'),
       '---\ndescription: Triage failing tests\ntools: run_focused_test\n---\nInspect the failure.\n',
     );
+    await fs.writeFile(
+      path.join(packageRoot, 'skills', 'test-triage', 'SKILL.md'),
+      '---\nname: test-triage\ndescription: Triage failing tests with focused evidence.\n---\n\nUse run_focused_test before diagnosing.\n',
+    );
 
     const registeredTools: ToolDefinition[][] = [];
     const toolManager = {
       replaceRuntimeMetaTools: vi.fn((definitions: ToolDefinition[]) => registeredTools.push(definitions)),
     } as unknown as ToolManager;
     const toolsRegistry = new ToolsRegistry(path.join(tempRoot, 'tools'));
+    const skillsRegistry = new SkillsRegistry(path.join(tempRoot, 'skills'));
+    await skillsRegistry.initialize();
     const runtime = {
       config: { configPath: '', externalAgents: { enabled: false, paths: [] } },
       workspaceRoot: tempRoot,
@@ -138,6 +147,7 @@ describe('syncDynamicRuntimeExtensions', () => {
       {
         toolsRegistry,
         toolManager,
+        skillsRegistry,
         extensionRegistry: new ExtensionRegistry({ userRoot: extensionsRoot }),
       },
       runtime,
@@ -156,15 +166,20 @@ describe('syncDynamicRuntimeExtensions', () => {
       extensionId: 'autohand.test-triage',
       tools: ['run_focused_test'],
     });
+    expect(skillsRegistry.getSkill('test-triage')).toMatchObject({
+      source: 'extension',
+      body: expect.stringContaining('run_focused_test'),
+    });
   });
 
-  it('removes stale extension tools and agents on the next runtime snapshot', async () => {
+  it('removes stale extension tools, agents, and skills on the next runtime snapshot', async () => {
     const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-dynamic-ext-refresh-'));
     tempRoots.push(tempRoot);
     const extensionsRoot = path.join(tempRoot, 'extensions');
     const packageRoot = path.join(extensionsRoot, 'autohand.refresh');
     await fs.ensureDir(path.join(packageRoot, 'tools'));
     await fs.ensureDir(path.join(packageRoot, 'agents'));
+    await fs.ensureDir(path.join(packageRoot, 'skills', 'refresh'));
     await fs.writeJson(path.join(packageRoot, 'autohand.extension.json'), {
       schemaVersion: 1,
       extensionApi: 1,
@@ -172,7 +187,11 @@ describe('syncDynamicRuntimeExtensions', () => {
       name: 'Refresh',
       version: '1.0.0',
       description: 'Refresh test.',
-      contributes: { tools: ['tools/refresh.json'], agents: ['agents/refresh.md'] },
+      contributes: {
+        tools: ['tools/refresh.json'],
+        agents: ['agents/refresh.md'],
+        skills: ['skills/refresh/SKILL.md'],
+      },
     });
     await fs.writeJson(path.join(packageRoot, 'tools', 'refresh.json'), {
       name: 'refresh_tool',
@@ -182,14 +201,21 @@ describe('syncDynamicRuntimeExtensions', () => {
       source: 'user',
     });
     await fs.writeFile(path.join(packageRoot, 'agents', 'refresh.md'), '# Refresh Agent\n\nRefresh.\n');
+    await fs.writeFile(
+      path.join(packageRoot, 'skills', 'refresh', 'SKILL.md'),
+      '---\nname: refresh-skill\ndescription: Refresh extension state.\n---\n\nRefresh.\n',
+    );
 
     const snapshots: ToolDefinition[][] = [];
+    const skillsRegistry = new SkillsRegistry(path.join(tempRoot, 'skills'));
+    await skillsRegistry.initialize();
     const host = {
       toolsRegistry: new ToolsRegistry(path.join(tempRoot, 'tools')),
       toolManager: {
         replaceRuntimeMetaTools: vi.fn((definitions: ToolDefinition[]) => snapshots.push(definitions)),
       } as unknown as ToolManager,
       extensionRegistry: new ExtensionRegistry({ userRoot: extensionsRoot }),
+      skillsRegistry,
     };
     const runtime = {
       config: { configPath: '', externalAgents: { enabled: false, paths: [] } },
@@ -198,13 +224,16 @@ describe('syncDynamicRuntimeExtensions', () => {
     } as AgentRuntime;
 
     await syncDynamicRuntimeExtensions(host, runtime);
+    const loadedSkill = skillsRegistry.getSkill('refresh-skill');
     await fs.remove(packageRoot);
     await syncDynamicRuntimeExtensions(host, runtime);
 
     expect(snapshots[0]?.map((definition) => definition.name)).toContain('refresh_tool');
+    expect(loadedSkill).toMatchObject({ name: 'refresh-skill', source: 'extension' });
     expect(snapshots[1]?.map((definition) => definition.name)).not.toContain('refresh_tool');
     expect(host.toolsRegistry.getMetaTool('refresh_tool')).toBeUndefined();
     expect(AgentRegistry.getInstance().getAgent('refresh')).toBeUndefined();
+    expect(skillsRegistry.getSkill('refresh-skill')).toBeNull();
   });
 
   it('registers inline session agents passed through CLI options', () => {

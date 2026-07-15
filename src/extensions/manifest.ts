@@ -227,11 +227,15 @@ export async function readExtensionPackage(packageRoot: string): Promise<Extensi
     (manifest.contributes.agents ?? []).map((declaredPath) =>
       resolveExtensionContributionPath(root, declaredPath)),
   );
+  const skills = await Promise.all(
+    (manifest.contributes.skills ?? []).map((declaredPath) =>
+      resolveExtensionContributionPath(root, declaredPath)),
+  );
 
   return {
     root,
     manifestPath,
     manifest,
-    contributionFiles: { tools, agents },
+    contributionFiles: { tools, agents, skills },
   };
 }

@@ -134,7 +134,7 @@ export class GitHubRegistryFetcher {
 
   private resolveSkillFileUrl(skill: GitHubCommunitySkill, filePath: string): string {
     const file = validateCommunityRelativePath(filePath, 'community skill file path');
-    const sourceBaseUrl = resolveGitHubSourceUrlBase(skill.sourceUrl)
+    const sourceBaseUrl = resolveGitHubSourceUrlBase(skill.sourceUrl, skill.directory)
       ?? resolveGitHubSourceBase(skill.source, skill.directory)
       ?? `${this.baseUrl}/${encodeCommunityUrlPath(
         validateCommunityRelativePath(skill.directory, 'community skill source directory')
@@ -330,13 +330,15 @@ export class GitHubRegistryFetcher {
   }
 }
 
-function resolveGitHubSourceUrlBase(sourceUrl?: string): string | null {
+function resolveGitHubSourceUrlBase(sourceUrl: string | undefined, directory: string): string | null {
   if (!sourceUrl) {
     return null;
   }
 
   const source = parseGitHubSkillSourceUrl(sourceUrl);
-  return `https://raw.githubusercontent.com/${source.owner}/${source.repo}/${source.branch}/${encodeCommunityUrlPath(source.directory)}`;
+  const sourceDirectory = source.directory
+    ?? validateCommunityRelativePath(directory, 'community skill source directory');
+  return `https://raw.githubusercontent.com/${source.owner}/${source.repo}/${source.branch}/${encodeCommunityUrlPath(sourceDirectory)}`;
 }
 
 function resolveGitHubSourceBase(source: string | undefined, directory: string): string | null {

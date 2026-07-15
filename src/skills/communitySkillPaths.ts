@@ -21,7 +21,7 @@ export interface GitHubSkillSourceLocation {
   owner: string;
   repo: string;
   branch: string;
-  directory: string;
+  directory: string | null;
 }
 
 export function validateCommunitySkillIdentifier(
@@ -322,12 +322,15 @@ export function parseGitHubSkillSourceUrl(value: string): GitHubSkillSourceLocat
     throw new Error('Invalid GitHub source URL path');
   }
   const [ownerValue, repoValue, marker, branchValue, ...sourcePath] = parts.slice(1);
+  const owner = validateGitHubUrlComponent(ownerValue ?? '', 'GitHub owner');
+  const repo = validateGitHubUrlComponent(repoValue ?? '', 'GitHub repository');
+  if (marker === undefined) {
+    return { owner, repo, branch: 'main', directory: null };
+  }
   if ((marker !== 'tree' && marker !== 'blob') || sourcePath.length === 0) {
     throw new Error('Invalid GitHub source URL path');
   }
 
-  const owner = validateGitHubUrlComponent(ownerValue ?? '', 'GitHub owner');
-  const repo = validateGitHubUrlComponent(repoValue ?? '', 'GitHub repository');
   const branch = validateGitHubUrlComponent(branchValue ?? '', 'GitHub branch');
   const validatedPath = validateCommunityRelativePath(
     sourcePath.join('/'),

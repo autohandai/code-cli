@@ -5,6 +5,7 @@
  */
 import type { MetaToolDefinition } from '../core/metaTools/schema.js';
 import type { ExtensionManifest } from './schema.js';
+import type { SkillDefinition } from '../skills/types.js';
 
 export type ExtensionScope = 'user' | 'project';
 
@@ -23,6 +24,7 @@ export interface ExtensionPackage {
   contributionFiles: {
     tools: string[];
     agents: string[];
+    skills: string[];
   };
 }
 
@@ -46,11 +48,17 @@ export interface ExtensionAgentContribution {
   provenance: ExtensionProvenance;
 }
 
+export interface ExtensionSkillContribution {
+  definition: SkillDefinition;
+  provenance: ExtensionProvenance;
+}
+
 export type ExtensionDiagnosticCode =
   | 'invalid_manifest'
   | 'invalid_state'
   | 'invalid_tool'
   | 'invalid_agent'
+  | 'invalid_skill'
   | 'invalid_package_directory'
   | 'contribution_conflict'
   | 'unreadable_root';
@@ -67,5 +75,6 @@ export interface ExtensionSnapshot {
   extensions: LoadedExtension[];
   tools: ExtensionToolContribution[];
   agents: ExtensionAgentContribution[];
+  skills: ExtensionSkillContribution[];
   diagnostics: ExtensionDiagnostic[];
 }

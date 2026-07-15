@@ -24,6 +24,7 @@ describe('runExtensionsCommand', () => {
     const userRoot = path.join(root, 'user');
     const projectRoot = path.join(root, 'project');
     await fs.ensureDir(path.join(source, 'tools'));
+    await fs.ensureDir(path.join(source, 'skills', 'git-insights'));
     await fs.writeJson(path.join(source, 'autohand.extension.json'), {
       schemaVersion: 1,
       extensionApi: 1,
@@ -31,7 +32,10 @@ describe('runExtensionsCommand', () => {
       name: 'Git Insights',
       version: '1.0.0',
       description: 'Inspect repository history.',
-      contributes: { tools: ['tools/recent-history.json'] },
+      contributes: {
+        tools: ['tools/recent-history.json'],
+        skills: ['skills/git-insights/SKILL.md'],
+      },
     });
     await fs.writeJson(path.join(source, 'tools', 'recent-history.json'), {
       name: 'recent_history',
@@ -40,6 +44,10 @@ describe('runExtensionsCommand', () => {
       handler: 'git log -10 --oneline',
       source: 'user',
     });
+    await fs.writeFile(
+      path.join(source, 'skills', 'git-insights', 'SKILL.md'),
+      '---\nname: git-insights\ndescription: Interpret repository history.\n---\n\nUse recent_history before drawing conclusions.\n',
+    );
     return {
       root,
       source,
@@ -75,6 +83,7 @@ describe('runExtensionsCommand', () => {
     expect(install.output).toContain('Installed autohand.git-insights@1.0.0');
     expect(list.output).toContain('autohand.git-insights  1.0.0  user  enabled');
     expect(show.output).toContain('Tools: recent_history');
+    expect(show.output).toContain('Skills: git-insights');
     expect(show.output).toContain('Scope: user');
   });
 

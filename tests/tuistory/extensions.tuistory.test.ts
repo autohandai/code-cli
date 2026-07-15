@@ -84,6 +84,67 @@ async function writeToolExtension(
 }
 
 describe('built extensions CLI Tuistory E2E', () => {
+  it('loads the built-in extension builder and a Pi-compatible packaged skill', async () => {
+    const state = await createTempAutohandHome();
+    tempStates.push(state);
+    const packageRoot = path.join(state.workspaceRoot, 'autohand.pi-greeter');
+    await fs.ensureDir(path.join(packageRoot, 'skills', 'pi-greeter'));
+    await fs.writeJson(path.join(packageRoot, 'autohand.extension.json'), {
+      schemaVersion: 1,
+      extensionApi: 1,
+      id: 'autohand.pi-greeter',
+      name: 'Pi Greeter',
+      version: '1.0.0',
+      description: 'Portable Agent Skill originally packaged for Pi.',
+      contributes: { skills: ['skills/pi-greeter/SKILL.md'] },
+    });
+    await fs.writeFile(
+      path.join(packageRoot, 'skills', 'pi-greeter', 'SKILL.md'),
+      [
+        '---',
+        'name: pi-greeter',
+        'description: Greet the user with a Pi-compatible Agent Skill.',
+        '---',
+        '',
+        'Greet the user and mention that this skill is portable.',
+        '',
+      ].join('\n'),
+    );
+
+    const validation = await runBuiltCommand(state, ['extensions', 'validate', packageRoot]);
+    expect(validation.exitCode, validation.output).toBe(0);
+    expect(validation.output).toContain('0 tools, 0 agents, 1 skill');
+
+    const installation = await runBuiltCommand(state, ['extensions', 'install', packageRoot]);
+    expect(installation.exitCode, installation.output).toBe(0);
+
+    const session = await launchBuiltAutohand([
+      '--path', state.workspaceRoot,
+      '--config', state.configPath,
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      waitForDataTimeout: 15_000,
+    });
+    sessions.push(session);
+    await session.waitForText('❯', { timeout: 20_000 });
+
+    await session.type('/skills info extension-builder');
+    await session.press('enter');
+    await session.waitForText('Skill: extension-builder', { timeout: 10_000 });
+
+    await session.type('/skills info pi-greeter');
+    await session.press('enter');
+    await session.waitForText('Skill: pi-greeter', { timeout: 10_000 });
+    await session.waitForText('Source: Extension', { timeout: 10_000 });
+
+    await session.type('/skills use pi-greeter');
+    await session.press('enter');
+    await session.waitForText('Activated skill: pi-greeter', { timeout: 10_000 });
+
+    await exitInteractive(session);
+  }, 90_000);
+
   it('runs all five portable examples through fresh built CLI processes', async () => {
     const state = await createTempAutohandHome();
     tempStates.push(state);

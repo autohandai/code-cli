@@ -28,6 +28,7 @@ function validManifest() {
     contributes: {
       tools: ['tools/find-todos.json'],
       agents: ['agents/code-health-reviewer.md'],
+      skills: ['skills/code-health/SKILL.md'],
     },
   };
 }
@@ -44,6 +45,7 @@ describe('extension manifest', () => {
     tempRoots.push(root);
     await fs.ensureDir(path.join(root, 'tools'));
     await fs.ensureDir(path.join(root, 'agents'));
+    await fs.ensureDir(path.join(root, 'skills', 'code-health'));
     await fs.writeJson(path.join(root, EXTENSION_MANIFEST_FILE), validManifest());
     await fs.writeJson(path.join(root, 'tools', 'find-todos.json'), {
       name: 'find_todos',
@@ -59,6 +61,18 @@ describe('extension manifest', () => {
     await fs.writeFile(
       path.join(root, 'agents', 'code-health-reviewer.md'),
       '# Code Health Reviewer\n\nReview maintainability risks.\n',
+    );
+    await fs.writeFile(
+      path.join(root, 'skills', 'code-health', 'SKILL.md'),
+      [
+        '---',
+        'name: code-health',
+        'description: Review maintainability risks with the extension tools.',
+        '---',
+        '',
+        'Use the contributed code-health workflow.',
+        '',
+      ].join('\n'),
     );
     return root;
   }
@@ -112,6 +126,7 @@ describe('extension manifest', () => {
     expect(extensionPackage.contributionFiles).toEqual({
       tools: [path.join(realRoot, 'tools', 'find-todos.json')],
       agents: [path.join(realRoot, 'agents', 'code-health-reviewer.md')],
+      skills: [path.join(realRoot, 'skills', 'code-health', 'SKILL.md')],
     });
   });
 

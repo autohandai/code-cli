@@ -19,12 +19,14 @@ import {
   readExtensionPackage,
 } from './manifest.js';
 import { ExtensionStateSchema } from './schema.js';
+import { SkillParser } from '../skills/SkillParser.js';
 import type {
   ExtensionAgentContribution,
   ExtensionDiagnostic,
   ExtensionPackage,
   ExtensionProvenance,
   ExtensionScope,
+  ExtensionSkillContribution,
   ExtensionSnapshot,
   ExtensionToolContribution,
   LoadedExtension,
@@ -38,6 +40,7 @@ export interface ExtensionRegistryOptions {
 export interface ExtensionLoadOptions {
   reservedToolNames?: Iterable<string>;
   reservedAgentNames?: Iterable<string>;
+  reservedSkillNames?: Iterable<string>;
 }
 
 interface CandidatePackage extends ExtensionPackage {
@@ -49,6 +52,7 @@ interface ParsedCandidate {
   extension: LoadedExtension;
   tools: ExtensionToolContribution[];
   agents: ExtensionAgentContribution[];
+  skills: ExtensionSkillContribution[];
 }
 
 export interface ValidatedExtensionPackage extends ParsedCandidate {}
@@ -176,6 +180,15 @@ async function parseAgent(candidate: CandidatePackage, file: string): Promise<Ex
   return { name, ...definition, provenance: provenance(candidate, file) };
 }
 
+async function parseSkill(candidate: CandidatePackage, file: string): Promise<ExtensionSkillContribution> {
+  const content = await readExtensionContributionText(file);
+  const parsed = new SkillParser().parseContent(content, file, 'extension');
+  if (!parsed.success || !parsed.skill) {
+    throw new Error(`Invalid Agent Skill: ${parsed.error ?? 'unknown validation error'}`);
+  }
+  return { definition: parsed.skill, provenance: provenance(candidate, file) };
+}
+
 function duplicateName(values: string[]): string | undefined {
   const seen = new Set<string>();
   for (const value of values) {
@@ -187,7 +200,11 @@ function duplicateName(values: string[]): string | undefined {
   return undefined;
 }
 
-function reservedNames(options: ExtensionLoadOptions): { tools: Set<string>; agents: Set<string> } {
+function reservedNames(options: ExtensionLoadOptions): {
+  tools: Set<string>;
+  agents: Set<string>;
+  skills: Set<string>;
+} {
   return {
     tools: new Set([
       ...DEFAULT_TOOL_DEFINITIONS.map((definition) => definition.name),
@@ -195,6 +212,7 @@ function reservedNames(options: ExtensionLoadOptions): { tools: Set<string>; age
       ...(options.reservedToolNames ?? []),
     ]),
     agents: new Set([...BUILTIN_AGENT_NAMES, ...(options.reservedAgentNames ?? [])]),
+    skills: new Set(options.reservedSkillNames ?? []),
   };
 }
 
@@ -205,15 +223,17 @@ async function parseCandidateOrThrow(
   const state = await readState(candidate);
   const extension: LoadedExtension = { ...candidate, ...state };
   if (state.disabled) {
-    return { extension, tools: [], agents: [] };
+    return { extension, tools: [], agents: [], skills: [] };
   }
 
   const tools = await Promise.all(candidate.contributionFiles.tools.map((file) => parseTool(candidate, file)));
   const agents = await Promise.all(candidate.contributionFiles.agents.map((file) => parseAgent(candidate, file)));
+  const skills = await Promise.all(candidate.contributionFiles.skills.map((file) => parseSkill(candidate, file)));
   const duplicateTool = duplicateName(tools.map((tool) => tool.definition.name));
   const duplicateAgent = duplicateName(agents.map((agent) => agent.name));
-  if (duplicateTool || duplicateAgent) {
-    throw new Error(`Duplicate contribution name "${duplicateTool ?? duplicateAgent}" within extension`);
+  const duplicateSkill = duplicateName(skills.map((skill) => skill.definition.name));
+  if (duplicateTool || duplicateAgent || duplicateSkill) {
+    throw new Error(`Duplicate contribution name "${duplicateTool ?? duplicateAgent ?? duplicateSkill}" within extension`);
   }
   const reserved = reservedNames(loadOptions);
   const reservedTool = tools.find((tool) =>
@@ -225,7 +245,11 @@ async function parseCandidateOrThrow(
   if (reservedAgent) {
     throw new Error(`Contribution "${reservedAgent.name}" conflicts with a reserved runtime agent`);
   }
-  return { extension, tools, agents };
+  const reservedSkill = skills.find((skill) => reserved.skills.has(skill.definition.name));
+  if (reservedSkill) {
+    throw new Error(`Contribution "${reservedSkill.definition.name}" conflicts with a reserved runtime skill`);
+  }
+  return { extension, tools, agents, skills };
 }
 
 export async function validateExtensionPackage(
@@ -257,8 +281,10 @@ export class ExtensionRegistry {
     const extensions: LoadedExtension[] = [];
     const tools: ExtensionToolContribution[] = [];
     const agents: ExtensionAgentContribution[] = [];
+    const skills: ExtensionSkillContribution[] = [];
     const toolOwners = new Map<string, string>();
     const agentOwners = new Map<string, string>();
+    const skillOwners = new Map<string, string>();
 
     for (const candidate of [...selected.values()].sort((left, right) =>
       left.manifest.id.localeCompare(right.manifest.id))) {
@@ -270,9 +296,16 @@ export class ExtensionRegistry {
       if (!parsed.extension.disabled) {
         const conflictingTool = parsed.tools.find((tool) => toolOwners.has(tool.definition.name));
         const conflictingAgent = parsed.agents.find((agent) => agentOwners.has(agent.name));
-        if (conflictingTool || conflictingAgent) {
-          const name = conflictingTool?.definition.name ?? conflictingAgent?.name ?? '<unknown>';
-          const owner = toolOwners.get(name) ?? agentOwners.get(name) ?? '<unknown>';
+        const conflictingSkill = parsed.skills.find((skill) => skillOwners.has(skill.definition.name));
+        if (conflictingTool || conflictingAgent || conflictingSkill) {
+          const name = conflictingTool?.definition.name
+            ?? conflictingAgent?.name
+            ?? conflictingSkill?.definition.name
+            ?? '<unknown>';
+          const owner = toolOwners.get(name)
+            ?? agentOwners.get(name)
+            ?? skillOwners.get(name)
+            ?? '<unknown>';
           diagnostics.push({
             code: 'contribution_conflict',
             extensionId: candidate.manifest.id,
@@ -296,9 +329,13 @@ export class ExtensionRegistry {
         agentOwners.set(agent.name, candidate.manifest.id);
         agents.push(agent);
       }
+      for (const skill of parsed.skills) {
+        skillOwners.set(skill.definition.name, candidate.manifest.id);
+        skills.push(skill);
+      }
     }
 
-    return { extensions, tools, agents, diagnostics };
+    return { extensions, tools, agents, skills, diagnostics };
   }
 
   private async discoverRoot(
@@ -374,7 +411,9 @@ export class ExtensionRegistry {
           ? 'contribution_conflict'
           : invalidState
           ? 'invalid_state'
-          : message.toLowerCase().includes('agent')
+          : message.toLowerCase().includes('agent skill')
+            ? 'invalid_skill'
+            : message.toLowerCase().includes('agent')
             ? 'invalid_agent'
             : 'invalid_tool',
         extensionId: candidate.manifest.id,
@@ -389,4 +428,10 @@ export class ExtensionRegistry {
   }
 }
 
-export type { ExtensionSnapshot, ExtensionToolContribution, ExtensionAgentContribution, MetaToolDefinition };
+export type {
+  ExtensionSnapshot,
+  ExtensionToolContribution,
+  ExtensionAgentContribution,
+  ExtensionSkillContribution,
+  MetaToolDefinition,
+};

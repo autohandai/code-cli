@@ -15,6 +15,7 @@ import type {
   ExtensionAgentContribution,
   ExtensionScope,
   ExtensionSnapshot,
+  ExtensionSkillContribution,
   ExtensionToolContribution,
   LoadedExtension,
 } from './types.js';
@@ -105,7 +106,9 @@ function requirePositional(parsed: ParsedArguments, index: number, label: string
   return value;
 }
 
-function contributionNames<T extends ExtensionToolContribution | ExtensionAgentContribution>(
+function contributionNames<
+  T extends ExtensionToolContribution | ExtensionAgentContribution | ExtensionSkillContribution,
+>(
   contributions: T[],
   extensionId: string,
   getName: (contribution: T) => string,
@@ -127,6 +130,11 @@ function extensionJson(extension: LoadedExtension, snapshot: ExtensionSnapshot) 
     root: extension.root,
     tools: contributionNames(snapshot.tools, extension.manifest.id, (tool) => tool.definition.name),
     agents: contributionNames(snapshot.agents, extension.manifest.id, (agent) => agent.name),
+    skills: contributionNames(
+      snapshot.skills,
+      extension.manifest.id,
+      (skill: ExtensionSkillContribution) => skill.definition.name,
+    ),
   };
 }
 
@@ -139,6 +147,7 @@ function extensionDetail(extension: LoadedExtension, snapshot: ExtensionSnapshot
     `State: ${value.disabled ? 'disabled' : 'enabled'}${value.linked ? ' (linked)' : ''}`,
     `Tools: ${value.tools.join(', ') || 'none'}`,
     `Agents: ${value.agents.join(', ') || 'none'}`,
+    `Skills: ${value.skills.join(', ') || 'none'}`,
     `Root: ${value.root}`,
   ].join('\n');
 }
@@ -225,10 +234,13 @@ export async function runExtensionsCommand(
           version: validation.extension.manifest.version,
           tools: validation.tools.map((tool) => tool.definition.name),
           agents: validation.agents.map((agent) => agent.name),
+          skills: validation.skills.map((skill) => skill.definition.name),
         };
+        const count = (value: number, singular: string): string =>
+          `${value} ${singular}${value === 1 ? '' : 's'}`;
         return readResult(parsed.json
           ? JSON.stringify(payload, null, 2)
-          : `Valid extension ${payload.id}@${payload.version} (${payload.tools.length} tools, ${payload.agents.length} agents)`);
+          : `Valid extension ${payload.id}@${payload.version} (${count(payload.tools.length, 'tool')}, ${count(payload.agents.length, 'agent')}, ${count(payload.skills.length, 'skill')})`);
       }
       case 'install': {
         assertAllowedOptions(parsed, ['scope', 'link', 'replace']);
@@ -322,6 +334,10 @@ async function extensionServiceFor(program: Command): Promise<ExtensionService> 
   const agentRegistry = AgentRegistry.getInstance();
   agentRegistry.configureExternalAgents(config.externalAgents);
   await agentRegistry.loadAgents();
+  const { SkillsRegistry } = await import('../skills/SkillsRegistry.js');
+  const skillsRegistry = new SkillsRegistry(AUTOHAND_PATHS.skills);
+  await skillsRegistry.initialize();
+  await skillsRegistry.setWorkspace(workspaceRoot);
   return new ExtensionService({
     projectRoot: path.join(workspaceRoot, PROJECT_DIR_NAME, 'extensions'),
     loadOptions: () => ({
@@ -332,6 +348,10 @@ async function extensionServiceFor(program: Command): Promise<ExtensionService> 
         .getAllAgents()
         .filter((agent) => agent.source !== 'extension')
         .map((agent) => agent.name),
+      reservedSkillNames: skillsRegistry
+        .listSkills()
+        .filter((skill) => skill.source !== 'extension')
+        .map((skill) => skill.name),
     }),
   });
 }
