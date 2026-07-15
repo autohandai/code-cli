@@ -1,0 +1,16 @@
+{
+  "name": "find_suspicious_patterns",
+  "description": "Find common dynamic execution patterns under a tracked path",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Repository-relative file or directory"
+      }
+    },
+    "required": ["path"]
+  },
+  "handler": "git grep -n -E 'eval\\(|child_process|exec\\(' -- {{path}}",
+  "source": "user"
+}

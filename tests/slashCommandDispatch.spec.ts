@@ -66,6 +66,11 @@ describe('slash command dispatch – output vs instruction', () => {
     expect(commands).toContain('/tools');
   });
 
+  it('/extensions is registered in SLASH_COMMANDS', () => {
+    const commands = SLASH_COMMANDS.map(c => c.command);
+    expect(commands).toContain('/extensions');
+  });
+
   it('/go is registered in SLASH_COMMANDS', () => {
     const commands = SLASH_COMMANDS.map(c => c.command);
     expect(commands).toContain('/go');

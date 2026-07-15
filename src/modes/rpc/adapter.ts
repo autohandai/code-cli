@@ -2396,17 +2396,7 @@ export class RPCAdapter {
     }
 
     return {
-      tools: registry.listMetaTools({ includeDisabled: true }).map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        source: 'meta',
-        scope: tool.scope,
-        disabled: tool.disabled,
-        createdAt: tool.createdAt,
-        schemaVersion: tool.schemaVersion,
-        handlerPreview: tool.handler.length > 140 ? `${tool.handler.slice(0, 137)}...` : tool.handler,
-        reuseHint: `Use ${tool.name} instead of creating another tool for: ${tool.description}`,
-      })),
+      tools: registry.getRegistryEntries({ includeDisabled: true }),
       diagnostics: registry.getDiagnostics(),
     };
   }

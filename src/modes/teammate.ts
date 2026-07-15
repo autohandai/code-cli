@@ -6,6 +6,8 @@
 
 import path from 'node:path';
 import type { Readable, Writable } from 'node:stream';
+import type { ToolDefinition } from '../core/toolManager.js';
+import type { AgentRuntime } from '../types.js';
 import { MessageRouter } from '../core/teams/MessageRouter.js';
 import type { TeamTask } from '../core/teams/types.js';
 import { checkWorkspaceSafety } from '../startup/workspaceSafety.js';
@@ -34,33 +36,54 @@ export async function executeTask(
   const { SubAgent } = await import('../core/agents/SubAgent.js');
   const { ActionExecutor } = await import('../core/actionExecutor.js');
   const { FileActionManager } = await import('../actions/filesystem.js');
+  const { createToolsRegistry } = await import('../core/toolsRegistry.js');
+  const { PermissionManager } = await import('../permissions/PermissionManager.js');
+  const { syncDynamicRuntimeExtensions } = await import('../core/agent/dynamicRuntimeExtensions.js');
 
   // Load config and create provider
-  const config = await loadConfig(undefined, process.cwd());
+  const workspacePath = opts.workspacePath || process.cwd();
+  const config = await loadConfig(undefined, workspacePath);
   const provider = ProviderFactory.create(config);
   if (opts.model) provider.setModel(opts.model);
 
-  // Load agent definition
+  const runtime: AgentRuntime = {
+    config,
+    workspaceRoot: workspacePath,
+    options: { clientContext: 'cli' },
+  };
+  const toolsRegistry = createToolsRegistry(workspacePath);
+  let runtimeToolDefinitions: ToolDefinition[] = [];
+  await syncDynamicRuntimeExtensions({
+    toolsRegistry,
+    toolManager: {
+      replaceRuntimeMetaTools: (definitions) => {
+        runtimeToolDefinitions = [...definitions];
+      },
+    },
+  }, runtime);
+
+  // Resolve the agent only after standalone and extension registries are loaded.
   const registry = AgentRegistry.getInstance();
-  registry.configureExternalAgents?.(config.externalAgents);
-  await registry.loadAgents();
   const agentDef = registry.getAgent(opts.agentName);
   if (!agentDef) {
     return `Error: Agent "${opts.agentName}" not found in registry.`;
   }
 
   // Create action executor with minimal deps for headless teammate mode
-  const workspacePath = opts.workspacePath || process.cwd();
   const files = new FileActionManager(workspacePath);
+  const permissionManager = new PermissionManager({
+    settings: config.permissions,
+    workspaceRoot: workspacePath,
+  });
+  await permissionManager.initLocalSettings();
   const executor = new ActionExecutor({
-    runtime: {
-      config,
-      workspaceRoot: workspacePath,
-      options: { dryRun: false },
-    },
+    runtime,
     files,
     resolveWorkspacePath: (rel: string) => path.resolve(workspacePath, rel),
     confirmDangerousAction: async () => true, // auto-approve in teammate mode
+    toolsRegistry,
+    permissionManager,
+    getRegisteredTools: () => runtimeToolDefinitions,
   });
 
   // Run SubAgent
@@ -69,6 +92,12 @@ export async function executeTask(
     depth: 0,
     maxDepth: 2,
     featureConfig: config,
+    getToolDefinitions: () => runtimeToolDefinitions,
+    authorization: {
+      permissionManager,
+      resolvePermissionContext: (action) => executor.getPermissionContext(action),
+    },
+    confirmApproval: async () => true,
   });
 
   return agent.run(task.description);

@@ -1,0 +1,16 @@
+{
+  "name": "run_focused_test",
+  "description": "Run one focused test file with Bun",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "file": {
+        "type": "string",
+        "description": "Repository-relative test file"
+      }
+    },
+    "required": ["file"]
+  },
+  "handler": "bun test {{file}}",
+  "source": "user"
+}

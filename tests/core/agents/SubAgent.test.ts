@@ -147,6 +147,52 @@ describe('SubAgent', () => {
     expect(toolNames).toContain('create_meta_tool');
   });
 
+  it('resolves an extension agent allowlist against active extension tool definitions', () => {
+    const agentDefinition: AgentDefinition = {
+      name: 'code-health-reviewer',
+      description: 'Code Health Reviewer',
+      systemPrompt: 'Review maintainability risks.',
+      tools: ['find_todos'],
+      path: '/tmp/code-health-reviewer.md',
+      source: 'extension',
+      extensionId: 'autohand.code-health',
+      extensionVersion: '1.0.0',
+      extensionScope: 'user',
+    };
+    const llm = {
+      getName: () => 'test',
+      complete: vi.fn(),
+      listModels: vi.fn().mockResolvedValue([]),
+      isAvailable: vi.fn().mockResolvedValue(true),
+      setModel: vi.fn(),
+    } satisfies LLMProvider;
+    const actionExecutor = {
+      executeForTool: vi.fn(),
+    } as unknown as ActionExecutor;
+
+    const subAgent = new SubAgent(agentDefinition, llm, actionExecutor, {
+      clientContext: 'cli',
+      depth: 0,
+      maxDepth: 0,
+      getToolDefinitions: () => [{
+        name: 'find_todos',
+        description: 'Find TODO and FIXME markers',
+        parameters: {
+          type: 'object',
+          properties: { path: { type: 'string' } },
+          required: ['path'],
+        },
+      }],
+    });
+
+    const toolNames = (subAgent as unknown as {
+      toolManager: { listToolNames: () => string[] };
+    }).toolManager.listToolNames();
+
+    expect(toolNames).toContain('find_todos');
+    expect(toolNames).not.toContain('read_file');
+  });
+
   it('uses the parent authorization policy before nested tool execution', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const executeForTool = vi.fn().mockResolvedValue({ success: true, output: 'should not run' });
