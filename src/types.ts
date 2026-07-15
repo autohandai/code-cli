@@ -1125,13 +1125,15 @@ export interface ToolRegistryEntry {
   description: string;
   requiresApproval?: boolean;
   approvalMessage?: string;
-  source: 'builtin' | 'meta';
+  source: 'builtin' | 'meta' | 'extension';
   scope?: 'user' | 'project';
   disabled?: boolean;
   createdAt?: string;
   schemaVersion?: number;
   handlerPreview?: string;
   reuseHint?: string;
+  extensionId?: string;
+  extensionVersion?: string;
 }
 
 export type AgentAction =

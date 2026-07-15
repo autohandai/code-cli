@@ -83,6 +83,10 @@ import { SimpleChatHandler, type SimpleChatAgent } from './agent/SimpleChatHandl
 import { McpStartupCoordinator } from './agent/McpStartupCoordinator.js';
 import { MentionResolver } from './agent/MentionResolver.js';
 import { SystemPromptBuilder } from './agent/SystemPromptBuilder.js';
+import {
+  syncDynamicRuntimeExtensions,
+  type DynamicRuntimeExtensionHost,
+} from './agent/dynamicRuntimeExtensions.js';
 import { runAgentReactLoop, type AgentReactLoopHost } from './agent/ReactLoopRunner.js';
 import { initializeAgentDependencies, type AgentDependencyHost } from './agent/AgentDependencyComposer.js';
 import {
@@ -983,6 +987,12 @@ export class AutohandAgent {
     return new SystemPromptBuilder({
       runtime: this.runtime,
       supportsNativeToolCalling: this.llm?.getCapabilities?.().nativeToolCalling === true,
+      refreshRuntimeExtensions: async () => {
+        await syncDynamicRuntimeExtensions(
+          this as unknown as DynamicRuntimeExtensionHost,
+          this.runtime,
+        );
+      },
       getToolDefinitions: () => this.toolManager?.listDefinitions() ?? [],
       getContextMemories: () => this.memoryManager.getContextMemories(),
       loadInstructionFiles: () => this.loadInstructionFiles(),

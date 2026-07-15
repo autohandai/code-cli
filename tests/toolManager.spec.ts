@@ -980,6 +980,31 @@ describe('ToolManager', () => {
     expect(names).not.toContain('mcp__old__tool');
   });
 
+  it('replaces runtime meta-tools without leaving stale definitions or removing MCP tools', () => {
+    const manager = new ToolManager({
+      executor: vi.fn(),
+      confirmApproval: vi.fn(),
+      definitions: [{ name: 'read_file', description: 'read file' }] as any
+    });
+    manager.registerMetaTools([{ name: 'mcp__server__tool', description: 'mcp tool' }] as any);
+
+    manager.replaceRuntimeMetaTools([
+      { name: 'extension_old', description: 'old extension tool' },
+      { name: 'mcp__server__tool', description: 'attempted runtime override' }
+    ] as any);
+    manager.replaceRuntimeMetaTools([
+      { name: 'extension_new', description: 'new extension tool' }
+    ] as any);
+
+    const names = manager.listAllDefinitions().map((definition) => definition.name);
+    expect(names).toContain('read_file');
+    expect(names).toContain('mcp__server__tool');
+    expect(names).toContain('extension_new');
+    expect(names).not.toContain('extension_old');
+    expect(manager.listAllDefinitions().find((definition) => definition.name === 'mcp__server__tool'))
+      .toMatchObject({ description: 'mcp tool' });
+  });
+
   // ═══════════════════════════════════════════════════════════════════
   // Parallel Execution Tests
   // ═══════════════════════════════════════════════════════════════════

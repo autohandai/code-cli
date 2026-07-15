@@ -1,0 +1,16 @@
+{
+  "name": "find_todos",
+  "description": "Find TODO and FIXME comments under a path tracked by Git",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Repository-relative file or directory"
+      }
+    },
+    "required": ["path"]
+  },
+  "handler": "git grep -n -E 'TODO|FIXME' -- {{path}}",
+  "source": "user"
+}

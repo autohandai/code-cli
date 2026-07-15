@@ -76,7 +76,8 @@ import { isGoalFeatureEnabled } from '../../goals/feature.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { SuggestionEngine } from '../SuggestionEngine.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
-import { configureAgentRegistry } from './dynamicRuntimeExtensions.js';
+import { configureAgentRegistry, syncDynamicRuntimeExtensions } from './dynamicRuntimeExtensions.js';
+import { ExtensionService } from '../../extensions/ExtensionService.js';
 import type { MobileRelayController } from '../../mobile/MobileRelay.js';
 
 export interface AgentDependencyHost {
@@ -179,9 +180,22 @@ export function initializeAgentDependencies(
       });
     }
 
-    configureAgentRegistry(runtime);
+    const agentRegistry = configureAgentRegistry(runtime);
     const pluginDir = (runtime.config as typeof runtime.config & { pluginDir?: string }).pluginDir;
-    host.toolsRegistry = createToolsRegistry(runtime.workspaceRoot, pluginDir ?? AUTOHAND_PATHS.tools);
+    const toolsRegistry = createToolsRegistry(runtime.workspaceRoot, pluginDir ?? AUTOHAND_PATHS.tools);
+    host.toolsRegistry = toolsRegistry;
+    host.extensionService = new ExtensionService({
+      projectRoot: join(runtime.workspaceRoot, PROJECT_DIR_NAME, 'extensions'),
+      loadOptions: () => ({
+        reservedToolNames: toolsRegistry
+          .listMetaTools({ includeDisabled: true })
+          .map((tool) => tool.name),
+        reservedAgentNames: agentRegistry
+          .getAllAgents()
+          .filter((agent) => agent.source !== 'extension')
+          .map((agent) => agent.name),
+      }),
+    });
     host.memoryManager = new MemoryManager(runtime.workspaceRoot);
 
     // Initialize context orchestrator for auto-compaction
@@ -375,7 +389,7 @@ export function initializeAgentDependencies(
       onLiveCommandRemove: (id) => host.inkRenderer?.removeLiveCommand(id),
       onRequestDirectoryAccess: async (path, reason) => host.requestDirectoryAccess(path, reason),
       onMetaToolCreated: () => {
-        host.toolManager?.registerMetaTools(host.toolsRegistry.toToolDefinitions());
+        host.toolManager?.replaceRuntimeMetaTools(host.toolsRegistry.toToolDefinitions());
       },
     });
 
@@ -414,6 +428,7 @@ export function initializeAgentDependencies(
       featureConfig: runtime.config,
       authorization: toolAuthorization,
       confirmApproval: (message, context) => host.confirmDangerousAction(message, context),
+      getToolDefinitions: () => host.toolManager?.listDefinitions() ?? [],
       onSubagentStop: async (context) => {
         await host.hookManager.executeHooks('subagent-stop', {
           subagentId: context.subagentId,
@@ -1202,6 +1217,10 @@ export function initializeAgentDependencies(
       hookManager: host.hookManager,
       skillsRegistry: host.skillsRegistry,
       toolsRegistry: host.toolsRegistry,
+      extensionService: host.extensionService,
+      refreshDynamicExtensions: async () => {
+        await syncDynamicRuntimeExtensions(host, host.runtime);
+      },
       mcpManager: host.mcpManager,
       llm: host.llm,
       workspaceRoot: runtime.workspaceRoot,

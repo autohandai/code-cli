@@ -53,6 +53,23 @@ describe('SystemPromptBuilder', () => {
     expect(prompt).not.toContain('multi_file_edit');
   });
 
+  it('refreshes dynamic extensions before reading tools and discovered agents', async () => {
+    const events: string[] = [];
+    const builder = createBuilder({
+      refreshRuntimeExtensions: vi.fn(async () => {
+        events.push('extensions');
+      }),
+      getToolDefinitions: () => {
+        events.push('tools');
+        return [];
+      },
+    });
+
+    await builder.build();
+
+    expect(events.slice(0, 2)).toEqual(['extensions', 'tools']);
+  });
+
   it('keeps the JSON toolCalls protocol for providers without native tool calling', async () => {
     const prompt = await createBuilder({
       supportsNativeToolCalling: false,

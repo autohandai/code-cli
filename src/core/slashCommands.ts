@@ -59,6 +59,7 @@ import * as prReviewCmd from '../commands/pr-review.js';
 import * as setupCmd from '../commands/setup.js';
 import * as yoloCmd from '../commands/yolo.js';
 import * as toolsCmd from '../commands/tools.js';
+import * as extensionsCmd from '../commands/extensions.js';
 import * as featuresCmd from '../commands/features.js';
 import * as goalCmd from '../commands/goal.js';
 import * as squadCmd from '../commands/squad.js';
@@ -134,6 +135,7 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   setupCmd.metadata,
   yoloCmd.metadata,
   toolsCmd.metadata,
+  extensionsCmd.metadata,
   featuresCmd.metadata,
   goalCmd.metadata,
   squadCmd.metadata,

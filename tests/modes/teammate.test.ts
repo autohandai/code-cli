@@ -30,7 +30,10 @@ vi.mock("../../src/providers/ProviderFactory.js", () => ({
 vi.mock("../../src/core/agents/AgentRegistry.js", () => ({
   AgentRegistry: {
     getInstance: vi.fn().mockReturnValue({
+      configureExternalAgents: vi.fn(),
       loadAgents: vi.fn().mockResolvedValue(undefined),
+      getAllAgents: vi.fn().mockReturnValue([]),
+      setExtensionAgents: vi.fn(),
       getAgent: vi.fn().mockReturnValue({
         name: "tester",
         description: "Writes tests",
@@ -44,11 +47,31 @@ vi.mock("../../src/core/agents/AgentRegistry.js", () => ({
 }));
 
 vi.mock("../../src/core/agents/SubAgent.js", () => ({
-  SubAgent: class {
-    constructor() {
-      this.run = vi.fn().mockResolvedValue("Completed: wrote 3 test files");
-    }
-  },
+  SubAgent: vi.fn().mockImplementation(function MockSubAgent() {
+    return {
+    run: vi.fn().mockResolvedValue("Completed: wrote 3 test files"),
+    };
+  }),
+}));
+
+vi.mock("../../src/core/toolsRegistry.js", () => ({
+  createToolsRegistry: vi.fn().mockReturnValue({
+    initialize: vi.fn().mockResolvedValue(undefined),
+    listMetaTools: vi.fn().mockReturnValue([]),
+    setExtensionTools: vi.fn(),
+    toToolDefinitions: vi.fn().mockReturnValue([]),
+  }),
+}));
+
+vi.mock("../../src/core/agent/dynamicRuntimeExtensions.js", () => ({
+  syncDynamicRuntimeExtensions: vi.fn().mockImplementation(async (host) => {
+    host.toolManager.replaceRuntimeMetaTools([{
+      name: "find_todos",
+      description: "Find TODO and FIXME markers",
+      parameters: { type: "object", properties: {} },
+    }]);
+    return { extensions: [], tools: [], agents: [], diagnostics: [] };
+  }),
 }));
 
 vi.mock("../../src/core/actionExecutor.js", () => ({
@@ -203,6 +226,40 @@ describe("teammate executeTask", () => {
       },
     );
     expect(mockProvider.setModel).toHaveBeenCalledWith("custom-model");
+  });
+
+  it("discovers extension agents and tools before starting the teammate sub-agent", async () => {
+    const { syncDynamicRuntimeExtensions } = await import(
+      "../../src/core/agent/dynamicRuntimeExtensions.js"
+    );
+    const { SubAgent } = await import("../../src/core/agents/SubAgent.js");
+    vi.mocked(syncDynamicRuntimeExtensions).mockClear();
+    vi.mocked(SubAgent).mockClear();
+
+    await executeTask(
+      {
+        teamName: "test",
+        name: "worker",
+        agentName: "tester",
+        leadSessionId: "sess-extension",
+        workspacePath: "/tmp/extension-workspace",
+      },
+      {
+        id: "task-extension",
+        subject: "Inspect TODOs",
+        description: "Inspect TODOs with the extension tool",
+        status: "in_progress",
+        blockedBy: [],
+        createdAt: "",
+      },
+    );
+
+    expect(syncDynamicRuntimeExtensions).toHaveBeenCalledOnce();
+    const subAgentCall = vi.mocked(SubAgent).mock.calls.at(-1);
+    const options = subAgentCall?.[3];
+    expect(options?.getToolDefinitions?.()).toEqual([
+      expect.objectContaining({ name: "find_todos" }),
+    ]);
   });
 });
 

@@ -1889,6 +1889,7 @@ export const EXIT_PLAN_MODE_TOOL_DEFINITION: ToolDefinition = {
 
 export class ToolManager {
   private readonly definitions = new Map<AgentAction['type'], ToolDefinition>();
+  private readonly runtimeMetaToolNames = new Set<AgentAction['type']>();
   private readonly executor: ToolManagerOptions['executor'];
   private readonly confirmApproval: ToolManagerOptions['confirmApproval'];
   private readonly toolFilter: ToolFilter;
@@ -1936,6 +1937,25 @@ export class ToolManager {
         continue;
       }
       this.definitions.set(def.name, def);
+    }
+  }
+
+  /**
+   * Replace the complete persisted/extension meta-tool snapshot.
+   * MCP and built-in definitions are intentionally outside this ownership set.
+   */
+  replaceRuntimeMetaTools(toolDefinitions: ToolDefinition[]): void {
+    for (const name of this.runtimeMetaToolNames) {
+      this.definitions.delete(name);
+    }
+    this.runtimeMetaToolNames.clear();
+
+    for (const definition of toolDefinitions) {
+      if (this.isBuiltInTool(definition.name) || definition.name.startsWith('mcp__')) {
+        continue;
+      }
+      this.definitions.set(definition.name, definition);
+      this.runtimeMetaToolNames.add(definition.name);
     }
   }
 

@@ -369,6 +369,18 @@ Autohand Code CLI includes 40+ tools for autonomous coding:
 `tool_search` - Search tools by capability, name, or description.
 `create_meta_tool` - Create reusable user- or project-scoped shell-backed tools that load in future sessions.
 
+### Code Extensions
+
+Package reusable tools and agents in a strict declarative manifest, then validate and install them without changing CLI source:
+
+```sh
+autohand extensions validate ./examples/extensions/autohand.code-health
+autohand extensions install ./examples/extensions/autohand.code-health
+autohand extensions list
+```
+
+Extensions execute no code during install or startup. Contributed tools use the existing permission and hook pipeline when invoked. See [Using extensions](docs/extensions.md), [Extension authoring](docs/extension-authoring.md), and the [five working examples](examples/extensions).
+
 ### Notebooks
 
 `notebook_cell_edit` - Edit Jupyter notebook cells (code/markdown insert, delete, replace).
@@ -532,6 +544,8 @@ docker run -it autohand
 - [Features](docs/features.md) - Complete feature and experiment list
 - [Agent Skills](docs/agent-skills.md) - Skills system guide
 - [Extending Autohand Code CLI](docs/extending.md) - Build tools, skills, hooks, MCP servers, and integrations
+- [Autohand Code extensions](docs/extensions.md) - Validate, install, inspect, and manage declarative extension packages
+- [Extension authoring](docs/extension-authoring.md) - Package tools and agents for the public extension ecosystem
 - [Configuration Reference](docs/config-reference.md) - All config options
   - [English](docs/config-reference.md)
   - [日本語](docs/config-reference_ja.md)

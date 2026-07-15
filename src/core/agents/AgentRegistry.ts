@@ -10,6 +10,16 @@ import path from 'path';
 import { z } from 'zod';
 import { AUTOHAND_PATHS } from '../../constants.js';
 import type { ExternalAgentsConfig, InlineAgentDefinition } from '../../types.js';
+import type { ExtensionAgentContribution, ExtensionScope } from '../../extensions/types.js';
+
+export const BUILTIN_AGENT_NAMES = [
+    'code-cleaner',
+    'docs-writer',
+    'researcher',
+    'reviewer',
+    'tester',
+    'todo-resolver',
+] as const;
 
 // Schema for Agent Configuration
 export const AgentConfigSchema = z.object({
@@ -89,13 +99,16 @@ export function parseInlineAgents(input: string | Record<string, unknown>): Inli
 }
 
 /** Source of an agent definition */
-export type AgentSource = 'builtin' | 'user' | 'external' | 'auto-generated' | 'session';
+export type AgentSource = 'builtin' | 'user' | 'external' | 'extension' | 'auto-generated' | 'session';
 
 export interface AgentDefinition extends AgentConfig {
     name: string; // Derived from filename
     path: string;
     /** Where this agent was loaded from */
     source: AgentSource;
+    extensionId?: string;
+    extensionVersion?: string;
+    extensionScope?: ExtensionScope;
 }
 
 function extractMarkdownTitle(content: string): string | null {
@@ -152,6 +165,7 @@ export class AgentRegistry {
      * and take precedence over agents with the same name.
      */
     private sessionAgents: Map<string, AgentDefinition> = new Map();
+    private extensionAgents: Map<string, AgentDefinition> = new Map();
     private agentsDir: string;
     private externalPaths: string[] = [];
 
@@ -255,11 +269,14 @@ export class AgentRegistry {
     }
 
     public getAgent(name: string): AgentDefinition | undefined {
-        return this.sessionAgents.get(name) ?? this.agents.get(name);
+        return this.sessionAgents.get(name) ?? this.agents.get(name) ?? this.extensionAgents.get(name);
     }
 
     public getAllAgents(): AgentDefinition[] {
         const merged = new Map<string, AgentDefinition>();
+        for (const agent of this.extensionAgents.values()) {
+            merged.set(agent.name, agent);
+        }
         for (const agent of this.agents.values()) {
             merged.set(agent.name, agent);
         }
@@ -268,6 +285,25 @@ export class AgentRegistry {
             merged.set(agent.name, agent);
         }
         return Array.from(merged.values());
+    }
+
+    public setExtensionAgents(definitions: ExtensionAgentContribution[]): void {
+        const nextAgents = new Map<string, AgentDefinition>();
+        for (const definition of definitions) {
+            nextAgents.set(definition.name, {
+                name: definition.name,
+                path: definition.provenance.file,
+                source: 'extension',
+                description: definition.description,
+                systemPrompt: definition.systemPrompt,
+                tools: definition.tools.length > 0 ? definition.tools : ['*'],
+                model: definition.model,
+                extensionId: definition.provenance.extensionId,
+                extensionVersion: definition.provenance.extensionVersion,
+                extensionScope: definition.provenance.scope,
+            });
+        }
+        this.extensionAgents = nextAgents;
     }
 
     /**

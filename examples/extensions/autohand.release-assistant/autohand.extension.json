@@ -1,0 +1,15 @@
+{
+  "$schema": "https://raw.githubusercontent.com/autohandai/code-extensions/main/schema/autohand.extension.schema.json",
+  "schemaVersion": 1,
+  "extensionApi": 1,
+  "id": "autohand.release-assistant",
+  "name": "Release Assistant",
+  "version": "1.0.0",
+  "description": "Gather a release range and delegate evidence-based release planning.",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/autohandai/code-extensions",
+  "contributes": {
+    "tools": ["tools/release-range.json", "tools/changelog-context.json"],
+    "agents": ["agents/release-planner.md"]
+  }
+}

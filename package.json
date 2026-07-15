@@ -19,7 +19,11 @@
   "main": "dist/index.js",
   "files": [
     "dist",
-    "assets"
+    "assets",
+    "schema",
+    "examples/extensions",
+    "docs/extensions.md",
+    "docs/extension-authoring.md"
   ],
   "scripts": {
     "go": "./install-local.sh && echo \"COMPLETED\"",

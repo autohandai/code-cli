@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/autohandai/code-extensions/main/schema/autohand.extension.schema.json",
+  "schemaVersion": 1,
+  "extensionApi": 1,
+  "id": "autohand.git-insights",
+  "name": "Git Insights",
+  "version": "1.0.0",
+  "description": "Inspect recent history and changed files with reusable Git tools.",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/autohandai/code-extensions",
+  "contributes": {
+    "tools": ["tools/recent-history.json", "tools/changed-files.json"]
+  }
+}

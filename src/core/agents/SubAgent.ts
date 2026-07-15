@@ -40,6 +40,8 @@ export interface SubAgentOptions {
     authorization?: ToolAuthorizationOptions;
     /** Parent confirmation seam for nested permission prompts. */
     confirmApproval?: ToolManagerOptions['confirmApproval'];
+    /** Resolve the current runtime tool set, including extension-owned tools. */
+    getToolDefinitions?: () => ToolDefinition[];
 }
 
 /** Tool definitions for delegation (added only if sub-agent can delegate further) */
@@ -69,6 +71,17 @@ const DELEGATION_TOOL_DEFINITIONS: ToolDefinition[] = [
     }
 ];
 
+function uniqueToolDefinitions(definitions: ToolDefinition[]): ToolDefinition[] {
+    const names = new Set<string>();
+    return definitions.filter((definition) => {
+        if (names.has(definition.name)) {
+            return false;
+        }
+        names.add(definition.name);
+        return true;
+    });
+}
+
 export class SubAgent {
     private conversation: ConversationManager;
     private toolManager: ToolManager;
@@ -96,13 +109,17 @@ export class SubAgent {
         const baseDefinitions = isGoalFeatureEnabled(options.featureConfig)
             ? [...DEFAULT_TOOL_DEFINITIONS, ...GOAL_TOOL_DEFINITIONS]
             : DEFAULT_TOOL_DEFINITIONS;
+        const availableDefinitions = uniqueToolDefinitions([
+            ...baseDefinitions,
+            ...(options.getToolDefinitions?.() ?? []),
+        ]);
         let definitions = allowedTools.has('*')
-            ? [...baseDefinitions]
-            : baseDefinitions.filter(def => allowedTools.has(def.name));
+            ? availableDefinitions
+            : availableDefinitions.filter(def => allowedTools.has(def.name));
 
         // Add delegation tools if sub-agent can delegate further
         if (canDelegate) {
-            definitions = [...definitions, ...DELEGATION_TOOL_DEFINITIONS];
+            definitions = uniqueToolDefinitions([...definitions, ...DELEGATION_TOOL_DEFINITIONS]);
         }
 
         // Apply context filter (slack, api, restricted modes)
@@ -118,6 +135,7 @@ export class SubAgent {
                 featureConfig: options.featureConfig,
                 authorization: options.authorization,
                 confirmApproval: options.confirmApproval,
+                getToolDefinitions: options.getToolDefinitions,
             });
         }
 

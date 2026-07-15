@@ -9,6 +9,7 @@ import path from 'node:path';
 import { describe, it, expect, afterAll } from 'vitest';
 import { ToolsRegistry, createToolsRegistry } from '../src/core/toolsRegistry.js';
 import type { ToolDefinition } from '../src/core/toolManager.js';
+import type { ExtensionToolContribution } from '../src/extensions/types.js';
 
 describe('ToolsRegistry', () => {
   const tempRoot = path.join(os.tmpdir(), `autohand-tools-${Date.now()}`);
@@ -177,5 +178,90 @@ describe('ToolsRegistry', () => {
 
     expect(first).toEqual(second);
     expect(await fs.readdir(metaDir)).toEqual(['count_lines.json']);
+  });
+
+  it('adds and transactionally replaces extension-owned runtime tools with provenance', async () => {
+    const metaDir = path.join(tempRoot, 'extension-tools');
+    const registry = new ToolsRegistry(metaDir);
+    await registry.initialize();
+    const extensionTool: ExtensionToolContribution = {
+      definition: {
+        schemaVersion: 1,
+        name: 'find_todos',
+        description: 'Find TODO comments',
+        handler: 'git grep -n TODO -- {{path}}',
+        parameters: { type: 'object', properties: { path: { type: 'string' } } },
+        createdAt: '2026-01-01T00:00:00.000Z',
+        fingerprint: '1234567890abcdef',
+        source: 'user',
+        scope: 'user',
+      },
+      provenance: {
+        extensionId: 'autohand.code-health',
+        extensionVersion: '1.0.0',
+        scope: 'user',
+        packageRoot: '/tmp/code-health',
+        file: '/tmp/code-health/tools/find-todos.json',
+      },
+    };
+
+    expect(registry.setExtensionTools([extensionTool])).toEqual([]);
+    expect(registry.getMetaTool('find_todos')).toMatchObject({ name: 'find_todos' });
+    expect(registry.getMetaToolProvenance('find_todos')).toEqual(extensionTool.provenance);
+    expect(await registry.listTools([])).toEqual([
+      expect.objectContaining({
+        name: 'find_todos',
+        source: 'extension',
+        extensionId: 'autohand.code-health',
+        extensionVersion: '1.0.0',
+      }),
+    ]);
+
+    registry.setExtensionTools([]);
+    expect(registry.getMetaTool('find_todos')).toBeUndefined();
+    expect(registry.getMetaToolProvenance('find_todos')).toBeUndefined();
+  });
+
+  it('keeps standalone meta-tools ahead of conflicting extension tools', async () => {
+    const metaDir = path.join(tempRoot, 'extension-conflict-tools');
+    await fs.ensureDir(metaDir);
+    await fs.writeJson(path.join(metaDir, 'shared_tool.json'), {
+      name: 'shared_tool',
+      description: 'Standalone tool',
+      handler: 'echo standalone',
+      parameters: { type: 'object', properties: {} },
+      source: 'user',
+    });
+    const registry = new ToolsRegistry(metaDir);
+    await registry.initialize();
+
+    const diagnostics = registry.setExtensionTools([{
+      definition: {
+        schemaVersion: 1,
+        name: 'shared_tool',
+        description: 'Extension tool',
+        handler: 'echo extension',
+        parameters: { type: 'object', properties: {} },
+        createdAt: '2026-01-01T00:00:00.000Z',
+        fingerprint: '1234567890abcdef',
+        source: 'user',
+        scope: 'user',
+      },
+      provenance: {
+        extensionId: 'autohand.conflict',
+        extensionVersion: '1.0.0',
+        scope: 'user',
+        packageRoot: '/tmp/conflict',
+        file: '/tmp/conflict/tools/shared.json',
+      },
+    }]);
+
+    expect(registry.getMetaTool('shared_tool')).toMatchObject({ description: 'Standalone tool' });
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        file: '/tmp/conflict/tools/shared.json',
+        reason: expect.stringMatching(/conflicts with standalone meta-tool/i),
+      }),
+    ]);
   });
 });

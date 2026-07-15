@@ -49,6 +49,9 @@ export const AUTOHAND_PATHS = {
   /** Custom tools */
   tools: path.join(AUTOHAND_HOME, 'tools'),
 
+  /** Declarative extension packages */
+  extensions: path.join(AUTOHAND_HOME, 'extensions'),
+
   /** Skills (instruction packages) */
   skills: path.join(AUTOHAND_HOME, 'skills'),
 
