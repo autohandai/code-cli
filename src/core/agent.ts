@@ -241,6 +241,25 @@ import { AutoReportManager } from '../reporting/AutoReportManager.js';
 import { SuggestionEngine } from './SuggestionEngine.js';
 import { ActiveAgentHeartbeat, ActiveAgentRegistry } from '../session/ActiveAgentRegistry.js';
 import type { MobileRelayController } from '../mobile/MobileRelay.js';
+import { AuthClient } from '../auth/AuthClient.js';
+import { OpenResearchClient, ResearchPublicationError } from '../research/OpenResearchClient.js';
+import {
+  assertResearchPublicationDraftUnchanged,
+  buildResearchPublicationDraft,
+  validateResearchMarkdownPath,
+} from '../research/ResearchManifestBuilder.js';
+import {
+  defaultOpenResearchOrigin,
+  formatResearchPublicationOutcome,
+  ResearchPublicationService,
+} from '../research/ResearchPublicationService.js';
+import { TerminalResearchPublicationPrompts } from '../research/TerminalResearchPublicationPrompts.js';
+import {
+  executePendingPostTurnAction,
+  type PendingAgentInstruction,
+  type PendingPostTurnAction,
+  type PostTurnActionHost,
+} from './agent/PostTurnActionCoordinator.js';
 
 function formatTurnMemoryUpdate(saved: ExtractedMemory[]): string {
   const lines = ['[Auto Memory Update] Background reflection saved these memories for future turns:'];
@@ -256,7 +275,7 @@ export class AutohandAgent {
     '/agents-new', '/agents new', '/resume', '/theme', '/language',
     '/model', '/skills', '/skills install', '/skills-install',
     '/skills new', '/skills-new', '/mcp', '/mcp install', '/mcp-install',
-    '/experiments', '/squad',
+    '/experiments', '/squad', '/publish-research',
   ]);
 
   private contextWindow!: number;
@@ -340,7 +359,7 @@ export class AutohandAgent {
   private ui: UIManager | null = null;
   private inkRenderer: InkRenderer | null = null;
   private useInkRenderer = false;
-  private pendingInkInstructions: string[] = [];
+  private pendingInkInstructions: PendingAgentInstruction[] = [];
   private restoredChatMessages: ChatLogMessage[] = [];
   private inkInstructionResolver: (() => void) | null = null;
   private readlinePromptActive = false;
@@ -1762,6 +1781,62 @@ export class AutohandAgent {
    */
   private async withModalPause<T>(fn: () => Promise<T>): Promise<T> {
     return withAgentModalPause(this, fn);
+  }
+
+  private async requestResearchPublication(reportPath: string): Promise<string> {
+    const authClient = new AuthClient();
+    const publicationClient = new OpenResearchClient();
+    const service = new ResearchPublicationService({
+      validateReport: validateResearchMarkdownPath,
+      buildDraft: buildResearchPublicationDraft,
+      verifyUnchanged: assertResearchPublicationDraftUnchanged,
+      validateSession: async (token: string) => {
+        try {
+          return await authClient.validateSession(token);
+        } catch {
+          throw new ResearchPublicationError(
+            'The current Autohand login could not be validated.',
+            'network',
+            'auth_validation_unavailable',
+          );
+        }
+      },
+      publish: (draft, token) => publicationClient.publish(draft, token),
+      prompts: new TerminalResearchPublicationPrompts(),
+    });
+    const ci = process.env.CI?.toLowerCase();
+    const interactive = process.stdin.isTTY === true
+      && process.stdout.isTTY === true
+      && ci !== '1'
+      && ci !== 'true'
+      && process.env.AUTOHAND_NON_INTERACTIVE !== '1'
+      && this.runtime.isRpcMode !== true
+      && this.runtime.isCommandMode !== true
+      && !this.runtime.options.prompt
+      && !this.shouldExit;
+    const runOffer = () => service.offer({
+      workspaceRoot: this.runtime.workspaceRoot,
+      reportPath,
+      token: this.runtime.config.auth?.token,
+      interactive,
+      yesMode: this.runtime.options.yes === true || this.runtime.options.unrestricted === true,
+      apiBaseUrl: defaultOpenResearchOrigin(),
+    });
+    const outcome = interactive
+      ? await this.withModalPause(runOffer)
+      : await runOffer();
+    return formatResearchPublicationOutcome(outcome, reportPath);
+  }
+
+  private async runPostTurnAction(
+    action: PendingPostTurnAction,
+    turnSucceeded: boolean,
+  ): Promise<string | null> {
+    return executePendingPostTurnAction(
+      this as unknown as PostTurnActionHost,
+      action,
+      turnSucceeded,
+    );
   }
 
   private updateContextUsage(messages: LLMMessage[], tools?: import('../types.js').FunctionDefinition[]): void {

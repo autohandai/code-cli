@@ -276,14 +276,6 @@ export async function finalizeDeepResearchRun(
   }
 
   blockers.push(...await validateReport(options.workspaceRoot, run.reportPath));
-  const requiredAcknowledgement = `Research saved: ${run.reportPath}`;
-  const acknowledged = options.finalResponse
-    .split(/\r?\n/)
-    .some((line) => line.trim() === requiredAcknowledgement);
-  if (!acknowledged) {
-    blockers.push(`The final response did not confirm "${requiredAcknowledgement}".`);
-  }
-
   const now = new Date().toISOString();
   const completed = blockers.length === 0;
   await writeDeepResearchRun(options.workspaceRoot, {

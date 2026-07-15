@@ -89,6 +89,7 @@ describe('/deep-research command', () => {
     expect(queueInstruction).toHaveBeenCalledOnce();
 
     const queued = queueInstruction.mock.calls[0][0] as string;
+    const postTurnAction = queueInstruction.mock.calls[0][1];
     expect(queued).toContain('Hermes self evolving');
     expect(queued).toContain('.autohand/research/topic-hermes-self-evolving.md');
     expect(queued).toContain('web_search');
@@ -97,6 +98,11 @@ describe('/deep-research command', () => {
     expect(queued).toContain('Do not stop until');
     expect(queued).toContain('Research saved: .autohand/research/topic-hermes-self-evolving.md');
     expect(queued).toMatch(/AUTOHAND_DEEP_RESEARCH_RUN_ID: [a-f0-9-]+/);
+    expect(postTurnAction).toEqual({
+      kind: 'publish-research',
+      reportPath: '.autohand/research/topic-hermes-self-evolving.md',
+      runId: expect.stringMatching(/^[a-f0-9-]+$/),
+    });
   });
 
   it('shows vital progress for the active research run', async () => {

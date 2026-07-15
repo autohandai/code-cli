@@ -112,7 +112,11 @@ export async function deepResearch(
   }
 
   const activated = ctx.skillsRegistry?.activateSkill('deep-research') ?? false;
-  ctx.queueInstruction(prompt);
+  ctx.queueInstruction(prompt, {
+    kind: 'publish-research',
+    runId: run.id,
+    reportPath: projectRelativeReportPath,
+  });
 
   return [
     'Deep research started.',
