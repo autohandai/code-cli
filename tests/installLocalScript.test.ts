@@ -85,12 +85,11 @@ describe('dependency install guardrails', () => {
     expect(releaseWorkflow).toContain('run: bun run test:ci');
   });
 
-  it('runs built terminal tests in dedicated macOS PTY jobs', () => {
+  it('runs built terminal tests in the Linux test gates', () => {
     for (const workflowPath of ['.github/workflows/ci.yml', '.github/workflows/release.yml']) {
       const workflow = readFileSync(workflowPath, 'utf8');
 
-      expect(workflow).toMatch(/terminal-test:\n(?:.|\n)*?runs-on: macos-latest/);
-      expect(workflow).toMatch(/terminal-test:\n(?:.|\n)*?run: bun run test:tuistory/);
+      expect(workflow).toMatch(/test:\n(?:.|\n)*?runs-on: ubuntu-latest(?:.|\n)*?run: bun run test:tuistory/);
     }
   });
 
