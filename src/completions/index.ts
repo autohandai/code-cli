@@ -51,6 +51,7 @@ const DEFAULT_CONFIG: CompletionConfig = {
     '/skills',
     '/deep-research',
     '/deep-search',
+    '/publish-research',
     '/autoresearch',
   ],
   options: [

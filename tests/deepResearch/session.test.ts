@@ -175,6 +175,26 @@ describe('deep research session lifecycle', () => {
       completedAt: expect.any(String),
     });
   });
+
+  it('uses the reserved path and successful lifecycle instead of parsing final prose', async () => {
+    const run = await startDeepResearchRun({
+      workspaceRoot,
+      topic: 'Hermes and DSPy',
+      reportPath: '.autohand/research/topic-hermes-and-dspy.md',
+    });
+    await fs.outputFile(path.join(workspaceRoot, run.reportPath), validReport());
+
+    const completion = await finalizeDeepResearchRun({
+      workspaceRoot,
+      runId: run.id,
+      turnSucceeded: true,
+      qualityPassed: true,
+      finalResponse: 'The report is ready.',
+      messages: [todoMessage([{ title: 'Finish report', status: 'completed' }])],
+    });
+
+    expect(completion).toEqual({ completed: true, blockers: [] });
+  });
 });
 
 function todoMessage(tasks: Array<{ title: string; status: string }>): SessionMessage {

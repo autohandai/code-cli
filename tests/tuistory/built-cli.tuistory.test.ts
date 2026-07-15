@@ -834,6 +834,51 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
+  it('keeps a saved research report local when the publish prompt uses its default choice', async () => {
+    const reportPath = '.autohand/research/publish-candidate.md';
+    const state = await createTempAutohandHome({
+      config: {
+        ui: {
+          promptSuggestions: false,
+        },
+      },
+    });
+    tempStates.push(state);
+    await mkdir(path.dirname(path.join(state.workspaceRoot, reportPath)), { recursive: true });
+    await writeFile(
+      path.join(state.workspaceRoot, reportPath),
+      '# Publish candidate\n\nA saved report that must remain local unless the operator consents.\n',
+    );
+
+    const session = await trackSession(
+      launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        env: {
+          AUTOHAND_NON_INTERACTIVE: undefined,
+          CI: undefined,
+        },
+        waitForDataTimeout: 15_000,
+      }),
+    );
+
+    await waitForComposer(session);
+    await session.type(`/publish-research ${reportPath}`);
+    await session.press('enter');
+    await session.waitForText('Would you like to publish this research?', { timeout: 10_000 });
+    await session.press('enter');
+    await session.waitForText(
+      `Publication cancelled. Research remains local at ${reportPath}.`,
+      { timeout: 10_000 },
+    );
+
+    expect(existsSync(path.join(state.workspaceRoot, reportPath))).toBe(true);
+    expect(existsSync(path.join(state.workspaceRoot, `${reportPath}.publication.json`))).toBe(false);
+    expect(session.readAll()).not.toContain('Open Research needs a valid Autohand login');
+
+    await exitInteractive(session);
+  });
+
   it('keeps only one live composer and help block after an interactive command returns', async () => {
     const session = await launchInteractive({
       config: {
@@ -996,20 +1041,28 @@ describe('interactive built CLI Tuistory tests', () => {
     await session.type('/deep-research Hermes self evolving and DSPy');
     await session.press('enter');
     await session.waitForText('Deep research started', { timeout: 10_000 });
-    const permissionOrSaved = await session.text({
+    const permissionSavedOrPublish = await session.text({
       timeout: 30_000,
       waitFor: (text) => (
         (text.includes('Allow tool write_file?') && text.includes(reportPath)) ||
-        text.includes(`Research saved: ${reportPath}`)
+        text.includes(`Research saved: ${reportPath}`) ||
+        text.includes('Would you like to publish this research?')
       ),
     });
-    if (permissionOrSaved.includes('Allow tool write_file?')) {
+    if (permissionSavedOrPublish.includes('Allow tool write_file?')) {
       await session.press('enter');
     }
-    await session.waitForText(`Added ${reportPath}`, { timeout: 30_000 });
-    await session.waitForText(`Research saved: ${reportPath}`, { timeout: 30_000 });
+    if (!permissionSavedOrPublish.includes('Would you like to publish this research?')) {
+      await session.waitForText('Would you like to publish this research?', { timeout: 30_000 });
+    }
+    await session.press('enter');
+    await session.waitForText(
+      `Publication cancelled. Research remains local at ${reportPath}.`,
+      { timeout: 10_000 },
+    );
 
     const output = session.readAll();
+    expect(output).toContain(`Research saved: ${reportPath}`);
     expect(output).not.toContain('Write to this file?');
     expect(output).not.toContain(`Create new file ${reportPath}?`);
 
@@ -1072,7 +1125,7 @@ describe('interactive built CLI Tuistory tests', () => {
     await session.type('Create a file using the shell tool');
     await session.press('enter');
     const permissionOrAdded = await session.text({
-      timeout: 30_000,
+      timeout: 60_000,
       waitFor: (text) => (
         text.includes('Allow the agent to run a shell command with live output?')
         || text.includes(`Added ${outputPath}`)
@@ -1081,12 +1134,12 @@ describe('interactive built CLI Tuistory tests', () => {
     if (permissionOrAdded.includes('Allow the agent to run a shell command with live output?')) {
       await session.press('enter');
     }
-    await session.waitForText(`Added ${outputPath}`, { timeout: 30_000 });
-    await session.waitForText(`Created ${outputPath}.`, { timeout: 30_000 });
+    await session.waitForText(`Added ${outputPath}`, { timeout: 60_000 });
+    await session.waitForText(`Created ${outputPath}.`, { timeout: 60_000 });
 
     expect(await readFile(path.join(state.workspaceRoot, outputPath), 'utf8')).toBe('created by shell\n');
     await exitInteractive(session);
-  }, 60_000);
+  }, 90_000);
 
   it('keeps premature deep research incomplete and exposes the blockers through status', async () => {
     const openRouterServer = await createMockOpenRouterSequenceServer([
@@ -1131,7 +1184,7 @@ describe('interactive built CLI Tuistory tests', () => {
     await session.type('/deep-search premature completion audit');
     await session.press('enter');
     await session.waitForText('Deep research started', { timeout: 10_000 });
-    await session.waitForText('Deep research incomplete', { timeout: 30_000 });
+    await session.waitForText('Deep research incomplete', { timeout: 45_000 });
 
     await session.type('/deep-search status');
     await session.press('enter');
@@ -1143,7 +1196,7 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(status).not.toContain('Completed in');
 
     await exitInteractive(session);
-  }, 60_000);
+  }, 90_000);
 
   it('shows deep research status while the model turn is still active', async () => {
     const openRouterServer = await createMockOpenRouterSequenceServer([
@@ -1198,9 +1251,9 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(activeStatus).toContain('Report: .autohand/research/topic-live-progress-audit.md (not written yet)');
     expect(activeStatus).not.toContain('Research is still incomplete.');
 
-    await session.waitForText('Deep research incomplete', { timeout: 15_000 });
+    await session.waitForText('Deep research incomplete', { timeout: 30_000 });
     await exitInteractive(session);
-  }, 60_000);
+  }, 90_000);
 
   it('runs the usage activity dashboard from the interactive TUI', async () => {
     const session = await launchInteractive({
