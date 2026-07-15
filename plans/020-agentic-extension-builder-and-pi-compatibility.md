@@ -1,6 +1,6 @@
 # Agentic extension builder and Pi compatibility
 
-Status: VALIDATED — PUBLICATION IN PROGRESS
+Status: COMPLETE
 
 ## Objective
 
@@ -25,7 +25,7 @@ Make Autohand extension authoring agentic: ship a built-in `$extension-builder` 
 5. [x] Run the focused Tuistory scenario, complete regression suites, lint, build, full proof, and package-content verification.
 6. [x] Add and validate the matching curated community skill and registry metadata.
 7. [x] Merge the community registry publication, run the canonical `npx skills` install flow, and verify the live skills.sh catalog entry.
-8. [ ] Commit and publish the validated CLI implementation without including unrelated local work.
+8. [x] Commit and publish the validated CLI implementation without including unrelated local work.
 
 ## Validation evidence
 
@@ -35,6 +35,7 @@ Make Autohand extension authoring agentic: ship a built-in `$extension-builder` 
 - The public Autohand catalog contained 1,129 skills and installed `extension-builder` with all four files into a clean project as source `community`.
 - The canonical `npx skills add https://github.com/autohandai/community-skills --skill extension-builder -a codex -y` flow succeeded.
 - Community registry pull requests 5, 6, and 7 were merged; the public skills.sh page is live.
+- The CLI implementation was committed with the required co-author trailer and published in `autohandai/code-cli` pull request 422.
 
 ## Future improvements
 
