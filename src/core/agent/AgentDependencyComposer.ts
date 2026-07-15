@@ -79,6 +79,7 @@ import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { configureAgentRegistry, syncDynamicRuntimeExtensions } from './dynamicRuntimeExtensions.js';
 import { ExtensionService } from '../../extensions/ExtensionService.js';
 import type { MobileRelayController } from '../../mobile/MobileRelay.js';
+import type { PendingPostTurnAction } from './PostTurnActionCoordinator.js';
 
 export interface AgentDependencyHost {
   [key: string]: any;
@@ -1347,9 +1348,13 @@ export function initializeAgentDependencies(
       // Repeat manager for /repeat recurring prompt scheduling
       repeatManager: host.repeatManager,
       // Queue an instruction to be sent to the LLM silently (e.g. /review)
-      queueInstruction: (instruction: string) => {
-        host.pendingInkInstructions.push(instruction);
+      queueInstruction: (instruction: string, postTurnAction?: PendingPostTurnAction) => {
+        host.pendingInkInstructions.push(
+          postTurnAction ? { text: instruction, postTurnAction } : instruction,
+        );
       },
+      requestResearchPublication: (reportPath: string) =>
+        host.requestResearchPublication(reportPath),
       // Queue a remote instruction as if the user typed it into the interactive composer.
       enqueueInstruction: (instruction: string) => {
         if (host.inkRenderer) {

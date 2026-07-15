@@ -20,6 +20,10 @@ import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { BARE_SLASH_COMMANDS_DISABLED_MESSAGE } from '../../runtime/bareMode.js';
 import { shouldForceAgentIdleLogout } from './AgentSessionAccounting.js';
 import { consumeAgentInkSubmittedInstructionEcho } from './AgentUIRuntime.js';
+import {
+  unpackQueuedAgentInstruction,
+  type PendingPostTurnAction,
+} from './PostTurnActionCoordinator.js';
 
 const execFileAsync = promisify(execFile);
 const RUNTIME_RESOURCE_SHUTDOWN_TIMEOUT_MS = 2_500;
@@ -913,6 +917,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
 
       try {
         let instruction: string | null = null;
+        let postTurnAction: PendingPostTurnAction | undefined;
 
         // Check shouldExit again before processing any queued items
         if (host.shouldExit) {
@@ -921,7 +926,12 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         }
 
         if (host.pendingInkInstructions.length > 0) {
-          instruction = host.pendingInkInstructions.shift() ?? null;
+          const pending = host.pendingInkInstructions.shift();
+          if (pending) {
+            const queued = unpackQueuedAgentInstruction(pending);
+            instruction = queued.text;
+            postTurnAction = queued.postTurnAction;
+          }
           if (instruction) {
             if (host.runtime.spinner?.isSpinning) {
               host.runtime.spinner.stop();
@@ -1184,7 +1194,25 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         }
 
         const turnStartTime = Date.now();
-        await host.runInstruction(instruction);
+        const turnSucceeded = await host.runInstruction(instruction);
+        if (postTurnAction) {
+          const consumedAction = postTurnAction;
+          postTurnAction = undefined;
+          let publicationResult: string | null = null;
+          try {
+            publicationResult = await host.runPostTurnAction(consumedAction, turnSucceeded);
+          } catch {
+            publicationResult = [
+              'The publication prompt could not be completed. The report remains local.',
+              `Recovery: /publish-research ${consumedAction.reportPath}`,
+            ].join('\n');
+          }
+          if (publicationResult && host.inkRenderer?.isRunning()) {
+            host.inkRenderer.addAssistantMessage(publicationResult);
+          } else if (publicationResult) {
+            console.log(renderTerminalMarkdown(publicationResult));
+          }
+        }
         host.flushMcpStartupSummaryIfPending();
 
         // Start generating next-step suggestion in background.

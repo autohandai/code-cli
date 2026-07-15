@@ -304,6 +304,7 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/cc`              | Toggle context compaction                                                        |
 | `/search`          | Search the web                                                                   |
 | `/deep-research`   | Run cited research; use `status` for progress (`/deep-search` alias)             |
+| `/publish-research`| Preview and publish a saved research report with explicit confirmation             |
 | `/automode`        | Manage auto-mode                                                                 |
 | `/autoresearch`    | Run replayable benchmark loops with history, replay, comparison, and Pareto analysis |
 | `/goal`            | Set, review, or refine the current session goal                                  |
