@@ -134,7 +134,13 @@ export function shouldForceAgentIdleLogout(
 ): boolean {
   if (!runtime.config.auth?.token) return false;
   if (!isAgentIdleLogoutEnabled(runtime, env)) return false;
-  return now - lastActivityAt >= AUTH_CONFIG.idleTimeoutMs;
+  const configuredIdleTimeoutMs = runtime.config.agent?.idleTimeoutMs;
+  const idleTimeoutMs = typeof configuredIdleTimeoutMs === 'number'
+    && Number.isFinite(configuredIdleTimeoutMs)
+    && configuredIdleTimeoutMs > 0
+    ? configuredIdleTimeoutMs
+    : AUTH_CONFIG.idleTimeoutMs;
+  return now - lastActivityAt >= idleTimeoutMs;
 }
 
 type SyncableSession = {

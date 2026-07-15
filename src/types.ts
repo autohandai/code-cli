@@ -269,6 +269,8 @@ export interface AgentSettings {
   enableRequestQueue?: boolean;
   /** Log out authenticated interactive sessions after idle timeout (default: true) */
   idleLogoutEnabled?: boolean;
+  /** Milliseconds of inactivity before logging out an authenticated session (default: 3600000) */
+  idleTimeoutMs?: number;
   /** Maximum session failure retries before giving up (default: 3) */
   sessionRetryLimit?: number;
   /** Delay in milliseconds between retries (default: 1000) */
