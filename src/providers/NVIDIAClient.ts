@@ -12,7 +12,7 @@ import type {
   FunctionDefinition,
   NvidiaChatTemplateKwargs,
 } from "../types.js";
-import { ApiError, classifyApiError } from "./errors.js";
+import { ApiError, FRIENDLY_MESSAGES, classifyApiError } from "./errors.js";
 import { normalizeLLMUsage } from "./usage.js";
 
 /**
@@ -20,7 +20,13 @@ import { normalizeLLMUsage } from "./usage.js";
  * Only includes fields expected by OpenAI-compatible APIs.
  */
 function sanitizeMessages(messages: Array<{ role: string; content: string; name?: string; tool_call_id?: string; tool_calls?: LLMToolCall[] }>): Record<string, unknown>[] {
-  return messages.map((msg) => {
+  const systemContent = messages
+    .filter((message) => message.role === "system")
+    .map((message) => message.content.trim())
+    .filter(Boolean)
+    .join("\n\n");
+  const orderedMessages = messages.filter((message) => message.role !== "system");
+  const sanitizedMessages = orderedMessages.map((msg) => {
     const sanitized: Record<string, unknown> = {
       role: msg.role,
       content: msg.content,
@@ -40,6 +46,10 @@ function sanitizeMessages(messages: Array<{ role: string; content: string; name?
 
     return sanitized;
   });
+
+  return systemContent
+    ? [{ role: "system", content: systemContent }, ...sanitizedMessages]
+    : sanitizedMessages;
 }
 
 const NVIDIA_DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1";
@@ -50,7 +60,6 @@ const DEFAULT_TIMEOUT = 30000;
 
 /** User-friendly error messages for NVIDIA API */
 const FRIENDLY_ERRORS: Record<number, string> = {
-  400: "The request was malformed. This often happens when the context is too long. Try /undo to remove recent turns or /new to start fresh.",
   401: "Authentication failed. Please verify your NVIDIA API key in ~/.autohand/config.json.",
   402: "Payment required. Please check your NVIDIA account balance or billing settings.",
   403: "Access denied. Your API key may not have permission for this model.",
@@ -61,6 +70,39 @@ const FRIENDLY_ERRORS: Record<number, string> = {
   503: "The NVIDIA service is currently overloaded. Please try again later.",
   504: "The request timed out. The service may be experiencing high load.",
 };
+
+function coerceErrorDetail(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value && typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return "";
+}
+
+function coerceNvidiaErrorDetail(body: unknown): string {
+  if (!body || typeof body !== "object") return "";
+  const record = body as Record<string, unknown>;
+  const openAiDetail = coerceErrorDetail(
+    record.error && typeof record.error === "object"
+      ? (record.error as Record<string, unknown>).message
+      : record.error ?? record.message,
+  );
+  if (openAiDetail) return openAiDetail;
+
+  const detail = coerceErrorDetail(record.detail);
+  const title = coerceErrorDetail(record.title);
+  const requestId = coerceErrorDetail(record.requestId);
+  const type = coerceErrorDetail(record.type);
+  const parts = [
+    title,
+    detail,
+    requestId ? `requestId=${requestId}` : "",
+    type ? `type=${type}` : "",
+  ].filter(Boolean);
+  return parts.join(" | ");
+}
 
 export class NVIDIAClient {
   private readonly apiKey: string;
@@ -338,11 +380,8 @@ export class NVIDIAClient {
 
     let errorDetail = "";
     try {
-      const body = (await response.json()) as any;
-      errorDetail = body?.error?.message || body?.error || body?.message || "";
-      if (typeof errorDetail === "object") {
-        errorDetail = JSON.stringify(errorDetail);
-      }
+      const body = await response.json();
+      errorDetail = coerceNvidiaErrorDetail(body);
     } catch {
       try {
         errorDetail = await response.text();
@@ -352,12 +391,25 @@ export class NVIDIAClient {
     }
 
     const friendlyMessage = FRIENDLY_ERRORS[status];
-    const classified = classifyApiError(status, errorDetail, response.headers);
+    const classified = classifyApiError(status === 422 ? 400 : status, errorDetail, response.headers);
+    const classifiedStatus = status === 422 ? status : classified.httpStatus;
+    if (status === 400 || status === 422) {
+      const base = FRIENDLY_MESSAGES[classified.code];
+      return new ApiError(
+        errorDetail ? `${base}\n${errorDetail}` : `${base} (HTTP ${status})`,
+        classified.code,
+        classifiedStatus,
+        classified.retryable,
+        classified.retryAfterMs,
+        errorDetail,
+      );
+    }
+
     if (friendlyMessage) {
       return new ApiError(
         errorDetail ? `${friendlyMessage}\n${errorDetail}` : friendlyMessage,
         classified.code,
-        classified.httpStatus,
+        classifiedStatus,
         classified.retryable,
         classified.retryAfterMs,
         errorDetail,
@@ -369,7 +421,7 @@ export class NVIDIAClient {
       return new ApiError(
         errorDetail ? `${base}\n(${status}: ${errorDetail})` : base,
         classified.code,
-        classified.httpStatus,
+        classifiedStatus,
         classified.retryable,
         classified.retryAfterMs,
         errorDetail,
@@ -384,7 +436,7 @@ export class NVIDIAClient {
       return new ApiError(
         message,
         classified.code,
-        classified.httpStatus,
+        classifiedStatus,
         classified.retryable,
         classified.retryAfterMs,
         errorDetail,
@@ -397,7 +449,7 @@ export class NVIDIAClient {
     return new ApiError(
       message,
       classified.code,
-      classified.httpStatus,
+      classifiedStatus,
       classified.retryable,
       classified.retryAfterMs,
       errorDetail,
