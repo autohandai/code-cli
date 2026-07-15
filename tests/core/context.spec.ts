@@ -549,6 +549,26 @@ describe('context/orchestrator', () => {
     });
   });
 
+  describe('handleOverflow', () => {
+    it('makes meaningful progress when provider overflow disagrees with local usage', async () => {
+      for (let i = 0; i < 8; i++) {
+        conversationManager.addMessage({ role: 'user', content: `Request ${i} ${'x'.repeat(400)}` });
+        conversationManager.addMessage({ role: 'assistant', content: `Response ${i} ${'y'.repeat(400)}` });
+      }
+      conversationManager.addMessage({ role: 'user', content: 'Continue' });
+
+      const before = orchestrator.getUsage(mockTools);
+      expect(before.usagePercent).toBeLessThan(0.55);
+
+      const result = await orchestrator.handleOverflow(mockTools);
+
+      expect(result.croppedCount).toBeGreaterThan(1);
+      expect(result.usage.totalTokens).toBeLessThan(before.totalTokens);
+      expect(result.messages.at(-1)?.content).toContain('[Auto-Recovery]');
+      expect(result.messages.some(message => message.content === 'Continue')).toBe(true);
+    });
+  });
+
   describe('setModel', () => {
     it('updates the model', () => {
       orchestrator.setModel('anthropic/claude-4-sonnet');
