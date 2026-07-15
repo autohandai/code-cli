@@ -1,0 +1,15 @@
+{
+  "$schema": "https://raw.githubusercontent.com/autohandai/code-extensions/main/schema/autohand.extension.schema.json",
+  "schemaVersion": 1,
+  "extensionApi": 1,
+  "id": "autohand.code-health",
+  "name": "Code Health",
+  "version": "1.0.0",
+  "description": "Find maintainability risks and delegate focused code-health reviews.",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/autohandai/code-extensions",
+  "contributes": {
+    "tools": ["tools/find-todos.json"],
+    "agents": ["agents/code-health-reviewer.md"]
+  }
+}

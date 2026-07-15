@@ -20,6 +20,7 @@ import type { ToolsRegistry } from './toolsRegistry.js';
 import type { UsageLimitRow } from '../commands/usage.js';
 import type { MobileImageAttachment } from '../mobile/MobileHandoffClient.js';
 import type { MobileRelayController } from '../mobile/MobileRelay.js';
+import type { ExtensionService } from '../extensions/ExtensionService.js';
 
 export interface SlashCommandContext {
     listWorkspaceFiles?: () => Promise<void>;
@@ -65,6 +66,10 @@ export interface SlashCommandContext {
     skillsRegistry?: SkillsRegistry;
     /** Meta-tools registry for /tools commands */
     toolsRegistry?: ToolsRegistry;
+    /** Declarative extension lifecycle service for /extensions commands. */
+    extensionService?: ExtensionService;
+    /** Refresh extension-owned tools and agents after a lifecycle mutation. */
+    refreshDynamicExtensions?: () => Promise<void>;
     /** Auto-mode manager for /automode commands */
     automodeManager?: AutomodeManager;
     /** Interactive auto-mode toggle state for /automode commands */

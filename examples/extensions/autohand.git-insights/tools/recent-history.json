@@ -1,0 +1,16 @@
+{
+  "name": "recent_history",
+  "description": "Show a bounded number of recent commits",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "count": {
+        "type": "number",
+        "description": "Maximum number of commits"
+      }
+    },
+    "required": ["count"]
+  },
+  "handler": "git log --max-count={{count}} --oneline",
+  "source": "user"
+}

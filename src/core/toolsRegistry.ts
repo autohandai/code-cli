@@ -17,6 +17,7 @@ import {
   normalizeMetaToolDefinition
 } from './metaTools/schema.js';
 import { assertSafeMetaToolHandler } from './metaTools/safety.js';
+import type { ExtensionProvenance, ExtensionToolContribution } from '../extensions/types.js';
 
 export type { MetaToolDefinition } from './metaTools/schema.js';
 
@@ -34,9 +35,17 @@ export interface MetaToolListOptions {
   includeDisabled?: boolean;
 }
 
+export interface ToolRegistryListOptions {
+  includeDisabled?: boolean;
+}
+
 interface MetaToolRecord {
   definition: MetaToolDefinition;
   filePath: string;
+}
+
+interface ExtensionMetaToolRecord extends MetaToolRecord {
+  provenance: ExtensionProvenance;
 }
 
 function locationKey(scope: MetaToolScope, name: string): string {
@@ -68,6 +77,7 @@ export class ToolsRegistry {
   private metaToolCache: Map<string, MetaToolDefinition> = new Map();
   private metaToolRecords: Map<string, MetaToolRecord> = new Map();
   private diagnostics: MetaToolDiagnostic[] = [];
+  private extensionToolRecords: Map<string, ExtensionMetaToolRecord> = new Map();
 
   constructor(locations?: string | ToolsRegistryLocation[]) {
     this.locations = normalizeLocations(locations);
@@ -103,25 +113,54 @@ export class ToolsRegistry {
       seen.add(def.name);
     }
 
-    for (const [name, tool] of this.metaToolCache) {
-      if (seen.has(name)) {
+    for (const entry of this.getRegistryEntries()) {
+      if (seen.has(entry.name)) {
         continue;
       }
-      entries.push({
-        name: tool.name,
-        description: tool.description,
-        source: 'meta',
-        scope: tool.scope,
-        disabled: tool.disabled,
-        createdAt: tool.createdAt,
-        schemaVersion: tool.schemaVersion,
-        handlerPreview: tool.handler.length > 140 ? `${tool.handler.slice(0, 137)}...` : tool.handler,
-        reuseHint: `Use ${tool.name} instead of creating another tool for: ${tool.description}`
-      });
-      seen.add(name);
+      entries.push(entry);
+      seen.add(entry.name);
     }
 
     return entries;
+  }
+
+  getRegistryEntries(options: ToolRegistryListOptions = {}): ToolRegistryEntry[] {
+    const records: Array<{ definition: MetaToolDefinition; provenance?: ExtensionProvenance }> = [];
+
+    if (options.includeDisabled) {
+      for (const location of this.locations) {
+        const scopedRecords = Array.from(this.metaToolRecords.values())
+          .filter((record) => record.definition.scope === location.scope)
+          .sort((left, right) => left.definition.name.localeCompare(right.definition.name));
+        records.push(...scopedRecords.map((record) => ({ definition: record.definition })));
+      }
+      records.push(...Array.from(this.extensionToolRecords.values())
+        .sort((left, right) => left.definition.name.localeCompare(right.definition.name))
+        .map((record) => ({ definition: record.definition, provenance: record.provenance })));
+    } else {
+      records.push(...Array.from(this.metaToolCache.entries())
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([name, definition]) => ({
+          definition,
+          provenance: this.extensionToolRecords.get(name)?.provenance,
+        })));
+    }
+
+    return records.map(({ definition, provenance }) => ({
+      name: definition.name,
+      description: definition.description,
+      source: provenance ? 'extension' : 'meta',
+      scope: definition.scope,
+      disabled: definition.disabled,
+      createdAt: definition.createdAt,
+      schemaVersion: definition.schemaVersion,
+      handlerPreview: definition.handler.length > 140
+        ? `${definition.handler.slice(0, 137)}...`
+        : definition.handler,
+      reuseHint: `Use ${definition.name} instead of creating another tool for: ${definition.description}`,
+      extensionId: provenance?.extensionId,
+      extensionVersion: provenance?.extensionVersion,
+    }));
   }
 
   async saveMetaTool(definition: MetaToolDefinition): Promise<MetaToolDefinition> {
@@ -154,6 +193,45 @@ export class ToolsRegistry {
 
   getMetaTool(name: string): MetaToolDefinition | undefined {
     return this.metaToolCache.get(name);
+  }
+
+  getMetaToolProvenance(name: string): ExtensionProvenance | undefined {
+    return this.extensionToolRecords.get(name)?.provenance;
+  }
+
+  setExtensionTools(contributions: ExtensionToolContribution[]): MetaToolDiagnostic[] {
+    const nextRecords = new Map<string, ExtensionMetaToolRecord>();
+    const diagnostics: MetaToolDiagnostic[] = [];
+    const standaloneNames = new Set(
+      Array.from(this.metaToolRecords.values()).map((record) => record.definition.name),
+    );
+
+    for (const contribution of contributions) {
+      const { definition, provenance } = contribution;
+      if (standaloneNames.has(definition.name)) {
+        diagnostics.push({
+          file: provenance.file,
+          reason: `Extension tool "${definition.name}" conflicts with standalone meta-tool`,
+        });
+        continue;
+      }
+      if (nextRecords.has(definition.name)) {
+        diagnostics.push({
+          file: provenance.file,
+          reason: `Extension tool "${definition.name}" conflicts with another extension tool`,
+        });
+        continue;
+      }
+      nextRecords.set(definition.name, {
+        definition,
+        filePath: provenance.file,
+        provenance,
+      });
+    }
+
+    this.extensionToolRecords = nextRecords;
+    this.rebuildActiveCache();
+    return diagnostics;
   }
 
   hasMetaTool(name: string): boolean {
@@ -260,7 +338,7 @@ export class ToolsRegistry {
           continue;
         }
 
-        const files = await fs.readdir(location.dir);
+        const files = (await fs.readdir(location.dir)).sort((left, right) => left.localeCompare(right));
 
         for (const file of files) {
           if (!file.endsWith('.json')) {
@@ -381,6 +459,11 @@ export class ToolsRegistry {
         if (!this.metaToolCache.has(record.definition.name)) {
           this.metaToolCache.set(record.definition.name, record.definition);
         }
+      }
+    }
+    for (const [name, record] of this.extensionToolRecords) {
+      if (!record.definition.disabled && !this.metaToolCache.has(name)) {
+        this.metaToolCache.set(name, record.definition);
       }
     }
   }

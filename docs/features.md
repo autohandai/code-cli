@@ -89,6 +89,7 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | `/statusline` | Configure composer status-line fields |
 | `/permissions` | Manage tool permissions |
 | `/hooks` | Manage lifecycle hooks |
+| `/extensions` | Validate, install, inspect, enable, disable, and diagnose Code extensions |
 | `/experiments` | Toggle experiments with an interactive checkbox list |
 | `/skills` | List and manage skills |
 | `/skills use` | Activate a skill |

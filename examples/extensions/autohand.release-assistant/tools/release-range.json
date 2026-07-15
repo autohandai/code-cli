@@ -1,0 +1,16 @@
+{
+  "name": "release_range",
+  "description": "Show commits between a release base and HEAD",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "from": {
+        "type": "string",
+        "description": "Previous release tag or commit"
+      }
+    },
+    "required": ["from"]
+  },
+  "handler": "git log {{from}}..HEAD --oneline",
+  "source": "user"
+}

@@ -1,0 +1,16 @@
+{
+  "name": "changed_files_since",
+  "description": "List files changed between a base revision and HEAD",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "base": {
+        "type": "string",
+        "description": "Base branch, tag, or commit"
+      }
+    },
+    "required": ["base"]
+  },
+  "handler": "git diff --name-only {{base}}...HEAD",
+  "source": "user"
+}

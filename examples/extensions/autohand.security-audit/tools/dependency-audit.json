@@ -1,0 +1,10 @@
+{
+  "name": "audit_bun_dependencies",
+  "description": "Run the Bun dependency vulnerability audit",
+  "parameters": {
+    "type": "object",
+    "properties": {}
+  },
+  "handler": "bun audit",
+  "source": "user"
+}

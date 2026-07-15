@@ -10,7 +10,7 @@ import { SubAgent, type SubAgentOptions } from './SubAgent.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
 import { ActionExecutor } from '../actionExecutor.js';
 import type { ClientContext, LoadedConfig, ToolActionOutcome } from '../../types.js';
-import type { ToolAuthorizationOptions, ToolManagerOptions } from '../toolManager.js';
+import type { ToolAuthorizationOptions, ToolDefinition, ToolManagerOptions } from '../toolManager.js';
 
 /** Default maximum delegation depth to prevent infinite loops */
 const DEFAULT_MAX_DEPTH = 3;
@@ -46,6 +46,8 @@ export interface DelegatorOptions {
     authorization?: ToolAuthorizationOptions;
     /** Parent confirmation seam inherited by every nested tool call. */
     confirmApproval?: ToolManagerOptions['confirmApproval'];
+    /** Resolve the current runtime tool set for extension-aware agent allowlists. */
+    getToolDefinitions?: () => ToolDefinition[];
 }
 
 export class AgentDelegator {
@@ -57,6 +59,7 @@ export class AgentDelegator {
     private readonly featureConfig?: LoadedConfig;
     private readonly authorization?: ToolAuthorizationOptions;
     private readonly confirmApproval?: ToolManagerOptions['confirmApproval'];
+    private readonly getToolDefinitions?: () => ToolDefinition[];
     private subagentCounter = 0;
 
     constructor(
@@ -72,6 +75,7 @@ export class AgentDelegator {
         this.featureConfig = options.featureConfig;
         this.authorization = options.authorization;
         this.confirmApproval = options.confirmApproval;
+        this.getToolDefinitions = options.getToolDefinitions;
     }
 
     private generateSubagentId(): string {
@@ -105,6 +109,7 @@ export class AgentDelegator {
             featureConfig: this.featureConfig,
             authorization: this.authorization,
             confirmApproval: this.confirmApproval,
+            getToolDefinitions: this.getToolDefinitions,
         };
 
         const subagentId = this.generateSubagentId();
@@ -174,6 +179,7 @@ export class AgentDelegator {
             featureConfig: this.featureConfig,
             authorization: this.authorization,
             confirmApproval: this.confirmApproval,
+            getToolDefinitions: this.getToolDefinitions,
         };
 
         const promises = tasks.map(async ({ agent_name, task }): Promise<{
@@ -254,6 +260,10 @@ export class AgentDelegator {
 
     public getConfirmApproval(): ToolManagerOptions['confirmApproval'] | undefined {
         return this.confirmApproval;
+    }
+
+    public getRuntimeToolDefinitions(): (() => ToolDefinition[]) | undefined {
+        return this.getToolDefinitions;
     }
 
     /**
