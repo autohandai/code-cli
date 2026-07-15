@@ -22,8 +22,8 @@ function createRuntime(overrides: Partial<AgentRuntime> = {}): AgentRuntime {
 }
 
 describe('AUTH_CONFIG.idleTimeoutMs', () => {
-  it('is set to 30 minutes in milliseconds', () => {
-    expect(AUTH_CONFIG.idleTimeoutMs).toBe(30 * 60 * 1000);
+  it('defaults to 60 minutes in milliseconds', () => {
+    expect(AUTH_CONFIG.idleTimeoutMs).toBe(60 * 60 * 1000);
   });
 
   it('is a positive number', () => {
@@ -64,6 +64,43 @@ describe('Idle timeout logic', () => {
     const lastActivityAt = now - AUTH_CONFIG.idleTimeoutMs;
 
     expect(shouldForceAgentIdleLogout(createRuntime(), lastActivityAt, now)).toBe(true);
+  });
+
+  it('uses the configured agent idle timeout', () => {
+    const now = 10_000_000;
+    const configuredIdleTimeoutMs = 90 * 60 * 1000;
+    const runtime = createRuntime({
+      config: {
+        configPath: '/tmp/autohand-config.json',
+        auth: { token: 'token' },
+        agent: { idleTimeoutMs: configuredIdleTimeoutMs },
+      },
+    });
+
+    expect(
+      shouldForceAgentIdleLogout(runtime, now - configuredIdleTimeoutMs + 1, now),
+    ).toBe(false);
+    expect(
+      shouldForceAgentIdleLogout(runtime, now - configuredIdleTimeoutMs, now),
+    ).toBe(true);
+  });
+
+  it('falls back to the default timeout when the configured value is invalid', () => {
+    const now = 10_000_000;
+    const runtime = createRuntime({
+      config: {
+        configPath: '/tmp/autohand-config.json',
+        auth: { token: 'token' },
+        agent: { idleTimeoutMs: 0 },
+      },
+    });
+
+    expect(
+      shouldForceAgentIdleLogout(runtime, now - AUTH_CONFIG.idleTimeoutMs + 1, now),
+    ).toBe(false);
+    expect(
+      shouldForceAgentIdleLogout(runtime, now - AUTH_CONFIG.idleTimeoutMs, now),
+    ).toBe(true);
   });
 
   it('does not force idle logout when the session is not authenticated', () => {
