@@ -380,7 +380,7 @@ autohand extensions install ./examples/extensions/autohand.code-health
 autohand extensions list
 ```
 
-Extensions execute no code during install or startup. Contributed tools use the existing permission and hook pipeline when invoked. See [Using extensions](docs/extensions.md), [Extension authoring](docs/extension-authoring.md), and the [five working examples](examples/extensions).
+Extensions execute no code during install or startup. They can contribute tools, focused agents, and portable Agent Skills; contributed tools use the existing permission and hook pipeline when invoked. Mention `$extension-builder` to create, extend, or adapt an extension from a description or Pi package. See [Using extensions](docs/extensions.md), [Extension authoring](docs/extension-authoring.md), and the [five working examples](examples/extensions).
 
 ### Notebooks
 

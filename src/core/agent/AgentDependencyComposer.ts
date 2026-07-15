@@ -41,6 +41,7 @@ import { MemoryManager } from '../../memory/MemoryManager.js';
 import { FeedbackManager } from '../../feedback/FeedbackManager.js';
 import { TelemetryManager } from '../../telemetry/TelemetryManager.js';
 import { SkillsRegistry } from '../../skills/SkillsRegistry.js';
+import type { SkillDefinition } from '../../skills/types.js';
 import { CommunitySkillsClient } from '../../skills/CommunitySkillsClient.js';
 import { CommunitySkillsCache } from '../../skills/CommunitySkillsCache.js';
 import { GitHubRegistryFetcher } from '../../skills/GitHubRegistryFetcher.js';
@@ -195,6 +196,9 @@ export function initializeAgentDependencies(
           .getAllAgents()
           .filter((agent) => agent.source !== 'extension')
           .map((agent) => agent.name),
+        reservedSkillNames: (host.skillsRegistry.listSkills() as SkillDefinition[])
+          .filter((skill) => skill.source !== 'extension')
+          .map((skill) => skill.name),
       }),
     });
     host.memoryManager = new MemoryManager(runtime.workspaceRoot);

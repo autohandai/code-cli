@@ -1,6 +1,12 @@
 # Autohand Code Extensions
 
-Autohand Code extensions are declarative packages that add reusable tools and focused agents without changing CLI source. Extension API v1 does not import JavaScript or run install/startup scripts.
+Autohand Code extensions are declarative packages that add reusable tools, focused agents, and portable Agent Skills without changing CLI source. Extension API v1 does not import JavaScript or run install/startup scripts.
+
+To build or adapt one agentically, mention the built-in skill and describe the desired behavior:
+
+```text
+$extension-builder build an extension that reviews migrations and install it for this project
+```
 
 ## Install an extension
 
@@ -56,9 +62,13 @@ The same lifecycle is available inside an interactive session:
 
 Mutations refresh extension tools and agents in the active session. A new session discovers the same user/project package snapshot.
 
+Extension-packaged skills are listed by `/skills`, appear in `$` mention suggestions, and can be invoked directly in a prompt. Exact `$skill-name` mentions activate and inject the instructions for that same turn.
+
+Pi Agent Skills use the same `SKILL.md` contract and can be contributed directly. Pi TypeScript extensions require a reviewed `$extension-builder` adaptation: Autohand translates faithfully representable tools, skills, and agents, while commands, lifecycle events, custom UI, providers, or arbitrary runtime code remain native source changes with their normal tests and permission boundaries. Autohand never executes Pi TypeScript merely to inspect or install it.
+
 ## Precedence and diagnostics
 
-- Built-in tools and agents cannot be replaced.
+- Built-in tools, agents, and skills cannot be replaced.
 - Existing standalone meta-tools and user/external agents remain ahead of extension contributions.
 - A project package replaces the same user extension id as one complete package.
 - Package ids and contribution names are processed deterministically.
@@ -73,4 +83,4 @@ Extension tools use the existing meta-tool shell template contract. On invocatio
 
 Manifests and contributions are size bounded and strict. Absolute paths, traversal, Windows separators in manifest paths, missing files, duplicate JSON keys, invalid UTF-8, unknown manifest fields, and contribution symlinks are rejected. One broken extension cannot stop the CLI from starting.
 
-See [Extension authoring](extension-authoring.md) for the package contract. Five complete packages are available under [`examples/extensions`](../examples/extensions).
+See [Extension authoring](extension-authoring.md) for the package contract and Pi adaptation matrix. Five complete packages are available under [`examples/extensions`](../examples/extensions).

@@ -26,7 +26,10 @@ interface ExtensionJsonSchema {
     extensionApi: { const: number };
     id: { pattern: string };
     version: { pattern: string };
-    contributes: { additionalProperties: boolean };
+    contributes: {
+      additionalProperties: boolean;
+      properties: { skills?: { $ref: string } };
+    };
   };
 }
 
@@ -36,6 +39,7 @@ describe('extension JSON Schema artifact', () => {
 
     expect(schema.additionalProperties).toBe(false);
     expect(schema.properties.contributes.additionalProperties).toBe(false);
+    expect(schema.properties.contributes.properties.skills?.$ref).toBe('#/$defs/contributionPaths');
     expect(schema.properties.schemaVersion.const).toBe(EXTENSION_SCHEMA_VERSION);
     expect(schema.properties.extensionApi.const).toBe(EXTENSION_API_VERSION);
     expect(schema.properties.id.pattern).toBe(EXTENSION_ID_PATTERN.source);

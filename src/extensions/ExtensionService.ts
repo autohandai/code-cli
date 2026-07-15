@@ -344,6 +344,10 @@ export class ExtensionService {
       agent.name,
       agent.provenance.extensionId,
     ]));
+    const activeSkills = new Map(snapshot.skills.map((skill) => [
+      skill.definition.name,
+      skill.provenance.extensionId,
+    ]));
 
     for (const tool of source.tools) {
       const owner = activeTools.get(tool.definition.name);
@@ -357,6 +361,14 @@ export class ExtensionService {
       const owner = activeAgents.get(agent.name);
       if (owner && owner !== extensionId) {
         throw new Error(`Contribution "${agent.name}" conflicts with installed extension "${owner}"`);
+      }
+    }
+    for (const skill of source.skills) {
+      const owner = activeSkills.get(skill.definition.name);
+      if (owner && owner !== extensionId) {
+        throw new Error(
+          `Contribution "${skill.definition.name}" conflicts with installed extension "${owner}"`,
+        );
       }
     }
   }

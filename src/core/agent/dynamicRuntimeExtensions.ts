@@ -11,12 +11,14 @@ import path from 'node:path';
 import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from '../../constants.js';
 import { ExtensionRegistry } from '../../extensions/ExtensionRegistry.js';
 import type { ExtensionSnapshot } from '../../extensions/types.js';
+import type { SkillsRegistry } from '../../skills/SkillsRegistry.js';
 
 export interface DynamicRuntimeExtensionHost {
   toolsRegistry?: ToolsRegistry;
   toolManager?: Pick<ToolManager, 'replaceRuntimeMetaTools'>;
   extensionRegistry?: Pick<ExtensionRegistry, 'load'>;
   extensionSnapshot?: ExtensionSnapshot;
+  skillsRegistry?: Pick<SkillsRegistry, 'listSkills' | 'setExtensionSkills'>;
 }
 
 export function configureAgentRegistry(runtime: AgentRuntime): AgentRegistry {
@@ -52,9 +54,14 @@ export async function syncDynamicRuntimeExtensions(
       .getAllAgents()
       .filter((agent) => agent.source !== 'extension')
       .map((agent) => agent.name),
+    reservedSkillNames: host.skillsRegistry
+      ?.listSkills()
+      .filter((skill) => skill.source !== 'extension')
+      .map((skill) => skill.name),
   });
   host.extensionSnapshot = snapshot;
   agentRegistry.setExtensionAgents(snapshot.agents);
+  host.skillsRegistry?.setExtensionSkills?.(snapshot.skills);
 
   if (!host.toolsRegistry || !host.toolManager) {
     return snapshot;

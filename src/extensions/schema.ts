@@ -40,11 +40,16 @@ export const ExtensionContributionsSchema = z
   .object({
     tools: UniqueContributionPathsSchema.optional(),
     agents: UniqueContributionPathsSchema.optional(),
+    skills: UniqueContributionPathsSchema.optional(),
   })
   .strict()
   .refine(
-    (contributes) => (contributes.tools?.length ?? 0) + (contributes.agents?.length ?? 0) > 0,
-    'an extension must contribute at least one tool or agent',
+    (contributes) => (
+      (contributes.tools?.length ?? 0)
+      + (contributes.agents?.length ?? 0)
+      + (contributes.skills?.length ?? 0)
+    ) > 0,
+    'an extension must contribute at least one tool, agent, or skill',
   );
 
 export const ExtensionManifestSchema = z
