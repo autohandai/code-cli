@@ -585,9 +585,11 @@ describe('interactive built CLI Tuistory tests', () => {
 
     const fakeBinDir = path.join(state.autohandHome, 'fake-bin');
     await mkdir(fakeBinDir, { recursive: true });
-    const fakeOpenPath = path.join(fakeBinDir, 'open');
-    await writeFile(fakeOpenPath, '#!/bin/sh\nexit 0\n');
-    await chmod(fakeOpenPath, 0o755);
+    for (const launcher of ['open', 'xdg-open']) {
+      const fakeLauncherPath = path.join(fakeBinDir, launcher);
+      await writeFile(fakeLauncherPath, '#!/bin/sh\nexit 0\n');
+      await chmod(fakeLauncherPath, 0o755);
+    }
 
     const session = await trackSession(
       launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
@@ -624,9 +626,11 @@ describe('interactive built CLI Tuistory tests', () => {
 
     const fakeBinDir = path.join(state.autohandHome, 'fake-bin');
     await mkdir(fakeBinDir, { recursive: true });
-    const fakeOpenPath = path.join(fakeBinDir, 'open');
-    await writeFile(fakeOpenPath, '#!/bin/sh\nexit 0\n');
-    await chmod(fakeOpenPath, 0o755);
+    for (const launcher of ['open', 'xdg-open']) {
+      const fakeLauncherPath = path.join(fakeBinDir, launcher);
+      await writeFile(fakeLauncherPath, '#!/bin/sh\nexit 0\n');
+      await chmod(fakeLauncherPath, 0o755);
+    }
 
     const session = await trackSession(
       launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
