@@ -696,6 +696,7 @@ Kontrol aracısı davranışı ve yineleme sınırları.
     "toolSelectionCache": true,
     "autoMemory": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   }
 }
@@ -707,6 +708,7 @@ Kontrol aracısı davranışı ve yineleme sınırları.
 | `toolSelectionCache` | boole | `true` | Eşdeğer takım seçimi girişi için tur başına yerel takım şeması seçimini önbelleğe alın |
 | `autoMemory` | boole | `true` | Başarılı etkileşimli dönüşlerden sonra dayanıklı kullanıcı/proje anılarını çıkarın ve kaydedin |
 | `idleLogoutEnabled` | boole | `true` | Boşta kalma zaman aşımından sonra kimliği doğrulanmış etkileşimli oturumlardan çıkış yapın |
+| `idleTimeoutMs` | sayı | `3600000` | Kimliği doğrulanmış bir oturum kapatılmadan önceki boşta kalma süresi, milisaniye cinsinden (60 dakika) |
 | `debug` | boole | `false` | Ayrıntılı hata ayıklama çıktısını etkinleştirin (aracının dahili durumunu stderr'e kaydeder) |
 
 ### Araç Şeması Seçimi
@@ -736,6 +738,8 @@ Kimliği doğrulanmış, uzun süredir devam eden temsilci oturumlarını, iş i
 }
 ```
 Tek bir işlem için `autohand --no-idle-logout` kullanın veya `AUTOHAND_NO_IDLE_LOGOUT=1` olarak ayarlayın.
+
+Boşta kalma süresini değiştirmek için `idleTimeoutMs` değerini milisaniye cinsinden pozitif bir süreye ayarlayın. Varsayılan değer `3600000` (60 dakika); geçersiz değerler varsayılana döner.
 
 ### Hata Ayıklama Modu
 
@@ -1608,6 +1612,7 @@ autohand --no-chrome       # Start with browser bridge disabled
     "enableRequestQueue": true,
     "toolSelectionCache": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   },
   "permissions": {
@@ -1692,6 +1697,7 @@ agent:
   enableRequestQueue: true
   toolSelectionCache: true
   idleLogoutEnabled: true
+  idleTimeoutMs: 3600000
   debug: false
 
 permissions:
@@ -1785,6 +1791,7 @@ maxIterations = 100
 enableRequestQueue = true
 toolSelectionCache = true
 idleLogoutEnabled = true
+idleTimeoutMs = 3600000
 debug = false
 
 [permissions]

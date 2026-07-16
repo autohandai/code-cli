@@ -696,6 +696,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
     "toolSelectionCache": true,
     "autoMemory": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   }
 }
@@ -707,6 +708,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | `toolSelectionCache` |布林 | `true` |快取本地每轉工具模式選擇以取得等效的工具選擇輸入 |
 | `autoMemory` |布林 | `true` |成功互動後擷取並儲存持久的使用者/專案記憶 |
 | `idleLogoutEnabled` |布林 | `true` |空閒逾時後登出經過驗證的互動式會話 |
+| `idleTimeoutMs` |數量 | `3600000` |登出已驗證工作階段前允許的閒置毫秒數（60 分鐘）|
 | `debug` |布林 | `false` |啟用詳細偵錯輸出（將代理內部狀態記錄到 stderr）|
 
 ### 工具架構選擇
@@ -736,6 +738,8 @@ Autohand 不會在每個 LLM 請求上傳送每個完整的工具架構。系統
 }
 ```
 對於單一進程，請使用 `autohand --no-idle-logout` 或設定 `AUTOHAND_NO_IDLE_LOGOUT=1`。
+
+若要變更閒置期間，請將 `idleTimeoutMs` 設為正數毫秒值。預設值為 `3600000`（60 分鐘）；無效值會回復為預設值。
 
 ### 偵錯模式
 
@@ -1608,6 +1612,7 @@ autohand --no-chrome       # Start with browser bridge disabled
     "enableRequestQueue": true,
     "toolSelectionCache": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   },
   "permissions": {
@@ -1692,6 +1697,7 @@ agent:
   enableRequestQueue: true
   toolSelectionCache: true
   idleLogoutEnabled: true
+  idleTimeoutMs: 3600000
   debug: false
 
 permissions:
@@ -1785,6 +1791,7 @@ maxIterations = 100
 enableRequestQueue = true
 toolSelectionCache = true
 idleLogoutEnabled = true
+idleTimeoutMs = 3600000
 debug = false
 
 [permissions]

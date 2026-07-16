@@ -403,6 +403,8 @@ Controla el comportamiento del agente y límites de iteración.
   "agent": {
     "maxIterations": 100,
     "enableRequestQueue": true,
+    "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   }
 }
@@ -412,7 +414,11 @@ Controla el comportamiento del agente y límites de iteración.
 | -------------------- | ------- | -------------- | --------------------------------------------------------------------------------- |
 | `maxIterations`      | number  | `100`          | Máximo de iteraciones de herramientas por solicitud de usuario antes de detenerse |
 | `enableRequestQueue` | boolean | `true`         | Permitir a usuarios escribir y encolar solicitudes mientras el agente trabaja     |
+| `idleLogoutEnabled`  | boolean | `true`         | Cerrar sesiones interactivas autenticadas después del tiempo de inactividad        |
+| `idleTimeoutMs`      | number  | `3600000`      | Milisegundos de inactividad antes de cerrar una sesión autenticada (60 minutos)     |
 | `debug`              | boolean | `false`        | Habilitar output de debug detallado (logs del estado interno del agente a stderr) |
+
+Establece `idleLogoutEnabled` en `false` para desactivar el cierre de sesión por inactividad. Para cambiar el período, establece `idleTimeoutMs` en una duración positiva en milisegundos. El valor predeterminado es `3600000` (60 minutos); los valores no válidos usan el valor predeterminado.
 
 ### Modo Debug
 
@@ -1128,6 +1134,8 @@ Para una experiencia interactiva más precisa, use `/learn` dentro de una sesió
   "agent": {
     "maxIterations": 100,
     "enableRequestQueue": true,
+    "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   },
   "permissions": {
@@ -1227,6 +1235,8 @@ ui:
 agent:
   maxIterations: 100
   enableRequestQueue: true
+  idleLogoutEnabled: true
+  idleTimeoutMs: 3600000
   debug: false
 
 permissions:
