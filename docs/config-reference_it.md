@@ -696,6 +696,7 @@ Comportamento dell'agente di controllo e limiti di iterazione.
     "toolSelectionCache": true,
     "autoMemory": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   }
 }
@@ -707,6 +708,7 @@ Comportamento dell'agente di controllo e limiti di iterazione.
 | `toolSelectionCache` | booleano | `true` | Memorizza nella cache la selezione dello schema dello strumento locale per turno per l'input di selezione dello strumento equivalente |
 | `autoMemory` | booleano | `true` | Estrai e salva ricordi durevoli di utenti/progetti dopo turni interattivi riusciti |
 | `idleLogoutEnabled` | booleano | `true` | Disconnettersi dalle sessioni interattive autenticate dopo il timeout di inattività |
+| `idleTimeoutMs` | numero | `3600000` | Millisecondi di inattività prima di disconnettere una sessione autenticata (60 minuti) |
 | `debug` | booleano | `false` | Abilita output di debug dettagliato (registra lo stato interno dell'agente su stderr) |
 
 ### Selezione dello schema degli strumenti
@@ -736,6 +738,8 @@ Per mantenere attive le sessioni autenticate dell'agente di lunga durata mentre 
 }
 ```
 Per un singolo processo, utilizzare `autohand --no-idle-logout` o impostare `AUTOHAND_NO_IDLE_LOGOUT=1`.
+
+Imposta `idleTimeoutMs` su una durata positiva in millisecondi per modificare il periodo di inattività. Il valore predefinito è `3600000` (60 minuti); i valori non validi utilizzano il valore predefinito.
 
 ### Modalità di debug
 
@@ -1608,6 +1612,7 @@ autohand --no-chrome       # Start with browser bridge disabled
     "enableRequestQueue": true,
     "toolSelectionCache": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   },
   "permissions": {
@@ -1692,6 +1697,7 @@ agent:
   enableRequestQueue: true
   toolSelectionCache: true
   idleLogoutEnabled: true
+  idleTimeoutMs: 3600000
   debug: false
 
 permissions:
@@ -1785,6 +1791,7 @@ maxIterations = 100
 enableRequestQueue = true
 toolSelectionCache = true
 idleLogoutEnabled = true
+idleTimeoutMs = 3600000
 debug = false
 
 [permissions]

@@ -404,6 +404,8 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
   "agent": {
     "maxIterations": 100,
     "enableRequestQueue": true,
+    "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   }
 }
@@ -413,7 +415,11 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | -------------------- | ------- | ------ | --------------------------------------------- |
 | `maxIterations`      | number  | `100`  | 중지하기 전 사용자 요청당 최대 도구 반복 횟수 |
 | `enableRequestQueue` | boolean | `true` | 에이전트 작업 중 요청 입력 및 대기열 허용     |
+| `idleLogoutEnabled`  | boolean | `true` | 유휴 시간 제한 후 인증된 대화형 세션에서 로그아웃 |
+| `idleTimeoutMs`      | number  | `3600000` | 인증된 세션에서 로그아웃하기 전 비활성 시간(밀리초, 60분) |
 | `debug`              | boolean | `false` | 상세 디버그 출력 활성화 (에이전트 내부 상태 로그를 stderr에 기록) |
+
+유휴 로그아웃을 비활성화하려면 `idleLogoutEnabled`를 `false`로 설정합니다. 기간을 변경하려면 `idleTimeoutMs`를 양의 밀리초 값으로 설정합니다. 기본값은 `3600000`(60분)이며 잘못된 값은 기본값으로 대체됩니다.
 
 ### 디버그 모드
 
@@ -705,7 +711,9 @@ autohand --auto-skill
   },
   "agent": {
     "maxIterations": 100,
-    "enableRequestQueue": true
+    "enableRequestQueue": true,
+    "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000
   },
   "permissions": {
     "mode": "interactive",
@@ -762,6 +770,8 @@ ui:
 agent:
   maxIterations: 100
   enableRequestQueue: true
+  idleLogoutEnabled: true
+  idleTimeoutMs: 3600000
 
 permissions:
   mode: interactive
