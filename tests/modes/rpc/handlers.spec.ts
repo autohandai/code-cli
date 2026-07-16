@@ -567,15 +567,17 @@ describe('RPC Adapter - P2 Handlers', () => {
   describe('handleGetToolsRegistry()', () => {
     it('returns persisted meta-tools and diagnostics for non-interactive clients', () => {
       mockAgent.getToolsRegistry.mockReturnValue({
-        listMetaTools: vi.fn().mockReturnValue([
+        getRegistryEntries: vi.fn().mockReturnValue([
           {
             name: 'count_lines',
             description: 'Count lines',
-            handler: 'wc -l {{path}}',
+            source: 'meta',
             scope: 'project',
             disabled: false,
             createdAt: '2026-01-01T00:00:00.000Z',
             schemaVersion: 1,
+            handlerPreview: 'wc -l {{path}}',
+            reuseHint: 'Use count_lines instead of creating another tool for: Count lines',
           }
         ]),
         getDiagnostics: vi.fn().mockReturnValue([
@@ -595,6 +597,34 @@ describe('RPC Adapter - P2 Handlers', () => {
       ]);
       expect(result.diagnostics).toEqual([
         { file: '/workspace/.autohand/tools/bad.json', reason: 'invalid meta-tool definition' }
+      ]);
+    });
+
+    it('preserves additive extension provenance in the existing registry response', () => {
+      mockAgent.getToolsRegistry.mockReturnValue({
+        getRegistryEntries: vi.fn().mockReturnValue([
+          {
+            name: 'find_todos',
+            description: 'Find TODO and FIXME markers',
+            source: 'extension',
+            scope: 'project',
+            extensionId: 'autohand.code-health',
+            extensionVersion: '1.0.0',
+          },
+        ]),
+        getDiagnostics: vi.fn().mockReturnValue([]),
+      });
+
+      const result = adapter.handleGetToolsRegistry();
+
+      expect(result.tools).toEqual([
+        expect.objectContaining({
+          name: 'find_todos',
+          source: 'extension',
+          scope: 'project',
+          extensionId: 'autohand.code-health',
+          extensionVersion: '1.0.0',
+        }),
       ]);
     });
   });

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://raw.githubusercontent.com/autohandai/code-extensions/main/schema/autohand.extension.schema.json",
+  "schemaVersion": 1,
+  "extensionApi": 1,
+  "id": "autohand.test-triage",
+  "name": "Test Triage",
+  "version": "1.0.0",
+  "description": "Run a focused test and delegate evidence-based failure triage.",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/autohandai/code-extensions",
+  "contributes": {
+    "tools": ["tools/run-focused-test.json"],
+    "agents": ["agents/failure-triage.md"]
+  }
+}

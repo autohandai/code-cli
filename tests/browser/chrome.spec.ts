@@ -324,6 +324,31 @@ describe('browser/chrome', () => {
     expect(windowsTarget.registryKey).toContain('Microsoft\\Edge\\NativeMessagingHosts\\ai.autohand.rpc');
   });
 
+  it('uses the supplied home directory for native host manifest targets', () => {
+    const homeDir = path.join(os.tmpdir(), 'autohand-browser-manifest-home');
+
+    expect(getManifestTarget('chrome', 'darwin', homeDir).manifestPath).toBe(
+      path.join(
+        homeDir,
+        'Library',
+        'Application Support',
+        'Google',
+        'Chrome',
+        'NativeMessagingHosts',
+        'ai.autohand.rpc.json',
+      ),
+    );
+    expect(getManifestTarget('chromium', 'linux', homeDir).manifestPath).toBe(
+      path.join(
+        homeDir,
+        '.config',
+        'chromium',
+        'NativeMessagingHosts',
+        'ai.autohand.rpc.json',
+      ),
+    );
+  });
+
   it('resolves a detected browser launch target for a specific browser', async () => {
     const app = await resolveBrowserLaunchTarget('chrome', 'darwin', async (probe) => probe.includes('Google Chrome.app'));
     expect(app).toBe('Google Chrome');
@@ -350,6 +375,7 @@ describe('browser/chrome', () => {
 
     const result = await installNativeHost({
       homeDir: tempRoot,
+      browserHomeDir: tempRoot,
       cliCommand: '/usr/local/bin/autohand',
       cliArgPrefix: ['/app/dist/index.js'],
       extensionIds: ['ext123'],
@@ -357,6 +383,9 @@ describe('browser/chrome', () => {
     });
 
     expect(result.targets).toHaveLength(1);
+    expect(result.targets[0].manifestPath).toBe(
+      getManifestTarget('chrome', process.platform, tempRoot).manifestPath,
+    );
     expect(await pathExists(result.hostScriptPath)).toBe(true);
     expect(await pathExists(result.targets[0].manifestPath)).toBe(true);
 
@@ -468,49 +497,36 @@ describe('browser/chrome', () => {
   // Chrome will reject the host if allowed_origins is paired to another
   // extension id.
   it('repairs manifest when the allowed origin does not match the extension id', async () => {
-    const { getManifestTarget } = await import('../../src/browser/chrome.js');
-    const target = getManifestTarget('chrome');
-
-    // Save original manifest if it exists
-    let originalManifest: string | null = null;
-    if (await pathExists(target.manifestPath)) {
-      originalManifest = await fs.readFile(target.manifestPath, 'utf8');
-    }
-
     const tempRoot = path.join(os.tmpdir(), `autohand-test-manifest-${Date.now()}`);
     tempRoots.push(tempRoot);
+    const target = getManifestTarget('chrome', process.platform, tempRoot);
     const hostPath = path.join(tempRoot, 'my-host.js');
 
-    try {
-      // Create a valid manifest pointing to a reachable host
-      await fs.ensureDir(path.dirname(target.manifestPath));
-      await fs.ensureDir(path.dirname(hostPath));
-      await writeFile(hostPath, '#!/usr/bin/env node\n', 'utf8');
-      await fs.writeJson(target.manifestPath, {
-        name: 'ai.autohand.rpc',
-        description: 'test',
-        path: hostPath,
-        type: 'stdio',
-        allowed_origins: ['chrome-extension://oldextensionid/'],
-      });
+    await fs.ensureDir(path.dirname(target.manifestPath));
+    await fs.ensureDir(path.dirname(hostPath));
+    await writeFile(hostPath, '#!/usr/bin/env node\n', 'utf8');
+    await fs.writeJson(target.manifestPath, {
+      name: 'ai.autohand.rpc',
+      description: 'test',
+      path: hostPath,
+      type: 'stdio',
+      allowed_origins: ['chrome-extension://oldextensionid/'],
+    });
 
-      // Re-import to get fresh module
-      const { ensureNativeHostInstalled } = await import('../../src/browser/chrome.js');
+    const { ensureNativeHostInstalled } = await import('../../src/browser/chrome.js');
 
-      await ensureNativeHostInstalled({ extensionId: 'newextensionid' });
+    await ensureNativeHostInstalled({
+      extensionId: 'newextensionid',
+      homeDir: tempRoot,
+      browserHomeDir: tempRoot,
+    });
 
-      const manifest = await readJson(target.manifestPath);
-      expect(manifest.path).not.toBe(hostPath);
-      expect(manifest.allowed_origins).toEqual([
-        'chrome-extension://oldextensionid/',
-        'chrome-extension://newextensionid/',
-      ]);
-      expect(await pathExists(manifest.path)).toBe(true);
-    } finally {
-      // Restore original manifest
-      if (originalManifest) {
-        await writeFile(target.manifestPath, originalManifest, 'utf8');
-      }
-    }
+    const manifest = await readJson(target.manifestPath);
+    expect(manifest.path).not.toBe(hostPath);
+    expect(manifest.allowed_origins).toEqual([
+      'chrome-extension://oldextensionid/',
+      'chrome-extension://newextensionid/',
+    ]);
+    expect(await pathExists(manifest.path)).toBe(true);
   });
 });

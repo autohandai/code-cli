@@ -89,6 +89,12 @@ ${body}
       expect(deepResearch?.source).toBe('builtin');
       expect(deepResearch?.path).toContain('src/skills/builtin/deep-research/SKILL.md');
       expect(deepResearch?.body).toContain('cited research report');
+
+      const extensionBuilder = registry.getSkill('extension-builder');
+      expect(extensionBuilder).not.toBeNull();
+      expect(extensionBuilder?.source).toBe('builtin');
+      expect(extensionBuilder?.path).toContain('src/skills/builtin/extension-builder/SKILL.md');
+      expect(extensionBuilder?.body).toContain('Pi');
     });
 
     it('loads skills recursively when configured', async () => {
@@ -141,16 +147,16 @@ ${body}
       expect(registry.getSkill('overlap-skill')?.description).toBe('Autohand copy');
       expect(registry.getSkill('overlap-skill')?.source).toBe('autohand-user');
 
-      const mentionSuggestions = buildSkillSuggestions('', skills.map(skill => ({
+      const skillMentions = skills.map(skill => ({
         name: skill.name,
         description: skill.description,
         isActive: skill.isActive,
         source: skill.source,
-      })));
-      expect(mentionSuggestions.map(suggestion => suggestion.name)).toEqual(expect.arrayContaining([
-        '$code-cli-guardian',
-        '$legacy-review',
-      ]));
+      }));
+      expect(buildSkillSuggestions('code-cli', skillMentions).map(suggestion => suggestion.name))
+        .toContain('$code-cli-guardian');
+      expect(buildSkillSuggestions('legacy', skillMentions).map(suggestion => suggestion.name))
+        .toContain('$legacy-review');
     });
 
     it('loads npx skills user locations when default discovery is enabled', async () => {
@@ -184,6 +190,33 @@ ${body}
   });
 
   describe('skill activation', () => {
+    it('activates exact $skill mentions and returns their same-turn instructions', async () => {
+      const testDir = path.join(tempRoot, 'test-mentioned-skills');
+      await fs.ensureDir(testDir);
+      await createSkill(
+        testDir,
+        'extension-builder',
+        'Build extensions',
+        'Inspect, author, validate, and install the requested extension.',
+      );
+
+      const registry = new SkillsRegistry(testDir);
+      await registry.initialize();
+
+      const mentioned = registry.activateMentionedSkills(
+        'Use $extension-builder to adapt this Pi extension. Keep $199 as plain text.',
+      );
+
+      expect(mentioned).toEqual([
+        expect.objectContaining({
+          name: 'extension-builder',
+          isActive: true,
+          body: expect.stringContaining('validate'),
+        }),
+      ]);
+      expect(registry.getSkill('extension-builder')?.isActive).toBe(true);
+    });
+
     it('activates a skill by name', async () => {
       const testDir = path.join(tempRoot, 'test-activate-skills');
       await fs.ensureDir(testDir);

@@ -114,6 +114,10 @@ export interface HookContext {
   autoresearchMaxIterations?: number;
   /** Auto-research slash subcommand that triggered the event */
   autoresearchSubcommand?: string;
+  /** Immutable auto-research ledger attempt id */
+  autoresearchAttemptId?: string;
+  /** Deterministic decision outcome for the attempt */
+  autoresearchDecision?: string;
 
   // Multi-directory support
   /** Additional workspace directories (from --add-dir or /add-dir) */
@@ -632,6 +636,8 @@ export class HookManager {
     if (context.autoresearchIteration !== undefined) env.HOOK_AUTORESEARCH_ITERATION = String(context.autoresearchIteration);
     if (context.autoresearchMaxIterations !== undefined) env.HOOK_AUTORESEARCH_MAX_ITERATIONS = String(context.autoresearchMaxIterations);
     if (context.autoresearchSubcommand) env.HOOK_AUTORESEARCH_SUBCOMMAND = context.autoresearchSubcommand;
+    if (context.autoresearchAttemptId) env.HOOK_AUTORESEARCH_ATTEMPT_ID = context.autoresearchAttemptId;
+    if (context.autoresearchDecision) env.HOOK_AUTORESEARCH_DECISION = context.autoresearchDecision;
 
     // Review hooks
     if (context.event.startsWith('review:')) {
@@ -728,6 +734,8 @@ export class HookManager {
       autoresearch_iteration: context.autoresearchIteration,
       autoresearch_max_iterations: context.autoresearchMaxIterations,
       autoresearch_subcommand: context.autoresearchSubcommand,
+      autoresearch_attempt_id: context.autoresearchAttemptId,
+      autoresearch_decision: context.autoresearchDecision,
       // Review context
       review_path: context.reviewPath,
       review_scope: context.reviewScope,

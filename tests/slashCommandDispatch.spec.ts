@@ -66,6 +66,11 @@ describe('slash command dispatch – output vs instruction', () => {
     expect(commands).toContain('/tools');
   });
 
+  it('/extensions is registered in SLASH_COMMANDS', () => {
+    const commands = SLASH_COMMANDS.map(c => c.command);
+    expect(commands).toContain('/extensions');
+  });
+
   it('/go is registered in SLASH_COMMANDS', () => {
     const commands = SLASH_COMMANDS.map(c => c.command);
     expect(commands).toContain('/go');
@@ -75,6 +80,7 @@ describe('slash command dispatch – output vs instruction', () => {
     const commands = SLASH_COMMANDS.map(c => c.command);
     expect(commands).toContain('/deep-research');
     expect(commands).toContain('/deep-search');
+    expect(commands).toContain('/publish-research');
   });
 
   it('/autoresearch is registered in SLASH_COMMANDS', () => {
@@ -157,8 +163,16 @@ describe('slash command dispatch – output vs instruction', () => {
 
       expect(result).toEqual(expect.any(String));
       expect(result).toContain('Deep research started');
-      expect(ctx.queueInstruction).toHaveBeenCalledWith(expect.stringContaining('Hermes self evolving'));
-      expect(ctx.queueInstruction).toHaveBeenCalledWith(expect.stringContaining('.autohand/research/topic-hermes-self-evolving.md'));
+      expect(ctx.queueInstruction).toHaveBeenCalledWith(
+        expect.stringContaining('Hermes self evolving'),
+        expect.objectContaining({ kind: 'publish-research' }),
+      );
+      expect(ctx.queueInstruction).toHaveBeenCalledWith(
+        expect.stringContaining('.autohand/research/topic-hermes-self-evolving.md'),
+        expect.objectContaining({
+          reportPath: '.autohand/research/topic-hermes-self-evolving.md',
+        }),
+      );
     } finally {
       await fs.remove(workspaceRoot);
     }

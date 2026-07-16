@@ -163,6 +163,8 @@ function getSkillSourceLabel(source: SkillDefinition['source']): string {
       return 'Codex Project';
     case 'community':
       return 'Community';
+    case 'extension':
+      return 'Extension';
     default:
       return source;
   }
@@ -274,6 +276,7 @@ function listSkills(registry: SkillsRegistry): string {
     'claude-project': '📁 Project Skills',
     'autohand-user': '📁 Autohand User Skills',
     'autohand-project': '📁 Project Skills',
+    'extension': '🧩 Extension Skills',
   };
 
   for (const [source, skills] of bySource) {

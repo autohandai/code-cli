@@ -76,7 +76,14 @@ export interface AgentContextRuntimeHost {
     getKnowledge(workspaceRoot: string): Promise<ProjectKnowledge | null>;
   };
   runtime: AgentRuntime;
-  skillsRegistry: { getActiveSkills(): Array<{ name: string; description: string }> };
+  skillsRegistry: {
+    getActiveSkills(): Array<{ name: string; description: string }>;
+    activateMentionedSkills?(instruction: string): Array<{
+      name: string;
+      description: string;
+      body: string;
+    }>;
+  };
   versionCheckResult?: VersionCheckResult;
   buildSystemPrompt(): Promise<string>;
   emitStatus(): void;
@@ -159,6 +166,16 @@ export async function buildAgentUserMessage(
   ]
     .filter(Boolean)
     .map(String);
+
+  const mentionedSkills = host.skillsRegistry?.activateMentionedSkills?.(instruction) ?? [];
+  for (const skill of mentionedSkills) {
+    userPromptParts.push([
+      `Explicitly requested skill: ${skill.name}`,
+      skill.description,
+      '',
+      skill.body,
+    ].join('\n'));
+  }
 
   const mentionContext = host.mentionResolver.flush();
   if (mentionContext) {

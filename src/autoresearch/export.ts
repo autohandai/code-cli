@@ -7,6 +7,7 @@
 import fs from 'fs-extra';
 import path from 'node:path';
 import { computeSessionStats, readConfigJson, readLogEntries } from './session.js';
+import { getAutoresearchHistory, getParetoExperiments } from './analysis.js';
 
 export interface ExportDashboardResult {
   success: boolean;
@@ -27,6 +28,11 @@ export async function exportDashboard(workspaceRoot: string): Promise<ExportDash
   }
 
   const entries = await readLogEntries(workspaceRoot);
+  const [history, pareto] = await Promise.all([
+    getAutoresearchHistory(workspaceRoot),
+    getParetoExperiments(workspaceRoot),
+  ]);
+  const paretoIds = new Set(pareto.attemptIds);
   const stats = computeSessionStats(entries, config.direction);
   const filePath = path.join(workspaceRoot, '.auto', 'dashboard.html');
 
@@ -45,6 +51,27 @@ export async function exportDashboard(workspaceRoot: string): Promise<ExportDash
   `
     )
     .join('');
+  const historyRows = history.attempts.map((attempt) => {
+    const metrics = attempt.latestEvaluation
+      ? Object.entries(attempt.latestEvaluation.aggregates)
+        .map(([name, aggregate]) => `${name}=${aggregate.median} (MAD ${aggregate.mad}, n=${aggregate.sampleCount})`)
+        .join(', ')
+      : 'unavailable';
+    const drift = attempt.latestEvaluation?.driftWarnings.join('; ') || 'none';
+    const recommendation = paretoIds.has(attempt.attemptId)
+      ? 'Pareto candidate (advisory)'
+      : '';
+    return `
+    <tr>
+      <td><code>${escapeHtml(attempt.attemptId)}</code></td>
+      <td>${escapeHtml(attempt.latestDecision?.outcome ?? 'unknown')}</td>
+      <td>${attempt.replayable ? 'yes' : 'no'}</td>
+      <td>${escapeHtml(attempt.materialization)}</td>
+      <td>${escapeHtml(metrics)}</td>
+      <td>${escapeHtml(drift)}</td>
+      <td>${escapeHtml(recommendation)}</td>
+    </tr>`;
+  }).join('');
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -107,6 +134,25 @@ export async function exportDashboard(workspaceRoot: string): Promise<ExportDash
     </thead>
     <tbody>
       ${rows || '<tr><td colspan="7">No experiment runs recorded yet.</td></tr>'}
+    </tbody>
+  </table>
+
+  <h2>Full ledger history</h2>
+  <p>Pareto candidates are advisory recommendations and are never presented as automatically committed winners.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Attempt</th>
+        <th>Latest decision</th>
+        <th>Replayable</th>
+        <th>Materialization</th>
+        <th>Metric vector</th>
+        <th>Replay drift</th>
+        <th>Recommendation</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${historyRows || '<tr><td colspan="7">No immutable ledger attempts recorded. Legacy summary rows are non-replayable.</td></tr>'}
     </tbody>
   </table>
 </body>

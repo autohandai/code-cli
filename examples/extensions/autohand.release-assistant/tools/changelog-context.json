@@ -1,0 +1,20 @@
+{
+  "name": "changelog_context",
+  "description": "Show changes to a changelog path since a release base",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "from": {
+        "type": "string",
+        "description": "Previous release tag or commit"
+      },
+      "path": {
+        "type": "string",
+        "description": "Repository-relative changelog path"
+      }
+    },
+    "required": ["from", "path"]
+  },
+  "handler": "git diff {{from}}..HEAD -- {{path}}",
+  "source": "user"
+}

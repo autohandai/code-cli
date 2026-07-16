@@ -44,6 +44,19 @@ When activated, skills inject their instructions into the agent's context, provi
 /skills use changelog-generator
 ```
 
+An exact `$skill-name` mention activates the installed skill and injects its instructions into the same turn:
+
+```text
+$extension-builder adapt this Pi package into an Autohand extension and install it for this project
+```
+
+`extension-builder` ships with Autohand. The curated copy can also be installed through Autohand's community installer or the open skills ecosystem:
+
+```bash
+autohand --skill-install extension-builder --yes
+npx skills add https://github.com/autohandai/community-skills --skill extension-builder -a codex -y
+```
+
 ### Create a New Skill
 
 ```bash
@@ -74,6 +87,7 @@ Skills are discovered from multiple locations, with later sources taking precede
 
 | Location | Source ID | Description |
 |----------|-----------|-------------|
+| Packaged `dist/skills/builtin/**/SKILL.md` | `builtin` | Skills shipped with Autohand |
 | `~/.codex/skills/**/SKILL.md` | `codex-user` | User-level Codex skills (recursive) |
 | `~/.claude/skills/*/SKILL.md` | `claude-user` | User-level Claude skills (one level) |
 | `~/.agent/skills/**/SKILL.md` | `agent-user` | User-level shared agent skills (recursive) |
@@ -85,6 +99,7 @@ Skills are discovered from multiple locations, with later sources taking precede
 | `<project>/.agents/skills/**/SKILL.md` | `agent-project` | Project-level shared agent skills (recursive) |
 | `<project>/<agent-dir>/skills/**/SKILL.md` | `agent-project` | Third-party agent project skills (recursive) |
 | `<project>/.autohand/skills/**/SKILL.md` | `autohand-project` | Project-level Autohand skills (recursive) |
+| Enabled extension `contributes.skills` entries | `extension` | Skills owned by installed Autohand extensions |
 
 Supported third-party project skill directories include `.aider-desk/skills`, `.augment/skills`, `.bob/skills`, `.codeartsdoer/skills`, `.codebuddy/skills`, `.codemaker/skills`, `.codestudio/skills`, `.commandcode/skills`, `.continue/skills`, `.cortex/skills`, `.crush/skills`, `.devin/skills`, `.factory/skills`, `.forge/skills`, `.goose/skills`, `.hermes/skills`, `.junie/skills`, `.iflow/skills`, `.kilocode/skills`, `.kiro/skills`, `.kode/skills`, `.mcpjam/skills`, `.vibe/skills`, `.mux/skills`, `.openhands/skills`, `.pi/skills`, `.qoder/skills`, `.qwen/skills`, `.rovodev/skills`, `.roo/skills`, `.tabnine/agent/skills`, `.trae/skills`, `.windsurf/skills`, `.zencoder/skills`, `.neovate/skills`, `.pochi/skills`, and `.adal/skills`.
 

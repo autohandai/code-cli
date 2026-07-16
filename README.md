@@ -304,8 +304,9 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/cc`              | Toggle context compaction                                                        |
 | `/search`          | Search the web                                                                   |
 | `/deep-research`   | Run cited research; use `status` for progress (`/deep-search` alias)             |
+| `/publish-research`| Preview and publish a saved research report with explicit confirmation             |
 | `/automode`        | Manage auto-mode                                                                 |
-| `/autoresearch`    | Run persisted benchmark loops under `.auto/`                                    |
+| `/autoresearch`    | Run replayable benchmark loops with history, replay, comparison, and Pareto analysis |
 | `/goal`            | Set, review, or refine the current session goal                                  |
 | `/goal writer`     | Draft one or more well-specified goals with the built-in `$goal-writer` skill    |
 | `/squad`           | Open/manage the local Autohand Squad runtime                                     |
@@ -368,6 +369,18 @@ Autohand Code CLI includes 40+ tools for autonomous coding:
 `tools_registry` - List all available tools with descriptions.
 `tool_search` - Search tools by capability, name, or description.
 `create_meta_tool` - Create reusable user- or project-scoped shell-backed tools that load in future sessions.
+
+### Code Extensions
+
+Package reusable tools and agents in a strict declarative manifest, then validate and install them without changing CLI source:
+
+```sh
+autohand extensions validate ./examples/extensions/autohand.code-health
+autohand extensions install ./examples/extensions/autohand.code-health
+autohand extensions list
+```
+
+Extensions execute no code during install or startup. They can contribute tools, focused agents, and portable Agent Skills; contributed tools use the existing permission and hook pipeline when invoked. Mention `$extension-builder` to create, extend, or adapt an extension from a description or Pi package. See [Using extensions](docs/extensions.md), [Extension authoring](docs/extension-authoring.md), and the [five working examples](examples/extensions).
 
 ### Notebooks
 
@@ -532,6 +545,8 @@ docker run -it autohand
 - [Features](docs/features.md) - Complete feature and experiment list
 - [Agent Skills](docs/agent-skills.md) - Skills system guide
 - [Extending Autohand Code CLI](docs/extending.md) - Build tools, skills, hooks, MCP servers, and integrations
+- [Autohand Code extensions](docs/extensions.md) - Validate, install, inspect, and manage declarative extension packages
+- [Extension authoring](docs/extension-authoring.md) - Package tools and agents for the public extension ecosystem
 - [Configuration Reference](docs/config-reference.md) - All config options
   - [English](docs/config-reference.md)
   - [日本語](docs/config-reference_ja.md)

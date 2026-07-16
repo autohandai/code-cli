@@ -1,0 +1,15 @@
+{
+  "$schema": "https://raw.githubusercontent.com/autohandai/code-extensions/main/schema/autohand.extension.schema.json",
+  "schemaVersion": 1,
+  "extensionApi": 1,
+  "id": "autohand.security-audit",
+  "name": "Security Audit",
+  "version": "1.0.0",
+  "description": "Audit dependencies and review suspicious execution patterns.",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/autohandai/code-extensions",
+  "contributes": {
+    "tools": ["tools/dependency-audit.json", "tools/suspicious-patterns.json"],
+    "agents": ["agents/security-reviewer.md"]
+  }
+}

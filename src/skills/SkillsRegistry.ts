@@ -14,6 +14,7 @@ import type {
   SkillSimilarityMatch,
   SkillCopyResult,
 } from './types.js';
+import type { ExtensionSkillContribution } from '../extensions/types.js';
 import {
   AUTOHAND_PATHS,
   PROJECT_DIR_NAME,
@@ -100,6 +101,7 @@ export class SkillsRegistry {
   private readonly defaultSource: SkillSource;
   private telemetryManager: TelemetryManager | null = null;
   private communityClient: CommunitySkillsClient | null = null;
+  private readonly extensionSkillNames = new Set<string>();
 
   constructor(
     private readonly userSkillsDir: string,
@@ -304,6 +306,53 @@ export class SkillsRegistry {
    */
   getUserSkillsDir(): string {
     return this.userSkillsDir;
+  }
+
+  /** Replace the ephemeral skills contributed by the current extension snapshot. */
+  setExtensionSkills(contributions: ExtensionSkillContribution[]): void {
+    const activeNames = new Set(
+      [...this.extensionSkillNames].filter((name) => this.skills.get(name)?.isActive === true),
+    );
+    for (const name of this.extensionSkillNames) {
+      if (this.skills.get(name)?.source === 'extension') {
+        this.skills.delete(name);
+      }
+    }
+    this.extensionSkillNames.clear();
+
+    for (const contribution of contributions) {
+      const name = contribution.definition.name;
+      if (this.skills.has(name)) {
+        continue;
+      }
+      this.skills.set(name, {
+        ...contribution.definition,
+        isActive: activeNames.has(name),
+      });
+      this.extensionSkillNames.add(name);
+    }
+  }
+
+  /** Activate exact `$skill-name` mentions and return their same-turn instructions. */
+  activateMentionedSkills(instruction: string): SkillDefinition[] {
+    const mentioned: SkillDefinition[] = [];
+    const seen = new Set<string>();
+    for (const match of instruction.matchAll(/\$([a-z0-9]+(?:-[a-z0-9]+)*)\b/g)) {
+      const name = match[1];
+      if (seen.has(name)) {
+        continue;
+      }
+      seen.add(name);
+      const skill = this.skills.get(name);
+      if (!skill) {
+        continue;
+      }
+      if (!skill.isActive) {
+        this.activateSkill(name);
+      }
+      mentioned.push(skill);
+    }
+    return mentioned;
   }
 
   /**

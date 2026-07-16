@@ -3,6 +3,8 @@ import type { Session } from 'tuistory';
 import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import {
   expectCleanExit,
   launchBuiltAutohand,
@@ -11,6 +13,7 @@ import {
 
 const sessions: Session[] = [];
 const workspaces: string[] = [];
+const execFileAsync = promisify(execFile);
 
 afterEach(async () => {
   for (const session of sessions.splice(0)) session.close();
@@ -21,6 +24,10 @@ describe('built CLI autoresearch', () => {
   it('starts through auto-research and resumes through the autoresearch alias', async () => {
     const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-tuistory-autoresearch-'));
     workspaces.push(workspace);
+    await execFileAsync('git', ['init'], { cwd: workspace });
+    await execFileAsync('git', ['config', 'user.email', 'tests@autohand.ai'], { cwd: workspace });
+    await execFileAsync('git', ['config', 'user.name', 'Autohand Tests'], { cwd: workspace });
+    await execFileAsync('git', ['commit', '--allow-empty', '-m', 'baseline'], { cwd: workspace });
 
     const start = await launchBuiltAutohand([
       'auto-research',
@@ -63,5 +70,31 @@ describe('built CLI autoresearch', () => {
     await status.waitForText('Iterations: 0 / 4', { timeout: 10_000 });
     await waitForExit(status);
     expectCleanExit(status);
+
+    const events = (await fs.readFile(
+      path.join(workspace, '.auto', 'ledger', 'events.jsonl'),
+      'utf8'
+    )).trim().split('\n').map((line) => JSON.parse(line) as { type: string; attemptId: string });
+    const baselineAttemptId = events.find((event) => event.type === 'candidate')?.attemptId;
+    expect(baselineAttemptId).toBeTruthy();
+
+    const history = await launchBuiltAutohand(
+      ['autoresearch', 'history'],
+      { cwd: workspace, waitForDataTimeout: 15_000 }
+    );
+    sessions.push(history);
+    await history.waitForText('Auto-research history', { timeout: 10_000 });
+    await history.waitForText(baselineAttemptId!, { timeout: 10_000 });
+    await waitForExit(history);
+    expectCleanExit(history);
+
+    const replay = await launchBuiltAutohand(
+      ['autoresearch', 'replay', baselineAttemptId!, '--evaluator', 'original'],
+      { cwd: workspace, waitForDataTimeout: 15_000 }
+    );
+    sessions.push(replay);
+    await replay.waitForText('replayed with original evaluator', { timeout: 10_000 });
+    await waitForExit(replay);
+    expectCleanExit(replay);
   }, 60_000);
 });

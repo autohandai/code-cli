@@ -7,7 +7,10 @@ import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildAgentUserMessage } from '../../../src/core/agent/AgentContextRuntime.js';
+import {
+  buildAgentUserMessage,
+  type AgentContextRuntimeHost,
+} from '../../../src/core/agent/AgentContextRuntime.js';
 import { listSavedResearchReports } from '../../../src/core/agent/SavedResearchContext.js';
 import { buildSessionBootstrap } from '../../../src/core/agent/SessionBootstrapBuilder.js';
 
@@ -71,11 +74,43 @@ describe('saved research context', () => {
         flush: () => null,
       },
       recordExploration: vi.fn(),
-    } as any, 'Use the previous research');
+    } as unknown as AgentContextRuntimeHost, 'Use the previous research');
 
     expect(message).toContain('Saved research reports');
     expect(message).toContain('.autohand/research/topic-dspy.md');
     expect(message).toContain('DSPy Research');
     expect(message).toContain('Instruction: Use the previous research');
+  });
+
+  it('injects explicitly mentioned skill instructions into the same user turn', async () => {
+    const activateMentionedSkills = vi.fn(() => [{
+      name: 'extension-builder',
+      description: 'Build Autohand extensions',
+      body: 'Inspect the target, author the package, validate it, and install it.',
+      source: 'builtin',
+      path: '/skills/extension-builder/SKILL.md',
+      isActive: true,
+    }]);
+
+    const message = await buildAgentUserMessage({
+      runtime: {
+        workspaceRoot,
+        options: {},
+      },
+      ignoreFilter: {
+        isIgnored: () => false,
+      },
+      mentionResolver: {
+        flush: () => null,
+      },
+      skillsRegistry: { activateMentionedSkills },
+      recordExploration: vi.fn(),
+    } as unknown as AgentContextRuntimeHost, '$extension-builder create a release-notes extension');
+
+    expect(activateMentionedSkills).toHaveBeenCalledWith(
+      '$extension-builder create a release-notes extension',
+    );
+    expect(message).toContain('Explicitly requested skill: extension-builder');
+    expect(message).toContain('author the package, validate it, and install it');
   });
 });

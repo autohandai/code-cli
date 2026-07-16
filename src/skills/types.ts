@@ -22,6 +22,7 @@ export type SkillSource =
   | 'agent-project'    // <cwd> third-party agent skill directories (recursive)
   | 'autohand-user'    // ~/.autohand/skills/**/SKILL.md (recursive)
   | 'autohand-project' // <cwd>/.autohand/skills/**/SKILL.md (recursive)
+  | 'extension'        // Skills contributed by an enabled Autohand extension
   | 'community';       // Downloaded from community API
 
 /**

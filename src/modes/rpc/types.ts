@@ -5,7 +5,20 @@
  */
 import type { PermissionPromptDecision, PermissionPromptResult } from '../../permissions/types.js';
 import type { McpServerConfigEntry, ToolRegistryEntry } from '../../types.js';
-import type { OptimizationDirection, SubagentDelegationConfig } from '../../autoresearch/session.js';
+import type {
+  ExperimentConstraintConfig,
+  ExperimentRetentionConfig,
+  ExperimentSamplingConfig,
+  OptimizationDirection,
+  SecondaryObjectiveConfig,
+  SubagentDelegationConfig,
+} from '../../autoresearch/session.js';
+import type {
+  AutoresearchHistoryAttempt,
+  ExperimentComparison,
+  PruneArtifactsResult,
+} from '../../autoresearch/analysis.js';
+import type { DecisionRecord, EvaluationRecord } from '../../autoresearch/ledger.js';
 
 // ============================================================================
 // JSON-RPC 2.0 Base Types
@@ -118,6 +131,13 @@ export const RPC_METHODS = {
   AUTORESEARCH_START: 'autohand.autoresearch.start',
   AUTORESEARCH_STATUS: 'autohand.autoresearch.status',
   AUTORESEARCH_STOP: 'autohand.autoresearch.stop',
+  AUTORESEARCH_HISTORY: 'autohand.autoresearch.history',
+  AUTORESEARCH_REPLAY: 'autohand.autoresearch.replay',
+  AUTORESEARCH_RESCORE: 'autohand.autoresearch.rescore',
+  AUTORESEARCH_COMPARE: 'autohand.autoresearch.compare',
+  AUTORESEARCH_PARETO: 'autohand.autoresearch.pareto',
+  AUTORESEARCH_PIN: 'autohand.autoresearch.pin',
+  AUTORESEARCH_PRUNE: 'autohand.autoresearch.prune',
   // Plan mode control
   PLAN_MODE_SET: 'autohand.planModeSet',
   // Session history
@@ -215,6 +235,7 @@ export const RPC_NOTIFICATIONS = {
   AUTORESEARCH_START: 'autohand.autoresearch.start',
   AUTORESEARCH_STATUS: 'autohand.autoresearch.status',
   AUTORESEARCH_PAUSE: 'autohand.autoresearch.pause',
+  AUTORESEARCH_EVENT: 'autohand.autoresearch.event',
   // Mode change notifications
   MODE_CHANGE: 'autohand.modeChange',
   // Pipe mode notifications
@@ -1094,6 +1115,11 @@ export interface AutoresearchStartParams {
   checksScript?: string;
   filesInScope?: string[];
   subagents?: SubagentDelegationConfig;
+  secondaryObjectives?: SecondaryObjectiveConfig[];
+  constraints?: ExperimentConstraintConfig[];
+  sampling?: Partial<ExperimentSamplingConfig>;
+  retention?: ExperimentRetentionConfig;
+  environmentAllowlist?: string[];
 }
 
 export interface AutoresearchStartResult {
@@ -1104,6 +1130,8 @@ export interface AutoresearchStartResult {
   state?: AutoresearchRpcState;
   statusText?: string;
   runsLogged?: number;
+  attempts?: AutoresearchHistoryAttempt[];
+  paretoAttemptIds?: string[];
   error?: string;
 }
 
@@ -1113,6 +1141,8 @@ export interface AutoresearchStatusResult {
   state?: AutoresearchRpcState;
   statusText: string;
   runsLogged: number;
+  attempts?: AutoresearchHistoryAttempt[];
+  paretoAttemptIds?: string[];
   error?: string;
 }
 
@@ -1123,7 +1153,91 @@ export interface AutoresearchStopResult {
   state?: AutoresearchRpcState;
   statusText?: string;
   runsLogged?: number;
+  attempts?: AutoresearchHistoryAttempt[];
+  paretoAttemptIds?: string[];
   error?: string;
+}
+
+export interface AutoresearchHistoryResult {
+  success: boolean;
+  attempts: AutoresearchHistoryAttempt[];
+  error?: string;
+}
+
+export interface AutoresearchReplayParams {
+  attemptId: string;
+  evaluator?: 'original' | 'current';
+}
+
+export interface AutoresearchReplayResult {
+  success: boolean;
+  attemptId?: string;
+  evaluatorMode?: 'original' | 'current';
+  metrics?: Record<string, number>;
+  samples?: EvaluationRecord['samples'];
+  decision?: DecisionRecord;
+  driftWarnings?: string[];
+  error?: string;
+}
+
+export interface AutoresearchRescoreParams {
+  attemptId?: string;
+  all?: boolean;
+}
+
+export interface AutoresearchRescoreResult {
+  success: boolean;
+  decisions: DecisionRecord[];
+  error?: string;
+}
+
+export interface AutoresearchCompareParams {
+  leftAttemptId: string;
+  rightAttemptId: string;
+}
+
+export interface AutoresearchCompareResult {
+  success: boolean;
+  comparison?: ExperimentComparison;
+  error?: string;
+}
+
+export interface AutoresearchParetoResult {
+  success: boolean;
+  attemptIds: string[];
+  error?: string;
+}
+
+export interface AutoresearchPinParams {
+  attemptId: string;
+  pinned: boolean;
+}
+
+export interface AutoresearchPinResult {
+  success: boolean;
+  attemptId: string;
+  pinned: boolean;
+  error?: string;
+}
+
+export interface AutoresearchPruneParams {
+  dryRun?: boolean;
+  yes?: boolean;
+}
+
+export interface AutoresearchPruneResult extends PruneArtifactsResult {
+  success: boolean;
+  error?: string;
+}
+
+export interface AutoresearchEventNotificationParams {
+  operation: 'history' | 'replay' | 'rescore' | 'compare' | 'pareto' | 'pin' | 'prune';
+  phase: 'started' | 'completed' | 'failed';
+  attemptId?: string;
+  success: boolean;
+  applied?: boolean;
+  error?: string;
+  timestamp: string;
 }
 
 // ============================================================================

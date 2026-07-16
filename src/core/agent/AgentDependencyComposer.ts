@@ -41,6 +41,7 @@ import { MemoryManager } from '../../memory/MemoryManager.js';
 import { FeedbackManager } from '../../feedback/FeedbackManager.js';
 import { TelemetryManager } from '../../telemetry/TelemetryManager.js';
 import { SkillsRegistry } from '../../skills/SkillsRegistry.js';
+import type { SkillDefinition } from '../../skills/types.js';
 import { CommunitySkillsClient } from '../../skills/CommunitySkillsClient.js';
 import { CommunitySkillsCache } from '../../skills/CommunitySkillsCache.js';
 import { GitHubRegistryFetcher } from '../../skills/GitHubRegistryFetcher.js';
@@ -76,8 +77,10 @@ import { isGoalFeatureEnabled } from '../../goals/feature.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { SuggestionEngine } from '../SuggestionEngine.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
-import { configureAgentRegistry } from './dynamicRuntimeExtensions.js';
+import { configureAgentRegistry, syncDynamicRuntimeExtensions } from './dynamicRuntimeExtensions.js';
+import { ExtensionService } from '../../extensions/ExtensionService.js';
 import type { MobileRelayController } from '../../mobile/MobileRelay.js';
+import type { PendingPostTurnAction } from './PostTurnActionCoordinator.js';
 
 export interface AgentDependencyHost {
   [key: string]: any;
@@ -179,9 +182,25 @@ export function initializeAgentDependencies(
       });
     }
 
-    configureAgentRegistry(runtime);
+    const agentRegistry = configureAgentRegistry(runtime);
     const pluginDir = (runtime.config as typeof runtime.config & { pluginDir?: string }).pluginDir;
-    host.toolsRegistry = createToolsRegistry(runtime.workspaceRoot, pluginDir ?? AUTOHAND_PATHS.tools);
+    const toolsRegistry = createToolsRegistry(runtime.workspaceRoot, pluginDir ?? AUTOHAND_PATHS.tools);
+    host.toolsRegistry = toolsRegistry;
+    host.extensionService = new ExtensionService({
+      projectRoot: join(runtime.workspaceRoot, PROJECT_DIR_NAME, 'extensions'),
+      loadOptions: () => ({
+        reservedToolNames: toolsRegistry
+          .listMetaTools({ includeDisabled: true })
+          .map((tool) => tool.name),
+        reservedAgentNames: agentRegistry
+          .getAllAgents()
+          .filter((agent) => agent.source !== 'extension')
+          .map((agent) => agent.name),
+        reservedSkillNames: (host.skillsRegistry.listSkills() as SkillDefinition[])
+          .filter((skill) => skill.source !== 'extension')
+          .map((skill) => skill.name),
+      }),
+    });
     host.memoryManager = new MemoryManager(runtime.workspaceRoot);
 
     // Initialize context orchestrator for auto-compaction
@@ -356,7 +375,11 @@ export function initializeAgentDependencies(
         });
       },
       onAutoresearchHook: async (event, context) => {
-        await host.hookManager.executeHooks(event as HookEvent, context);
+        await host.hookManager.executeHooks(event as HookEvent, {
+          ...context,
+          autoresearchAttemptId: context.attemptId,
+          autoresearchDecision: context.decision,
+        });
       },
       onGoalWrittenCompleted: async (context) => {
         await host.hookManager.executeHooks('goal-written:completed', {
@@ -371,7 +394,7 @@ export function initializeAgentDependencies(
       onLiveCommandRemove: (id) => host.inkRenderer?.removeLiveCommand(id),
       onRequestDirectoryAccess: async (path, reason) => host.requestDirectoryAccess(path, reason),
       onMetaToolCreated: () => {
-        host.toolManager?.registerMetaTools(host.toolsRegistry.toToolDefinitions());
+        host.toolManager?.replaceRuntimeMetaTools(host.toolsRegistry.toToolDefinitions());
       },
     });
 
@@ -410,6 +433,7 @@ export function initializeAgentDependencies(
       featureConfig: runtime.config,
       authorization: toolAuthorization,
       confirmApproval: (message, context) => host.confirmDangerousAction(message, context),
+      getToolDefinitions: () => host.toolManager?.listDefinitions() ?? [],
       onSubagentStop: async (context) => {
         await host.hookManager.executeHooks('subagent-stop', {
           subagentId: context.subagentId,
@@ -1198,6 +1222,10 @@ export function initializeAgentDependencies(
       hookManager: host.hookManager,
       skillsRegistry: host.skillsRegistry,
       toolsRegistry: host.toolsRegistry,
+      extensionService: host.extensionService,
+      refreshDynamicExtensions: async () => {
+        await syncDynamicRuntimeExtensions(host, host.runtime);
+      },
       mcpManager: host.mcpManager,
       llm: host.llm,
       workspaceRoot: runtime.workspaceRoot,
@@ -1324,9 +1352,13 @@ export function initializeAgentDependencies(
       // Repeat manager for /repeat recurring prompt scheduling
       repeatManager: host.repeatManager,
       // Queue an instruction to be sent to the LLM silently (e.g. /review)
-      queueInstruction: (instruction: string) => {
-        host.pendingInkInstructions.push(instruction);
+      queueInstruction: (instruction: string, postTurnAction?: PendingPostTurnAction) => {
+        host.pendingInkInstructions.push(
+          postTurnAction ? { text: instruction, postTurnAction } : instruction,
+        );
       },
+      requestResearchPublication: (reportPath: string) =>
+        host.requestResearchPublication(reportPath),
       // Queue a remote instruction as if the user typed it into the interactive composer.
       enqueueInstruction: (instruction: string) => {
         if (host.inkRenderer) {

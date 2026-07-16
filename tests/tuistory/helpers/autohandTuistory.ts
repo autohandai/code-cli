@@ -762,6 +762,7 @@ export async function launchBuiltAutohand(
   const root = repoRoot();
   const env: Record<string, string | undefined> = {
     ...process.env,
+    CI: 'false',
     NO_COLOR: '1',
     FORCE_COLOR: '0',
     AUTOHAND_NO_BANNER: '1',

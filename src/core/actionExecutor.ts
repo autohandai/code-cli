@@ -107,6 +107,15 @@ import { GoalManager } from '../goals/GoalManager.js';
 import type { GoalStatus } from '../goals/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, isGoalFeatureEnabled } from '../goals/feature.js';
 import { initExperiment, runExperiment, logExperiment } from '../autoresearch/tools.js';
+import { replayExperiment } from '../autoresearch/replay.js';
+import {
+  compareExperiments,
+  getAutoresearchHistory,
+  getParetoExperiments,
+  pinExperiment,
+  pruneArtifacts,
+  rescoreExperiments,
+} from '../autoresearch/analysis.js';
 import { AgentRegistry } from './agents/AgentRegistry.js';
 
 /** Response from permission-request hook */
@@ -159,6 +168,8 @@ export interface ActionExecutorOptions {
     output?: string;
     success?: boolean;
     error?: string;
+    attemptId?: string;
+    decision?: string;
   }) => Promise<void>;
   /** Callback to fire after a goal objective has been created. */
   onGoalWrittenCompleted?: (context: {
@@ -2528,13 +2539,19 @@ export class ActionExecutor {
         return this.executeBrowserTool(action);
       }
       case 'init_experiment': {
-        return this.executeInitExperiment(action);
+        return this.executeInitExperiment(action, context?.signal);
       }
       case 'run_experiment': {
-        return this.executeRunExperiment(action);
+        return this.executeRunExperiment(action, context?.signal);
       }
       case 'log_experiment': {
         return this.executeLogExperiment(action);
+      }
+      case 'replay_experiment': {
+        return this.executeReplayExperiment(action, context?.signal);
+      }
+      case 'analyze_experiments': {
+        return this.executeAnalyzeExperiments(action);
       }
       default: {
         // Check if this is a dynamic meta-tool
@@ -2733,7 +2750,10 @@ export class ActionExecutor {
     }
   }
 
-  private async executeInitExperiment(action: { type: 'init_experiment'; name: string; metricName: string; metricUnit: string; direction: 'lower' | 'higher'; measureScript: string; maxIterations?: number; timeoutMs?: number; filesInScope?: string[]; checksScript?: string; subagents?: { ideaGeneration?: boolean; measurementAnalysis?: boolean; finalization?: boolean } }): Promise<string> {
+  private async executeInitExperiment(
+    action: Extract<AgentAction, { type: 'init_experiment' }>,
+    signal?: AbortSignal
+  ): Promise<string> {
     const result = await initExperiment(this.runtime.workspaceRoot, {
       name: action.name,
       metricName: action.metricName,
@@ -2745,20 +2765,29 @@ export class ActionExecutor {
       filesInScope: action.filesInScope,
       checksScript: action.checksScript,
       subagents: action.subagents,
-    });
+      secondaryObjectives: action.secondaryObjectives,
+      constraints: action.constraints,
+      sampling: action.sampling,
+      retention: action.retention,
+      environmentAllowlist: action.environmentAllowlist,
+    }, signal);
     await this.onAutoresearchHook?.('autoresearch:init', {
       tool: 'init_experiment',
       args: action as unknown as Record<string, unknown>,
       output: result.message,
       success: result.success,
     });
+    if (!result.success) throw new Error(result.message);
     return result.message;
   }
 
-  private async executeRunExperiment(action: { type: 'run_experiment'; description: string }): Promise<string> {
+  private async executeRunExperiment(
+    action: Extract<AgentAction, { type: 'run_experiment' }>,
+    signal?: AbortSignal
+  ): Promise<string> {
     const args = action as unknown as Record<string, unknown>;
     await this.onAutoresearchHook?.('autoresearch:before', { tool: 'run_experiment', args });
-    const result = await runExperiment(this.runtime.workspaceRoot, action.description);
+    const result = await runExperiment(this.runtime.workspaceRoot, action.description, signal);
     await this.onAutoresearchHook?.('autoresearch:run', {
       tool: 'run_experiment', args, output: result.output,
       success: result.success && !result.checksFailed, error: result.error,
@@ -2768,13 +2797,24 @@ export class ActionExecutor {
       success: result.success && !result.checksFailed, error: result.error,
     });
     if (!result.success) throw new Error(result.error ?? 'run_experiment failed');
-    if (result.checksFailed) {
-      return `Metric: ${result.metric}\n\n${result.output}\n\nUse log_experiment with status 'checks_failed' to record this run.`;
+    if (result.decision) {
+      await this.onAutoresearchHook?.('autoresearch:decision', {
+        tool: 'run_experiment',
+        args,
+        output: result.output,
+        success: result.decision.outcome === 'accepted',
+        attemptId: result.attemptId,
+        decision: result.decision.outcome,
+      });
+      const nextStep = result.decision.outcome === 'accepted'
+        ? `Commit the retained candidate, then call log_experiment with attemptId '${result.attemptId}' and the commit hash.`
+        : `The candidate was reverted. Call log_experiment with attemptId '${result.attemptId}'; its persisted decision cannot be overridden.`;
+      return `${result.output}\n\n${nextStep}`;
     }
     return `Metric: ${result.metric}\n\n${result.output}`;
   }
 
-  private async executeLogExperiment(action: { type: 'log_experiment'; metric: number; status: 'kept' | 'discarded' | 'checks_failed' | 'crashed'; description: string; commit?: string; output?: string; hypothesis?: string; learned?: string; nextFocus?: string }): Promise<string> {
+  private async executeLogExperiment(action: Extract<AgentAction, { type: 'log_experiment' }>): Promise<string> {
     const result = await logExperiment(this.runtime.workspaceRoot, action);
     await this.onAutoresearchHook?.('autoresearch:log', {
       tool: 'log_experiment', args: action as unknown as Record<string, unknown>,
@@ -2782,6 +2822,78 @@ export class ActionExecutor {
     });
     if (!result.success) throw new Error(result.error ?? 'log_experiment failed');
     return result.summary ?? 'Experiment logged.';
+  }
+
+  private async executeReplayExperiment(
+    action: Extract<AgentAction, { type: 'replay_experiment' }>,
+    signal?: AbortSignal
+  ): Promise<string> {
+    const args = action as unknown as Record<string, unknown>;
+    await this.onAutoresearchHook?.('autoresearch:before', { tool: 'replay_experiment', args });
+    const result = await replayExperiment(this.runtime.workspaceRoot, action.attemptId, {
+      evaluator: action.evaluator,
+      signal,
+    });
+    await this.onAutoresearchHook?.('autoresearch:replay', {
+      tool: 'replay_experiment',
+      args,
+      output: JSON.stringify(result),
+      success: result.success,
+      error: result.error,
+      attemptId: action.attemptId,
+      decision: result.decision?.outcome,
+    });
+    await this.onAutoresearchHook?.('autoresearch:after', {
+      tool: 'replay_experiment', args, output: JSON.stringify(result), success: result.success, error: result.error,
+    });
+    if (!result.success) throw new Error(result.error ?? 'replay_experiment failed');
+    return JSON.stringify(result, null, 2);
+  }
+
+  private async executeAnalyzeExperiments(
+    action: Extract<AgentAction, { type: 'analyze_experiments' }>
+  ): Promise<string> {
+    let result: unknown;
+    switch (action.operation) {
+      case 'history':
+        result = await getAutoresearchHistory(this.runtime.workspaceRoot);
+        break;
+      case 'rescore':
+        result = await rescoreExperiments(this.runtime.workspaceRoot, {
+          attemptId: action.attemptId,
+          all: action.all,
+        });
+        await this.onAutoresearchHook?.('autoresearch:rescore', {
+          tool: 'analyze_experiments', args: action as unknown as Record<string, unknown>, output: JSON.stringify(result), success: true,
+        });
+        break;
+      case 'compare':
+        if (!action.attemptId || !action.otherAttemptId) {
+          throw new Error('compare requires attemptId and otherAttemptId.');
+        }
+        result = await compareExperiments(this.runtime.workspaceRoot, action.attemptId, action.otherAttemptId);
+        break;
+      case 'pareto':
+        result = await getParetoExperiments(this.runtime.workspaceRoot);
+        break;
+      case 'pin':
+      case 'unpin':
+        if (!action.attemptId) throw new Error(`${action.operation} requires attemptId.`);
+        result = await pinExperiment(this.runtime.workspaceRoot, action.attemptId, action.operation === 'pin');
+        break;
+      case 'prune': {
+        const confirmed = action.yes === true;
+        result = await pruneArtifacts(this.runtime.workspaceRoot, {
+          dryRun: confirmed ? action.dryRun === true : true,
+          includeProtected: true,
+        });
+        await this.onAutoresearchHook?.('autoresearch:prune', {
+          tool: 'analyze_experiments', args: action as unknown as Record<string, unknown>, output: JSON.stringify(result), success: true,
+        });
+        break;
+      }
+    }
+    return JSON.stringify(result, null, 2);
   }
 
   private pickText(...values: Array<unknown>): string | undefined {
