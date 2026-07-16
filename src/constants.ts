@@ -49,6 +49,9 @@ export const AUTOHAND_PATHS = {
   /** Custom tools */
   tools: path.join(AUTOHAND_HOME, 'tools'),
 
+  /** Declarative extension packages */
+  extensions: path.join(AUTOHAND_HOME, 'extensions'),
+
   /** Skills (instruction packages) */
   skills: path.join(AUTOHAND_HOME, 'skills'),
 
@@ -105,8 +108,8 @@ export const AUTH_CONFIG = {
   pollInterval: 2000,
   authTimeout: 5 * 60 * 1000,
   sessionExpiryDays: 30,
-  /** Idle timeout in ms before forcing logout (30 minutes) */
-  idleTimeoutMs: 30 * 60 * 1000,
+  /** Idle timeout in ms before forcing logout (60 minutes) */
+  idleTimeoutMs: 60 * 60 * 1000,
 } as const;
 
 /**

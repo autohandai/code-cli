@@ -141,6 +141,44 @@ describe('NVIDIAClient', () => {
       });
     });
 
+    it('should consolidate recovery system notes into the leading system message', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          id: 'test',
+          created: Date.now(),
+          choices: [{ message: { content: 'Recovered' }, finish_reason: 'stop' }]
+        })
+      });
+      global.fetch = fetchMock;
+
+      const client = new NVIDIAClient({
+        apiKey: 'nvapi-test-key',
+        model: 'minimaxai/minimax-m3'
+      });
+
+      await client.complete({
+        messages: [
+          { role: 'system', content: 'Original instructions' },
+          { role: 'user', content: 'First request' },
+          { role: 'assistant', content: 'First response' },
+          { role: 'system', content: '[Auto-Recovery] Older turns were compacted.' },
+          { role: 'user', content: 'Continue' }
+        ]
+      });
+
+      const callBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(callBody.messages).toEqual([
+        {
+          role: 'system',
+          content: 'Original instructions\n\n[Auto-Recovery] Older turns were compacted.'
+        },
+        { role: 'user', content: 'First request' },
+        { role: 'assistant', content: 'First response' },
+        { role: 'user', content: 'Continue' }
+      ]);
+    });
+
     it('should support Z.ai GLM chat_template_kwargs', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
@@ -301,6 +339,67 @@ describe('NVIDIAClient', () => {
         expect((error as ApiError).code).toBe('auth_failed');
         expect((error as Error).message).toContain('NVIDIA API key');
         expect((error as Error).message).not.toContain('LLM Gateway');
+      }
+    });
+
+    it('should parse NVIDIA problem detail responses as invalid requests', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 422,
+        headers: new Headers(),
+        json: () => Promise.resolve({
+          type: 'validation_error',
+          title: 'Validation failed',
+          status: 422,
+          detail: 'messages must alternate between user and assistant',
+          instance: 'chat/completions',
+          requestId: '00000000-0000-4000-8000-000000000001'
+        })
+      });
+
+      const client = new NVIDIAClient({
+        apiKey: 'nvapi-test-key',
+        model: 'minimaxai/minimax-m3'
+      }, { maxRetries: 0 });
+
+      try {
+        await client.complete({
+          messages: [{ role: 'user', content: 'Hello' }]
+        });
+        expect.fail('Should have thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        expect((error as ApiError).code).toBe('invalid_request');
+        expect((error as ApiError).httpStatus).toBe(422);
+        expect((error as Error).message).toContain('messages must alternate');
+        expect((error as ApiError).rawDetail).toContain('00000000-0000-4000-8000-000000000001');
+      }
+    });
+
+    it('should not misreport an unspecified NVIDIA 400 as context overflow', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        headers: new Headers(),
+        json: () => Promise.resolve({ error: true })
+      });
+
+      const client = new NVIDIAClient({
+        apiKey: 'nvapi-test-key',
+        model: 'minimaxai/minimax-m3'
+      }, { maxRetries: 0 });
+
+      try {
+        await client.complete({
+          messages: [{ role: 'user', content: 'Hello' }]
+        });
+        expect.fail('Should have thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        expect((error as ApiError).code).toBe('invalid_request');
+        expect((error as Error).message).toContain('malformed');
+        expect((error as Error).message).not.toContain('context is too long');
+        expect((error as Error).message).not.toContain('/undo');
       }
     });
 

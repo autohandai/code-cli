@@ -41,6 +41,48 @@ describe('GitHubRegistryFetcher', () => {
     );
   });
 
+  it('accepts repository-root sourceUrl metadata and resolves the registered skill directory', async () => {
+    const registry = {
+      version: '1.0.0',
+      updatedAt: new Date().toISOString(),
+      categories: [],
+      skills: [{
+        id: 'extension-builder',
+        name: 'extension-builder',
+        description: 'Builds Autohand extensions.',
+        category: 'development',
+        directory: 'skills/extension-builder',
+        files: ['SKILL.md'],
+        sourceUrl: 'https://github.com/autohandai/community-skills',
+      }],
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === 'https://catalog.example/registry.json') {
+        return new Response(JSON.stringify(registry), { status: 200 });
+      }
+      return new Response('# Extension Builder\n', { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const fetcher = new GitHubRegistryFetcher({
+      registryUrl: 'https://catalog.example/registry.json',
+      timeout: 1000,
+    });
+    const catalog = await fetcher.fetchRegistry();
+    const files = await fetcher.fetchSkillDirectory(catalog.skills[0]);
+
+    expect(files.get('SKILL.md')).toBe('# Extension Builder\n');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://raw.githubusercontent.com/autohandai/community-skills/main/skills/extension-builder/SKILL.md',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'User-Agent': 'autohand-cli',
+        }),
+      })
+    );
+  });
+
   it('uses Skilled detail content before GitHub sourceUrl fallback', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -118,6 +160,8 @@ describe('GitHubRegistryFetcher', () => {
     'https://github.com/dotnet/skills/tree/main/plugins/dotnet-aspnetcore?raw=1',
     'https://github.com/dotnet/skills/tree/main/plugins/dotnet-aspnetcore#readme',
     'https://github.com/dotnet/skills/tree/feature%2Funsafe/plugins/dotnet-aspnetcore',
+    'https://github.com/dotnet/skills?raw=1',
+    'https://github.com/dotnet/skills/',
   ])('rejects unsafe GitHub source URL components before fetching: %s', async (sourceUrl) => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);

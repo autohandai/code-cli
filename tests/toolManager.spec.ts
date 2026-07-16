@@ -510,6 +510,36 @@ describe('ToolManager', () => {
       expect(executor).toHaveBeenCalledTimes(10);
     });
 
+    it('requires delete authorization only when autoresearch pruning will be applied', async () => {
+      const permissionManager = new PermissionManager({ mode: 'interactive' });
+      const checkPermission = vi.spyOn(permissionManager, 'checkPermission');
+      const executor = vi.fn().mockResolvedValue(successfulOutcome('ok'));
+      const confirmApproval = vi.fn().mockResolvedValue({ decision: 'allow_once' });
+      const manager = new ToolManager({
+        executor,
+        confirmApproval,
+        definitions: [{ name: 'analyze_experiments', description: 'analyze experiments' }],
+        authorization: { permissionManager },
+      });
+
+      const results = await manager.execute([
+        { tool: 'analyze_experiments', args: { operation: 'history' } },
+        { tool: 'analyze_experiments', args: { operation: 'prune', yes: false } },
+        { tool: 'analyze_experiments', args: { operation: 'prune', yes: true, dryRun: true } },
+        { tool: 'analyze_experiments', args: { operation: 'prune', yes: true } },
+      ]);
+
+      expect(results.every((result) => result.success)).toBe(true);
+      expect(checkPermission.mock.calls.map(([context]) => context.tool)).toEqual([
+        'analyze_experiments',
+        'analyze_experiments',
+        'analyze_experiments',
+        'delete_path',
+      ]);
+      expect(confirmApproval).toHaveBeenCalledTimes(1);
+      expect(executor).toHaveBeenCalledTimes(4);
+    });
+
     it('does not prompt or execute after an explicit pattern denial', async () => {
       const permissionManager = new PermissionManager({
         mode: 'interactive',
@@ -948,6 +978,31 @@ describe('ToolManager', () => {
     expect(names).toContain('custom_meta_tool');
     expect(names).toContain('mcp__new__tool');
     expect(names).not.toContain('mcp__old__tool');
+  });
+
+  it('replaces runtime meta-tools without leaving stale definitions or removing MCP tools', () => {
+    const manager = new ToolManager({
+      executor: vi.fn(),
+      confirmApproval: vi.fn(),
+      definitions: [{ name: 'read_file', description: 'read file' }] as any
+    });
+    manager.registerMetaTools([{ name: 'mcp__server__tool', description: 'mcp tool' }] as any);
+
+    manager.replaceRuntimeMetaTools([
+      { name: 'extension_old', description: 'old extension tool' },
+      { name: 'mcp__server__tool', description: 'attempted runtime override' }
+    ] as any);
+    manager.replaceRuntimeMetaTools([
+      { name: 'extension_new', description: 'new extension tool' }
+    ] as any);
+
+    const names = manager.listAllDefinitions().map((definition) => definition.name);
+    expect(names).toContain('read_file');
+    expect(names).toContain('mcp__server__tool');
+    expect(names).toContain('extension_new');
+    expect(names).not.toContain('extension_old');
+    expect(manager.listAllDefinitions().find((definition) => definition.name === 'mcp__server__tool'))
+      .toMatchObject({ description: 'mcp tool' });
   });
 
   // ═══════════════════════════════════════════════════════════════════

@@ -33,6 +33,7 @@ export interface ChromeSettings {
 
 export interface NativeHostInstallOptions {
   homeDir?: string;
+  browserHomeDir?: string;
   cliCommand?: string;
   cliArgPrefix?: string[];
   extensionIds: string[];
@@ -320,16 +321,20 @@ export function resolveCliLaunchSpec(cliPath?: string): { command: string; args:
   return { command: 'autohand', args: [] };
 }
 
-export function getManifestTarget(browser: ChromiumBrowser, platform = process.platform, homeDir = AUTOHAND_HOME) {
+export function getManifestTarget(
+  browser: ChromiumBrowser,
+  platform = process.platform,
+  homeDir = platform === 'win32' ? AUTOHAND_HOME : os.homedir(),
+) {
   const hostName = CHROME_NATIVE_HOST_NAME;
   const manifestPath = path.join(getBrowserDataRoot(homeDir), `${browser}.json`);
 
   if (platform === 'darwin') {
     const roots: Record<ChromiumBrowser, string> = {
-      chrome: path.join(os.homedir(), 'Library', 'Application Support', 'Google', 'Chrome', 'NativeMessagingHosts'),
-      chromium: path.join(os.homedir(), 'Library', 'Application Support', 'Chromium', 'NativeMessagingHosts'),
-      brave: path.join(os.homedir(), 'Library', 'Application Support', 'BraveSoftware', 'Brave-Browser', 'NativeMessagingHosts'),
-      edge: path.join(os.homedir(), 'Library', 'Application Support', 'Microsoft Edge', 'NativeMessagingHosts'),
+      chrome: path.join(homeDir, 'Library', 'Application Support', 'Google', 'Chrome', 'NativeMessagingHosts'),
+      chromium: path.join(homeDir, 'Library', 'Application Support', 'Chromium', 'NativeMessagingHosts'),
+      brave: path.join(homeDir, 'Library', 'Application Support', 'BraveSoftware', 'Brave-Browser', 'NativeMessagingHosts'),
+      edge: path.join(homeDir, 'Library', 'Application Support', 'Microsoft Edge', 'NativeMessagingHosts'),
     };
     return {
       browser,
@@ -340,10 +345,10 @@ export function getManifestTarget(browser: ChromiumBrowser, platform = process.p
 
   if (platform === 'linux') {
     const roots: Record<ChromiumBrowser, string> = {
-      chrome: path.join(os.homedir(), '.config', 'google-chrome', 'NativeMessagingHosts'),
-      chromium: path.join(os.homedir(), '.config', 'chromium', 'NativeMessagingHosts'),
-      brave: path.join(os.homedir(), '.config', 'BraveSoftware', 'Brave-Browser', 'NativeMessagingHosts'),
-      edge: path.join(os.homedir(), '.config', 'microsoft-edge', 'NativeMessagingHosts'),
+      chrome: path.join(homeDir, '.config', 'google-chrome', 'NativeMessagingHosts'),
+      chromium: path.join(homeDir, '.config', 'chromium', 'NativeMessagingHosts'),
+      brave: path.join(homeDir, '.config', 'BraveSoftware', 'Brave-Browser', 'NativeMessagingHosts'),
+      edge: path.join(homeDir, '.config', 'microsoft-edge', 'NativeMessagingHosts'),
     };
     return {
       browser,
@@ -580,6 +585,7 @@ function shutdown() {
 
 export async function installNativeHost(options: NativeHostInstallOptions): Promise<NativeHostInstallResult> {
   const homeDir = options.homeDir ?? AUTOHAND_HOME;
+  const browserHomeDir = options.browserHomeDir ?? os.homedir();
   const browsers = options.browsers?.length ? options.browsers : [...ALL_BROWSERS];
   const hostScriptPath = path.join(getBrowserDataRoot(homeDir), 'host.js');
   await ensureDir(path.dirname(hostScriptPath));
@@ -595,7 +601,8 @@ export async function installNativeHost(options: NativeHostInstallOptions): Prom
 
   const targets: NativeHostInstallResult['targets'] = [];
   for (const browser of browsers) {
-    const target = getManifestTarget(browser, process.platform, homeDir);
+    const manifestHomeDir = process.platform === 'win32' ? homeDir : browserHomeDir;
+    const target = getManifestTarget(browser, process.platform, manifestHomeDir);
     const manifest = buildNativeHostManifest({
       hostName: options.hostName,
       extensionIds: options.extensionIds,
@@ -629,9 +636,13 @@ export async function installNativeHost(options: NativeHostInstallOptions): Prom
  */
 export async function ensureNativeHostInstalled(options?: {
   extensionId?: string;
+  homeDir?: string;
+  browserHomeDir?: string;
 }): Promise<void> {
-  const homeDir = AUTOHAND_HOME;
-  const chromeManifest = getManifestTarget('chrome', process.platform, homeDir);
+  const homeDir = options?.homeDir ?? AUTOHAND_HOME;
+  const browserHomeDir = options?.browserHomeDir ?? os.homedir();
+  const manifestHomeDir = process.platform === 'win32' ? homeDir : browserHomeDir;
+  const chromeManifest = getManifestTarget('chrome', process.platform, manifestHomeDir);
   const expectedExtensionIds = [options?.extensionId].filter((id): id is string => Boolean(id));
   const expectedAllowedOrigins = expectedExtensionIds.map((extensionId) => `chrome-extension://${extensionId}/`);
   const hostScriptPath = path.join(getBrowserDataRoot(homeDir), 'host.js');
@@ -670,6 +681,8 @@ export async function ensureNativeHostInstalled(options?: {
   const { command, args } = resolveCliLaunchSpec();
 
   await installNativeHost({
+    homeDir,
+    browserHomeDir,
     extensionIds: installExtensionIds,
     cliCommand: command,
     cliArgPrefix: args.length ? args : undefined,

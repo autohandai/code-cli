@@ -15,6 +15,11 @@ import {
   type SessionConfig,
   type SessionStats,
 } from './session.js';
+import {
+  getAutoresearchHistory,
+  getParetoExperiments,
+  type AutoresearchHistoryAttempt,
+} from './analysis.js';
 
 const STATE_FILE = '.auto/state.json';
 const DEFAULT_MAX_ITERATIONS = 30;
@@ -36,6 +41,8 @@ export interface AutoResearchSnapshot {
   config: SessionConfig | null;
   runs: ExperimentLogEntry[];
   stats?: SessionStats;
+  attempts?: AutoresearchHistoryAttempt[];
+  paretoAttemptIds?: string[];
   statusText: string;
 }
 
@@ -161,31 +168,29 @@ export class AutoResearchManager {
       `Goal: ${goal}`,
       context ? `Additional context: ${context}` : '',
       '',
-      'You are in an autonomous experiment loop. Each iteration you must propose ONE focused change, measure it, log the result, and either keep it (commit) or discard it (revert).',
+      'You are in an autonomous experiment loop. Each iteration you must propose ONE focused change, let the deterministic engine measure and decide it, then commit only accepted candidates.',
       '',
       'Session setup contract:',
       '- If .auto/config.json or .auto/measure.sh is missing, infer the initial experiment contract from the user goal, repository scripts, nearby tests, and workspace context before editing code.',
       '- Establish the objective, benchmark command, metric name, metric unit, and optimization direction.',
       '- Establish the editable scope, correctness checks, maximum iterations, and optional subagent phases for idea generation, measurement analysis, and finalization.',
       '- Ask concise setup questions only for fields that remain uncertain after inference. Do not start an experiment run until the required benchmark and metric fields are known.',
-      '- Once the setup contract is complete, call init_experiment with the inferred or interviewed values so .auto/config.json, .auto/measure.sh, optional .auto/checks.sh, and .auto/prompt.md are persisted before the first iteration.',
+      '- A new replayable session requires a clean Git repository. Once the setup contract is complete, call init_experiment so it captures a sampled zero-diff baseline and persists the versioned .auto/ledger.',
       '',
       'Before each iteration, read .auto/config.json, .auto/prompt.md, and the tail of .auto/log.jsonl to understand what has been tried.',
       'If .auto/config.json enables subagent phases or .auto/prompt.md has a "Subagent delegation" section, use the existing delegate_task or delegate_parallel tools for those phases.',
       '',
       'Iteration steps:',
-      '1. Reflect on prior runs from .auto/log.jsonl. Use computeSessionStats-style reasoning: prefer results with higher confidence (improvement / MAD) after 3+ runs.',
+      '1. Reflect on immutable attempts from /autoresearch history and the compatibility projection in .auto/log.jsonl.',
       '2. Optionally delegate configured idea generation or measurement analysis to a sub-agent using delegate_task or delegate_parallel. Example: ask a sub-agent to "list 3 ways to reduce ${goal}" or to "analyze why run 5 regressed"',
       '3. Propose a single, testable change to code/tests/config. Apply it with write_file, apply_patch, or run_command.',
-      '4. Run run_experiment with a short description of the change. The benchmark is .auto/measure.sh and must print METRIC <name>=<number>.',
-      '5. Run log_experiment with the metric, status (kept/discarded/checks_failed/crashed), and a description. Include commit, output, hypothesis, learned, and nextFocus when available.',
-      '6. After logging:',
-      '   - If status is kept: stage the changed files with git_add and commit with git_commit so the improvement is preserved.',
-      '   - If status is discarded, checks_failed, or crashed: revert the working tree to the last kept commit with git_reset hard or git_checkout HEAD -- <files>. Do not leave a half-applied change in the tree.',
+      '4. Run run_experiment with a short description. Every benchmark invocation must print exactly one finite METRIC <name>=<number> for every configured objective. The tool returns attemptId, samples, metric vectors, and the engine decision.',
+      '5. If the engine decision is accepted, stage and commit the retained candidate using git_add and git_commit. Rejected, checks-failed, crashed, and inconclusive candidates are already reverted but remain replayable in the ledger.',
+      '6. Call log_experiment with attemptId and description (plus the accepted commit hash when applicable). Never supply a model status to override a ledger decision.',
       '7. Update .auto/prompt.md to record the new idea in Tried, DeadEnds, or Wins as appropriate.',
       '8. Repeat from step 1 unless iteration count reaches maxIterations or the user sends /autoresearch off.',
       '',
-      'Backpressure: if .auto/checks.sh exists, run it after a passing benchmark. If it fails, log the run as checks_failed and revert.',
+      'Backpressure and sampling are engine-owned: hard constraints and .auto/checks.sh fail closed; noisy overlap samples adaptively from 3 up to 9 by default.',
       '',
       'Stop conditions:',
       '- maxIterations reached',
@@ -236,6 +241,19 @@ export class AutoResearchManager {
       lines.push(`Confidence: ${stats.confidence.toFixed(2)} (MAD ${formatMetric(stats.mad ?? 0, config.metricUnit)})`);
     }
 
+    if (config.ledgerVersion) {
+      const [history, pareto] = await Promise.all([
+        getAutoresearchHistory(this.workspaceRoot),
+        getParetoExperiments(this.workspaceRoot),
+      ]);
+      const replayable = history.attempts.filter((attempt) => attempt.replayable).length;
+      const drifted = history.attempts.filter((attempt) =>
+        (attempt.latestEvaluation?.driftWarnings.length ?? 0) > 0
+      ).length;
+      lines.push(`Ledger: ${history.attempts.length} attempts (${replayable} replayable, ${drifted} with replay drift)`);
+      lines.push(`Pareto candidates (advisory): ${pareto.attemptIds.length > 0 ? pareto.attemptIds.join(', ') : 'none'}`);
+    }
+
     return lines.join('\n');
   }
 
@@ -247,6 +265,8 @@ export class AutoResearchManager {
     const state = await this.getState();
     const runs = await readLogEntries(this.workspaceRoot);
     const stats = config ? computeSessionStats(runs, config.direction) : undefined;
+    const history = config?.ledgerVersion ? await getAutoresearchHistory(this.workspaceRoot) : undefined;
+    const pareto = config?.ledgerVersion ? await getParetoExperiments(this.workspaceRoot) : undefined;
 
     return {
       active: state?.active ?? false,
@@ -254,6 +274,8 @@ export class AutoResearchManager {
       config,
       runs,
       stats,
+      attempts: history?.attempts,
+      paretoAttemptIds: pareto?.attemptIds,
       statusText: await this.getStatus(),
     };
   }

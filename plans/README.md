@@ -32,6 +32,7 @@ SDK compatibility source: `/Users/igorcosta/Documents/autohand/agentsdk/tin-wrap
 | 006 | Contain community-skill identifiers and files to trusted roots | P0 | M | - | DONE |
 | 007 | Prevent search walkers from following symlinks outside allowed roots | P1 | S | - | DONE |
 | 008 | Fix built-TUI regressions and make Tuistory a release gate | P1 | M | 001-007 | DONE |
+| 009 | Preserve and replay autoresearch experiment decisions | P1 | XL | 008 | BLOCKED: paired SDK changes are outside `cli-3` scope |
 
 Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`, or `REJECTED: <rationale>`.
 
@@ -42,8 +43,9 @@ Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`, or `REJECTED:
 - Plan 004 follows 002 so aborted tools have a first-class failure kind and RPC/ACP can report them consistently.
 - Plan 008 runs last because it gates the built artifact after all runtime changes and must protect the complete integrated CLI.
 - Plans 005, 006, and 007 can be implemented in isolated branches while 001-004 are in progress, but merge them before Plan 008.
+- Plan 009 extends the validated runtime with an append-only experiment ledger, deterministic decision engine, isolated replay, and backward-compatible command and RPC surfaces.
 
-## Required final verification after all eight plans
+## Required final verification after all nine plans
 
 From this repository:
 

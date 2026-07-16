@@ -34,6 +34,7 @@ interface PromptTeam {
 export interface SystemPromptBuilderOptions {
   runtime: AgentRuntime;
   supportsNativeToolCalling?: boolean;
+  refreshRuntimeExtensions?: () => Promise<void>;
   getToolDefinitions: () => ToolDefinition[];
   getContextMemories: () => Promise<string>;
   loadInstructionFiles: () => Promise<string[]>;
@@ -99,6 +100,7 @@ export class SystemPromptBuilder {
       }
     }
 
+    await this.options.refreshRuntimeExtensions?.();
     const toolDefs = this.options.getToolDefinitions();
     const toolCatalog = formatToolCapabilityCatalog(toolDefs);
     const supportsNativeToolCalling = this.options.supportsNativeToolCalling === true;

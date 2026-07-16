@@ -20,6 +20,8 @@ import type { ToolsRegistry } from './toolsRegistry.js';
 import type { UsageLimitRow } from '../commands/usage.js';
 import type { MobileImageAttachment } from '../mobile/MobileHandoffClient.js';
 import type { MobileRelayController } from '../mobile/MobileRelay.js';
+import type { ExtensionService } from '../extensions/ExtensionService.js';
+import type { PendingPostTurnAction } from './agent/PostTurnActionCoordinator.js';
 
 export interface SlashCommandContext {
     listWorkspaceFiles?: () => Promise<void>;
@@ -65,6 +67,10 @@ export interface SlashCommandContext {
     skillsRegistry?: SkillsRegistry;
     /** Meta-tools registry for /tools commands */
     toolsRegistry?: ToolsRegistry;
+    /** Declarative extension lifecycle service for /extensions commands. */
+    extensionService?: ExtensionService;
+    /** Refresh extension-owned tools and agents after a lifecycle mutation. */
+    refreshDynamicExtensions?: () => Promise<void>;
     /** Auto-mode manager for /automode commands */
     automodeManager?: AutomodeManager;
     /** Interactive auto-mode toggle state for /automode commands */
@@ -96,7 +102,9 @@ export interface SlashCommandContext {
     /** Repeat manager for /repeat recurring prompt scheduling */
     repeatManager?: RepeatManager;
     /** Queue an instruction to be sent to the LLM on the next turn (not displayed to user) */
-    queueInstruction?: (instruction: string) => void;
+    queueInstruction?: (instruction: string, postTurnAction?: PendingPostTurnAction) => void;
+    /** Run the consent-gated Open Research publication flow for a saved report. */
+    requestResearchPublication?: (reportPath: string) => Promise<string>;
     /** Queue a visible user instruction, matching a typed prompt in the interactive UI */
     enqueueInstruction?: (instruction: string) => void;
     /** Queue an instruction received from the mobile relay. */

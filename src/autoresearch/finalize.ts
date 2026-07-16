@@ -14,6 +14,11 @@ import {
   type ExperimentLogEntry,
   type SessionConfig,
 } from './session.js';
+import {
+  getAutoresearchHistory,
+  getParetoExperiments,
+  type AutoresearchHistory,
+} from './analysis.js';
 
 export interface FinalizeSessionResult {
   success: boolean;
@@ -71,6 +76,10 @@ export async function finalizeSession(workspaceRoot: string): Promise<FinalizeSe
   }
 
   const entries = await readLogEntries(workspaceRoot);
+  const [history, pareto] = await Promise.all([
+    getAutoresearchHistory(workspaceRoot),
+    getParetoExperiments(workspaceRoot),
+  ]);
   const keptRuns = entries.filter((entry) => entry.status === 'kept');
   if (keptRuns.length === 0) {
     return {
@@ -85,7 +94,11 @@ export async function finalizeSession(workspaceRoot: string): Promise<FinalizeSe
   const branchPlan = buildBranchPlan(config, keptRuns, generatedAt);
 
   await fs.ensureDir(path.dirname(filePath));
-  await fs.writeFile(filePath, renderFinalizeReport(config, entries, keptRuns, branchPlan, manifestPath), 'utf-8');
+  await fs.writeFile(
+    filePath,
+    renderFinalizeReport(config, entries, keptRuns, branchPlan, manifestPath, history, pareto.attemptIds),
+    'utf-8'
+  );
   await fs.writeJson(manifestPath, branchPlan, { spaces: 2 });
 
   return {
@@ -172,7 +185,9 @@ function renderFinalizeReport(
   entries: ExperimentLogEntry[],
   keptRuns: ExperimentLogEntry[],
   branchPlan: FinalizeBranchPlan,
-  manifestPath: string
+  manifestPath: string,
+  history: AutoresearchHistory,
+  paretoAttemptIds: string[]
 ): string {
   const stats = computeSessionStats(entries, config.direction);
   const lines: string[] = [
@@ -221,6 +236,40 @@ function renderFinalizeReport(
     appendOptionalLine(lines, 'Learned', entry.learned);
     appendOptionalLine(lines, 'Next focus', entry.nextFocus);
     lines.push('');
+  }
+
+  lines.push(
+    '## Ledger History',
+    '',
+    'Historical decisions remain immutable. Replay and rescoring records below do not change Git materialization.',
+    ''
+  );
+  for (const attempt of history.attempts) {
+    const metrics = attempt.latestEvaluation
+      ? Object.entries(attempt.latestEvaluation.aggregates)
+        .map(([name, aggregate]) => `${name}=${aggregate.median} (MAD ${aggregate.mad}, n=${aggregate.sampleCount})`)
+        .join(', ')
+      : 'measurements unavailable';
+    lines.push(
+      `- ${attempt.attemptId}: ${attempt.latestDecision?.outcome ?? 'unknown'}; ${attempt.replayable ? 'replayable' : 'non-replayable'}; materialization=${attempt.materialization}; ${metrics}`
+    );
+    if ((attempt.latestEvaluation?.driftWarnings.length ?? 0) > 0) {
+      lines.push(`  Replay drift: ${attempt.latestEvaluation!.driftWarnings.join('; ')}`);
+    }
+  }
+  if (history.attempts.length === 0) lines.push('- No immutable ledger attempts recorded.');
+
+  lines.push(
+    '',
+    '## Pareto Recommendations',
+    '',
+    'These are advisory candidates, not automatically committed winners. Review their materialization and replay drift before acting.',
+    ''
+  );
+  if (paretoAttemptIds.length === 0) {
+    lines.push('- No constraint-passing Pareto candidates are available.');
+  } else {
+    for (const attemptId of paretoAttemptIds) lines.push(`- ${attemptId}`);
   }
 
   lines.push(

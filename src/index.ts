@@ -166,11 +166,13 @@ async function loadConfigForMcpScope(scopeInput?: string): Promise<{ config: Loa
 import { normalizeMcpCommandForConfig } from './mcp/commandNormalization.js';
 import type { CLIOptions, AgentRuntime } from './types.js';
 import type { AutohandAgent } from './core/agent.js';
+import { registerExtensionsCommand } from './extensions/cli.js';
 
 installProcessErrorHandlers();
 
 const program = new Command();
 registerChromeCommand(program);
+registerExtensionsCommand(program);
 
 program
   .name('autohand')

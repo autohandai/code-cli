@@ -1,0 +1,4 @@
+interface:
+  display_name: "Extension Builder"
+  short_description: "Build and adapt Autohand extensions safely"
+  default_prompt: "Use $extension-builder to create, extend, convert, validate, and install the Autohand extension I describe."

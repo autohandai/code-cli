@@ -38,6 +38,7 @@ export class SlashCommandHandler {
     const INTERACTIVE_ONLY = new Set([
       '/model', '/cc', '/search', '/theme', '/language', '/feedback', '/skills new', '/skills-new',
       '/squad', '/statusline',
+      '/publish-research',
     ]);
     if (this.ctx.isNonInteractive && INTERACTIVE_ONLY.has(command)) {
       return `Command ${command} requires an interactive terminal. Use the dedicated RPC method or API instead.`;
@@ -290,9 +291,17 @@ export class SlashCommandHandler {
           const { deepResearch } = await import('../commands/deep-research.js');
           return deepResearch(this.ctx, args);
         }
+        case '/publish-research': {
+          const { publishResearch } = await import('../commands/publish-research.js');
+          return publishResearch(this.ctx, args);
+        }
         case '/autoresearch': {
           const { autoresearch } = await import('../commands/autoresearch.js');
           return autoresearch(this.ctx, args);
+        }
+        case '/extensions': {
+          const { extensions } = await import('../commands/extensions.js');
+          return extensions(this.ctx, args);
         }
         case '/pr-review': {
           const { prReview } = await import('../commands/pr-review.js');

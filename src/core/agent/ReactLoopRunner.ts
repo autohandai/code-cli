@@ -112,7 +112,7 @@ export interface AgentReactLoopHost {
   taskStartedAt: number | null;
   toolManager: Pick<
     ToolManager,
-    'execute' | 'listToolNames' | 'register' | 'registerMetaTools' | 'toFunctionDefinitions' | 'unregister'
+    'execute' | 'listToolNames' | 'register' | 'registerMetaTools' | 'replaceRuntimeMetaTools' | 'toFunctionDefinitions' | 'unregister'
   >;
   toolsRegistry?: ToolsRegistry;
   contextWindow: number;

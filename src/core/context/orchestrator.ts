@@ -214,9 +214,21 @@ export class ContextOrchestrator {
 
     this.onOverflow?.(usage);
 
-    // Target 55% usage — aggressive
+    // Provider-side limits can be lower than the locally configured context window.
+    // Always remove a meaningful share so a provider-reported overflow makes progress.
     const targetTokens = Math.floor(usage.contextWindow * 0.55);
-    const tokensToRemove = usage.totalTokens - targetTokens;
+    const minimumTokensToRemove = Math.ceil(usage.totalTokens * 0.25);
+    const tokensToRemove = Math.max(
+      usage.totalTokens - targetTokens,
+      minimumTokensToRemove,
+    );
+    let lastUserIndex = -1;
+    for (let i = messages.length - 1; i >= 1; i--) {
+      if (messages[i].role === 'user') {
+        lastUserIndex = i;
+        break;
+      }
+    }
 
     // Walk oldest-first by tokens
     const indicesToRemove: number[] = [];
@@ -224,9 +236,7 @@ export class ContextOrchestrator {
 
     for (let i = 1; i < messages.length; i++) {
       // Never remove the last user message
-      const isLast = messages.findIndex((m, idx) => idx > i && m.role === 'user') === -1
-        && messages[i].role === 'user';
-      if (isLast) continue;
+      if (i === lastUserIndex) continue;
 
       indicesToRemove.push(i);
       removedTokens += estimateMessageTokens(messages[i]);
