@@ -100,7 +100,7 @@ code --install-extension AutohandAI.vscode-autohand
 
 ### Zed Editor
 
-Install from the [Zed Extensions](https://zed.dev/extensions/autohand-acp) marketplace.
+Run Autohand Code CLI as a native ACP External Agent. See the [ACP integration guide](docs/guides/ACP.md) for Zed, JetBrains IDEs, JetBrains Air, and other ACP-compatible development environments.
 
 ## Code Agent SDK
 
@@ -544,6 +544,7 @@ docker run -it autohand
 - [Playbook](AUTOHAND_PLAYBOOK.md) - 20 use cases for the software development lifecycle
 - [Features](docs/features.md) - Complete feature and experiment list
 - [Agent Skills](docs/agent-skills.md) - Skills system guide
+- [ACP integration guide](docs/guides/ACP.md) - Use the native ACP agent in compatible editors, IDEs, and ADEs
 - [Extending Autohand Code CLI](docs/extending.md) - Build tools, skills, hooks, MCP servers, and integrations
 - [Autohand Code extensions](docs/extensions.md) - Validate, install, inspect, and manage declarative extension packages
 - [Extension authoring](docs/extension-authoring.md) - Package tools and agents for the public extension ecosystem
