@@ -22,6 +22,9 @@ describe('README branding', () => {
     '[हिन्दी](docs/config-reference_hi.md)',
     '[Bahasa Indonesia](docs/config-reference_id.md)',
   ];
+  const supportedConfigReferencePaths = supportedDocsLinks.map((link) => (
+    link.slice(link.lastIndexOf('(') + 1, -1)
+  ));
 
   it('uses Autohand Code CLI in public-facing README and package description copy', async () => {
     const root = process.cwd();
@@ -72,6 +75,18 @@ describe('README branding', () => {
 
     for (const docsLink of supportedDocsLinks) {
       expect(readme).toContain(docsLink);
+    }
+  });
+
+  it('documents configurable idle logout controls in every supported language', async () => {
+    const root = process.cwd();
+
+    for (const configReferencePath of supportedConfigReferencePaths) {
+      const configReference = await readFile(join(root, configReferencePath), 'utf8');
+
+      expect(configReference).toContain('| `idleLogoutEnabled`');
+      expect(configReference).toContain('| `idleTimeoutMs`');
+      expect(configReference).toContain('"idleTimeoutMs": 3600000');
     }
   });
 

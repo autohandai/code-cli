@@ -696,6 +696,7 @@ Az ügynök viselkedésének és iterációs korlátainak szabályozása.
     "toolSelectionCache": true,
     "autoMemory": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   }
 }
@@ -707,6 +708,7 @@ Az ügynök viselkedésének és iterációs korlátainak szabályozása.
 | `toolSelectionCache` | logikai | `true` | Gyorsítótárazza a körönkénti szerszámséma helyi kiválasztását az egyenértékű szerszámkiválasztási bemenethez |
 | `autoMemory` | logikai | `true` | Tartós felhasználói/projektmemóriák kibontása és mentése sikeres interaktív fordulatok után |
 | `idleLogoutEnabled` | logikai | `true` | Jelentkezzen ki a hitelesített interaktív munkamenetekből az üresjárati időtúllépés után |
+| `idleTimeoutMs` | szám | `3600000` | Az inaktivitás ezredmásodpercei a hitelesített munkamenet kijelentkeztetése előtt (60 perc) |
 | `debug` | logikai | `false` | Részletes hibakeresési kimenet engedélyezése (naplózza az ügynök belső állapotát az stderr-be) |
 
 ### Eszközséma kiválasztása
@@ -736,6 +738,8 @@ A hitelesített, régóta működő ügynöki munkamenetek életben tartásához
 }
 ```
 Egyetlen folyamathoz használja a `autohand --no-idle-logout` kódot, vagy állítsa be a `AUTOHAND_NO_IDLE_LOGOUT=1` értéket.
+
+Az inaktivitási idő módosításához állítsa az `idleTimeoutMs` értékét pozitív, ezredmásodpercben megadott időtartamra. Az alapértelmezett érték `3600000` (60 perc); az érvénytelen értékek az alapértelmezett értéket használják.
 
 ### Hibakeresési mód
 
@@ -1608,6 +1612,7 @@ autohand --no-chrome       # Start with browser bridge disabled
     "enableRequestQueue": true,
     "toolSelectionCache": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   },
   "permissions": {
@@ -1692,6 +1697,7 @@ agent:
   enableRequestQueue: true
   toolSelectionCache: true
   idleLogoutEnabled: true
+  idleTimeoutMs: 3600000
   debug: false
 
 permissions:
@@ -1785,6 +1791,7 @@ maxIterations = 100
 enableRequestQueue = true
 toolSelectionCache = true
 idleLogoutEnabled = true
+idleTimeoutMs = 3600000
 debug = false
 
 [permissions]

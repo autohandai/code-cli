@@ -376,15 +376,22 @@ Kontrol perilaku agent dan batas iterasi.
   "agent": {
     "maxIterations": 100,
     "enableRequestQueue": true,
+    "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   }
 }
+```
 
 | Field               | Tipe    | Default | Deskripsi                                                              |
 | ------------------- | ------- | ------- | ---------------------------------------------------------------------- |
 | `maxIterations`      | number  | `100`   | Maksimum iterasi alat per permintaan pengguna sebelum berhenti         |
 | `enableRequestQueue` | boolean | `true`  | Izinkan pengguna mengetik dan mengantre permintaan saat agent bekerja |
+| `idleLogoutEnabled`  | boolean | `true`  | Keluar dari sesi interaktif terautentikasi setelah batas waktu tidak aktif |
+| `idleTimeoutMs`      | number  | `3600000` | Milidetik tidak aktif sebelum keluar dari sesi terautentikasi (60 menit) |
 | `debug`              | boolean | `false` | Aktifkan output debug verbose (log status internal agent ke stderr)     |
+
+Atur `idleLogoutEnabled` ke `false` untuk menonaktifkan logout saat tidak aktif. Untuk mengubah periodenya, atur `idleTimeoutMs` ke durasi positif dalam milidetik. Nilai default adalah `3600000` (60 menit); nilai yang tidak valid menggunakan default.
 
 ### Mode Debug
 
@@ -1098,6 +1105,8 @@ Untuk pengalaman interaktif yang lebih tepat, gunakan `/learn` dalam sesi.
   "agent": {
     "maxIterations": 100,
     "enableRequestQueue": true,
+    "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   },
   "permissions": {
@@ -1197,6 +1206,8 @@ ui:
 agent:
   maxIterations: 100
   enableRequestQueue: true
+  idleLogoutEnabled: true
+  idleTimeoutMs: 3600000
   debug: false
 
 permissions:

@@ -778,6 +778,7 @@ Control agent behavior and iteration limits.
     "toolSelectionCache": true,
     "autoMemory": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   }
 }
@@ -790,6 +791,7 @@ Control agent behavior and iteration limits.
 | `toolSelectionCache` | boolean | `true`  | Cache local per-turn tool schema selection for equivalent tool-selection input |
 | `autoMemory`         | boolean | `true`  | Extract and save durable user/project memories after successful interactive turns |
 | `idleLogoutEnabled`  | boolean | `true`  | Log out authenticated interactive sessions after the idle timeout              |
+| `idleTimeoutMs`      | number  | `3600000` | Milliseconds of inactivity before logging out an authenticated session (60 minutes) |
 | `debug`              | boolean | `false` | Enable verbose debug output (logs agent internal state to stderr)              |
 
 ### Tool Schema Selection
@@ -823,6 +825,8 @@ To keep authenticated long-running agent sessions alive while they wait for work
 ```
 
 For a single process, use `autohand --no-idle-logout` or set `AUTOHAND_NO_IDLE_LOGOUT=1`.
+
+Set `idleTimeoutMs` to a positive duration in milliseconds to change the idle period. The default is `3600000` (60 minutes); invalid values fall back to the default.
 
 ### Debug Mode
 
@@ -1763,6 +1767,7 @@ autohand --no-chrome       # Start with browser bridge disabled
     "enableRequestQueue": true,
     "toolSelectionCache": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   },
   "permissions": {
@@ -1849,6 +1854,7 @@ agent:
   enableRequestQueue: true
   toolSelectionCache: true
   idleLogoutEnabled: true
+  idleTimeoutMs: 3600000
   debug: false
 
 permissions:
@@ -1944,6 +1950,7 @@ maxIterations = 100
 enableRequestQueue = true
 toolSelectionCache = true
 idleLogoutEnabled = true
+idleTimeoutMs = 3600000
 debug = false
 
 [permissions]

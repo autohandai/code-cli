@@ -696,6 +696,7 @@ Contrôlez le comportement de l’agent et les limites d’itération.
     "toolSelectionCache": true,
     "autoMemory": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   }
 }
@@ -707,6 +708,7 @@ Contrôlez le comportement de l’agent et les limites d’itération.
 | `toolSelectionCache` | booléen | `true` | Mettre en cache la sélection locale du schéma d'outil par tour pour une entrée de sélection d'outil équivalente |
 | `autoMemory` | booléen | `true` | Extrayez et enregistrez des mémoires utilisateur/projet durables après des tours interactifs réussis |
 | `idleLogoutEnabled` | booléen | `true` | Déconnectez-vous des sessions interactives authentifiées après le délai d'inactivité |
+| `idleTimeoutMs` | numéro | `3600000` | Millisecondes d'inactivité avant la déconnexion d'une session authentifiée (60 minutes) |
 | `debug` | booléen | `false` | Activer la sortie de débogage détaillée (enregistre l'état interne de l'agent dans stderr) |
 
 ### Sélection du schéma d'outil
@@ -736,6 +738,8 @@ Pour maintenir actives les sessions d'agent authentifiées de longue durée pend
 }
 ```
 Pour un seul processus, utilisez `autohand --no-idle-logout` ou définissez `AUTOHAND_NO_IDLE_LOGOUT=1`.
+
+Définissez `idleTimeoutMs` sur une durée positive en millisecondes pour modifier la période d'inactivité. La valeur par défaut est `3600000` (60 minutes) ; les valeurs non valides utilisent la valeur par défaut.
 
 ### Mode débogage
 
@@ -1608,6 +1612,7 @@ autohand --no-chrome       # Start with browser bridge disabled
     "enableRequestQueue": true,
     "toolSelectionCache": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   },
   "permissions": {
@@ -1692,6 +1697,7 @@ agent:
   enableRequestQueue: true
   toolSelectionCache: true
   idleLogoutEnabled: true
+  idleTimeoutMs: 3600000
   debug: false
 
 permissions:
@@ -1785,6 +1791,7 @@ maxIterations = 100
 enableRequestQueue = true
 toolSelectionCache = true
 idleLogoutEnabled = true
+idleTimeoutMs = 3600000
 debug = false
 
 [permissions]

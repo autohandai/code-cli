@@ -417,6 +417,8 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
   "agent": {
     "maxIterations": 100,
     "enableRequestQueue": true,
+    "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   }
 }
@@ -426,7 +428,11 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | -------------------- | ------- | ---------- | -------------------------------------------------------------------------- |
 | `maxIterations`      | number  | `100`      | 停止前のユーザーリクエストあたりの最大ツール反復回数                       |
 | `enableRequestQueue` | boolean | `true`     | エージェント作業中にユーザーがリクエストを入力してキューに入れることを許可 |
+| `idleLogoutEnabled`  | boolean | `true`     | アイドルタイムアウト後に認証済みの対話型セッションからログアウト           |
+| `idleTimeoutMs`      | number  | `3600000`  | 認証済みセッションをログアウトするまでの非アクティブ時間（ミリ秒、60分）   |
 | `debug`              | boolean | `false`    | 詳細なデバッグ出力を有効化（エージェント内部状態をstderrにログ）           |
+
+アイドル時のログアウトを無効にするには、`idleLogoutEnabled` を `false` に設定します。期間を変更するには、`idleTimeoutMs` に正のミリ秒値を設定します。デフォルトは `3600000`（60分）で、無効な値はデフォルトに戻ります。
 
 ### デバッグモード
 
@@ -1113,6 +1119,8 @@ share:
   "agent": {
     "maxIterations": 100,
     "enableRequestQueue": true,
+    "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   },
   "permissions": {
@@ -1191,6 +1199,8 @@ ui:
 agent:
   maxIterations: 100
   enableRequestQueue: true
+  idleLogoutEnabled: true
+  idleTimeoutMs: 3600000
   debug: false
 
 permissions:
