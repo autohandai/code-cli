@@ -2093,6 +2093,8 @@ These flags override config file settings:
 | `--acp`                       | Shorthand for --mode acp (Agent Client Protocol over stdio)                                    |
 | `--teammate-mode <mode>`      | Team display mode: auto, in-process, or tmux                                                   |
 
+To register the native stdio agent in Zed, JetBrains IDEs, JetBrains Air, or another compatible development environment, see the [ACP integration guide](./guides/ACP.md).
+
 ### UI & Language
 
 | Flag                          | Description                                                                                    |
