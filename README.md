@@ -55,8 +55,8 @@ The fully qualified command installs and trusts only the Autohand formula. Start
 
 ```bash
 # Clone and build
-git clone https://github.com/autohandai/cli.git
-cd cli
+git clone https://github.com/autohandai/code-cli.git
+cd code-cli
 bun install
 bun run build
 
@@ -586,12 +586,12 @@ We welcome contributions! Please read our [Contributing Guide](CONTRIBUTING.md) 
 
 - Join our [Discord community](https://discord.gg/ZM3TCtwCwG)
 - Check the [documentation](docs/)
-- Open an issue on [GitHub](https://github.com/autohandai/cli/issues)
+- Open an issue on [GitHub](https://github.com/autohandai/code-cli/issues)
 
 ## Community
 
 - **Discord**: https://discord.gg/ZM3TCtwCwG
-- **GitHub**: https://github.com/autohandai/cli
+- **GitHub**: https://github.com/autohandai/code-cli
 - **Website**: https://autohand.ai
 - **X**: [@autohandai](https://x.com/autohandai)
 
@@ -612,7 +612,7 @@ Apache License 2.0 - Free for individuals, non-profits, educational institutions
 
 - Website: https://autohand.ai
 - CLI Install: https://autohand.ai/cli/
-- GitHub: https://github.com/autohandai/cli
+- GitHub: https://github.com/autohandai/code-cli
 - API Backend: https://github.com/autohandai/api
 - Discord: https://discord.gg/ZM3TCtwCwG
 
