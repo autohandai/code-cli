@@ -142,10 +142,11 @@ export async function buildResearchPublicationDraft(
   }
 
   const titleIndex = titleNode ? tree.children.indexOf(titleNode) : -1;
-  const summaryNode = tree.children
+  const summary = tree.children
     .slice(titleIndex + 1)
-    .find((node): node is Paragraph => node.type === 'paragraph');
-  const summary = summaryNode ? phrasingText(summaryNode.children) : '';
+    .filter((node): node is Paragraph => node.type === 'paragraph')
+    .map((node) => phrasingText(node.children))
+    .find((value) => value.length > 0) ?? '';
   if (!summary) {
     throw validation('The research report needs a summary paragraph after its title.', 'summary_missing');
   }
@@ -325,7 +326,14 @@ function validateMarkdownLink(node: Link): void {
 }
 
 function normalizeLogicalReference(value: string): string {
-  return value.replace(/^\.\//, '');
+  try {
+    return decodeURIComponent(value).replace(/^\.\//, '');
+  } catch {
+    throw validation(
+      'Remote or unsafe Markdown images are not accepted.',
+      'asset_reference_unsafe',
+    );
+  }
 }
 
 function validateLogicalReference(value: string): void {
@@ -404,14 +412,18 @@ async function validateRasterBytes(
       'image/gif': 'gif',
     };
     const width = metadata.width ?? 0;
-    const height = metadata.height ?? 0;
+    const frameHeight = metadata.pageHeight ?? metadata.height ?? 0;
+    const pages = metadata.pages ?? 1;
+    const totalPixels = width * frameHeight * pages;
     if (
       metadata.format !== expectedFormat[mediaType]
       || width < 1
-      || height < 1
+      || frameHeight < 1
+      || pages < 1
       || width > 12_000
-      || height > 12_000
-      || width * height > 40_000_000
+      || frameHeight > 12_000
+      || !Number.isSafeInteger(totalPixels)
+      || totalPixels > 40_000_000
     ) {
       throw new Error('invalid image metadata');
     }
