@@ -18,6 +18,8 @@ describe('ACP integration guide', () => {
     expect(guide).toContain('## GitHub Copilot app');
     expect(guide).toContain('## Any ACP-compatible ADE');
     expect(guide).toContain('stdout is reserved for ACP protocol messages');
+    expect(guide).toContain('ACP Registry');
+    expect(guide).toContain('generic icon');
   });
 
   it('keeps every JSON configuration example valid', async () => {

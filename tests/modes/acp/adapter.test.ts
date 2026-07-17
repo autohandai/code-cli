@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type {
   AgentSideConnection,
+  AuthenticateRequest,
   InitializeRequest,
   NewSessionRequest,
 } from "@agentclientprotocol/sdk";
@@ -191,6 +192,10 @@ function makeInitRequest(
   } as InitializeRequest;
 }
 
+function makeAuthRequest(methodId = "autohand-setup"): AuthenticateRequest {
+  return { methodId };
+}
+
 function makeNewSessionRequest(
   overrides: Partial<NewSessionRequest> = {},
 ): NewSessionRequest {
@@ -320,6 +325,20 @@ describe("AutohandAcpAdapter", () => {
       expect(result.agentInfo!.version).toBe("0.7.9");
     });
 
+    it("advertises terminal setup for ACP Registry authentication", async () => {
+      const result = await adapter.initialize(makeInitRequest());
+
+      expect(result.authMethods).toEqual([
+        {
+          id: "autohand-setup",
+          name: "Set up Autohand Code",
+          description: "Configure authentication and a model in an interactive terminal.",
+          type: "terminal",
+          args: ["--setup"],
+        },
+      ]);
+    });
+
     it("loads config during initialization", async () => {
       await adapter.initialize(makeInitRequest());
 
@@ -339,7 +358,7 @@ describe("AutohandAcpAdapter", () => {
       // Must initialize first to load config
       await adapter.initialize(makeInitRequest());
 
-      const result = await adapter.authenticate({} as any);
+      const result = await adapter.authenticate(makeAuthRequest());
 
       expect(result).toEqual({});
     });
@@ -353,7 +372,7 @@ describe("AutohandAcpAdapter", () => {
 
       await adapter.initialize(makeInitRequest());
 
-      const result = await adapter.authenticate({} as any);
+      const result = await adapter.authenticate(makeAuthRequest());
 
       expect(result).toEqual({});
     });
@@ -368,7 +387,12 @@ describe("AutohandAcpAdapter", () => {
 
       await adapter.initialize(makeInitRequest());
 
-      await expect(adapter.authenticate({} as any)).rejects.toThrow();
+      await expect(adapter.authenticate(makeAuthRequest())).rejects.toMatchObject({
+        code: -32000,
+        data: {
+          message: 'Please run `autohand --setup` or `autohand --login` in your terminal.',
+        },
+      });
     });
   });
 
