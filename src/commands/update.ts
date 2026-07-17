@@ -5,11 +5,39 @@
  */
 import { spawn } from 'node:child_process';
 import chalk from 'chalk';
+import {
+  DEFAULT_MODEL_CATALOG_URL,
+  refreshModelCatalog,
+} from '../providers/modelCatalogUpdater.js';
 import { checkForUpdates, getInstallHint } from '../utils/versionCheck.js';
 
 export interface UpdateOptions {
   currentVersion: string;
   check: boolean;
+}
+
+export interface ModelCatalogUpdateOptions {
+  currentVersion: string;
+}
+
+export async function runModelCatalogUpdate(options: ModelCatalogUpdateOptions): Promise<void> {
+  console.log(chalk.gray(`Refreshing model catalog from ${process.env.AUTOHAND_MODELS_URL ?? DEFAULT_MODEL_CATALOG_URL}...`));
+  const result = await refreshModelCatalog({
+    force: true,
+    offline: false,
+    userAgent: `autohand/${options.currentVersion}`,
+  });
+
+  if (result.status === 'not-modified') {
+    console.log(chalk.green('Model catalog is already current.'));
+    return;
+  }
+
+  const counts = result.modelCount !== undefined && result.providerCount !== undefined
+    ? `${result.modelCount} models across ${result.providerCount} providers`
+    : 'the latest model definitions';
+  const revision = result.revision ? ` (${result.revision})` : '';
+  console.log(chalk.green(`Updated ${counts}${revision}.`));
 }
 
 /**

@@ -176,7 +176,7 @@ Active LLM provider to use.
 
 ### Provider model catalog
 
-Autohand stores bundled provider model lists in `src/providers/models.json` and copies that file to `dist/providers/models.json` in packaged builds. Provider pickers, ACP/RPC model discovery, and static provider fallbacks read from this catalog instead of hardcoded TypeScript arrays.
+Autohand stores bundled provider model lists in `src/providers/models.json` and copies that file to `dist/providers/models.json` in packaged builds. Provider pickers, ACP/RPC model discovery, and static provider fallbacks read from this catalog instead of hardcoded TypeScript arrays. At normal startup the CLI also checks `https://code.autohand.ai/cli/models.json` for a validated Pi-compatible update when the last successful check is at least four hours old.
 
 To add or update bundled model choices, edit the relevant provider entry in `models.json`:
 
@@ -194,7 +194,9 @@ To add or update bundled model choices, edit the relevant provider entry in `mod
 }
 ```
 
-For a local override without changing the installed package, create `~/.autohand/models.json` or set `AUTOHAND_MODELS_CATALOG=/path/to/models.json`. Override entries are merged ahead of bundled entries and deduplicated by model id. OpenRouter and other providers with live model APIs still try live discovery first, then merge or fall back to catalog entries.
+For a local override without changing the installed package, create `~/.autohand/models.json` or set `AUTOHAND_MODELS_CATALOG=/path/to/models.json`. Local override entries are merged ahead of the last valid downloaded catalog, which is merged ahead of bundled entries; all layers are deduplicated by model ID. OpenRouter and other providers with live model APIs still try live discovery first, then merge or fall back to catalog entries.
+
+Use `autohand update --models` or `autohand upgrade --models` to force an immediate refresh. Use `autohand --offline` or `AUTOHAND_OFFLINE=1` to disable automatic startup checks. `AUTOHAND_MODELS_URL` can select another compatible endpoint for development. See [Model catalog updates](model-catalog.md) for the cache, validation, fallback, and publication contracts.
 
 ### `openrouter`
 

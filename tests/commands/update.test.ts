@@ -13,6 +13,11 @@ vi.mock('../../src/utils/versionCheck.js', () => ({
   getInstallHint: vi.fn(),
 }));
 
+vi.mock('../../src/providers/modelCatalogUpdater.js', () => ({
+  DEFAULT_MODEL_CATALOG_URL: 'https://code.autohand.ai/cli/models.json',
+  refreshModelCatalog: vi.fn(),
+}));
+
 // Mock child_process
 vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
@@ -21,7 +26,8 @@ vi.mock('node:child_process', () => ({
 // Import after mocking
 const { checkForUpdates, getInstallHint } = await import('../../src/utils/versionCheck.js');
 const { spawn } = await import('node:child_process');
-const { runUpdate } = await import('../../src/commands/update.js');
+const { refreshModelCatalog } = await import('../../src/providers/modelCatalogUpdater.js');
+const { runModelCatalogUpdate, runUpdate } = await import('../../src/commands/update.js');
 
 function createFakeProcess(exitCode: number) {
   return {
@@ -214,5 +220,39 @@ describe('runUpdate', () => {
 
       expect(processExitSpy).toHaveBeenCalledWith(1);
     });
+  });
+});
+
+describe('runModelCatalogUpdate', () => {
+  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleLogSpy.mockRestore();
+  });
+
+  it('forces a remote refresh and reports the persisted catalog revision', async () => {
+    vi.mocked(refreshModelCatalog).mockResolvedValue({
+      status: 'updated',
+      path: '/tmp/autohand/models.json',
+      checkedAt: 1_000,
+      providerCount: 15,
+      modelCount: 101,
+      revision: 'sha256-example',
+    });
+
+    await runModelCatalogUpdate({ currentVersion: '0.8.2' });
+
+    expect(refreshModelCatalog).toHaveBeenCalledWith(expect.objectContaining({
+      force: true,
+      offline: false,
+      userAgent: 'autohand/0.8.2',
+    }));
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('101 models'));
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('sha256-example'));
   });
 });

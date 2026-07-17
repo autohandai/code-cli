@@ -253,6 +253,36 @@ describe('built CLI Tuistory smoke tests', () => {
     expectCleanExit(session);
   });
 
+  it('documents the model-only update flow from the built CLI', async () => {
+    const session = await trackSession(launchBuiltAutohand(['update', '--help'], {
+      waitForDataTimeout: 15_000,
+    }));
+
+    await session.waitForText('--models', { timeout: 10_000 });
+    const output = session.readAll();
+
+    expect(output).toContain('--models');
+    expect(output).toContain('model catalog');
+
+    await waitForExit(session);
+    expectCleanExit(session);
+  });
+
+  it('documents offline model-catalog behavior for resumed sessions', async () => {
+    const session = await trackSession(launchBuiltAutohand(['resume', '--help'], {
+      waitForDataTimeout: 15_000,
+    }));
+
+    await session.waitForText('--offline', { timeout: 10_000 });
+    const output = session.readAll();
+
+    expect(output).toContain('--offline');
+    expect(output).toContain('model catalog');
+
+    await waitForExit(session);
+    expectCleanExit(session);
+  });
+
   it('renders version from the built dist entrypoint', async () => {
     const session = await trackSession(launchBuiltAutohand(['--version'], {
       waitForDataTimeout: 15_000,

@@ -29,6 +29,7 @@ export interface RootCliOptions extends CLIOptions {
   about?: boolean;
   learn?: boolean;
   learnUpdate?: boolean;
+  offline?: boolean;
 }
 
 export function normalizeInitialCliOptions(

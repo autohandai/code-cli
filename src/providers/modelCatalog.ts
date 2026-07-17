@@ -5,10 +5,15 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { BuiltInProviderName, ReasoningEffort } from "../types.js";
+import {
+  getRemoteModelCatalogPath,
+  getUserModelCatalogPath,
+} from "./modelCatalogPaths.js";
+
+export { getRemoteModelCatalogPath, getUserModelCatalogPath } from "./modelCatalogPaths.js";
 
 export interface ModelCatalogEntry {
   id: string;
@@ -117,18 +122,46 @@ function normalizeProviderCatalog(value: unknown): ProviderModelCatalog | undefi
   return catalog;
 }
 
+function normalizePiProviderCatalog(value: unknown): ProviderModelCatalog | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const models = Object.values(value)
+    .map((entry) => {
+      const normalized = normalizeModelEntry(entry);
+      if (!normalized || !isRecord(entry)) {
+        return normalized;
+      }
+      if (!normalized.displayName && typeof entry.name === "string" && entry.name.trim()) {
+        normalized.displayName = entry.name.trim();
+      }
+      if (!normalized.reasoningEffort && entry.reasoning === true) {
+        normalized.reasoningEffort = "high";
+      }
+      return normalized;
+    })
+    .filter((entry): entry is ModelCatalogEntry => Boolean(entry));
+
+  return models.length > 0 ? { models } : undefined;
+}
+
 function normalizeCatalog(value: unknown): ModelCatalog {
   const catalog: ModelCatalog = { providers: {} };
-  if (!isRecord(value) || !isRecord(value.providers)) {
+  if (!isRecord(value)) {
     return catalog;
   }
 
-  for (const [provider, providerValue] of Object.entries(value.providers)) {
+  const providers = isRecord(value.providers) ? value.providers : value;
+
+  for (const [provider, providerValue] of Object.entries(providers)) {
     if (!isBuiltInProviderName(provider)) {
       continue;
     }
 
-    const normalized = normalizeProviderCatalog(providerValue);
+    const normalized = isRecord(providerValue) && Array.isArray(providerValue.models)
+      ? normalizeProviderCatalog(providerValue)
+      : normalizePiProviderCatalog(providerValue);
     if (normalized) {
       catalog.providers[provider] = normalized;
     }
@@ -156,15 +189,6 @@ function getBundledCatalogCandidates(): string[] {
 export function getBundledModelCatalogPath(): string {
   return getBundledCatalogCandidates().find((candidate) => existsSync(candidate))
     ?? getBundledCatalogCandidates()[0];
-}
-
-export function getUserModelCatalogPath(): string {
-  if (process.env.AUTOHAND_MODELS_CATALOG) {
-    return resolve(process.env.AUTOHAND_MODELS_CATALOG);
-  }
-
-  const autohandHome = process.env.AUTOHAND_HOME ?? join(homedir(), ".autohand");
-  return join(autohandHome, "models.json");
 }
 
 function readCatalogFile(filePath: string): ModelCatalog {
@@ -225,8 +249,9 @@ function mergeCatalogs(base: ModelCatalog, override: ModelCatalog): ModelCatalog
 
 export function loadModelCatalog(): ModelCatalog {
   const bundled = readCatalogFile(getBundledModelCatalogPath());
+  const remote = readCatalogFile(getRemoteModelCatalogPath());
   const override = readCatalogFile(getUserModelCatalogPath());
-  return mergeCatalogs(bundled, override);
+  return mergeCatalogs(mergeCatalogs(bundled, remote), override);
 }
 
 export function getProviderModelOptions(provider: BuiltInProviderName): ModelCatalogEntry[] {

@@ -68,6 +68,17 @@ import { looksLikeInlineAgents, parseInlineAgents } from './core/agents/AgentReg
 import { getCustomProviderConfig, isCustomProviderName } from './providers/customProviders.js';
 import { runtimeVersion } from './utils/runtimeVersion.js';
 
+async function refreshModelCatalogBeforeAgentStart(options: {
+  bare?: boolean;
+  offline?: boolean;
+}): Promise<void> {
+  const { refreshModelCatalogOnStartup } = await import('./providers/modelCatalogUpdater.js');
+  await refreshModelCatalogOnStartup({
+    offline: options.offline === true || options.bare === true ? true : undefined,
+    userAgent: `autohand/${runtimeVersion}`,
+  });
+}
+
 function applyCliModelOverride(config: LoadedConfig, model: string): void {
   const providerName = config.provider ?? 'openrouter';
   if (isCustomProviderName(providerName)) {
@@ -180,6 +191,7 @@ program
   .argument('[prompt]', 'Run a single instruction in command mode (same as -p)')
   .option('-p, --prompt [text]', 'Run a single instruction in command mode')
   .option('--bare', 'Minimal mode: skip hooks, LSP, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and AGENTS.md auto-discovery', false)
+  .option('--offline', 'Disable startup network operations, including model catalog refreshes', false)
   .option('--path <path>', 'Workspace path to operate in')
   .option('-y, --yes', 'Auto-confirm risky actions', false)
   .option('--y', 'Alias for --yes', false)
@@ -249,6 +261,8 @@ program
     }
 
     normalizeInitialCliOptions(opts);
+
+    await refreshModelCatalogBeforeAgentStart(opts);
 
     // `--agents` accepts inline JSON (Claude Code format) or a directory path.
     // Parse and validate inline JSON up front so users get a clear error before
@@ -508,7 +522,10 @@ program
   .description('Resume a previous session')
   .option('--path <path>', 'Workspace path to operate in')
   .option('--model <model>', 'Override the configured LLM model')
-  .action(async (sessionId: string, opts: CLIOptions) => {
+  .option('--offline', 'Disable the model catalog refresh for this resumed session', false)
+  .action(async (sessionId: string, opts: CLIOptions & { offline?: boolean }) => {
+    await refreshModelCatalogBeforeAgentStart(opts);
+
     // Mandatory auth gate for resume
     let authConfig = await loadConfig(opts.config, process.cwd());
     authConfig = await ensureAuthenticated(authConfig);
@@ -978,8 +995,16 @@ program
   .command('update')
   .description('Check for updates and install if available')
   .option('--check', 'Only check for updates without installing')
-  .action(async (opts: { check?: boolean }) => {
-    const { runUpdate } = await import('./commands/update.js');
+  .option('--models', 'Refresh the remote model catalog without updating the CLI')
+  .action(async (opts: { check?: boolean; models?: boolean }) => {
+    const { runModelCatalogUpdate, runUpdate } = await import('./commands/update.js');
+    if (opts.models) {
+      if (opts.check) {
+        throw new Error('--check cannot be combined with --models');
+      }
+      await runModelCatalogUpdate({ currentVersion: runtimeVersion });
+      return;
+    }
     await runUpdate({
       currentVersion: runtimeVersion,
       check: opts.check ?? false,
@@ -990,8 +1015,16 @@ program
   .command('upgrade')
   .description('Check for updates and install if available')
   .option('--check', 'Only check for updates without installing')
-  .action(async (opts: { check?: boolean }) => {
-    const { runUpdate } = await import('./commands/update.js');
+  .option('--models', 'Refresh the remote model catalog without updating the CLI')
+  .action(async (opts: { check?: boolean; models?: boolean }) => {
+    const { runModelCatalogUpdate, runUpdate } = await import('./commands/update.js');
+    if (opts.models) {
+      if (opts.check) {
+        throw new Error('--check cannot be combined with --models');
+      }
+      await runModelCatalogUpdate({ currentVersion: runtimeVersion });
+      return;
+    }
     await runUpdate({
       currentVersion: runtimeVersion,
       check: opts.check ?? false,

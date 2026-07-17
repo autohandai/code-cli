@@ -61,6 +61,32 @@ This directory contains automated CI/CD workflows for the Autohand CLI project.
 
 Optional display name, context-window, and reasoning-effort values produce a structured model entry. Requests without metadata preserve the provider's existing string/object entry style. The workflow never approves or merges its own pull request.
 
+### 📦 Model catalog publication (`publish-model-catalog.yml`)
+
+**Triggers:**
+- A model catalog or publication workflow change lands on `main`
+- Four-hour schedule
+- Manual workflow dispatch
+
+**What it does:**
+1. Generates the full Pi-compatible catalog from `src/providers/models.json`
+2. Validates provider and model records before any upload
+3. Uploads immutable, content-addressed catalog and metadata objects to R2
+4. Promotes `cli/models.json` only after the immutable upload succeeds
+5. Writes `cli/catalog.json` for admin publication status
+
+### 🧭 Admin model catalog pull requests (`model-catalog-admin-pr.yml`)
+
+**Trigger:**
+- The authenticated website admin dispatches a workflow with an immutable R2 draft ID and Git blob SHA
+
+**What it does:**
+1. Verifies that the GitHub source catalog still has the SHA edited by the administrator
+2. Downloads the immutable draft from `cli/drafts/<id>.json`
+3. Applies the compact source catalog and generates the full public catalog as validation
+4. Creates an automation branch and commit with the required co-author trailer
+5. Opens a pull request for maintainer review without approving or merging it
+
 ## Setup Requirements
 
 ### Repository Secrets
@@ -78,7 +104,14 @@ Add these secrets in GitHub Settings → Secrets → Actions:
    - When omitted, the workflow uses the repository `GITHUB_TOKEN`
    - Configure this token when automated pull requests must trigger other GitHub Actions workflows
 
-3. **`TAP_GITHUB_TOKEN`** (required for stable releases)
+3. **Model catalog R2 credentials** (required for publication and admin drafts)
+   - `R2_ACCOUNT_ID`
+   - `R2_MODELS_BUCKET`
+   - `R2_MODELS_ACCESS_KEY_ID`
+   - `R2_MODELS_SECRET_ACCESS_KEY`
+   - Scope the access key to the model-catalog bucket with object read/write access
+
+4. **`TAP_GITHUB_TOKEN`** (required for stable releases)
    - Fine-grained token with Contents read/write access to `autohandai/homebrew-code`
    - The tap repository must remain public so Homebrew users can install without GitHub credentials
 
