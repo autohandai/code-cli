@@ -5,6 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import {
+  formatResearchPublicationOutcome,
   ResearchPublicationService,
   type ResearchPublicationPrompts,
 } from '../../src/research/ResearchPublicationService.js';
@@ -157,6 +158,73 @@ describe('ResearchPublicationService', () => {
     });
     expect(JSON.stringify(result)).not.toContain('PRIVATE-CODE-MUST-NOT-PERSIST');
     expect(resultWithCode.accessCode).toBeNull();
+  });
+
+  it('preserves a committed private publication when the one-time result display fails', async () => {
+    const accessCode = 'PRIVATE-CODE-MUST-NOT-PERSIST';
+    const committed = {
+      reportId: `or_${'b'.repeat(26)}`,
+      visibility: 'private' as const,
+      revision: 1,
+      url: 'https://openresearch.autohand.ai/research/private-report/',
+      accessCode,
+      accessCodeAvailable: true as const,
+      idempotentReplay: false as const,
+    };
+    const service = new ResearchPublicationService({
+      buildDraft: vi.fn(async () => draft()),
+      verifyUnchanged: vi.fn(async () => {}),
+      validateSession: vi.fn(async () => ({ authenticated: true })),
+      publish: vi.fn(async () => committed),
+      prompts: prompts({
+        showPrivateResult: vi.fn(async () => {
+          throw new Error('result view failed to render');
+        }),
+      }),
+    });
+
+    const outcome = await service.offer({
+      workspaceRoot: '/workspace',
+      reportPath: '.autohand/research/topic.md',
+      token: 'token',
+      interactive: true,
+    });
+
+    expect(outcome).toMatchObject({
+      status: 'published',
+      visibility: 'private',
+      url: committed.url,
+      accessCodeDisplayFailed: true,
+    });
+    expect(JSON.stringify(outcome)).not.toContain(accessCode);
+    expect(committed.accessCode).toBeNull();
+    expect(formatResearchPublicationOutcome(outcome, '.autohand/research/topic.md'))
+      .toContain('private access code is unavailable');
+  });
+
+  it('still reports a failure when a prompt rejects before publication commits', async () => {
+    const publish = vi.fn();
+    const service = new ResearchPublicationService({
+      buildDraft: vi.fn(async () => draft()),
+      verifyUnchanged: vi.fn(async () => {}),
+      validateSession: vi.fn(async () => ({ authenticated: true })),
+      publish,
+      prompts: prompts({
+        confirmFinal: vi.fn(async () => {
+          throw new Error('confirmation view failed to render');
+        }),
+      }),
+    });
+
+    const outcome = await service.offer({
+      workspaceRoot: '/workspace',
+      reportPath: '.autohand/research/topic.md',
+      token: 'token',
+      interactive: true,
+    });
+
+    expect(outcome).toMatchObject({ status: 'failed' });
+    expect(publish).not.toHaveBeenCalled();
   });
 
   it('uses the current login and leaves the report local when authentication is invalid', async () => {
