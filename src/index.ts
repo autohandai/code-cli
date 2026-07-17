@@ -13,7 +13,6 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execSync, spawnSync } from 'node:child_process';
-import packageJson from '../package.json' with { type: 'json' };
 import { getProviderConfig, loadConfig, resolveWorkspaceRoot, saveConfig } from './config.js';
 import { runStartupChecks, printStartupCheckResults, validateWorkspacePath } from './startup/checks.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/workspaceSafety.js';
@@ -67,6 +66,7 @@ import {
 import { AgentsGenerator } from './onboarding/agentsGenerator.js';
 import { looksLikeInlineAgents, parseInlineAgents } from './core/agents/AgentRegistry.js';
 import { getCustomProviderConfig, isCustomProviderName } from './providers/customProviders.js';
+import { runtimeVersion } from './utils/runtimeVersion.js';
 
 function applyCliModelOverride(config: LoadedConfig, model: string): void {
   const providerName = config.provider ?? 'openrouter';
@@ -105,7 +105,7 @@ function getGitCommit(): string {
     return process.env.BUILD_GIT_COMMIT;
   }
   // For alpha builds, version suffix encodes the source commit
-  const alphaCommit = getCommitFromAlphaVersion(packageJson.version);
+  const alphaCommit = getCommitFromAlphaVersion(runtimeVersion);
   if (alphaCommit) {
     return alphaCommit;
   }
@@ -122,7 +122,7 @@ function getGitCommit(): string {
  */
 function getVersionString(): string {
   const commit = getGitCommit();
-  return `${packageJson.version} (${commit})`;
+  return `${runtimeVersion} (${commit})`;
 }
 
 type McpConfigScope = 'user' | 'project';
@@ -981,7 +981,7 @@ program
   .action(async (opts: { check?: boolean }) => {
     const { runUpdate } = await import('./commands/update.js');
     await runUpdate({
-      currentVersion: packageJson.version,
+      currentVersion: runtimeVersion,
       check: opts.check ?? false,
     });
   });
@@ -993,7 +993,7 @@ program
   .action(async (opts: { check?: boolean }) => {
     const { runUpdate } = await import('./commands/update.js');
     await runUpdate({
-      currentVersion: packageJson.version,
+      currentVersion: runtimeVersion,
       check: opts.check ?? false,
     });
   });
@@ -1279,7 +1279,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
     if (!options.bare) {
       runtimeResourceOwner.startPing(() => {
         initPingService({
-          cliVersion: packageJson.version,
+          cliVersion: runtimeVersion,
           clientType: 'cli',
         });
         startPingService();
@@ -1322,7 +1322,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
       runtimeResourceOwner.startBackgroundStartup({
         resolveAuthAndVersion: async () => {
           const versionCheckPromise = config.ui?.checkForUpdates !== false
-            ? checkForUpdates(packageJson.version, {
+            ? checkForUpdates(runtimeVersion, {
                 checkIntervalHours: config.ui?.updateCheckInterval ?? 24,
               })
             : Promise.resolve(null);
