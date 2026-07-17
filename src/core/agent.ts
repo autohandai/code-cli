@@ -1846,10 +1846,22 @@ export class AutohandAgent {
     turnSucceeded: boolean,
   ): Promise<string | null> {
     return executePendingPostTurnAction(
-      this as unknown as PostTurnActionHost,
+      this.createPostTurnActionHost(),
       action,
       turnSucceeded,
     );
+  }
+
+  private createPostTurnActionHost(): PostTurnActionHost {
+    const agent = this;
+
+    return {
+      get interactiveAutomodeEnabled() { return agent.interactiveAutomodeEnabled; },
+      requestResearchPublication: (reportPath) => agent.requestResearchPublication(reportPath),
+      runtime: agent.runtime,
+      runtimeResourceShutdownController: agent.runtimeResourceShutdownController,
+      get shouldExit() { return agent.shouldExit; },
+    };
   }
 
   private updateContextUsage(messages: LLMMessage[], tools?: import('../types.js').FunctionDefinition[]): void {
