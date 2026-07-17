@@ -75,6 +75,16 @@ interface AssistantReplayParts {
   text?: string;
 }
 
+const AUTOHAND_ACP_AUTH_METHODS: NonNullable<InitializeResponse['authMethods']> = [
+  {
+    id: 'autohand-setup',
+    name: 'Set up Autohand Code',
+    description: 'Configure authentication and a model in an interactive terminal.',
+    type: 'terminal',
+    args: ['--setup'],
+  },
+];
+
 function stringField(record: Record<string, unknown>, field: string): string | undefined {
   const value = record[field];
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
@@ -495,6 +505,7 @@ export class AutohandAcpAdapter implements Agent {
         title: 'Autohand Code',
         version: packageJson.version,
       },
+      authMethods: AUTOHAND_ACP_AUTH_METHODS,
     };
   }
 
@@ -517,7 +528,7 @@ export class AutohandAcpAdapter implements Agent {
     }
 
     throw RequestError.authRequired({
-      message: 'Please run `autohand --setup` or `autohand login` in your terminal.',
+      message: 'Please run `autohand --setup` or `autohand --login` in your terminal.',
     });
   }
 

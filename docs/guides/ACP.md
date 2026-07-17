@@ -164,6 +164,12 @@ Preserve other entries already present in the file. Air's labels and managed fil
 
 The local configuration launches the executable on the machine running the task. For Docker, remote, or cloud execution, install Autohand inside that execution environment and use the path visible there.
 
+### Why Air may show a generic icon
+
+An agent added directly to `acp.json` is a manually configured ACP agent. Air may show `Autohand Code` with its generic icon instead of a branded Autohand tile, even when the connection and model list are working correctly. The custom-agent configuration and ACP initialization handshake do not include a portable logo field.
+
+Branded agent artwork is distributed separately through the [ACP Registry](https://agentclientprotocol.com/get-started/registry), where an agent can publish an `icon.svg`. Air's built-in `Add Agents` catalog and manually configured agents are different installation paths. Until an Air build offers Registry installation for Autohand, the generic icon is expected and does not indicate an ACP failure.
+
 ## GitHub Copilot app
 
 The GitHub Copilot desktop app is an ADE, but its [published customization surface](https://docs.github.com/en/copilot/how-tos/github-copilot-app/customize-github-copilot-app) does not currently provide a launcher for arbitrary local ACP agent servers. Its custom agents, skills, plugins, and MCP servers extend the Copilot runtime; they do not replace Copilot with another ACP agent.
@@ -243,6 +249,7 @@ Start the ACP process and session from the intended project or worktree. Autohan
 ## Upstream references
 
 - [Agent Client Protocol introduction](https://agentclientprotocol.com/get-started/introduction)
+- [ACP Registry](https://agentclientprotocol.com/get-started/registry)
 - [Zed External Agents](https://zed.dev/docs/ai/external-agents)
 - [JetBrains ACP configuration](https://www.jetbrains.com/help/ai-assistant/acp.html)
 - [JetBrains Air public preview](https://blog.jetbrains.com/air/2026/03/air-launches-as-public-preview-a-new-wave-of-dev-tooling-built-on-26-years-of-experience/)
