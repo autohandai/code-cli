@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
+import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   assertResearchPublicationDraftUnchanged,
@@ -67,6 +68,132 @@ describe('ResearchManifestBuilder', () => {
     ]);
     expect(draft.totalUploadBytes).toBe(Buffer.byteLength(markdown) + PIXEL.byteLength);
     expect(draft.receiptPath).toBe(`${draft.markdownAbsolutePath}.publication.json`);
+  });
+
+  it('resolves percent-encoded image paths to local files', async () => {
+    const encodedImagePath = path.join(
+      workspaceRoot,
+      '.autohand',
+      'research',
+      'my chart.png',
+    );
+    await fs.outputFile(encodedImagePath, PIXEL);
+    await fs.outputFile(
+      reportPath,
+      '# Agent testing\n\nA safe summary.\n\n![Chart](my%20chart.png)\n',
+    );
+
+    const draft = await buildResearchPublicationDraft({
+      workspaceRoot,
+      markdownPath: reportPath,
+      visibility: 'public',
+      apiBaseUrl: 'https://openresearch.autohand.ai',
+    });
+
+    expect(draft.assets).toEqual([
+      expect.objectContaining({
+        logicalReference: 'my chart.png',
+        absolutePath: await fs.realpath(encodedImagePath),
+      }),
+    ]);
+  });
+
+  it.each([
+    ['encoded traversal', '%2e%2e%2foutside.png'],
+    ['encoded NUL', 'images%2Fpixel.png%00'],
+    ['encoded backslash', 'images%5cpixel.png'],
+    ['encoded absolute path', '%2Fetc%2Fpasswd'],
+    ['malformed percent escape', 'images%2Fpixel%ZZ.png'],
+  ])('rejects an %s image reference after decoding', async (_label, reference) => {
+    await fs.outputFile(
+      reportPath,
+      `# Agent testing\n\nA safe summary.\n\n![Unsafe](${reference})\n`,
+    );
+
+    await expect(buildResearchPublicationDraft({
+      workspaceRoot,
+      markdownPath: reportPath,
+      visibility: 'public',
+      apiBaseUrl: 'https://openresearch.autohand.ai',
+    })).rejects.toMatchObject({ code: 'asset_reference_unsafe' });
+  });
+
+  it('validates animated GIF dimensions per frame', async () => {
+    const frame = await sharp({
+      create: {
+        width: 64,
+        height: 64,
+        channels: 4,
+        background: { r: 33, g: 99, b: 198, alpha: 1 },
+      },
+    }).png().toBuffer();
+    const frameCount = 200;
+    const animatedGif = await sharp(
+      Array.from({ length: frameCount }, () => frame),
+      { join: { animated: true } },
+    ).gif({
+      delay: Array.from({ length: frameCount }, () => 20),
+      keepDuplicateFrames: true,
+    }).toBuffer();
+    const imagePath = path.join(
+      workspaceRoot,
+      '.autohand',
+      'research',
+      'images',
+      'animated.gif',
+    );
+    await fs.outputFile(imagePath, animatedGif);
+    await fs.outputFile(
+      reportPath,
+      '# Agent testing\n\nA safe summary.\n\n![Animated chart](images/animated.gif)\n',
+    );
+
+    const draft = await buildResearchPublicationDraft({
+      workspaceRoot,
+      markdownPath: reportPath,
+      visibility: 'public',
+      apiBaseUrl: 'https://openresearch.autohand.ai',
+    });
+
+    expect(draft.assets).toEqual([
+      expect.objectContaining({ mediaType: 'image/gif' }),
+    ]);
+  });
+
+  it('uses the first prose paragraph after an image-only paragraph as the summary', async () => {
+    await fs.outputFile(
+      reportPath,
+      [
+        '# Agent testing',
+        '',
+        '![Hero image](images/pixel.png)',
+        '',
+        'A practical prose summary after the hero image.',
+      ].join('\n'),
+    );
+
+    const draft = await buildResearchPublicationDraft({
+      workspaceRoot,
+      markdownPath: reportPath,
+      visibility: 'public',
+      apiBaseUrl: 'https://openresearch.autohand.ai',
+    });
+
+    expect(draft.summary).toBe('A practical prose summary after the hero image.');
+  });
+
+  it('still rejects a report with no prose summary after its title', async () => {
+    await fs.outputFile(
+      reportPath,
+      '# Agent testing\n\n![Hero image](images/pixel.png)\n',
+    );
+
+    await expect(buildResearchPublicationDraft({
+      workspaceRoot,
+      markdownPath: reportPath,
+      visibility: 'public',
+      apiBaseUrl: 'https://openresearch.autohand.ai',
+    })).rejects.toMatchObject({ code: 'summary_missing' });
   });
 
   it.each([
