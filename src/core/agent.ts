@@ -851,7 +851,20 @@ export class AutohandAgent {
   }
 
   private handleToolOutput(chunk: ToolOutputChunk): void {
-    return handleAgentToolOutput(this as unknown as AgentToolOutputRuntimeHost, chunk);
+    return handleAgentToolOutput(this.createToolOutputRuntimeHost(), chunk);
+  }
+
+  private createToolOutputRuntimeHost(): AgentToolOutputRuntimeHost {
+    const agent = this;
+
+    return {
+      queueToolMessageChunk: (name, content, toolCallId, stream) => {
+        agent.queueToolMessageChunk(name, content, toolCallId, stream);
+      },
+      sessionManager: agent.sessionManager,
+      get toolOutputQueue() { return agent.toolOutputQueue; },
+      set toolOutputQueue(value) { agent.toolOutputQueue = value; },
+    };
   }
 
   private queueToolMessageChunk(
@@ -861,7 +874,7 @@ export class AutohandAgent {
     stream?: 'stdout' | 'stderr'
   ): void {
     return queueAgentToolMessageChunk(
-      this as unknown as AgentToolOutputRuntimeHost,
+      this.createToolOutputRuntimeHost(),
       name,
       content,
       toolCallId,
@@ -871,7 +884,7 @@ export class AutohandAgent {
 
   private async saveToolMessage(name: string, content: string, toolCallId?: string): Promise<void> {
     return saveAgentToolMessage(
-      this as unknown as AgentToolOutputRuntimeHost,
+      this.createToolOutputRuntimeHost(),
       name,
       content,
       toolCallId
