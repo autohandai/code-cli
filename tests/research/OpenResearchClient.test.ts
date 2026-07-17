@@ -12,6 +12,7 @@ import { OpenResearchClient } from '../../src/research/OpenResearchClient.js';
 import type { ResearchPublicationDraft } from '../../src/research/ResearchManifestBuilder.js';
 
 const ATTEMPT_ID = `pa_${'a'.repeat(26)}`;
+const FRESH_ATTEMPT_ID = `pa_${'d'.repeat(26)}`;
 const REPORT_ID = `or_${'b'.repeat(26)}`;
 const REPORT_URL = 'https://openresearch.autohand.ai/research/agent-testing/';
 
@@ -107,6 +108,112 @@ describe('OpenResearchClient', () => {
     expect(recoveryFetch.mock.calls[0][0]).toContain(`/api/v1/publication-attempts/${ATTEMPT_ID}`);
   });
 
+  it('starts a fresh publication attempt after the saved attempt expires', async () => {
+    await leaveInterruptedAttempt(value);
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(Response.json(statusResponse('expired')))
+      .mockResolvedValueOnce(Response.json(createResponse(FRESH_ATTEMPT_ID), { status: 201 }))
+      .mockResolvedValueOnce(Response.json(commitResponse()));
+    const client = new OpenResearchClient({
+      fetchImpl,
+      verifyUnchanged: vi.fn(async () => {}),
+    });
+
+    const result = await client.publish(value, 'fixture-token');
+
+    expect(result.url).toBe(REPORT_URL);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(fetchImpl.mock.calls[1][0]).toBe(
+      'https://openresearch.autohand.ai/api/v1/publication-attempts',
+    );
+    expect(fetchImpl.mock.calls[2][0]).toContain(
+      `/api/v1/publication-attempts/${FRESH_ATTEMPT_ID}/commit`,
+    );
+    await expect(fs.readJson(value.receiptPath)).resolves.toMatchObject({
+      attemptId: FRESH_ATTEMPT_ID,
+      reportId: REPORT_ID,
+    });
+  });
+
+  it('starts a fresh publication attempt after the saved attempt fails', async () => {
+    await leaveInterruptedAttempt(value);
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(Response.json(statusResponse('failed', {
+        failureCode: 'asset_processing_failed',
+      })))
+      .mockResolvedValueOnce(Response.json(createResponse(FRESH_ATTEMPT_ID), { status: 201 }))
+      .mockResolvedValueOnce(Response.json(commitResponse()));
+    const client = new OpenResearchClient({
+      fetchImpl,
+      verifyUnchanged: vi.fn(async () => {}),
+    });
+
+    await expect(client.publish(value, 'fixture-token')).resolves.toMatchObject({
+      reportId: REPORT_ID,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    await expect(fs.readJson(value.receiptPath)).resolves.toMatchObject({
+      attemptId: FRESH_ATTEMPT_ID,
+    });
+  });
+
+  it('keeps a revoked publication attempt terminal', async () => {
+    await leaveInterruptedAttempt(value);
+    const receiptBefore = await fs.readFile(value.receiptPath, 'utf8');
+    const fetchImpl = vi.fn().mockResolvedValueOnce(Response.json(statusResponse('revoked', {
+      failureCode: 'publication_revoked',
+    })));
+    const client = new OpenResearchClient({
+      fetchImpl,
+      verifyUnchanged: vi.fn(async () => {}),
+    });
+
+    await expect(client.publish(value, 'fixture-token')).rejects.toMatchObject({
+      kind: 'conflict',
+      code: 'publication_revoked',
+    });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    await expect(fs.readFile(value.receiptPath, 'utf8')).resolves.toBe(receiptBefore);
+  });
+
+  it('replaces an expired receipt before the fresh commit begins', async () => {
+    await leaveInterruptedAttempt(value);
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(Response.json(statusResponse('expired')))
+      .mockResolvedValueOnce(Response.json(createResponse(FRESH_ATTEMPT_ID), { status: 201 }))
+      .mockRejectedValueOnce(new TypeError('connection closed during fresh commit'));
+    const client = new OpenResearchClient({
+      fetchImpl,
+      verifyUnchanged: vi.fn(async () => {}),
+    });
+
+    await expect(client.publish(value, 'fixture-token')).rejects.toMatchObject({
+      kind: 'network',
+      code: 'network_error',
+    });
+    const replacementReceipt: unknown = await fs.readJson(value.receiptPath);
+    expect(replacementReceipt).toMatchObject({ attemptId: FRESH_ATTEMPT_ID });
+    expect(replacementReceipt).not.toHaveProperty('reportId');
+  });
+
+  it('preserves the server revision when recovering a committed attempt', async () => {
+    await leaveInterruptedAttempt(value);
+    const fetchImpl = vi.fn().mockResolvedValueOnce(Response.json(statusResponse('committed', {
+      revision: 3,
+      reportId: REPORT_ID,
+      reportUrl: REPORT_URL,
+    })));
+    const client = new OpenResearchClient({
+      fetchImpl,
+      verifyUnchanged: vi.fn(async () => {}),
+    });
+
+    await expect(client.publish(value, 'fixture-token')).resolves.toMatchObject({
+      revision: 3,
+      idempotentReplay: true,
+    });
+  });
+
   it('uploads only assigned assets with exact media, length, and digest', async () => {
     const bytes = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -192,17 +299,17 @@ describe('OpenResearchClient', () => {
   });
 });
 
-function createResponse() {
+function createResponse(attemptId = ATTEMPT_ID) {
   return {
-    attemptId: ATTEMPT_ID,
+    attemptId,
     state: 'ready',
     visibility: 'public',
     slug: null,
     expiresAt: '2099-01-01T00:00:00.000Z',
     idempotentReplay: false,
     assets: [],
-    statusUrl: `/api/v1/publication-attempts/${ATTEMPT_ID}`,
-    commitUrl: `/api/v1/publication-attempts/${ATTEMPT_ID}/commit`,
+    statusUrl: `/api/v1/publication-attempts/${attemptId}`,
+    commitUrl: `/api/v1/publication-attempts/${attemptId}/commit`,
   };
 }
 
@@ -216,4 +323,38 @@ function commitResponse() {
     accessCodeAvailable: false,
     idempotentReplay: false,
   };
+}
+
+function statusResponse(
+  state: 'staging' | 'ready' | 'committing' | 'committed' | 'failed' | 'expired' | 'revoked',
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    attemptId: ATTEMPT_ID,
+    state,
+    visibility: 'public',
+    slug: null,
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    failureCode: null,
+    missingAssets: [],
+    reportId: null,
+    reportUrl: null,
+    ...overrides,
+  };
+}
+
+async function leaveInterruptedAttempt(value: ResearchPublicationDraft): Promise<void> {
+  const fetchImpl = vi.fn()
+    .mockResolvedValueOnce(Response.json(createResponse(), { status: 201 }))
+    .mockRejectedValueOnce(new TypeError('connection closed after create'));
+  const client = new OpenResearchClient({
+    fetchImpl,
+    verifyUnchanged: vi.fn(async () => {}),
+  });
+
+  await expect(client.publish(value, 'fixture-token')).rejects.toMatchObject({
+    kind: 'network',
+    code: 'network_error',
+  });
+  await expect(fs.pathExists(value.receiptPath)).resolves.toBe(true);
 }

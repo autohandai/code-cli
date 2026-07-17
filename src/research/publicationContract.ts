@@ -54,6 +54,7 @@ export const attemptStatusResponseSchema = z.object({
   missingAssets: z.array(logicalReference),
   reportId: opaqueId('or').nullable(),
   reportUrl: z.string().url().nullable(),
+  revision: z.number().int().positive().optional(),
 });
 
 export const assetUploadResponseSchema = z.object({
