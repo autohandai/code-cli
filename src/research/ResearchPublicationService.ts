@@ -31,6 +31,7 @@ export type ResearchPublicationOutcome =
       visibility: ResearchPublicationVisibility;
       url: string;
       accessCodeWasAvailable: boolean;
+      accessCodeDisplayFailed?: boolean;
     };
 
 export interface ResearchPublicationOffer {
@@ -95,6 +96,7 @@ export class ResearchPublicationService {
 
       let accessCode = committed.accessCode;
       const accessCodeWasAvailable = typeof accessCode === 'string';
+      let accessCodeDisplayFailed = false;
       try {
         if (committed.visibility === 'private' && accessCode) {
           await this.dependencies.prompts.showPrivateResult({
@@ -102,6 +104,8 @@ export class ResearchPublicationService {
             accessCode,
           });
         }
+      } catch {
+        accessCodeDisplayFailed = true;
       } finally {
         committed.accessCode = null;
         accessCode = null;
@@ -112,6 +116,7 @@ export class ResearchPublicationService {
         visibility: committed.visibility,
         url: committed.url,
         accessCodeWasAvailable,
+        ...(accessCodeDisplayFailed ? { accessCodeDisplayFailed: true } : {}),
       };
     } catch (error) {
       return {
@@ -135,7 +140,7 @@ export function formatResearchPublicationOutcome(
   ];
   if (outcome.visibility === 'private') {
     lines.push(
-      outcome.accessCodeWasAvailable
+      outcome.accessCodeWasAvailable && !outcome.accessCodeDisplayFailed
         ? 'The private access code was shown once and cleared when the result view closed.'
         : 'The private access code is unavailable from this retry. Rotate it through the authenticated owner workflow.',
     );
