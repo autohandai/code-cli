@@ -83,4 +83,4 @@ Extension tools use the existing meta-tool shell template contract. On invocatio
 
 Manifests and contributions are size bounded and strict. Absolute paths, traversal, Windows separators in manifest paths, missing files, duplicate JSON keys, invalid UTF-8, unknown manifest fields, and contribution symlinks are rejected. One broken extension cannot stop the CLI from starting.
 
-See [Extension authoring](extension-authoring.md) for the package contract and Pi adaptation matrix. Five complete packages are available under [`examples/extensions`](../examples/extensions).
+See [Build Autohand Code extensions with `$extension-builder`](guides/building-autohand-extensions.md) for a recorded start-to-finish workflow. [Extension authoring](extension-authoring.md) documents the package contract and Pi adaptation matrix. Six complete packages are available under [`examples/extensions`](../examples/extensions).

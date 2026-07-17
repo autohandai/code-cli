@@ -23,7 +23,11 @@
     "schema",
     "examples/extensions",
     "docs/extensions.md",
-    "docs/extension-authoring.md"
+    "docs/extension-authoring.md",
+    "docs/guides/building-autohand-extensions.md",
+    "docs/gif/extension-builder-demo.gif",
+    "docs/video/extension-builder-demo.mp4",
+    "docs/video/extension-builder-demo.cast"
   ],
   "scripts": {
     "go": "./install-local.sh && echo \"COMPLETED\"",
@@ -39,6 +43,7 @@
     "test:tuistory": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run --config vitest.tuistory.config.ts",
     "test:open-research-contract": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run tests/research/OpenResearchFixture.integration.test.ts",
     "proof:build-tuistory": "tsup && node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run --config vitest.tuistory.config.ts",
+    "demo:extension-builder": "tsx scripts/record-extension-builder-demo.ts",
     "start": "node dist/index.js",
     "compile:macos-arm64": "bun build ./src/index.ts --compile --target=bun-darwin-arm64 --outfile ./binaries/autohand-macos-arm64",
     "compile:macos-x64": "bun build ./src/index.ts --compile --target=bun-darwin-x64 --outfile ./binaries/autohand-macos-x64",
