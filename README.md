@@ -548,6 +548,7 @@ docker run -it autohand
 - [Extending Autohand Code CLI](docs/extending.md) - Build tools, skills, hooks, MCP servers, and integrations
 - [Autohand Code extensions](docs/extensions.md) - Validate, install, inspect, and manage declarative extension packages
 - [Extension authoring](docs/extension-authoring.md) - Package tools and agents for the public extension ecosystem
+- [Model catalog updates](docs/model-catalog.md) - Automatic refresh, offline fallback, Pi-compatible publication, and admin PR workflow
 - [Configuration Reference](docs/config-reference.md) - All config options
   - [English](docs/config-reference.md)
   - [日本語](docs/config-reference_ja.md)

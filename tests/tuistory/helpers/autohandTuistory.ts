@@ -768,6 +768,7 @@ export async function launchBuiltAutohand(
     AUTOHAND_NO_BANNER: '1',
     AUTOHAND_SKIP_PING: '1',
     AUTOHAND_SKIP_UPDATE_CHECK: '1',
+    AUTOHAND_OFFLINE: '1',
     AUTOHAND_HOME: options.autohandHome,
     ...options.env,
   };

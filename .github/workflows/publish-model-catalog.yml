@@ -1,0 +1,51 @@
+name: Publish model catalog
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - src/providers/models.json
+      - .github/scripts/generate-model-catalog.mjs
+      - .github/scripts/publish-model-catalog.mjs
+      - .github/workflows/publish-model-catalog.yml
+  schedule:
+    - cron: '17 */4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-model-catalog
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Generate Pi-compatible catalog
+        run: |
+          mkdir -p "$RUNNER_TEMP/autohand-model-catalog"
+          node .github/scripts/generate-model-catalog.mjs \
+            --catalog src/providers/models.json \
+            --output "$RUNNER_TEMP/autohand-model-catalog/models.json"
+
+      - name: Publish immutable revision and stable catalog
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_MODELS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_MODELS_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_MODELS_BUCKET: ${{ secrets.R2_MODELS_BUCKET }}
+        run: |
+          node .github/scripts/publish-model-catalog.mjs \
+            --input "$RUNNER_TEMP/autohand-model-catalog/models.json" \
+            --bucket "$R2_MODELS_BUCKET" \
+            --endpoint "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+            --source-commit "$GITHUB_SHA" \
+            --revision-prefix cli/revisions/ \
+            --latest-key cli/models.json \
+            --metadata-key cli/catalog.json
