@@ -559,7 +559,18 @@ export class AutohandAgent {
    * Auto-commit: Run lint, test, then use LLM to generate commit message
    */
   private async performAutoCommit(signal?: AbortSignal): Promise<void> {
-    return performAgentAutoCommit(this as unknown as AgentProjectOperationsHost, signal);
+    return performAgentAutoCommit(this.createProjectOperationsHost(), signal);
+  }
+
+  private createProjectOperationsHost(): AgentProjectOperationsHost {
+    return {
+      codeQualityPipeline: this.codeQualityPipeline,
+      environmentBootstrap: this.environmentBootstrap,
+      files: this.files,
+      memoryManager: this.memoryManager,
+      runInstruction: (instruction, options) => this.runInstruction(instruction, options),
+      runtime: this.runtime,
+    };
   }
 
   private async restoreSessionState(sessionId: string) {
@@ -635,7 +646,7 @@ export class AutohandAgent {
   }
 
   private async handleMemoryStore(content: string): Promise<void> {
-    return handleAgentMemoryStore(this as unknown as AgentProjectOperationsHost, content);
+    return handleAgentMemoryStore(this.createProjectOperationsHost(), content);
   }
 
   private scheduleTurnMemoryReflection(success: boolean): void {
@@ -737,11 +748,11 @@ export class AutohandAgent {
   }
 
   private printGitDiff(): void {
-    return printAgentGitDiff(this as unknown as AgentProjectOperationsHost);
+    return printAgentGitDiff(this.createProjectOperationsHost());
   }
 
   private async undoLastMutation(): Promise<void> {
-    return undoAgentLastMutation(this as unknown as AgentProjectOperationsHost);
+    return undoAgentLastMutation(this.createProjectOperationsHost());
   }
 
 
@@ -772,7 +783,7 @@ export class AutohandAgent {
   }
 
   private async createAgentsFile(): Promise<void> {
-    return createAgentInstructionsFile(this as unknown as AgentProjectOperationsHost);
+    return createAgentInstructionsFile(this.createProjectOperationsHost());
   }
 
   /**
@@ -1384,7 +1395,7 @@ export class AutohandAgent {
    * Run environment bootstrap before implementation
    */
   private async runEnvironmentBootstrap(): Promise<BootstrapResult> {
-    return runAgentEnvironmentBootstrap(this as unknown as AgentProjectOperationsHost);
+    return runAgentEnvironmentBootstrap(this.createProjectOperationsHost());
   }
 
   private async saveUserMessage(content: string): Promise<void> {
@@ -1404,7 +1415,7 @@ export class AutohandAgent {
    * Run code quality pipeline after file modifications
    */
   private async runQualityPipeline(): Promise<boolean> {
-    return runAgentQualityPipeline(this as unknown as AgentProjectOperationsHost);
+    return runAgentQualityPipeline(this.createProjectOperationsHost());
   }
 
   /**
