@@ -7,6 +7,7 @@ import type { SessionValidationResponse } from '../auth/types.js';
 import {
   ResearchPublicationError,
   type PublicationCommitResponse,
+  type ResearchPublicationRequestOptions,
 } from './OpenResearchClient.js';
 import {
   ResearchPublicationValidationError,
@@ -41,6 +42,7 @@ export interface ResearchPublicationOffer {
   interactive: boolean;
   yesMode?: boolean;
   apiBaseUrl?: string;
+  signal?: AbortSignal;
 }
 
 export interface ResearchPublicationServiceDependencies {
@@ -51,6 +53,7 @@ export interface ResearchPublicationServiceDependencies {
   publish: (
     draft: ResearchPublicationDraft,
     token: string,
+    options?: ResearchPublicationRequestOptions,
   ) => Promise<PublicationCommitResponse>;
   prompts: ResearchPublicationPrompts;
 }
@@ -92,7 +95,9 @@ export class ResearchPublicationService {
         return loginFailure(offer.reportPath);
       }
       await this.dependencies.verifyUnchanged(draft);
-      const committed = await this.dependencies.publish(draft, offer.token);
+      const committed = await this.dependencies.publish(draft, offer.token, {
+        signal: offer.signal,
+      });
 
       let accessCode = committed.accessCode;
       const accessCodeWasAvailable = typeof accessCode === 'string';
@@ -119,6 +124,9 @@ export class ResearchPublicationService {
         ...(accessCodeDisplayFailed ? { accessCodeDisplayFailed: true } : {}),
       };
     } catch (error) {
+      if (error instanceof ResearchPublicationError && error.kind === 'cancelled') {
+        return localCancellation(offer.reportPath);
+      }
       return {
         status: 'failed',
         message: formatFailure(error, offer.reportPath),
@@ -185,6 +193,7 @@ function formatFailure(error: unknown, reportPath: string): string {
       network: 'Open Research could not be reached.',
       server: 'Open Research could not complete the publication.',
       conflict: 'Open Research found a conflicting publication attempt.',
+      cancelled: 'Open Research publication was cancelled.',
     };
     return [`${prefix[error.kind]} ${error.message}`, local, recovery].join('\n');
   }

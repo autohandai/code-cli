@@ -33,7 +33,8 @@ export type ResearchPublicationFailureKind =
   | 'rate_limit'
   | 'network'
   | 'server'
-  | 'conflict';
+  | 'conflict'
+  | 'cancelled';
 
 export class ResearchPublicationError extends Error {
   constructor(
@@ -100,6 +101,10 @@ export interface OpenResearchClientOptions {
   verifyUnchanged?: (draft: ResearchPublicationDraft) => Promise<void>;
 }
 
+export interface ResearchPublicationRequestOptions {
+  signal?: AbortSignal;
+}
+
 export class OpenResearchClient {
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
@@ -114,13 +119,18 @@ export class OpenResearchClient {
   async publish(
     draft: ResearchPublicationDraft,
     token: string,
+    options: ResearchPublicationRequestOptions = {},
   ): Promise<PublicationCommitResponse> {
+    const { signal } = options;
+    throwIfPublicationCancelled(signal);
     const idempotencyKey = derivePublicationIdempotencyKey(draft);
     let receipt = await readMatchingReceipt(draft, idempotencyKey);
+    throwIfPublicationCancelled(signal);
     let missingReferences = new Set<string>();
 
     if (receipt) {
-      const status = await this.getStatus(draft.apiOrigin, receipt.statusUrl, token);
+      const status = await this.getStatus(draft.apiOrigin, receipt.statusUrl, token, signal);
+      throwIfPublicationCancelled(signal);
       if (status.state === 'committed') {
         return recoveredCommit(status);
       }
@@ -140,7 +150,7 @@ export class OpenResearchClient {
     }
 
     if (!receipt) {
-      const attempt = await this.createAttempt(draft, token, idempotencyKey);
+      const attempt = await this.createAttempt(draft, token, idempotencyKey, signal);
       receipt = receiptFromAttempt(draft, attempt, idempotencyKey);
       await writeReceipt(draft.receiptPath, receipt);
       missingReferences = new Set(
@@ -151,6 +161,7 @@ export class OpenResearchClient {
     }
 
     for (const asset of draft.assets) {
+      throwIfPublicationCancelled(signal);
       if (!missingReferences.has(asset.logicalReference)) {
         continue;
       }
@@ -162,11 +173,13 @@ export class OpenResearchClient {
           'asset_assignment_missing',
         );
       }
-      await this.uploadAsset(draft.apiOrigin, assignment.uploadUrl, asset, token);
+      await this.uploadAsset(draft.apiOrigin, assignment.uploadUrl, asset, token, signal);
     }
 
+    throwIfPublicationCancelled(signal);
     await this.verifyUnchanged(draft);
-    const committed = await this.commit(draft.apiOrigin, receipt.commitUrl, token);
+    throwIfPublicationCancelled(signal);
+    const committed = await this.commit(draft.apiOrigin, receipt.commitUrl, token, signal);
     const updatedReceipt: RecoveryReceipt = {
       ...receipt,
       reportId: committed.reportId,
@@ -182,6 +195,7 @@ export class OpenResearchClient {
     draft: ResearchPublicationDraft,
     token: string,
     idempotencyKey: string,
+    signal?: AbortSignal,
   ): Promise<AttemptCreateResponse> {
     const body = {
       title: draft.title,
@@ -213,6 +227,7 @@ export class OpenResearchClient {
         },
         body: JSON.stringify(body),
       },
+      signal,
     );
   }
 
@@ -220,10 +235,11 @@ export class OpenResearchClient {
     origin: string,
     statusUrl: string,
     token: string,
+    signal?: AbortSignal,
   ): Promise<AttemptStatusResponse> {
     return this.requestJson(origin, statusUrl, attemptStatusResponseSchema, token, {
       method: 'GET',
-    });
+    }, signal);
   }
 
   private async uploadAsset(
@@ -231,6 +247,7 @@ export class OpenResearchClient {
     uploadUrl: string,
     asset: ResearchPublicationDraft['assets'][number],
     token: string,
+    signal?: AbortSignal,
   ): Promise<void> {
     const uploaded = await this.requestJson(
       origin,
@@ -245,6 +262,7 @@ export class OpenResearchClient {
         },
         body: asset.bytes,
       },
+      signal,
     );
     if (uploaded.sha256 !== asset.sha256 || uploaded.byteCount !== asset.byteCount) {
       throw new ResearchPublicationError(
@@ -259,10 +277,11 @@ export class OpenResearchClient {
     origin: string,
     commitUrl: string,
     token: string,
+    signal?: AbortSignal,
   ): Promise<PublicationCommitResponse> {
     return this.requestJson(origin, commitUrl, publicationCommitResponseSchema, token, {
       method: 'POST',
-    });
+    }, signal);
   }
 
   private async requestJson<T>(
@@ -271,10 +290,15 @@ export class OpenResearchClient {
     schema: z.ZodType<T>,
     token: string,
     init: RequestInit,
+    externalSignal?: AbortSignal,
   ): Promise<T> {
+    throwIfPublicationCancelled(externalSignal);
     const url = safeApiUrl(origin, route);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timeoutController = new AbortController();
+    const timeout = setTimeout(() => timeoutController.abort(), this.timeoutMs);
+    const signal = externalSignal
+      ? AbortSignal.any([externalSignal, timeoutController.signal])
+      : timeoutController.signal;
     let response: Response;
     try {
       response = await this.fetchImpl(url, {
@@ -283,10 +307,13 @@ export class OpenResearchClient {
           ...headersRecord(init.headers),
           Authorization: `Bearer ${token}`,
         },
-        signal: controller.signal,
+        signal,
       });
-    } catch {
-      const timedOut = controller.signal.aborted;
+    } catch (error) {
+      if (isAbortError(error) && externalSignal?.aborted) {
+        throw publicationCancelledError();
+      }
+      const timedOut = isAbortError(error) && timeoutController.signal.aborted;
       throw new ResearchPublicationError(
         timedOut
           ? 'The Open Research request timed out.'
@@ -301,7 +328,10 @@ export class OpenResearchClient {
     let data: unknown;
     try {
       data = await response.json();
-    } catch {
+    } catch (error) {
+      if (isAbortError(error) && externalSignal?.aborted) {
+        throw publicationCancelledError();
+      }
       throw new ResearchPublicationError(
         'Open Research returned an invalid response.',
         response.status >= 500 ? 'server' : 'validation',
@@ -462,4 +492,22 @@ function classifyFailure(status: number, code: string): ResearchPublicationFailu
   if (status === 400 || status === 422) return 'validation';
   if (status >= 500) return 'server';
   return 'server';
+}
+
+function throwIfPublicationCancelled(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw publicationCancelledError();
+  }
+}
+
+function publicationCancelledError(): ResearchPublicationError {
+  return new ResearchPublicationError(
+    'Open Research publication was cancelled.',
+    'cancelled',
+    'publication_cancelled',
+  );
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
 }

@@ -214,6 +214,123 @@ describe('OpenResearchClient', () => {
     });
   });
 
+  it('does not start a request when publication is already cancelled', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const fetchImpl = vi.fn();
+    const client = new OpenResearchClient({
+      fetchImpl,
+      verifyUnchanged: vi.fn(async () => {}),
+    });
+
+    await expect(client.publish(value, 'fixture-token', {
+      signal: controller.signal,
+    })).rejects.toMatchObject({
+      kind: 'cancelled',
+      code: 'publication_cancelled',
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('cancels an in-flight publication request without reporting a timeout', async () => {
+    const controller = new AbortController();
+    const fetchImpl = hangingFetch();
+    const client = new OpenResearchClient({
+      fetchImpl,
+      timeoutMs: 100,
+      verifyUnchanged: vi.fn(async () => {}),
+    });
+
+    const publishing = client.publish(value, 'fixture-token', {
+      signal: controller.signal,
+    });
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledOnce());
+    controller.abort();
+
+    await expect(publishing).rejects.toMatchObject({
+      kind: 'cancelled',
+      code: 'publication_cancelled',
+    });
+  });
+
+  it('continues to classify a request deadline as a timeout', async () => {
+    const client = new OpenResearchClient({
+      fetchImpl: hangingFetch(),
+      timeoutMs: 5,
+      verifyUnchanged: vi.fn(async () => {}),
+    });
+
+    await expect(client.publish(value, 'fixture-token')).rejects.toMatchObject({
+      kind: 'network',
+      code: 'request_timeout',
+    });
+  });
+
+  it('does not misclassify a non-abort network error after the deadline fires', async () => {
+    const fetchImpl = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      throw new TypeError('socket closed');
+    });
+    const client = new OpenResearchClient({
+      fetchImpl,
+      timeoutMs: 5,
+      verifyUnchanged: vi.fn(async () => {}),
+    });
+
+    await expect(client.publish(value, 'fixture-token')).rejects.toMatchObject({
+      kind: 'network',
+      code: 'network_error',
+    });
+  });
+
+  it('retains the recovery receipt when an asset upload is cancelled', async () => {
+    const bytes = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      'base64',
+    );
+    const assetId = `ra_${'c'.repeat(26)}`;
+    const assetPath = path.join(workspaceRoot, '.autohand', 'research', 'images', 'pixel.png');
+    await fs.outputFile(assetPath, bytes);
+    value.assets = [{
+      logicalReference: 'images/pixel.png',
+      filename: 'pixel.png',
+      mediaType: 'image/png',
+      byteCount: bytes.byteLength,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      alternativeText: 'One pixel',
+      absolutePath: await fs.realpath(assetPath),
+      bytes,
+    }];
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(Response.json({
+        ...createResponse(),
+        state: 'staging',
+        assets: [{
+          assetId,
+          logicalReference: 'images/pixel.png',
+          state: 'declared',
+          uploadUrl: `/api/v1/publication-attempts/${ATTEMPT_ID}/assets/${assetId}`,
+        }],
+      }, { status: 201 }))
+      .mockImplementationOnce(hangingFetch());
+    const controller = new AbortController();
+    const client = new OpenResearchClient({
+      fetchImpl,
+      verifyUnchanged: vi.fn(async () => {}),
+    });
+
+    const publishing = client.publish(value, 'fixture-token', {
+      signal: controller.signal,
+    });
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
+    controller.abort();
+
+    await expect(publishing).rejects.toMatchObject({ code: 'publication_cancelled' });
+    await expect(fs.readJson(value.receiptPath)).resolves.toMatchObject({
+      attemptId: ATTEMPT_ID,
+    });
+  });
+
   it('uploads only assigned assets with exact media, length, and digest', async () => {
     const bytes = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -357,4 +474,17 @@ async function leaveInterruptedAttempt(value: ResearchPublicationDraft): Promise
     code: 'network_error',
   });
   await expect(fs.pathExists(value.receiptPath)).resolves.toBe(true);
+}
+
+function hangingFetch() {
+  return vi.fn((_input: string | URL | Request, init?: RequestInit) => new Promise<Response>(
+    (_resolve, reject) => {
+      const rejectWithAbort = () => reject(new DOMException('The operation was aborted.', 'AbortError'));
+      if (init?.signal?.aborted) {
+        rejectWithAbort();
+        return;
+      }
+      init?.signal?.addEventListener('abort', rejectWithAbort, { once: true });
+    },
+  ));
 }
