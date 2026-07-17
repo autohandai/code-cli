@@ -18,7 +18,7 @@ import { getProviderConfig, loadConfig, resolveWorkspaceRoot, saveConfig } from 
 import { runStartupChecks, printStartupCheckResults, validateWorkspacePath } from './startup/checks.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/workspaceSafety.js';
 import { ensureAuthenticated } from './auth/index.js';
-import type { AuthUser, BuiltInProviderName, LoadedConfig, SearchProvider, SkillInstallScope } from './types.js';
+import type { AuthUser, BuiltInProviderName, LoadedConfig, SkillInstallScope } from './types.js';
 import { validateAuthOnStartup } from './auth/startupAuth.js';
 import { installProcessErrorHandlers } from './reporting/processErrorReporting.js';
 import { checkForUpdates, getInstallHint, type VersionCheckResult } from './utils/versionCheck.js';
@@ -27,11 +27,23 @@ import { initPingService, shutdownPingService, startPingService } from './teleme
 import { detectStdinType, readPipedStdin } from './utils/stdinDetector.js';
 import { buildPipePrompt } from './modes/pipeMode.js';
 import { shouldUseInteractivePipeHandoff } from './modes/pipeRouting.js';
-import { resolveAutoModeLaunchMode } from './modes/autoModeRouting.js';
 import { PROJECT_DIR_NAME } from './constants.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessionWorktree.js';
 import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
 import { registerChromeCommand } from './browser/cliCommand.js';
+import {
+  normalizeContextCompactOption,
+  normalizeInitialCliOptions,
+  normalizePromptAndProtocolOptions,
+  normalizeSearchEngineOption,
+  normalizeTmuxWorktreeOption,
+  type RootCliOptions,
+} from './startup/cliOptions.js';
+import {
+  resolveAgentLaunchMode,
+  resolvePostAuthLaunchMode,
+  resolveProtocolLaunchMode,
+} from './startup/modeRouter.js';
 import { prepareBareModeConfig } from './runtime/bareMode.js';
 import {
   awaitCliLifecycleStep,
@@ -55,19 +67,6 @@ import {
 import { AgentsGenerator } from './onboarding/agentsGenerator.js';
 import { looksLikeInlineAgents, parseInlineAgents } from './core/agents/AgentRegistry.js';
 import { getCustomProviderConfig, isCustomProviderName } from './providers/customProviders.js';
-
-const SEARCH_PROVIDERS = [
-  'browser-profile',
-  'exa',
-  'google',
-  'brave',
-  'duckduckgo',
-  'parallel',
-] as const satisfies readonly SearchProvider[];
-
-function isSearchProvider(value: string): value is SearchProvider {
-  return SEARCH_PROVIDERS.some((provider) => provider === value);
-}
 
 function applyCliModelOverride(config: LoadedConfig, model: string): void {
   const providerName = config.provider ?? 'openrouter';
@@ -243,44 +242,13 @@ program
   .option('--chrome', 'Enable Chrome browser integration (same as /chrome)')
   .option('--no-chrome', 'Disable Chrome browser integration')
   .option('--fork <pathOrId>', 'Create and resume a new session branch from an existing session reference')
-  .action(async (positionalPrompt: string | undefined, opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean | string; tmux?: boolean; setup?: boolean; about?: boolean; syncSettings?: string | boolean; cc?: boolean; searchEngine?: string; learn?: boolean; learnUpdate?: boolean; fork?: string; y?: boolean }) => {
+  .action(async (positionalPrompt: string | undefined, opts: RootCliOptions) => {
     // Clear screen immediately for Cursor-like behavior (before any output)
     if (process.stdout.isTTY && process.env.AUTOHAND_NO_BANNER !== '1') {
       process.stdout.write('\x1b[3J\x1b[2J\x1b[H');
     }
 
-    // When -p is passed without a value, Commander sets opts.prompt to true (boolean).
-    // Normalize to undefined so downstream code can detect "flag present, no text".
-    if ((opts as Record<string, unknown>).prompt === true) {
-      opts.prompt = undefined;
-    }
-    if (opts.y === true) {
-      opts.yes = true;
-    }
-    if ((opts as Record<string, unknown>).autoMode === true) {
-      opts.autoMode = undefined;
-    }
-    if ((opts as Record<string, unknown>).goal === true) {
-      opts.goal = '';
-    }
-    if ((opts as Record<string, unknown>).systemPrompt) {
-      opts.sysPrompt = String((opts as Record<string, unknown>).systemPrompt);
-    }
-    if (opts.systemPromptFile) {
-      opts.sysPrompt = opts.systemPromptFile;
-    }
-    if ((opts as Record<string, unknown>).appendSystemPrompt) {
-      opts.appendSysPrompt = String((opts as Record<string, unknown>).appendSystemPrompt);
-    }
-    if (opts.appendSystemPromptFile) {
-      opts.appendSysPrompt = opts.appendSystemPromptFile;
-    }
-    if (opts.bare) {
-      process.env.AUTOHAND_CODE_SIMPLE = '1';
-      opts.syncSettings = false;
-      opts.contextCompact = false;
-      opts.noChrome = true;
-    }
+    normalizeInitialCliOptions(opts);
 
     // `--agents` accepts inline JSON (Claude Code format) or a directory path.
     // Parse and validate inline JSON up front so users get a clear error before
@@ -294,27 +262,14 @@ program
       }
     }
 
-    // Positional argument acts as prompt (e.g. autohand 'explain this')
-    // -p/--prompt flag takes precedence if both are provided
-    if (positionalPrompt && !opts.prompt) {
-      opts.prompt = positionalPrompt;
-    }
-
-    // --acp is shorthand for --mode acp
-    if ((opts as any).acp) {
-      opts.mode = 'acp';
-    }
+    normalizePromptAndProtocolOptions(positionalPrompt, opts);
 
     // tmux sessions are intended to run with isolated worktrees by default.
     // Respect explicit --no-worktree (opts.worktree === false) as invalid with --tmux.
-    if (isTmuxEnabled(opts.tmux)) {
-      if (opts.worktree === false) {
-        console.error(chalk.red('--tmux cannot be used with --no-worktree'));
-        process.exit(1);
-      }
-      if (opts.worktree === undefined) {
-        opts.worktree = true;
-      }
+    const tmuxOptionError = normalizeTmuxWorktreeOption(opts);
+    if (tmuxOptionError) {
+      console.error(chalk.red(tmuxOptionError));
+      process.exit(1);
     }
 
     // Launch in tmux first (single-hop; child continues with AUTOHAND_TMUX_LAUNCHED=1)
@@ -430,13 +385,14 @@ program
     // Protocol modes reserve stdout for their SDK transports and cannot show
     // interactive auth/login UI. They perform their own non-interactive config,
     // workspace, and auth checks after stdout/stderr are prepared for the mode.
-    if (opts.mode === 'rpc') {
+    const protocolLaunchMode = resolveProtocolLaunchMode(opts);
+    if (protocolLaunchMode === 'rpc') {
       const { runRpcMode } = await import('./modes/rpc/index.js');
       process.exitCode = await runRpcMode(opts);
       return;
     }
 
-    if (opts.mode === 'acp') {
+    if (protocolLaunchMode === 'acp') {
       const { runAcpMode } = await import('./modes/acp/index.js');
       await runAcpMode(opts);
       return;
@@ -479,9 +435,7 @@ program
 
     // Map --cc flag to contextCompact option
     // Commander uses 'cc' for the flag name, we map it to 'contextCompact' for consistency
-    if (opts.cc !== undefined) {
-      opts.contextCompact = opts.cc;
-    }
+    normalizeContextCompactOption(opts);
 
     if (opts.goal !== undefined) {
       await runGoalFlag(opts);
@@ -503,18 +457,22 @@ program
     }
 
     // Map --search-engine flag to searchEngine option
-    if (opts.searchEngine) {
-      const provider = opts.searchEngine.toLowerCase();
-      if (isSearchProvider(provider)) {
-        opts.searchEngine = provider;
-      } else {
-        console.error(chalk.red(`Invalid search engine: ${provider}. Valid options: ${SEARCH_PROVIDERS.join(', ')}`));
-        process.exit(1);
-      }
+    const searchEngineError = normalizeSearchEngineOption(opts);
+    if (searchEngineError) {
+      console.error(chalk.red(searchEngineError));
+      process.exit(1);
     }
 
+    const postAuthLaunchMode = resolvePostAuthLaunchMode({
+      mode: opts.mode,
+      autoMode: opts.autoMode,
+      prompt: opts.prompt,
+      argv: process.argv,
+      stdinIsTTY: Boolean(process.stdin.isTTY),
+    });
+
     // Teammate mode — headless process receiving tasks from lead
-    if (opts.mode === 'teammate') {
+    if (postAuthLaunchMode === 'teammate') {
       const { parseTeammateOptions, runTeammateMode } = await import('./modes/teammate.js');
       const teammateOpts = parseTeammateOptions(process.argv);
       if (!teammateOpts) {
@@ -525,28 +483,20 @@ program
       return;
     }
 
-    const hasAutoModeFlag = process.argv.some(arg => arg === '--auto-mode');
-    const autoModeLaunchMode = resolveAutoModeLaunchMode({
-      hasAutoModeFlag,
-      autoModeTask: opts.autoMode,
-      prompt: opts.prompt,
-      stdinIsTTY: Boolean(process.stdin.isTTY),
-    });
-
-    if (autoModeLaunchMode === 'unavailable') {
+    if (postAuthLaunchMode === 'auto-unavailable') {
       console.error(chalk.red('Interactive auto-mode requires a terminal (TTY). Use `autohand --auto-mode "<task>"` for standalone loops.'));
       process.exit(1);
     }
 
     // Handle standalone --auto-mode loops
-    if (autoModeLaunchMode === 'standalone') {
+    if (postAuthLaunchMode === 'auto-standalone') {
       // Commander's --no-worktree sets opts.worktree to false
       opts.noWorktree = opts.worktree === false;
       await runAutoMode(opts);
       return;
     }
 
-    if (autoModeLaunchMode === 'interactive') {
+    if (postAuthLaunchMode === 'auto-interactive') {
       opts.interactiveAutoMode = true;
     }
 
@@ -1579,7 +1529,8 @@ async function runCLI(options: CLIOptions): Promise<void> {
       console.log(chalk.gray(`  Session: ${sessionId}\n`));
     }
 
-    if (options.fork) {
+    const agentLaunchMode = resolveAgentLaunchMode(options);
+    if (agentLaunchMode === 'fork' && options.fork) {
         const forkEnabled = getFeatureState(config, 'experimental_fork')?.enabled === true;
         if (!forkEnabled) {
           console.error(chalk.red('The --fork flag is behind experimental_fork. Run /features enable experimental_fork, then try again.'));
@@ -1594,7 +1545,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
         if (!commandLifecycleController.signal.aborted) {
           process.exitCode = 0;
         }
-    } else if (options.prompt) {
+    } else if (agentLaunchMode === 'command' && options.prompt) {
       const succeeded = await agent.runCommandMode(
         options.prompt,
         commandLifecycleController.signal,
@@ -1602,7 +1553,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
       if (!commandLifecycleController.signal.aborted) {
         process.exitCode = succeeded ? 0 : 1;
       }
-    } else if (options.resumeSessionId) {
+    } else if (agentLaunchMode === 'resume' && options.resumeSessionId) {
       await agent.resumeSession(options.resumeSessionId);
       if (!commandLifecycleController.signal.aborted) {
         process.exitCode = 0;
