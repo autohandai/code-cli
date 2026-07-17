@@ -9,12 +9,19 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
 import {
   createTempAutohandHome,
+  createMockOpenRouterSequenceServer,
   exitInteractive,
   launchBuiltAutohand,
   repoRoot,
   waitForExit,
   type TuistoryTempState,
 } from './helpers/autohandTuistory.js';
+import {
+  DEMO_EXTENSION_ID,
+  DEMO_EXTENSION_RELATIVE_ROOT,
+  createExtensionBuilderDemoResponses,
+  driveExtensionBuilderAuthoring,
+} from '../../src/testing/scenarios/extensionBuilderAuthoringDemo.js';
 
 const EXAMPLE_IDS = [
   'autohand.code-health',
@@ -22,6 +29,7 @@ const EXAMPLE_IDS = [
   'autohand.release-assistant',
   'autohand.security-audit',
   'autohand.test-triage',
+  'autohand.workspace-brief',
 ] as const;
 
 const sessions: Session[] = [];
@@ -84,6 +92,67 @@ async function writeToolExtension(
 }
 
 describe('built extensions CLI Tuistory E2E', () => {
+  it('uses $extension-builder to author, validate, install, and inspect a real extension', async () => {
+    const state = await createTempAutohandHome({
+      config: {
+        openrouter: { baseUrl: '' },
+        ui: { promptSuggestions: false },
+        agent: { maxIterations: 3 },
+      },
+    });
+    tempStates.push(state);
+    const server = await createMockOpenRouterSequenceServer(createExtensionBuilderDemoResponses());
+    const config = await fs.readJson(state.configPath) as Record<string, unknown>;
+    config.openrouter = {
+      ...(config.openrouter as Record<string, unknown>),
+      baseUrl: server.baseUrl,
+    };
+    await fs.writeJson(state.configPath, config, { spaces: 2 });
+
+    const session = await launchBuiltAutohand([
+      '--path', state.workspaceRoot,
+      '--config', state.configPath,
+      '--y',
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      waitForDataTimeout: 15_000,
+    });
+    sessions.push(session);
+
+    try {
+      await driveExtensionBuilderAuthoring(session);
+    } finally {
+      await server.close();
+    }
+
+    expect(await fs.pathExists(path.join(
+      state.workspaceRoot,
+      DEMO_EXTENSION_RELATIVE_ROOT,
+      'autohand.extension.json',
+    ))).toBe(true);
+
+    await exitInteractive(session);
+    const validation = await runBuiltCommand(state, [
+      'extensions', 'validate', DEMO_EXTENSION_RELATIVE_ROOT,
+    ]);
+    expect(validation.exitCode, validation.output).toBe(0);
+    expect(validation.output).toContain(`Valid extension ${DEMO_EXTENSION_ID}@1.0.0`);
+
+    const installation = await runBuiltCommand(state, [
+      'extensions', 'install', DEMO_EXTENSION_RELATIVE_ROOT, '--scope', 'project',
+    ]);
+    expect(installation.exitCode, installation.output).toBe(0);
+    expect(installation.output).toContain(`Installed ${DEMO_EXTENSION_ID}@1.0.0`);
+
+    const detail = await runBuiltCommand(state, [
+      'extensions', 'show', DEMO_EXTENSION_ID, '--scope', 'project',
+    ]);
+    expect(detail.exitCode, detail.output).toBe(0);
+    expect(detail.output).toContain('Tools: brief_workspace_status, brief_recent_commits');
+    expect(detail.output).toContain('Skills: workspace-brief');
+  }, 90_000);
+
   it('loads the built-in extension builder and a Pi-compatible packaged skill', async () => {
     const state = await createTempAutohandHome();
     tempStates.push(state);
@@ -145,7 +214,7 @@ describe('built extensions CLI Tuistory E2E', () => {
     await exitInteractive(session);
   }, 90_000);
 
-  it('runs all five portable examples through fresh built CLI processes', async () => {
+  it('runs all six portable examples through fresh built CLI processes', async () => {
     const state = await createTempAutohandHome();
     tempStates.push(state);
     const examplesRoot = path.join(repoRoot(), 'examples', 'extensions');
@@ -216,7 +285,7 @@ describe('built extensions CLI Tuistory E2E', () => {
 
     const doctor = await runBuiltCommand(state, ['extensions', 'doctor']);
     expect(doctor.exitCode, doctor.output).toBe(0);
-    expect(doctor.output).toContain('Extension diagnostics: healthy (4 installed)');
+    expect(doctor.output).toContain('Extension diagnostics: healthy (5 installed)');
   }, 120_000);
 
   it('runs interactive list, show, doctor, disable, and enable with stable Ctrl+C exit', async () => {

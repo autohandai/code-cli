@@ -22,22 +22,32 @@ const EXPECTED_EXAMPLES = {
   'autohand.code-health': {
     tools: ['find_todos'],
     agents: ['code-health-reviewer'],
+    skills: [],
   },
   'autohand.test-triage': {
     tools: ['run_focused_test'],
     agents: ['failure-triage'],
+    skills: [],
   },
   'autohand.git-insights': {
     tools: ['recent_history', 'changed_files_since'],
     agents: [],
+    skills: [],
   },
   'autohand.security-audit': {
     tools: ['audit_bun_dependencies', 'find_suspicious_patterns'],
     agents: ['security-reviewer'],
+    skills: [],
   },
   'autohand.release-assistant': {
     tools: ['release_range', 'changelog_context'],
     agents: ['release-planner'],
+    skills: [],
+  },
+  'autohand.workspace-brief': {
+    tools: ['brief_workspace_status', 'brief_recent_commits'],
+    agents: [],
+    skills: ['workspace-brief'],
   },
 } as const;
 
@@ -50,6 +60,8 @@ const SAMPLE_ARGS: Record<string, Record<string, unknown>> = {
   find_suspicious_patterns: { path: 'src' },
   release_range: { from: 'v1.0.0' },
   changelog_context: { from: 'v1.0.0', path: 'CHANGELOG.md' },
+  brief_workspace_status: {},
+  brief_recent_commits: { count: 5 },
 };
 
 describe('extension example compatibility', () => {
@@ -73,7 +85,7 @@ describe('extension example compatibility', () => {
     };
   }
 
-  it('ships exactly five portable, documented, independently valid packages', async () => {
+  it('ships exactly six portable, documented, independently valid packages', async () => {
     const directories = (await fs.readdir(EXAMPLES_ROOT)).sort();
 
     expect(directories).toEqual(Object.keys(EXPECTED_EXAMPLES).sort());
@@ -85,6 +97,7 @@ describe('extension example compatibility', () => {
       expect(validation.extension.manifest).toMatchObject({ id, version: '1.0.0' });
       expect(validation.tools.map((tool) => tool.definition.name)).toEqual(expected.tools);
       expect(validation.agents.map((agent) => agent.name)).toEqual(expected.agents);
+      expect(validation.skills.map((skill) => skill.definition.name)).toEqual(expected.skills);
 
       const readme = await fs.readFile(path.join(source, 'README.md'), 'utf8');
       expect(readme).toContain(`extensions validate ./examples/extensions/${id}`);
@@ -93,7 +106,7 @@ describe('extension example compatibility', () => {
     }
   });
 
-  it('runs the complete lifecycle for all five packages and reloads them in a fresh service', async () => {
+  it('runs the complete lifecycle for all six packages and reloads them in a fresh service', async () => {
     const { service, userRoot } = await createService();
 
     for (const id of Object.keys(EXPECTED_EXAMPLES)) {
@@ -106,8 +119,9 @@ describe('extension example compatibility', () => {
     expect(snapshot.extensions.map((extension) => extension.manifest.id)).toEqual(
       Object.keys(EXPECTED_EXAMPLES).sort(),
     );
-    expect(snapshot.tools).toHaveLength(8);
+    expect(snapshot.tools).toHaveLength(10);
     expect(snapshot.agents).toHaveLength(4);
+    expect(snapshot.skills).toHaveLength(1);
     for (const [id, expected] of Object.entries(EXPECTED_EXAMPLES)) {
       expect(snapshot.tools
         .filter((tool) => tool.provenance.extensionId === id)
@@ -115,6 +129,9 @@ describe('extension example compatibility', () => {
       expect(snapshot.agents
         .filter((agent) => agent.provenance.extensionId === id)
         .map((agent) => agent.name)).toEqual(expected.agents);
+      expect(snapshot.skills
+        .filter((skill) => skill.provenance.extensionId === id)
+        .map((skill) => skill.definition.name)).toEqual(expected.skills);
     }
 
     for (const id of Object.keys(EXPECTED_EXAMPLES)) {
@@ -178,16 +195,18 @@ describe('extension example compatibility', () => {
     })) as ToolCallRequest[];
     const results = await manager.execute(calls);
 
-    expect(results).toHaveLength(8);
+    expect(results).toHaveLength(10);
     expect(results.every((result) => result.success)).toBe(true);
-    expect(confirmation).toHaveBeenCalledTimes(8);
-    expect(runCommand).toHaveBeenCalledTimes(8);
+    expect(confirmation).toHaveBeenCalledTimes(10);
+    expect(runCommand).toHaveBeenCalledTimes(10);
     expect(runCommand.mock.calls.map((call) => call[0])).toEqual(expect.arrayContaining([
       "git grep -n -E 'TODO|FIXME' -- 'src'",
       "bun test 'tests/example.test.ts'",
       "git log --max-count='5' --oneline",
       'bun audit',
       "git log 'v1.0.0'..HEAD --oneline",
+      'git status --short',
+      "git log --max-count='5' --oneline",
     ]));
   });
 });
