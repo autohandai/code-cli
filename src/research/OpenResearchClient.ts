@@ -439,7 +439,10 @@ async function readMatchingReceipt(
 
 async function writeReceipt(receiptPath: string, receipt: RecoveryReceipt): Promise<void> {
   await fs.ensureDir(path.dirname(receiptPath));
-  const tempPath = `${receiptPath}.${randomUUID()}.tmp`;
+  const tempPath = path.join(
+    path.dirname(receiptPath),
+    `.open-research-receipt-${randomUUID()}.tmp`,
+  );
   await fs.writeFile(tempPath, `${JSON.stringify(receipt, null, 2)}\n`, {
     encoding: 'utf8',
     mode: 0o600,
