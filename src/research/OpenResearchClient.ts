@@ -117,22 +117,29 @@ export class OpenResearchClient {
   ): Promise<PublicationCommitResponse> {
     const idempotencyKey = derivePublicationIdempotencyKey(draft);
     let receipt = await readMatchingReceipt(draft, idempotencyKey);
-    let missingReferences: Set<string> | null = null;
+    let missingReferences = new Set<string>();
 
     if (receipt) {
       const status = await this.getStatus(draft.apiOrigin, receipt.statusUrl, token);
       if (status.state === 'committed') {
         return recoveredCommit(status);
       }
-      if (['failed', 'expired', 'revoked'].includes(status.state)) {
+      if (status.state === 'revoked') {
         throw new ResearchPublicationError(
           `The saved publication attempt is ${status.state}.`,
           'conflict',
           status.failureCode ?? status.state,
         );
       }
-      missingReferences = new Set(status.missingAssets);
-    } else {
+      if (status.state === 'failed' || status.state === 'expired') {
+        await fs.remove(draft.receiptPath);
+        receipt = null;
+      } else {
+        missingReferences = new Set(status.missingAssets);
+      }
+    }
+
+    if (!receipt) {
       const attempt = await this.createAttempt(draft, token, idempotencyKey);
       receipt = receiptFromAttempt(draft, attempt, idempotencyKey);
       await writeReceipt(draft.receiptPath, receipt);
@@ -422,7 +429,7 @@ function recoveredCommit(status: AttemptStatusResponse): PublicationCommitRespon
   return {
     reportId: status.reportId,
     visibility: status.visibility,
-    revision: 1,
+    revision: status.revision ?? 1,
     url: status.reportUrl,
     accessCode: null,
     accessCodeAvailable: false,
