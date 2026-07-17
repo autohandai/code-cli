@@ -40,7 +40,6 @@ export interface ResearchPublicationOffer {
   reportPath: string;
   token?: string;
   interactive: boolean;
-  yesMode?: boolean;
   apiBaseUrl?: string;
   signal?: AbortSignal;
 }
