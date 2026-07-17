@@ -69,6 +69,35 @@ describe('OpenResearchClient', () => {
     expect(receipt).not.toContain('PRIVATE-CODE');
   });
 
+  it('writes a recovery receipt for a long valid report filename', async () => {
+    const longFilename = `${'r'.repeat(220)}.md`;
+    const markdownAbsolutePath = path.join(
+      workspaceRoot,
+      '.autohand',
+      'research',
+      longFilename,
+    );
+    await fs.outputFile(markdownAbsolutePath, value.markdown);
+    value.markdownAbsolutePath = markdownAbsolutePath;
+    value.workspaceRelativeMarkdownPath = `.autohand/research/${longFilename}`;
+    value.receiptPath = `${markdownAbsolutePath}.publication.json`;
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(Response.json(createResponse(), { status: 201 }))
+      .mockResolvedValueOnce(Response.json(commitResponse()));
+    const client = new OpenResearchClient({
+      fetchImpl,
+      verifyUnchanged: vi.fn(async () => {}),
+    });
+
+    await expect(client.publish(value, 'fixture-token')).resolves.toMatchObject({
+      url: REPORT_URL,
+    });
+    await expect(fs.readJson(value.receiptPath)).resolves.toMatchObject({
+      attemptId: ATTEMPT_ID,
+      reportId: REPORT_ID,
+    });
+  });
+
   it('recovers an uncertain commit through the saved attempt instead of creating a duplicate', async () => {
     const firstFetch = vi.fn()
       .mockResolvedValueOnce(Response.json(createResponse(), { status: 201 }))
