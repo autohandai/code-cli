@@ -1786,6 +1786,14 @@ export class AutohandAgent {
   private async requestResearchPublication(reportPath: string): Promise<string> {
     const authClient = new AuthClient();
     const publicationClient = new OpenResearchClient();
+    const publicationController = new AbortController();
+    const shutdownSignal = this.runtimeResourceShutdownController.signal;
+    const abortPublication = () => publicationController.abort(shutdownSignal.reason);
+    if (shutdownSignal.aborted) {
+      abortPublication();
+    } else {
+      shutdownSignal.addEventListener('abort', abortPublication, { once: true });
+    }
     const service = new ResearchPublicationService({
       validateReport: validateResearchMarkdownPath,
       buildDraft: buildResearchPublicationDraft,
@@ -1801,7 +1809,7 @@ export class AutohandAgent {
           );
         }
       },
-      publish: (draft, token) => publicationClient.publish(draft, token),
+      publish: (draft, token, options) => publicationClient.publish(draft, token, options),
       prompts: new TerminalResearchPublicationPrompts(),
     });
     const ci = process.env.CI?.toLowerCase();
@@ -1821,11 +1829,17 @@ export class AutohandAgent {
       interactive,
       yesMode: this.runtime.options.yes === true || this.runtime.options.unrestricted === true,
       apiBaseUrl: defaultOpenResearchOrigin(),
+      signal: publicationController.signal,
     });
-    const outcome = interactive
-      ? await this.withModalPause(runOffer)
-      : await runOffer();
-    return formatResearchPublicationOutcome(outcome, reportPath);
+    // The post-turn modal exposes no active ESC signal after confirmation; shutdown remains cancellable.
+    try {
+      const outcome = interactive
+        ? await this.withModalPause(runOffer)
+        : await runOffer();
+      return formatResearchPublicationOutcome(outcome, reportPath);
+    } finally {
+      shutdownSignal.removeEventListener('abort', abortPublication);
+    }
   }
 
   private async runPostTurnAction(

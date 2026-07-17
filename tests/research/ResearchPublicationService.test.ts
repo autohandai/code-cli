@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it, vi } from 'vitest';
+import { ResearchPublicationError } from '../../src/research/OpenResearchClient.js';
 import {
   formatResearchPublicationOutcome,
   ResearchPublicationService,
@@ -225,6 +226,40 @@ describe('ResearchPublicationService', () => {
 
     expect(outcome).toMatchObject({ status: 'failed' });
     expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('reports a cancelled outcome when publication networking is aborted', async () => {
+    const controller = new AbortController();
+    const publish = vi.fn(async () => {
+      throw new ResearchPublicationError(
+        'Open Research publication was cancelled.',
+        'cancelled',
+        'publication_cancelled',
+      );
+    });
+    const service = new ResearchPublicationService({
+      buildDraft: vi.fn(async () => draft()),
+      verifyUnchanged: vi.fn(async () => {}),
+      validateSession: vi.fn(async () => ({ authenticated: true })),
+      publish,
+      prompts: prompts(),
+    });
+
+    const outcome = await service.offer({
+      workspaceRoot: '/workspace',
+      reportPath: '.autohand/research/topic.md',
+      token: 'token',
+      interactive: true,
+      signal: controller.signal,
+    });
+
+    expect(outcome).toMatchObject({ status: 'cancelled' });
+    expect(outcome.message).toContain('remains local');
+    expect(publish).toHaveBeenCalledWith(
+      expect.anything(),
+      'token',
+      { signal: controller.signal },
+    );
   });
 
   it('uses the current login and leaves the report local when authentication is invalid', async () => {
