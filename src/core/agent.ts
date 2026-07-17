@@ -1827,7 +1827,6 @@ export class AutohandAgent {
       reportPath,
       token: this.runtime.config.auth?.token,
       interactive,
-      yesMode: this.runtime.options.yes === true || this.runtime.options.unrestricted === true,
       apiBaseUrl: defaultOpenResearchOrigin(),
       signal: publicationController.signal,
     });
