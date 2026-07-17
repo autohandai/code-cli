@@ -42,7 +42,7 @@ function prompts(overrides: Partial<ResearchPublicationPrompts> = {}): ResearchP
 }
 
 describe('ResearchPublicationService', () => {
-  it('does nothing in a non-interactive environment, including global yes mode', async () => {
+  it('does nothing in a non-interactive environment', async () => {
     const publicationPrompts = prompts();
     const publish = vi.fn();
     const service = new ResearchPublicationService({
@@ -58,7 +58,6 @@ describe('ResearchPublicationService', () => {
       reportPath: '.autohand/research/topic.md',
       token: 'token',
       interactive: false,
-      yesMode: true,
     });
 
     expect(result.status).toBe('skipped');
@@ -66,7 +65,7 @@ describe('ResearchPublicationService', () => {
     expect(publish).not.toHaveBeenCalled();
   });
 
-  it('requires explicit consent even when global yes mode is enabled', async () => {
+  it('always asks for consent — yes/unrestricted mode cannot bypass publication prompts', async () => {
     const publicationPrompts = prompts({
       confirmPublish: vi.fn(async () => false),
     });
@@ -84,7 +83,6 @@ describe('ResearchPublicationService', () => {
       reportPath: '.autohand/research/topic.md',
       token: 'token',
       interactive: true,
-      yesMode: true,
     });
 
     expect(result.status).toBe('cancelled');
