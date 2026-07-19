@@ -8,6 +8,8 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const GUIDE_PATH = path.resolve('docs/guides/building-autohand-extensions.md');
+const AGENT_SKILLS_PATH = path.resolve('docs/agent-skills.md');
+const RECORDER_PATH = path.resolve('src/testing/scenarios/recordExtensionBuilderDemo.ts');
 const GIF_PATH = path.resolve('docs/gif/extension-builder-demo.gif');
 const MP4_PATH = path.resolve('docs/video/extension-builder-demo.mp4');
 const CAST_PATH = path.resolve('docs/video/extension-builder-demo.cast');
@@ -24,6 +26,19 @@ describe('extension-builder user guide and recorded demo', () => {
     expect(guide).toContain('extensions show');
     expect(guide).toContain('../gif/extension-builder-demo.gif');
     expect(guide).toContain('../video/extension-builder-demo.mp4');
+  });
+
+  it('targets Autohand when installing the public extension-builder skill', async () => {
+    const [guide, agentSkills, recorder] = await Promise.all([
+      fs.readFile(GUIDE_PATH, 'utf8'),
+      fs.readFile(AGENT_SKILLS_PATH, 'utf8'),
+      fs.readFile(RECORDER_PATH, 'utf8'),
+    ]);
+
+    for (const content of [guide, agentSkills, recorder]) {
+      expect(content).toContain('--skill extension-builder -a autohand-code -y');
+      expect(content).not.toContain('--skill extension-builder -a codex -y');
+    }
   });
 
   it('ships a reproducible Tuistory recording command and packaged media', async () => {
@@ -59,6 +74,9 @@ describe('extension-builder user guide and recorded demo', () => {
       .map((event) => event[2])
       .join('');
     expect(terminalOutput).toContain('npx skills add');
+    expect(terminalOutput).toContain('--skill extension-builder -a autohand-code -y');
+    expect(terminalOutput).not.toContain('--skill extension-builder -a codex -y');
+    expect(terminalOutput).not.toMatch(/\bcodex\b/i);
     expect(terminalOutput).toContain('$extension-builder');
     expect(terminalOutput).toContain('extensions validate');
   });
