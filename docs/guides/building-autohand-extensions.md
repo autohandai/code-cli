@@ -20,11 +20,11 @@ An exact `$extension-builder` mention activates its instructions in that same tu
 
 ## Install the community copy
 
-Autohand already bundles the skill. Install the community copy when you want the same authoring workflow in another Agent Skills-compatible coding agent or checked into a project:
+Autohand already bundles the skill. Install the community copy when you want the same authoring workflow checked into a project or managed through the open Agent Skills ecosystem:
 
 ```sh
 npx skills add https://github.com/autohandai/community-skills \
-  --skill extension-builder -a codex -y
+  --skill extension-builder -a autohand-code -y
 ```
 
 Review installed skills before use. The public package includes the Autohand extension v1 contract and the Pi compatibility guide.

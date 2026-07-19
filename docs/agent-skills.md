@@ -54,7 +54,7 @@ $extension-builder adapt this Pi package into an Autohand extension and install 
 
 ```bash
 autohand --skill-install extension-builder --yes
-npx skills add https://github.com/autohandai/community-skills --skill extension-builder -a codex -y
+npx skills add https://github.com/autohandai/community-skills --skill extension-builder -a autohand-code -y
 ```
 
 ### Create a New Skill
