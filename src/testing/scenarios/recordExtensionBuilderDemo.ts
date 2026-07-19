@@ -181,6 +181,9 @@ export async function recordExtensionBuilderDemo(
       AUTOHAND_SKIP_PING: '1',
       AUTOHAND_SKIP_UPDATE_CHECK: '1',
       CI: 'false',
+      CODEX_CI: undefined,
+      CODEX_SANDBOX: undefined,
+      CODEX_THREAD_ID: undefined,
       FORCE_COLOR: '3',
       NO_COLOR: undefined,
       PATH: `${binRoot}:${process.env.PATH ?? ''}`,
@@ -197,7 +200,7 @@ export async function recordExtensionBuilderDemo(
     if (options.installPublicSkill ?? true) {
       await typeCommand(
         recorder,
-        `npx skills add ${PUBLIC_SKILL_SOURCE} --skill extension-builder -a codex -y`,
+        `npx skills add ${PUBLIC_SKILL_SOURCE} --skill extension-builder -a autohand-code -y`,
         /Installed 1 skill|Done!/,
         120_000,
       );
