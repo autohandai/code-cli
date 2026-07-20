@@ -112,7 +112,7 @@ import { attachBrowserHandoff, attachLatestBrowserHandoff, createBrowserHandoff 
 import { GoalManager } from '../../goals/GoalManager.js';
 import type { GoalStatus } from '../../goals/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, isGoalFeatureEnabled } from '../../goals/feature.js';
-import { writeAutohandDebugLine } from '../../utils/debugLog.js';
+import { getRpcErrorMetadata, writeRpcDebugLine } from './logging.js';
 import { SLASH_COMMANDS } from '../../core/slashCommands.js';
 import { AutoResearchManager, type AutoResearchSnapshot, type AutoResearchState } from '../../autoresearch/manager.js';
 import { initExperiment } from '../../autoresearch/tools.js';
@@ -496,8 +496,7 @@ export class RPCAdapter {
       }
 
       void this.trackPromptWork(this.runAcceptedPrompt(requestId, params, prompt)).catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        writeAutohandDebugLine(`[RPC] Prompt failed after acceptance: ${message}\n`);
+        writeRpcDebugLine(`Prompt failed after acceptance: ${getRpcErrorMetadata(error)}`);
       }).finally(resolveStart);
     });
     this.pendingPromptStarts.set(prompt.identity, {
@@ -663,7 +662,9 @@ export class RPCAdapter {
 
       // Process any attached images first
       const imagePlaceholders: string[] = [];
-      writeAutohandDebugLine(`[RPC] handlePrompt: images=${params.images?.length || 0}, hasImageManager=${!!this.imageManager}, model=${this.model}\n`);
+      writeRpcDebugLine(
+        `handlePrompt imageCount=${params.images?.length || 0}, hasImageManager=${!!this.imageManager}, modelLength=${this.model.length}`
+      );
 
       // Check if model supports vision when images are provided (async, uses OpenRouter API with pattern fallback)
       let supportsVisionResult = false;
@@ -673,7 +674,7 @@ export class RPCAdapter {
           return { success: false };
         }
         if (!supportsVisionResult) {
-          writeAutohandDebugLine(`[RPC] WARNING: Model '${this.model}' does not support vision. Images will not be processed.\n`);
+          writeRpcDebugLine(`Model does not support vision modelLength=${this.model.length}`);
           writeNotification(RPC_NOTIFICATIONS.ERROR, {
             code: -32000,
             message: `Model '${this.model}' does not support image inputs. Please use a vision-capable model like claude-3.5-sonnet, gpt-4o, or gemini-1.5-pro.`,
@@ -685,17 +686,19 @@ export class RPCAdapter {
       }
 
       if (params.images && params.images.length > 0 && this.imageManager && supportsVisionResult) {
-        writeAutohandDebugLine(`[RPC] Processing ${params.images.length} images\n`);
+        writeRpcDebugLine(`Processing images count=${params.images.length}`);
         for (const img of params.images) {
           if (!this.canContinuePrompt(prompt)) {
             return { success: false };
           }
           try {
-            writeAutohandDebugLine(`[RPC] Image: mimeType=${img.mimeType}, dataLength=${img.data?.length || 0}\n`);
+            writeRpcDebugLine(
+              `Image mimeTypeLength=${img.mimeType.length}, dataLength=${img.data?.length || 0}`
+            );
 
             // Validate MIME type
             if (!isValidImageMimeType(img.mimeType)) {
-              writeAutohandDebugLine(`[RPC] Invalid MIME type: ${img.mimeType}\n`);
+              writeRpcDebugLine(`Invalid image mimeTypeLength=${String(img.mimeType).length}`);
               writeNotification(RPC_NOTIFICATIONS.ERROR, {
                 code: -32602, // Invalid params
                 message: `Invalid image MIME type: ${img.mimeType}`,
@@ -707,7 +710,7 @@ export class RPCAdapter {
 
             // Decode base64 to Buffer
             const data = Buffer.from(img.data, 'base64');
-            writeAutohandDebugLine(`[RPC] Image decoded: ${data.length} bytes\n`);
+            writeRpcDebugLine(`Image decoded bytes=${data.length}`);
 
             // Check size limit
             if (data.length > MAX_IMAGE_SIZE) {
@@ -744,10 +747,10 @@ export class RPCAdapter {
       if (!isSlashCmd) {
         // Prepend image placeholders if any were processed
         if (imagePlaceholders.length > 0) {
-          writeAutohandDebugLine(`[RPC] Image placeholders: ${imagePlaceholders.join(', ')}\n`);
+          writeRpcDebugLine(`Image placeholders count=${imagePlaceholders.length}`);
           instruction = `${imagePlaceholders.join(' ')}\n\n${instruction}`;
         } else if (params.images && params.images.length > 0) {
-          writeAutohandDebugLine(`[RPC] WARNING: Images provided but no placeholders generated!\n`);
+          writeRpcDebugLine('Images provided without generated placeholders');
         }
 
         if (params.context?.selection) {
@@ -762,13 +765,16 @@ export class RPCAdapter {
         if (!this.canContinuePrompt(prompt)) {
           return { success: false };
         }
-        // Debug: log instruction being executed
-        writeAutohandDebugLine(`[RPC DEBUG] Executing instruction: ${instruction.substring(0, 100)}\n`);
+        writeRpcDebugLine(
+          `Executing instruction instructionLength=${instruction.length}, isSlashCommand=${isSlashCmd}`
+        );
 
         // Check if it's a slash command and handle it directly
         if (isSlashCmd) {
           const { command, args } = this.agent.parseSlashCommand(instruction);
-          writeAutohandDebugLine(`[RPC DEBUG] Handling slash command: ${command}, args: ${JSON.stringify(args)}\n`);
+          writeRpcDebugLine(
+            `Handling slash command commandLength=${command.length}, argumentCount=${args.length}`
+          );
 
           // First check if the command is supported
           if (this.agent.isSlashCommandSupported(command)) {
@@ -815,11 +821,13 @@ export class RPCAdapter {
           // Not a slash command - run as regular instruction via LLM
           // Enter preview mode if enabled to batch file changes
           const fileManager = this.agent.getFileManager();
-          writeAutohandDebugLine(`[RPC DEBUG] previewModeEnabled=${this.previewModeEnabled}, hasFileManager=${!!fileManager}\n`);
+          writeRpcDebugLine(
+            `previewModeEnabled=${this.previewModeEnabled}, hasFileManager=${!!fileManager}`
+          );
           if (this.previewModeEnabled && fileManager) {
             const batchId = generateId('changes');
             this.currentChangesBatchId = batchId;
-            writeAutohandDebugLine(`[RPC DEBUG] Entering preview mode with batchId=${batchId}\n`);
+            writeRpcDebugLine('Entering preview mode batchCreated=true');
             this.emitChangesBatchStart(batchId);
             fileManager.enterPreviewMode(batchId, (change) => {
               if (!this.canContinuePrompt(prompt) || this.currentChangesBatchId !== batchId) {
@@ -859,7 +867,7 @@ export class RPCAdapter {
               const batchId = this.currentChangesBatchId;
               this.currentChangesBatchId = null;
               const pendingChanges = fileManager.getPendingChanges();
-              writeAutohandDebugLine(`[RPC DEBUG] Turn finished, pendingChanges=${pendingChanges.length}, files=${pendingChanges.map(c => c.filePath).join(', ')}\n`);
+              writeRpcDebugLine(`Turn finished pendingChanges=${pendingChanges.length}`);
               this.emitChangesBatchEnd(batchId, pendingChanges.length);
 
               if (pendingChanges.length === 0) {
@@ -876,7 +884,9 @@ export class RPCAdapter {
           return { success: false };
         }
 
-        writeAutohandDebugLine(`[RPC DEBUG] Instruction completed, success=${success}, content length=${this.currentMessageContent.length}\n`);
+        writeRpcDebugLine(
+          `Instruction completed success=${success}, contentLength=${this.currentMessageContent.length}`
+        );
 
         // Fire stop hook after turn completes (matching command mode behavior)
         // Wrapped in its own try-catch to ensure MESSAGE_END and TURN_END are always emitted
@@ -885,10 +895,10 @@ export class RPCAdapter {
           const hookManager = this.canContinuePrompt(prompt)
             ? this.agent?.getHookManager?.()
             : undefined;
-          writeAutohandDebugLine(`[RPC DEBUG] Hook execution: hookManager=${!!hookManager}\n`);
+          writeRpcDebugLine(`Hook execution hookManager=${!!hookManager}`);
           if (hookManager) {
             const snapshot = this.agent?.getStatusSnapshot();
-            writeAutohandDebugLine(`[RPC DEBUG] Executing stop hooks...\n`);
+            writeRpcDebugLine('Executing stop hooks');
             await hookManager.executeHooks(
               'stop',
               {
@@ -902,7 +912,7 @@ export class RPCAdapter {
             if (!this.canContinuePrompt(prompt)) {
               return { success: false };
             }
-            writeAutohandDebugLine(`[RPC DEBUG] Stop hooks completed\n`);
+            writeRpcDebugLine('Stop hooks completed');
 
             // Emit HOOK_STOP notification so UI can update button state
             this.emitHookStop(
@@ -911,19 +921,17 @@ export class RPCAdapter {
               turnDuration,
               snapshot?.tokensUsageStatus
             );
-            writeAutohandDebugLine(`[RPC DEBUG] HOOK_STOP emitted\n`);
+            writeRpcDebugLine('HOOK_STOP emitted');
           }
         } catch (hookErr) {
           // Log but don't let hook errors block MESSAGE_END and TURN_END
-          const hookErrMsg = hookErr instanceof Error ? hookErr.message : String(hookErr);
-          writeAutohandDebugLine(`[RPC DEBUG] Hook execution error (non-blocking): ${hookErrMsg}\n`);
+          writeRpcDebugLine(
+            `Hook execution error nonBlocking=true, ${getRpcErrorMetadata(hookErr)}`
+          );
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
-        const errorStack = err instanceof Error ? err.stack : '';
-        // Debug: log the error
-        writeAutohandDebugLine(`[RPC DEBUG] Error during runInstruction: ${errorMessage}\n`);
-        writeAutohandDebugLine(`[RPC DEBUG] Stack: ${errorStack}\n`);
+        writeRpcDebugLine(`Error during runInstruction: ${getRpcErrorMetadata(err)}`);
         // Emit error notification
         if (this.canContinuePrompt(prompt)) {
           writeNotification(RPC_NOTIFICATIONS.ERROR, {
@@ -941,8 +949,7 @@ export class RPCAdapter {
       if (!this.canContinuePrompt(prompt)) {
         return { success: false };
       }
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      writeAutohandDebugLine(`[RPC DEBUG] Outer catch - error: ${errorMsg}\n`);
+      writeRpcDebugLine(`Outer prompt failure: ${getRpcErrorMetadata(error)}`);
       throw error;
     } finally {
       this.finalizePrompt(prompt);
@@ -956,7 +963,7 @@ export class RPCAdapter {
     prompt.finalized = true;
 
     if (prompt.messageId) {
-      writeAutohandDebugLine(`[RPC DEBUG] Emitting MESSAGE_END, messageId=${prompt.messageId}\n`);
+      writeRpcDebugLine('Emitting MESSAGE_END messageIdPresent=true');
       writeNotification(RPC_NOTIFICATIONS.MESSAGE_END, {
         messageId: prompt.messageId,
         content: prompt.messageContent,
@@ -970,7 +977,7 @@ export class RPCAdapter {
         ? Date.now() - prompt.turnStartTime
         : undefined;
       const snapshot = this.agent?.getStatusSnapshot();
-      writeAutohandDebugLine(`[RPC DEBUG] Emitting TURN_END, turnId=${prompt.turnId}\n`);
+      writeRpcDebugLine('Emitting TURN_END turnIdPresent=true');
       writeNotification(RPC_NOTIFICATIONS.TURN_END, {
         turnId: prompt.turnId,
         timestamp: createTimestamp(),
@@ -1000,19 +1007,19 @@ export class RPCAdapter {
    */
   handleAbort(_requestId: JsonRpcId | null): AbortResult {
     const prompt = this.activePrompt;
-    writeAutohandDebugLine(`[RPC] handleAbort called, activePrompt=${!!prompt}\n`);
+    writeRpcDebugLine(`handleAbort activePrompt=${!!prompt}`);
 
     // Clear ALL pending permissions - they're no longer relevant after abort
-    for (const [permId, pending] of this.pendingPermissions) {
-      writeAutohandDebugLine(`[RPC] Clearing pending permission ${permId} due to abort\n`);
+    for (const pending of this.pendingPermissions.values()) {
+      writeRpcDebugLine('Clearing pending permission dueToAbort=true');
       if (pending.ackTimeout) clearTimeout(pending.ackTimeout);
       if (pending.responseTimeout) clearTimeout(pending.responseTimeout);
       pending.resolve({ decision: 'deny_once' }); // Deny - operation is being aborted
     }
     this.pendingPermissions.clear();
 
-    for (const [requestId, pending] of this.pendingDirectoryAccess) {
-      writeAutohandDebugLine(`[RPC] Clearing pending directory access ${requestId} due to abort\n`);
+    for (const pending of this.pendingDirectoryAccess.values()) {
+      writeRpcDebugLine('Clearing pending directory access dueToAbort=true');
       if (pending.ackTimeout) clearTimeout(pending.ackTimeout);
       if (pending.responseTimeout) clearTimeout(pending.responseTimeout);
       pending.resolve(undefined);
@@ -1173,15 +1180,17 @@ export class RPCAdapter {
    * Handle permission response from client
    */
   handlePermissionResponse(
-    requestId: JsonRpcId,
+    _requestId: JsonRpcId,
     permRequestId: string,
     decision: PermissionPromptResponse
   ): PermissionResponseResult {
-    writeAutohandDebugLine(`[RPC] handlePermissionResponse called: permRequestId=${permRequestId}, allowed=${decision}, pending keys=${Array.from(this.pendingPermissions.keys()).join(',')}\n`);
+    writeRpcDebugLine(
+      `handlePermissionResponse decisionType=${typeof decision}, pendingCount=${this.pendingPermissions.size}`
+    );
     const pending = this.pendingPermissions.get(permRequestId);
     if (pending) {
       const normalized = normalizePermissionPromptResponse(decision);
-      writeAutohandDebugLine(`[RPC] Found pending permission, resolving with allowed=${normalized.decision}\n`);
+      writeRpcDebugLine(`Resolving pending permission decision=${normalized.decision}`);
       // Clear both timeouts
       if (pending.ackTimeout) {
         clearTimeout(pending.ackTimeout);
@@ -1192,11 +1201,11 @@ export class RPCAdapter {
       this.pendingPermissions.delete(permRequestId);
       pending.resolve(normalized);
       this.status = 'processing';
-      writeAutohandDebugLine(`[RPC] Permission resolved, status set to processing\n`);
+      writeRpcDebugLine('Permission resolved status=processing');
       return { success: true };
     }
 
-    writeAutohandDebugLine(`[RPC] Permission response for unknown request ${permRequestId}\n`);
+    writeRpcDebugLine('Permission response for unknown request');
     return { success: false };
   }
 
@@ -1216,7 +1225,9 @@ export class RPCAdapter {
     }
     const permRequestId = generateId('perm');
     this.status = 'waiting_permission';
-    writeAutohandDebugLine(`[RPC] requestPermission: tool=${tool}, permRequestId=${permRequestId}\n`);
+    writeRpcDebugLine(
+      `requestPermission toolLength=${tool.length}, descriptionLength=${description.length}, hasContext=${Object.keys(context).length > 0}`
+    );
 
     writeNotification(RPC_NOTIFICATIONS.PERMISSION_REQUEST, {
       requestId: permRequestId,
@@ -1243,7 +1254,7 @@ export class RPCAdapter {
       const ackTimeout = setTimeout(() => {
         this.pendingPermissions.delete(permRequestId);
         this.status = 'processing';
-        writeAutohandDebugLine(`[RPC] Permission ack timeout for ${permRequestId}\n`);
+        writeRpcDebugLine('Permission acknowledgement timeout');
         resolve({ decision: 'deny_once' }); // Deny - extension not responding
       }, 30000); // 30 second acknowledgment timeout
 
@@ -1265,7 +1276,7 @@ export class RPCAdapter {
   handlePermissionAcknowledged(permRequestId: string): { success: boolean } {
     const pending = this.pendingPermissions.get(permRequestId);
     if (!pending) {
-      writeAutohandDebugLine(`[RPC] Permission ack for unknown request ${permRequestId}\n`);
+      writeRpcDebugLine('Permission acknowledgement for unknown request');
       return { success: false };
     }
 
@@ -1285,11 +1296,11 @@ export class RPCAdapter {
     pending.responseTimeout = setTimeout(() => {
       this.pendingPermissions.delete(permRequestId);
       this.status = 'processing';
-      writeAutohandDebugLine(`[RPC] Permission response timeout for ${permRequestId} (1 hour)\n`);
+      writeRpcDebugLine('Permission response timeout');
       pending.resolve({ decision: 'deny_once' });
     }, 3600000); // 1 hour
 
-    writeAutohandDebugLine(`[RPC] Permission acknowledged for ${permRequestId}\n`);
+    writeRpcDebugLine('Permission acknowledged');
     return { success: true };
   }
 
@@ -1306,7 +1317,9 @@ export class RPCAdapter {
     if (this.shuttingDown) return undefined;
     const requestId = generateId('dir');
     this.status = 'waiting_permission';
-    writeAutohandDebugLine(`[RPC] requestDirectoryAccess: path=${dirPath}, requestId=${requestId}\n`);
+    writeRpcDebugLine(
+      `requestDirectoryAccess pathLength=${dirPath.length}, reasonLength=${reason?.length ?? 0}`
+    );
 
     writeNotification(RPC_NOTIFICATIONS.DIRECTORY_ACCESS_REQUEST, {
       requestId,
@@ -1320,7 +1333,7 @@ export class RPCAdapter {
       const ackTimeout = setTimeout(() => {
         this.pendingDirectoryAccess.delete(requestId);
         this.status = 'processing';
-        writeAutohandDebugLine(`[RPC] Directory access ack timeout for ${requestId}\n`);
+        writeRpcDebugLine('Directory access acknowledgement timeout');
         resolve(undefined); // Deny - extension not responding
       }, 30000); // 30 second acknowledgment timeout
 
@@ -1342,7 +1355,7 @@ export class RPCAdapter {
   handleDirectoryAccessAcknowledged(requestId: string): { success: boolean } {
     const pending = this.pendingDirectoryAccess.get(requestId);
     if (!pending) {
-      writeAutohandDebugLine(`[RPC] Directory access ack for unknown request ${requestId}\n`);
+      writeRpcDebugLine('Directory access acknowledgement for unknown request');
       return { success: false };
     }
 
@@ -1361,11 +1374,11 @@ export class RPCAdapter {
     pending.responseTimeout = setTimeout(() => {
       this.pendingDirectoryAccess.delete(requestId);
       this.status = 'processing';
-      writeAutohandDebugLine(`[RPC] Directory access response timeout for ${requestId} (1 hour)\n`);
+      writeRpcDebugLine('Directory access response timeout');
       pending.resolve(undefined);
     }, 3600000); // 1 hour
 
-    writeAutohandDebugLine(`[RPC] Directory access acknowledged for ${requestId}\n`);
+    writeRpcDebugLine('Directory access acknowledged');
     return { success: true };
   }
 
@@ -1376,7 +1389,7 @@ export class RPCAdapter {
     requestId: string,
     granted: boolean
   ): { success: boolean } {
-    writeAutohandDebugLine(`[RPC] handleDirectoryAccessResponse: requestId=${requestId}, granted=${granted}\n`);
+    writeRpcDebugLine(`handleDirectoryAccessResponse granted=${granted}`);
     const pending = this.pendingDirectoryAccess.get(requestId);
     if (pending) {
       // Clear both timeouts
@@ -1389,11 +1402,11 @@ export class RPCAdapter {
       this.pendingDirectoryAccess.delete(requestId);
       pending.resolve(granted ? pending.path : undefined);
       this.status = 'processing';
-      writeAutohandDebugLine(`[RPC] Directory access resolved, status set to processing\n`);
+      writeRpcDebugLine('Directory access resolved status=processing');
       return { success: true };
     }
 
-    writeAutohandDebugLine(`[RPC] Directory access response for unknown request ${requestId}\n`);
+    writeRpcDebugLine('Directory access response for unknown request');
     return { success: false };
   }
 
@@ -1477,7 +1490,7 @@ export class RPCAdapter {
    */
   emitChangesBatchStart(batchId: string): void {
     if (this.notificationsSealed) return;
-    writeAutohandDebugLine(`[RPC DEBUG] emitChangesBatchStart: batchId=${batchId}\n`);
+    writeRpcDebugLine('emitChangesBatchStart');
     writeNotification(RPC_NOTIFICATIONS.CHANGES_BATCH_START, {
       batchId,
       turnId: this.currentTurnId ?? '',
@@ -1493,7 +1506,7 @@ export class RPCAdapter {
     change: import('./types.js').ProposedFileChange
   ): void {
     if (this.notificationsSealed) return;
-    writeAutohandDebugLine(`[RPC DEBUG] emitChangesBatchUpdate: batchId=${batchId}, changeId=${change.id}, file=${change.filePath}\n`);
+    writeRpcDebugLine(`emitChangesBatchUpdate changeType=${change.changeType}`);
     writeNotification(RPC_NOTIFICATIONS.CHANGES_BATCH_UPDATE, {
       batchId,
       change,
@@ -1506,7 +1519,7 @@ export class RPCAdapter {
    */
   emitChangesBatchEnd(batchId: string, changeCount: number): void {
     if (this.notificationsSealed) return;
-    writeAutohandDebugLine(`[RPC DEBUG] emitChangesBatchEnd: batchId=${batchId}, changeCount=${changeCount}\n`);
+    writeRpcDebugLine(`emitChangesBatchEnd changeCount=${changeCount}`);
     writeNotification(RPC_NOTIFICATIONS.CHANGES_BATCH_END, {
       batchId,
       changeCount,
@@ -1799,7 +1812,7 @@ export class RPCAdapter {
       let registry;
       if (params?.forceRefresh) {
         // Force refresh from GitHub
-        writeAutohandDebugLine('[RPC] Force refreshing skills registry from GitHub\n');
+        writeRpcDebugLine('Refreshing skills registry force=true');
         registry = await fetcher.fetchRegistry();
         await cache.setRegistry(registry);
       } else {
@@ -1808,7 +1821,7 @@ export class RPCAdapter {
         if (cached) {
           registry = cached;
         } else {
-          writeAutohandDebugLine('[RPC] Fetching skills registry from GitHub\n');
+          writeRpcDebugLine('Fetching skills registry cacheHit=false');
           registry = await fetcher.fetchRegistry();
           await cache.setRegistry(registry);
         }
@@ -1834,7 +1847,7 @@ export class RPCAdapter {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      writeAutohandDebugLine(`[RPC] Failed to get skills registry: ${message}\n`);
+      writeRpcDebugLine(`Failed to get skills registry: ${getRpcErrorMetadata(error)}`);
       return {
         success: false,
         skills: [],
@@ -1874,7 +1887,7 @@ export class RPCAdapter {
       // Get registry
       let registry = await cache.getRegistry();
       if (!registry) {
-        writeAutohandDebugLine('[RPC] Fetching skills registry for install\n');
+        writeRpcDebugLine('Fetching skills registry for install cacheHit=false');
         registry = await fetcher.fetchRegistry();
         await cache.setRegistry(registry);
       }
@@ -1906,12 +1919,14 @@ export class RPCAdapter {
         };
       }
 
-      writeAutohandDebugLine(`[RPC] Installing skill ${skill.name} to ${params.scope}\n`);
+      writeRpcDebugLine(
+        `Installing skill nameLength=${skill.name.length}, scope=${params.scope}`
+      );
 
       // Try to get from cache first
       let files = await cache.getSkillDirectory(skill.id);
       if (!files) {
-        writeAutohandDebugLine(`[RPC] Fetching skill files from GitHub\n`);
+        writeRpcDebugLine('Fetching skill files cacheHit=false');
         files = await fetcher.fetchSkillDirectory(skill);
         await cache.setSkillDirectory(skill.id, files);
       }
@@ -1925,7 +1940,7 @@ export class RPCAdapter {
       );
 
       if (result.success) {
-        writeAutohandDebugLine(`[RPC] Successfully installed ${skill.name}\n`);
+        writeRpcDebugLine(`Skill installed nameLength=${skill.name.length}`);
         return {
           success: true,
           skillName: skill.name,
@@ -1939,7 +1954,7 @@ export class RPCAdapter {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      writeAutohandDebugLine(`[RPC] Failed to install skill: ${message}\n`);
+      writeRpcDebugLine(`Failed to install skill: ${getRpcErrorMetadata(error)}`);
       return {
         success: false,
         error: message,
@@ -1974,7 +1989,7 @@ export class RPCAdapter {
         timestamp: createTimestamp(),
       });
 
-      writeAutohandDebugLine(`[RPC] Learn recommend: analyzing project (deep=${deep})\n`);
+      writeRpcDebugLine(`Learn recommend analyzingProject=true, deep=${deep}`);
       const analyzer = new ProjectAnalyzer(workspace);
       const analysis = await analyzer.analyze();
 
@@ -2027,7 +2042,7 @@ export class RPCAdapter {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      writeAutohandDebugLine(`[RPC] Learn recommend failed: ${message}\n`);
+      writeRpcDebugLine(`Learn recommend failed: ${getRpcErrorMetadata(error)}`);
       return {
         success: false,
         projectSummary: '',
@@ -2059,7 +2074,7 @@ export class RPCAdapter {
         timestamp: createTimestamp(),
       });
 
-      writeAutohandDebugLine('[RPC] Learn update: checking for stale skills\n');
+      writeRpcDebugLine('Learn update checkingForStaleSkills=true');
       const analyzer = new ProjectAnalyzer(workspace);
       const analysis = await analyzer.analyze();
       const currentHash = computeProjectHash(analysis);
@@ -2124,7 +2139,7 @@ export class RPCAdapter {
       return { success: true, updated, unchanged, results };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      writeAutohandDebugLine(`[RPC] Learn update failed: ${message}\n`);
+      writeRpcDebugLine(`Learn update failed: ${getRpcErrorMetadata(error)}`);
       return { success: false, updated: 0, unchanged: 0, results: [], error: message };
     }
   }
@@ -2152,7 +2167,7 @@ export class RPCAdapter {
         timestamp: createTimestamp(),
       });
 
-      writeAutohandDebugLine(`[RPC] Learn generate: scope=${scope}\n`);
+      writeRpcDebugLine(`Learn generate scope=${scope}`);
 
       const llm = this.agent?.getLlmProvider?.();
       if (!llm) {
@@ -2191,7 +2206,7 @@ export class RPCAdapter {
       return { success: true, skillName: generated.name, skillPath };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      writeAutohandDebugLine(`[RPC] Learn generate failed: ${message}\n`);
+      writeRpcDebugLine(`Learn generate failed: ${getRpcErrorMetadata(error)}`);
       return { success: false, error: message };
     }
   }
@@ -2236,8 +2251,7 @@ export class RPCAdapter {
         totalItems,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      writeAutohandDebugLine(`[RPC] Failed to get history: ${message}\n`);
+      writeRpcDebugLine(`Failed to get history: ${getRpcErrorMetadata(error)}`);
       return { sessions: [], currentPage: 1, totalPages: 0, totalItems: 0 };
     }
   }
@@ -2284,7 +2298,7 @@ export class RPCAdapter {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      writeAutohandDebugLine(`[RPC] Failed to get session: ${message}\n`);
+      writeRpcDebugLine(`Failed to get session: ${getRpcErrorMetadata(error)}`);
       return {
         success: false,
         error: message,
@@ -2320,7 +2334,9 @@ export class RPCAdapter {
       }
 
       permissionManager.setMode('unrestricted');
-      writeAutohandDebugLine(`[RPC] YOLO mode enabled with pattern: ${params.pattern}\n`);
+      writeRpcDebugLine(
+        `YOLO mode enabled patternLength=${params.pattern.length}, hasTimeout=${!!params.timeoutSeconds}`
+      );
 
       let expiresIn: number | undefined;
       if (params.timeoutSeconds && params.timeoutSeconds > 0) {
@@ -2332,15 +2348,14 @@ export class RPCAdapter {
           }
           this.yoloRevertTimer = null;
           permissionManager.setMode('interactive');
-          writeAutohandDebugLine(`[RPC] YOLO mode expired, reverted to interactive\n`);
+          writeRpcDebugLine('YOLO mode expired mode=interactive');
         }, params.timeoutSeconds * 1000);
         this.yoloRevertTimer.unref?.();
       }
 
       return { success: true, expiresIn };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      writeAutohandDebugLine(`[RPC] Failed to set YOLO mode: ${message}\n`);
+      writeRpcDebugLine(`Failed to set YOLO mode: ${getRpcErrorMetadata(error)}`);
       return { success: false };
     }
   }
@@ -2428,9 +2443,7 @@ export class RPCAdapter {
       });
     }
 
-    writeAutohandDebugLine(
-      `[RPC] MCP bridge: registered ${this.vscodeTools.size} VS Code tools\n`
-    );
+    writeRpcDebugLine(`MCP bridge registeredTools=${this.vscodeTools.size}`);
 
     // Notify the extension that the tool set has changed
     const allTools = this.getVscodeToolsList();
@@ -2519,9 +2532,7 @@ export class RPCAdapter {
   ): { success: boolean } {
     const pending = this.pendingVscodeInvocations.get(params.requestId);
     if (!pending) {
-      writeAutohandDebugLine(
-        `[RPC] MCP bridge: invoke response for unknown request ${params.requestId}\n`
-      );
+      writeRpcDebugLine('MCP bridge invoke response for unknown request');
       return { success: false };
     }
 
@@ -2709,7 +2720,9 @@ export class RPCAdapter {
    */
   private handleAgentOutput(event: AgentOutputEvent): void {
     if (this.shuttingDown) return;
-    writeAutohandDebugLine(`[RPC DEBUG] handleAgentOutput: type=${event.type}, content length=${event.content?.length ?? 0}\n`);
+    writeRpcDebugLine(
+      `handleAgentOutput type=${event.type}, contentLength=${event.content?.length ?? 0}, thoughtLength=${event.thought?.length ?? 0}`
+    );
     const prompt = this.activePrompt;
     switch (event.type) {
       case 'thinking':
@@ -2718,7 +2731,6 @@ export class RPCAdapter {
           && !prompt.finalized
           && !prompt.abortController.signal.aborted
           && prompt.messageId) {
-          writeAutohandDebugLine(`[RPC DEBUG] Emitting thinking: ${event.thought.substring(0, 50)}...\n`);
           writeNotification(RPC_NOTIFICATIONS.MESSAGE_UPDATE, {
             messageId: prompt.messageId,
             delta: '',
@@ -2734,7 +2746,6 @@ export class RPCAdapter {
           && !prompt.finalized
           && !prompt.abortController.signal.aborted
           && prompt.messageId) {
-          writeAutohandDebugLine(`[RPC DEBUG] Emitting message content: ${event.content.substring(0, 100)}...\n`);
           this.currentMessageContent = event.content;
           prompt.messageContent = event.content;
           writeNotification(RPC_NOTIFICATIONS.MESSAGE_UPDATE, {
@@ -2794,8 +2805,6 @@ export class RPCAdapter {
           && !prompt.finalized
           && !prompt.abortController.signal.aborted
           && prompt.messageId) {
-          writeAutohandDebugLine(`[RPC DEBUG] Emitting error: ${event.content.substring(0, 100)}...\n`);
-
           // Classify the error for appropriate UI treatment
           const errorType = this.classifyError(event.content);
 
@@ -3145,7 +3154,7 @@ export class RPCAdapter {
       // Note: Starting auto-mode from RPC would require integrating with the agent's
       // iteration callback. For now, return success and let the agent handle it.
       // A full implementation would start the loop here.
-      writeAutohandDebugLine(`[RPC] Auto-mode start requested: ${params.prompt}\n`);
+      writeRpcDebugLine(`Auto-mode start requested promptLength=${params.prompt.length}`);
 
       return {
         success: true,
