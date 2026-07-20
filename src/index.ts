@@ -251,7 +251,7 @@ program
   .option('--plugin-dir <path>', 'Explicit plugin/meta-tool directory')
   .option('--yolo [pattern]', 'Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)')
   .option('--timeout <seconds>', 'Timeout in seconds for auto-approve mode', parseInt)
-  .option('--chrome', 'Enable Chrome browser integration (same as /chrome)')
+  .option('--chrome', 'Enable Chrome browser integration (same as /browser)')
   .option('--no-chrome', 'Disable Chrome browser integration')
   .option('--fork <pathOrId>', 'Create and resume a new session branch from an existing session reference')
   .action(async (positionalPrompt: string | undefined, opts: RootCliOptions) => {

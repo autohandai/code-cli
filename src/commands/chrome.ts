@@ -19,8 +19,8 @@ import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import { saveConfig } from '../config.js';
 
 export const metadata = {
-  command: '/chrome',
-  description: 'continue the current session in the Autohand Chrome extension',
+  command: '/browser',
+  description: 'continue the current session in the Autohand browser extension',
   implemented: true,
 };
 
@@ -38,7 +38,7 @@ async function withModalPause<T>(ctx: ChromeCommandContext, fn: () => Promise<T>
 export async function chrome(ctx: ChromeCommandContext, args: string[] = []): Promise<string | null> {
   const subcommand = args[0]?.toLowerCase();
 
-  // /chrome disconnect — close the browser bridge connection
+  // /browser disconnect — close the browser bridge connection
   if (subcommand === 'disconnect') {
     if (!ctx.config) return 'Config not available.';
     const chromeConfig = (ctx.config.chrome ?? {}) as Record<string, unknown>;
@@ -52,7 +52,7 @@ export async function chrome(ctx: ChromeCommandContext, args: string[] = []): Pr
   const sessionId = currentSession?.metadata.sessionId;
 
   if (!sessionId) {
-    return 'No active session. Start a task first, then run /chrome.';
+    return 'No active session. Start a task first, then run /browser.';
   }
 
   const extensionId = ctx.config?.chrome?.extensionId;

@@ -1574,8 +1574,8 @@ autohand --no-chrome       # Start with browser bridge disabled
 ```
 ### Slash parancsok
 ```
-/chrome                    # Open Chrome integration panel
-/chrome disconnect         # Close the browser bridge connection
+/browser                   # Open Chrome integration panel
+/browser disconnect        # Close the browser bridge connection
 ```
 ---
 
@@ -1941,7 +1941,7 @@ Ezek a jelzők felülírják a konfigurációs fájl beállításait:
 
 | zászló | Leírás |
 | ------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `--chrome` | A Chrome böngésző integrációjának engedélyezése (ugyanaz, mint `/chrome`) |
+| `--chrome` | A Chrome böngésző integrációjának engedélyezése (ugyanaz, mint `/browser`) |
 | `--no-chrome` | A Chrome böngésző integrációjának letiltása |
 
 ### Rendszerprompt
@@ -2093,7 +2093,7 @@ Az Autohand perjel parancsok gazdag készletét kínálja interaktív használat
 
 | Parancs | Leírás |
 | ------------- | ------------------------------------------------------ |
-| `/chrome` | A Chrome böngésző integrációjának engedélyezése |
+| `/browser` | A Chrome böngésző integrációjának engedélyezése |
 
 ### UI és kijelző
 

@@ -726,7 +726,7 @@ export interface TeamSettings {
 export interface ChromeConfigSettings {
   /** Installed extension id used for direct handoff into the Chrome extension UI */
   extensionId?: string;
-  /** Preferred Chromium browser for `/chrome` launches */
+  /** Preferred Chromium browser for `/browser` launches */
   browser?: 'auto' | 'chrome' | 'chromium' | 'brave' | 'edge';
   /** Browser user data root used to target the correct installed profile */
   userDataDir?: string;
@@ -945,7 +945,7 @@ export interface CLIOptions {
   yolo?: string;
   /** Timeout in seconds for auto-approve mode */
   timeout?: number;
-  /** Enable Chrome browser integration (same as /chrome) */
+  /** Enable Chrome browser integration (same as /browser) */
   chrome?: boolean;
   /** Disable Chrome browser integration */
   noChrome?: boolean;
@@ -1362,7 +1362,7 @@ export type AgentAction =
   | { type: 'cron_delete'; schedule_id: string }
   | { type: 'list_schedules' }
   | { type: 'cancel_schedule'; schedule_id: string }
-  // Browser tools (available when Chrome extension is connected via /chrome)
+  // Browser tools (available when Chrome extension is connected via /browser)
   | { type: 'browser_screenshot'; format?: 'png' | 'jpeg'; quality?: number }
   | { type: 'browser_click'; selector: string }
   | { type: 'browser_type'; selector: string; text: string; clear?: boolean }

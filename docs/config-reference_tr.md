@@ -1574,8 +1574,8 @@ autohand --no-chrome       # Start with browser bridge disabled
 ```
 ### Eğik Çizgi Komutları
 ```
-/chrome                    # Open Chrome integration panel
-/chrome disconnect         # Close the browser bridge connection
+/browser                   # Open Chrome integration panel
+/browser disconnect        # Close the browser bridge connection
 ```
 ---
 
@@ -1941,7 +1941,7 @@ Bu bayraklar yapılandırma dosyası ayarlarını geçersiz kılar:
 
 | Bayrak | Açıklama |
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
-| `--chrome` | Chrome tarayıcı entegrasyonunu etkinleştirin (`/chrome` ile aynı) |
+| `--chrome` | Chrome tarayıcı entegrasyonunu etkinleştirin (`/browser` ile aynı) |
 | `--no-chrome` | Chrome tarayıcı entegrasyonunu devre dışı bırakın |
 
 ### Sistem İstemi
@@ -2093,7 +2093,7 @@ Autohand etkileşimli kullanım için zengin bir eğik çizgi komutları seti sa
 
 | Komut | Açıklama |
 | ------------- | --------------------------------------- |
-| `/chrome` | Chrome tarayıcı entegrasyonunu etkinleştirin |
+| `/browser` | Chrome tarayıcı entegrasyonunu etkinleştirin |
 
 ### Kullanıcı Arayüzü ve Ekran
 

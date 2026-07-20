@@ -884,6 +884,33 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
+  it('uses the brand-neutral browser command and rejects /chrome', async () => {
+    const session = await launchInteractive();
+
+    await waitForComposer(session);
+    await session.type('/bro');
+    await session.text({
+      timeout: 10_000,
+      waitFor: (text) => text.includes('/browser') && text.includes('Tab to accept'),
+    });
+    const screen = await session.text({ trimEnd: true });
+
+    expect(screen).toContain('/browser');
+    expect(screen).not.toContain('/chrome');
+
+    await clearComposerInput(session);
+    await session.type('/browser disconnect');
+    await session.press('enter');
+    await session.waitForText('Browser bridge disconnected and disabled.', { timeout: 10_000 });
+
+    await waitForComposer(session);
+    await session.type('/chrome disconnect');
+    await session.press('enter');
+    await session.waitForText('Command /chrome is not supported.', { timeout: 10_000 });
+
+    await exitInteractive(session);
+  });
+
   it('runs the slash help command from the interactive TUI', async () => {
     const session = await launchInteractive();
 
