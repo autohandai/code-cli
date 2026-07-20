@@ -1569,12 +1569,12 @@ Contrôlez l'intégration de l'extension Autohand Chrome. Consultez le guide com
 
 ### Indicateurs CLI
 ```bash
-autohand --chrome          # Start with browser bridge enabled
-autohand --no-chrome       # Start with browser bridge disabled
+autohand --browser          # Start with browser bridge enabled
+autohand --no-browser       # Start with browser bridge disabled
 ```
 ### Commandes barre oblique
 ```
-/browser                   # Open Chrome integration panel
+/browser                   # Open browser integration panel
 /browser disconnect        # Close the browser bridge connection
 ```
 ---
@@ -1937,12 +1937,12 @@ Ces indicateurs remplacent les paramètres du fichier de configuration :
 | `--cc, --context-compact` | Activer le compactage du contexte (par défaut : activé) |
 | `--no-cc, --no-context-compact` | Désactiver le compactage du contexte |
 
-### Intégration de Chrome
+### Intégration du navigateur
 
 | Drapeau | Descriptif |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `--chrome` | Activer l'intégration du navigateur Chrome (identique à `/browser`) |
-| `--no-chrome` | Désactiver l'intégration du navigateur Chrome |
+| `--browser` | Activer l'intégration du navigateur (identique à `/browser`) |
+| `--no-browser` | Désactiver l'intégration du navigateur |
 
 ### Invite système
 
@@ -2089,11 +2089,11 @@ Autohand fournit un riche ensemble de commandes slash pour une utilisation inter
 | `/repeat` | Planifier des tâches récurrentes |
 | `/yolo` | Basculer le mode yolo (outils d'approbation automatique) |
 
-### Intégration de Chrome
+### Intégration du navigateur
 
 | Commande | Descriptif |
 | ------------- | ----------------------------------------------------- |
-| `/browser` | Activer l'intégration du navigateur Chrome |
+| `/browser` | Activer l'intégration du navigateur |
 
 ### Interface utilisateur et affichage
 

@@ -1331,6 +1331,8 @@ Flag-flag ini mengganti pengaturan file konfigurasi:
 | `--dry-run`                   | Pratinjau tanpa eksekusi                                                                                   |
 | `--unrestricted`              | Tanpa prompt persetujuan                                                                                   |
 | `--restricted`                | Tolak operasi berbahaya                                                                                    |
+| `--browser`                  | Aktifkan integrasi browser                                                                                 |
+| `--no-browser`               | Nonaktifkan integrasi browser                                                                              |
 | `--setup`                     | Jalankan wizard setup untuk mengkonfigurasi atau mengkonfigurasi ulang Autohand                            |
 | `--sys-prompt <nilai>`        | Ganti seluruh system prompt (string inline atau path file)                                                 |
 | `--append-sys-prompt <nilai>` | Tambahkan ke system prompt (string inline atau path file)                                                  |

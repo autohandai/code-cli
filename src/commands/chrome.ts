@@ -105,7 +105,7 @@ export async function chrome(ctx: ChromeCommandContext, args: string[] = []): Pr
       `Status: ${statusLabel}`,
       `Extension: ${extLabel}`,
       '',
-      `Usage: ${chalk.yellow('autohand --chrome')} or ${chalk.yellow('autohand --no-chrome')}`,
+      `Usage: ${chalk.yellow('autohand --browser')} or ${chalk.yellow('autohand --no-browser')}`,
       '',
       'Site-level permissions are inherited from the Chrome extension.',
       `Learn more: ${chalk.gray('https://autohand.ai/docs/chrome')}`,

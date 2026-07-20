@@ -249,7 +249,7 @@ describe('/browser toggle enabled by default', () => {
 
 // ─── SlashCommandHandler passes full context ────────────────────
 describe('SlashCommandHandler /browser context', () => {
-  it('dispatches /browser with its full context and rejects /chrome', async () => {
+  it('dispatches /browser and keeps /chrome as a hidden compatibility alias', async () => {
     const config: Record<string, unknown> = {
       chrome: { enabledByDefault: true },
     };
@@ -259,13 +259,22 @@ describe('SlashCommandHandler /browser context', () => {
     );
 
     expect(handler.isCommandSupported('/browser')).toBe(true);
-    expect(handler.isCommandSupported('/chrome')).toBe(false);
+    expect(handler.isCommandSupported('/chrome')).toBe(true);
 
-    const result = await handler.handle('/browser', ['disconnect']);
+    const canonicalResult = await handler.handle('/browser', ['disconnect']);
 
-    expect(result).toContain('disconnected');
+    expect(canonicalResult).toContain('disconnected');
+    expect(canonicalResult).not.toContain('/chrome');
     expect((config.chrome as Record<string, unknown>).enabledByDefault).toBe(false);
     expect(mockSaveConfig).toHaveBeenCalledOnce();
+
+    (config.chrome as Record<string, unknown>).enabledByDefault = true;
+    const legacyResult = await handler.handle('/chrome', ['disconnect']);
+
+    expect(legacyResult).toContain('The /chrome command is retained only for compatibility. Use /browser instead.');
+    expect(legacyResult).toContain('disconnected');
+    expect((config.chrome as Record<string, unknown>).enabledByDefault).toBe(false);
+    expect(mockSaveConfig).toHaveBeenCalledTimes(2);
   });
 });
 

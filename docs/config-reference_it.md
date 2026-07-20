@@ -1569,12 +1569,12 @@ Controlla l'integrazione dell'estensione Autohand Chrome. Consulta la guida comp
 
 ### Flag CLI
 ```bash
-autohand --chrome          # Start with browser bridge enabled
-autohand --no-chrome       # Start with browser bridge disabled
+autohand --browser          # Start with browser bridge enabled
+autohand --no-browser       # Start with browser bridge disabled
 ```
 ### Comandi barra
 ```
-/browser                   # Open Chrome integration panel
+/browser                   # Open browser integration panel
 /browser disconnect        # Close the browser bridge connection
 ```
 ---
@@ -1937,12 +1937,12 @@ Questi flag sovrascrivono le impostazioni del file di configurazione:
 | `--cc, --context-compact` | Abilita la compattazione del contesto (impostazione predefinita: attivata) |
 | `--no-cc, --no-context-compact` | Disabilita compattazione del contesto |
 
-### Integrazione con Chrome
+### Integrazione con il browser
 
 | Bandiera | Descrizione |
 | ----------------------- | ---------------------------------------------------------------------------------------- |
-| `--chrome` | Abilita l'integrazione del browser Chrome (come `/browser`) |
-| `--no-chrome` | Disattiva l'integrazione del browser Chrome |
+| `--browser` | Abilita l'integrazione del browser (come `/browser`) |
+| `--no-browser` | Disattiva l'integrazione del browser |
 
 ### Richiesta di sistema
 
@@ -2089,7 +2089,7 @@ Autohand fornisce un ricco set di comandi slash per l'uso interattivo. Digita `/
 | `/repeat` | Pianifica lavori ricorrenti |
 | `/yolo` | Attiva/disattiva la modalità yolo (strumenti di approvazione automatica) |
 
-### Integrazione con Chrome
+### Integrazione con il browser
 
 | Comando | Descrizione |
 | ------------- | ----------------------------------------------------- |

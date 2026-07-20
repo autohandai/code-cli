@@ -271,7 +271,7 @@ function formatTurnMemoryUpdate(saved: ExtractedMemory[]): string {
 
 export class AutohandAgent {
   private static readonly INTERACTIVE_SLASH_COMMANDS = new Set([
-    '/browser', '/hooks', '/feedback', '/permissions', '/login', '/logout',
+    '/browser', '/chrome', '/hooks', '/feedback', '/permissions', '/login', '/logout',
     '/agents-new', '/agents new', '/resume', '/theme', '/language',
     '/model', '/skills', '/skills install', '/skills-install',
     '/skills new', '/skills-new', '/mcp', '/mcp install', '/mcp-install',

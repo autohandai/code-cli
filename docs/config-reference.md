@@ -1722,14 +1722,14 @@ Control the Autohand Chrome extension integration. See the full guide at [Autoha
 ### CLI Flags
 
 ```bash
-autohand --chrome          # Start with browser bridge enabled
-autohand --no-chrome       # Start with browser bridge disabled
+autohand --browser          # Start with browser bridge enabled
+autohand --no-browser       # Start with browser bridge disabled
 ```
 
 ### Slash Commands
 
 ```
-/browser                   # Open Chrome integration panel
+/browser                   # Open browser integration panel
 /browser disconnect        # Close the browser bridge connection
 ```
 
@@ -2106,12 +2106,12 @@ To register the native stdio agent in Zed, JetBrains IDEs, JetBrains Air, or ano
 | `--cc, --context-compact`     | Enable context compaction (default: on)                                                        |
 | `--no-cc, --no-context-compact` | Disable context compaction                                                                    |
 
-### Chrome Integration
+### Browser Integration
 
 | Flag                          | Description                                                                                    |
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
-| `--chrome`                    | Enable Chrome browser integration (same as `/browser`)                                         |
-| `--no-chrome`                 | Disable Chrome browser integration                                                             |
+| `--browser`                   | Enable browser integration (same as `/browser`)                                                |
+| `--no-browser`                | Disable browser integration                                                                    |
 
 ### System Prompt
 
@@ -2260,11 +2260,11 @@ Autohand provides a rich set of slash commands for interactive use. Type `/` in 
 | `/repeat`     | Schedule recurring jobs                               |
 | `/yolo`       | Toggle yolo mode (auto-approve tools)                 |
 
-### Chrome Integration
+### Browser Integration
 
 | Command       | Description                                           |
 | ------------- | ----------------------------------------------------- |
-| `/browser`    | Enable Chrome browser integration                     |
+| `/browser`    | Enable browser integration                            |
 
 ### UI & Display
 

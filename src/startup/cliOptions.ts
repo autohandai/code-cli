@@ -5,6 +5,7 @@
  */
 import type { CLIOptions, SearchProvider } from '../types.js';
 import { isTmuxEnabled } from '../utils/tmux.js';
+import type { DeprecatedBrowserOption } from '../browser/compatibility.js';
 
 const SEARCH_PROVIDERS = [
   'browser-profile',
@@ -32,10 +33,25 @@ export interface RootCliOptions extends CLIOptions {
   offline?: boolean;
 }
 
+export interface InitialCliOptionsNormalization {
+  deprecatedBrowserOption?: DeprecatedBrowserOption;
+}
+
 export function normalizeInitialCliOptions(
   options: RootCliOptions,
   environment: NodeJS.ProcessEnv = process.env,
-): void {
+): InitialCliOptionsNormalization {
+  const result: InitialCliOptionsNormalization = {};
+  const legacyBrowserValue = options.chrome ?? (options.noChrome === true ? false : undefined);
+  if (legacyBrowserValue !== undefined) {
+    result.deprecatedBrowserOption = legacyBrowserValue ? '--chrome' : '--no-chrome';
+    if (options.browser === undefined) {
+      options.browser = legacyBrowserValue;
+    }
+  }
+  delete options.chrome;
+  delete options.noChrome;
+
   const prompt: unknown = options.prompt;
   if (prompt === true) {
     options.prompt = undefined;
@@ -67,8 +83,9 @@ export function normalizeInitialCliOptions(
     environment.AUTOHAND_CODE_SIMPLE = '1';
     options.syncSettings = false;
     options.contextCompact = false;
-    options.noChrome = true;
+    options.browser = false;
   }
+  return result;
 }
 
 export function normalizePromptAndProtocolOptions(

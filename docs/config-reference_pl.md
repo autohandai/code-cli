@@ -1569,12 +1569,12 @@ Kontroluj integrację rozszerzenia Autohand Chrome. Zobacz pełny przewodnik na 
 
 ### Flagi CLI
 ```bash
-autohand --chrome          # Start with browser bridge enabled
-autohand --no-chrome       # Start with browser bridge disabled
+autohand --browser          # Start with browser bridge enabled
+autohand --no-browser       # Start with browser bridge disabled
 ```
 ### Polecenia z ukośnikiem
 ```
-/browser                   # Open Chrome integration panel
+/browser                   # Open browser integration panel
 /browser disconnect        # Close the browser bridge connection
 ```
 ---
@@ -1937,12 +1937,12 @@ Te flagi zastępują ustawienia pliku konfiguracyjnego:
 | __AH_KOD_6__ | Włącz zagęszczanie kontekstu (domyślnie: włączone) |
 | __AH_KOD_7__ | Wyłącz zagęszczanie kontekstu |
 
-### Integracja z Chrome
+### Integracja z przeglądarką
 
 | Flaga | Opis |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| __AH_KOD_8__ | Włącz integrację z przeglądarką Chrome (tak samo jak `/browser`) |
-| __AH_KOD_10__ | Wyłącz integrację przeglądarki Chrome |
+| `--browser` | Włącz integrację z przeglądarką (tak samo jak `/browser`) |
+| `--no-browser` | Wyłącz integrację z przeglądarką |
 
 ### Monit systemowy
 
@@ -2089,11 +2089,11 @@ Autohand zapewnia bogaty zestaw poleceń ukośnikowych do użytku interaktywnego
 | __AH_KOD_23__ | Zaplanuj powtarzające się zadania |
 | __AH_KOD_24__ | Przełącz tryb yolo (narzędzia automatycznego zatwierdzania) |
 
-### Integracja z Chrome
+### Integracja z przeglądarką
 
 | Polecenie | Opis |
 | --------- | -------------------------------------- |
-| __AH_KOD_25__ | Włącz integrację przeglądarki Chrome |
+| `/browser` | Włącz integrację z przeglądarką |
 
 ### Interfejs użytkownika i wyświetlacz
 

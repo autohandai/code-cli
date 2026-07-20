@@ -41,7 +41,7 @@ describe('parseAgentSlashCommand', () => {
 });
 
 describe('runAgentSlashCommandWithInput', () => {
-  it('keeps the persistent composer paused for /browser', async () => {
+  it.each(['/browser', '/chrome'])('keeps the persistent composer paused for %s', async (command) => {
     const restoreStdoutTTY = overrideStreamTTY(process.stdout, true);
     const restoreStdinTTY = overrideStreamTTY(process.stdin, true);
     const start = vi.fn();
@@ -66,11 +66,11 @@ describe('runAgentSlashCommandWithInput', () => {
     };
 
     try {
-      await runAgentSlashCommandWithInput(host, '/browser', []);
+      await runAgentSlashCommandWithInput(host, command, []);
 
       expect(start).not.toHaveBeenCalled();
       expect(stop).not.toHaveBeenCalled();
-      expect(handleSlashCommand).toHaveBeenCalledWith('/browser', []);
+      expect(handleSlashCommand).toHaveBeenCalledWith(command, []);
     } finally {
       restoreStdoutTTY();
       restoreStdinTTY();

@@ -209,8 +209,8 @@ autohand -p "refactor database queries" --dry-run
 | `--timeout <seconds>`           |       | Timeout in seconds for auto-approve mode                                         |
 | `--settings`                    |       | Configure Autohand Code CLI settings (same as /settings in interactive mode)     |
 | `--feedback`                    |       | Submit feedback                                                                  |
-| `--chrome`                      |       | Enable Chrome browser integration (same as /browser)                             |
-| `--no-chrome`                   |       | Disable Chrome browser integration                                               |
+| `--browser`                     |       | Enable browser integration (same as /browser)                                    |
+| `--no-browser`                  |       | Disable browser integration                                                      |
 
 ## Agent Skills
 
@@ -397,7 +397,7 @@ Extensions execute no code during install or startup. They can contribute tools,
 ### Skills & Browser
 
 `use_skill`, `sleep` - Activate skills or pause execution.
-`screenshot`, `navigate`, `get_page_content`, `click`, `type_input`, `select_dropdown` - Chrome browser integration.
+`screenshot`, `navigate`, `get_page_content`, `click`, `type_input`, `select_dropdown` - Browser integration.
 
 ## Configuration
 

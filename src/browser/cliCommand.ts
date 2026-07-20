@@ -4,8 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
-import type { Command } from 'commander';
+import { Option, type Command } from 'commander';
 import { loadConfig, saveConfig } from '../config.js';
+import { LEGACY_BROWSER_CLI_COMMAND_WARNING } from './compatibility.js';
 import {
   applyChromeSettings,
   buildChromeOpenUrl,
@@ -15,33 +16,59 @@ import {
   normalizeBrowsers,
   openChromeContinuation,
   resolveCliLaunchSpec,
+  type BrowserPreference,
 } from './chrome.js';
 
-export function registerChromeCommand(program: Command): void {
+interface BrowserInstallOptions {
+  browser: string;
+  extensionId?: string;
+  installUrl?: string;
+  cliPath?: string;
+  open?: boolean;
+}
+
+export function registerBrowserOptions(program: Command): void {
   program
-    .command('chrome')
-    .description('install and configure the Autohand Chrome extension bridge')
+    .addOption(new Option('--browser', 'Enable browser integration (same as /browser)'))
+    .addOption(new Option('--no-browser', 'Disable browser integration'))
+    .addOption(new Option('--chrome', 'Deprecated alias for --browser').hideHelp())
+    .addOption(new Option('--no-chrome', 'Deprecated alias for --no-browser').hideHelp());
+}
+
+export function registerBrowserCommand(program: Command): void {
+  registerBrowserInstallCommand(
+    program
+      .command('browser')
+      .description('install and configure the Autohand browser extension bridge'),
+  );
+  registerBrowserInstallCommand(
+    program
+      .command('chrome', { hidden: true })
+      .description('deprecated compatibility alias for the browser command'),
+    true,
+  );
+}
+
+function registerBrowserInstallCommand(command: Command, legacy = false): void {
+  command
     .command('install')
-    .description('install the native messaging bridge for Chrome-compatible browsers')
+    .description('install the native messaging bridge for supported browsers')
     .option('--browser <browser>', 'target browser: chrome, chromium, brave, edge, or all', 'all')
-    .option('--extension-id <id>', 'installed Chrome extension id to use for direct handoff')
+    .option('--extension-id <id>', 'installed browser extension id to use for direct handoff')
     .option('--install-url <url>', 'fallback install/continue URL', DEFAULT_CHROME_INSTALL_URL)
     .option('--cli-path <path>', 'CLI binary path to register in the native host')
     .option('--open', 'open the install/continue page after installation', false)
-    .action(async (options: {
-      browser: string;
-      extensionId?: string;
-      installUrl?: string;
-      cliPath?: string;
-      open?: boolean;
-    }) => {
+    .action(async (options: BrowserInstallOptions) => {
+      if (legacy) {
+        console.warn(chalk.yellow(LEGACY_BROWSER_CLI_COMMAND_WARNING));
+      }
       const config = await loadConfig(undefined, process.cwd());
       const launchSpec = resolveCliLaunchSpec(options.cliPath);
       const browsers = normalizeBrowsers(options.browser);
       const extensionId = options.extensionId ?? config.chrome?.extensionId;
-      const preferredBrowser = options.browser === 'all'
+      const preferredBrowser: BrowserPreference = options.browser === 'all'
         ? (config.chrome?.browser ?? 'auto')
-        : options.browser as any;
+        : (browsers[0] ?? 'auto');
       const installUrl = options.installUrl ?? config.chrome?.installUrl ?? DEFAULT_CHROME_INSTALL_URL;
       const detectedProfile = extensionId ? await detectExtensionProfile(extensionId, browsers) : null;
 
@@ -61,7 +88,7 @@ export function registerChromeCommand(program: Command): void {
       });
       await saveConfig(config);
 
-      console.log(chalk.green('\nInstalled Autohand Chrome bridge.'));
+      console.log(chalk.green('\nInstalled Autohand browser bridge.'));
       for (const target of result.targets) {
         console.log(chalk.gray(`  ${target.browser}: ${target.manifestPath}`));
       }
@@ -85,3 +112,6 @@ export function registerChromeCommand(program: Command): void {
       console.log();
     });
 }
+
+/** @deprecated Register the browser command instead. */
+export const registerChromeCommand = registerBrowserCommand;
