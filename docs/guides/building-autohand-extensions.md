@@ -16,7 +16,7 @@ Start Autohand in the project you want to extend and mention the skill explicitl
 $extension-builder create a project extension that summarizes workspace status and recent commits, then add a skill that turns that evidence into a concise project brief
 ```
 
-An exact `$extension-builder` mention activates its instructions in that same turn. The skill will inspect repository guidance, write a failing test or validation fixture, select declarative or native implementation boundaries, build the package, and exercise the extension lifecycle.
+An exact `$extension-builder` mention activates its instructions in that same turn. The skill will inspect repository guidance, write a failing test or validation fixture, select declarative or trusted-runtime boundaries, build the package, and exercise the extension lifecycle.
 
 ## Install the community copy
 
@@ -89,7 +89,27 @@ For example:
 $extension-builder adapt ./pi-release-helper for Autohand. Preserve its release-range tool and portable Agent Skill, document unsupported Pi UI hooks, validate it, and install it for this project.
 ```
 
-Pi `SKILL.md` files are portable. Pi TypeScript is treated as untrusted source data and is never executed merely to discover registrations. Faithful bounded tools can become declarative extension tools; commands, events, custom UI, providers, persistence, or arbitrary runtime code require reviewed changes in the owning Autohand source layer.
+Pi `SKILL.md` files are portable. Pi TypeScript is treated as untrusted source data and is never executed merely to discover registrations. Faithful bounded tools can become declarative extension tools; commands, events, custom UI, providers, shortcuts, flags, and permission policy can be adapted to a reviewed, compiled runtime entrypoint.
+
+For example:
+
+```text
+$extension-builder create a trusted extension with a /deploy command, an Ink deployment menu, a ctrl+k shortcut, and a --deploy-environment flag
+```
+
+Runtime extensions must be reviewed and installed with `--trust`. Autohand does not transpile TypeScript or install their dependencies.
+
+## Try the runtime showcase
+
+[`examples/extensions/autohand.runtime-showcase`](../../examples/extensions/autohand.runtime-showcase) demonstrates every trusted v1 registration surface:
+
+```sh
+autohand extensions validate ./examples/extensions/autohand.runtime-showcase
+autohand extensions install ./examples/extensions/autohand.runtime-showcase --trust
+autohand --deploy-environment production
+```
+
+Inside Autohand, type `/deploy` or press `ctrl+k` with an empty composer. This is the daily-use surface; `$extension-builder` is only needed when creating or changing the package.
 
 ## Manage the result
 
@@ -100,7 +120,7 @@ autohand extensions enable autohand.workspace-brief
 autohand extensions remove autohand.workspace-brief --yes
 ```
 
-Use linked installation only during development. Before publication, verify a copied installation and start a fresh process to exercise every contributed tool, agent, and skill.
+Use linked installation only during development. Before publication, verify a copied installation and start a fresh process to exercise every contributed declarative and runtime surface.
 
 ## Re-record the terminal demo
 

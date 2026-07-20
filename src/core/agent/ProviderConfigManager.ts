@@ -42,6 +42,8 @@ import {
 } from "../../providers/modelCatalog.js";
 import type {
   AgentRuntime,
+  BuiltInProviderName,
+  ExtensionProviderId,
   ProviderName,
   AzureSettings,
   AzureAuthMethod,
@@ -370,7 +372,9 @@ export class ProviderConfigManager {
   }
 
   private getProviderDisplayName(provider: ProviderName): string {
-    return getCustomProviderConfig(this.runtime.config, provider)?.displayName ?? t(`providers.${provider}`);
+    return ProviderFactory.getRuntimeProviderDisplayName(provider)
+      ?? getCustomProviderConfig(this.runtime.config, provider)?.displayName
+      ?? t(`providers.${provider}`);
   }
 
   private buildConfiguredProviderActions(provider: ProviderName): ModalOption[] {
@@ -3356,6 +3360,19 @@ export class ProviderConfigManager {
    * Set provider and model in runtime config
    */
   private setProviderModel(provider: ProviderName, model: string, contextWindow: number): void {
+    if (provider.startsWith("extension:")) {
+      const extensionProvider = provider as ExtensionProviderId;
+      const current = this.runtime.config.extensionProviders?.[extensionProvider];
+      if (current) {
+        this.runtime.config.extensionProviders = {
+          ...this.runtime.config.extensionProviders,
+          [extensionProvider]: { ...current, model, contextWindow },
+        };
+      }
+      this.setActiveProvider(provider);
+      return;
+    }
+
     if (isCustomProviderName(provider)) {
       const customSettings = getCustomProviderConfig(this.runtime.config, provider);
       if (customSettings) {
@@ -3433,8 +3450,9 @@ export class ProviderConfigManager {
           region: process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || BEDROCK_DEFAULT_REGION,
         }),
     };
-    cfgMap[provider].model = model;
-    cfgMap[provider].contextWindow = contextWindow;
+    const builtInProvider = provider as BuiltInProviderName;
+    cfgMap[builtInProvider].model = model;
+    cfgMap[builtInProvider].contextWindow = contextWindow;
     this.setActiveProvider(provider);
   }
 

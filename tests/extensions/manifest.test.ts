@@ -127,6 +127,7 @@ describe('extension manifest', () => {
       tools: [path.join(realRoot, 'tools', 'find-todos.json')],
       agents: [path.join(realRoot, 'agents', 'code-health-reviewer.md')],
       skills: [path.join(realRoot, 'skills', 'code-health', 'SKILL.md')],
+      runtime: [],
     });
   });
 

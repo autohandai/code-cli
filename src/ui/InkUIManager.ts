@@ -11,6 +11,8 @@ import { BaseUIManager, type UIManager } from './UIManager.js';
 import { InkRenderer, type InkRendererOptions } from './ink/InkRenderer.js';
 import type { SlashCommand } from '../core/slashCommandTypes.js';
 import type { SkillMentionInfo } from './mentionFilter.js';
+import type { ExtensionKeybinding } from '../extensions/ExtensionRuntimeHost.js';
+import type { AgentUILineExtensions } from './ink/AgentUI.js';
 
 export interface InkUIManagerOptions {
   onInstruction: (text: string) => void;
@@ -24,6 +26,8 @@ export interface InkUIManagerOptions {
   workspaceRoot?: string;
   suggestionProvider?: () => string | undefined;
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
+  extensionKeybindings?: ExtensionKeybinding[];
+  runtimeLineExtensions?: AgentUILineExtensions;
   rendererFactory?: (options: InkRendererOptions) => InkRenderer;
 }
 

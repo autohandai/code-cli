@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/autohandai/code-extensions/main/schema/autohand.extension.schema.json",
+  "schemaVersion": 1,
+  "extensionApi": 1,
+  "id": "autohand.runtime-showcase",
+  "name": "Runtime Showcase",
+  "version": "1.0.0",
+  "description": "Demonstrate trusted slash commands, Ink UI, shortcuts, hooks, providers, CLI flags, and permission policies.",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/autohandai/code-cli",
+  "contributes": {
+    "runtime": [
+      "dist/extension.mjs"
+    ]
+  }
+}

@@ -241,4 +241,21 @@ describe('getProviderConfig', () => {
     const result = getProviderConfig(cfg);
     expect(result).toBeNull();
   });
+
+  it('returns runtime extension provider settings without discarding provider-owned fields', () => {
+    const cfg: AutohandConfig = {
+      provider: 'extension:company-release',
+      extensionProviders: {
+        'extension:company-release': {
+          model: 'release-model',
+          endpointId: 'release-cluster',
+        },
+      },
+    };
+
+    expect(getProviderConfig(cfg)).toEqual({
+      model: 'release-model',
+      endpointId: 'release-cluster',
+    });
+  });
 });

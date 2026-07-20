@@ -173,6 +173,7 @@ Active LLM provider to use.
 | `"sakana"`     | Sakana.AI Fugu API           |
 | `"bedrock"`    | AWS Bedrock                  |
 | `"custom:<id>"` | User-defined OpenAI-compatible provider from `customProviders` |
+| `"extension:<id>"` | Provider registered by a trusted runtime extension and configured in `extensionProviders` |
 
 ### Provider model catalog
 
@@ -309,6 +310,25 @@ For local OpenAI-compatible servers that do not require auth, set `apiKeyRequire
 | `contextWindow`   | number  | No       | Auto    | Exact context window for token budgeting, status, telemetry, and sync metadata. |
 | `reasoningEffort` | string  | No       | -       | Optional `none`, `low`, `medium`, `high`, or `xhigh`. Sent as `reasoning_effort` for custom OpenAI-compatible requests. |
 | `models`          | array   | No       | -       | Optional model picker entries with per-model context and reasoning metadata. |
+
+### `extensionProviders`
+
+Trusted runtime extensions can register providers in the `extension:` namespace. Install and review the owning extension with `--trust`, select its exact provider id, and place provider-owned configuration under the same key:
+
+```json
+{
+  "provider": "extension:company-release",
+  "extensionProviders": {
+    "extension:company-release": {
+      "model": "release-model",
+      "apiKey": "company-api-key",
+      "baseUrl": "https://models.example.com"
+    }
+  }
+}
+```
+
+`model` is required. Other fields are defined by the extension provider. Keep credentials in user config or environment variables rather than the extension package. Removing or disabling the extension makes its provider unavailable; it does not delete saved provider configuration.
 
 ### `ollama`
 

@@ -22,6 +22,7 @@ import type {
   ExtensionSnapshot,
   LoadedExtension,
 } from './types.js';
+import { extensionRuntimeHost } from './ExtensionRuntimeHost.js';
 
 export interface ExtensionServiceOptions {
   userRoot?: string;
@@ -33,6 +34,7 @@ export interface ExtensionInstallOptions {
   scope?: ExtensionScope;
   replace?: boolean;
   link?: boolean;
+  trust?: boolean;
 }
 
 export interface ExtensionMutationOptions {
@@ -184,6 +186,11 @@ export class ExtensionService {
   async install(sourcePath: string, options: ExtensionInstallOptions = {}): Promise<ExtensionInstallResult> {
     const scope = options.scope ?? 'user';
     const source = await this.validate(sourcePath, scope);
+    if (source.runtimes.length > 0 && options.trust !== true) {
+      throw new Error(
+        `Extension "${source.extension.manifest.id}" contains executable runtime code; reinstall with --trust after reviewing the package`,
+      );
+    }
     const root = pathForScope(this.roots, scope);
     const destination = path.join(root, source.extension.manifest.id);
     await fs.ensureDir(root);
@@ -199,6 +206,14 @@ export class ExtensionService {
             packageFingerprint(destination),
           ]);
           if (sourceHash === destinationHash) {
+            const existing = (await this.show(source.extension.manifest.id, { scope }))!;
+            if (source.runtimes.length > 0 && !existing.trusted) {
+              await writeJsonAtomic(statePath(root, source.extension.manifest.id), {
+                disabled: existing.disabled,
+                linked: existing.linked,
+                trusted: true,
+              });
+            }
             return {
               status: 'existing',
               extension: (await this.show(source.extension.manifest.id, { scope }))!,
@@ -241,8 +256,11 @@ export class ExtensionService {
           }
 
           await fs.remove(statePath(root, source.extension.manifest.id));
-          if (options.link) {
-            await writeJsonAtomic(statePath(root, source.extension.manifest.id), { linked: true });
+          if (options.link || source.runtimes.length > 0) {
+            await writeJsonAtomic(statePath(root, source.extension.manifest.id), {
+              linked: options.link === true,
+              trusted: source.runtimes.length > 0 && options.trust === true,
+            });
           }
 
           return {
@@ -274,8 +292,13 @@ export class ExtensionService {
     const release = await acquireExtensionLock(root, id);
     try {
       const packageRoot = await this.requireInstalledPackage(id, scope);
+      const current = await this.show(id, { scope });
       const linked = (await fs.lstat(packageRoot)).isSymbolicLink();
-      await writeJsonAtomic(statePath(root, id), { disabled: !enabled, linked });
+      await writeJsonAtomic(statePath(root, id), {
+        disabled: !enabled,
+        linked,
+        trusted: current?.trusted === true,
+      });
       return (await this.show(id, { scope }))!;
     } finally {
       await release();
@@ -305,10 +328,12 @@ export class ExtensionService {
 
   async doctor(): Promise<ExtensionDoctorReport> {
     const snapshot = await this.list();
+    const runtimeDiagnostics = await extensionRuntimeHost.sync(snapshot);
+    const diagnostics = [...snapshot.diagnostics, ...runtimeDiagnostics];
     return {
-      healthy: snapshot.diagnostics.length === 0,
+      healthy: diagnostics.length === 0,
       extensions: snapshot.extensions.length,
-      diagnostics: snapshot.diagnostics,
+      diagnostics,
     };
   }
 

@@ -34,7 +34,8 @@ export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
 export type BuiltInProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure' | 'zai' | 'sakana' | 'vertexai' | 'xai' | 'cerebras' | 'nvidia' | 'deepseek' | 'bedrock';
 export type CustomProviderId = `custom:${string}`;
-export type ProviderName = BuiltInProviderName | CustomProviderId;
+export type ExtensionProviderId = `extension:${string}`;
+export type ProviderName = BuiltInProviderName | CustomProviderId | ExtensionProviderId;
 
 export type AzureAuthMethod = 'api-key' | 'entra-id' | 'managed-identity';
 export type OpenAIAuthMode = 'api-key' | 'chatgpt';
@@ -52,6 +53,10 @@ export interface ProviderSettings {
   contextWindow?: number;
   /** Reasoning effort level for reasoning-capable models (e.g., OpenAI) */
   reasoningEffort?: ReasoningEffort;
+}
+
+export interface ExtensionProviderSettings extends ProviderSettings {
+  [key: string]: unknown;
 }
 
 export type CustomProviderApiFormat = 'openai-compatible';
@@ -766,6 +771,8 @@ export interface AutohandConfig {
   bedrock?: BedrockSettings;
   /** User-defined providers that can be selected with provider: "custom:<id>" */
   customProviders?: Record<string, CustomProviderSettings>;
+  /** Configuration owned by trusted runtime providers selected with provider: "extension:<id>" */
+  extensionProviders?: Partial<Record<ExtensionProviderId, ExtensionProviderSettings>>;
   workspace?: WorkspaceSettings;
   ui?: UISettings;
   agent?: AgentSettings;

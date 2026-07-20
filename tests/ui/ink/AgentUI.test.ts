@@ -18,6 +18,7 @@ import {
   getTextBufferCursorOffset,
   handleInkTextBufferInput,
   isBareComposerTrigger,
+  matchesExtensionKeybinding,
   resolveInkHiddenPastes,
   storeInkHiddenPaste,
 } from '../../../src/ui/ink/AgentUI.js';
@@ -78,6 +79,21 @@ afterEach(() => {
 });
 
 describe('AgentUI TextBuffer integration helpers', () => {
+  it('matches extension keybindings without claiming reserved composer controls', () => {
+    expect(matchesExtensionKeybinding('k', createInkKey({ ctrl: true }), {
+      key: 'ctrl+k',
+      command: '/runtime-dashboard',
+    })).toBe(true);
+    expect(matchesExtensionKeybinding('', createInkKey({ tab: true, shift: true }), {
+      key: 'shift+tab',
+      command: '/runtime-dashboard',
+    })).toBe(false);
+    expect(matchesExtensionKeybinding('c', createInkKey({ ctrl: true }), {
+      key: 'ctrl+c',
+      command: '/runtime-dashboard',
+    })).toBe(false);
+  });
+
   it('inserts text at the cursor after arrow navigation', () => {
     const buffer = new TextBuffer(20, 10, 'hello');
 

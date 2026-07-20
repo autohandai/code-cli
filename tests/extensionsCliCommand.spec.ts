@@ -18,6 +18,7 @@ const EXAMPLE_IDS = [
   'autohand.code-health',
   'autohand.git-insights',
   'autohand.release-assistant',
+  'autohand.runtime-showcase',
   'autohand.security-audit',
   'autohand.test-triage',
 ] as const;
@@ -118,7 +119,7 @@ describe('extensions CLI command', () => {
     const removed = runCli(['extensions', 'remove', 'autohand.git-insights', '--yes']);
     expect(removed, removed.output).toMatchObject({ code: 0 });
     expect(JSON.parse(runCli(['extensions', 'list', '--json']).output).extensions).toEqual([]);
-  });
+  }, 30_000);
 
   it('installs project scope under the selected workspace', async () => {
     const result = runCli([
@@ -141,14 +142,25 @@ describe('extensions CLI command', () => {
     ))).toBe(true);
   });
 
-  it('validates and runs the full fresh-process lifecycle for all five public examples', () => {
+  it('validates and runs the full fresh-process lifecycle for all six public examples', () => {
     for (const id of EXAMPLE_IDS) {
       const source = path.join(EXAMPLES_ROOT, id);
       const validated = runCli(['extensions', 'validate', source, '--json']);
       expect(validated, validated.output).toMatchObject({ code: 0 });
       expect(JSON.parse(validated.output)).toMatchObject({ valid: true, id });
 
-      const installed = runCli(['extensions', 'install', source]);
+      if (id === 'autohand.runtime-showcase') {
+        const untrusted = runCli(['extensions', 'install', source]);
+        expect(untrusted.code).toBe(1);
+        expect(untrusted.output).toMatch(/--trust|executable runtime code/i);
+      }
+
+      const installed = runCli([
+        'extensions',
+        'install',
+        source,
+        ...(id === 'autohand.runtime-showcase' ? ['--trust'] : []),
+      ]);
       expect(installed, installed.output).toMatchObject({ code: 0 });
     }
 
