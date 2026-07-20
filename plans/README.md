@@ -108,6 +108,24 @@ Portability and trust-boundary limits retained intentionally:
 - Atomic persistence treats dispatch of the final OS rename as the logical commit point; an already-dispatched rename cannot be cancelled, and stale tombstone cleanup remains best effort.
 - The Windows compiled-binary smoke is mandatory in CI; it was not executed locally on macOS.
 
+## Advisor branch integration closeout (2026-07-21)
+
+After rebasing `main` onto `origin/main` at `5e137d4`, the advisor series was reconciled by behavior instead of merging its stale branch tips. The upstream extension work already superseded the interrupted extension commits, while the six distinct Open Research fixes were replayed. The final audit then closed five integration gaps left by branch drift:
+
+- explicit user, session, project, and rule denials now remain terminal even after a cached approval or in unrestricted mode;
+- parallel delegation preserves validation failures unless at least one operational failure occurred;
+- `bun.lock` is tracked and enforced by the local-install regression suite;
+- all 17 localized config references document cloud-sync path and credential trust boundaries;
+- opt-in RPC diagnostics expose operational metadata only, including hostile error values and client-controlled JSON-RPC identifiers, without changing stdout framing.
+
+Final verification evidence for the integrated tree:
+
+- `CI=true bun run proof`: 472 test files passed, 2 skipped; 7,140 tests passed, 26 skipped; build passed; all 33 built-CLI Tuistory scenarios passed.
+- Focused remediation suites: 58 non-RPC regressions and 114 RPC tests passed.
+- `bun install --frozen-lockfile`: checked 486 installs across 591 packages with no changes.
+- `bun audit --json`: returned `{}`.
+- `bun run lint`, `bun run typecheck`, `bun run build`, `actionlint`, and `git diff --check`: passed.
+
 ## Findings deliberately not folded into these plans
 
 - Existing SDK/CLI drift for hook-management RPC methods, `autohand.saveSession`, `goal-written:completed`, thinking-level vocabulary, and API-key environment naming is recorded but is not caused by these P0/P1 changes. Do not opportunistically alter those contracts inside Plans 001-008.
