@@ -10,7 +10,6 @@ CLAUDE.md
 INSTALLATION.md
 RELEASE_SETUP.md
 dev-build.sh
-bun.lock
 .vitest/vitest/*
 .vitest/
 .vitest-tuistory/

@@ -59,6 +59,13 @@ describe('local install scripts', () => {
 });
 
 describe('dependency install guardrails', () => {
+  it('commits the Bun lockfile required by frozen installs', () => {
+    const gitignore = readFileSync('.gitignore', 'utf8');
+
+    expect(existsSync('bun.lock')).toBe(true);
+    expect(gitignore.split(/\r?\n/)).not.toContain('bun.lock');
+  });
+
   it('pins tuistory because its patch releases can introduce broken transitive ranges', () => {
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
       devDependencies?: Record<string, string>;
