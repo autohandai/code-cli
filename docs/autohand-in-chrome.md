@@ -47,15 +47,15 @@ Press **Cmd+E** (macOS) or **Ctrl+E** (Windows/Linux) to toggle the side panel. 
 ## CLI Flags
 
 ```bash
-autohand --chrome          # Start with browser bridge enabled
-autohand --no-chrome       # Start with browser bridge disabled
+autohand --browser          # Start with browser bridge enabled
+autohand --no-browser       # Start with browser bridge disabled
 ```
 
 ## Slash Commands
 
 | Command | Description |
 |---------|-------------|
-| `/browser` | Open the Chrome integration panel with connection status |
+| `/browser` | Open the browser integration panel with connection status |
 | `/browser disconnect` | Close the browser bridge and disable it |
 
 ## `/browser` Panel
@@ -225,7 +225,7 @@ Site-level permissions are inherited from the Chrome extension's host permission
 The native messaging host is not installed. Run `/browser` and select **Reconnect extension**, or:
 
 ```bash
-autohand --chrome
+autohand --browser
 ```
 
 ### "Disconnected" status

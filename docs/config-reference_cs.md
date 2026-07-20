@@ -1587,12 +1587,12 @@ Ovládejte integraci rozšíření Autohand pro Chrome. Úplného průvodce nale
 
 ### Příznaky CLI
 ```bash
-autohand --chrome          # Start with browser bridge enabled
-autohand --no-chrome       # Start with browser bridge disabled
+autohand --browser          # Start with browser bridge enabled
+autohand --no-browser       # Start with browser bridge disabled
 ```
 ### Příkazy lomítka
 ```
-/browser                   # Open Chrome integration panel
+/browser                   # Open browser integration panel
 /browser disconnect        # Close the browser bridge connection
 ```
 ---
@@ -1955,12 +1955,12 @@ Tyto příznaky přepisují nastavení konfiguračního souboru:
 | `--cc, --context-compact` | Povolit komprimaci kontextu (výchozí: zapnuto) |
 | `--no-cc, --no-context-compact` | Zakázat komprimaci kontextu |
 
-### Integrace Chrome
+### Integrace prohlížeče
 
 | Vlajka | Popis |
 | ------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `--chrome` | Povolit integraci prohlížeče Chrome (stejné jako `/browser`) |
-| `--no-chrome` | Zakázat integraci prohlížeče Chrome |
+| `--browser` | Povolit integraci prohlížeče (stejné jako `/browser`) |
+| `--no-browser` | Zakázat integraci prohlížeče |
 
 ### Systémová výzva
 
@@ -2107,7 +2107,7 @@ Autohand poskytuje bohatou sadu příkazů lomítka pro interaktivní použití.
 | `/repeat` | Naplánovat opakující se úlohy |
 | `/yolo` | Přepnout režim yolo (automatické schvalování nástrojů) |
 
-### Integrace Chrome
+### Integrace prohlížeče
 
 | Příkaz | Popis |
 | ------------- | ------------------------------------------------------ |

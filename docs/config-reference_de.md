@@ -1697,14 +1697,14 @@ Steuern Sie die Autohand Chrome-Erweiterungs-Integration. Siehe die vollständig
 ### CLI-Flags
 
 ```bash
-autohand --chrome          # Mit aktivierter Browser-Bridge starten
-autohand --no-chrome       # Mit deaktivierter Browser-Bridge starten
+autohand --browser          # Mit aktivierter Browser-Bridge starten
+autohand --no-browser       # Mit deaktivierter Browser-Bridge starten
 ```
 
 ### Slash-Befehle
 
 ```
-/browser                   # Chrome-Integrationspanel öffnen
+/browser                   # Browser-Integrationspanel öffnen
 /browser disconnect        # Browser-Bridge-Verbindung schließen
 ```
 
@@ -2079,12 +2079,12 @@ Diese Flags überschreiben Konfigurationsdatei-Einstellungen:
 | `--cc, --context-compact`     | Kontextkomprimierung aktivieren (Standard: an)                                                        |
 | `--no-cc, --no-context-compact` | Kontextkomprimierung deaktivieren                                                                    |
 
-### Chrome-Integration
+### Browser-Integration
 
 | Flag                          | Beschreibung                                                                                    |
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
-| `--chrome`                    | Chrome-Browser-Integration aktivieren (gleich wie `/browser`)                                         |
-| `--no-chrome`                 | Chrome-Browser-Integration deaktivieren                                                             |
+| `--browser`                   | Browser-Integration aktivieren (entspricht `/browser`)                                               |
+| `--no-browser`                | Browser-Integration deaktivieren                                                                     |
 
 ### System-Prompt
 
@@ -2231,7 +2231,7 @@ Autohand bietet eine umfangreiche Reihe von Slash-Befehlen für die interaktive 
 | `/repeat`     | Wiederkehrende Aufgaben planen                               |
 | `/yolo`       | YOLO-Modus umschalten (Tools automatisch genehmigen)                 |
 
-### Chrome-Integration
+### Browser-Integration
 
 | Befehl       | Beschreibung                                           |
 | ------------- | ----------------------------------------------------- |

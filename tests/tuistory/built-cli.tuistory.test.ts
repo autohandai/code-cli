@@ -246,6 +246,12 @@ describe('built CLI Tuistory smoke tests', () => {
     expect(output).toContain('Usage');
     expect(output).toContain('--prompt');
     expect(output).toContain('--mode');
+    expect(output).toContain('--browser');
+    expect(output).toContain('--no-browser');
+    expect(output).not.toContain('--chrome');
+    expect(output).not.toContain('--no-chrome');
+    expect(output).toMatch(/\bbrowser\b/u);
+    expect(output).not.toMatch(/^\s+chrome\s/mu);
     expect(output).toContain('--help');
     expect(output).toContain('--version');
 
@@ -884,7 +890,7 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
-  it('uses the brand-neutral browser command and rejects /chrome', async () => {
+  it('uses /browser and keeps /chrome as a hidden compatibility alias', async () => {
     const session = await launchInteractive();
 
     await waitForComposer(session);
@@ -899,6 +905,15 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(screen).not.toContain('/chrome');
 
     await clearComposerInput(session);
+    await session.type('/chr');
+    const hiddenAliasScreen = await session.text({
+      timeout: 10_000,
+      waitFor: (text) => composerLineIncludes(text, '/chr') && !text.includes('Tab to accept'),
+      trimEnd: true,
+    });
+    expect(hiddenAliasScreen).not.toContain('/chrome');
+
+    await clearComposerInput(session);
     await session.type('/browser disconnect');
     await session.press('enter');
     await session.waitForText('Browser bridge disconnected and disabled.', { timeout: 10_000 });
@@ -906,7 +921,8 @@ describe('interactive built CLI Tuistory tests', () => {
     await waitForComposer(session);
     await session.type('/chrome disconnect');
     await session.press('enter');
-    await session.waitForText('Command /chrome is not supported.', { timeout: 10_000 });
+    await session.waitForText('The /chrome command is retained only for compatibility. Use /browser instead.', { timeout: 10_000 });
+    await session.waitForText('Browser bridge disconnected and disabled.', { timeout: 10_000 });
 
     await exitInteractive(session);
   });

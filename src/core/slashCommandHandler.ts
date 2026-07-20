@@ -8,6 +8,11 @@ import terminalLink from 'terminal-link';
 import type { SlashCommand } from './slashCommands.js';
 
 import type { SlashCommandContext } from './slashCommandTypes.js';
+import {
+  BROWSER_SLASH_COMMAND,
+  LEGACY_BROWSER_SLASH_COMMAND,
+  LEGACY_BROWSER_SLASH_COMMAND_WARNING,
+} from '../browser/compatibility.js';
 
 export class SlashCommandHandler {
   private readonly commandMap = new Map<string, SlashCommand>();
@@ -20,10 +25,24 @@ export class SlashCommandHandler {
    * Check if a command is supported (exists in the command map)
    */
   isCommandSupported(command: string): boolean {
+    if (command === LEGACY_BROWSER_SLASH_COMMAND) {
+      return this.commandMap.has(BROWSER_SLASH_COMMAND);
+    }
     return this.commandMap.has(command);
   }
 
   async handle(command: string, args: string[] = []): Promise<string | null> {
+    if (command === LEGACY_BROWSER_SLASH_COMMAND) {
+      if (!this.commandMap.has(BROWSER_SLASH_COMMAND)) {
+        this.printUnsupported(command);
+        return null;
+      }
+      const result = await this.handle(BROWSER_SLASH_COMMAND, args);
+      return result
+        ? `${LEGACY_BROWSER_SLASH_COMMAND_WARNING}\n${result}`
+        : LEGACY_BROWSER_SLASH_COMMAND_WARNING;
+    }
+
     const meta = this.commandMap.get(command);
     if (!meta) {
       this.printUnsupported(command);

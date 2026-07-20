@@ -29,7 +29,8 @@ import { shouldUseInteractivePipeHandoff } from './modes/pipeRouting.js';
 import { PROJECT_DIR_NAME } from './constants.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessionWorktree.js';
 import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
-import { registerChromeCommand } from './browser/cliCommand.js';
+import { registerBrowserCommand, registerBrowserOptions } from './browser/cliCommand.js';
+import { formatDeprecatedBrowserOptionWarning } from './browser/compatibility.js';
 import {
   normalizeContextCompactOption,
   normalizeInitialCliOptions,
@@ -181,7 +182,8 @@ import { registerExtensionsCommand } from './extensions/cli.js';
 installProcessErrorHandlers();
 
 const program = new Command();
-registerChromeCommand(program);
+registerBrowserCommand(program);
+registerBrowserOptions(program);
 registerExtensionsCommand(program);
 
 program
@@ -251,8 +253,6 @@ program
   .option('--plugin-dir <path>', 'Explicit plugin/meta-tool directory')
   .option('--yolo [pattern]', 'Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)')
   .option('--timeout <seconds>', 'Timeout in seconds for auto-approve mode', parseInt)
-  .option('--chrome', 'Enable Chrome browser integration (same as /browser)')
-  .option('--no-chrome', 'Disable Chrome browser integration')
   .option('--fork <pathOrId>', 'Create and resume a new session branch from an existing session reference')
   .action(async (positionalPrompt: string | undefined, opts: RootCliOptions) => {
     // Clear screen immediately for Cursor-like behavior (before any output)
@@ -260,7 +260,10 @@ program
       process.stdout.write('\x1b[3J\x1b[2J\x1b[H');
     }
 
-    normalizeInitialCliOptions(opts);
+    const normalization = normalizeInitialCliOptions(opts);
+    if (normalization.deprecatedBrowserOption) {
+      console.warn(chalk.yellow(formatDeprecatedBrowserOptionWarning(normalization.deprecatedBrowserOption)));
+    }
 
     await refreshModelCatalogBeforeAgentStart(opts);
 
@@ -459,15 +462,15 @@ program
     }
 
 
-    // Handle --no-chrome flag (disable chrome bridge in config)
-    if (opts.noChrome) {
+    // Disable the browser bridge when --no-browser (or its compatibility alias) is used.
+    if (opts.browser === false) {
       const config = await loadConfig(opts.config, process.cwd());
       if (config.chrome) {
         config.chrome.enabledByDefault = false;
         await saveConfig(config);
-        console.log(chalk.green("\u2713 Chrome browser integration disabled."));
+        console.log(chalk.green("\u2713 Browser integration disabled."));
       }
-      // Continue to normal CLI flow --chrome is not set, so normal mode
+      // Continue to the normal CLI flow without opening a browser handoff.
     }
 
     // Map --search-engine flag to searchEngine option
@@ -1525,8 +1528,8 @@ async function runCLI(options: CLIOptions): Promise<void> {
       return;
     }
 
-    // Handle --chrome flag: trigger Chrome handoff before entering interactive mode
-    if (options.chrome) {
+    // Handle --browser: trigger a browser handoff before entering interactive mode.
+    if (options.browser === true) {
       // Ensure native host is installed and paired to the configured extension id.
       const { ensureNativeHostInstalled, createBrowserHandoff, buildChromeOpenUrl, openChromeContinuation } = await import('./browser/chrome.js');
       const extensionId = config.chrome?.extensionId;
@@ -1558,7 +1561,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
         { userDataDir: config.chrome?.userDataDir, profileDirectory: config.chrome?.profileDirectory },
       );
 
-      console.log(chalk.green('\n✓ Opened Chrome. Side panel (Cmd+E) to continue.'));
+      console.log(chalk.green('\n✓ Opened browser. Open the Autohand side panel (Cmd+E) to continue.'));
       console.log(chalk.gray(`  Session: ${sessionId}\n`));
     }
 

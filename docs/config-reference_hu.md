@@ -1569,12 +1569,12 @@ Irányítsd a Autohand Chrome-bővítmény integrációját. Tekintse meg a telj
 
 ### CLI zászlók
 ```bash
-autohand --chrome          # Start with browser bridge enabled
-autohand --no-chrome       # Start with browser bridge disabled
+autohand --browser          # Start with browser bridge enabled
+autohand --no-browser       # Start with browser bridge disabled
 ```
 ### Slash parancsok
 ```
-/browser                   # Open Chrome integration panel
+/browser                   # Open browser integration panel
 /browser disconnect        # Close the browser bridge connection
 ```
 ---
@@ -1937,12 +1937,12 @@ Ezek a jelzők felülírják a konfigurációs fájl beállításait:
 | `--cc, --context-compact` | Környezettömörítés engedélyezése (alapértelmezett: be) |
 | `--no-cc, --no-context-compact` | Kontextustömörítés letiltása |
 
-### Chrome integráció
+### Böngészőintegráció
 
 | zászló | Leírás |
 | ------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `--chrome` | A Chrome böngésző integrációjának engedélyezése (ugyanaz, mint `/browser`) |
-| `--no-chrome` | A Chrome böngésző integrációjának letiltása |
+| `--browser` | A böngészőintegráció engedélyezése (ugyanaz, mint `/browser`) |
+| `--no-browser` | A böngészőintegráció letiltása |
 
 ### Rendszerprompt
 
@@ -2089,7 +2089,7 @@ Az Autohand perjel parancsok gazdag készletét kínálja interaktív használat
 | `/repeat` | Ismétlődő munkák ütemezése |
 | `/yolo` | Yolo mód váltása (automatikus jóváhagyási eszközök) |
 
-### Chrome integráció
+### Böngészőintegráció
 
 | Parancs | Leírás |
 | ------------- | ------------------------------------------------------ |

@@ -1120,7 +1120,9 @@ describe('agent startup and active input UI', () => {
     expect(interactiveCommands.has('/permissions')).toBe(true);
     expect(interactiveCommands.has('/hooks')).toBe(true);
     expect(interactiveCommands.has('/browser')).toBe(true);
-    expect(interactiveCommands.has('/chrome')).toBe(false);
+    // The deprecated alias remains classified as interactive even though it is
+    // intentionally absent from command discovery and help.
+    expect(interactiveCommands.has('/chrome')).toBe(true);
     expect(interactiveCommands.has('/theme')).toBe(true);
     expect(interactiveCommands.has('/model')).toBe(true);
     expect(interactiveCommands.has('/resume')).toBe(true);

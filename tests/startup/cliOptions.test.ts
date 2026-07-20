@@ -70,8 +70,43 @@ describe('CLI option normalization', () => {
     expect(options).toMatchObject({
       syncSettings: false,
       contextCompact: false,
-      noChrome: true,
+      browser: false,
     });
+  });
+
+  it('normalizes hidden Chrome compatibility options to the canonical browser option', () => {
+    const canonical = {} as RootCliOptions;
+    const legacyEnabled = {} as RootCliOptions;
+    const legacyDisabled = {} as RootCliOptions;
+    Reflect.set(canonical, 'browser', true);
+    Reflect.set(legacyEnabled, 'chrome', true);
+    Reflect.set(legacyDisabled, 'chrome', false);
+
+    expect(normalizeInitialCliOptions(canonical, {})).toEqual({});
+    expect(normalizeInitialCliOptions(legacyEnabled, {})).toEqual({
+      deprecatedBrowserOption: '--chrome',
+    });
+    expect(normalizeInitialCliOptions(legacyDisabled, {})).toEqual({
+      deprecatedBrowserOption: '--no-chrome',
+    });
+
+    expect(Reflect.get(canonical, 'browser')).toBe(true);
+    expect(Reflect.get(legacyEnabled, 'browser')).toBe(true);
+    expect(Reflect.get(legacyDisabled, 'browser')).toBe(false);
+    expect(Reflect.has(legacyEnabled, 'chrome')).toBe(false);
+    expect(Reflect.has(legacyDisabled, 'chrome')).toBe(false);
+  });
+
+  it('gives an explicit canonical browser option precedence over a legacy alias', () => {
+    const options = {} as RootCliOptions;
+    Reflect.set(options, 'browser', false);
+    Reflect.set(options, 'chrome', true);
+
+    expect(normalizeInitialCliOptions(options, {})).toEqual({
+      deprecatedBrowserOption: '--chrome',
+    });
+    expect(Reflect.get(options, 'browser')).toBe(false);
+    expect(Reflect.has(options, 'chrome')).toBe(false);
   });
 
   it('defaults tmux sessions to worktree isolation and rejects an explicit opt-out', () => {

@@ -945,9 +945,11 @@ export interface CLIOptions {
   yolo?: string;
   /** Timeout in seconds for auto-approve mode */
   timeout?: number;
-  /** Enable Chrome browser integration (same as /browser) */
+  /** Enable browser integration. False when --no-browser is used. */
+  browser?: boolean;
+  /** @deprecated Compatibility input for --chrome and --no-chrome. */
   chrome?: boolean;
-  /** Disable Chrome browser integration */
+  /** @deprecated Compatibility input for older programmatic callers. */
   noChrome?: boolean;
 }
 

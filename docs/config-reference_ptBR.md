@@ -1375,6 +1375,8 @@ Estas flags sobrescrevem as configurações do arquivo:
 | `--dry-run`                   | Visualizar sem executar                                                                                      |
 | `--unrestricted`              | Sem prompts de aprovação                                                                                     |
 | `--restricted`                | Negar operações perigosas                                                                                    |
+| `--browser`                  | Habilitar integração com o navegador                                                                         |
+| `--no-browser`               | Desabilitar integração com o navegador                                                                       |
 | `--auto-skill`                | Gerar skills automaticamente com base na análise do projeto (veja também `/learn` para consultor interativo) |
 | `--setup`                     | Executar o assistente de configuração para configurar ou reconfigurar o Autohand                             |
 | `--about`                     | Mostrar informações sobre o Autohand (versão, links, informações de contribuição)                            |
