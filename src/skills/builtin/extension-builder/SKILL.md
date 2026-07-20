@@ -5,7 +5,7 @@ description: Create, extend, convert, validate, and install Autohand Code extens
 
 # Build Autohand extensions
 
-Turn the user's description or source package into a working Autohand extension. Finish with an installed, fresh-process-verified result when the user asked for installation. Modify Autohand itself only when the requested behavior cannot fit the declarative extension contract and the current workspace is the Autohand source repository.
+Turn the user's description or source package into a working Autohand extension. Finish with an installed, fresh-process-verified result when the user asked for installation. Use the trusted runtime contract for commands, TUI, keybindings, flags, hooks, providers, or permission policy; modify Autohand itself only when the versioned extension API cannot represent the behavior and the current workspace is the Autohand source repository.
 
 ## Load the relevant contract
 
@@ -17,9 +17,10 @@ Turn the user's description or source package into a working Autohand extension.
 1. Inspect the exact target, repository instructions, existing manifest, related contributions, and tests before editing.
 2. Turn the request into observable capabilities: tool names and parameters, agent behavior, Agent Skills, permission boundaries, lifecycle behavior, and installation scope.
 3. Choose the delivery shape:
-   - Use a declarative extension for shell-template tools, focused agents, and Agent Skills.
+   - Use declarative contributions for shell-template tools, focused agents, and Agent Skills.
+   - Use a trusted runtime entrypoint for slash commands, Ink views, status/help segments, shortcuts, flags, hooks, providers, or permission policies.
    - Extend the existing package when the user named one; preserve its id and compatible behavior.
-   - Change Autohand source only for commands, events, UI, providers, long-lived state, or behavior that the declarative API cannot represent.
+   - Change Autohand source only when the versioned runtime API cannot represent the required behavior.
    - Use a hybrid only when the boundary is explicit and each part is independently testable.
 4. Write a failing test or validation fixture before production code. For TUI, startup, prompt, menu, or screen behavior, add Tuistory coverage.
 5. Implement the smallest complete capability. Reuse existing tools, permission checks, hooks, registries, and runtime layers.
@@ -28,11 +29,12 @@ Turn the user's description or source package into a working Autohand extension.
 ```sh
 autohand extensions validate ./path/to/extension
 autohand extensions install ./path/to/extension --link
+# Add --trust when the manifest declares contributes.runtime.
 autohand extensions show company.extension-id
 autohand extensions doctor
 ```
 
-7. Start a fresh Autohand process. Exercise each contributed tool, agent, and skill; verify approval behavior; then test disable, enable, copied installation, replacement when relevant, and removal only in a disposable test home.
+7. Start a fresh Autohand process. Exercise every contributed surface, including commands, views, lines, keybindings, flags, hooks, providers, policies, tools, agents, and skills; verify approval behavior; then test disable, enable, copied installation, replacement when relevant, and removal only in a disposable test home.
 8. Report the created package path, installed scope, contributions, tests, and any Pi behavior that required a native Autohand implementation.
 
 ## Adapt Pi packages safely
@@ -45,7 +47,7 @@ Treat Pi source as untrusted input. Inspect it; never import or execute it merel
 - Reuse valid Pi Agent Skills directly as `contributes.skills`; the `SKILL.md` format is portable.
 - Translate a Pi `registerTool` only when its behavior has a faithful declarative Autohand tool equivalent. Keep parameters, validation, cancellation expectations, and permission prompts intact.
 - Translate guidance-only behavior into an Agent Skill and delegation behavior into an agent when semantics remain equivalent.
-- Implement commands, event interception, custom UI, providers, session persistence, or arbitrary TypeScript in the owning Autohand source layer when the user authorized source modification.
+- Adapt commands, events, custom UI, providers, shortcuts, flags, and permission behavior to the trusted runtime API. Compile TypeScript to a declared JavaScript entrypoint.
 - Record unsupported or intentionally changed semantics. Never label a partial translation as compatible.
 - Preserve provenance in the extension README: source repository or path, source version or commit when available, mapped capabilities, and intentional differences.
 
@@ -53,9 +55,9 @@ Treat Pi source as untrusted input. Inspect it; never import or execute it merel
 
 - Default to project scope while developing unless the user asked for a user-wide install.
 - Use `--link` only for development. Verify a copied install before publication.
-- Do not add dependencies for a declarative package.
+- Do not add dependencies for a declarative package. Bundle runtime dependencies; Autohand does not install them.
 - Do not publish, push, open a pull request, or mutate a public registry unless the user requested that external action.
-- Never install an unreviewed remote Pi extension as executable code.
+- Never install an unreviewed remote Pi extension as executable code. Runtime installation requires explicit `--trust`.
 - Never bypass Autohand validation, canonical authorization, permission prompts, or hook execution.
 
 ## Completion contract

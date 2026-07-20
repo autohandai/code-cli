@@ -380,7 +380,7 @@ autohand extensions install ./examples/extensions/autohand.code-health
 autohand extensions list
 ```
 
-Extensions execute no code during install or startup. They can contribute tools, focused agents, and portable Agent Skills; contributed tools use the existing permission and hook pipeline when invoked. Mention `$extension-builder` to create, extend, or adapt an extension from a description or Pi package. See the [extension-builder guide and terminal demo](docs/guides/building-autohand-extensions.md), [Using extensions](docs/extensions.md), [Extension authoring](docs/extension-authoring.md), and the [six working examples](examples/extensions).
+Declarative extensions contribute tools, focused agents, and portable Agent Skills without package-code execution. Reviewed runtime extensions installed with `--trust` can also register slash commands, Ink UI, status/help segments, keybindings, CLI flags, hooks, providers, and permission policy. Mention `$extension-builder` to create, extend, or adapt an extension from a description or Pi package. See the [extension-builder guide and terminal demo](docs/guides/building-autohand-extensions.md), [Using extensions](docs/extensions.md), [Extension authoring](docs/extension-authoring.md), and the [seven working examples](examples/extensions).
 
 ### Notebooks
 

@@ -5,6 +5,7 @@
 import { spawn } from 'node:child_process';
 import { minimatch } from 'minimatch';
 import type { HooksSettings, HookDefinition, HookEvent, HookFilter, HookResponse } from '../types.js';
+import type { ExtensionRuntimeHook } from '../extensions/ExtensionRuntimeHost.js';
 
 /** Context passed to hooks via environment variables and JSON stdin */
 export interface HookContext {
@@ -209,6 +210,7 @@ export class HookManager {
   private onPersist?: () => Promise<void>;
   private onHookOutput?: (result: HookExecutionResult) => void;
   private initialized = false;
+  private extensionHooks: ExtensionRuntimeHook[] = [];
 
   constructor(options: HookManagerOptions) {
     this.settings = options.settings ?? { enabled: true, hooks: [] };
@@ -360,6 +362,10 @@ export class HookManager {
    */
   getHooks(): HookDefinition[] {
     return this.settings.hooks ?? [];
+  }
+
+  setExtensionHooks(hooks: ExtensionRuntimeHook[]): void {
+    this.extensionHooks = [...hooks];
   }
 
   /**
@@ -962,18 +968,23 @@ export class HookManager {
       workspace: this.workspaceRoot,
     };
 
+    const runtimeResults = await this.executeExtensionHooks(event, fullContext, options);
+    if (runtimeResults.some((result) => result.response?.continue === false)) {
+      return runtimeResults;
+    }
+
     // Get hooks for event, then filter by both filter and matcher
     const hooks = this.getHooksForEvent(event).filter(h =>
       this.matchesFilter(h.filter, fullContext) && this.matchesMatcher(h, fullContext)
     );
 
     if (hooks.length === 0) {
-      return [];
+      return runtimeResults;
     }
 
     const syncHooks = hooks.filter(h => !h.async);
     const asyncHooks = hooks.filter(h => h.async);
-    const results: HookExecutionResult[] = [];
+    const results: HookExecutionResult[] = [...runtimeResults];
 
     // Execute sync hooks sequentially
     for (const hook of syncHooks) {
@@ -994,6 +1005,55 @@ export class HookManager {
         asyncHooks.map(hook => this.executeHook(hook, fullContext, options))
       );
       results.push(...asyncResults);
+    }
+
+    return results;
+  }
+
+  private async executeExtensionHooks(
+    event: HookEvent,
+    context: HookContext,
+    options: HookExecutionOptions,
+  ): Promise<HookExecutionResult[]> {
+    const matchesEvent = (hookEvent: HookEvent): boolean =>
+      hookEvent === event
+      || (event === 'stop' && hookEvent === 'post-response')
+      || (event === 'post-response' && hookEvent === 'stop');
+    const hooks = this.extensionHooks.filter((hook) => matchesEvent(hook.event));
+    const results: HookExecutionResult[] = [];
+
+    for (const hook of hooks) {
+      if (options.signal?.aborted) {
+        break;
+      }
+      const startedAt = Date.now();
+      const definition: HookDefinition = {
+        event: hook.event,
+        command: `[extension:${hook.extensionId}]`,
+        description: `Runtime hook from ${hook.extensionId}`,
+      };
+      let result: HookExecutionResult;
+      try {
+        const response = await hook.handler(context);
+        result = {
+          hook: definition,
+          success: true,
+          duration: Date.now() - startedAt,
+          response: response ?? undefined,
+        };
+      } catch (error) {
+        result = {
+          hook: definition,
+          success: false,
+          duration: Date.now() - startedAt,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+      results.push(result);
+      this.onHookOutput?.(result);
+      if (result.response?.continue === false) {
+        break;
+      }
     }
 
     return results;
