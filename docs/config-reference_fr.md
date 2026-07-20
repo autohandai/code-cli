@@ -1367,6 +1367,10 @@ Lorsque des conflits surviennent (même fichier modifié sur plusieurs appareils
 
 Les clés API et autres données sensibles dans `config.json` sont chiffrées à l'aide de votre jeton d'authentification avant le téléchargement. Ils ne peuvent être déchiffrés qu’avec vos informations d’identification.
 
+Les noms de fichiers distants ne sont acceptés que comme chemins POSIX relatifs dans les catégories de synchronisation activées. La synchronisation refuse la traversée de répertoires, les chemins absolus ou de style Windows, les segments dupliqués ou vides et les destinations redirigées hors d’une racine activée par des liens symboliques.
+
+Le jeton de connexion de l’application n’est envoyé dans l’en-tête `Authorization` qu’aux URL de transfert dont l’origine correspond à celle de l’API de synchronisation configurée. Les URL HTTPS présignées d’une autre origine ne reçoivent jamais ce jeton ; les URL inter-origines non sécurisées ou mal formées sont refusées.
+
 **Ce qui est crypté :**
 
 - Champs nommés `apiKey`

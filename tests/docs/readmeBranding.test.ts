@@ -22,6 +22,9 @@ describe('README branding', () => {
     '[हिन्दी](docs/config-reference_hi.md)',
     '[Bahasa Indonesia](docs/config-reference_id.md)',
   ];
+  const supportedConfigReferencePaths = supportedDocsLinks.map((link) => (
+    link.slice(link.lastIndexOf('(') + 1, -1)
+  ));
 
   it('uses Autohand Code CLI in public-facing README and package description copy', async () => {
     const root = process.cwd();
@@ -72,6 +75,28 @@ describe('README branding', () => {
 
     for (const docsLink of supportedDocsLinks) {
       expect(readme).toContain(docsLink);
+    }
+  });
+
+  it('documents cloud-sync trust boundaries in every supported config reference', async () => {
+    const root = process.cwd();
+
+    for (const docsPath of supportedConfigReferencePaths) {
+      const configReference = await readFile(join(root, docsPath), 'utf8');
+      const paragraphs = configReference.split(/\r?\n\s*\r?\n/);
+      const pathPolicy = paragraphs.find((paragraph) => paragraph.includes('POSIX'));
+      const credentialPolicy = paragraphs.find((paragraph) => paragraph.includes('`Authorization`'));
+
+      expect(configReference, `${docsPath} must document relative POSIX path containment`)
+        .toContain('POSIX');
+      expect(pathPolicy, `${docsPath} must document Windows-style path rejection`)
+        .toContain('Windows');
+      expect(credentialPolicy, `${docsPath} must document credential header containment`)
+        .toContain('`Authorization`');
+      expect(credentialPolicy, `${docsPath} must document cross-origin HTTPS transfers`)
+        .toContain('HTTPS');
+      expect(configReference.indexOf(credentialPolicy ?? ''))
+        .toBeGreaterThan(configReference.indexOf(pathPolicy ?? ''));
     }
   });
 

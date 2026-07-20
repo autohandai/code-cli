@@ -1367,6 +1367,10 @@ Bu öğeler, yapılandırmanızda açıkça katılım gerektirir:
 
 `config.json` içindeki API anahtarları ve diğer hassas veriler, yüklemeden önce kimlik doğrulama jetonunuz kullanılarak şifrelenir. Yalnızca kimlik bilgilerinizle şifreleri çözülebilir.
 
+Uzak dosya adları yalnızca etkinleştirilmiş eşitleme kategorileri içindeki göreli POSIX yolları olarak kabul edilir. Eşitleme; dizin geçişini, mutlak veya Windows tarzı yolları, yinelenen ya da boş bölümleri ve sembolik bağlantılarla etkin bir kökün dışına yönlendirilen hedefleri reddeder.
+
+Uygulama oturum açma belirteci, `Authorization` üstbilgisinde yalnızca yapılandırılmış eşitleme API'siyle aynı kökene sahip aktarım URL'lerine gönderilir. Farklı kökene ait önceden imzalanmış HTTPS URL'leri bu belirteci hiçbir zaman almaz; güvenli olmayan veya hatalı farklı köken URL'leri reddedilir.
+
 **Şifrelenenler:**
 
 - `apiKey` adlı alanlar
