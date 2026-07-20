@@ -122,6 +122,50 @@ describe('PermissionManager', () => {
       expect(result.reason).toBe('mode_unrestricted');
     });
 
+    it('keeps an explicit user denyList terminal in unrestricted mode and ahead of cached approval', async () => {
+      const context = {
+        tool: 'run_command',
+        command: 'npm',
+        args: ['publish'],
+      };
+      const manager = new PermissionManager({
+        settings: {
+          mode: 'unrestricted',
+          denyList: ['run_command:npm publish'],
+          rememberSession: true,
+        },
+      });
+
+      await manager.recordDecision(context, true);
+
+      expect(manager.checkPermission(context)).toEqual({
+        allowed: false,
+        reason: 'deny_list',
+      });
+    });
+
+    it('keeps an explicit deny rule terminal in unrestricted mode and ahead of cached approval', async () => {
+      const context = {
+        tool: 'run_command',
+        command: 'npm',
+        args: ['publish'],
+      };
+      const manager = new PermissionManager({
+        settings: {
+          mode: 'unrestricted',
+          rules: [{ tool: 'run_command', pattern: 'npm publish', action: 'deny' }],
+          rememberSession: true,
+        },
+      });
+
+      await manager.recordDecision(context, true);
+
+      expect(manager.checkPermission(context)).toEqual({
+        allowed: false,
+        reason: 'rule_match',
+      });
+    });
+
     it('denies everything in restricted mode', () => {
       const manager = new PermissionManager({
         settings: { mode: 'restricted' }
@@ -519,6 +563,40 @@ describe('PermissionManager', () => {
   });
 
   describe('structured prompt decisions', () => {
+    it('keeps a session denial terminal in unrestricted mode and ahead of cached approval', async () => {
+      const context = { tool: 'run_command', command: 'npm publish' };
+      const manager = new PermissionManager({
+        settings: { mode: 'unrestricted', rememberSession: true },
+        workspaceRoot: tempWorkspaceRoot,
+      });
+
+      await manager.initLocalSettings();
+      await manager.applyPromptDecision(context, { decision: 'deny_session' });
+      await manager.recordDecision(context, true);
+
+      expect(manager.checkPermission(context)).toEqual({
+        allowed: false,
+        reason: 'session_deny_list',
+      });
+    });
+
+    it('keeps a project denial terminal in unrestricted mode and ahead of cached approval', async () => {
+      const context = { tool: 'run_command', command: 'npm publish' };
+      const manager = new PermissionManager({
+        settings: { mode: 'unrestricted', rememberSession: true },
+        workspaceRoot: tempWorkspaceRoot,
+      });
+
+      await manager.initLocalSettings();
+      await manager.applyPromptDecision(context, { decision: 'deny_always_project' });
+      await manager.recordDecision(context, true);
+
+      expect(manager.checkPermission(context)).toEqual({
+        allowed: false,
+        reason: 'project_deny_list',
+      });
+    });
+
     it('stores allow-once decisions in the project session permission file', async () => {
       const manager = new PermissionManager({
         settings: {},
