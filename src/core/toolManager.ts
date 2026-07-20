@@ -1562,6 +1562,17 @@ Actions:
     },
   },
   {
+    name: 'browser_take_full_page_screenshot',
+    description: 'Capture the entire page in the current Chrome tab in one screenshot, including content outside the visible viewport. Use this instead of scrolling and stitching screenshots. Only available when the Chrome extension is connected.',
+    parameters: {
+      type: 'object',
+      properties: {
+        format: { type: 'string', description: 'Image format', enum: ['png', 'jpeg'] },
+        quality: { type: 'number', description: 'JPEG quality 0-100 (default: 80)' },
+      },
+    },
+  },
+  {
     name: 'browser_click',
     description: 'Click an element on the current browser page by CSS selector. Scrolls the element into view first. Only available when the Chrome extension is connected.',
     parameters: {

@@ -17,11 +17,14 @@ import {
   createBrowserHandoff,
   attachBrowserHandoff,
   detectExtensionProfile,
+  ensureNativeHostInstalled,
   getManifestTarget,
+  getManifestTargets,
   resolveBrowserCommand,
   resolveBrowserLaunchTarget,
   installNativeHost,
   normalizeBrowsers,
+  resolveCliLaunchSpec,
 } from '../../src/browser/chrome.js';
 
 const tempRoots: string[] = [];
@@ -153,6 +156,7 @@ describe('browser/chrome', () => {
     expect(script).toContain('child.stdin.write(JSON.stringify(message.payload) + "\\n");');
     expect(script).toContain('let stdinBuffer = Buffer.alloc(0);');
     expect(script).toContain('process.stdin.on("data", handleNativeData);');
+    expect(script).toContain('process.stdin.on("end", shutdown);');
   });
 
   it('parses chunked native messaging input without dropping the frame header', async () => {
@@ -349,6 +353,31 @@ describe('browser/chrome', () => {
     );
   });
 
+  it('includes the Chrome for Testing native host directory on macOS', () => {
+    const homeDir = path.join(os.tmpdir(), 'autohand-browser-manifest-home');
+
+    expect(getManifestTargets('chrome', 'darwin', homeDir).map((target) => target.manifestPath)).toEqual([
+      path.join(
+        homeDir,
+        'Library',
+        'Application Support',
+        'Google',
+        'Chrome',
+        'NativeMessagingHosts',
+        'ai.autohand.rpc.json',
+      ),
+      path.join(
+        homeDir,
+        'Library',
+        'Application Support',
+        'Google',
+        'ChromeForTesting',
+        'NativeMessagingHosts',
+        'ai.autohand.rpc.json',
+      ),
+    ]);
+  });
+
   it('resolves a detected browser launch target for a specific browser', async () => {
     const app = await resolveBrowserLaunchTarget('chrome', 'darwin', async (probe) => probe.includes('Google Chrome.app'));
     expect(app).toBe('Google Chrome');
@@ -382,15 +411,122 @@ describe('browser/chrome', () => {
       browsers: ['chrome'],
     });
 
-    expect(result.targets).toHaveLength(1);
-    expect(result.targets[0].manifestPath).toBe(
-      getManifestTarget('chrome', process.platform, tempRoot).manifestPath,
+    const expectedTargets = getManifestTargets('chrome', process.platform, tempRoot);
+    expect(result.targets).toHaveLength(expectedTargets.length);
+    expect(result.targets.map((target) => target.manifestPath)).toEqual(
+      expectedTargets.map((target) => target.manifestPath),
     );
     expect(await pathExists(result.hostScriptPath)).toBe(true);
-    expect(await pathExists(result.targets[0].manifestPath)).toBe(true);
+    for (const target of result.targets) {
+      expect(await pathExists(target.manifestPath)).toBe(true);
+      const manifest = await readJson(target.manifestPath);
+      expect(manifest.allowed_origins).toEqual(['chrome-extension://ext123/']);
+    }
+  });
 
-    const manifest = await readJson(result.targets[0].manifestPath);
-    expect(manifest.allowed_origins).toEqual(['chrome-extension://ext123/']);
+  it.runIf(process.platform === 'darwin')('repairs a missing Chrome for Testing manifest', async () => {
+    const tempRoot = path.join(os.tmpdir(), `autohand-cft-manifest-${Date.now()}`);
+    tempRoots.push(tempRoot);
+    const [chromeTarget, chromeForTestingTarget] = getManifestTargets('chrome', 'darwin', tempRoot);
+    const hostPath = path.join(tempRoot, 'chrome', 'native-host', 'host.js');
+
+    await fs.ensureDir(path.dirname(chromeTarget.manifestPath));
+    await fs.ensureDir(path.dirname(hostPath));
+    await writeFile(hostPath, '#!/usr/bin/env node\n', 'utf8');
+    await fs.writeJson(chromeTarget.manifestPath, {
+      name: 'ai.autohand.rpc',
+      description: 'test',
+      path: hostPath,
+      type: 'stdio',
+      allowed_origins: ['chrome-extension://ext123/'],
+    });
+
+    expect(await pathExists(chromeForTestingTarget.manifestPath)).toBe(false);
+
+    await ensureNativeHostInstalled({
+      extensionId: 'ext123',
+      homeDir: tempRoot,
+      browserHomeDir: tempRoot,
+    });
+
+    expect(await pathExists(chromeForTestingTarget.manifestPath)).toBe(true);
+    const manifest = await readJson(chromeForTestingTarget.manifestPath);
+    expect(manifest.allowed_origins).toContain('chrome-extension://ext123/');
+  });
+
+  it.runIf(process.platform === 'darwin')('preserves origins from both Chrome manifest variants during repair', async () => {
+    const tempRoot = path.join(os.tmpdir(), `autohand-cft-origins-${Date.now()}`);
+    tempRoots.push(tempRoot);
+    const targets = getManifestTargets('chrome', 'darwin', tempRoot);
+    const hostPath = path.join(tempRoot, 'chrome', 'native-host', 'host.js');
+
+    await fs.ensureDir(path.dirname(hostPath));
+    await writeFile(hostPath, '#!/usr/bin/env node\n', 'utf8');
+    for (const [index, target] of targets.entries()) {
+      await fs.ensureDir(path.dirname(target.manifestPath));
+      await fs.writeJson(target.manifestPath, {
+        name: 'ai.autohand.rpc',
+        description: 'test',
+        path: hostPath,
+        type: 'stdio',
+        allowed_origins: [`chrome-extension://existing${index}/`],
+      });
+    }
+
+    await ensureNativeHostInstalled({
+      extensionId: 'newextension',
+      homeDir: tempRoot,
+      browserHomeDir: tempRoot,
+    });
+
+    for (const target of targets) {
+      const manifest = await readJson(target.manifestPath);
+      expect(manifest.allowed_origins).toEqual([
+        'chrome-extension://existing0/',
+        'chrome-extension://existing1/',
+        'chrome-extension://newextension/',
+      ]);
+    }
+  });
+
+  it('repairs a managed native host with a stale embedded CLI launch command', async () => {
+    const tempRoot = path.join(os.tmpdir(), `autohand-stale-native-host-${Date.now()}`);
+    tempRoots.push(tempRoot);
+    const targets = getManifestTargets('chrome', process.platform, tempRoot);
+    const hostPath = path.join(tempRoot, 'chrome', 'native-host', 'host.js');
+
+    await fs.ensureDir(path.dirname(hostPath));
+    await writeFile(
+      hostPath,
+      '#!/usr/bin/env node\nconst DEFAULT_CLI_COMMAND = "/stale/autohand";\nconst DEFAULT_CLI_ARG_PREFIX = [];\n',
+      'utf8',
+    );
+    for (const target of targets) {
+      await fs.ensureDir(path.dirname(target.manifestPath));
+      await fs.writeJson(target.manifestPath, {
+        name: 'ai.autohand.rpc',
+        description: 'test',
+        path: hostPath,
+        type: 'stdio',
+        allowed_origins: ['chrome-extension://ext123/'],
+      });
+    }
+
+    await ensureNativeHostInstalled({
+      extensionId: 'ext123',
+      homeDir: tempRoot,
+      browserHomeDir: tempRoot,
+    });
+
+    const expectedLaunch = resolveCliLaunchSpec();
+    const repairedScript = await fs.readFile(hostPath, 'utf8');
+    expect(repairedScript).not.toContain('/stale/autohand');
+    expect(repairedScript).toContain(
+      `const DEFAULT_CLI_COMMAND = ${JSON.stringify(expectedLaunch.command)};`,
+    );
+    expect(repairedScript).toContain(
+      `const DEFAULT_CLI_ARG_PREFIX = ${JSON.stringify(expectedLaunch.args)};`,
+    );
   });
 
   it('detects the browser profile containing the installed extension', async () => {
@@ -512,8 +648,6 @@ describe('browser/chrome', () => {
       type: 'stdio',
       allowed_origins: ['chrome-extension://oldextensionid/'],
     });
-
-    const { ensureNativeHostInstalled } = await import('../../src/browser/chrome.js');
 
     await ensureNativeHostInstalled({
       extensionId: 'newextensionid',

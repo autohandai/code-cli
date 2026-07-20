@@ -358,6 +358,11 @@ export class AutomodeManager extends EventEmitter {
           tokensUsed: result.tokensUsed,
         });
 
+        // Persist every completed attempt before evaluating terminal conditions.
+        // Completion, cancellation, checkpoint, and status consumers must all see
+        // the iteration that produced the decision.
+        await this.state.recordIteration(iterationLog);
+
         // Check circuit breaker
         const hasChanges = (result.filesCreated ?? 0) + (result.filesModified ?? 0) > 0;
         const errorHash = result.error ? hashError(result.error) : null;
@@ -395,9 +400,6 @@ export class AutomodeManager extends EventEmitter {
         if (iteration % checkpointInterval === 0) {
           await this.createCheckpoint(iteration);
         }
-
-        // Record iteration
-        await this.state.recordIteration(iterationLog);
       }
 
       // Check if we hit max iterations

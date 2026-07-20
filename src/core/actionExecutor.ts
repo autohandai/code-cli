@@ -2522,6 +2522,7 @@ export class ActionExecutor {
       }
       // Browser tools — forwarded to Chrome extension via RPC
       case 'browser_screenshot':
+      case 'browser_take_full_page_screenshot':
       case 'browser_click':
       case 'browser_type':
       case 'browser_navigate':

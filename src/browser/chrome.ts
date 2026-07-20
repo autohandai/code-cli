@@ -375,6 +375,34 @@ export function getManifestTarget(
   throw new Error(`Unsupported platform: ${platform}`);
 }
 
+export function getManifestTargets(
+  browser: ChromiumBrowser,
+  platform = process.platform,
+  homeDir = platform === 'win32' ? AUTOHAND_HOME : os.homedir(),
+): NativeHostInstallResult['targets'] {
+  const primaryTarget = getManifestTarget(browser, platform, homeDir);
+  if (platform !== 'darwin' || browser !== 'chrome') {
+    return [primaryTarget];
+  }
+
+  return [
+    primaryTarget,
+    {
+      browser,
+      manifestPath: path.join(
+        homeDir,
+        'Library',
+        'Application Support',
+        'Google',
+        'ChromeForTesting',
+        'NativeMessagingHosts',
+        `${CHROME_NATIVE_HOST_NAME}.json`,
+      ),
+      registryKey: undefined,
+    },
+  ];
+}
+
 export function buildNativeHostManifest(options: {
   hostName?: string;
   extensionIds: string[];
@@ -458,6 +486,7 @@ let launchSettings = null;
 const DEFAULT_CLI_COMMAND = ${jsString(cliCommand)};
 const DEFAULT_CLI_ARG_PREFIX = ${jsArray(cliArgPrefix)};
 process.stdin.on("data", handleNativeData);
+process.stdin.on("end", shutdown);
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 process.on("exit", shutdown);
@@ -602,27 +631,28 @@ export async function installNativeHost(options: NativeHostInstallOptions): Prom
   const targets: NativeHostInstallResult['targets'] = [];
   for (const browser of browsers) {
     const manifestHomeDir = process.platform === 'win32' ? homeDir : browserHomeDir;
-    const target = getManifestTarget(browser, process.platform, manifestHomeDir);
-    const manifest = buildNativeHostManifest({
-      hostName: options.hostName,
-      extensionIds: options.extensionIds,
-      hostScriptPath,
-    });
-
-    await ensureDir(path.dirname(target.manifestPath));
-    await writeJson(target.manifestPath, manifest, { spaces: 2 });
-
-    if (target.registryKey) {
-      const result = spawnSync('reg', ['add', target.registryKey, '/ve', '/t', 'REG_SZ', '/d', target.manifestPath, '/f'], {
-        stdio: 'pipe',
+    for (const target of getManifestTargets(browser, process.platform, manifestHomeDir)) {
+      const manifest = buildNativeHostManifest({
+        hostName: options.hostName,
+        extensionIds: options.extensionIds,
+        hostScriptPath,
       });
-      if (result.status !== 0) {
-        const stderr = result.stderr?.toString('utf8') || '';
-        throw new Error(`Failed to register native host for ${browser}: ${stderr.trim()}`);
-      }
-    }
 
-    targets.push({ browser, manifestPath: target.manifestPath, registryKey: target.registryKey });
+      await ensureDir(path.dirname(target.manifestPath));
+      await writeJson(target.manifestPath, manifest, { spaces: 2 });
+
+      if (target.registryKey) {
+        const result = spawnSync('reg', ['add', target.registryKey, '/ve', '/t', 'REG_SZ', '/d', target.manifestPath, '/f'], {
+          stdio: 'pipe',
+        });
+        if (result.status !== 0) {
+          const stderr = result.stderr?.toString('utf8') || '';
+          throw new Error(`Failed to register native host for ${browser}: ${stderr.trim()}`);
+        }
+      }
+
+      targets.push({ browser, manifestPath: target.manifestPath, registryKey: target.registryKey });
+    }
   }
 
   return { hostScriptPath, targets };
@@ -631,8 +661,8 @@ export async function installNativeHost(options: NativeHostInstallOptions): Prom
 /**
  * Ensure the native messaging host is installed. Called automatically by
  * `/browser` so users never have to run a separate install step.
- * Re-installs if the host script is missing or the shebang points to a
- * node binary that no longer exists.
+ * Re-installs if the host script is missing, its shebang is invalid, or its
+ * embedded CLI launch command no longer matches the current Autohand install.
  */
 export async function ensureNativeHostInstalled(options?: {
   extensionId?: string;
@@ -642,22 +672,35 @@ export async function ensureNativeHostInstalled(options?: {
   const homeDir = options?.homeDir ?? AUTOHAND_HOME;
   const browserHomeDir = options?.browserHomeDir ?? os.homedir();
   const manifestHomeDir = process.platform === 'win32' ? homeDir : browserHomeDir;
-  const chromeManifest = getManifestTarget('chrome', process.platform, manifestHomeDir);
+  const chromeManifests = getManifestTargets('chrome', process.platform, manifestHomeDir);
   const expectedExtensionIds = [options?.extensionId].filter((id): id is string => Boolean(id));
   const expectedAllowedOrigins = expectedExtensionIds.map((extensionId) => `chrome-extension://${extensionId}/`);
   const hostScriptPath = path.join(getBrowserDataRoot(homeDir), 'host.js');
-  let installExtensionIds = expectedExtensionIds;
+  const expectedLaunch = resolveCliLaunchSpec();
+  const expectedCommandDeclaration = `const DEFAULT_CLI_COMMAND = ${jsString(expectedLaunch.command)};`;
+  const expectedArgsDeclaration = `const DEFAULT_CLI_ARG_PREFIX = ${jsArray(expectedLaunch.args)};`;
+  let preservedAllowedOrigins: string[] = [];
+  let allManifestsValid = true;
 
-  // If the Chrome manifest already exists and its host script is reachable
+  // If every Chrome manifest already exists and its host script is reachable
   // with a valid shebang and it is paired with the current extension id,
   // don't overwrite.
-  if (await pathExists(chromeManifest.manifestPath)) {
+  for (const chromeManifest of chromeManifests) {
+    if (!(await pathExists(chromeManifest.manifestPath))) {
+      allManifestsValid = false;
+      continue;
+    }
+
     try {
       const manifest = await readJson(chromeManifest.manifestPath) as { path?: string; allowed_origins?: string[] };
-      installExtensionIds = mergeExtensionIds(expectedExtensionIds, manifest.allowed_origins);
+      preservedAllowedOrigins = Array.from(new Set([
+        ...preservedAllowedOrigins,
+        ...(manifest.allowed_origins ?? []),
+      ]));
       if (manifest.path && await pathExists(manifest.path)) {
         // Check shebang is a valid Node.js interpreter (not bun, not the autohand binary itself)
-        const firstLine = (await readFile(manifest.path, 'utf8')).split('\n')[0] ?? '';
+        const hostScript = await readFile(manifest.path, 'utf8');
+        const firstLine = hostScript.split('\n')[0] ?? '';
         const shebangPath = firstLine.replace(/^#!/, '').trim();
         const shebangParts = shebangPath.split(/\s+/).filter(Boolean);
         const commandBase = shebangParts[0]?.split('/').pop()?.toLowerCase() ?? '';
@@ -668,24 +711,31 @@ export async function ensureNativeHostInstalled(options?: {
         const hasExpectedOrigin = expectedAllowedOrigins.length === 0
           || expectedAllowedOrigins.every((origin) => manifest.allowed_origins?.includes(origin));
         const pointsAtManagedHost = path.resolve(manifest.path) === path.resolve(hostScriptPath);
-        if (isValidShebang && hasExpectedOrigin && pointsAtManagedHost) {
-          return; // Already installed with valid host
+        const hasCurrentCliLaunch = hostScript.includes(expectedCommandDeclaration)
+          && hostScript.includes(expectedArgsDeclaration);
+        if (isValidShebang && hasExpectedOrigin && pointsAtManagedHost && hasCurrentCliLaunch) {
+          continue;
         }
       }
+      allManifestsValid = false;
     } catch {
-      // Corrupt — fall through to reinstall
+      allManifestsValid = false;
     }
   }
 
+  if (allManifestsValid) {
+    return;
+  }
+
   // No valid manifest found — install fresh
-  const { command, args } = resolveCliLaunchSpec();
+  const installExtensionIds = mergeExtensionIds(expectedExtensionIds, preservedAllowedOrigins);
 
   await installNativeHost({
     homeDir,
     browserHomeDir,
     extensionIds: installExtensionIds,
-    cliCommand: command,
-    cliArgPrefix: args.length ? args : undefined,
+    cliCommand: expectedLaunch.command,
+    cliArgPrefix: expectedLaunch.args.length ? expectedLaunch.args : undefined,
   });
 }
 

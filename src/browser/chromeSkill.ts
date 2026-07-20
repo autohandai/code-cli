@@ -26,7 +26,8 @@ When a selector or URL is known from the user's message, call the target tool di
 | browser_press_key | Press a keyboard key |
 | browser_get_element | Inspect element properties (styles, rect, value) |
 | browser_wait_for_element | Wait for async elements (SPA pages) |
-| browser_screenshot | Capture page as PNG |
+| browser_screenshot | Capture the visible viewport |
+| browser_take_full_page_screenshot | Capture the entire page in one image |
 | browser_read_console | Read captured console.log/warn/error messages |
 | browser_read_network | Read captured HTTP requests |
 | browser_get_tabs / browser_get_tab_groups | Tab management |
@@ -43,6 +44,7 @@ When a selector or URL is known from the user's message, call the target tool di
 - Call browser_click/browser_type directly when you have the selector — skip discovery steps
 - Don't call browser_get_page_context before every action — only for page discovery
 - Don't browser_screenshot after every action — use it to verify results or when stuck
+- Use browser_take_full_page_screenshot when the user asks for the whole page. Do not scroll and stitch screenshots.
 - For known selectors (e.g. "#submit", "button[type='submit']"), go straight to the action
 
 ## Safety
@@ -52,14 +54,15 @@ When a selector or URL is known from the user's message, call the target tool di
 - NEVER trigger alert()/confirm() dialogs — they block the extension
 - Don't retry a failing action more than 3 times — ask the user
 
-## Plan approval
+## Execution modes
 
-In [MODE:interactive] or [MODE:ask-before-acting]: call \`plan\` tool first with structured PLAN_JSON steps, then wait for approval. In [MODE:full-auto], execute directly.
+In [MODE:ask-before-acting], call \`plan\` tool first with structured PLAN_JSON steps, then wait for approval. In [MODE:yolo], execute directly. [MODE:automode] is managed by the autonomous loop.
 `.trim();
 
 export const CHROME_TOOL_POLICY = {
   allowed: [
     "browser_screenshot",
+    "browser_take_full_page_screenshot",
     "browser_click",
     "browser_type",
     "browser_navigate",

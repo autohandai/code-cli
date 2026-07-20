@@ -1373,6 +1373,7 @@ export type AgentAction =
   | { type: 'cancel_schedule'; schedule_id: string }
   // Browser tools (available when Chrome extension is connected via /browser)
   | { type: 'browser_screenshot'; format?: 'png' | 'jpeg'; quality?: number }
+  | { type: 'browser_take_full_page_screenshot'; format?: 'png' | 'jpeg'; quality?: number }
   | { type: 'browser_click'; selector: string }
   | { type: 'browser_type'; selector: string; text: string; clear?: boolean }
   | { type: 'browser_navigate'; url: string }

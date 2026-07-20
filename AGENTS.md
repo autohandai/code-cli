@@ -256,6 +256,9 @@ Always append:
 
 to every commit message.
 
+Never ever create branches with prefix like codex/ fix/
+never ever create prefix like codex/ fix/ or codex/ feature/ or codex/ hotfix/.
+
 ---
 
 ## Craft Standard

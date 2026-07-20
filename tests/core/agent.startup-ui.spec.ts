@@ -451,6 +451,25 @@ describe('agent startup and active input UI', () => {
     expect(inkRenderer.setStatus).not.toHaveBeenCalled();
   });
 
+  it('notifies the active UI when the mobile relay reports a claimed pairing', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    agent.notifyUser = vi.fn();
+    const setPairingClaimHandler = vi.fn();
+
+    agent.setMobileRelayController({ setPairingClaimHandler } as any);
+
+    expect(setPairingClaimHandler).toHaveBeenCalledTimes(1);
+    const onPairingClaimed = setPairingClaimHandler.mock.calls[0]?.[0];
+    onPairingClaimed({
+      id: 'pairing-1',
+      status: 'claimed',
+      claimedAt: '2026-07-20T01:02:03.000Z',
+    });
+    expect(agent.notifyUser).toHaveBeenCalledWith(
+      '✓ Autohand Mobile connected to this session.'
+    );
+  });
+
   it('ensureSpinnerRunning does not restart ora while terminal regions are active', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const spinner = {
