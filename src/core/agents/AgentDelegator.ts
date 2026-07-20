@@ -15,6 +15,15 @@ import type { ToolAuthorizationOptions, ToolDefinition, ToolManagerOptions } fro
 /** Default maximum delegation depth to prevent infinite loops */
 const DEFAULT_MAX_DEPTH = 3;
 
+type ParallelDelegationResult =
+    | { success: true; text: string }
+    | {
+        success: false;
+        kind: 'validation' | 'operational';
+        text: string;
+        error: string;
+    };
+
 /** Context passed to the subagent-stop hook callback */
 export interface SubagentStopContext {
     /** Unique identifier for the subagent run */
@@ -182,15 +191,16 @@ export class AgentDelegator {
             getToolDefinitions: this.getToolDefinitions,
         };
 
-        const promises = tasks.map(async ({ agent_name, task }): Promise<{
-            success: boolean;
-            text: string;
-            error?: string;
-        }> => {
+        const promises = tasks.map(async ({ agent_name, task }): Promise<ParallelDelegationResult> => {
             const agentConfig = this.registry.getAgent(agent_name);
             if (!agentConfig) {
                 const error = `Agent '${agent_name}' not found.`;
-                return { success: false, text: `[${agent_name}] Error: Agent not found.`, error };
+                return {
+                    success: false,
+                    kind: 'validation',
+                    text: `[${agent_name}] Error: Agent not found.`,
+                    error,
+                };
             }
 
             const subagentId = this.generateSubagentId();
@@ -229,6 +239,7 @@ export class AgentDelegator {
 
                 return {
                     success: false,
+                    kind: 'operational',
                     text: `[${agent_name}] Failed: ${errorMessage}`,
                     error: errorMessage,
                 };
@@ -242,7 +253,9 @@ export class AgentDelegator {
         if (failures.length > 0) {
             return {
                 success: false,
-                kind: 'operational',
+                kind: failures.some(result => result.kind === 'operational')
+                    ? 'operational'
+                    : 'validation',
                 error: failures.map(result => result.error ?? 'Delegated task failed.').join('; '),
                 output,
             };
