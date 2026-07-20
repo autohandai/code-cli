@@ -75,6 +75,8 @@ vi.mock('../../../src/browser/chrome.js', () => ({
 import { RPCAdapter } from '../../../src/modes/rpc/adapter.js';
 import { writeNotification } from '../../../src/modes/rpc/protocol.js';
 
+const originalDebugValue = process.env.AUTOHAND_DEBUG;
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -105,6 +107,11 @@ describe('RPC Adapter - P2 Handlers', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    if (originalDebugValue === undefined) {
+      delete process.env.AUTOHAND_DEBUG;
+    } else {
+      process.env.AUTOHAND_DEBUG = originalDebugValue;
+    }
   });
 
   describe('tool lifecycle notifications', () => {
@@ -150,6 +157,80 @@ describe('RPC Adapter - P2 Handlers', () => {
   // -------------------------------------------------------------------------
 
   describe('prompt handling', () => {
+    it('emits prompt lifecycle metadata without sensitive content in debug mode', async () => {
+      process.env.AUTOHAND_DEBUG = '1';
+      const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      const outputListener = mockAgent.setOutputListener.mock.calls[0]?.[0];
+      const instructionError = Object.assign(new Error('ERROR_SENTINEL'), {
+        stack: 'STACK_SENTINEL',
+      });
+
+      mockAgent.runInstruction.mockImplementationOnce(async () => {
+        outputListener({ type: 'thinking', thought: 'THOUGHT_SENTINEL' });
+        outputListener({ type: 'message', content: 'GENERATED_SENTINEL' });
+        outputListener({ type: 'error', content: 'ERROR_OUTPUT_SENTINEL' });
+        throw instructionError;
+      });
+
+      try {
+        await adapter.handlePrompt('req_redaction', {
+          message: 'PROMPT_SENTINEL',
+          context: {
+            selection: {
+              file: 'PATH_SENTINEL',
+              startLine: 1,
+              endLine: 1,
+              text: 'INSTRUCTION_SENTINEL',
+            },
+          },
+        });
+
+        const diagnostics = stderrSpy.mock.calls.map(([value]) => String(value)).join('');
+        expect(diagnostics).toContain('[RPC DEBUG]');
+        expect(diagnostics).toContain('instructionLength=');
+        for (const sentinel of [
+          'PROMPT_SENTINEL',
+          'INSTRUCTION_SENTINEL',
+          'PATH_SENTINEL',
+          'THOUGHT_SENTINEL',
+          'GENERATED_SENTINEL',
+          'ERROR_OUTPUT_SENTINEL',
+          'ERROR_SENTINEL',
+          'STACK_SENTINEL',
+        ]) {
+          expect(diagnostics).not.toContain(sentinel);
+        }
+      } finally {
+        stderrSpy.mockRestore();
+      }
+    });
+
+    it('emits slash-command metadata without arguments or requested paths in debug mode', async () => {
+      process.env.AUTOHAND_DEBUG = '1';
+      const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      mockAgent.isSlashCommand.mockReturnValueOnce(true);
+      mockAgent.parseSlashCommand.mockReturnValueOnce({
+        command: '/redact',
+        args: ['ARGUMENT_SENTINEL'],
+      });
+      mockAgent.isSlashCommandSupported.mockReturnValueOnce(false);
+
+      try {
+        await adapter.handlePrompt('req_args', { message: '/redact ARGUMENT_SENTINEL' });
+        const directoryAccess = adapter.requestDirectoryAccess('DIRECTORY_PATH_SENTINEL', 'reason');
+        expect(adapter.handleDirectoryAccessResponse('dir_test123', false)).toEqual({ success: true });
+        await expect(directoryAccess).resolves.toBeUndefined();
+
+        const diagnostics = stderrSpy.mock.calls.map(([value]) => String(value)).join('');
+        expect(diagnostics).toContain('argumentCount=1');
+        expect(diagnostics).toContain('pathLength=23');
+        expect(diagnostics).not.toContain('ARGUMENT_SENTINEL');
+        expect(diagnostics).not.toContain('DIRECTORY_PATH_SENTINEL');
+      } finally {
+        stderrSpy.mockRestore();
+      }
+    });
+
     it('accepts a prompt without waiting for the agent turn to finish', async () => {
       let resolveRun!: (success: boolean) => void;
       const runPromise = new Promise<boolean>((resolve) => {
