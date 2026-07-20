@@ -6,6 +6,12 @@
 import crypto from 'node:crypto';
 
 import type { AutohandAgent } from '../../core/agent.js';
+import {
+  AutomodeManager,
+  type AutomodeOptions,
+  type IterationResult,
+} from '../../core/AutomodeManager.js';
+import { buildAutomodeIterationPrompt } from '../../core/automodePrompt.js';
 import { McpClientManager } from '../../mcp/McpClientManager.js';
 import { classifyApiError, type ApiErrorCode } from '../../providers/errors.js';
 import { getAllCatalogModelOptions } from '../../providers/modelCatalog.js';
@@ -62,6 +68,8 @@ import type {
   AutoresearchPruneResult,
   GetHistoryParams,
   GetHistoryResult,
+  SessionAttachParams,
+  SessionAttachResult,
   YoloSetParams,
   YoloSetResult,
   McpListServersResult,
@@ -254,6 +262,16 @@ interface PendingPromptStart {
   readonly resolve: () => void;
 }
 
+interface AutomodeStartedEvent {
+  automodeSessionId: string;
+  automodePrompt: string;
+  automodeMaxIterations: number;
+}
+
+type AutomodeStartOutcome =
+  | { success: true; sessionId: string }
+  | { success: false; error: string };
+
 /**
  * RPC Adapter for AutohandAgent
  * Handles bidirectional JSON-RPC 2.0 communication between CLI and VS Code extension
@@ -297,13 +315,14 @@ export class RPCAdapter {
   private yoloRevertTimer: ReturnType<typeof setTimeout> | null = null;
   private yoloRevertGeneration = 0;
   private shutdownPromise: Promise<void> | null = null;
+  private automodeManager: AutomodeManager | null = null;
   // Config reference for runtime settings changes
-  private config: Partial<LoadedConfig> & {
+  private config: LoadedConfig & {
     permissionMode?: string;
     model?: string;
     maxThinkingTokens?: number;
     [key: string]: unknown;
-  } = {};
+  } = { configPath: '' };
 
   /**
    * Check if the current model supports vision/image inputs.
@@ -335,7 +354,7 @@ export class RPCAdapter {
     this.conversation = conversation;
     this.model = model;
     this.workspace = workspace;
-    this.config = config ? { ...config } : {};
+    this.config = config ? { ...config } : { configPath: '' };
     this.sessionId = generateId('session');
     this.mcpServerConfigs = mcpServerConfigs ?? [];
 
@@ -367,6 +386,7 @@ export class RPCAdapter {
    * Get current agent state
    */
   getState(): GetStateResult {
+    const authenticatedUser = this.config.auth?.user;
     return {
       status: this.status,
       sessionId: this.sessionId,
@@ -374,6 +394,16 @@ export class RPCAdapter {
       workspace: this.workspace,
       contextPercent: this.contextPercent,
       messageCount: this.conversation?.history().length ?? 0,
+      ...(authenticatedUser
+        ? {
+            authenticatedUser: {
+              id: authenticatedUser.id,
+              email: authenticatedUser.email,
+              name: authenticatedUser.name,
+              ...(authenticatedUser.avatar ? { avatar: authenticatedUser.avatar } : {}),
+            },
+          }
+        : {}),
     };
   }
 
@@ -613,6 +643,27 @@ export class RPCAdapter {
     return prompt;
   }
 
+  private startPromptLifecycle(prompt: ActivePrompt): void {
+    prompt.turnId = generateId('turn');
+    prompt.turnStartTime = Date.now();
+    this.currentTurnId = prompt.turnId;
+    this.turnStartTime = prompt.turnStartTime;
+    writeNotification(RPC_NOTIFICATIONS.TURN_START, {
+      turnId: prompt.turnId,
+      timestamp: createTimestamp(),
+    });
+
+    prompt.messageId = generateId('msg');
+    prompt.messageContent = '';
+    this.currentMessageId = prompt.messageId;
+    this.currentMessageContent = '';
+    writeNotification(RPC_NOTIFICATIONS.MESSAGE_START, {
+      messageId: prompt.messageId,
+      role: 'assistant',
+      timestamp: createTimestamp(),
+    });
+  }
+
   /**
    * Handle a prompt request
    * Returns result for JSON-RPC response
@@ -637,24 +688,7 @@ export class RPCAdapter {
     this.startKeepalive();
 
     // Start a new turn
-    prompt.turnId = generateId('turn');
-    prompt.turnStartTime = Date.now();
-    this.currentTurnId = prompt.turnId;
-    this.turnStartTime = prompt.turnStartTime;
-    writeNotification(RPC_NOTIFICATIONS.TURN_START, {
-      turnId: prompt.turnId,
-      timestamp: createTimestamp(),
-    });
-
-    prompt.messageId = generateId('msg');
-    prompt.messageContent = '';
-    this.currentMessageId = prompt.messageId;
-    this.currentMessageContent = '';
-    writeNotification(RPC_NOTIFICATIONS.MESSAGE_START, {
-      messageId: prompt.messageId,
-      role: 'assistant',
-      timestamp: createTimestamp(),
-    });
+    this.startPromptLifecycle(prompt);
 
     try {
       if (!this.canContinuePrompt(prompt)) {
@@ -1121,24 +1155,7 @@ export class RPCAdapter {
       return { success: false };
     }
 
-    if (!this.agent) {
-      throw new Error('Agent not initialized');
-    }
-
-    const attached = await this.agent.attachSession(handoff.sessionId);
-    this.sessionId = attached.sessionId;
-    this.stopKeepalive();
-    this.stopKeepalive();
-    this.workspace = attached.workspaceRoot;
-    this.model = attached.model;
-    this.status = 'idle';
-
-    return {
-      success: true,
-      sessionId: attached.sessionId,
-      workspaceRoot: attached.workspaceRoot,
-      messageCount: attached.messageCount,
-    };
+    return this.attachSessionById(handoff.sessionId);
   }
 
   async handleBrowserHandoffAttachLatest(
@@ -1150,11 +1167,22 @@ export class RPCAdapter {
       return { success: false };
     }
 
+    return this.attachSessionById(handoff.sessionId);
+  }
+
+  async handleSessionAttach(
+    _requestId: JsonRpcId,
+    params: SessionAttachParams,
+  ): Promise<SessionAttachResult> {
+    return this.attachSessionById(params.sessionId);
+  }
+
+  private async attachSessionById(sessionId: string): Promise<SessionAttachResult> {
     if (!this.agent) {
       throw new Error('Agent not initialized');
     }
 
-    const attached = await this.agent.attachSession(handoff.sessionId);
+    const attached = await this.agent.attachSession(sessionId);
     this.stopKeepalive();
     this.sessionId = attached.sessionId;
     this.workspace = attached.workspaceRoot;
@@ -2312,11 +2340,16 @@ export class RPCAdapter {
     }
 
     try {
-      // Set unrestricted mode
       const revertGeneration = ++this.yoloRevertGeneration;
       if (this.yoloRevertTimer) {
         clearTimeout(this.yoloRevertTimer);
         this.yoloRevertTimer = null;
+      }
+
+      if (params.pattern.trim() === '') {
+        permissionManager.setMode('interactive');
+        writeAutohandDebugLine('[RPC] YOLO mode disabled\n');
+        return { success: true };
       }
 
       permissionManager.setMode('unrestricted');
@@ -2636,6 +2669,11 @@ export class RPCAdapter {
       this.shuttingDown = true;
       this.stopKeepalive();
       const pendingPromptStarts = this.cancelPendingPromptStarts();
+
+      const automodeManager = this.resolveAutomodeManager(false);
+      if (automodeManager?.isActive()) {
+        await automodeManager.cancel('rpc_cancel').catch(() => {});
+      }
 
       if (this.yoloRevertTimer) {
         clearTimeout(this.yoloRevertTimer);
@@ -3119,15 +3157,206 @@ export class RPCAdapter {
   // Auto-Mode RPC Handlers
   // ============================================================================
 
+  private resolveAutomodeManager(create: boolean): AutomodeManager | null {
+    const providedManager = this.agent?.getAutomodeManager?.();
+    if (providedManager) {
+      this.automodeManager = providedManager;
+      return providedManager;
+    }
+    if (this.automodeManager || !create || !this.agent) {
+      return this.automodeManager;
+    }
+
+    this.automodeManager = new AutomodeManager(
+      this.config,
+      this.workspace,
+      this.agent.getHookManager(),
+      this.agent.getSessionManager().getCurrentSession() ?? undefined,
+      this.agent.getMemoryManager(),
+    );
+    return this.automodeManager;
+  }
+
+  private latestAssistantOutputAfter(historyStart: number): string | undefined {
+    const history = this.conversation?.history().slice(historyStart) ?? [];
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      const message = history[index];
+      if (message.role === 'assistant' && typeof message.content === 'string') {
+        return message.content;
+      }
+    }
+    return undefined;
+  }
+
+  private async runAutomodeIteration(
+    manager: AutomodeManager,
+    prompt: ActivePrompt,
+    iteration: number,
+    taskPrompt: string,
+    signal: AbortSignal,
+  ): Promise<IterationResult> {
+    const agent = this.agent;
+    if (!agent || !this.canContinuePrompt(prompt) || signal.aborted) {
+      return {
+        success: false,
+        actions: [],
+        error: 'Auto-mode iteration aborted',
+      };
+    }
+
+    const historyStart = this.conversation?.history().length ?? 0;
+    agent.getAndResetFileModCount();
+    agent.getAndResetExecutedActions();
+
+    let error: string | undefined;
+    const success = await agent
+      .runCommandMode(buildAutomodeIterationPrompt(taskPrompt, iteration), {
+        signal,
+        keepAlive: true,
+      })
+      .catch((cause: unknown) => {
+        error = cause instanceof Error ? cause.message : String(cause);
+        return false;
+      });
+
+    if (!success && !error) {
+      error = signal.aborted
+        ? 'Auto-mode iteration aborted'
+        : 'Agent command did not complete successfully';
+    }
+
+    const fileChanges = agent.getAndResetFileModCount();
+    const actions = agent.getAndResetExecutedActions();
+    if (actions.length === 0) actions.push('Executed agent iteration');
+    const output = this.latestAssistantOutputAfter(historyStart) || prompt.messageContent || undefined;
+    const state = manager.getState();
+
+    if (state) {
+      writeNotification(RPC_NOTIFICATIONS.AUTOMODE_ITERATION, {
+        sessionId: state.sessionId,
+        iteration,
+        actions,
+        timestamp: createTimestamp(),
+      });
+    }
+
+    return {
+      success,
+      actions,
+      output,
+      error,
+      filesModified: fileChanges.count,
+      modifiedFiles: fileChanges.paths,
+    };
+  }
+
+  private emitAutomodeTerminalNotification(manager: AutomodeManager): void {
+    const state = manager.getState();
+    if (!state) return;
+
+    if (state.status === 'completed') {
+      writeNotification(RPC_NOTIFICATIONS.AUTOMODE_COMPLETE, {
+        sessionId: state.sessionId,
+        iterations: state.currentIteration,
+        filesCreated: state.filesCreated,
+        filesModified: state.filesModified,
+        timestamp: createTimestamp(),
+      });
+      return;
+    }
+
+    if (state.status === 'cancelled') {
+      writeNotification(RPC_NOTIFICATIONS.AUTOMODE_CANCEL, {
+        sessionId: state.sessionId,
+        reason: state.cancelReason ?? 'rpc_cancel',
+        iteration: state.currentIteration,
+        timestamp: createTimestamp(),
+      });
+      return;
+    }
+
+    if (state.status === 'failed') {
+      writeNotification(RPC_NOTIFICATIONS.AUTOMODE_ERROR, {
+        sessionId: state.sessionId,
+        error: state.errorMessage ?? 'Auto-mode failed',
+        timestamp: createTimestamp(),
+      });
+    }
+  }
+
+  private async runAutomode(
+    manager: AutomodeManager,
+    params: AutomodeOptions,
+    prompt: ActivePrompt,
+    settleStart: (outcome: AutomodeStartOutcome) => void,
+  ): Promise<PromptResult> {
+    let startSettled = false;
+    const settleOnce = (outcome: AutomodeStartOutcome): void => {
+      if (startSettled) return;
+      startSettled = true;
+      settleStart(outcome);
+    };
+    const handleStarted = (event: AutomodeStartedEvent): void => {
+      if (!this.canContinuePrompt(prompt)) return;
+      writeNotification(RPC_NOTIFICATIONS.AUTOMODE_START, {
+        sessionId: event.automodeSessionId,
+        prompt: event.automodePrompt,
+        maxIterations: event.automodeMaxIterations,
+        timestamp: createTimestamp(),
+      });
+      settleOnce({ success: true, sessionId: event.automodeSessionId });
+    };
+    const handleAbort = (): void => {
+      void manager.cancel('rpc_cancel').catch(() => {});
+    };
+
+    manager.once('automode:start', handleStarted);
+    prompt.abortController.signal.addEventListener('abort', handleAbort, { once: true });
+    this.startKeepalive();
+    this.startPromptLifecycle(prompt);
+
+    try {
+      await manager.start(
+        params,
+        (iteration, taskPrompt, signal) =>
+          this.runAutomodeIteration(manager, prompt, iteration, taskPrompt, signal),
+      );
+      if (!startSettled) {
+        settleOnce({
+          success: false,
+          error: 'Auto-mode did not start. Resume or cancel the existing session first.',
+        });
+      }
+      this.emitAutomodeTerminalNotification(manager);
+      return { success: manager.getState()?.status !== 'failed' };
+    } catch (cause) {
+      const error = cause instanceof Error ? cause.message : String(cause);
+      settleOnce({ success: false, error });
+      const sessionId = manager.getState()?.sessionId;
+      if (sessionId) {
+        writeNotification(RPC_NOTIFICATIONS.AUTOMODE_ERROR, {
+          sessionId,
+          error,
+          timestamp: createTimestamp(),
+        });
+      }
+      return { success: false };
+    } finally {
+      manager.off('automode:start', handleStarted);
+      prompt.abortController.signal.removeEventListener('abort', handleAbort);
+      this.finalizePrompt(prompt);
+    }
+  }
+
   /**
    * Start auto-mode loop
    */
   async handleAutomodeStart(
-    requestId: JsonRpcId,
+    _requestId: JsonRpcId,
     params: AutomodeStartParams
   ): Promise<AutomodeStartResult> {
     try {
-      const automodeManager = this.agent?.getAutomodeManager?.();
+      const automodeManager = this.resolveAutomodeManager(true);
       if (!automodeManager) {
         return {
           success: false,
@@ -3142,15 +3371,20 @@ export class RPCAdapter {
         };
       }
 
-      // Note: Starting auto-mode from RPC would require integrating with the agent's
-      // iteration callback. For now, return success and let the agent handle it.
-      // A full implementation would start the loop here.
       writeAutohandDebugLine(`[RPC] Auto-mode start requested: ${params.prompt}\n`);
+      const prompt = this.beginPrompt();
+      let resolveStart!: (outcome: AutomodeStartOutcome) => void;
+      const started = new Promise<AutomodeStartOutcome>((resolve) => {
+        resolveStart = resolve;
+      });
+      const work = this.runAutomode(automodeManager, params, prompt, resolveStart);
+      void this.trackPromptWork(work).catch((cause: unknown) => {
+        writeAutohandDebugLine(
+          `[RPC] Auto-mode failed after acceptance: ${cause instanceof Error ? cause.message : String(cause)}\n`,
+        );
+      });
 
-      return {
-        success: true,
-        sessionId: `automode-${Date.now()}`,
-      };
+      return await started;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
@@ -3164,7 +3398,7 @@ export class RPCAdapter {
    * Get auto-mode status
    */
   handleAutomodeStatus(_requestId: JsonRpcId): AutomodeStatusResult {
-    const automodeManager = this.agent?.getAutomodeManager?.();
+    const automodeManager = this.resolveAutomodeManager(false);
 
     if (!automodeManager) {
       return {
@@ -3196,7 +3430,7 @@ export class RPCAdapter {
    */
   async handleAutomodePause(_requestId: JsonRpcId): Promise<AutomodePauseResult> {
     try {
-      const automodeManager = this.agent?.getAutomodeManager?.();
+      const automodeManager = this.resolveAutomodeManager(false);
       if (!automodeManager) {
         return {
           success: false,
@@ -3219,6 +3453,14 @@ export class RPCAdapter {
       }
 
       await automodeManager.pause();
+      const state = automodeManager.getState();
+      if (state) {
+        writeNotification(RPC_NOTIFICATIONS.AUTOMODE_PAUSE, {
+          sessionId: state.sessionId,
+          iteration: state.currentIteration,
+          timestamp: createTimestamp(),
+        });
+      }
       return { success: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -3234,7 +3476,7 @@ export class RPCAdapter {
    */
   async handleAutomodeResume(_requestId: JsonRpcId): Promise<AutomodeResumeResult> {
     try {
-      const automodeManager = this.agent?.getAutomodeManager?.();
+      const automodeManager = this.resolveAutomodeManager(false);
       if (!automodeManager) {
         return {
           success: false,
@@ -3257,6 +3499,14 @@ export class RPCAdapter {
       }
 
       await automodeManager.resume();
+      const state = automodeManager.getState();
+      if (state) {
+        writeNotification(RPC_NOTIFICATIONS.AUTOMODE_RESUME, {
+          sessionId: state.sessionId,
+          iteration: state.currentIteration,
+          timestamp: createTimestamp(),
+        });
+      }
       return { success: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -3271,11 +3521,11 @@ export class RPCAdapter {
    * Cancel auto-mode loop
    */
   async handleAutomodeCancel(
-    requestId: JsonRpcId,
-    reason?: string
+    _requestId: JsonRpcId,
+    _reason?: string
   ): Promise<AutomodeCancelResult> {
     try {
-      const automodeManager = this.agent?.getAutomodeManager?.();
+      const automodeManager = this.resolveAutomodeManager(false);
       if (!automodeManager) {
         return {
           success: false,
@@ -3290,7 +3540,7 @@ export class RPCAdapter {
         };
       }
 
-      await automodeManager.cancel(reason as any || 'rpc_cancel');
+      await automodeManager.cancel('rpc_cancel');
       return { success: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -3305,11 +3555,11 @@ export class RPCAdapter {
    * Get auto-mode iteration log
    */
   handleAutomodeGetLog(
-    requestId: JsonRpcId,
+    _requestId: JsonRpcId,
     limit?: number
   ): AutomodeGetLogResult {
     try {
-      const automodeManager = this.agent?.getAutomodeManager?.();
+      const automodeManager = this.resolveAutomodeManager(false);
       if (!automodeManager) {
         return {
           success: false,

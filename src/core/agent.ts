@@ -1558,6 +1558,9 @@ export class AutohandAgent {
 
   setMobileRelayController(controller: MobileRelayController): void {
     this.mobileRelayController = controller;
+    controller.setPairingClaimHandler(() => {
+      this.notifyUser('✓ Autohand Mobile connected to this session.');
+    });
   }
 
   markMobileInstructionQueued(): void {
