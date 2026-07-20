@@ -1484,6 +1484,10 @@ Bei Konflikten ( dieselbe Datei auf mehreren Geräten geändert) gewinnt die **C
 
 API-Schlüssel und andere sensible Daten in `config.json` werden mit Ihrem Authentifizierungstoken verschlüsselt, bevor sie hochgeladen werden. Sie können nur mit Ihren Anmeldedaten entschlüsselt werden.
 
+Remote Dateinamen werden nur als relative POSIX-Pfade innerhalb der aktivierten Synchronisierungskategorien akzeptiert. Die Synchronisierung weist Verzeichnisdurchquerungen, absolute oder Windows-artige Pfade, doppelte oder leere Segmente sowie durch symbolische Links aus einer aktivierten Wurzel umgeleitete Ziele zurück.
+
+Das Anmeldetoken der Anwendung wird im `Authorization`-Header nur an Übertragungs-URLs mit demselben Origin wie die konfigurierte Synchronisierungs-API gesendet. Origin-übergreifende, vorsignierte HTTPS-URLs erhalten dieses Token niemals; unsichere oder fehlerhafte Origin-übergreifende URLs werden abgelehnt.
+
 **Was verschlüsselt wird:**
 
 - Felder namens `apiKey`

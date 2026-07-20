@@ -1385,6 +1385,10 @@ Když dojde ke konfliktům (stejný soubor upraven na více zařízeních), vyhr
 
 Klíče API a další citlivá data v `config.json` jsou před nahráním zašifrovány pomocí vašeho ověřovacího tokenu. Lze je dešifrovat pouze pomocí vašich přihlašovacích údajů.
 
+Názvy vzdálených souborů jsou přijímány pouze jako relativní cesty POSIX v povolených kategoriích synchronizace. Synchronizace odmítá průchod nadřazenými adresáři, absolutní cesty nebo cesty ve stylu Windows, duplicitní či prázdné segmenty a cíle přesměrované symbolickými odkazy mimo povolený kořen.
+
+Přihlašovací token aplikace se odesílá v hlavičce `Authorization` pouze na adresy URL přenosu se stejným originem jako nakonfigurované synchronizační API. Předem podepsané adresy URL HTTPS napříč originy tento token nikdy neobdrží; nezabezpečené nebo chybně vytvořené adresy URL napříč originy jsou odmítnuty.
+
 **Co je šifrováno:**
 
 – Pole s názvem `apiKey`

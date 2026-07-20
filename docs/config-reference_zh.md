@@ -870,6 +870,12 @@ git add -A && git commit -m "feat: add user dashboard with charts"
 | `syncInterval`      | number  | `300`         | 同步间隔（秒）                                  |
 | `conflictResolution` | string  | `"ask"`       | 冲突解决方法：`ask`、`local`、`remote`         |
 
+### 安全性
+
+远程文件名仅接受已启用同步类别内的相对 POSIX 路径。同步会拒绝目录遍历、绝对路径或 Windows 风格路径、重复或空白段，以及通过符号链接重定向到已启用根目录之外的目标。
+
+应用程序登录令牌仅通过 `Authorization` 标头发送到与已配置同步 API 同源的传输 URL。跨源预签名 HTTPS URL 绝不会收到该令牌；不安全或格式错误的跨源 URL 会被拒绝。
+
 ---
 
 ## 钩子设置
