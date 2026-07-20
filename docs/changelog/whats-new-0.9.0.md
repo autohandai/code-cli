@@ -50,7 +50,7 @@ OpenAI users also get a more explicit auth choice. The setup flow can use either
 
 ## Chrome Automation Is Built In
 
-Autohand 0.9.0 adds a first-class Chrome path. Users can start with /chrome, pass --chrome or --no-chrome, and connect the CLI to browser and extension workflows. The browser side includes tools for tabs, tab groups, network inspection, console inspection, extension bridge calls, and JavaScript execution.
+Autohand 0.9.0 adds a first-class browser path. Users can start with /browser, pass --chrome or --no-chrome, and connect the CLI to browser and extension workflows. The browser side includes tools for tabs, tab groups, network inspection, console inspection, extension bridge calls, and JavaScript execution.
 
 The release also hardens the native host path. Argument filtering, shebang resolution, Linux browser fallback behavior, Bun path leakage, Node.js discovery in CI, module cache pollution, and native-host test stability all received attention. Browser bridge responses are routed back to RPC clients, and browser skills can be injected in RPC mode.
 
@@ -111,7 +111,7 @@ For most users, the big upgrade checks are straightforward:
 - test terminal automation that depended on older rendering behavior
 - review permission settings if your workflows write outside the workspace
 - use /repeat or --repeat for recurring work instead of external prompt loops
-- use /chrome or --chrome for browser-connected sessions
+- use /browser or --chrome for browser-connected sessions
 
 Ink must stay at version >=7.0.0 and React must stay at version >=19. The executable name remains autohand. The public product name in docs is Autohand Code CLI.
 

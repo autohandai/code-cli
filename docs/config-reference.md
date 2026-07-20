@@ -1729,8 +1729,8 @@ autohand --no-chrome       # Start with browser bridge disabled
 ### Slash Commands
 
 ```
-/chrome                    # Open Chrome integration panel
-/chrome disconnect         # Close the browser bridge connection
+/browser                   # Open Chrome integration panel
+/browser disconnect        # Close the browser bridge connection
 ```
 
 ---
@@ -2110,7 +2110,7 @@ To register the native stdio agent in Zed, JetBrains IDEs, JetBrains Air, or ano
 
 | Flag                          | Description                                                                                    |
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
-| `--chrome`                    | Enable Chrome browser integration (same as `/chrome`)                                          |
+| `--chrome`                    | Enable Chrome browser integration (same as `/browser`)                                         |
 | `--no-chrome`                 | Disable Chrome browser integration                                                             |
 
 ### System Prompt
@@ -2264,7 +2264,7 @@ Autohand provides a rich set of slash commands for interactive use. Type `/` in 
 
 | Command       | Description                                           |
 | ------------- | ----------------------------------------------------- |
-| `/chrome`     | Enable Chrome browser integration                     |
+| `/browser`    | Enable Chrome browser integration                     |
 
 ### UI & Display
 

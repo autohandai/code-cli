@@ -1592,8 +1592,8 @@ autohand --no-chrome       # Start with browser bridge disabled
 ```
 ### Příkazy lomítka
 ```
-/chrome                    # Open Chrome integration panel
-/chrome disconnect         # Close the browser bridge connection
+/browser                   # Open Chrome integration panel
+/browser disconnect        # Close the browser bridge connection
 ```
 ---
 
@@ -1959,7 +1959,7 @@ Tyto příznaky přepisují nastavení konfiguračního souboru:
 
 | Vlajka | Popis |
 | ------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `--chrome` | Povolit integraci prohlížeče Chrome (stejné jako `/chrome`) |
+| `--chrome` | Povolit integraci prohlížeče Chrome (stejné jako `/browser`) |
 | `--no-chrome` | Zakázat integraci prohlížeče Chrome |
 
 ### Systémová výzva
@@ -2111,7 +2111,7 @@ Autohand poskytuje bohatou sadu příkazů lomítka pro interaktivní použití.
 
 | Příkaz | Popis |
 | ------------- | ------------------------------------------------------ |
-| `/chrome` | Povolit integraci prohlížeče Chrome |
+| `/browser` | Povolit integraci prohlížeče Chrome |
 
 ### Uživatelské rozhraní a displej
 

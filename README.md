@@ -209,7 +209,7 @@ autohand -p "refactor database queries" --dry-run
 | `--timeout <seconds>`           |       | Timeout in seconds for auto-approve mode                                         |
 | `--settings`                    |       | Configure Autohand Code CLI settings (same as /settings in interactive mode)     |
 | `--feedback`                    |       | Submit feedback                                                                  |
-| `--chrome`                      |       | Enable Chrome browser integration (same as /chrome)                              |
+| `--chrome`                      |       | Enable Chrome browser integration (same as /browser)                             |
 | `--no-chrome`                   |       | Disable Chrome browser integration                                               |
 
 ## Agent Skills
@@ -324,7 +324,7 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/message`         | Send team message                                                                |
 | `/import`          | Import data from Claude, Codex, Gemini, Cursor, OpenCode, Kimi, and other agents |
 | `/repeat`          | Repeat previous actions                                                          |
-| `/chrome`          | Chrome browser integration                                                       |
+| `/browser`         | Browser integration                                                              |
 | `/review`          | Code review                                                                      |
 
 `/go --steer` and `/handoff session --steer` keep the paired iOS app updated

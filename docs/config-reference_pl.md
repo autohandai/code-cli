@@ -1574,8 +1574,8 @@ autohand --no-chrome       # Start with browser bridge disabled
 ```
 ### Polecenia z ukośnikiem
 ```
-/chrome                    # Open Chrome integration panel
-/chrome disconnect         # Close the browser bridge connection
+/browser                   # Open Chrome integration panel
+/browser disconnect        # Close the browser bridge connection
 ```
 ---
 
@@ -1941,7 +1941,7 @@ Te flagi zastępują ustawienia pliku konfiguracyjnego:
 
 | Flaga | Opis |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| __AH_KOD_8__ | Włącz integrację z przeglądarką Chrome (tak samo jak `/chrome`) |
+| __AH_KOD_8__ | Włącz integrację z przeglądarką Chrome (tak samo jak `/browser`) |
 | __AH_KOD_10__ | Wyłącz integrację przeglądarki Chrome |
 
 ### Monit systemowy

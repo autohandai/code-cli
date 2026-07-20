@@ -51,7 +51,7 @@ import * as tasksCmd from '../commands/tasks.js';
 import * as messageCmd from '../commands/message.js';
 import * as importCmd from '../commands/import.js';
 import * as repeatCmd from '../commands/repeat.js';
-import * as chromeCmd from '../commands/chrome.js';
+import * as browserCmd from '../commands/chrome.js';
 import * as reviewCmd from '../commands/review.js';
 import * as deepResearchCmd from '../commands/deep-research.js';
 import * as publishResearchCmd from '../commands/publish-research.js';
@@ -127,7 +127,7 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   messageCmd.metadata,
   importCmd.metadata,
   repeatCmd.metadata,
-  chromeCmd.metadata,
+  browserCmd.metadata,
   reviewCmd.metadata,
   deepResearchCmd.metadata,
   deepResearchCmd.aliasMetadata,
