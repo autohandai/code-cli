@@ -275,14 +275,26 @@ export class PermissionManager {
     }
 
     const cacheKey = this.getCacheKey(context);
+    const cachedDecision = this.settings.rememberSession
+      ? this.sessionCache.get(cacheKey)
+      : undefined;
 
-    // Check session cache
-    if (this.settings.rememberSession && this.sessionCache.has(cacheKey)) {
-      return {
-        allowed: this.sessionCache.get(cacheKey)!,
-        reason: this.sessionCache.get(cacheKey) ? 'user_approved' : 'user_denied',
-        cached: true
-      };
+    if (cachedDecision === false) {
+      return { allowed: false, reason: 'user_denied', cached: true };
+    }
+
+    const scopedDenial = this.checkScopedDenials(context);
+    if (scopedDenial) {
+      return scopedDenial;
+    }
+
+    const ruleDenial = this.checkDenyRules(context);
+    if (ruleDenial) {
+      return ruleDenial;
+    }
+
+    if (cachedDecision === true) {
+      return { allowed: true, reason: 'user_approved', cached: true };
     }
 
     // Check mode-based decisions
@@ -615,6 +627,38 @@ export class PermissionManager {
     }
 
     return null;
+  }
+
+  private checkScopedDenials(context: PermissionContext): PermissionDecision | null {
+    const scopes = [
+      {
+        denyList: this.sessionProjectSettings?.denyList,
+        reason: 'session_deny_list' as const,
+      },
+      {
+        denyList: this.localSettings?.denyList,
+        reason: 'project_deny_list' as const,
+      },
+      {
+        denyList: this.settings.denyList,
+        reason: 'deny_list' as const,
+      },
+    ];
+
+    for (const scope of scopes) {
+      if (scope.denyList?.some((pattern) => this.matchesPattern(context, pattern))) {
+        return { allowed: false, reason: scope.reason };
+      }
+    }
+
+    return null;
+  }
+
+  private checkDenyRules(context: PermissionContext): PermissionDecision | null {
+    const rule = (this.getMergedSettings().rules ?? []).find((candidate) => (
+      candidate.action === 'deny' && this.ruleMatches(context, candidate)
+    ));
+    return rule ? { allowed: false, reason: 'rule_match' } : null;
   }
 
   /**
