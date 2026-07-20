@@ -77,7 +77,7 @@ export function registerChromeCommand(program: Command): void {
       }
       if (!extensionId) {
         console.log(chalk.yellow('No extension id is configured yet.'));
-        console.log(chalk.gray('Open the extension options page, copy the pairing command, then rerun it to enable direct /chrome handoff.'));
+        console.log(chalk.gray('Open the extension options page, copy the pairing command, then rerun it to enable direct /browser handoff.'));
       }
       if (detectedProfile) {
         console.log(chalk.gray(`  profile: ${detectedProfile.browser} / ${detectedProfile.profileDirectory}`));

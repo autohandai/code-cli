@@ -1574,8 +1574,8 @@ autohand --no-chrome       # Start with browser bridge disabled
 ```
 ### Commandes barre oblique
 ```
-/chrome                    # Open Chrome integration panel
-/chrome disconnect         # Close the browser bridge connection
+/browser                   # Open Chrome integration panel
+/browser disconnect        # Close the browser bridge connection
 ```
 ---
 
@@ -1941,7 +1941,7 @@ Ces indicateurs remplacent les paramètres du fichier de configuration :
 
 | Drapeau | Descriptif |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `--chrome` | Activer l'intégration du navigateur Chrome (identique à `/chrome`) |
+| `--chrome` | Activer l'intégration du navigateur Chrome (identique à `/browser`) |
 | `--no-chrome` | Désactiver l'intégration du navigateur Chrome |
 
 ### Invite système
@@ -2093,7 +2093,7 @@ Autohand fournit un riche ensemble de commandes slash pour une utilisation inter
 
 | Commande | Descriptif |
 | ------------- | ----------------------------------------------------- |
-| `/chrome` | Activer l'intégration du navigateur Chrome |
+| `/browser` | Activer l'intégration du navigateur Chrome |
 
 ### Interface utilisateur et affichage
 

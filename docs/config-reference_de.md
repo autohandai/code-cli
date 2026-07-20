@@ -1704,8 +1704,8 @@ autohand --no-chrome       # Mit deaktivierter Browser-Bridge starten
 ### Slash-Befehle
 
 ```
-/chrome                    # Chrome-Integrationspanel öffnen
-/chrome disconnect         # Browser-Bridge-Verbindung schließen
+/browser                   # Chrome-Integrationspanel öffnen
+/browser disconnect        # Browser-Bridge-Verbindung schließen
 ```
 
 ---
@@ -2083,7 +2083,7 @@ Diese Flags überschreiben Konfigurationsdatei-Einstellungen:
 
 | Flag                          | Beschreibung                                                                                    |
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
-| `--chrome`                    | Chrome-Browser-Integration aktivieren (gleich wie `/chrome`)                                          |
+| `--chrome`                    | Chrome-Browser-Integration aktivieren (gleich wie `/browser`)                                         |
 | `--no-chrome`                 | Chrome-Browser-Integration deaktivieren                                                             |
 
 ### System-Prompt
@@ -2235,7 +2235,7 @@ Autohand bietet eine umfangreiche Reihe von Slash-Befehlen für die interaktive 
 
 | Befehl       | Beschreibung                                           |
 | ------------- | ----------------------------------------------------- |
-| `/chrome`     | Chrome-Browser-Integration aktivieren                     |
+| `/browser`    | Chrome-Browser-Integration aktivieren                     |
 
 ### UI & Anzeige
 

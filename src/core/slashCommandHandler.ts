@@ -278,7 +278,7 @@ export class SlashCommandHandler {
             trackFeatureActivation: this.ctx.trackFeatureActivation,
           }, args);
         }
-        case '/chrome': {
+        case '/browser': {
           const { chrome } = await import('../commands/chrome.js');
           return chrome(this.ctx, args);
         }

@@ -1549,7 +1549,7 @@ Actions:
       },
     },
   },
-  // ── Browser tools (available when Chrome extension is connected via /chrome) ──
+  // ── Browser tools (available when Chrome extension is connected via /browser) ──
   {
     name: 'browser_screenshot',
     description: 'Capture a screenshot of the page currently visible in the Chrome browser tab. Returns a base64 PNG image. Only available when the Chrome extension is connected.',

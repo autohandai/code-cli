@@ -3,14 +3,15 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  *
- * Tests for /chrome slash command:
+ * Tests for /browser slash command:
  * - Modal lifecycle (onBeforeModal / onAfterModal)
  * - No-session guard
- * - /chrome disconnect subcommand
+ * - /browser disconnect subcommand
  * - Toggle option (flip + re-show + clear terminal output)
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { SlashCommandContext } from '../../src/core/slashCommandTypes.js';
 
 // ─── Hoisted mocks (Bun-compatible) ─────────────────────────────
 var mockShowModal = vi.fn();
@@ -57,7 +58,8 @@ vi.mock('chalk', () => ({
   },
 }));
 
-const { chrome } = await import('../../src/commands/chrome.js');
+const { chrome, metadata } = await import('../../src/commands/chrome.js');
+const { SlashCommandHandler } = await import('../../src/core/slashCommandHandler.js');
 
 function makeCtx(overrides: Record<string, unknown> = {}) {
   return {
@@ -87,7 +89,7 @@ beforeEach(() => {
 });
 
 // ─── Modal lifecycle ────────────────────────────────────────────
-describe('/chrome command modal lifecycle', () => {
+describe('/browser command modal lifecycle', () => {
   it('calls onBeforeModal before showModal and onAfterModal after', async () => {
     const callOrder: string[] = [];
     const ctx = makeCtx({
@@ -124,7 +126,7 @@ describe('/chrome command modal lifecycle', () => {
 });
 
 // ─── No-session guard ───────────────────────────────────────────
-describe('/chrome no-session guard', () => {
+describe('/browser no-session guard', () => {
   it('returns an error message when no active session', async () => {
     const ctx = makeCtx({
       sessionManager: { getCurrentSession: () => null },
@@ -135,8 +137,8 @@ describe('/chrome no-session guard', () => {
   });
 });
 
-// ─── /chrome disconnect subcommand ──────────────────────────────
-describe('/chrome disconnect', () => {
+// ─── /browser disconnect subcommand ────────────────────────────
+describe('/browser disconnect', () => {
   it('disables enabledByDefault and saves config', async () => {
     const config: Record<string, unknown> = {
       chrome: { enabledByDefault: true },
@@ -162,7 +164,7 @@ describe('/chrome disconnect', () => {
 });
 
 // ─── Toggle option ──────────────────────────────────────────────
-describe('/chrome toggle enabled by default', () => {
+describe('/browser toggle enabled by default', () => {
   it('flips enabledByDefault, saves config, and re-shows modal', async () => {
     const config: Record<string, unknown> = {
       chrome: { enabledByDefault: false },
@@ -246,20 +248,24 @@ describe('/chrome toggle enabled by default', () => {
 });
 
 // ─── SlashCommandHandler passes full context ────────────────────
-describe('SlashCommandHandler /chrome context', () => {
-  it('passes the full context and args to the chrome command', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(
-      new URL('../../src/core/slashCommandHandler.ts', import.meta.url).pathname.replace('/tests/commands/../../', '/'),
-      'utf-8',
+describe('SlashCommandHandler /browser context', () => {
+  it('dispatches /browser with its full context and rejects /chrome', async () => {
+    const config: Record<string, unknown> = {
+      chrome: { enabledByDefault: true },
+    };
+    const handler = new SlashCommandHandler(
+      makeCtx({ config }) as unknown as SlashCommandContext,
+      [metadata],
     );
 
-    const chromeCase = source.match(/case '\/chrome'[\s\S]*?return chrome\(([\s\S]*?)\)/);
-    expect(chromeCase).toBeTruthy();
+    expect(handler.isCommandSupported('/browser')).toBe(true);
+    expect(handler.isCommandSupported('/chrome')).toBe(false);
 
-    const arg = chromeCase![1].trim();
-    expect(arg).toContain('this.ctx');
-    expect(arg).toContain('args');
+    const result = await handler.handle('/browser', ['disconnect']);
+
+    expect(result).toContain('disconnected');
+    expect((config.chrome as Record<string, unknown>).enabledByDefault).toBe(false);
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
   });
 });
 

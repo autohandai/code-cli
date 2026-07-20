@@ -630,7 +630,7 @@ export async function installNativeHost(options: NativeHostInstallOptions): Prom
 
 /**
  * Ensure the native messaging host is installed. Called automatically by
- * `/chrome` so users never have to run a separate install step.
+ * `/browser` so users never have to run a separate install step.
  * Re-installs if the host script is missing or the shebang points to a
  * node binary that no longer exists.
  */
