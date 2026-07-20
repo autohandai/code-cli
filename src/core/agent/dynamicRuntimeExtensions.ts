@@ -12,6 +12,8 @@ import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from '../../constants.js';
 import { ExtensionRegistry } from '../../extensions/ExtensionRegistry.js';
 import type { ExtensionSnapshot } from '../../extensions/types.js';
 import type { SkillsRegistry } from '../../skills/SkillsRegistry.js';
+import { extensionRuntimeHost } from '../../extensions/ExtensionRuntimeHost.js';
+import { SLASH_COMMANDS } from '../slashCommands.js';
 
 export interface DynamicRuntimeExtensionHost {
   toolsRegistry?: ToolsRegistry;
@@ -19,6 +21,14 @@ export interface DynamicRuntimeExtensionHost {
   extensionRegistry?: Pick<ExtensionRegistry, 'load'>;
   extensionSnapshot?: ExtensionSnapshot;
   skillsRegistry?: Pick<SkillsRegistry, 'listSkills' | 'setExtensionSkills'>;
+  permissionManager?: {
+    setExtensionPolicies(policies: ReturnType<typeof extensionRuntimeHost.getPermissionPolicies>): void;
+  };
+  hookManager?: {
+    setExtensionHooks(hooks: ReturnType<typeof extensionRuntimeHost.getHooks>): void;
+  };
+  inkRenderer?: object | null;
+  slashHandler?: unknown;
 }
 
 export function configureAgentRegistry(runtime: AgentRuntime): AgentRegistry {
@@ -59,9 +69,32 @@ export async function syncDynamicRuntimeExtensions(
       .filter((skill) => skill.source !== 'extension')
       .map((skill) => skill.name),
   });
+  const runtimeDiagnostics = await extensionRuntimeHost.sync(snapshot);
+  snapshot.diagnostics.push(...runtimeDiagnostics);
   host.extensionSnapshot = snapshot;
   agentRegistry.setExtensionAgents(snapshot.agents);
   host.skillsRegistry?.setExtensionSkills?.(snapshot.skills);
+  host.permissionManager?.setExtensionPolicies(extensionRuntimeHost.getPermissionPolicies());
+  host.hookManager?.setExtensionHooks(extensionRuntimeHost.getHooks());
+  const inkRenderer = host.inkRenderer as {
+    setRuntimeSlashCommands?: (commands: typeof SLASH_COMMANDS) => void;
+    setExtensionKeybindings?: (
+      keybindings: ReturnType<typeof extensionRuntimeHost.getKeybindings>
+    ) => void;
+    setRuntimeLineExtensions?: (
+      lineExtensions: ReturnType<typeof extensionRuntimeHost.getLineExtensions>
+    ) => void;
+  } | null | undefined;
+  inkRenderer?.setRuntimeSlashCommands?.([
+    ...SLASH_COMMANDS,
+    ...extensionRuntimeHost.getCommands().map((command) => ({
+      command: command.command,
+      description: command.description,
+      implemented: true,
+    })),
+  ]);
+  inkRenderer?.setExtensionKeybindings?.(extensionRuntimeHost.getKeybindings());
+  inkRenderer?.setRuntimeLineExtensions?.(extensionRuntimeHost.getLineExtensions());
 
   if (!host.toolsRegistry || !host.toolManager) {
     return snapshot;

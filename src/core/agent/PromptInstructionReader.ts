@@ -10,6 +10,7 @@ import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { SLASH_COMMANDS } from '../slashCommands.js';
 import { isAutohandDebugEnabled, writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { BARE_SLASH_COMMANDS_DISABLED_MESSAGE } from '../../runtime/bareMode.js';
+import { extensionRuntimeHost } from '../../extensions/ExtensionRuntimeHost.js';
 import type { AgentRuntime } from '../../types.js';
 import type { ImageMimeType } from '../ImageManager.js';
 
@@ -88,7 +89,14 @@ export async function promptForAgentInstruction(host: AgentPromptInstructionHost
     try {
       input = await readInstruction(
         () => host.workspaceFileCollector.getCachedFiles(),
-        host.runtime.options.bare ? [] : SLASH_COMMANDS,
+        host.runtime.options.bare ? [] : [
+          ...SLASH_COMMANDS,
+          ...extensionRuntimeHost.getCommands().map((command) => ({
+            command: command.command,
+            description: command.description,
+            implemented: true,
+          })),
+        ],
         statusLine,
         {}, // default IO
         (data, mimeType, filename) => host.imageManager.add(data, mimeType, filename),

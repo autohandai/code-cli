@@ -41,6 +41,7 @@ export const ExtensionContributionsSchema = z
     tools: UniqueContributionPathsSchema.optional(),
     agents: UniqueContributionPathsSchema.optional(),
     skills: UniqueContributionPathsSchema.optional(),
+    runtime: UniqueContributionPathsSchema.optional(),
   })
   .strict()
   .refine(
@@ -48,8 +49,9 @@ export const ExtensionContributionsSchema = z
       (contributes.tools?.length ?? 0)
       + (contributes.agents?.length ?? 0)
       + (contributes.skills?.length ?? 0)
+      + (contributes.runtime?.length ?? 0)
     ) > 0,
-    'an extension must contribute at least one tool, agent, or skill',
+    'an extension must contribute at least one tool, agent, skill, or runtime entrypoint',
   );
 
 export const ExtensionManifestSchema = z
@@ -71,6 +73,7 @@ export const ExtensionStateSchema = z
   .object({
     disabled: z.boolean().optional(),
     linked: z.boolean().optional(),
+    trusted: z.boolean().optional(),
   })
   .strict();
 

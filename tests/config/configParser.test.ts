@@ -518,6 +518,51 @@ describe("configParser – error handling (Issue #3)", () => {
     expect(providerConfig?.reasoningEffort).toBe("medium");
   });
 
+  it("loads provider configuration owned by a trusted runtime extension", async () => {
+    const configPath = await writeTempConfig(
+      testDir,
+      "config.json",
+      JSON.stringify({
+        provider: "extension:company-release",
+        extensionProviders: {
+          "extension:company-release": {
+            model: "release-model",
+            apiKey: "runtime-provider-key",
+            baseUrl: "https://models.example.com",
+          },
+        },
+      }),
+    );
+    const { getProviderConfig, loadConfig } = await importConfigModule();
+
+    const result = await loadConfig(configPath);
+
+    expect(result.provider).toBe("extension:company-release");
+    expect(getProviderConfig(result)).toMatchObject({
+      model: "release-model",
+      apiKey: "runtime-provider-key",
+      baseUrl: "https://models.example.com",
+    });
+  });
+
+  it("rejects runtime extension provider configuration without a model", async () => {
+    const configPath = await writeTempConfig(
+      testDir,
+      "config.json",
+      JSON.stringify({
+        provider: "extension:company-release",
+        extensionProviders: {
+          "extension:company-release": { baseUrl: "https://models.example.com" },
+        },
+      }),
+    );
+    const loadConfig = await importLoadConfig();
+
+    await expect(loadConfig(configPath)).rejects.toThrow(
+      /extensionProviders\.extension:company-release\.model must be a non-empty string/,
+    );
+  });
+
   it("loads a valid YAML config without errors", async () => {
     const yamlContent = `provider: openrouter\nopenrouter:\n  apiKey: sk-test-key\n  baseUrl: https://openrouter.ai/api/v1\n  model: your-modelcard-id-here\n`;
     const configPath = await writeTempConfig(

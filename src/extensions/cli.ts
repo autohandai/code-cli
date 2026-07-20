@@ -38,6 +38,7 @@ interface ParsedArguments {
   yes: boolean;
   link: boolean;
   replace: boolean;
+  trust: boolean;
   scope?: ExtensionScope;
 }
 
@@ -48,7 +49,7 @@ const EXTENSIONS_USAGE = [
   '  extensions list [--json] [--scope user|project]',
   '  extensions show <id> [--json] [--scope user|project]',
   '  extensions validate <path> [--json]',
-  '  extensions install <path> [--scope user|project] [--link] [--replace]',
+  '  extensions install <path> [--scope user|project] [--link] [--replace] [--trust]',
   '  extensions enable <id> [--scope user|project]',
   '  extensions disable <id> [--scope user|project]',
   '  extensions remove <id> [--scope user|project] [--yes]',
@@ -62,6 +63,7 @@ function parseArguments(args: string[]): ParsedArguments {
     yes: false,
     link: false,
     replace: false,
+    trust: false,
   };
 
   for (let index = 0; index < args.length; index++) {
@@ -78,6 +80,9 @@ function parseArguments(args: string[]): ParsedArguments {
         break;
       case '--replace':
         parsed.replace = true;
+        break;
+      case '--trust':
+        parsed.trust = true;
         break;
       case '--scope': {
         const scope = args[index + 1];
@@ -127,6 +132,7 @@ function extensionJson(extension: LoadedExtension, snapshot: ExtensionSnapshot) 
     scope: extension.scope,
     disabled: extension.disabled,
     linked: extension.linked,
+    trusted: extension.trusted,
     root: extension.root,
     tools: contributionNames(snapshot.tools, extension.manifest.id, (tool) => tool.definition.name),
     agents: contributionNames(snapshot.agents, extension.manifest.id, (agent) => agent.name),
@@ -135,6 +141,9 @@ function extensionJson(extension: LoadedExtension, snapshot: ExtensionSnapshot) 
       extension.manifest.id,
       (skill: ExtensionSkillContribution) => skill.definition.name,
     ),
+    runtime: snapshot.runtimes
+      .filter((runtime) => runtime.provenance.extensionId === extension.manifest.id)
+      .map((runtime) => path.relative(extension.root, runtime.file).split(path.sep).join('/')),
   };
 }
 
@@ -145,9 +154,11 @@ function extensionDetail(extension: LoadedExtension, snapshot: ExtensionSnapshot
     value.description,
     `Scope: ${value.scope}`,
     `State: ${value.disabled ? 'disabled' : 'enabled'}${value.linked ? ' (linked)' : ''}`,
+    `Trust: ${value.runtime.length === 0 ? 'declarative' : value.trusted ? 'trusted runtime' : 'runtime not trusted'}`,
     `Tools: ${value.tools.join(', ') || 'none'}`,
     `Agents: ${value.agents.join(', ') || 'none'}`,
     `Skills: ${value.skills.join(', ') || 'none'}`,
+    `Runtime: ${value.runtime.join(', ') || 'none'}`,
     `Root: ${value.root}`,
   ].join('\n');
 }
@@ -162,13 +173,14 @@ function readResult(output: string, code = 0): ExtensionsCommandResult {
 
 function assertAllowedOptions(
   parsed: ParsedArguments,
-  allowed: Array<'json' | 'yes' | 'link' | 'replace' | 'scope'>,
+  allowed: Array<'json' | 'yes' | 'link' | 'replace' | 'trust' | 'scope'>,
 ): void {
-  const used: Array<['json' | 'yes' | 'link' | 'replace' | 'scope', boolean]> = [
+  const used: Array<['json' | 'yes' | 'link' | 'replace' | 'trust' | 'scope', boolean]> = [
     ['json', parsed.json],
     ['yes', parsed.yes],
     ['link', parsed.link],
     ['replace', parsed.replace],
+    ['trust', parsed.trust],
     ['scope', parsed.scope !== undefined],
   ];
   const unsupported = used.find(([name, active]) => active && !allowed.includes(name));
@@ -235,20 +247,23 @@ export async function runExtensionsCommand(
           tools: validation.tools.map((tool) => tool.definition.name),
           agents: validation.agents.map((agent) => agent.name),
           skills: validation.skills.map((skill) => skill.definition.name),
+          runtime: validation.runtimes.map((runtime) =>
+            path.relative(validation.extension.root, runtime.file).split(path.sep).join('/')),
         };
         const count = (value: number, singular: string): string =>
           `${value} ${singular}${value === 1 ? '' : 's'}`;
         return readResult(parsed.json
           ? JSON.stringify(payload, null, 2)
-          : `Valid extension ${payload.id}@${payload.version} (${count(payload.tools.length, 'tool')}, ${count(payload.agents.length, 'agent')}, ${count(payload.skills.length, 'skill')})`);
+          : `Valid extension ${payload.id}@${payload.version} (${count(payload.tools.length, 'tool')}, ${count(payload.agents.length, 'agent')}, ${count(payload.skills.length, 'skill')}, ${count(payload.runtime.length, 'runtime entrypoint')})`);
       }
       case 'install': {
-        assertAllowedOptions(parsed, ['scope', 'link', 'replace']);
+        assertAllowedOptions(parsed, ['scope', 'link', 'replace', 'trust']);
         const sourcePath = requirePositional(parsed, 0, 'Extension path');
         const result = await context.service.install(sourcePath, {
           scope: parsed.scope,
           link: parsed.link,
           replace: parsed.replace,
+          trust: parsed.trust,
         });
         const verb = result.status === 'existing'
           ? 'Already installed'
@@ -412,14 +427,16 @@ export function registerExtensionsCommand(program: Command): void {
     .option('--scope <scope>', 'Install at user or project scope', 'user')
     .option('--link', 'Link the source directory for extension development', false)
     .option('--replace', 'Atomically replace different installed content', false)
+    .option('--trust', 'Allow reviewed runtime code to execute inside Autohand', false)
     .action(async (
       sourcePath: string,
-      options: { scope?: string; link?: boolean; replace?: boolean },
+      options: { scope?: string; link?: boolean; replace?: boolean; trust?: boolean },
     ) => executeRegisteredCommand(program, withScope([
       'install',
       sourcePath,
       ...(options.link ? ['--link'] : []),
       ...(options.replace ? ['--replace'] : []),
+      ...(options.trust ? ['--trust'] : []),
     ], options.scope)));
 
   for (const action of ['enable', 'disable'] as const) {

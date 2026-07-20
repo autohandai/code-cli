@@ -26,6 +26,7 @@ import {
   loadSessionProjectPermissions,
   type SessionProjectPermissions,
 } from './sessionProjectPermissions.js';
+import type { ExtensionPermissionPolicy } from '../extensions/ExtensionRuntimeHost.js';
 
 /**
  * Default security blacklist - always blocked patterns for sensitive files and dangerous commands.
@@ -184,6 +185,7 @@ export class PermissionManager {
   private onPersist?: (settings: PermissionSettings) => Promise<void>;
   private workspaceRoot?: string;
   private localSettingsLoaded = false;
+  private extensionPolicies: ExtensionPermissionPolicy[] = [];
 
   private normalizeSettings(settings: PermissionSettings | undefined): PermissionSettings {
     return {
@@ -242,7 +244,27 @@ export class PermissionManager {
    * Get merged settings (global + local)
    */
   private getMergedSettings(): PermissionSettings {
-    return mergePermissions(this.settings, this.localSettings);
+    return this.extensionPolicies.reduce(
+      (settings, policy) => mergePermissions(settings, policy.settings),
+      mergePermissions(this.settings, this.localSettings),
+    );
+  }
+
+  setExtensionPolicies(policies: ExtensionPermissionPolicy[]): void {
+    this.extensionPolicies = policies.map((policy) => ({
+      extensionId: policy.extensionId,
+      settings: {
+        ...policy.settings,
+        allowList: [...(policy.settings.allowList ?? policy.settings.whitelist ?? [])],
+        denyList: [...(policy.settings.denyList ?? policy.settings.blacklist ?? [])],
+        rules: [...(policy.settings.rules ?? [])],
+        allowPatterns: [...(policy.settings.allowPatterns ?? [])],
+        denyPatterns: [...(policy.settings.denyPatterns ?? [])],
+        availableTools: [...(policy.settings.availableTools ?? [])],
+        excludedTools: [...(policy.settings.excludedTools ?? [])],
+      },
+    }));
+    this.sessionCache.clear();
   }
 
   /**
@@ -272,6 +294,20 @@ export class PermissionManager {
     const patternDecision = this.checkPatterns(context);
     if (patternDecision) {
       return patternDecision;
+    }
+
+    const extensionSettings = this.extensionPolicies.reduce(
+      (settings, policy) => mergePermissions(settings, policy.settings),
+      {} as PermissionSettings,
+    );
+    const extensionDenyDecision = this.checkScopedLists(
+      context,
+      [],
+      extensionSettings.denyList,
+      'user',
+    );
+    if (extensionDenyDecision) {
+      return extensionDenyDecision;
     }
 
     const cacheKey = this.getCacheKey(context);
@@ -322,6 +358,16 @@ export class PermissionManager {
     );
     if (userDecision) {
       return userDecision;
+    }
+
+    const extensionAllowDecision = this.checkScopedLists(
+      context,
+      extensionSettings.allowList,
+      [],
+      'user',
+    );
+    if (extensionAllowDecision) {
+      return extensionAllowDecision;
     }
 
     // Check custom rules

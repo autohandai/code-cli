@@ -23,6 +23,7 @@ import {
 import type { LiveCommandEntry, ToolOutputEntry, ToolOutputBatchEntry, ToolOutputItem, BatchToolItem } from './ToolOutput.js';
 import type { SlashCommand } from '../../core/slashCommandTypes.js';
 import type { SkillMentionInfo } from '../mentionFilter.js';
+import type { ExtensionKeybinding } from '../../extensions/ExtensionRuntimeHost.js';
 import { ThemeProvider } from '../theme/ThemeContext.js';
 import { I18nProvider } from '../i18n/index.js';
 import { inkRenderOptions } from '../inkRenderOptions.js';
@@ -56,6 +57,8 @@ export interface InkRendererOptions {
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
   /** Optional extension points for status/help lines. */
   lineExtensions?: AgentUILineExtensions;
+  extensionKeybindings?: ExtensionKeybinding[];
+  runtimeLineExtensions?: AgentUILineExtensions;
 }
 
 export interface SetWorkingOptions {
@@ -90,6 +93,7 @@ interface AgentUIWrapperProps {
   suggestionProvider?: () => string | undefined;
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
   lineExtensions?: AgentUILineExtensions;
+  extensionKeybindings?: ExtensionKeybinding[];
   onReplaceQueuedInstruction: (index: number, text: string) => void;
   onRemoveQueuedInstruction: (index: number) => void;
 }
@@ -116,6 +120,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       suggestionProvider,
       resolveShellSuggestion,
       lineExtensions,
+      extensionKeybindings,
       onReplaceQueuedInstruction,
       onRemoveQueuedInstruction,
     } = props;
@@ -157,6 +162,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         suggestionProvider={suggestionProvider}
         resolveShellSuggestion={resolveShellSuggestion}
         lineExtensions={lineExtensions}
+        extensionKeybindings={extensionKeybindings}
         onReplaceQueuedInstruction={onReplaceQueuedInstruction}
         onRemoveQueuedInstruction={onRemoveQueuedInstruction}
       />
@@ -260,6 +266,8 @@ export class InkRenderer {
     this.state = {
       ...createInitialUIState(),
       lineExtensions: options.lineExtensions,
+      extensionKeybindings: options.extensionKeybindings,
+      extensionLineExtensions: options.runtimeLineExtensions,
     };
     this.wrapperRef = React.createRef<AgentUIWrapperHandle>();
   }
@@ -325,6 +333,7 @@ export class InkRenderer {
             suggestionProvider={this.options.suggestionProvider}
             resolveShellSuggestion={this.options.resolveShellSuggestion}
             lineExtensions={this.options.lineExtensions}
+            extensionKeybindings={this.options.extensionKeybindings}
             onReplaceQueuedInstruction={(index, text) => this.replaceQueuedInstruction(index, text)}
             onRemoveQueuedInstruction={(index) => this.removeQueuedInstruction(index)}
           />
@@ -905,6 +914,18 @@ export class InkRenderer {
     });
   }
 
+  setRuntimeSlashCommands(commands: SlashCommand[]): void {
+    this.updateState({ runtimeSlashCommands: [...commands] });
+  }
+
+  setExtensionKeybindings(keybindings: ExtensionKeybinding[]): void {
+    this.updateState({ extensionKeybindings: [...keybindings] });
+  }
+
+  setRuntimeLineExtensions(lineExtensions: AgentUILineExtensions | undefined): void {
+    this.updateState({ extensionLineExtensions: lineExtensions });
+  }
+
   /**
    * Clear the composer input (e.g. after a slash command completes)
    */
@@ -1040,6 +1061,7 @@ export class InkRenderer {
               suggestionProvider={this.options.suggestionProvider}
               resolveShellSuggestion={this.options.resolveShellSuggestion}
               lineExtensions={this.options.lineExtensions}
+              extensionKeybindings={this.options.extensionKeybindings}
               onReplaceQueuedInstruction={(index, text) => this.replaceQueuedInstruction(index, text)}
               onRemoveQueuedInstruction={(index) => this.removeQueuedInstruction(index)}
             />

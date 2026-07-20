@@ -11,6 +11,7 @@ import type {
   BuiltInProviderName,
   LoadedConfig,
   ProviderName,
+  ExtensionProviderId,
   ProviderSettings,
   AzureSettings,
   OpenAISettings,
@@ -66,6 +67,10 @@ function normalizeProviderName(provider: unknown): ProviderName | undefined {
 
   if (isCustomProviderName(provider)) {
     return provider;
+  }
+
+  if (typeof provider === "string" && /^extension:[a-z][a-z0-9-]*(?:[.-][a-z0-9-]+)*$/.test(provider)) {
+    return provider as ProviderName;
   }
 
   const validProviders: readonly BuiltInProviderName[] = [
@@ -502,7 +507,16 @@ function mergeWorkspaceSettings(
   if (workspaceSettings.model !== undefined) {
     // Update the model in the provider-specific config
     const provider = workspaceSettings.provider || merged.provider;
-    if (provider && isCustomProviderName(provider)) {
+    if (provider && typeof provider === "string" && provider.startsWith("extension:")) {
+      const extensionProvider = provider as ExtensionProviderId;
+      const extensionConfig = merged.extensionProviders?.[extensionProvider];
+      if (extensionConfig) {
+        merged.extensionProviders = {
+          ...merged.extensionProviders,
+          [extensionProvider]: { ...extensionConfig, model: workspaceSettings.model },
+        };
+      }
+    } else if (provider && isCustomProviderName(provider)) {
       const customProvider = getCustomProviderConfig(merged, provider);
       if (customProvider) {
         merged.customProviders = {
@@ -870,6 +884,23 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
       }
     }
   }
+
+  const extensionProviders = (config as AutohandConfig & {
+    extensionProviders?: Record<string, Record<string, unknown>>;
+  }).extensionProviders;
+  if (extensionProviders !== undefined) {
+    if (!isPlainObject(extensionProviders)) {
+      throw new Error(`extensionProviders must be an object in ${configPath}`);
+    }
+    for (const [key, provider] of Object.entries(extensionProviders)) {
+      if (!key.startsWith("extension:") || !isPlainObject(provider)) {
+        throw new Error(`extensionProviders.${key} must be an object under an extension: provider id in ${configPath}`);
+      }
+      if (typeof provider.model !== "string" || provider.model.trim() === "") {
+        throw new Error(`extensionProviders.${key}.model must be a non-empty string in ${configPath}`);
+      }
+    }
+  }
 }
 
 export function resolveWorkspaceRoot(
@@ -887,6 +918,13 @@ export function getProviderConfig(
   provider?: ProviderName,
 ): ProviderSettings | null {
   const chosen = provider ?? config.provider ?? "openrouter";
+  if (typeof chosen === "string" && chosen.startsWith("extension:")) {
+    const entry = config.extensionProviders?.[chosen as ExtensionProviderId];
+    if (!entry?.model?.trim()) {
+      return null;
+    }
+    return { ...entry, model: entry.model.trim() };
+  }
   if (isCustomProviderName(chosen)) {
     const entry = getCustomProviderConfig(config, chosen);
     if (!entry || entry.apiFormat !== "openai-compatible") {

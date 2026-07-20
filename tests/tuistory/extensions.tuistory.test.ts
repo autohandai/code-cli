@@ -27,6 +27,7 @@ const EXAMPLE_IDS = [
   'autohand.code-health',
   'autohand.git-insights',
   'autohand.release-assistant',
+  'autohand.runtime-showcase',
   'autohand.security-audit',
   'autohand.test-triage',
   'autohand.workspace-brief',
@@ -214,7 +215,59 @@ describe('built extensions CLI Tuistory E2E', () => {
     await exitInteractive(session);
   }, 90_000);
 
-  it('runs all six portable examples through fresh built CLI processes', async () => {
+  it('runs trusted slash commands, Ink views, line segments, flags, and keybindings', async () => {
+    const state = await createTempAutohandHome();
+    tempStates.push(state);
+    const source = path.join(
+      repoRoot(),
+      'examples',
+      'extensions',
+      'autohand.runtime-showcase',
+    );
+    const installation = await runBuiltCommand(state, [
+      'extensions',
+      'install',
+      source,
+      '--trust',
+    ]);
+    expect(installation.exitCode, installation.output).toBe(0);
+
+    const session = await launchBuiltAutohand([
+      '--path', state.workspaceRoot,
+      '--config', state.configPath,
+      '--deploy-environment', 'quality-assurance',
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      waitForDataTimeout: 15_000,
+    });
+    sessions.push(session);
+
+    await session.waitForText('extensions:ready', { timeout: 20_000 });
+    await session.waitForText('ctrl+k deploy', { timeout: 10_000 });
+    await session.type('/deploy production');
+    await session.press('enter');
+    await session.waitForText('Deployment console', { timeout: 10_000 });
+    await session.waitForText('Target: production', { timeout: 10_000 });
+    await session.press('down');
+    await session.press('enter');
+    await session.waitForText('Validate release selected for production.', { timeout: 10_000 });
+
+    await session.press(['ctrl', 'k']);
+    await session.waitForText('Target: quality-assurance', { timeout: 10_000 });
+    await session.press('escape');
+
+    await session.type('/extensions disable autohand.runtime-showcase');
+    await session.press('enter');
+    await session.waitForText('Disabled autohand.runtime-showcase', { timeout: 10_000 });
+    await session.type('/deploy');
+    await session.press('enter');
+    await session.waitForText('Command /deploy is not supported.', { timeout: 10_000 });
+
+    await exitInteractive(session);
+  }, 90_000);
+
+  it('runs all seven examples through fresh built CLI processes', async () => {
     const state = await createTempAutohandHome();
     tempStates.push(state);
     const examplesRoot = path.join(repoRoot(), 'examples', 'extensions');
@@ -231,7 +284,12 @@ describe('built extensions CLI Tuistory E2E', () => {
       expect(validation.exitCode, validation.output).toBe(0);
       expect(validation.output).toContain(`Valid extension ${id}@1.0.0`);
 
-      const installation = await runBuiltCommand(state, ['extensions', 'install', source]);
+      const installation = await runBuiltCommand(state, [
+        'extensions',
+        'install',
+        source,
+        ...(id === 'autohand.runtime-showcase' ? ['--trust'] : []),
+      ]);
       expect(installation.exitCode, installation.output).toBe(0);
       expect(installation.output).toContain(`Installed ${id}@1.0.0`);
     }
@@ -285,7 +343,7 @@ describe('built extensions CLI Tuistory E2E', () => {
 
     const doctor = await runBuiltCommand(state, ['extensions', 'doctor']);
     expect(doctor.exitCode, doctor.output).toBe(0);
-    expect(doctor.output).toContain('Extension diagnostics: healthy (5 installed)');
+    expect(doctor.output).toContain('Extension diagnostics: healthy (6 installed)');
   }, 120_000);
 
   it('runs interactive list, show, doctor, disable, and enable with stable Ctrl+C exit', async () => {

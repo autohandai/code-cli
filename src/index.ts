@@ -26,7 +26,7 @@ import { initPingService, shutdownPingService, startPingService } from './teleme
 import { detectStdinType, readPipedStdin } from './utils/stdinDetector.js';
 import { buildPipePrompt } from './modes/pipeMode.js';
 import { shouldUseInteractivePipeHandoff } from './modes/pipeRouting.js';
-import { PROJECT_DIR_NAME } from './constants.js';
+import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from './constants.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessionWorktree.js';
 import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
 import { registerBrowserCommand, registerBrowserOptions } from './browser/cliCommand.js';
@@ -264,6 +264,9 @@ program
     if (normalization.deprecatedBrowserOption) {
       console.warn(chalk.yellow(formatDeprecatedBrowserOptionWarning(normalization.deprecatedBrowserOption)));
     }
+
+    const { extensionRuntimeHost } = await import('./extensions/ExtensionRuntimeHost.js');
+    extensionRuntimeHost.setCliOptions(opts as unknown as Record<string, unknown>);
 
     await refreshModelCatalogBeforeAgentStart(opts);
 
@@ -2482,11 +2485,51 @@ function isCliEntrypoint(): boolean {
 }
 
 if (isCliEntrypoint()) {
-  void program.parseAsync().catch((error: unknown) => {
+  void prepareRuntimeExtensionsForCli(program, process.argv)
+    .then(() => program.parseAsync())
+    .catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     console.error(chalk.red(message));
     process.exit(1);
   });
+}
+
+function argvOptionValue(argv: string[], option: string): string | undefined {
+  const index = argv.indexOf(option);
+  if (index >= 0) {
+    return argv[index + 1];
+  }
+  const prefix = `${option}=`;
+  return argv.find((value) => value.startsWith(prefix))?.slice(prefix.length);
+}
+
+async function prepareRuntimeExtensionsForCli(command: Command, argv: string[]): Promise<void> {
+  if (argv.includes('--bare')) {
+    return;
+  }
+  const workspaceRoot = path.resolve(argvOptionValue(argv, '--path') ?? process.cwd());
+  const [{ ExtensionRegistry }, runtimeModule, slashModule, { ProviderFactory }] = await Promise.all([
+    import('./extensions/ExtensionRegistry.js'),
+    import('./extensions/ExtensionRuntimeHost.js'),
+    import('./core/slashCommands.js'),
+    import('./providers/ProviderFactory.js'),
+  ]);
+  runtimeModule.extensionRuntimeHost.setReservedCapabilities({
+    reservedCommands: [
+      ...slashModule.SLASH_COMMANDS.map((item) => item.command),
+      '/chrome',
+    ],
+    reservedProviders: ProviderFactory.getProviderNames(),
+    reservedCliFlags: command.options
+      .flatMap((option) => [option.short, option.long])
+      .filter((flag): flag is string => typeof flag === 'string'),
+  });
+  const snapshot = await new ExtensionRegistry({
+    userRoot: AUTOHAND_PATHS.extensions,
+    projectRoot: path.join(workspaceRoot, PROJECT_DIR_NAME, 'extensions'),
+  }).load();
+  await runtimeModule.extensionRuntimeHost.sync(snapshot);
+  runtimeModule.registerExtensionCliFlags(command, runtimeModule.extensionRuntimeHost);
 }
 
 function launchInTmuxIfRequested(opts: CLIOptions & { mode?: string }): boolean {
@@ -2540,3 +2583,11 @@ function launchInTmuxIfRequested(opts: CLIOptions & { mode?: string }): boolean 
   console.log(chalk.gray(`Attach with: tmux attach-session -t ${sessionName}`));
   process.exit(0);
 }
+
+export type {
+  ExtensionCommandContext,
+  ExtensionCommandResult,
+  ExtensionRuntimeAPI,
+  ExtensionViewProps,
+  ExtensionViewRequest,
+} from './extensions/ExtensionRuntimeHost.js';
