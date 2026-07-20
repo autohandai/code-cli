@@ -18,7 +18,7 @@ import {
   createNotification,
   JSON_RPC_ERROR_CODES,
 } from './types.js';
-import { writeAutohandDebugLine } from '../../utils/debugLog.js';
+import { getRpcErrorMetadata, getRpcIdMetadata, writeRpcDebugLine } from './logging.js';
 
 // ============================================================================
 // Parsing
@@ -101,7 +101,7 @@ export function serialize(obj: JsonRpcRequest | JsonRpcResponse): string {
     return JSON.stringify(obj);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown serialization error';
-    writeAutohandDebugLine(`[RPC] Serialization error: ${message}`);
+    writeRpcDebugLine(`Serialization failed: ${getRpcErrorMetadata(error)}`);
     // Return a minimal error response that can still be serialized
     return JSON.stringify({
       jsonrpc: '2.0',
@@ -123,7 +123,7 @@ export function serializeBatch(responses: JsonRpcResponse[]): string {
     return JSON.stringify(responses);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown serialization error';
-    writeAutohandDebugLine(`[RPC] Batch serialization error: ${message}`);
+    writeRpcDebugLine(`Batch serialization failed: ${getRpcErrorMetadata(error)}`);
     // Return an array with a single error response
     return JSON.stringify([{
       jsonrpc: '2.0',
@@ -291,11 +291,10 @@ export function writeResponse(id: JsonRpcId, result: unknown): void {
   try {
     const response = createResponse(id, result);
     const serialized = serialize(response) + '\n';
-    writeAutohandDebugLine(`[RPC DEBUG] writeResponse id=${id} size=${serialized.length}b`);
+    writeRpcDebugLine(`writeResponse ${getRpcIdMetadata(id)} size=${serialized.length}b`);
     process.stdout.write(serialized);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown write error';
-    writeAutohandDebugLine(`[RPC] Failed to write response for id '${id}': ${message}`);
+    writeRpcDebugLine(`writeResponse failed ${getRpcIdMetadata(id)}: ${getRpcErrorMetadata(error)}`);
   }
 }
 
@@ -312,11 +311,10 @@ export function writeErrorResponse(
   try {
     const response = createErrorResponse(id, code, message, data);
     const serialized = serialize(response) + '\n';
-    writeAutohandDebugLine(`[RPC DEBUG] writeErrorResponse id=${id} size=${serialized.length}b`);
+    writeRpcDebugLine(`writeErrorResponse ${getRpcIdMetadata(id)} size=${serialized.length}b`);
     process.stdout.write(serialized);
   } catch (error) {
-    const errMsg = error instanceof Error ? error.message : 'Unknown write error';
-    writeAutohandDebugLine(`[RPC] Failed to write error response: ${errMsg}`);
+    writeRpcDebugLine(`writeErrorResponse failed: ${getRpcErrorMetadata(error)}`);
   }
 }
 
@@ -328,11 +326,10 @@ export function writeBatchResponse(responses: JsonRpcResponse[]): void {
   if (responses.length > 0) {
     try {
       const serialized = serializeBatch(responses) + '\n';
-      writeAutohandDebugLine(`[RPC DEBUG] writeBatchResponse count=${responses.length} size=${serialized.length}b`);
+      writeRpcDebugLine(`writeBatchResponse count=${responses.length} size=${serialized.length}b`);
       process.stdout.write(serialized);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown write error';
-      writeAutohandDebugLine(`[RPC] Failed to write batch response: ${message}`);
+      writeRpcDebugLine(`writeBatchResponse failed: ${getRpcErrorMetadata(error)}`);
     }
   }
 }
@@ -346,12 +343,11 @@ export function writeNotification(method: string, params?: JsonRpcParams): void 
     const notification = createNotification(method, params);
     const serialized = serialize(notification) + '\n';
     if (method !== 'autohand.ping') {
-      writeAutohandDebugLine(`[RPC DEBUG] writeNotification method=${method} size=${serialized.length}b`);
+      writeRpcDebugLine(`writeNotification method=${method} size=${serialized.length}b`);
     }
     process.stdout.write(serialized);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown write error';
-    writeAutohandDebugLine(`[RPC] Failed to write notification '${method}': ${message}`);
+    writeRpcDebugLine(`writeNotification failed method=${method}: ${getRpcErrorMetadata(error)}`);
   }
 }
 

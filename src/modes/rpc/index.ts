@@ -71,7 +71,7 @@ import {
   writeInternalError,
 } from './protocol.js';
 import { getPlanModeManager } from '../../commands/plan.js';
-import { writeAutohandDebugLine } from '../../utils/debugLog.js';
+import { getRpcErrorMetadata, writeRpcDebugLine } from './logging.js';
 import { shutdownBrowserToolBridge } from '../../browser/browserToolBridge.js';
 import { configureSearchFromSettings } from '../../actions/web.js';
 
@@ -179,13 +179,13 @@ export async function runRpcMode(options: CLIOptions): Promise<0 | 1> {
   suppressConsole();
 
   const handleStdoutError = (err: Error): void => {
-    writeAutohandDebugLine(`[RPC] stdout error: ${err.message}`);
+    writeRpcDebugLine(`stdout error: ${getRpcErrorMetadata(err)}`);
   };
   const handleStdinError = (err: Error): void => {
-    writeAutohandDebugLine(`[RPC] stdin error: ${err.message}`);
+    writeRpcDebugLine(`stdin error: ${getRpcErrorMetadata(err)}`);
   };
   const handleStdinEnd = (): void => {
-    writeAutohandDebugLine('[RPC] stdin end (extension disconnected)');
+    writeRpcDebugLine('stdin end extensionDisconnected=true');
   };
 
   let adapter: RPCAdapter | null = null;
@@ -288,7 +288,7 @@ export async function runRpcMode(options: CLIOptions): Promise<0 | 1> {
         mode: 'rpc',
       });
       workspaceRoot = sessionWorktree.worktreePath;
-      writeAutohandDebugLine(`[RPC] Using git worktree ${sessionWorktree.worktreePath} (${sessionWorktree.branchName})`);
+      writeRpcDebugLine('Using git worktree enabled=true');
     }
 
     // Validate and resolve additional directories from --add-dir flag
@@ -401,7 +401,7 @@ export async function runRpcMode(options: CLIOptions): Promise<0 | 1> {
           reader.readLine(),
           terminationController.signal,
         );
-        writeAutohandDebugLine(`[RPC DEBUG] stdin read line size=${line.length}b`);
+        writeRpcDebugLine(`stdin read line size=${line.length}b`);
         await awaitRpcLifecycleStep(
           handleLine(line, adapter, terminationController.signal),
           terminationController.signal,
@@ -412,11 +412,11 @@ export async function runRpcMode(options: CLIOptions): Promise<0 | 1> {
         }
         // Stream closed or fatal error
         if (error instanceof Error && error.message === 'Stream closed') {
-          writeAutohandDebugLine('[RPC] Extension disconnected (stdin closed). Shutting down gracefully.');
+          writeRpcDebugLine('Extension disconnected shuttingDown=true');
           break;
         }
         const message = error instanceof Error ? error.message : String(error);
-        writeAutohandDebugLine(`[RPC] Fatal error in request loop: ${message}`);
+        writeRpcDebugLine(`Fatal error in request loop: ${getRpcErrorMetadata(error)}`);
         writeInternalError(null, message);
       }
     }
@@ -460,7 +460,7 @@ async function handleLine(
   signal?: AbortSignal,
 ): Promise<void> {
   if (signal?.aborted) return;
-  writeAutohandDebugLine(`[RPC DEBUG] handleLine received: ${line.slice(0, 100)}`);
+  writeRpcDebugLine(`handleLine inputLength=${line.length}`);
   const parseResult = parseRequest(line);
 
   if (parseResult.type === 'error') {
@@ -526,7 +526,7 @@ async function handleSingleRequest(
 
       case RPC_METHODS.ABORT: {
         // Abort can be called as notification (no id) for instant response
-        writeAutohandDebugLine(`[RPC DEBUG] ABORT received! id=${id}, isNotification=${!shouldRespond}`);
+        writeRpcDebugLine(`ABORT received hasRequestId=${id !== undefined}, isNotification=${!shouldRespond}`);
         result = adapter.handleAbort(id ?? null);
         break;
       }
@@ -832,7 +832,7 @@ async function handleSingleRequest(
         } else {
           planModeManager.disable();
         }
-        writeAutohandDebugLine(`[RPC DEBUG] Plan mode set to: ${planParams.enabled}`);
+        writeRpcDebugLine(`Plan mode set enabled=${planParams.enabled}`);
         result = { success: true };
         break;
       }

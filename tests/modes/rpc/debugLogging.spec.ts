@@ -25,6 +25,8 @@ describe('RPC debug logging boundary', () => {
     for (const { path, source } of sources) {
       const directWrites = source.match(/process\.stderr\.write\(/g) ?? [];
       expect(directWrites.length, path).toBe(0);
+      expect(source, path).not.toContain('writeAutohandDebugLine');
+      expect(source, path).not.toContain('../../utils/debugLog.js');
     }
   });
 });

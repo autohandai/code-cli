@@ -10,7 +10,9 @@ import {
   LineReader,
   generateId,
   createTimestamp,
+  writeErrorResponse,
   writeNotification,
+  writeResponse,
 } from '../../../src/modes/rpc/protocol.js';
 import { JSON_RPC_ERROR_CODES } from '../../../src/modes/rpc/types.js';
 import { PassThrough, Readable } from 'stream';
@@ -188,13 +190,19 @@ describe('JSON-RPC 2.0 Protocol', () => {
       expect(parsed).toEqual(batch);
     });
 
-    it('keeps serialization diagnostics silent unless debug logging is enabled', () => {
-      const circular: Record<string, unknown> = {};
-      circular.self = circular;
+    it('keeps serialization errors metadata-only when debug logging is enabled', () => {
+      const serializationError = Object.assign(new Error('SERIALIZATION_ERROR_SENTINEL'), {
+        name: 'ERROR_NAME_SENTINEL\nINJECTED_LOG_LINE',
+      });
+      const unserializable = {
+        toJSON(): never {
+          throw serializationError;
+        },
+      };
       const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
       delete process.env.AUTOHAND_DEBUG;
-      const quietResult = serialize(circular as never);
+      const quietResult = serialize(unserializable as never);
 
       expect(JSON.parse(quietResult)).toMatchObject({
         jsonrpc: '2.0',
@@ -204,10 +212,41 @@ describe('JSON-RPC 2.0 Protocol', () => {
       expect(stderr).not.toHaveBeenCalled();
 
       process.env.AUTOHAND_DEBUG = '1';
-      const debugResult = serialize(circular as never);
+      const debugResult = serialize(unserializable as never);
+      const diagnostics = stderr.mock.calls.map(([value]) => String(value)).join('');
 
       expect(debugResult).toBe(quietResult);
-      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('[RPC] Serialization error:'));
+      expect(diagnostics).toContain('[RPC DEBUG] Serialization failed: errorType=Error');
+      expect(diagnostics).toContain('messageLength=28');
+      expect(diagnostics).not.toContain('SERIALIZATION_ERROR_SENTINEL');
+      expect(diagnostics).not.toContain('ERROR_NAME_SENTINEL');
+      expect(diagnostics).not.toContain('INJECTED_LOG_LINE');
+    });
+
+    it('preserves fallback serialization when a thrown value rejects string coercion', () => {
+      const hostileValue = {
+        [Symbol.toPrimitive](): never {
+          throw new Error('COERCION_SENTINEL');
+        },
+      };
+      const unserializable = {
+        toJSON(): never {
+          throw hostileValue;
+        },
+      };
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      process.env.AUTOHAND_DEBUG = '1';
+
+      const result = serialize(unserializable as never);
+      const diagnostics = stderr.mock.calls.map(([value]) => String(value)).join('');
+
+      expect(JSON.parse(result)).toMatchObject({
+        jsonrpc: '2.0',
+        error: { code: JSON_RPC_ERROR_CODES.INTERNAL_ERROR },
+        id: null,
+      });
+      expect(diagnostics).toContain('errorType=object, messageLength=0');
+      expect(diagnostics).not.toContain('COERCION_SENTINEL');
     });
   });
 
@@ -215,7 +254,7 @@ describe('JSON-RPC 2.0 Protocol', () => {
     it('preserves stdout framing while debug metadata remains opt-in', () => {
       const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
       const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-      const params = { content: 'sentinel-secret' };
+      const params = { content: 'STDOUT_PAYLOAD_SENTINEL' };
 
       delete process.env.AUTOHAND_DEBUG;
       writeNotification('autohand.messageUpdate', params);
@@ -236,6 +275,24 @@ describe('JSON-RPC 2.0 Protocol', () => {
       expect(stderr).toHaveBeenCalledWith(
         expect.stringMatching(/^\[RPC DEBUG\] writeNotification method=autohand\.messageUpdate size=\d+b\n$/)
       );
+      expect(stderr.mock.calls.map(([value]) => String(value)).join(''))
+        .not.toContain('STDOUT_PAYLOAD_SENTINEL');
+    });
+
+    it('redacts client-controlled response IDs from debug diagnostics', () => {
+      const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      const id = 'RPC_ID_SENTINEL\nINJECTED_LOG_LINE';
+      process.env.AUTOHAND_DEBUG = '1';
+
+      writeResponse(id, { success: true });
+      writeErrorResponse(id, JSON_RPC_ERROR_CODES.INTERNAL_ERROR, 'public protocol error');
+
+      const diagnostics = stderr.mock.calls.map(([value]) => String(value)).join('');
+      expect(stdout).toHaveBeenCalledTimes(2);
+      expect(diagnostics).toContain(`idType=string idLength=${id.length}`);
+      expect(diagnostics).not.toContain('RPC_ID_SENTINEL');
+      expect(diagnostics).not.toContain('INJECTED_LOG_LINE');
     });
   });
 
