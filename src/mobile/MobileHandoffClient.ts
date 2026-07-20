@@ -52,6 +52,20 @@ export interface MobileRelayHeartbeatPayload {
   mode: 'queue' | 'steer';
 }
 
+export type MobilePairingStatus = 'pending' | 'claimed' | 'expired' | 'revoked';
+
+export interface MobilePairingHeartbeatState {
+  id: string;
+  status: MobilePairingStatus;
+  claimedByDeviceId?: string | null;
+  claimedAt: string | null;
+}
+
+export interface MobileRelayHeartbeatResponse {
+  success: boolean;
+  pairing?: MobilePairingHeartbeatState | null;
+}
+
 export type MobileEventType =
   | 'permission_request'
   | 'directory_access_request'
@@ -238,7 +252,10 @@ export interface MobileHandoffClientLike {
   getDeviceId(): Promise<string>;
   registerDevice(token: string, payload: RegisterMobileDevicePayload): Promise<void>;
   createPairing(token: string, payload: CreateMobilePairingPayload): Promise<MobilePairing>;
-  sendRelayHeartbeat(token: string, payload: MobileRelayHeartbeatPayload): Promise<void>;
+  sendRelayHeartbeat(
+    token: string,
+    payload: MobileRelayHeartbeatPayload
+  ): Promise<MobileRelayHeartbeatResponse | void>;
   claimWork(token: string, deviceId: string): Promise<ClaimedWorkItem | null>;
   publishMobileEvent?<EventType extends MobileEventType>(
     token: string,
@@ -317,18 +334,25 @@ export class MobileHandoffClient implements MobileHandoffClientLike {
     return data.pairing;
   }
 
-  async sendRelayHeartbeat(token: string, payload: MobileRelayHeartbeatPayload): Promise<void> {
-    await this.request(`/v1/mobile/sessions/${encodeURIComponent(payload.sessionId)}/heartbeat`, token, {
-      method: 'POST',
-      body: JSON.stringify({
-        deviceId: payload.deviceId,
-        pairingId: payload.pairingId,
-        mode: payload.mode,
-      }),
-      headers: {
-        'X-Device-ID': payload.deviceId,
-      },
-    });
+  async sendRelayHeartbeat(
+    token: string,
+    payload: MobileRelayHeartbeatPayload
+  ): Promise<MobileRelayHeartbeatResponse> {
+    return this.request<MobileRelayHeartbeatResponse>(
+      `/v1/mobile/sessions/${encodeURIComponent(payload.sessionId)}/heartbeat`,
+      token,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          deviceId: payload.deviceId,
+          pairingId: payload.pairingId,
+          mode: payload.mode,
+        }),
+        headers: {
+          'X-Device-ID': payload.deviceId,
+        },
+      }
+    );
   }
 
   async claimWork(token: string, deviceId: string): Promise<ClaimedWorkItem | null> {

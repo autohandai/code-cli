@@ -13,6 +13,7 @@ import type {
   MobileEventPayloadMap,
   MobileEventType,
   MobileKeepAwakeStatus,
+  MobilePairingHeartbeatState,
   MobilePullRequestReview,
 } from './MobileHandoffClient.js';
 import { randomUUID } from 'node:crypto';
@@ -73,6 +74,7 @@ export interface MobileRelayController {
   publishArtifactsFromText(text: string): Promise<void>;
   setKeepAwake(enabled: boolean): Promise<MobileKeepAwakeStatus>;
   setSessionControlHandler(handler: (command: 'cancel') => void): void;
+  setPairingClaimHandler(handler: (pairing: MobilePairingHeartbeatState) => void): void;
   requestChangesDecision(batchId: string, changes: MobileChangePreview[]): Promise<MobileChangesDecision>;
 }
 
@@ -123,6 +125,9 @@ let activeRelay: {
     resolve: (value: PermissionPromptResponse | string | MobileChangesDecision | undefined) => void;
   }>;
   sessionControlHandler?: (command: 'cancel') => void;
+  pairingClaim?: MobilePairingHeartbeatState;
+  pairingClaimHandler?: (pairing: MobilePairingHeartbeatState) => void;
+  pairingClaimDelivered: boolean;
   keepAwakeController: KeepAwakeController;
 } | null = null;
 
@@ -138,6 +143,7 @@ export function startMobileRelay(options: MobileRelayOptions): MobileRelayContro
     polling: false,
     actionCursor: 0,
     pendingActions: new Map(),
+    pairingClaimDelivered: false,
     keepAwakeController,
   };
 
@@ -179,6 +185,12 @@ export function startMobileRelay(options: MobileRelayOptions): MobileRelayContro
         activeRelay.sessionControlHandler = handler;
       }
     },
+    setPairingClaimHandler: (handler) => {
+      if (activeRelay?.deviceId === options.deviceId) {
+        activeRelay.pairingClaimHandler = handler;
+        deliverPairingClaim(options);
+      }
+    },
     requestChangesDecision: (batchId, changes) => requestChangesDecision(options, batchId, changes),
   };
 }
@@ -208,12 +220,13 @@ async function pollOnce(options: MobileRelayOptions): Promise<void> {
   activeRelay.polling = true;
   try {
     try {
-      await options.client.sendRelayHeartbeat(options.token, {
+      const heartbeat = await options.client.sendRelayHeartbeat(options.token, {
         sessionId: options.sessionId,
         deviceId: options.deviceId,
         pairingId: options.pairingId,
         mode: options.mode,
       });
+      observePairingClaim(options, heartbeat?.pairing);
     } catch (error) {
       options.onError?.(error as Error);
     }
@@ -246,6 +259,44 @@ async function pollOnce(options: MobileRelayOptions): Promise<void> {
     if (activeRelay?.deviceId === options.deviceId) {
       activeRelay.polling = false;
     }
+  }
+}
+
+function observePairingClaim(
+  options: MobileRelayOptions,
+  pairing: MobilePairingHeartbeatState | null | undefined
+): void {
+  const relay = activeRelay;
+  if (
+    !relay ||
+    relay.deviceId !== options.deviceId ||
+    pairing?.status !== 'claimed' ||
+    (options.pairingId !== undefined && pairing.id !== options.pairingId)
+  ) {
+    return;
+  }
+
+  relay.pairingClaim ??= pairing;
+  deliverPairingClaim(options);
+}
+
+function deliverPairingClaim(options: MobileRelayOptions): void {
+  const relay = activeRelay;
+  if (
+    !relay ||
+    relay.deviceId !== options.deviceId ||
+    relay.pairingClaimDelivered ||
+    !relay.pairingClaim ||
+    !relay.pairingClaimHandler
+  ) {
+    return;
+  }
+
+  relay.pairingClaimDelivered = true;
+  try {
+    relay.pairingClaimHandler(relay.pairingClaim);
+  } catch (error) {
+    options.onError?.(error as Error);
   }
 }
 

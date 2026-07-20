@@ -21,6 +21,101 @@ import type { ChildProcess } from 'node:child_process';
 describe('MobileRelay event bridge', () => {
   afterEach(() => {
     stopMobileRelay();
+    vi.useRealTimers();
+  });
+
+  it('reports a claimed pairing exactly once across repeated heartbeats', async () => {
+    vi.useFakeTimers();
+    const sendRelayHeartbeat = vi.fn()
+      .mockResolvedValueOnce({
+        success: true,
+        pairing: {
+          id: 'pairing-1',
+          status: 'pending',
+          claimedAt: null,
+        },
+      })
+      .mockResolvedValue({
+        success: true,
+        pairing: {
+          id: 'pairing-1',
+          status: 'claimed',
+          claimedAt: '2026-07-20T01:02:03.000Z',
+        },
+      });
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat,
+      claimWork: vi.fn().mockResolvedValue(null),
+    };
+    const onPairingClaimed = vi.fn();
+
+    const relay = startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+    });
+    relay.setPairingClaimHandler(onPairingClaimed);
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onPairingClaimed).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(onPairingClaimed).toHaveBeenCalledTimes(1);
+    expect(onPairingClaimed).toHaveBeenCalledWith({
+      id: 'pairing-1',
+      status: 'claimed',
+      claimedAt: '2026-07-20T01:02:03.000Z',
+    });
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(sendRelayHeartbeat).toHaveBeenCalledTimes(5);
+    expect(onPairingClaimed).toHaveBeenCalledTimes(1);
+  });
+
+  it('delivers a claimed pairing observed before the handler is registered', async () => {
+    vi.useFakeTimers();
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({
+        success: true,
+        pairing: {
+          id: 'pairing-1',
+          status: 'claimed',
+          claimedAt: '2026-07-20T01:02:03.000Z',
+        },
+      }),
+      claimWork: vi.fn().mockResolvedValue(null),
+    };
+    const relay = startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    const onPairingClaimed = vi.fn();
+    relay.setPairingClaimHandler(onPairingClaimed);
+
+    expect(onPairingClaimed).toHaveBeenCalledTimes(1);
+    expect(onPairingClaimed).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'pairing-1',
+      status: 'claimed',
+    }));
   });
 
   it('round-trips a permission decision from the phone to the agent callback', async () => {

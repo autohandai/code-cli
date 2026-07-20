@@ -4,7 +4,7 @@
  * Spec: https://www.jsonrpc.org/specification
  */
 import type { PermissionPromptDecision, PermissionPromptResult } from '../../permissions/types.js';
-import type { McpServerConfigEntry, ToolRegistryEntry } from '../../types.js';
+import type { AuthUser, McpServerConfigEntry, ToolRegistryEntry } from '../../types.js';
 import type {
   ExperimentConstraintConfig,
   ExperimentRetentionConfig,
@@ -143,8 +143,10 @@ export const RPC_METHODS = {
   // Session history
   GET_HISTORY: 'autohand.getHistory',
   GET_SESSION: 'autohand.getSession',
+  SESSION_ATTACH: 'autohand.session.attach',
   // YOLO mode control
   YOLO_SET: 'autohand.yoloSet',
+  YOLO_SET_COMPAT: 'autohand.yolo.set',
   // MCP (Model Context Protocol) management
   MCP_LIST_SERVERS: 'autohand.mcp.listServers',
   MCP_LIST_TOOLS: 'autohand.mcp.listTools',
@@ -475,6 +477,18 @@ export interface GetSessionResult {
   summary?: string;
   messages: RpcMessage[];
   workspaceRoot: string;
+  error?: string;
+}
+
+export interface SessionAttachParams {
+  sessionId: string;
+}
+
+export interface SessionAttachResult {
+  success: boolean;
+  sessionId?: string;
+  workspaceRoot?: string;
+  messageCount?: number;
   error?: string;
 }
 
@@ -830,6 +844,8 @@ export interface GetStateResult {
   workspace: string;
   contextPercent: number;
   messageCount: number;
+  /** Safe authenticated profile metadata. Credentials are never exposed over RPC. */
+  authenticatedUser?: AuthUser;
 }
 
 export interface GetMessagesResult {

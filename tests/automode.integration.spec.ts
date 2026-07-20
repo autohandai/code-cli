@@ -177,6 +177,8 @@ describe('Auto-Mode Integration', () => {
 
       const completeEvent = hookEvents.find(e => e.event === 'automode:complete');
       expect(completeEvent).toBeDefined();
+      expect(completeEvent?.context.automodeIteration).toBe(1);
+      expect(manager.getState()?.currentIteration).toBe(1);
     });
 
     it('emits automode:cancel event when cancelled', async () => {

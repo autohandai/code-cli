@@ -4,6 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { EventEmitter } from 'node:events';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 var mockCreateBrowserHandoff: ReturnType<typeof vi.fn>;
@@ -38,8 +43,11 @@ const mockAgent = {
   getPermissionManager: vi.fn().mockReturnValue(mockPermissionManager),
   getFileManager: vi.fn(),
   getHookManager: vi.fn(),
+  getMemoryManager: vi.fn(),
   getSkillsRegistry: vi.fn(),
   getAutomodeManager: vi.fn(),
+  getAndResetFileModCount: vi.fn(),
+  getAndResetExecutedActions: vi.fn(),
   getImageManager: vi.fn().mockReturnValue({ clear: vi.fn() }),
   getStatusSnapshot: vi.fn().mockReturnValue({ tokensUsed: 0, contextPercent: 0, model: 'test' }),
   setStatusListener: vi.fn(),
@@ -50,7 +58,9 @@ const mockAgent = {
   handleSlashCommand: vi.fn(),
   parseSlashCommand: vi.fn(),
   runInstruction: vi.fn().mockResolvedValue(true),
+  runCommandMode: vi.fn().mockResolvedValue(true),
   cancelCurrentInstruction: vi.fn(),
+  shutdownRuntimeResources: vi.fn().mockResolvedValue(undefined),
 };
 
 const mockConversation = {
@@ -90,9 +100,15 @@ describe('RPC Adapter - P2 Handlers', () => {
     mockAgent.getMcpManager.mockReturnValue(mockMcpManager);
     mockAgent.getToolsRegistry.mockReturnValue(undefined);
     mockAgent.getPermissionManager.mockReturnValue(mockPermissionManager);
+    mockAgent.getAutomodeManager.mockReturnValue(undefined);
+    mockAgent.getAndResetFileModCount.mockReturnValue({ count: 0, paths: [] });
+    mockAgent.getAndResetExecutedActions.mockReturnValue([]);
+    mockAgent.runCommandMode.mockResolvedValue(true);
+    mockAgent.shutdownRuntimeResources.mockResolvedValue(undefined);
     mockAgent.getImageManager.mockReturnValue({ clear: vi.fn() });
     mockAgent.getStatusSnapshot.mockReturnValue({ tokensUsed: 0, contextPercent: 0, model: 'test' });
     mockPermissionManager.getMode.mockReturnValue('interactive');
+    mockConversation.history.mockReturnValue([]);
 
     adapter = new RPCAdapter();
     adapter.initialize(
@@ -424,6 +440,176 @@ describe('RPC Adapter - P2 Handlers', () => {
     });
   });
 
+  describe('handleGetState()', () => {
+    it('returns the authenticated user without exposing auth credentials', () => {
+      const authenticatedAdapter = new RPCAdapter();
+      authenticatedAdapter.initialize(
+        mockAgent as any,
+        mockConversation as any,
+        'test-model',
+        '/test/workspace',
+        {
+          configPath: '/test/config.json',
+          auth: {
+            token: 'must-not-leave-the-cli',
+            user: {
+              id: 'user-1',
+              email: 'igor@example.com',
+              name: 'Igor Costa',
+              avatar: 'https://example.com/avatar.png',
+            },
+          },
+        },
+      );
+
+      const result = authenticatedAdapter.handleGetState('req_1');
+
+      expect(result.authenticatedUser).toEqual({
+        id: 'user-1',
+        email: 'igor@example.com',
+        name: 'Igor Costa',
+        avatar: 'https://example.com/avatar.png',
+      });
+      expect(JSON.stringify(result)).not.toContain('must-not-leave-the-cli');
+    });
+  });
+
+  describe('handleAutomodeStart()', () => {
+    it('starts the manager and runs iterations through the RPC agent', async () => {
+      const manager = Object.assign(new EventEmitter(), {
+        isActive: vi.fn().mockReturnValue(false),
+        isPausedState: vi.fn().mockReturnValue(false),
+        getState: vi.fn().mockReturnValue({
+          sessionId: 'automode-test',
+          status: 'running',
+          currentIteration: 0,
+          maxIterations: 3,
+          filesCreated: 0,
+          filesModified: 0,
+        }),
+        start: vi.fn(),
+        pause: vi.fn(),
+        resume: vi.fn(),
+        cancel: vi.fn(),
+      });
+      let runIteration:
+        | ((iteration: number, prompt: string, signal: AbortSignal) => Promise<unknown>)
+        | undefined;
+      let finishRun!: () => void;
+      const runFinished = new Promise<void>((resolve) => {
+        finishRun = resolve;
+      });
+      manager.start.mockImplementation(async (options, callback) => {
+        runIteration = callback;
+        manager.emit('automode:start', {
+          automodeSessionId: 'automode-test',
+          automodePrompt: options.prompt,
+          automodeMaxIterations: options.maxIterations ?? 50,
+        });
+        await runFinished;
+      });
+      mockAgent.getAutomodeManager.mockReturnValue(manager as never);
+      mockAgent.getAndResetFileModCount
+        .mockReturnValueOnce({ count: 0, paths: [] })
+        .mockReturnValueOnce({ count: 1, paths: ['src/example.ts'] });
+      mockAgent.getAndResetExecutedActions
+        .mockReturnValueOnce([])
+        .mockReturnValueOnce(['browser_navigate']);
+      mockAgent.runCommandMode.mockResolvedValue(true);
+
+      const result = await adapter.handleAutomodeStart('req_1', {
+        prompt: 'Finish the browser task',
+        maxIterations: 3,
+        useWorktree: false,
+      });
+
+      expect(result).toEqual({ success: true, sessionId: 'automode-test' });
+      expect(manager.start).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: 'Finish the browser task',
+          maxIterations: 3,
+          useWorktree: false,
+        }),
+        expect.any(Function),
+      );
+      expect(runIteration).toBeTypeOf('function');
+
+      const outputListener = mockAgent.setOutputListener.mock.calls[0]?.[0];
+      outputListener({ type: 'message', content: 'Automode streamed output' });
+      expect(writeNotification).toHaveBeenCalledWith(
+        'autohand.messageUpdate',
+        expect.objectContaining({ delta: 'Automode streamed output' }),
+      );
+
+      const signal = new AbortController().signal;
+      const iterationResult = await runIteration?.(
+        1,
+        'Finish the browser task',
+        signal,
+      );
+      expect(mockAgent.runCommandMode).toHaveBeenCalledWith(
+        expect.stringContaining('Auto-Mode Task (Iteration 1)'),
+        { signal, keepAlive: true },
+      );
+      expect(iterationResult).toEqual(
+        expect.objectContaining({
+          success: true,
+          actions: ['browser_navigate'],
+          filesModified: 1,
+          modifiedFiles: ['src/example.ts'],
+        }),
+      );
+      finishRun();
+      await vi.waitFor(() => expect(adapter.getState().status).toBe('idle'));
+    });
+
+    it('creates and completes a real manager when the agent has no prebuilt manager', async () => {
+      const workspace = await mkdtemp(path.join(tmpdir(), 'autohand-rpc-automode-'));
+      const productionAdapter = new RPCAdapter();
+      mockAgent.getAutomodeManager.mockReturnValue(undefined);
+      mockAgent.getSessionManager.mockReturnValue({
+        ...mockSessionManager,
+        getCurrentSession: vi.fn().mockReturnValue(undefined),
+      });
+      mockAgent.runCommandMode.mockImplementation(async () => {
+        mockConversation.history.mockReturnValue([
+          { role: 'assistant', content: '<promise>DONE</promise>' },
+        ]);
+        return true;
+      });
+      productionAdapter.initialize(
+        mockAgent as any,
+        mockConversation as any,
+        'test-model',
+        workspace,
+        { configPath: path.join(workspace, 'config.json') },
+      );
+
+      try {
+        const result = await productionAdapter.handleAutomodeStart('req_1', {
+          prompt: 'Complete without provider work',
+          maxIterations: 1,
+          useWorktree: false,
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.sessionId).toMatch(/^automode-/);
+        await vi.waitFor(() => {
+          expect(productionAdapter.handleAutomodeStatus('status_1').active).toBe(
+            false,
+          );
+        });
+        expect(mockAgent.runCommandMode).toHaveBeenCalledWith(
+          expect.stringContaining('Auto-Mode Task (Iteration 1)'),
+          expect.objectContaining({ keepAlive: true }),
+        );
+      } finally {
+        await productionAdapter.shutdown('completed');
+        await rm(workspace, { recursive: true, force: true });
+      }
+    });
+  });
+
   // -------------------------------------------------------------------------
   // handleYoloSet()
   // -------------------------------------------------------------------------
@@ -458,6 +644,23 @@ describe('RPC Adapter - P2 Handlers', () => {
       const result = adapter.handleYoloSet('req_1', { pattern: '*' });
 
       expect(result.expiresIn).toBeUndefined();
+    });
+
+    it('turns YOLO off and cancels a pending expiry timer', () => {
+      vi.useFakeTimers();
+
+      adapter.handleYoloSet('req_1', {
+        pattern: '*',
+        timeoutSeconds: 5,
+      });
+      const result = adapter.handleYoloSet('req_2', { pattern: '' });
+
+      expect(result).toEqual({ success: true });
+      expect(mockPermissionManager.setMode).toHaveBeenNthCalledWith(1, 'unrestricted');
+      expect(mockPermissionManager.setMode).toHaveBeenNthCalledWith(2, 'interactive');
+
+      vi.advanceTimersByTime(5000);
+      expect(mockPermissionManager.setMode).toHaveBeenCalledTimes(2);
     });
 
     it('does not let an older YOLO timeout revert a newer YOLO grant', () => {
@@ -709,6 +912,20 @@ describe('RPC Adapter - Browser handoff', () => {
 
     expect(mockAttachLatestBrowserHandoff).toHaveBeenCalledWith();
     expect(mockAgent.attachSession).toHaveBeenCalledWith('session-current');
+    expect(result).toEqual({
+      success: true,
+      sessionId: 'attached-session',
+      workspaceRoot: '/attached/workspace',
+      messageCount: 12,
+    });
+  });
+
+  it('attaches a selected session from extension history', async () => {
+    const result = await adapter.handleSessionAttach('req_1', {
+      sessionId: 'session-history',
+    });
+
+    expect(mockAgent.attachSession).toHaveBeenCalledWith('session-history');
     expect(result).toEqual({
       success: true,
       sessionId: 'attached-session',
