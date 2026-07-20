@@ -1367,6 +1367,10 @@ W przypadku wystąpienia konfliktów (ten sam plik zmodyfikowany na wielu urząd
 
 Klucze API i inne wrażliwe dane w `config.json` są szyfrowane przy użyciu Twojego tokena uwierzytelniającego przed przesłaniem. Można je odszyfrować jedynie za pomocą danych uwierzytelniających.
 
+Zdalne nazwy plików są akceptowane wyłącznie jako względne ścieżki POSIX w ramach włączonych kategorii synchronizacji. Synchronizacja odrzuca przechodzenie poza katalog, ścieżki bezwzględne lub w stylu Windows, zduplikowane albo puste segmenty oraz miejsca docelowe przekierowane przez dowiązania symboliczne poza włączony katalog główny.
+
+Token logowania aplikacji jest wysyłany w nagłówku `Authorization` wyłącznie do adresów URL transferu o tym samym pochodzeniu co skonfigurowane API synchronizacji. Wstępnie podpisane adresy HTTPS z innego źródła nigdy nie otrzymują tego tokenu; niezabezpieczone lub nieprawidłowe adresy między źródłami są odrzucane.
+
 **Co jest zaszyfrowane:**
 
 - Pola o nazwach `apiKey`

@@ -1507,6 +1507,10 @@ When conflicts occur (same file modified on multiple devices), the **cloud versi
 
 API keys and other sensitive data in `config.json` are encrypted using your authentication token before upload. They can only be decrypted with your credentials.
 
+Remote file names are accepted only as relative POSIX paths inside the enabled sync categories. Sync rejects directory traversal, absolute or Windows-style paths, duplicate or empty segments, and destinations redirected outside an enabled root by symbolic links.
+
+The application login token is sent in the `Authorization` header only to transfer URLs on the configured sync API origin. Cross-origin presigned HTTPS URLs never receive that token; insecure or malformed cross-origin URLs are rejected.
+
 **What's encrypted:**
 
 - Fields named `apiKey`

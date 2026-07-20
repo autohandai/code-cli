@@ -884,6 +884,12 @@ Sincronize suas configurações entre dispositivos.
 | `syncInterval`       | number  | `300`   | Intervalo de sincronização em segundos                 |
 | `conflictResolution` | string  | `"ask"` | Como resolver conflitos: `ask`, `local`, `remote`      |
 
+### Segurança
+
+Os nomes de arquivos remotos são aceitos apenas como caminhos POSIX relativos dentro das categorias de sincronização habilitadas. A sincronização rejeita travessia de diretórios, caminhos absolutos ou no estilo Windows, segmentos duplicados ou vazios e destinos redirecionados para fora de uma raiz habilitada por links simbólicos.
+
+O token de login do aplicativo é enviado no cabeçalho `Authorization` apenas para URLs de transferência com a mesma origem da API de sincronização configurada. URLs HTTPS pré-assinadas de outra origem nunca recebem esse token; URLs entre origens inseguras ou malformadas são rejeitadas.
+
 ---
 
 ## Configurações de Hooks

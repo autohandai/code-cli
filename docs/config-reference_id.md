@@ -841,6 +841,12 @@ Sinkronkan pengaturan Anda antar perangkat.
 | `syncInterval`       | number  | `300`          | Interval sinkronisasi dalam detik                       |
 | `conflictResolution` | string  | `"ask"`        | Cara menyelesaikan konflik: `ask`, `local`, `remote`   |
 
+### Keamanan
+
+Nama file jarak jauh hanya diterima sebagai path POSIX relatif di dalam kategori sinkronisasi yang diaktifkan. Sinkronisasi menolak traversal direktori, path absolut atau bergaya Windows, segmen duplikat atau kosong, serta tujuan yang dialihkan ke luar root yang diaktifkan oleh tautan simbolis.
+
+Token login aplikasi dikirim dalam header `Authorization` hanya ke URL transfer yang origin-nya sama dengan API sinkronisasi yang dikonfigurasi. URL HTTPS presigned lintas-origin tidak pernah menerima token tersebut; URL lintas-origin yang tidak aman atau tidak valid ditolak.
+
 ---
 
 ## Pengaturan Hook

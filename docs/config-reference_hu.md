@@ -1367,6 +1367,10 @@ Ha ütközések lépnek fel (ugyanaz a fájl több eszközön módosítva), a **
 
 A `config.json` API-kulcsait és egyéb bizalmas adatait a rendszer a hitelesítési token segítségével titkosítja a feltöltés előtt. Csak az Ön hitelesítő adataival lehet visszafejteni.
 
+A távoli fájlnevek csak relatív POSIX-útvonalként fogadhatók el az engedélyezett szinkronizálási kategóriákon belül. A szinkronizálás elutasítja a könyvtárbejárást, az abszolút vagy Windows-stílusú útvonalakat, az ismétlődő vagy üres szegmenseket, valamint az engedélyezett gyökéren kívülre mutató szimbolikus hivatkozásokkal átirányított célokat.
+
+Az alkalmazás bejelentkezési tokenje az `Authorization` fejlécben csak olyan átviteli URL-ekhez kerül elküldésre, amelyek eredete megegyezik a beállított szinkronizálási API eredetével. A más eredetű, előre aláírt HTTPS URL-ek soha nem kapják meg ezt a tokent; a nem biztonságos vagy hibás más eredetű URL-ek elutasításra kerülnek.
+
 **Mi van titkosítva:**
 
 - `apiKey` nevű mezők

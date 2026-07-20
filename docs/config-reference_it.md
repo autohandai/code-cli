@@ -1367,6 +1367,10 @@ Quando si verificano conflitti (stesso file modificato su più dispositivi), pre
 
 Le chiavi API e altri dati sensibili in `config.json` vengono crittografati utilizzando il token di autenticazione prima del caricamento. Possono essere decrittografati solo con le tue credenziali.
 
+I nomi dei file remoti sono accettati solo come percorsi POSIX relativi all’interno delle categorie di sincronizzazione abilitate. La sincronizzazione rifiuta l’attraversamento di directory, i percorsi assoluti o in stile Windows, i segmenti duplicati o vuoti e le destinazioni reindirizzate fuori da una radice abilitata tramite collegamenti simbolici.
+
+Il token di accesso dell’applicazione viene inviato nell’intestazione `Authorization` solo agli URL di trasferimento con la stessa origine dell’API di sincronizzazione configurata. Gli URL HTTPS prefirmati tra origini diverse non ricevono mai il token; gli URL tra origini diverse non sicuri o non validi vengono rifiutati.
+
 **Cosa è crittografato:**
 
 - Campi denominati `apiKey`
