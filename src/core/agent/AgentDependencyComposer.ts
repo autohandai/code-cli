@@ -388,13 +388,16 @@ export function initializeAgentDependencies(
       getRegisteredTools: () => host.toolManager?.listDefinitions() ?? [],
       memoryManager: host.memoryManager,
       permissionManager: host.permissionManager,
-      onFileModified: (filePath?: string, changeType?: 'create' | 'modify' | 'delete') => host.markFilesModified(filePath, changeType),
+      onFileModified: (filePath, changeType, toolCallId) => {
+        host.markFilesModified(filePath, changeType, toolCallId);
+      },
       onAskFollowup: (question, suggestedAnswers) => host.executeAskFollowupQuestion(question, suggestedAnswers),
       onPlanCreated: (plan, filePath) => host.handlePlanCreated(plan, filePath),
       onPermissionRequest: async (context) => {
         const results = await host.hookManager.executeHooks('permission-request', {
           tool: context.tool,
           path: context.path,
+          command: context.command,
           args: context.args,
           permissionType: 'tool_approval'
         });
@@ -456,6 +459,19 @@ export function initializeAgentDependencies(
         return context.signal === undefined
           ? host.hookManager.executeHooks('pre-tool', hookContext)
           : host.hookManager.executeHooks('pre-tool', hookContext, { signal: context.signal });
+      },
+      runPermissionRequestHooks: (context) => {
+        const hookContext = {
+          tool: context.tool,
+          toolCallId: context.toolCallId,
+          args: context.args,
+          ...(context.path === undefined ? {} : { path: context.path }),
+          ...(context.command === undefined ? {} : { command: context.command }),
+          permissionType: 'tool_approval' as const,
+        };
+        return context.signal === undefined
+          ? host.hookManager.executeHooks('permission-request', hookContext)
+          : host.hookManager.executeHooks('permission-request', hookContext, { signal: context.signal });
       },
       onAdditionalContext: (context) => {
         host.conversation.addSystemNote(context, '[Pre-tool Hook Context]');

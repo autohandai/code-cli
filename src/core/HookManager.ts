@@ -1012,7 +1012,8 @@ export class HookManager {
     context: Omit<HookContext, 'event' | 'workspace'>,
     options: HookExecutionOptions = {},
   ): Promise<HookExecutionResult[]> {
-    if (options.signal?.aborted) {
+    const alreadyAborted = options.signal?.aborted === true;
+    if (alreadyAborted && event !== 'post-tool') {
       return [];
     }
 
@@ -1023,6 +1024,10 @@ export class HookManager {
     };
 
     this.notifyLifecycle(fullContext);
+
+    if (alreadyAborted) {
+      return [];
+    }
 
     if (!this.isEnabled()) {
       return [];

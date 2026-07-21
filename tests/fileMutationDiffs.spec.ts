@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 /**
  * These tests verify that all file mutation tools in actionExecutor.ts
  * include proper diff display (showDiff + formatDiffPreview) and
- * onFileModified hook calls. Following the pattern set by write_file.
+ * notifyFileModified hook calls. Following the pattern set by write_file.
  */
 describe('file mutation tools diff display', () => {
   const src = readFileSync('src/core/actionExecutor.ts', 'utf-8');
@@ -21,16 +21,18 @@ describe('file mutation tools diff display', () => {
     return src.slice(idx, idx + length);
   }
 
-  it('format_file calls onFileModified and showDiff when content changes', () => {
+  it('format_file calls notifyFileModified and showDiff when content changes', () => {
     const block = extractCaseBlock('format_file', 800);
-    expect(block).toContain('onFileModified');
+    expect(block).toContain('notifyFileModified');
+    expect(block).toContain('context?.toolCallId');
     expect(block).toContain('showDiff');
     expect(block).toContain('formatDiffPreview');
   });
 
-  it('delete_path calls onFileModified with delete type', () => {
+  it('delete_path calls notifyFileModified with delete type', () => {
     const block = extractCaseBlock('delete_path', 1000);
-    expect(block).toContain('onFileModified');
+    expect(block).toContain('notifyFileModified');
+    expect(block).toContain('context?.toolCallId');
     expect(block).toContain("'delete'");
   });
 
@@ -42,37 +44,43 @@ describe('file mutation tools diff display', () => {
 
   it('add_dependency shows package.json diff', () => {
     const block = extractCaseBlock('add_dependency', 800);
-    expect(block).toContain('onFileModified');
+    expect(block).toContain('notifyFileModified');
+    expect(block).toContain('context?.toolCallId');
     expect(block).toContain('showDiff');
     expect(block).toContain('package.json');
   });
 
   it('remove_dependency shows package.json diff', () => {
     const block = extractCaseBlock('remove_dependency', 800);
-    expect(block).toContain('onFileModified');
+    expect(block).toContain('notifyFileModified');
+    expect(block).toContain('context?.toolCallId');
     expect(block).toContain('showDiff');
     expect(block).toContain('package.json');
   });
 
-  it('git_checkout shows diff and calls onFileModified', () => {
+  it('git_checkout shows diff and calls notifyFileModified', () => {
     const block = extractCaseBlock('git_checkout', 900);
-    expect(block).toContain('onFileModified');
+    expect(block).toContain('notifyFileModified');
+    expect(block).toContain('context?.toolCallId');
     expect(block).toContain('showDiff');
     expect(block).toContain('formatDiffPreview');
   });
 
-  it('rename_path calls onFileModified with create type', () => {
+  it('rename_path calls notifyFileModified with create type', () => {
     const block = extractCaseBlock('rename_path', 400);
-    expect(block).toContain('onFileModified');
+    expect(block).toContain('notifyFileModified');
+    expect(block).toContain('context?.toolCallId');
   });
 
-  it('copy_path calls onFileModified with create type', () => {
+  it('copy_path calls notifyFileModified with create type', () => {
     const block = extractCaseBlock('copy_path', 400);
-    expect(block).toContain('onFileModified');
+    expect(block).toContain('notifyFileModified');
+    expect(block).toContain('context?.toolCallId');
   });
 
-  it('todo_write calls onFileModified', () => {
+  it('todo_write calls notifyFileModified', () => {
     const block = extractCaseBlock('todo_write', 3100);
-    expect(block).toContain('onFileModified');
+    expect(block).toContain('notifyFileModified');
+    expect(block).toContain('context?.toolCallId');
   });
 });

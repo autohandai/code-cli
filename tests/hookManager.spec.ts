@@ -353,6 +353,31 @@ describe('HookManager', () => {
       expect(spawn).not.toHaveBeenCalled();
     });
 
+    it('still publishes an already-aborted post-tool lifecycle event without spawning user hooks', async () => {
+      await manager.addHook({ event: 'post-tool', command: 'slow hook' });
+      const listener = vi.fn();
+      manager.subscribeLifecycle(listener);
+      const controller = new AbortController();
+      controller.abort();
+
+      const results = await manager.executeHooks('post-tool', {
+        tool: 'read_file',
+        toolCallId: 'aborted-tool',
+        success: false,
+      }, { signal: controller.signal });
+
+      expect(results).toEqual([]);
+      expect(spawn).not.toHaveBeenCalled();
+      expect(listener).toHaveBeenCalledOnce();
+      expect(listener).toHaveBeenCalledWith({
+        event: 'post-tool',
+        workspace: '/test/workspace',
+        tool: 'read_file',
+        toolCallId: 'aborted-tool',
+        success: false,
+      });
+    });
+
     it('terminates an active synchronous hook and removes its abort listener', async () => {
       await manager.addHook({ event: 'pre-tool', command: 'slow hook' });
       const controller = new AbortController();

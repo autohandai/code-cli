@@ -51,6 +51,7 @@ const mockAgent = {
   parseSlashCommand: vi.fn(),
   runInstruction: vi.fn().mockResolvedValue(true),
   cancelCurrentInstruction: vi.fn(),
+  shutdownRuntimeResources: vi.fn().mockResolvedValue(undefined),
 };
 
 const mockConversation = {
@@ -714,9 +715,29 @@ describe('RPC Adapter - P2 Handlers', () => {
 
 describe('RPC Adapter - Browser handoff', () => {
   let adapter: RPCAdapter;
+  let lifecycleListener: ((context: Record<string, unknown>) => void) | undefined;
+  let mockHookManager: {
+    subscribeLifecycle: ReturnType<typeof vi.fn>;
+    executeHooks: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    lifecycleListener = undefined;
+    mockHookManager = {
+      subscribeLifecycle: vi.fn((listener: (context: Record<string, unknown>) => void) => {
+        lifecycleListener = listener;
+        return () => {
+          if (lifecycleListener === listener) lifecycleListener = undefined;
+        };
+      }),
+      executeHooks: vi.fn(async (event: string, context: Record<string, unknown>) => {
+        lifecycleListener?.({ ...context, event, workspace: '/test/workspace' });
+        return [];
+      }),
+    };
+    mockAgent.getHookManager.mockReturnValue(mockHookManager);
+    mockAgent.shutdownRuntimeResources.mockResolvedValue(undefined);
     mockAgent.getSessionManager.mockReturnValue({
       ...mockSessionManager,
       getCurrentSession: vi.fn().mockReturnValue({
@@ -733,6 +754,10 @@ describe('RPC Adapter - Browser handoff', () => {
       'test-model',
       '/test/workspace'
     );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('creates a browser handoff from the active session', async () => {
@@ -757,6 +782,15 @@ describe('RPC Adapter - Browser handoff', () => {
   });
 
   it('attaches a browser handoff into the current agent session', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-22T00:00:00.000Z'));
+    adapter = new RPCAdapter();
+    adapter.initialize(
+      mockAgent as any,
+      mockConversation as any,
+      'test-model',
+      '/test/workspace',
+    );
     mockAttachBrowserHandoff.mockResolvedValue({
       token: 'token-1',
       sessionId: 'session-current',
@@ -765,6 +799,8 @@ describe('RPC Adapter - Browser handoff', () => {
       expiresAt: '2026-01-01T00:10:00.000Z',
     });
 
+    vi.mocked(writeNotification).mockClear();
+    vi.advanceTimersByTime(400);
     const result = await adapter.handleBrowserHandoffAttach('req_1', { token: 'token-1' });
 
     expect(mockAttachBrowserHandoff).toHaveBeenCalledWith('token-1');
@@ -775,6 +811,30 @@ describe('RPC Adapter - Browser handoff', () => {
       workspaceRoot: '/attached/workspace',
       messageCount: 12,
     });
+    expect(vi.mocked(writeNotification).mock.calls.filter(([method]) =>
+      method === 'autohand.hook.sessionEnd' || method === 'autohand.hook.sessionStart'
+    )).toEqual([
+      ['autohand.hook.sessionEnd', expect.objectContaining({ reason: 'exit', duration: 400 })],
+      ['autohand.hook.sessionStart', expect.objectContaining({ sessionType: 'resume' })],
+    ]);
+    expect(mockHookManager.executeHooks).toHaveBeenCalledWith('session-end', {
+      sessionId: 'session_test123',
+      sessionEndReason: 'exit',
+      duration: 400,
+    });
+    expect(mockHookManager.executeHooks).toHaveBeenCalledWith('session-start', {
+      sessionId: 'attached-session',
+      sessionType: 'resume',
+    });
+
+    vi.mocked(writeNotification).mockClear();
+    vi.advanceTimersByTime(60);
+    await adapter.shutdown('completed');
+    expect(vi.mocked(writeNotification).mock.calls.filter(([method]) =>
+      method === 'autohand.hook.sessionEnd'
+    )).toEqual([
+      ['autohand.hook.sessionEnd', expect.objectContaining({ reason: 'exit', duration: 60 })],
+    ]);
   });
 
   it('attaches the latest available browser handoff when no token is provided', async () => {
@@ -786,6 +846,7 @@ describe('RPC Adapter - Browser handoff', () => {
       expiresAt: '2026-01-01T00:10:00.000Z',
     });
 
+    vi.mocked(writeNotification).mockClear();
     const result = await adapter.handleBrowserHandoffAttachLatest('req_1');
 
     expect(mockAttachLatestBrowserHandoff).toHaveBeenCalledWith();
@@ -796,5 +857,11 @@ describe('RPC Adapter - Browser handoff', () => {
       workspaceRoot: '/attached/workspace',
       messageCount: 12,
     });
+    expect(vi.mocked(writeNotification).mock.calls.filter(([method]) =>
+      method === 'autohand.hook.sessionEnd' || method === 'autohand.hook.sessionStart'
+    )).toEqual([
+      ['autohand.hook.sessionEnd', expect.objectContaining({ reason: 'exit' })],
+      ['autohand.hook.sessionStart', expect.objectContaining({ sessionType: 'resume' })],
+    ]);
   });
 });

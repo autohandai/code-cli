@@ -602,6 +602,77 @@ describe('ToolManager', () => {
       expect(executor).toHaveBeenCalledOnce();
     });
 
+    it.each([
+      ['allow', false, true],
+      ['ask', true, true],
+      ['deny', false, false],
+      ['block', false, false],
+    ] as const)(
+      'honors a permission-request hook %s decision at the canonical prompt boundary',
+      async (decision, shouldConfirm, shouldExecute) => {
+        const confirmApproval = vi.fn().mockResolvedValue({ decision: 'allow_once' });
+        const executor = vi.fn().mockResolvedValue(successfulOutcome('updated'));
+        const runPermissionRequestHooks = vi.fn().mockResolvedValue([
+          hookResult({
+            hook: { event: 'permission-request', command: 'true' },
+            response: { decision },
+          }),
+        ]);
+        const manager = new ToolManager({
+          executor,
+          confirmApproval,
+          definitions: [defaultToolDefinition('run_command')],
+          authorization: {
+            permissionManager: new PermissionManager({ mode: 'interactive' }),
+            runPermissionRequestHooks,
+          },
+        });
+
+        const [result] = await manager.execute([{
+          id: 'permission-call',
+          tool: 'run_command',
+          args: { command: 'printf', args: ['%s', 'hook'] },
+        }]);
+
+        expect(result.success).toBe(shouldExecute);
+        expect(confirmApproval).toHaveBeenCalledTimes(shouldConfirm ? 1 : 0);
+        expect(executor).toHaveBeenCalledTimes(shouldExecute ? 1 : 0);
+        expect(runPermissionRequestHooks).toHaveBeenCalledWith({
+          tool: 'run_command',
+          toolCallId: 'permission-call',
+          command: 'printf %s hook',
+          args: { command: 'printf', args: ['%s', 'hook'] },
+          path: undefined,
+        });
+      },
+    );
+
+    it('preserves a pre-tool ask decision when permission-request hooks abstain', async () => {
+      const confirmApproval = vi.fn().mockResolvedValue({ decision: 'allow_once' });
+      const executor = vi.fn().mockResolvedValue(successfulOutcome('contents'));
+      const manager = new ToolManager({
+        executor,
+        confirmApproval,
+        definitions: [defaultToolDefinition('read_file')],
+        authorization: {
+          permissionManager: new PermissionManager({ mode: 'interactive' }),
+          runPreToolHooks: vi.fn().mockResolvedValue([
+            hookResult({ response: { decision: 'ask' } }),
+          ]),
+          runPermissionRequestHooks: vi.fn().mockResolvedValue([]),
+        },
+      });
+
+      const [result] = await manager.execute([{
+        tool: 'read_file',
+        args: { path: 'README.md' },
+      }]);
+
+      expect(result.success).toBe(true);
+      expect(confirmApproval).toHaveBeenCalledOnce();
+      expect(executor).toHaveBeenCalledOnce();
+    });
+
     it('fails closed when policy evaluation throws', async () => {
       const permissionManager = new PermissionManager({ mode: 'interactive' });
       vi.spyOn(permissionManager, 'checkPermission').mockImplementation(() => {

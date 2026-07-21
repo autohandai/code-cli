@@ -55,6 +55,7 @@ interface AgentOutcomeInternals {
 
 function createAgent(
   options: AgentRuntime['options'] = {},
+  permissionMode: 'interactive' | 'unrestricted' = 'unrestricted',
 ): { agent: AutohandAgent; internals: AgentOutcomeInternals } {
   const llm = {
     generate: vi.fn(),
@@ -70,7 +71,7 @@ function createAgent(
     config: {
       provider: 'openrouter',
       openrouter: { model: 'test-model' },
-      permissions: { mode: 'unrestricted' },
+      permissions: { mode: permissionMode },
       ui: { useInkRenderer: false },
     },
     workspaceRoot: '/test/workspace',
@@ -219,6 +220,73 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
       expect.objectContaining({ toolCallId: 'signal-hooks', success: true }),
       { signal: controller.signal },
     );
+  });
+
+  it('publishes the canonical permission request with the exact tool context', async () => {
+    const { agent, internals } = createAgent({}, 'interactive');
+    const confirmApproval = vi.fn().mockResolvedValue({ decision: 'allow_once' });
+    agent.setConfirmationCallback(confirmApproval);
+    internals.actionExecutor.executeForTool = vi.fn().mockResolvedValue({
+      success: true,
+      output: 'completed',
+    });
+    internals.telemetryManager.trackToolUse = vi.fn().mockResolvedValue(undefined);
+    const lifecycleListener = vi.fn();
+    const unsubscribe = agent.getHookManager().subscribeLifecycle(lifecycleListener);
+
+    const [result] = await internals.toolManager.execute([{
+      id: 'permission-tool-id',
+      tool: 'run_command',
+      args: { command: 'printf', args: ['%s', 'hook'] },
+    }]);
+    unsubscribe();
+
+    expect(result.success).toBe(true);
+    expect(confirmApproval).toHaveBeenCalledOnce();
+    expect(lifecycleListener.mock.calls.filter(([context]) =>
+      context.event === 'permission-request'
+    )).toEqual([[
+      {
+        event: 'permission-request',
+        workspace: '/test/workspace',
+        tool: 'run_command',
+        toolCallId: 'permission-tool-id',
+        command: 'printf %s hook',
+        args: { command: 'printf', args: ['%s', 'hook'] },
+        permissionType: 'tool_approval',
+      },
+    ]]);
+  });
+
+  it('preserves the originating tool-call ID on file-modified lifecycle and output events', async () => {
+    const { agent, internals } = createAgent();
+    internals.telemetryManager.trackToolUse = vi.fn().mockResolvedValue(undefined);
+    const lifecycleListener = vi.fn();
+    const outputListener = vi.fn<(event: AgentOutputEvent) => void>();
+    const unsubscribe = agent.getHookManager().subscribeLifecycle(lifecycleListener);
+    agent.setOutputListener(outputListener);
+
+    const [result] = await internals.toolManager.execute([{
+      id: 'write-tool-id',
+      tool: 'write_file',
+      args: { path: 'created.ts', contents: 'export {};' },
+    }]);
+    unsubscribe();
+
+    expect(result.success).toBe(true);
+    expect(lifecycleListener).toHaveBeenCalledWith({
+      event: 'file-modified',
+      workspace: '/test/workspace',
+      path: 'created.ts',
+      changeType: 'create',
+      toolCallId: 'write-tool-id',
+    });
+    expect(outputListener).toHaveBeenCalledWith({
+      type: 'file_modified',
+      filePath: 'created.ts',
+      changeType: 'create',
+      toolId: 'write-tool-id',
+    });
   });
 
   it('forwards the active signal to MCP and preserves its typed abort outcome', async () => {
