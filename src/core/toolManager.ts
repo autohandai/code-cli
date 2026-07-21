@@ -136,11 +136,16 @@ export interface PreToolHookContext {
   signal?: AbortSignal;
 }
 
+export interface PermissionRequestHookContext extends PreToolHookContext {
+  command?: string;
+}
+
 export interface ToolAuthorizationOptions {
   permissionManager: PermissionManager;
   /** Resolve specialized contexts, such as the expanded shell command for a meta-tool. */
   resolvePermissionContext?: (action: AgentAction) => PermissionContext | undefined;
   runPreToolHooks?: (context: PreToolHookContext) => Promise<HookExecutionResult[]>;
+  runPermissionRequestHooks?: (context: PermissionRequestHookContext) => Promise<HookExecutionResult[]>;
   onAdditionalContext?: (context: string) => void | Promise<void>;
 }
 
@@ -1897,6 +1902,7 @@ export class ToolManager {
   private readonly permissionManager: PermissionManager;
   private readonly resolveSpecializedPermissionContext?: ToolAuthorizationOptions['resolvePermissionContext'];
   private readonly runPreToolHooks?: ToolAuthorizationOptions['runPreToolHooks'];
+  private readonly runPermissionRequestHooks?: ToolAuthorizationOptions['runPermissionRequestHooks'];
   private readonly onAdditionalContext?: ToolAuthorizationOptions['onAdditionalContext'];
 
   constructor(options: ToolManagerOptions) {
@@ -1907,6 +1913,7 @@ export class ToolManager {
     this.permissionManager = options.authorization?.permissionManager ?? new PermissionManager();
     this.resolveSpecializedPermissionContext = options.authorization?.resolvePermissionContext;
     this.runPreToolHooks = options.authorization?.runPreToolHooks;
+    this.runPermissionRequestHooks = options.authorization?.runPermissionRequestHooks;
     this.onAdditionalContext = options.authorization?.onAdditionalContext;
     const defs = options.definitions ?? DEFAULT_TOOL_DEFINITIONS;
     for (const def of defs) {
@@ -2192,7 +2199,7 @@ export class ToolManager {
           }
 
           for (const hookResult of hookResults) {
-            this.assertValidHookResult(hookResult);
+            this.assertValidHookResult(hookResult, 'pre-tool');
             if (!hookResult.success) {
               throw new Error(hookResult.error ?? 'Pre-tool hook failed.');
             }
@@ -2204,7 +2211,7 @@ export class ToolManager {
               }
               continue;
             }
-            this.assertValidHookResponse(response);
+            this.assertValidHookResponse(response, 'Pre-tool');
 
             if (response.additionalContext !== undefined) {
               if (!this.onAdditionalContext) {
@@ -2247,7 +2254,80 @@ export class ToolManager {
           }
         }
 
-        const shouldPrompt = hookPromptOverride ?? policyRequiresPrompt;
+        let shouldPrompt = hookPromptOverride ?? policyRequiresPrompt;
+        if (shouldPrompt && this.runPermissionRequestHooks) {
+          const promptContext = this.toPromptContext(permissionContext);
+          const hookResults = await this.runPermissionRequestHooks({
+            tool: call.tool,
+            toolCallId: call.id!,
+            args: this.getCallArgs(call),
+            path: permissionContext.path,
+            command: promptContext.command,
+            ...(signal === undefined ? {} : { signal }),
+          });
+          this.assertNotAborted(signal);
+
+          if (!Array.isArray(hookResults)) {
+            throw new Error('Permission-request hooks returned an invalid result.');
+          }
+
+          let permissionHookPromptOverride: boolean | undefined;
+          for (const hookResult of hookResults) {
+            this.assertValidHookResult(hookResult, 'permission-request');
+            if (!hookResult.success) {
+              throw new Error(hookResult.error ?? 'Permission-request hook failed.');
+            }
+
+            const response = hookResult.response;
+            if (response === undefined) {
+              if (hookResult.stdout?.trim().startsWith('{')) {
+                throw new Error('Permission-request hook returned malformed JSON output.');
+              }
+              continue;
+            }
+            this.assertValidHookResponse(response, 'Permission-request');
+
+            if (response.additionalContext !== undefined) {
+              if (!this.onAdditionalContext) {
+                throw new Error('Permission-request hook supplied additional context without a conversation handler.');
+              }
+              await this.onAdditionalContext(response.additionalContext);
+              this.assertNotAborted(signal);
+            }
+
+            if (response.updatedInput !== undefined) {
+              const mergedArgs = {
+                ...this.getCallArgs(call),
+                ...response.updatedInput,
+              };
+              this.assertValidUpdatedInput(definition, response.updatedInput, mergedArgs);
+              call = this.cloneToolCall(call, mergedArgs);
+              action = this.toAction(call);
+              permissionContexts = this.resolvePermissionContexts(action);
+              policyEvaluation = this.evaluatePermissionContexts(permissionContexts);
+              if (policyEvaluation.denied) {
+                throw new Error(`Updated input for '${call.tool}' was denied by the permission policy.`);
+              }
+              permissionContext = policyEvaluation.promptContext;
+              policyRequiresPrompt = policyEvaluation.requiresPrompt
+                && shouldPromptForToolPermission(call.tool, requiresApproval, permissionContext.tool);
+              shouldPrompt = hookPromptOverride ?? policyRequiresPrompt;
+            }
+
+            if (response.continue === false) {
+              throw new Error(response.stopReason ?? 'Permission-request hook stopped execution.');
+            }
+            if (response.decision === 'deny' || response.decision === 'block') {
+              throw new Error(response.reason ?? `Permission-request hook ${response.decision}ed execution.`);
+            }
+            if (response.decision === 'ask') {
+              permissionHookPromptOverride = true;
+            } else if (response.decision === 'allow') {
+              permissionHookPromptOverride = false;
+            }
+          }
+          shouldPrompt = permissionHookPromptOverride ?? shouldPrompt;
+        }
         if (shouldPrompt) {
           const decision = normalizePermissionPromptResponse(
             await this.confirmApproval(
@@ -2387,60 +2467,67 @@ export class ToolManager {
     }
   }
 
-  private assertValidHookResult(result: unknown): asserts result is HookExecutionResult {
+  private assertValidHookResult(
+    result: unknown,
+    event: 'pre-tool' | 'permission-request',
+  ): asserts result is HookExecutionResult {
+    const label = event === 'pre-tool' ? 'Pre-tool' : 'Permission-request';
     if (!this.isPlainObject(result) || typeof result.success !== 'boolean') {
-      throw new Error('Pre-tool hook returned a malformed execution result.');
+      throw new Error(`${label} hook returned a malformed execution result.`);
     }
     if (result.blockingError === true || result.exitCode === 2) {
-      throw new Error(typeof result.error === 'string' ? result.error : 'Pre-tool hook blocked execution.');
+      throw new Error(typeof result.error === 'string' ? result.error : `${label} hook blocked execution.`);
     }
     if (!this.isPlainObject(result.hook)
-      || result.hook.event !== 'pre-tool'
+      || result.hook.event !== event
       || typeof result.hook.command !== 'string') {
-      throw new Error('Pre-tool hook returned a malformed hook definition.');
+      throw new Error(`${label} hook returned a malformed hook definition.`);
     }
     if (typeof result.duration !== 'number' || !Number.isFinite(result.duration) || result.duration < 0) {
-      throw new Error('Pre-tool hook returned a malformed duration.');
+      throw new Error(`${label} hook returned a malformed duration.`);
     }
     if (result.blockingError !== undefined && typeof result.blockingError !== 'boolean') {
-      throw new Error('Pre-tool hook returned a malformed blocking status.');
+      throw new Error(`${label} hook returned a malformed blocking status.`);
     }
     if (result.exitCode !== undefined
       && (typeof result.exitCode !== 'number' || !Number.isInteger(result.exitCode))) {
-      throw new Error('Pre-tool hook returned a malformed exit code.');
+      throw new Error(`${label} hook returned a malformed exit code.`);
     }
     if (result.success && result.exitCode !== undefined && result.exitCode !== 0) {
-      throw new Error('Pre-tool hook returned a contradictory execution status.');
+      throw new Error(`${label} hook returned a contradictory execution status.`);
     }
     if (result.error !== undefined && typeof result.error !== 'string') {
-      throw new Error('Pre-tool hook returned a malformed error.');
+      throw new Error(`${label} hook returned a malformed error.`);
     }
     if (result.stdout !== undefined && typeof result.stdout !== 'string') {
-      throw new Error('Pre-tool hook returned malformed stdout.');
+      throw new Error(`${label} hook returned malformed stdout.`);
     }
     if (result.stderr !== undefined && typeof result.stderr !== 'string') {
-      throw new Error('Pre-tool hook returned malformed stderr.');
+      throw new Error(`${label} hook returned malformed stderr.`);
     }
   }
 
-  private assertValidHookResponse(response: unknown): asserts response is NonNullable<HookExecutionResult['response']> {
+  private assertValidHookResponse(
+    response: unknown,
+    label = 'Pre-tool',
+  ): asserts response is NonNullable<HookExecutionResult['response']> {
     if (!this.isPlainObject(response)) {
-      throw new Error('Pre-tool hook returned a malformed response.');
+      throw new Error(`${label} hook returned a malformed response.`);
     }
     if (response.decision !== undefined
       && !['allow', 'deny', 'ask', 'block'].includes(String(response.decision))) {
-      throw new Error('Pre-tool hook returned an unknown decision.');
+      throw new Error(`${label} hook returned an unknown decision.`);
     }
     if (response.continue !== undefined && typeof response.continue !== 'boolean') {
-      throw new Error('Pre-tool hook returned a malformed continue decision.');
+      throw new Error(`${label} hook returned a malformed continue decision.`);
     }
     for (const field of ['reason', 'stopReason', 'additionalContext'] as const) {
       if (response[field] !== undefined && typeof response[field] !== 'string') {
-        throw new Error(`Pre-tool hook returned a malformed ${field}.`);
+        throw new Error(`${label} hook returned a malformed ${field}.`);
       }
     }
     if (response.updatedInput !== undefined && !this.isPlainObject(response.updatedInput)) {
-      throw new Error('Pre-tool hook returned malformed updated input.');
+      throw new Error(`${label} hook returned malformed updated input.`);
     }
   }
 

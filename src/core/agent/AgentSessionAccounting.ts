@@ -409,7 +409,8 @@ export async function saveAgentAssistantMessage(
 export function markAgentFilesModified(
   host: AgentSessionAccountingHost,
   filePath?: string,
-  changeType?: 'create' | 'modify' | 'delete'
+  changeType?: 'create' | 'modify' | 'delete',
+  toolCallId?: string,
 ): void {
   host.filesModifiedThisSession = true;
   host.fileModCount++;
@@ -421,6 +422,7 @@ export function markAgentFilesModified(
     host.hookManager.executeHooks('file-modified', {
       path: filePath,
       changeType: changeType || 'modify',
+      ...(toolCallId === undefined ? {} : { toolCallId }),
     }).catch(() => {});
   }
 
@@ -429,6 +431,7 @@ export function markAgentFilesModified(
       type: 'file_modified',
       filePath,
       changeType: changeType || 'modify',
+      ...(toolCallId === undefined ? {} : { toolId: toolCallId }),
     });
   }
 }

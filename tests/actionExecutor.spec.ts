@@ -516,8 +516,9 @@ describe('ActionExecutor', () => {
       // Check source code contains changeType parameter
       const { readFileSync } = await import('node:fs');
       const source = readFileSync('src/core/actionExecutor.ts', 'utf-8');
-      // All onFileModified calls should pass a second argument
-      const calls = source.match(/onFileModified\?\.\([^)]+\)/g) || [];
+      // All direct callbacks and their compatibility-preserving wrapper calls
+      // should pass a change type.
+      const calls = source.match(/(?:onFileModified\?\.\(|notifyFileModified\()[^)]+\)/g) || [];
       const withChangeType = calls.filter(c => c.includes(','));
       expect(withChangeType.length).toBeGreaterThanOrEqual(5);
     });

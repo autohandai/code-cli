@@ -3,7 +3,7 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../src/modes/rpc/protocol.js', () => ({
   writeNotification: vi.fn(),
@@ -34,7 +34,7 @@ function createHarness() {
     setOutputListener: vi.fn((listener?: (event: AgentOutputEvent) => void) => {
       outputListener = listener;
     }),
-    getImageManager: vi.fn().mockReturnValue({}),
+    getImageManager: vi.fn().mockReturnValue({ clear: vi.fn() }),
     getHookManager: vi.fn().mockReturnValue(hookManager),
     getFileManager: vi.fn().mockReturnValue(undefined),
     getStatusSnapshot: vi.fn().mockReturnValue({
@@ -50,7 +50,10 @@ function createHarness() {
     handleSlashCommand: vi.fn(),
     runInstruction: vi.fn().mockResolvedValue(true),
   };
-  const conversation = { history: vi.fn().mockReturnValue([]) };
+  const conversation = {
+    history: vi.fn().mockReturnValue([]),
+    reset: vi.fn(),
+  };
   const adapter = new RPCAdapter();
   adapter.initialize(
     agent as unknown as AutohandAgent,
@@ -72,6 +75,10 @@ function hookNotifications(): Array<[string, Record<string, unknown>]> {
 describe('HookManager to RPC lifecycle integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('observes lifecycle events even when user hooks are disabled or unconfigured', async () => {
@@ -126,6 +133,38 @@ describe('HookManager to RPC lifecycle integration', () => {
       }],
     ]);
     expect(vi.mocked(writeNotification).mock.calls.at(-1)?.[0]).toBe('autohand.agentEnd');
+  });
+
+  it('closes and starts reset sessions exactly once and restarts the session timer', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-22T00:00:00.000Z'));
+    const { adapter, hookManager } = createHarness();
+    const executeHooks = vi.spyOn(hookManager, 'executeHooks');
+    vi.mocked(writeNotification).mockClear();
+    vi.advanceTimersByTime(250);
+
+    await adapter.handleReset('reset-1');
+
+    expect(hookNotifications()).toEqual([
+      ['autohand.hook.sessionEnd', { reason: 'clear', duration: 250, timestamp }],
+      ['autohand.hook.sessionStart', { sessionType: 'clear', timestamp }],
+    ]);
+    expect(executeHooks).toHaveBeenCalledWith('session-end', {
+      sessionId: 'session_hooks',
+      sessionEndReason: 'clear',
+      duration: 250,
+    });
+    expect(executeHooks).toHaveBeenCalledWith('session-start', {
+      sessionId: 'session_hooks',
+      sessionType: 'clear',
+    });
+
+    vi.mocked(writeNotification).mockClear();
+    vi.advanceTimersByTime(75);
+    await adapter.shutdown('completed');
+    expect(hookNotifications()).toEqual([
+      ['autohand.hook.sessionEnd', { reason: 'exit', duration: 75, timestamp }],
+    ]);
   });
 
   it('maps every hook lifecycle event to its exact RPC payload once', async () => {
@@ -203,16 +242,72 @@ describe('HookManager to RPC lifecycle integration', () => {
     });
     vi.mocked(writeNotification).mockClear();
 
-    await adapter.handlePrompt('request-1', { message: 'Run checks' });
+    await adapter.handlePrompt('request-1', {
+      message: 'Run checks',
+      context: { files: ['README.md', 'src/index.ts'] },
+    });
 
     expect(hookNotifications().filter(([method]) => method === 'autohand.hook.prePrompt')).toEqual([
-      ['autohand.hook.prePrompt', { instruction: 'Run checks', mentionedFiles: [], timestamp }],
+      ['autohand.hook.prePrompt', {
+        instruction: 'Run checks',
+        mentionedFiles: ['README.md', 'src/index.ts'],
+        timestamp,
+      }],
     ]);
     expect(hookNotifications().filter(([method]) => method === 'autohand.hook.sessionError')).toEqual([
       ['autohand.hook.sessionError', {
         error: 'provider failed', code: undefined, context: undefined, timestamp,
       }],
     ]);
+  });
+
+  it('reports the actual tool-call count for each accepted prompt and resets it for the next turn', async () => {
+    const { adapter, agent, emitOutput } = createHarness();
+    agent.runInstruction
+      .mockImplementationOnce(async () => {
+        emitOutput({ type: 'tool_start', toolId: 'tool-1', toolName: 'read_file' });
+        emitOutput({ type: 'tool_start', toolId: 'tool-2', toolName: 'write_file' });
+        return true;
+      })
+      .mockResolvedValueOnce(true);
+    vi.mocked(writeNotification).mockClear();
+
+    await adapter.handlePrompt('request-1', { message: 'First turn' });
+    await adapter.handlePrompt('request-2', { message: 'Second turn' });
+
+    expect(hookNotifications().filter(([method]) => method === 'autohand.hook.stop')).toEqual([
+      ['autohand.hook.stop', {
+        tokensUsed: 21,
+        tokensUsageStatus: 'actual',
+        toolCallsCount: 2,
+        duration: expect.any(Number),
+        timestamp,
+      }],
+      ['autohand.hook.stop', {
+        tokensUsed: 21,
+        tokensUsageStatus: 'actual',
+        toolCallsCount: 0,
+        duration: expect.any(Number),
+        timestamp,
+      }],
+    ]);
+    expect(hookNotifications().filter(([method]) => method === 'autohand.hook.postResponse'))
+      .toEqual([
+        ['autohand.hook.postResponse', {
+          tokensUsed: 21,
+          tokensUsageStatus: 'actual',
+          toolCallsCount: 2,
+          duration: expect.any(Number),
+          timestamp,
+        }],
+        ['autohand.hook.postResponse', {
+          tokensUsed: 21,
+          tokensUsageStatus: 'actual',
+          toolCallsCount: 0,
+          duration: expect.any(Number),
+          timestamp,
+        }],
+      ]);
   });
 
   it('detaches the lifecycle observer before sealing shutdown notifications', async () => {

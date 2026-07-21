@@ -1449,8 +1449,17 @@ export class AutohandAgent {
   /**
    * Mark that files were modified during this session (called by action executor)
    */
-  markFilesModified(filePath?: string, changeType?: 'create' | 'modify' | 'delete'): void {
-    return markAgentFilesModified(this as unknown as AgentSessionAccountingHost, filePath, changeType);
+  markFilesModified(
+    filePath?: string,
+    changeType?: 'create' | 'modify' | 'delete',
+    toolCallId?: string,
+  ): void {
+    return markAgentFilesModified(
+      this as unknown as AgentSessionAccountingHost,
+      filePath,
+      changeType,
+      toolCallId,
+    );
   }
 
   /**

@@ -142,7 +142,11 @@ export interface ActionExecutorOptions {
   permissionManager?: PermissionManager;
   memoryManager?: MemoryManager;
   onToolOutput?: (chunk: ToolOutputChunk) => void;
-  onFileModified?: (filePath?: string, changeType?: 'create' | 'modify' | 'delete') => void;
+  onFileModified?: (
+    filePath?: string,
+    changeType?: 'create' | 'modify' | 'delete',
+    toolCallId?: string,
+  ) => void;
   /** Callback to handle ask_followup_question tool - delegates to agent for TUI coordination */
   onAskFollowup?: (question: string, suggestedAnswers?: string[]) => Promise<string>;
   /** Callback when a plan is created - allows agent to store plan and ask for acceptance */
@@ -223,7 +227,7 @@ export class ActionExecutor {
   private readonly permissionManager: PermissionManager;
   private readonly memoryManager?: MemoryManager;
   private readonly onToolOutput?: (chunk: ToolOutputChunk) => void;
-  private readonly onFileModified?: (filePath?: string, changeType?: 'create' | 'modify' | 'delete') => void;
+  private readonly onFileModified?: AgentExecutorDeps['onFileModified'];
   private readonly onAskFollowup?: AgentExecutorDeps['onAskFollowup'];
   private readonly onPlanCreated?: AgentExecutorDeps['onPlanCreated'];
   private readonly onPermissionRequest?: AgentExecutorDeps['onPermissionRequest'];
@@ -669,6 +673,18 @@ export class ActionExecutor {
     }
   }
 
+  private notifyFileModified(
+    filePath: string,
+    changeType: 'create' | 'modify' | 'delete',
+    toolCallId?: string,
+  ): void {
+    if (toolCallId === undefined) {
+      this.onFileModified?.(filePath, changeType);
+      return;
+    }
+    this.onFileModified?.(filePath, changeType, toolCallId);
+  }
+
   private async executeLegacy(
     action: AgentAction,
     context?: ToolExecutionContext,
@@ -1035,7 +1051,7 @@ export class ActionExecutor {
         }
 
         await this.files.writeFile(action.path, newContent);
-        this.onFileModified?.(action.path, exists ? 'modify' : 'create');
+        this.notifyFileModified(action.path, exists ? 'modify' : 'create', context?.toolCallId);
         return resultOutput ?? (exists ? `Updated ${action.path}` : `Created ${action.path}`);
       }
       case 'append_file': {
@@ -1050,7 +1066,7 @@ export class ActionExecutor {
         this.showDiff(oldContent, newContent, action.path);
 
         await this.files.appendFile(action.path, addition);
-        this.onFileModified?.(action.path, 'modify');
+        this.notifyFileModified(action.path, 'modify', context?.toolCallId);
         return this.formatDiffPreview(oldContent, newContent, action.path);
       }
       case 'apply_patch': {
@@ -1070,7 +1086,7 @@ export class ActionExecutor {
 
         const newContent = await this.files.readFile(action.path);
         this.showDiff(oldContent, newContent, action.path);
-        this.onFileModified?.(action.path, 'modify');
+        this.notifyFileModified(action.path, 'modify', context?.toolCallId);
 
         return this.formatDiffPreview(oldContent, newContent, action.path);
       }
@@ -1082,7 +1098,7 @@ export class ActionExecutor {
         const current = await this.files.readFile(action.path);
         const { updated, summary } = applyNotebookEdit(current, action);
         await this.files.writeFile(action.path, updated);
-        this.onFileModified?.(action.path, 'modify');
+        this.notifyFileModified(action.path, 'modify', context?.toolCallId);
         return summary;
       }
       case 'tools_registry': {
@@ -1253,10 +1269,10 @@ export class ActionExecutor {
         if (oldDeleteContent !== null) {
           console.log(chalk.cyan(`\n🗑️ ${action.path}:`));
           this.showDiff(oldDeleteContent, '', action.path);
-          this.onFileModified?.(action.path, 'delete');
+          this.notifyFileModified(action.path, 'delete', context?.toolCallId);
           return this.formatDiffPreview(oldDeleteContent, '', action.path);
         }
-        this.onFileModified?.(action.path, 'delete');
+        this.notifyFileModified(action.path, 'delete', context?.toolCallId);
         return `Deleted directory ${action.path}`;
       }
       case 'rename_path': {
@@ -1264,7 +1280,7 @@ export class ActionExecutor {
           throw new Error('rename_path requires "from" and "to" arguments.');
         }
         await this.files.renamePath(action.from, action.to);
-        this.onFileModified?.(action.to, 'create');
+        this.notifyFileModified(action.to, 'create', context?.toolCallId);
         return `Renamed ${action.from} -> ${action.to}`;
       }
       case 'copy_path': {
@@ -1272,7 +1288,7 @@ export class ActionExecutor {
           throw new Error('copy_path requires "from" and "to" arguments.');
         }
         await this.files.copyPath(action.from, action.to);
-        this.onFileModified?.(action.to, 'create');
+        this.notifyFileModified(action.to, 'create', context?.toolCallId);
         return `Copied ${action.from} -> ${action.to}`;
       }
       case 'search_replace': {
@@ -1288,7 +1304,7 @@ export class ActionExecutor {
           console.log(chalk.cyan(`\n🔄 ${action.path}:`));
           this.showDiff(content, result, action.path);
           await this.files.writeFile(action.path, result);
-          this.onFileModified?.(action.path, 'modify');
+          this.notifyFileModified(action.path, 'modify', context?.toolCallId);
           return this.formatDiffPreview(content, result, action.path);
         }
         return `No changes needed for ${action.path} (content identical)`;
@@ -1303,7 +1319,7 @@ export class ActionExecutor {
         if (oldFormatContent !== newFormatContent) {
           console.log(chalk.cyan(`\n🎨 ${action.path}:`));
           this.showDiff(oldFormatContent, newFormatContent, action.path);
-          this.onFileModified?.(action.path, 'modify');
+          this.notifyFileModified(action.path, 'modify', context?.toolCallId);
           return this.formatDiffPreview(oldFormatContent, newFormatContent, action.path);
         }
         return `No changes needed (already formatted): ${action.path}`;
@@ -1593,7 +1609,7 @@ export class ActionExecutor {
         if (oldPkgAdd !== newPkgAdd) {
           console.log(chalk.cyan(`\n📦 package.json:`));
           this.showDiff(oldPkgAdd, newPkgAdd, 'package.json');
-          this.onFileModified?.('package.json', 'modify');
+          this.notifyFileModified('package.json', 'modify', context?.toolCallId);
           return this.formatDiffPreview(oldPkgAdd, newPkgAdd, 'package.json');
         }
         return `Added dependency ${action.name}@${action.version}${action.dev ? ' (dev)' : ''}`;
@@ -1607,7 +1623,7 @@ export class ActionExecutor {
         if (oldPkgRm !== newPkgRm) {
           console.log(chalk.cyan(`\n📦 package.json:`));
           this.showDiff(oldPkgRm, newPkgRm, 'package.json');
-          this.onFileModified?.('package.json', 'modify');
+          this.notifyFileModified('package.json', 'modify', context?.toolCallId);
           return this.formatDiffPreview(oldPkgRm, newPkgRm, 'package.json');
         }
         return `Removed dependency ${action.name}${action.dev ? ' (dev)' : ''}`;
@@ -1655,7 +1671,7 @@ export class ActionExecutor {
         if (oldCheckoutContent !== newCheckoutContent) {
           console.log(chalk.cyan(`\n↩️ ${action.path}:`));
           this.showDiff(oldCheckoutContent, newCheckoutContent, action.path);
-          this.onFileModified?.(action.path, 'modify');
+          this.notifyFileModified(action.path, 'modify', context?.toolCallId);
           return this.formatDiffPreview(oldCheckoutContent, newCheckoutContent, action.path);
         }
         return `Restored ${action.path} from git (no changes).`;
@@ -2160,7 +2176,7 @@ export class ActionExecutor {
         if (oldContent !== newContent) {
           this.showDiff(oldContent, newContent, action.file_path);
           await this.files.writeFile(action.file_path, newContent);
-          this.onFileModified?.(action.file_path, 'modify');
+          this.notifyFileModified(action.file_path, 'modify', context?.toolCallId);
           return this.formatDiffPreview(oldContent, newContent, action.file_path);
         }
 
@@ -2206,7 +2222,7 @@ export class ActionExecutor {
 
         // Write back
         await this.files.writeFile(todoPath, JSON.stringify(allTodos, null, 2));
-        this.onFileModified?.(todoPath, 'modify');
+        this.notifyFileModified(todoPath, 'modify', context?.toolCallId);
         // Display summary with progress bar
         const total = allTodos.length;
 

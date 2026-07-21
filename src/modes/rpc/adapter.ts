@@ -260,6 +260,7 @@ interface ActivePrompt {
   turnStartTime: number | null;
   messageId: string | null;
   messageContent: string;
+  toolCallsCount: number;
   cancelRequested: boolean;
   finalized: boolean;
 }
@@ -630,6 +631,7 @@ export class RPCAdapter {
       turnStartTime: null,
       messageId: null,
       messageContent: '',
+      toolCallsCount: 0,
       cancelRequested: false,
       finalized: false,
     };
@@ -886,7 +888,7 @@ export class RPCAdapter {
                 {
                   sessionId: this.sessionId ?? undefined,
                   instruction,
-                  mentionedFiles: [],
+                  mentionedFiles: params.context?.files ?? [],
                 },
                 { signal: prompt.abortController.signal },
               );
@@ -949,6 +951,7 @@ export class RPCAdapter {
                 turnDuration,
                 tokensUsed: snapshot?.tokensUsed ?? 0,
                 tokensUsageStatus: snapshot?.tokensUsageStatus,
+                toolCallsCount: prompt.toolCallsCount,
               },
               { signal: prompt.abortController.signal },
             );
@@ -1095,6 +1098,13 @@ export class RPCAdapter {
       }
     }
 
+    const resetAt = Date.now();
+    await this.executeSessionEndLifecycle(
+      'clear',
+      Math.max(0, resetAt - this.sessionStartedAt),
+      this.sessionId,
+    );
+
     if (this.conversation) {
       // Get system prompt if available
       const history = this.conversation.history();
@@ -1107,6 +1117,7 @@ export class RPCAdapter {
 
     this.stopKeepalive();
     this.sessionId = generateId('session');
+    this.sessionStartedAt = Date.now();
     this.status = 'idle';
     this.currentTurnId = null;
     this.currentMessageId = null;
@@ -1119,6 +1130,7 @@ export class RPCAdapter {
       workspace: this.workspace,
       timestamp: createTimestamp(),
     });
+    await this.executeSessionStartLifecycle('clear', this.sessionId);
 
     return { sessionId: this.sessionId };
   }
@@ -1169,12 +1181,20 @@ export class RPCAdapter {
     }
 
     const attached = await this.agent.attachSession(handoff.sessionId);
+    const resumedAt = Date.now();
+    await this.executeSessionEndLifecycle(
+      'exit',
+      Math.max(0, resumedAt - this.sessionStartedAt),
+      this.sessionId,
+    );
     this.sessionId = attached.sessionId;
+    this.sessionStartedAt = Date.now();
     this.stopKeepalive();
     this.stopKeepalive();
     this.workspace = attached.workspaceRoot;
     this.model = attached.model;
     this.status = 'idle';
+    await this.executeSessionStartLifecycle('resume', this.sessionId);
 
     return {
       success: true,
@@ -1198,11 +1218,19 @@ export class RPCAdapter {
     }
 
     const attached = await this.agent.attachSession(handoff.sessionId);
+    const resumedAt = Date.now();
+    await this.executeSessionEndLifecycle(
+      'exit',
+      Math.max(0, resumedAt - this.sessionStartedAt),
+      this.sessionId,
+    );
     this.stopKeepalive();
     this.sessionId = attached.sessionId;
+    this.sessionStartedAt = Date.now();
     this.workspace = attached.workspaceRoot;
     this.model = attached.model;
     this.status = 'idle';
+    await this.executeSessionStartLifecycle('resume', this.sessionId);
 
     return {
       success: true,
@@ -1799,6 +1827,42 @@ export class RPCAdapter {
       timestamp: createTimestamp(),
     } satisfies HookStopNotificationParams;
     writeNotification(RPC_NOTIFICATIONS.HOOK_STOP, params);
+  }
+
+  private async executeSessionStartLifecycle(
+    sessionType: 'startup' | 'resume' | 'clear',
+    sessionId: string | null,
+  ): Promise<void> {
+    const hookManager = this.agent?.getHookManager?.();
+    if (hookManager) {
+      await hookManager.executeHooks('session-start', {
+        sessionId: sessionId ?? undefined,
+        sessionType,
+      });
+      if (this.hookLifecycleUnsubscribe) {
+        return;
+      }
+    }
+    this.emitHookSessionStart(sessionType);
+  }
+
+  private async executeSessionEndLifecycle(
+    reason: 'quit' | 'clear' | 'exit' | 'error',
+    duration: number,
+    sessionId: string | null,
+  ): Promise<void> {
+    const hookManager = this.agent?.getHookManager?.();
+    if (hookManager) {
+      await hookManager.executeHooks('session-end', {
+        sessionId: sessionId ?? undefined,
+        sessionEndReason: reason,
+        duration,
+      });
+      if (this.hookLifecycleUnsubscribe) {
+        return;
+      }
+    }
+    this.emitHookSessionEnd(reason, duration);
   }
 
   /**
@@ -2982,6 +3046,9 @@ export class RPCAdapter {
 
       case 'tool_start':
         if (event.toolName) {
+          if (prompt && !prompt.finalized && !prompt.abortController.signal.aborted) {
+            prompt.toolCallsCount += 1;
+          }
           writeNotification(RPC_NOTIFICATIONS.TOOL_START, {
             toolId: event.toolId ?? generateId('tool'),
             toolName: event.toolName,
