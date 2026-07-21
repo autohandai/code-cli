@@ -72,6 +72,7 @@ export AUTOHAND_HOME=/ruta/personalizada  # Cambia ~/.autohand a /ruta/personali
 | `AUTOHAND_HOME`                        | Directorio base para todos los datos de Autohand | `/ruta/personalizada`            |
 | `AUTOHAND_CONFIG`                      | Ruta del archivo de configuración personalizado  | `/ruta/a/config.json`            |
 | `AUTOHAND_API_URL`                     | Endpoint de API (sobrescribe configuración)      | `https://api.autohand.ai`        |
+| `AUTOHAND_AUTH_URL`                    | Origen de autenticación y sincronización de cuenta (independiente de `AUTOHAND_API_URL`) | `https://autohand.ai` |
 | `AUTOHAND_SECRET`                      | Clave secreta de empresa/equipo                  | `sk-xxx`                         |
 | `AUTOHAND_PERMISSION_CALLBACK_URL`     | URL para callback de permiso (experimental)      | `http://localhost:3000/callback` |
 | `AUTOHAND_PERMISSION_CALLBACK_TIMEOUT` | Timeout para callback de permiso en ms           | `5000`                           |

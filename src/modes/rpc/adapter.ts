@@ -6,6 +6,7 @@
 import crypto from 'node:crypto';
 
 import type { AutohandAgent } from '../../core/agent.js';
+import type { HookContext } from '../../core/HookManager.js';
 import { McpClientManager } from '../../mcp/McpClientManager.js';
 import { classifyApiError, type ApiErrorCode } from '../../providers/errors.js';
 import { getAllCatalogModelOptions } from '../../providers/modelCatalog.js';
@@ -98,6 +99,22 @@ import type {
   McpSetServersResult,
   SetContextCompactParams,
   SetContextCompactResult,
+  HookPreToolNotificationParams,
+  HookPostToolNotificationParams,
+  HookFileModifiedNotificationParams,
+  HookPrePromptNotificationParams,
+  HookPostResponseNotificationParams,
+  HookSessionErrorNotificationParams,
+  HookStopNotificationParams,
+  HookSessionStartNotificationParams,
+  HookSessionEndNotificationParams,
+  HookSubagentStopNotificationParams,
+  HookPermissionRequestNotificationParams,
+  HookNotificationNotificationParams,
+  HookContextCompactedNotificationParams,
+  HookContextOverflowNotificationParams,
+  HookContextWarningNotificationParams,
+  HookContextCriticalNotificationParams,
 } from './types.js';
 import { normalizePermissionPromptResponse, type PermissionPromptResponse } from '../../permissions/types.js';
 import {
@@ -297,6 +314,9 @@ export class RPCAdapter {
   private yoloRevertTimer: ReturnType<typeof setTimeout> | null = null;
   private yoloRevertGeneration = 0;
   private shutdownPromise: Promise<void> | null = null;
+  private hookLifecycleUnsubscribe: (() => void) | null = null;
+  private hookSessionErrorPrompt: symbol | null = null;
+  private sessionStartedAt = 0;
   // Config reference for runtime settings changes
   private config: Partial<LoadedConfig> & {
     permissionMode?: string;
@@ -335,6 +355,7 @@ export class RPCAdapter {
     this.conversation = conversation;
     this.model = model;
     this.workspace = workspace;
+    this.sessionStartedAt = Date.now();
     this.config = config ? { ...config } : {};
     this.sessionId = generateId('session');
     this.mcpServerConfigs = mcpServerConfigs ?? [];
@@ -353,6 +374,12 @@ export class RPCAdapter {
       this.handleAgentOutput(event);
     });
 
+    this.hookLifecycleUnsubscribe?.();
+    const hookManager = agent.getHookManager?.();
+    this.hookLifecycleUnsubscribe = hookManager?.subscribeLifecycle?.((context) => {
+      this.handleHookLifecycle(context);
+    }) ?? null;
+
     // Emit agent start notification
     writeNotification(RPC_NOTIFICATIONS.AGENT_START, {
       sessionId: this.sessionId,
@@ -361,6 +388,7 @@ export class RPCAdapter {
       timestamp: createTimestamp(),
       contextPercent: this.contextPercent,
     });
+    this.emitHookSessionStart('startup');
   }
 
   /**
@@ -851,6 +879,21 @@ export class RPCAdapter {
             if (!this.canContinuePrompt(prompt)) {
               return { success: false };
             }
+            const hookManager = this.agent.getHookManager?.();
+            if (hookManager) {
+              await hookManager.executeHooks(
+                'pre-prompt',
+                {
+                  sessionId: this.sessionId ?? undefined,
+                  instruction,
+                  mentionedFiles: [],
+                },
+                { signal: prompt.abortController.signal },
+              );
+            }
+            if (!this.canContinuePrompt(prompt)) {
+              return { success: false };
+            }
             success = await this.agent.runInstruction(instruction, {
               signal: prompt.abortController.signal,
             });
@@ -914,14 +957,6 @@ export class RPCAdapter {
             }
             writeRpcDebugLine('Stop hooks completed');
 
-            // Emit HOOK_STOP notification so UI can update button state
-            this.emitHookStop(
-              snapshot?.tokensUsed ?? 0,
-              0, // toolCallsCount - not tracked per turn currently
-              turnDuration,
-              snapshot?.tokensUsageStatus
-            );
-            writeRpcDebugLine('HOOK_STOP emitted');
           }
         } catch (hookErr) {
           // Log but don't let hook errors block MESSAGE_END and TURN_END
@@ -932,6 +967,7 @@ export class RPCAdapter {
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         writeRpcDebugLine(`Error during runInstruction: ${getRpcErrorMetadata(err)}`);
+        this.executeSessionErrorHook(errorMessage);
         // Emit error notification
         if (this.canContinuePrompt(prompt)) {
           writeNotification(RPC_NOTIFICATIONS.ERROR, {
@@ -1531,18 +1567,135 @@ export class RPCAdapter {
   // Hook Lifecycle Notification Methods
   // ============================================================================
 
+  private executeSessionErrorHook(error: string, errorCode?: string): void {
+    const promptIdentity = this.activePrompt?.identity ?? null;
+    if (promptIdentity && this.hookSessionErrorPrompt === promptIdentity) return;
+    this.hookSessionErrorPrompt = promptIdentity;
+
+    const hookManager = this.agent?.getHookManager?.();
+    if (hookManager) {
+      void hookManager.executeHooks('session-error', {
+        sessionId: this.sessionId ?? undefined,
+        error,
+        errorCode,
+      }).catch(() => {});
+      return;
+    }
+
+    this.emitHookSessionError(error, errorCode);
+  }
+
+  private handleHookLifecycle(context: Readonly<HookContext>): void {
+    if (this.shuttingDown || this.notificationsSealed) return;
+
+    switch (context.event) {
+      case 'pre-tool':
+        this.emitHookPreTool(context.toolCallId ?? '', context.tool ?? '', context.args ?? {});
+        break;
+      case 'post-tool':
+        this.emitHookPostTool(
+          context.toolCallId ?? '',
+          context.tool ?? '',
+          context.success ?? false,
+          context.duration ?? 0,
+          context.output,
+        );
+        break;
+      case 'file-modified':
+        this.emitHookFileModified(
+          context.path ?? '',
+          context.changeType ?? 'modify',
+          context.toolCallId ?? '',
+        );
+        break;
+      case 'pre-prompt':
+        this.emitHookPrePrompt(context.instruction ?? '', context.mentionedFiles ?? []);
+        break;
+      case 'stop':
+      case 'post-response': {
+        const tokensUsed = context.tokensUsed ?? 0;
+        const toolCallsCount = context.toolCallsCount ?? context.toolCallsInTurn ?? 0;
+        const duration = context.turnDuration ?? context.duration ?? 0;
+        const usageStatus = context.tokensUsageStatus ?? 'unavailable';
+        this.emitHookStop(tokensUsed, toolCallsCount, duration, usageStatus);
+        this.emitHookPostResponse(tokensUsed, toolCallsCount, duration, usageStatus);
+        break;
+      }
+      case 'session-error':
+        this.emitHookSessionError(context.error ?? '', context.errorCode);
+        break;
+      case 'session-start':
+        this.emitHookSessionStart(context.sessionType ?? 'startup');
+        break;
+      case 'session-end':
+        this.emitHookSessionEnd(context.sessionEndReason ?? 'exit', context.duration ?? 0);
+        break;
+      case 'subagent-stop':
+        this.emitHookSubagentStop(
+          context.subagentId ?? '',
+          context.subagentName ?? '',
+          context.subagentType ?? '',
+          context.subagentSuccess ?? false,
+          context.subagentDuration ?? 0,
+          context.subagentError,
+        );
+        break;
+      case 'permission-request':
+        this.emitHookPermissionRequest(context.tool ?? '', context.path, context.command, context.args);
+        break;
+      case 'notification':
+        this.emitHookNotification(context.notificationType ?? '', context.notificationMessage ?? '');
+        break;
+      case 'context:compact':
+        this.emitHookContextCompacted(
+          context.croppedCount ?? 0,
+          this.normalizeUsageRatio(context.usagePercent),
+          context.reason ?? '',
+          context.summary,
+        );
+        break;
+      case 'context:overflow':
+        this.emitHookContextOverflow(
+          context.tokensBefore ?? 0,
+          context.tokensAfter ?? 0,
+          context.croppedCount ?? 0,
+          this.normalizeUsageRatio(context.usagePercent),
+        );
+        break;
+      case 'context:warning':
+        this.emitHookContextWarning(
+          this.normalizeUsageRatio(context.usagePercent),
+          context.remainingTokens ?? 0,
+        );
+        break;
+      case 'context:critical':
+        this.emitHookContextCritical(
+          this.normalizeUsageRatio(context.usagePercent),
+          context.remainingTokens ?? 0,
+        );
+        break;
+      default:
+        break;
+    }
+  }
+
+  private normalizeUsageRatio(value: number | undefined): number {
+    return value !== undefined && Number.isFinite(value) && value >= 0 ? value : 0;
+  }
+
   /**
    * Emit hook pre-tool notification
    * Called before a tool begins execution
    */
   emitHookPreTool(toolId: string, toolName: string, args: Record<string, unknown>): void {
     if (this.notificationsSealed) return;
-    writeNotification(RPC_NOTIFICATIONS.HOOK_PRE_TOOL, {
+    const params = {
       toolId,
       toolName,
       args,
       timestamp: createTimestamp(),
-    });
+    } satisfies HookPreToolNotificationParams;
+    writeNotification(RPC_NOTIFICATIONS.HOOK_PRE_TOOL, params);
   }
 
   /**
@@ -1557,14 +1710,15 @@ export class RPCAdapter {
     output?: string
   ): void {
     if (this.notificationsSealed) return;
-    writeNotification(RPC_NOTIFICATIONS.HOOK_POST_TOOL, {
+    const params = {
       toolId,
       toolName,
       success,
       duration,
       output,
       timestamp: createTimestamp(),
-    });
+    } satisfies HookPostToolNotificationParams;
+    writeNotification(RPC_NOTIFICATIONS.HOOK_POST_TOOL, params);
   }
 
   /**
@@ -1577,12 +1731,13 @@ export class RPCAdapter {
     toolId: string
   ): void {
     if (this.notificationsSealed) return;
-    writeNotification(RPC_NOTIFICATIONS.HOOK_FILE_MODIFIED, {
+    const params = {
       filePath,
       changeType,
       toolId,
       timestamp: createTimestamp(),
-    });
+    } satisfies HookFileModifiedNotificationParams;
+    writeNotification(RPC_NOTIFICATIONS.HOOK_FILE_MODIFIED, params);
   }
 
   /**
@@ -1591,11 +1746,12 @@ export class RPCAdapter {
    */
   emitHookPrePrompt(instruction: string, mentionedFiles: string[]): void {
     if (this.notificationsSealed) return;
-    writeNotification(RPC_NOTIFICATIONS.HOOK_PRE_PROMPT, {
+    const params = {
       instruction,
       mentionedFiles,
       timestamp: createTimestamp(),
-    });
+    } satisfies HookPrePromptNotificationParams;
+    writeNotification(RPC_NOTIFICATIONS.HOOK_PRE_PROMPT, params);
   }
 
   /**
@@ -1604,13 +1760,14 @@ export class RPCAdapter {
    */
   emitHookPostResponse(tokensUsed: number, toolCallsCount: number, duration: number, tokensUsageStatus: 'actual' | 'unavailable' = 'actual'): void {
     if (this.notificationsSealed) return;
-    writeNotification(RPC_NOTIFICATIONS.HOOK_POST_RESPONSE, {
+    const params = {
       tokensUsed,
       tokensUsageStatus,
       toolCallsCount,
       duration,
       timestamp: createTimestamp(),
-    });
+    } satisfies HookPostResponseNotificationParams;
+    writeNotification(RPC_NOTIFICATIONS.HOOK_POST_RESPONSE, params);
   }
 
   /**
@@ -1619,12 +1776,13 @@ export class RPCAdapter {
    */
   emitHookSessionError(error: string, code?: string, context?: Record<string, unknown>): void {
     if (this.notificationsSealed) return;
-    writeNotification(RPC_NOTIFICATIONS.HOOK_SESSION_ERROR, {
+    const params = {
       error,
       code,
       context,
       timestamp: createTimestamp(),
-    });
+    } satisfies HookSessionErrorNotificationParams;
+    writeNotification(RPC_NOTIFICATIONS.HOOK_SESSION_ERROR, params);
   }
 
   /**
@@ -1633,13 +1791,14 @@ export class RPCAdapter {
    */
   emitHookStop(tokensUsed: number, toolCallsCount: number, duration: number, tokensUsageStatus: 'actual' | 'unavailable' = 'actual'): void {
     if (this.notificationsSealed) return;
-    writeNotification(RPC_NOTIFICATIONS.HOOK_STOP, {
+    const params = {
       tokensUsed,
       tokensUsageStatus,
       toolCallsCount,
       duration,
       timestamp: createTimestamp(),
-    });
+    } satisfies HookStopNotificationParams;
+    writeNotification(RPC_NOTIFICATIONS.HOOK_STOP, params);
   }
 
   /**
@@ -1648,10 +1807,11 @@ export class RPCAdapter {
    */
   emitHookSessionStart(sessionType: 'startup' | 'resume' | 'clear'): void {
     if (this.notificationsSealed) return;
-    writeNotification(RPC_NOTIFICATIONS.HOOK_SESSION_START, {
+    const params = {
       sessionType,
       timestamp: createTimestamp(),
-    });
+    } satisfies HookSessionStartNotificationParams;
+    writeNotification(RPC_NOTIFICATIONS.HOOK_SESSION_START, params);
   }
 
   /**
@@ -1660,11 +1820,12 @@ export class RPCAdapter {
    */
   emitHookSessionEnd(reason: 'quit' | 'clear' | 'exit' | 'error', duration: number): void {
     if (this.notificationsSealed) return;
-    writeNotification(RPC_NOTIFICATIONS.HOOK_SESSION_END, {
+    const params = {
       reason,
       duration,
       timestamp: createTimestamp(),
-    });
+    } satisfies HookSessionEndNotificationParams;
+    writeNotification(RPC_NOTIFICATIONS.HOOK_SESSION_END, params);
   }
 
   /**
@@ -1680,7 +1841,7 @@ export class RPCAdapter {
     error?: string
   ): void {
     if (this.notificationsSealed) return;
-    writeNotification(RPC_NOTIFICATIONS.HOOK_SUBAGENT_STOP, {
+    const params = {
       subagentId,
       subagentName,
       subagentType,
@@ -1688,7 +1849,8 @@ export class RPCAdapter {
       duration,
       error,
       timestamp: createTimestamp(),
-    });
+    } satisfies HookSubagentStopNotificationParams;
+    writeNotification(RPC_NOTIFICATIONS.HOOK_SUBAGENT_STOP, params);
   }
 
   /**
@@ -1702,13 +1864,14 @@ export class RPCAdapter {
     args?: Record<string, unknown>
   ): void {
     if (this.notificationsSealed) return;
-    writeNotification(RPC_NOTIFICATIONS.HOOK_PERMISSION_REQUEST, {
+    const params = {
       tool,
       path,
       command,
       args,
       timestamp: createTimestamp(),
-    });
+    } satisfies HookPermissionRequestNotificationParams;
+    writeNotification(RPC_NOTIFICATIONS.HOOK_PERMISSION_REQUEST, params);
   }
 
   /**
@@ -1717,11 +1880,66 @@ export class RPCAdapter {
    */
   emitHookNotification(notificationType: string, message: string): void {
     if (this.notificationsSealed) return;
-    writeNotification(RPC_NOTIFICATIONS.HOOK_NOTIFICATION, {
+    const params = {
       notificationType,
       message,
       timestamp: createTimestamp(),
-    });
+    } satisfies HookNotificationNotificationParams;
+    writeNotification(RPC_NOTIFICATIONS.HOOK_NOTIFICATION, params);
+  }
+
+  emitHookContextCompacted(
+    croppedCount: number,
+    usagePercent: number,
+    reason: string,
+    summary?: string,
+  ): void {
+    if (this.notificationsSealed) return;
+    const params = {
+      croppedCount,
+      summary,
+      usagePercent,
+      reason,
+      timestamp: createTimestamp(),
+    } satisfies HookContextCompactedNotificationParams;
+    writeNotification(RPC_NOTIFICATIONS.HOOK_CONTEXT_COMPACTED, params);
+  }
+
+  emitHookContextOverflow(
+    tokensBefore: number,
+    tokensAfter: number,
+    croppedCount: number,
+    usagePercent: number,
+  ): void {
+    if (this.notificationsSealed) return;
+    const params = {
+      tokensBefore,
+      tokensAfter,
+      croppedCount,
+      usagePercent,
+      timestamp: createTimestamp(),
+    } satisfies HookContextOverflowNotificationParams;
+    writeNotification(RPC_NOTIFICATIONS.HOOK_CONTEXT_OVERFLOW, params);
+  }
+
+  emitHookContextWarning(usagePercent: number, remainingTokens: number): void {
+    if (this.notificationsSealed) return;
+    const params = {
+      usagePercent,
+      remainingTokens,
+      timestamp: createTimestamp(),
+    } satisfies HookContextWarningNotificationParams;
+    writeNotification(RPC_NOTIFICATIONS.HOOK_CONTEXT_WARNING, params);
+  }
+
+  emitHookContextCritical(usagePercent: number, remainingTokens: number): void {
+    if (this.notificationsSealed) return;
+    const params = {
+      usagePercent,
+      remainingTokens,
+      timestamp: createTimestamp(),
+    } satisfies HookContextCriticalNotificationParams;
+    writeNotification(RPC_NOTIFICATIONS.HOOK_CONTEXT_CRITICAL, params);
   }
 
   /**
@@ -2645,6 +2863,8 @@ export class RPCAdapter {
 
     try {
       this.shuttingDown = true;
+      this.hookLifecycleUnsubscribe?.();
+      this.hookLifecycleUnsubscribe = null;
       this.stopKeepalive();
       const pendingPromptStarts = this.cancelPendingPromptStarts();
 
@@ -2703,6 +2923,10 @@ export class RPCAdapter {
       this.stopKeepalive();
       this.resetPromptState();
 
+      this.emitHookSessionEnd(
+        reason === 'error' ? 'error' : 'exit',
+        Math.max(0, Date.now() - this.sessionStartedAt),
+      );
       this.notificationsSealed = true;
       const agentEndReason = reason === 'disconnected' ? 'aborted' : reason;
       writeNotification(RPC_NOTIFICATIONS.AGENT_END, {
@@ -2789,17 +3013,21 @@ export class RPCAdapter {
         break;
 
       case 'file_modified':
-        if (event.filePath) {
-          writeNotification(RPC_NOTIFICATIONS.HOOK_FILE_MODIFIED, {
-            filePath: event.filePath,
-            changeType: event.changeType ?? 'modify',
-            toolId: event.toolId ?? '',
-            timestamp: createTimestamp(),
-          });
+        // HookManager is the canonical source. Keep this as a compatibility
+        // fallback for agents that do not expose lifecycle observation.
+        if (event.filePath && !this.hookLifecycleUnsubscribe) {
+          this.emitHookFileModified(
+            event.filePath,
+            event.changeType ?? 'modify',
+            event.toolId ?? '',
+          );
         }
         break;
 
       case 'error':
+        if (event.content) {
+          this.executeSessionErrorHook(event.content);
+        }
         if (event.content
           && prompt
           && !prompt.finalized

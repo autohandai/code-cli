@@ -14,6 +14,7 @@ import type {
   MobileEventType,
   MobileKeepAwakeStatus,
   MobilePullRequestReview,
+  MobileSessionTurnState,
 } from './MobileHandoffClient.js';
 import { randomUUID } from 'node:crypto';
 import type { PermissionPromptResponse, PermissionPromptResult } from '../permissions/types.js';
@@ -43,20 +44,43 @@ interface MobileRelayOptions {
   token: string;
   deviceId: string;
   sessionId: string;
-  pairingId?: string;
+  pairingId: string;
   mode: 'queue' | 'steer';
   pollIntervalMs: number;
-  enqueueInstruction: (instruction: string) => void;
-  enqueueInstructionWithImages?: (instruction: string, images: MobileImageAttachment[]) => void;
+  enqueueInstruction: (instruction: string, context: MobileClaimedTurnContext) => void;
+  enqueueInstructionWithImages?: (
+    instruction: string,
+    images: MobileImageAttachment[],
+    context: MobileClaimedTurnContext
+  ) => void;
   workspaceRoot?: string;
   deliveryStatusProvider?: () => Promise<MobileDeliveryStatusSnapshot>;
   keepAwakeController?: KeepAwakeController;
   keepAwakeByDefault?: boolean;
   mergePullRequest?: (request: MobilePullRequestMergeRequest) => Promise<MobilePullRequestMergeResult>;
+  onMobileConnected?: (message: string) => void;
+  onMobileDisconnected?: (message: string) => void;
   onError?: (error: Error) => void;
 }
 
+export interface MobileClaimedTurn {
+  workId: string;
+  prompt: string;
+  startedAt: string;
+}
+
+export interface MobileClaimedTurnContext {
+  turn: MobileClaimedTurn;
+  relay: MobileRelayController;
+}
+
+export type MobileClaimedTurnOutcome =
+  | { status: 'completed'; output?: string }
+  | { status: 'failed'; error: string; output?: string }
+  | { status: 'cancelled'; error?: string };
+
 export interface MobileRelayController {
+  finishClaimedTurn(turn: MobileClaimedTurn, outcome: MobileClaimedTurnOutcome): Promise<void>;
   requestPermission(
     message: string,
     context?: { tool?: string; path?: string; command?: string }
@@ -77,6 +101,10 @@ export interface MobileRelayController {
 }
 
 const MAX_MOBILE_IMAGE_BASE64_LENGTH = 5_000_000;
+const MOBILE_CONNECTED_MESSAGE = 'Mobile connected. Live prompts will run in this CLI session.';
+const MOBILE_DISCONNECTED_MESSAGE = 'Mobile disconnected. Pairing stopped.';
+const TERMINAL_TRANSPORT_ATTEMPTS = 3;
+const TERMINAL_RETRY_DELAY_MS = 100;
 const MOBILE_IMAGE_MIME_TYPES: readonly MobileImageMimeType[] = [
   'image/png',
   'image/jpeg',
@@ -112,10 +140,27 @@ function decodeMobileImages(payload: Record<string, unknown> | null): MobileImag
   });
 }
 
-let activeRelay: {
+function claimedWorkMatchesRelayScope(
+  work: { deliveryMode?: string | null; payload: Record<string, unknown> | null },
+  options: Pick<MobileRelayOptions, 'sessionId' | 'pairingId'>,
+): boolean {
+  const payload = work.payload;
+  const deliveryMode = work.deliveryMode
+    ?? (typeof payload?.deliveryMode === 'string' ? payload.deliveryMode : null);
+  const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : null;
+  const pairingId = typeof payload?.pairingId === 'string' ? payload.pairingId : null;
+
+  return deliveryMode === 'steer'
+    && sessionId === options.sessionId
+    && pairingId === options.pairingId;
+}
+
+interface ActiveMobileRelay {
   deviceId: string;
   timer: ReturnType<typeof setInterval>;
+  disposed: boolean;
   polling: boolean;
+  mobileConnected: boolean;
   actionCursor: number;
   pendingActions: Map<string, {
     kind: 'permission' | 'directory' | 'changes';
@@ -124,35 +169,28 @@ let activeRelay: {
   }>;
   sessionControlHandler?: (command: 'cancel') => void;
   keepAwakeController: KeepAwakeController;
-} | null = null;
+}
+
+let activeRelay: ActiveMobileRelay | null = null;
 
 export function startMobileRelay(options: MobileRelayOptions): MobileRelayController {
   stopMobileRelay();
   const keepAwakeController = options.keepAwakeController ?? new KeepAwakeController();
 
-  activeRelay = {
+  const relay: ActiveMobileRelay = {
     deviceId: options.deviceId,
-    timer: setInterval(() => {
-      void pollOnce(options);
-    }, Math.max(options.pollIntervalMs, 1_000)),
+    timer: undefined as unknown as ReturnType<typeof setInterval>,
+    disposed: false,
     polling: false,
+    mobileConnected: false,
     actionCursor: 0,
     pendingActions: new Map(),
     keepAwakeController,
   };
-
-  activeRelay.timer.unref?.();
-  void pollOnce(options);
-  if (options.keepAwakeByDefault !== undefined) {
-    const keepAwakeState = options.keepAwakeByDefault
-      ? keepAwakeController.enable()
-      : keepAwakeController.disable();
-    void publishKeepAwakeStatus(options, keepAwakeState);
-  }
-
-  return {
-    requestPermission: (message, context) => requestPermission(options, message, context),
-    requestDirectoryAccess: (path, reason) => requestDirectoryAccess(options, path, reason),
+  const controller: MobileRelayController = {
+    finishClaimedTurn: (turn, outcome) => finishClaimedTurn(options, turn, outcome),
+    requestPermission: (message, context) => requestPermission(options, relay, message, context),
+    requestDirectoryAccess: (path, reason) => requestDirectoryAccess(options, relay, path, reason),
     publishEvent: (eventType, payload, requestId) => publishEvent(options, eventType, payload, requestId),
     publishPullRequestStatus: (pullRequest) => publishEvent(options, 'pull_request_status', { pullRequest }),
     publishDeploymentStatus: (deployments) => publishEvent(options, 'deployment_status', { deployments }),
@@ -173,21 +211,43 @@ export function startMobileRelay(options: MobileRelayOptions): MobileRelayContro
         options.onError?.(error as Error);
       }
     },
-    setKeepAwake: (enabled) => setKeepAwake(options, enabled),
+    setKeepAwake: (enabled) => setKeepAwake(options, relay, enabled),
     setSessionControlHandler: (handler) => {
-      if (activeRelay?.deviceId === options.deviceId) {
-        activeRelay.sessionControlHandler = handler;
-      }
+      if (!relay.disposed && activeRelay === relay) relay.sessionControlHandler = handler;
     },
-    requestChangesDecision: (batchId, changes) => requestChangesDecision(options, batchId, changes),
+    requestChangesDecision: (batchId, changes) =>
+      requestChangesDecision(options, relay, batchId, changes),
   };
+
+  relay.timer = setInterval(() => {
+    void pollOnce(options, relay, controller);
+  }, Math.max(options.pollIntervalMs, 1_000));
+  activeRelay = relay;
+  relay.timer.unref?.();
+  void pollOnce(options, relay, controller);
+  if (options.keepAwakeByDefault !== undefined) {
+    const keepAwakeState = options.keepAwakeByDefault
+      ? keepAwakeController.enable()
+      : keepAwakeController.disable();
+    void publishKeepAwakeStatus(options, keepAwakeState);
+  }
+
+  return controller;
 }
 
 export function stopMobileRelay(): void {
-  if (!activeRelay) return;
-  clearInterval(activeRelay.timer);
-  activeRelay.keepAwakeController.dispose();
-  for (const pending of activeRelay.pendingActions.values()) {
+  const relay = activeRelay;
+  if (!relay) return;
+  disposeRelay(relay);
+}
+
+function disposeRelay(relay: ActiveMobileRelay): void {
+  if (relay.disposed) return;
+  relay.disposed = true;
+  clearInterval(relay.timer);
+  relay.keepAwakeController.dispose();
+  relay.sessionControlHandler = undefined;
+  for (const pending of [...relay.pendingActions.values()]) {
     pending.resolve(
       pending.kind === 'permission'
         ? { decision: 'deny_once' }
@@ -196,35 +256,73 @@ export function stopMobileRelay(): void {
           : undefined
     );
   }
-  activeRelay.pendingActions.clear();
-  activeRelay = null;
+  relay.pendingActions.clear();
+  if (activeRelay === relay) activeRelay = null;
 }
 
-async function pollOnce(options: MobileRelayOptions): Promise<void> {
-  if (!activeRelay || activeRelay.deviceId !== options.deviceId || activeRelay.polling) {
+async function pollOnce(
+  options: MobileRelayOptions,
+  relay: ActiveMobileRelay,
+  controller: MobileRelayController,
+): Promise<void> {
+  if (activeRelay !== relay || relay.polling) {
     return;
   }
 
-  activeRelay.polling = true;
+  relay.polling = true;
   try {
     try {
-      await options.client.sendRelayHeartbeat(options.token, {
+      const heartbeat = await options.client.sendRelayHeartbeat(options.token, {
         sessionId: options.sessionId,
         deviceId: options.deviceId,
         pairingId: options.pairingId,
         mode: options.mode,
       });
+      if (activeRelay !== relay) return;
+      if (heartbeat?.pairingStatus === 'revoked') {
+        disposeRelay(relay);
+        options.onMobileDisconnected?.(MOBILE_DISCONNECTED_MESSAGE);
+        return;
+      }
+      if (
+        heartbeat?.pairingClaimed === true
+        && !relay.mobileConnected
+      ) {
+        relay.mobileConnected = true;
+        options.onMobileConnected?.(MOBILE_CONNECTED_MESSAGE);
+      }
     } catch (error) {
+      if (activeRelay !== relay) return;
       options.onError?.(error as Error);
     }
 
-    const work = await options.client.claimWork(options.token, options.deviceId);
-    if (work?.prompt) {
+    const work = await options.client.claimWork(options.token, options.deviceId, {
+      deliveryMode: 'steer',
+      sessionId: options.sessionId,
+      pairingId: options.pairingId,
+    });
+    if (activeRelay !== relay) return;
+    if (work && !claimedWorkMatchesRelayScope(work, options)) {
+      options.onError?.(new Error('Claimed work did not match the active mobile relay scope.'));
+    } else if (work?.prompt) {
+      const turn: MobileClaimedTurn = {
+        workId: work.id,
+        prompt: work.prompt,
+        startedAt: work.startedAt ?? new Date().toISOString(),
+      };
+      await publishTurnState(options, {
+        workId: turn.workId,
+        status: 'running',
+        prompt: turn.prompt,
+        startedAt: turn.startedAt,
+      });
+      if (activeRelay !== relay) return;
       const images = decodeMobileImages(work.payload);
+      const context: MobileClaimedTurnContext = { turn, relay: controller };
       if (images.length > 0 && options.enqueueInstructionWithImages) {
-        options.enqueueInstructionWithImages(work.prompt, images);
+        options.enqueueInstructionWithImages(work.prompt, images, context);
       } else {
-        options.enqueueInstruction(work.prompt);
+        options.enqueueInstruction(work.prompt, context);
       }
     }
 
@@ -233,20 +331,92 @@ async function pollOnce(options: MobileRelayOptions): Promise<void> {
         options.token,
         options.sessionId,
         options.deviceId,
-        activeRelay.actionCursor
+        relay.actionCursor,
+        options.pairingId,
       );
-      activeRelay.actionCursor = Math.max(activeRelay.actionCursor, actions.nextCursor);
+      if (activeRelay !== relay) return;
+      relay.actionCursor = Math.max(relay.actionCursor, actions.nextCursor);
       for (const action of actions.actions) {
-        await resolveAction(action, options);
+        await resolveAction(action, options, relay);
+        if (activeRelay !== relay) return;
       }
     }
   } catch (error) {
-    options.onError?.(error as Error);
+    if (activeRelay === relay) options.onError?.(error as Error);
   } finally {
-    if (activeRelay?.deviceId === options.deviceId) {
-      activeRelay.polling = false;
+    relay.polling = false;
+  }
+}
+
+async function publishTurnState(
+  options: MobileRelayOptions,
+  state: MobileSessionTurnState
+): Promise<void> {
+  if (!options.client.publishMobileEvent) return;
+  try {
+    await publishEvent(options, 'session_turn_state', state, state.workId);
+  } catch (error) {
+    options.onError?.(error as Error);
+  }
+}
+
+async function finishClaimedTurn(
+  options: MobileRelayOptions,
+  turn: MobileClaimedTurn,
+  outcome: MobileClaimedTurnOutcome
+): Promise<void> {
+  const completedAt = new Date().toISOString();
+  const terminalState = {
+    workId: turn.workId,
+    status: outcome.status,
+    prompt: turn.prompt,
+    startedAt: turn.startedAt,
+    completedAt,
+    ...('output' in outcome && outcome.output ? { output: outcome.output } : {}),
+    ...('error' in outcome && outcome.error ? { error: outcome.error } : {}),
+  } satisfies MobileSessionTurnState;
+
+  const updateWork = options.client.updateWork?.bind(options.client);
+  if (updateWork) {
+    await retryTerminalTransport(options, async () => {
+      await updateWork(options.token, options.deviceId, turn.workId, {
+        status: outcome.status,
+        completedAt,
+        ...('error' in outcome && outcome.error ? { error: outcome.error } : {}),
+        payload: {
+          deliveryState: outcome.status,
+          executionState: outcome.status,
+        },
+      });
+    });
+  }
+
+  await retryTerminalTransport(options, () =>
+    publishEvent(options, 'session_turn_state', terminalState, terminalState.workId));
+}
+
+async function retryTerminalTransport(
+  options: MobileRelayOptions,
+  operation: () => Promise<void>,
+): Promise<boolean> {
+  let lastError: Error | undefined;
+  for (let attempt = 1; attempt <= TERMINAL_TRANSPORT_ATTEMPTS; attempt += 1) {
+    try {
+      await operation();
+      return true;
+    } catch (error) {
+      lastError = error as Error;
+    }
+
+    if (attempt < TERMINAL_TRANSPORT_ATTEMPTS) {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, TERMINAL_RETRY_DELAY_MS * attempt);
+      });
     }
   }
+
+  if (lastError) options.onError?.(lastError);
+  return false;
 }
 
 async function publishEvent<EventType extends MobileEventType>(
@@ -306,11 +476,11 @@ async function publishKeepAwakeStatus(
 
 async function setKeepAwake(
   options: MobileRelayOptions,
+  relay: ActiveMobileRelay,
   enabled: boolean
 ): Promise<MobileKeepAwakeStatus> {
-  const controller = activeRelay?.deviceId === options.deviceId
-    ? activeRelay.keepAwakeController
-    : options.keepAwakeController ?? new KeepAwakeController();
+  if (relay.disposed || activeRelay !== relay) return relay.keepAwakeController.currentState();
+  const controller = relay.keepAwakeController;
   const status = enabled ? controller.enable() : controller.disable();
   await publishKeepAwakeStatus(options, status);
   return status;
@@ -318,12 +488,17 @@ async function setKeepAwake(
 
 function waitForAction<T extends PermissionPromptResponse | string | MobileChangesDecision | undefined>(
   options: MobileRelayOptions,
+  relay: ActiveMobileRelay,
   requestId: string,
   pending: { kind: 'permission' | 'directory' | 'changes'; path?: string },
   fallback: T
 ): Promise<T> {
-  const relay = activeRelay;
-  if (!relay || relay.deviceId !== options.deviceId || !options.client.publishMobileEvent || !options.client.pollMobileActions) {
+  if (
+    relay.disposed
+    || activeRelay !== relay
+    || !options.client.publishMobileEvent
+    || !options.client.pollMobileActions
+  ) {
     return Promise.resolve(fallback);
   }
 
@@ -343,22 +518,24 @@ function waitForAction<T extends PermissionPromptResponse | string | MobileChang
   });
 }
 
-function cancelAction(requestId: string): void {
-  activeRelay?.pendingActions.delete(requestId);
+function cancelAction(relay: ActiveMobileRelay, requestId: string): void {
+  relay.pendingActions.delete(requestId);
 }
 
 async function requestPermission(
   options: MobileRelayOptions,
+  relay: ActiveMobileRelay,
   message: string,
   context?: { tool?: string; path?: string; command?: string }
 ): Promise<PermissionPromptResponse> {
   const requestId = `mobile-perm-${randomUUID()}`;
   const fallback: PermissionPromptResult = { decision: 'deny_once' };
-  const response = waitForAction<PermissionPromptResponse>(options, requestId, {
+  const response = waitForAction<PermissionPromptResponse>(options, relay, requestId, {
     kind: 'permission',
   }, fallback);
 
   try {
+    if (relay.disposed || activeRelay !== relay) return fallback;
     await publishEvent(options, 'permission_request', {
       message,
       tool: context?.tool,
@@ -366,7 +543,7 @@ async function requestPermission(
       options: ['allow_once', 'deny_once', 'allow_session', 'deny_session', 'alternative'],
     }, requestId);
   } catch (error) {
-    cancelAction(requestId);
+    cancelAction(relay, requestId);
     options.onError?.(error as Error);
     return fallback;
   }
@@ -376,20 +553,22 @@ async function requestPermission(
 
 async function requestDirectoryAccess(
   options: MobileRelayOptions,
+  relay: ActiveMobileRelay,
   path: string,
   reason?: string
 ): Promise<string | undefined> {
   const requestId = `mobile-dir-${randomUUID()}`;
   const fallback = undefined;
-  const response = waitForAction<string | undefined>(options, requestId, {
+  const response = waitForAction<string | undefined>(options, relay, requestId, {
     kind: 'directory',
     path,
   }, fallback);
 
   try {
+    if (relay.disposed || activeRelay !== relay) return fallback;
     await publishEvent(options, 'directory_access_request', { path, reason }, requestId);
   } catch (error) {
-    cancelAction(requestId);
+    cancelAction(relay, requestId);
     options.onError?.(error as Error);
     return fallback;
   }
@@ -399,19 +578,21 @@ async function requestDirectoryAccess(
 
 async function requestChangesDecision(
   options: MobileRelayOptions,
+  relay: ActiveMobileRelay,
   batchId: string,
   changes: MobileChangePreview[]
 ): Promise<MobileChangesDecision> {
   const requestId = `mobile-changes-${randomUUID()}`;
   const fallback: MobileChangesDecision = { action: 'reject_all' };
-  const response = waitForAction<MobileChangesDecision>(options, requestId, {
+  const response = waitForAction<MobileChangesDecision>(options, relay, requestId, {
     kind: 'changes',
   }, fallback);
 
   try {
+    if (relay.disposed || activeRelay !== relay) return fallback;
     await publishEvent(options, 'changes_batch', { batchId, changes }, requestId);
   } catch (error) {
-    cancelAction(requestId);
+    cancelAction(relay, requestId);
     options.onError?.(error as Error);
     return fallback;
   }
@@ -419,12 +600,15 @@ async function requestChangesDecision(
   return response;
 }
 
-async function resolveAction(action: MobileAction, options: MobileRelayOptions): Promise<void> {
-  const relay = activeRelay;
-  if (!relay) return;
+async function resolveAction(
+  action: MobileAction,
+  options: MobileRelayOptions,
+  relay: ActiveMobileRelay,
+): Promise<void> {
+  if (relay.disposed || activeRelay !== relay) return;
 
   if (action.actionType === 'keep_awake_control' && typeof action.payload.enabled === 'boolean') {
-    await setKeepAwake(options, action.payload.enabled);
+    await setKeepAwake(options, relay, action.payload.enabled);
     return;
   }
 

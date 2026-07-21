@@ -72,6 +72,7 @@ export AUTOHAND_HOME=/custom/path  # ~/.autohand を /custom/path に変更
 | `AUTOHAND_HOME`                        | すべてのAutohandデータのベースディレクトリ         | `/custom/path`                   |
 | `AUTOHAND_CONFIG`                      | カスタム設定ファイルパス                           | `/path/to/config.json`           |
 | `AUTOHAND_API_URL`                     | APIエンドポイント（設定をオーバーライド）          | `https://api.autohand.ai`        |
+| `AUTOHAND_AUTH_URL`                    | サインインとアカウント同期のオリジン（`AUTOHAND_API_URL` とは独立） | `https://autohand.ai` |
 | `AUTOHAND_SECRET`                      | 会社/チームの秘密鍵                                | `sk-xxx`                         |
 | `AUTOHAND_PERMISSION_CALLBACK_URL`     | 権限コールバック用URL（実験的）                    | `http://localhost:3000/callback` |
 | `AUTOHAND_PERMISSION_CALLBACK_TIMEOUT` | 権限コールバックのタイムアウト（ミリ秒）           | `5000`                           |

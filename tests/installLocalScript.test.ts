@@ -47,7 +47,7 @@ describe('local install scripts', () => {
     };
     const devScript = packageJson.scripts?.dev ?? '';
 
-    expect(devScript).toBe('env -i PATH="/Users/igorcosta/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" AUTOHAND_DEBUG="$AUTOHAND_DEBUG" bun src/index.ts');
+    expect(devScript).toBe('env -i PATH="/Users/igorcosta/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" AUTOHAND_DEBUG="$AUTOHAND_DEBUG" ${AUTOHAND_API_URL:+AUTOHAND_API_URL="$AUTOHAND_API_URL"} ${AUTOHAND_AUTH_URL:+AUTOHAND_AUTH_URL="$AUTOHAND_AUTH_URL"} bun src/index.ts');
   });
 
   it('preserves AUTOHAND_DEBUG through the sanitized dev environment', () => {

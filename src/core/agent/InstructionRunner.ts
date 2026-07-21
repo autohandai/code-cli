@@ -16,6 +16,7 @@ import type { Intent, IntentResult } from '../IntentDetector.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { GoalManager } from '../../goals/GoalManager.js';
 import type { SessionMessage, SessionTurnUsageInput } from '../../session/types.js';
+import type { MobileClaimedTurnContext } from '../../mobile/MobileRelay.js';
 import {
   extractDeepResearchRunId,
   finalizeDeepResearchRun,
@@ -139,6 +140,7 @@ export interface AgentInstructionHost {
   shouldUsePassiveSessionRetry(error: Error): boolean;
   injectContinuationMessage(error: Error, attempt: number): void;
   getDisplayErrorMessage(error: unknown): string;
+  recordTurnFailure?(message: string): void;
   emitOutput(event: AgentOutputEvent): void;
   printCompletionSummary(regionsStillActive: boolean, succeeded?: boolean): void;
   scheduleTurnMemoryReflection(success: boolean): void;
@@ -147,6 +149,7 @@ export interface AgentInstructionHost {
 
 export interface RunInstructionOptions {
   signal?: AbortSignal;
+  mobileTurn?: MobileClaimedTurnContext;
 }
 
 interface DeepResearchInstructionState {
@@ -480,6 +483,7 @@ export class InstructionRunner {
         host.stopUI(true, 'Session failed');
         // Emit error for RPC mode
         const errorMessage = host.getDisplayErrorMessage(err);
+        host.recordTurnFailure?.(errorMessage);
         host.emitOutput({ type: 'error', content: errorMessage });
         if (err instanceof Error) {
           console.error(chalk.red(errorMessage));

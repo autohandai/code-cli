@@ -74,6 +74,7 @@ export AUTOHAND_HOME=/caminho/personalizado  # Altera ~/.autohand para /caminho/
 | `AUTOHAND_HOME`                        | Diretório base para todos os dados do Autohand | `/caminho/personalizado`         |
 | `AUTOHAND_CONFIG`                      | Caminho personalizado do arquivo de configuração | `/caminho/para/config.json`     |
 | `AUTOHAND_API_URL`                     | Endpoint da API (sobrescreve configuração)     | `https://api.autohand.ai`        |
+| `AUTOHAND_AUTH_URL`                    | Origem de login e sincronização da conta (independente de `AUTOHAND_API_URL`) | `https://autohand.ai` |
 | `AUTOHAND_SECRET`                      | Chave secreta da empresa/equipe               | `sk-xxx`                         |
 | `AUTOHAND_PERMISSION_CALLBACK_URL`     | URL para callback de permissão (experimental)  | `http://localhost:3000/callback` |
 | `AUTOHAND_PERMISSION_CALLBACK_TIMEOUT` | Timeout para callback de permissão em ms       | `5000`                           |

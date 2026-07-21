@@ -758,6 +758,87 @@ export interface HookSessionErrorNotificationParams {
   timestamp: string;
 }
 
+/** Notification params for the canonical stop hook event. */
+export interface HookStopNotificationParams {
+  tokensUsed: number;
+  tokensUsageStatus?: 'actual' | 'unavailable';
+  toolCallsCount: number;
+  duration: number;
+  timestamp: string;
+}
+
+/** Notification params for session-start hook events. */
+export interface HookSessionStartNotificationParams {
+  sessionType: 'startup' | 'resume' | 'clear';
+  timestamp: string;
+}
+
+/** Notification params for session-end hook events. */
+export interface HookSessionEndNotificationParams {
+  reason: 'quit' | 'clear' | 'exit' | 'error';
+  duration: number;
+  timestamp: string;
+}
+
+/** Notification params for subagent-stop hook events. */
+export interface HookSubagentStopNotificationParams {
+  subagentId: string;
+  subagentName: string;
+  subagentType: string;
+  success: boolean;
+  duration: number;
+  error?: string;
+  timestamp: string;
+}
+
+/** Notification params for permission-request hook events. */
+export interface HookPermissionRequestNotificationParams {
+  tool: string;
+  path?: string;
+  command?: string;
+  args?: Record<string, unknown>;
+  timestamp: string;
+}
+
+/** Notification params for requested user notifications. */
+export interface HookNotificationNotificationParams {
+  notificationType: string;
+  message: string;
+  timestamp: string;
+}
+
+/** Notification params emitted after context compaction. */
+export interface HookContextCompactedNotificationParams {
+  croppedCount: number;
+  summary?: string;
+  usagePercent: number;
+  reason: string;
+  timestamp: string;
+}
+
+/** Notification params emitted after context overflow recovery. */
+export interface HookContextOverflowNotificationParams {
+  tokensBefore: number;
+  tokensAfter: number;
+  croppedCount: number;
+  usagePercent: number;
+  timestamp: string;
+}
+
+/** Notification params emitted at the context warning threshold. */
+export interface HookContextWarningNotificationParams {
+  usagePercent: number;
+  remainingTokens: number;
+  timestamp: string;
+}
+
+/** Notification params emitted at the context critical threshold. */
+export interface HookContextCriticalNotificationParams {
+  usagePercent: number;
+  remainingTokens: number;
+  timestamp: string;
+}
+
 // ============================================================================
 // Multi-File Change Preview Types
 // ============================================================================

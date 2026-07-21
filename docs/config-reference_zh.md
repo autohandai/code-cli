@@ -72,6 +72,7 @@ export AUTOHAND_HOME=/custom/path  # 将 ~/.autohand 更改为 /custom/path
 | `AUTOHAND_HOME`                        | 所有 Autohand 数据的基础目录                    | `/custom/path`                   |
 | `AUTOHAND_CONFIG`                      | 自定义配置文件路径                              | `/path/to/config.json`           |
 | `AUTOHAND_API_URL`                     | API 端点（覆盖配置）                            | `https://api.autohand.ai`        |
+| `AUTOHAND_AUTH_URL`                    | 登录与账户同步源（独立于 `AUTOHAND_API_URL`） | `https://autohand.ai` |
 | `AUTOHAND_SECRET`                      | 公司/团队密钥                                   | `sk-xxx`                         |
 | `AUTOHAND_PERMISSION_CALLBACK_URL`     | 权限回调 URL（实验性）                          | `http://localhost:3000/callback` |
 | `AUTOHAND_PERMISSION_CALLBACK_TIMEOUT` | 权限回调超时（毫秒）                            | `5000`                           |

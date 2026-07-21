@@ -25,6 +25,8 @@ export interface NotificationOptions {
   title?: string;
 }
 
+export type NotificationListener = (options: Readonly<NotificationOptions>) => void | Promise<void>;
+
 const TERMINAL_KEYWORDS = [
   'terminal', 'iterm', 'alacritty', 'kitty', 'wezterm', 'hyper',
   'warp', 'tmux', 'screen', 'konsole', 'gnome-terminal', 'xterm',
@@ -43,6 +45,11 @@ const ICON_PATH = existsSync(DEV_ICON) ? DEV_ICON : PROD_ICON;
 
 export class NotificationService {
   private focusCache: { value: boolean; timestamp: number } | null = null;
+  private listener?: NotificationListener;
+
+  setListener(listener?: NotificationListener): void {
+    this.listener = listener;
+  }
 
   /**
    * Pure synchronous guard check. Returns false if notifications should be suppressed.
@@ -72,6 +79,12 @@ export class NotificationService {
    * Main entry: check guards, check focus, send notification if warranted.
    */
   async notify(options: NotificationOptions, guards: NotificationGuards): Promise<void> {
+    try {
+      await this.listener?.(options);
+    } catch {
+      // Lifecycle observers must not affect native notification delivery.
+    }
+
     if (!this.shouldNotify(guards)) return;
 
     // Check if terminal is focused - skip notification if user is already looking

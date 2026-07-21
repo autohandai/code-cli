@@ -55,7 +55,7 @@ import { TeamManager } from '../teams/TeamManager.js';
 import { RepeatManager } from '../RepeatManager.js';
 import { intervalToCron, shorthandToHuman, shorthandToMs } from '../../commands/repeat.js';
 import { ActivityIndicator } from '../../ui/activityIndicator.js';
-import { NotificationService } from '../../utils/notification.js';
+import { NotificationService, type NotificationOptions } from '../../utils/notification.js';
 import { formatPlanModeToggleMessage } from '../../commands/plan.js';
 import packageJson from '../../../package.json' with { type: 'json' };
 import { ImageManager, type ImageMimeType } from '../ImageManager.js';
@@ -79,11 +79,47 @@ import { SuggestionEngine } from '../SuggestionEngine.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { configureAgentRegistry, syncDynamicRuntimeExtensions } from './dynamicRuntimeExtensions.js';
 import { ExtensionService } from '../../extensions/ExtensionService.js';
-import type { MobileRelayController } from '../../mobile/MobileRelay.js';
+import type {
+  MobileClaimedTurnContext,
+  MobileRelayController,
+} from '../../mobile/MobileRelay.js';
 import type { PendingPostTurnAction } from './PostTurnActionCoordinator.js';
 
 export interface AgentDependencyHost {
   [key: string]: any;
+}
+
+/** Queue an instruction and wake the interactive Ink loop when it is idle. */
+export function enqueueInteractiveInstruction(
+  host: AgentDependencyHost,
+  instruction: string,
+): void {
+  if (host.inkRenderer) {
+    host.inkRenderer.addQueuedInstruction(instruction);
+  } else {
+    host.pendingInkInstructions.push(instruction);
+  }
+
+  const resolver = host.inkInstructionResolver;
+  if (resolver) {
+    host.inkInstructionResolver = null;
+    resolver();
+  }
+}
+
+/** Queue an exact claimed mobile turn without losing its metadata in Ink's string-only queue. */
+export function enqueueClaimedMobileInstruction(
+  host: AgentDependencyHost,
+  instruction: string,
+  mobileTurn: MobileClaimedTurnContext,
+): void {
+  host.pendingInkInstructions.push({ text: instruction, mobileTurn });
+
+  const resolver = host.inkInstructionResolver;
+  if (resolver) {
+    host.inkInstructionResolver = null;
+    resolver();
+  }
 }
 
 function normalizeMcpToolOutcome(result: unknown): ToolActionOutcome {
@@ -223,6 +259,9 @@ export function initializeAgentDependencies(
       onOverflow: (usage) => {
         console.log(chalk.yellow(`⚠ Context overflow at ${Math.round(usage.usagePercent * 100)}%`));
       },
+      onHookEvent: async ({ event, ...context }) => {
+        await host.hookManager.executeHooks(event, context);
+      },
     });
 
     // Initialize new feature modules
@@ -287,6 +326,12 @@ export function initializeAgentDependencies(
           promptNotify(chalk.yellow(`[hook:${result.hook.event}] ${result.stderr}`));
         }
       }
+    });
+    host.notificationService.setListener(async (options: Readonly<NotificationOptions>) => {
+      await host.hookManager.executeHooks('notification', {
+        notificationType: options.reason,
+        notificationMessage: options.body,
+      });
     });
 
     // Initialize repeat manager for /repeat recurring prompts
@@ -1361,19 +1406,10 @@ export function initializeAgentDependencies(
         host.requestResearchPublication(reportPath),
       // Queue a remote instruction as if the user typed it into the interactive composer.
       enqueueInstruction: (instruction: string) => {
-        if (host.inkRenderer) {
-          host.inkRenderer.addQueuedInstruction(instruction);
-        } else {
-          host.pendingInkInstructions.push(instruction);
-        }
+        enqueueInteractiveInstruction(host, instruction);
       },
-      enqueueMobileInstruction: (instruction: string) => {
-        host.markMobileInstructionQueued?.();
-        if (host.inkRenderer) {
-          host.inkRenderer.addQueuedInstruction(instruction);
-        } else {
-          host.pendingInkInstructions.push(instruction);
-        }
+      enqueueMobileInstruction: (instruction: string, mobileTurn: MobileClaimedTurnContext) => {
+        enqueueClaimedMobileInstruction(host, instruction, mobileTurn);
       },
       enqueueInstructionWithImages: (instruction: string, images: MobileImageAttachment[]) => {
         const placeholders = images.map((image) => {
@@ -1385,14 +1421,13 @@ export function initializeAgentDependencies(
           ? `${instruction}\n\n${placeholders.join('\n')}`
           : instruction;
 
-        if (host.inkRenderer) {
-          host.inkRenderer.addQueuedInstruction(instructionWithImages);
-        } else {
-          host.pendingInkInstructions.push(instructionWithImages);
-        }
+        enqueueInteractiveInstruction(host, instructionWithImages);
       },
-      enqueueMobileInstructionWithImages: (instruction: string, images: MobileImageAttachment[]) => {
-        host.markMobileInstructionQueued?.();
+      enqueueMobileInstructionWithImages: (
+        instruction: string,
+        images: MobileImageAttachment[],
+        mobileTurn: MobileClaimedTurnContext,
+      ) => {
         const placeholders = images.map((image) => {
           const data = Buffer.from(image.data, 'base64');
           const id = host.imageManager.add(data, image.mimeType as ImageMimeType, image.filename);
@@ -1402,11 +1437,7 @@ export function initializeAgentDependencies(
           ? `${instruction}\n\n${placeholders.join('\n')}`
           : instruction;
 
-        if (host.inkRenderer) {
-          host.inkRenderer.addQueuedInstruction(instructionWithImages);
-        } else {
-          host.pendingInkInstructions.push(instructionWithImages);
-        }
+        enqueueClaimedMobileInstruction(host, instructionWithImages, mobileTurn);
       },
       onMobileRelayReady: (relay: MobileRelayController) => {
         host.setMobileRelayController?.(relay);
@@ -1419,6 +1450,12 @@ export function initializeAgentDependencies(
             host.cancelCurrentInstruction?.();
           }
         });
+      },
+      onMobileConnected: (message: string) => {
+        host.notifyUser?.(message);
+      },
+      onMobileDisconnected: (message: string) => {
+        host.notifyUser?.(message);
       },
       // Set/clear YOLO mode for /yolo and /no-yolo commands
       setYoloMode: (pattern: string | undefined) => {

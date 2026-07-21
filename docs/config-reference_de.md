@@ -76,6 +76,7 @@ export AUTOHAND_HOME=/custom/path  # Ändert ~/.autohand zu /custom/path
 | `AUTOHAND_HOME`                        | Basisverzeichnis für alle Autohand-Daten             | `/custom/path`                   |
 | `AUTOHAND_CONFIG`                      | Benutzerdefinierter Konfigurationsdateipfad                          | `/path/to/config.toml`           |
 | `AUTOHAND_API_URL`                     | API-Endpunkt (überschreibt Konfiguration)                  | `https://api.autohand.ai`        |
+| `AUTOHAND_AUTH_URL`                    | Ursprung für Anmeldung und Kontosynchronisierung (unabhängig von `AUTOHAND_API_URL`) | `https://autohand.ai` |
 | `AUTOHAND_SECRET`                      | Firmen-/Team-Geheimschlüssel                          | `sk-xxx`                         |
 | `AUTOHAND_PERMISSION_CALLBACK_URL`     | URL für Berechtigungsrückruf (experimentell)       | `http://localhost:3000/callback` |
 | `AUTOHAND_PERMISSION_CALLBACK_TIMEOUT` | Zeitlimit für Berechtigungsrückruf in ms            | `5000`                           |

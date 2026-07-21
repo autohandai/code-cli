@@ -258,6 +258,8 @@ export class SlashCommandHandler {
             enqueueInstructionWithImages: this.ctx.enqueueInstructionWithImages,
             enqueueMobileInstructionWithImages: this.ctx.enqueueMobileInstructionWithImages,
             onMobileRelayReady: this.ctx.onMobileRelayReady,
+            onMobileConnected: this.ctx.onMobileConnected,
+            onMobileDisconnected: this.ctx.onMobileDisconnected,
           }, args);
         }
         case '/handoff session': {
@@ -274,6 +276,8 @@ export class SlashCommandHandler {
             enqueueInstructionWithImages: this.ctx.enqueueInstructionWithImages,
             enqueueMobileInstructionWithImages: this.ctx.enqueueMobileInstructionWithImages,
             onMobileRelayReady: this.ctx.onMobileRelayReady,
+            onMobileConnected: this.ctx.onMobileConnected,
+            onMobileDisconnected: this.ctx.onMobileDisconnected,
             isFeatureEnabled: this.ctx.isFeatureEnabled,
             trackFeatureActivation: this.ctx.trackFeatureActivation,
           }, args);

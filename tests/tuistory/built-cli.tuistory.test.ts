@@ -597,6 +597,7 @@ describe('interactive built CLI Tuistory tests', () => {
         cwd: state.workspaceRoot,
         env: {
           AUTOHAND_API_URL: authServer.baseUrl,
+          AUTOHAND_AUTH_URL: authServer.baseUrl,
           PATH: `${fakeBinDir}:${process.env.PATH ?? ''}`,
         },
         waitForDataTimeout: 15_000,
@@ -638,6 +639,7 @@ describe('interactive built CLI Tuistory tests', () => {
         cwd: state.workspaceRoot,
         env: {
           AUTOHAND_API_URL: authServer.baseUrl,
+          AUTOHAND_AUTH_URL: authServer.baseUrl,
           NODE_OPTIONS: [
             process.env.NODE_OPTIONS,
             `--import ${stalledSyncPreload.importSpecifier}`,

@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import stripAnsi from 'strip-ansi';
-import { go, handoffSession } from '../../src/commands/go.js';
+import { formatScannableTerminalQRCode, go, handoffSession } from '../../src/commands/go.js';
 import { stopMobileRelay } from '../../src/mobile/MobileRelay.js';
 import type { MobileHandoffClientLike } from '../../src/mobile/MobileHandoffClient.js';
 import type { Session, SessionManager } from '../../src/session/SessionManager.js';
@@ -43,6 +43,13 @@ function createSessionManager(session: Session | null): SessionManager {
 }
 
 describe('/go command', () => {
+  it('pins QR contrast to dark modules on a light terminal field', () => {
+    const formatted = formatScannableTerminalQRCode('QR\nCODE');
+
+    expect(formatted).toBe('\u001B[30;47mQR\u001B[0m\n\u001B[30;47mCODE\u001B[0m');
+    expect(stripAnsi(formatted)).toBe('QR\nCODE');
+  });
+
   it('asks the user to log in before pairing', async () => {
     const result = await go({
       sessionManager: createSessionManager(createSession()),
@@ -138,10 +145,11 @@ describe('/go command', () => {
   });
 
   it('starts a relay listener when the interactive queue is available', async () => {
+    const onMobileConnected = vi.fn();
     const client: MobileHandoffClientLike = {
       getDeviceId: vi.fn().mockResolvedValue('device-1'),
       registerDevice: vi.fn().mockResolvedValue(undefined),
-      sendRelayHeartbeat: vi.fn().mockResolvedValue(undefined),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
       createPairing: vi.fn().mockResolvedValue({
         id: 'pairing-1',
         pairingUrl: 'https://autohand.ai/code/go?pairing=pairing-1&token=secret',
@@ -166,7 +174,11 @@ describe('/go command', () => {
           status: 'running',
           agentId: null,
           deviceId: 'device-1',
-          payload: null,
+          payload: {
+            deliveryMode: 'steer',
+            sessionId: 'session-1',
+            pairingId: 'pairing-1',
+          },
           createdAt: '2026-05-13T00:00:00.000Z',
           updatedAt: '2026-05-13T00:00:01.000Z',
         })
@@ -185,6 +197,7 @@ describe('/go command', () => {
       },
       client,
       enqueueInstruction,
+      onMobileConnected,
     });
 
     await Promise.resolve();
@@ -197,9 +210,72 @@ describe('/go command', () => {
       pairingId: 'pairing-1',
       mode: 'steer',
     });
-    expect(client.claimWork).toHaveBeenCalledWith('token', 'device-1');
-    expect(enqueueInstruction).toHaveBeenCalledWith('hello from iPhone');
+    expect(client.claimWork).toHaveBeenCalledWith('token', 'device-1', {
+      deliveryMode: 'steer',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+    });
+    expect(enqueueInstruction).toHaveBeenCalledWith(
+      'hello from iPhone',
+      expect.objectContaining({
+        turn: expect.objectContaining({ workId: 'work-1' }),
+        relay: expect.any(Object),
+      }),
+    );
+    expect(onMobileConnected).toHaveBeenCalledOnce();
+    expect(onMobileConnected).toHaveBeenCalledWith(
+      'Mobile connected. Live prompts will run in this CLI session.'
+    );
     stopMobileRelay();
+  });
+
+  it('surfaces a revoked pairing through the relay disconnect callback', async () => {
+    const onMobileDisconnected = vi.fn();
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({
+        pairingClaimed: false,
+        pairingStatus: 'revoked',
+      }),
+      createPairing: vi.fn().mockResolvedValue({
+        id: 'pairing-1',
+        pairingUrl: 'https://autohand.ai/code/go?pairing=pairing-1&token=secret',
+        expiresAt: '2026-05-13T00:10:00.000Z',
+        pollIntervalMs: 2000,
+        session: {
+          id: 'session-1',
+          deviceId: 'device-1',
+          workspacePath: '/Users/test/project',
+          projectName: 'project',
+          model: 'gpt-5.3-codex',
+          provider: 'openai',
+        },
+      }),
+      claimWork: vi.fn().mockResolvedValue(null),
+    };
+
+    await go({
+      sessionManager: createSessionManager(createSession()),
+      workspaceRoot: '/Users/test/project',
+      model: 'gpt-5.3-codex',
+      provider: 'openai',
+      config: {
+        configPath: '/tmp/config.json',
+        auth: { token: 'token', user: { id: 'user-1', email: 'user@example.com', name: 'User' } },
+      },
+      client,
+      enqueueInstruction: vi.fn(),
+      onMobileDisconnected,
+    });
+
+    try {
+      await vi.waitFor(() => expect(onMobileDisconnected).toHaveBeenCalledOnce());
+      expect(onMobileDisconnected).toHaveBeenCalledWith('Mobile disconnected. Pairing stopped.');
+      expect(client.claimWork).not.toHaveBeenCalled();
+    } finally {
+      stopMobileRelay();
+    }
   });
 
   it('keeps live steering active when relay heartbeat fails', async () => {
@@ -231,6 +307,9 @@ describe('/go command', () => {
         agentId: null,
         deviceId: 'device-1',
         payload: {
+          deliveryMode: 'steer',
+          sessionId: 'session-1',
+          pairingId: 'pairing-1',
           images: [{
             data: 'iVBORw0KGgo=',
             mimeType: 'image/png',
@@ -263,12 +342,19 @@ describe('/go command', () => {
 
     expect(stripAnsi(result || '')).toContain('Relay: listening for mobile prompts');
     expect(client.sendRelayHeartbeat).toHaveBeenCalled();
-    expect(client.claimWork).toHaveBeenCalledWith('token', 'device-1');
+    expect(client.claimWork).toHaveBeenCalledWith('token', 'device-1', {
+      deliveryMode: 'steer',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+    });
     expect(enqueueInstructionWithImages).toHaveBeenCalledWith('review the diff from mobile', [{
       data: 'iVBORw0KGgo=',
       mimeType: 'image/png',
       filename: 'screen.png',
-    }]);
+    }], expect.objectContaining({
+      turn: expect.objectContaining({ workId: 'work-1' }),
+      relay: expect.any(Object),
+    }));
     expect(enqueueInstruction).not.toHaveBeenCalled();
     stopMobileRelay();
   });

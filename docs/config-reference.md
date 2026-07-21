@@ -77,6 +77,7 @@ export AUTOHAND_HOME=/custom/path  # Changes ~/.autohand to /custom/path
 | `AUTOHAND_CONFIG`                      | Custom config file path                          | `/path/to/config.toml`           |
 | `AUTOHAND_MODELS_CATALOG`              | Custom provider model catalog path               | `/path/to/models.json`           |
 | `AUTOHAND_API_URL`                     | API endpoint (overrides config)                  | `https://api.autohand.ai`        |
+| `AUTOHAND_AUTH_URL`                    | Sign-in and account-sync origin (independent of `AUTOHAND_API_URL`) | `https://autohand.ai` |
 | `AUTOHAND_SECRET`                      | Company/team secret key                          | `sk-xxx`                         |
 | `AUTOHAND_PERMISSION_CALLBACK_URL`     | URL for permission callback (experimental)       | `http://localhost:3000/callback` |
 | `AUTOHAND_PERMISSION_CALLBACK_TIMEOUT` | Timeout for permission callback in ms            | `5000`                           |

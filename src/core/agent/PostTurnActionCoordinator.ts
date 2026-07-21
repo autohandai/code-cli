@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { readDeepResearchRun } from '../../deepResearch/session.js';
+import type { MobileClaimedTurnContext } from '../../mobile/MobileRelay.js';
 
 export interface PublishResearchPostTurnAction {
   kind: 'publish-research';
@@ -16,6 +17,7 @@ export type PendingPostTurnAction = PublishResearchPostTurnAction;
 export interface QueuedAgentInstruction {
   text: string;
   postTurnAction?: PendingPostTurnAction;
+  mobileTurn?: MobileClaimedTurnContext;
 }
 
 export type PendingAgentInstruction = string | QueuedAgentInstruction;

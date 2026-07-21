@@ -18,6 +18,7 @@ import type {
   ContextOrchestratorOptions,
   CompactionEntry,
   ExtendedContextUsageResult,
+  ContextHookContext,
 } from './types.js';
 import type { ContextUsage } from './tokenizer.js';
 import { CONTEXT_ENV_VARS } from './types.js';
@@ -39,6 +40,7 @@ export class ContextOrchestrator {
   private onCrop?: (croppedCount: number, reason: string) => void;
   private onWarning?: (usage: ContextUsage) => void;
   private onOverflow?: (usage: ContextUsage) => void;
+  private onHookEvent?: (context: ContextHookContext) => void | Promise<void>;
 
   constructor(options: ContextOrchestratorOptions) {
     // Respect env var override for enabled state
@@ -55,6 +57,7 @@ export class ContextOrchestrator {
     this.onCrop = options.onCrop;
     this.onWarning = options.onWarning;
     this.onOverflow = options.onOverflow;
+    this.onHookEvent = options.onHookEvent;
 
     this.compactor = new ContextCompactor({
       conversationManager: options.conversationManager,
@@ -90,6 +93,8 @@ export class ContextOrchestrator {
     spinner?: { stop: () => void },
   ): Promise<{ messages: LLMMessage[]; tools: FunctionDefinition[]; usage: ContextUsage; wasCropped: boolean; croppedCount: number; summary?: string }> {
     if (this.enabled) {
+      const usageBefore = this.calculateUsage(this.conversationManager.history(), tools);
+      let thresholdUsage: ContextUsage | undefined;
       // Use tiered context management (70% compress, 80% summarize, 90%+ crop)
       const prepared = await this.compactor.compact(
         this.model,
@@ -101,13 +106,31 @@ export class ContextOrchestrator {
         },
         (usage) => {
           this.onWarning?.(usage);
+          thresholdUsage = usage;
         },
         this.contextWindow,
       );
 
+      if (thresholdUsage) {
+        await this.emitThresholdHook(thresholdUsage);
+      }
+
       if (prepared.wasCropped) {
         spinner?.stop();
-        this.recordCompaction(prepared.croppedCount, prepared.summary, 'tiered-compaction', prepared.usage);
+        this.recordCompaction(
+          prepared.croppedCount,
+          prepared.summary,
+          'tiered-compaction',
+          usageBefore,
+          prepared.usage,
+        );
+        await this.emitHook({
+          event: 'context:compact',
+          croppedCount: prepared.croppedCount,
+          summary: prepared.summary,
+          usagePercent: this.normalizeUsageRatio(prepared.usage.usagePercent),
+          reason: 'tiered-compaction',
+        });
       }
 
       return prepared;
@@ -121,6 +144,7 @@ export class ContextOrchestrator {
     if (contextUsage.isCritical) {
       spinner?.stop();
       this.onWarning?.(contextUsage);
+      await this.emitThresholdHook(contextUsage);
 
       // Target 70% usage after cropping
       const targetTokens = Math.floor(contextUsage.contextWindow * 0.7);
@@ -129,30 +153,41 @@ export class ContextOrchestrator {
       const messagesToRemove = Math.ceil(tokensToRemove / avgMessageTokens);
 
       const removed = this.conversationManager.cropHistory('top', messagesToRemove);
+      let summary: string | undefined;
       if (removed.length > 0) {
-        const summary = await summarizeWithLLM(removed);
+        summary = await summarizeWithLLM(removed);
         this.conversationManager.addSystemNote(
           `[Context Management] ${removed.length} older messages were summarized to maintain context limits.\n` +
           `Summary of removed content:\n${summary}`
         );
         this.onCrop?.(removed.length, `Removed ${removed.length} messages to free up context space`);
-        this.recordCompaction(removed.length, summary, 'legacy-critical', contextUsage);
       }
 
       const newMessages = this.conversationManager.history();
       const newUsage = this.calculateUsage(newMessages, tools);
+      if (removed.length > 0) {
+        this.recordCompaction(removed.length, summary, 'legacy-critical', contextUsage, newUsage);
+        await this.emitHook({
+          event: 'context:compact',
+          croppedCount: removed.length,
+          summary,
+          usagePercent: this.normalizeUsageRatio(newUsage.usagePercent),
+          reason: 'legacy-critical',
+        });
+      }
       return {
         messages: newMessages,
         tools,
         usage: newUsage,
         wasCropped: removed.length > 0,
         croppedCount: removed.length,
-        summary: undefined,
+        summary,
       };
     }
 
     if (contextUsage.isWarning && iteration === 0) {
       this.onWarning?.(contextUsage);
+      await this.emitThresholdHook(contextUsage);
     }
 
     return {
@@ -182,6 +217,8 @@ export class ContextOrchestrator {
       return false;
     }
 
+    await this.emitThresholdHook(midTurnUsage);
+
     const prepared = await this.compactor.compact(
       this.model,
       tools,
@@ -195,7 +232,20 @@ export class ContextOrchestrator {
     );
 
     if (prepared.wasCropped) {
-      this.recordCompaction(prepared.croppedCount, prepared.summary, 'mid-turn', midTurnUsage);
+      this.recordCompaction(
+        prepared.croppedCount,
+        prepared.summary,
+        'mid-turn',
+        midTurnUsage,
+        prepared.usage,
+      );
+      await this.emitHook({
+        event: 'context:compact',
+        croppedCount: prepared.croppedCount,
+        summary: prepared.summary,
+        usagePercent: this.normalizeUsageRatio(prepared.usage.usagePercent),
+        reason: 'mid-turn',
+      });
       return true;
     }
 
@@ -244,11 +294,13 @@ export class ContextOrchestrator {
     }
 
     if (indicesToRemove.length === 0) {
+      await this.emitOverflowHook(usage, usage, 0);
       return { messages, usage, croppedCount: 0 };
     }
 
     const removed = this.conversationManager.removeIndices(indicesToRemove);
     if (removed.length === 0) {
+      await this.emitOverflowHook(usage, usage, 0);
       return { messages, usage, croppedCount: 0 };
     }
 
@@ -259,10 +311,18 @@ export class ContextOrchestrator {
     );
 
     this.onCrop?.(removed.length, `Overflow recovery: cropped ${removed.length} messages`);
-    this.recordCompaction(removed.length, summary, 'overflow', usage);
 
     const newMessages = this.conversationManager.history();
     const newUsage = this.calculateUsage(newMessages, tools);
+    this.recordCompaction(removed.length, summary, 'overflow', usage, newUsage);
+    await this.emitOverflowHook(usage, newUsage, removed.length);
+    await this.emitHook({
+      event: 'context:compact',
+      croppedCount: removed.length,
+      summary,
+      usagePercent: this.normalizeUsageRatio(newUsage.usagePercent),
+      reason: 'overflow',
+    });
     return { messages: newMessages, usage: newUsage, croppedCount: removed.length, summary };
   }
 
@@ -350,11 +410,57 @@ export class ContextOrchestrator {
 
   // ── Internal ──────────────────────────────────────────────────────────────
 
+  private normalizeUsageRatio(value: number): number {
+    return Number.isFinite(value) && value >= 0 ? value : 0;
+  }
+
+  private async emitHook(context: ContextHookContext): Promise<void> {
+    try {
+      await this.onHookEvent?.(context);
+    } catch {
+      // Hook failures must not change context recovery behavior.
+    }
+  }
+
+  private async emitThresholdHook(usage: ContextUsage): Promise<void> {
+    if (usage.isCritical || usage.isExceeded) {
+      await this.emitHook({
+        event: 'context:critical',
+        usagePercent: this.normalizeUsageRatio(usage.usagePercent),
+        remainingTokens: Math.max(0, usage.remainingTokens),
+      });
+      return;
+    }
+
+    if (usage.isWarning) {
+      await this.emitHook({
+        event: 'context:warning',
+        usagePercent: this.normalizeUsageRatio(usage.usagePercent),
+        remainingTokens: Math.max(0, usage.remainingTokens),
+      });
+    }
+  }
+
+  private async emitOverflowHook(
+    usageBefore: ContextUsage,
+    usageAfter: ContextUsage,
+    croppedCount: number,
+  ): Promise<void> {
+    await this.emitHook({
+      event: 'context:overflow',
+      tokensBefore: usageBefore.totalTokens,
+      tokensAfter: usageAfter.totalTokens,
+      croppedCount,
+      usagePercent: this.normalizeUsageRatio(usageAfter.usagePercent),
+    });
+  }
+
   private recordCompaction(
     croppedCount: number,
     summary: string | undefined,
     reason: string,
     usageBefore: ContextUsage,
+    usageAfter: ContextUsage,
   ): void {
     const entry: CompactionEntry = {
       id: `compact-${Date.now()}-${this.history.length}`,
@@ -362,7 +468,7 @@ export class ContextOrchestrator {
       summary: summary ?? '',
       firstKeptMessageIndex: 1,
       tokensBefore: usageBefore.totalTokens,
-      tokensAfter: 0, // Will be recalculated on next usage check
+      tokensAfter: usageAfter.totalTokens,
       croppedCount,
       reason,
       readFiles: [],

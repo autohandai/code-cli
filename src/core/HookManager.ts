@@ -74,12 +74,30 @@ export interface HookContext {
   // Permission hooks
   /** Permission type (for permission-request) */
   permissionType?: string;
+  /** Shell command associated with a permission request */
+  command?: string;
 
   // Notification hooks
   /** Notification type (for notification) */
   notificationType?: string;
   /** Notification message (for notification) */
   notificationMessage?: string;
+
+  // Context lifecycle hooks
+  /** Number of messages removed during context compaction */
+  croppedCount?: number;
+  /** Summary produced by context compaction */
+  summary?: string;
+  /** Raw context usage ratio (for example, 0.8 means 80%) */
+  usagePercent?: number;
+  /** Machine-readable context compaction reason */
+  reason?: string;
+  /** Token count before overflow recovery */
+  tokensBefore?: number;
+  /** Token count after overflow recovery */
+  tokensAfter?: number;
+  /** Tokens remaining in the safe context window */
+  remainingTokens?: number;
 
   // Auto-mode hooks
   /** Auto-mode session ID */
@@ -199,6 +217,9 @@ export interface HookExecutionOptions {
   killGracePeriodMs?: number;
 }
 
+/** Failure-isolated observer for every requested hook lifecycle event. */
+export type HookLifecycleListener = (context: Readonly<HookContext>) => void;
+
 /** Default timeout for hooks (5 seconds) */
 const DEFAULT_HOOK_TIMEOUT = 5000;
 const DEFAULT_KILL_GRACE_PERIOD_MS = 1000;
@@ -208,6 +229,7 @@ export class HookManager {
   private workspaceRoot: string;
   private onPersist?: () => Promise<void>;
   private onHookOutput?: (result: HookExecutionResult) => void;
+  private lifecycleListeners = new Set<HookLifecycleListener>();
   private initialized = false;
 
   constructor(options: HookManagerOptions) {
@@ -219,6 +241,27 @@ export class HookManager {
 
   setWorkspaceRoot(workspaceRoot: string): void {
     this.workspaceRoot = workspaceRoot;
+  }
+
+  /**
+   * Observe lifecycle events independently of user hook configuration.
+   * Returns a disposer so protocol adapters can detach during shutdown.
+   */
+  subscribeLifecycle(listener: HookLifecycleListener): () => void {
+    this.lifecycleListeners.add(listener);
+    return () => {
+      this.lifecycleListeners.delete(listener);
+    };
+  }
+
+  private notifyLifecycle(context: HookContext): void {
+    for (const listener of this.lifecycleListeners) {
+      try {
+        listener(context);
+      } catch {
+        // Protocol observers must never change hook execution semantics.
+      }
+    }
   }
 
   /**
@@ -618,6 +661,15 @@ export class HookManager {
     if (context.notificationType) env.HOOK_NOTIFICATION_TYPE = context.notificationType;
     if (context.notificationMessage) env.HOOK_NOTIFICATION_MSG = context.notificationMessage;
 
+    // Context lifecycle hooks
+    if (context.croppedCount !== undefined) env.HOOK_CROPPED_COUNT = String(context.croppedCount);
+    if (context.summary !== undefined) env.HOOK_CONTEXT_SUMMARY = context.summary;
+    if (context.usagePercent !== undefined) env.HOOK_USAGE_PERCENT = String(context.usagePercent);
+    if (context.reason !== undefined) env.HOOK_CONTEXT_REASON = context.reason;
+    if (context.tokensBefore !== undefined) env.HOOK_TOKENS_BEFORE = String(context.tokensBefore);
+    if (context.tokensAfter !== undefined) env.HOOK_TOKENS_AFTER = String(context.tokensAfter);
+    if (context.remainingTokens !== undefined) env.HOOK_REMAINING_TOKENS = String(context.remainingTokens);
+
     // Auto-mode hooks
     if (context.automodeSessionId) env.HOOK_AUTOMODE_SESSION_ID = context.automodeSessionId;
     if (context.automodePrompt) env.HOOK_AUTOMODE_PROMPT = context.automodePrompt;
@@ -717,6 +769,14 @@ export class HookManager {
       // Notification context
       notification_type: context.notificationType,
       notification_message: context.notificationMessage,
+      // Context lifecycle context
+      cropped_count: context.croppedCount,
+      summary: context.summary,
+      usage_percent: context.usagePercent,
+      context_reason: context.reason,
+      tokens_before: context.tokensBefore,
+      tokens_after: context.tokensAfter,
+      remaining_tokens: context.remainingTokens,
       // Auto-mode context
       automode_session_id: context.automodeSessionId,
       automode_prompt: context.automodePrompt,
@@ -952,7 +1012,7 @@ export class HookManager {
     context: Omit<HookContext, 'event' | 'workspace'>,
     options: HookExecutionOptions = {},
   ): Promise<HookExecutionResult[]> {
-    if (!this.isEnabled() || options.signal?.aborted) {
+    if (options.signal?.aborted) {
       return [];
     }
 
@@ -961,6 +1021,12 @@ export class HookManager {
       event,
       workspace: this.workspaceRoot,
     };
+
+    this.notifyLifecycle(fullContext);
+
+    if (!this.isEnabled()) {
+      return [];
+    }
 
     // Get hooks for event, then filter by both filter and matcher
     const hooks = this.getHooksForEvent(event).filter(h =>

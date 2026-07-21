@@ -24,6 +24,7 @@ import {
   unpackQueuedAgentInstruction,
   type PendingPostTurnAction,
 } from './PostTurnActionCoordinator.js';
+import type { MobileClaimedTurnContext } from '../../mobile/MobileRelay.js';
 
 const execFileAsync = promisify(execFile);
 const RUNTIME_RESOURCE_SHUTDOWN_TIMEOUT_MS = 2_500;
@@ -918,6 +919,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
       try {
         let instruction: string | null = null;
         let postTurnAction: PendingPostTurnAction | undefined;
+        let mobileTurn: MobileClaimedTurnContext | undefined;
 
         // Check shouldExit again before processing any queued items
         if (host.shouldExit) {
@@ -931,6 +933,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
             const queued = unpackQueuedAgentInstruction(pending);
             instruction = queued.text;
             postTurnAction = queued.postTurnAction;
+            mobileTurn = queued.mobileTurn;
           }
           if (instruction) {
             if (host.runtime.spinner?.isSpinning) {
@@ -1031,7 +1034,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         }
 
         // Handle ! shell commands locally (never send to LLM)
-        if (isShellCommand(instruction)) {
+        if (!mobileTurn && isShellCommand(instruction)) {
           const shellCmd = parseShellCommand(instruction);
           await host.executeImmediateShellCommand(shellCmd);
           continue;
@@ -1048,7 +1051,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         // before runInstruction, but instructions from the Ink queue bypass
         // that path. Without host, /help etc. go through the full ReAct loop
         // which sends them to the LLM and leaves the composer frozen.
-        if (instruction.startsWith('/')) {
+        if (!mobileTurn && instruction.startsWith('/')) {
           if (host.runtime.options.bare && !isLikelyFilePathSlashInput(instruction)) {
             if (host.inkRenderer?.isRunning()) {
               if (!consumeAgentInkSubmittedInstructionEcho(host, instruction)) {
@@ -1139,7 +1142,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         // Handle # trigger for storing memories (never send to LLM).
         // The readline path (promptForInstruction) handles # memory storage,
         // but instructions from the Ink queue bypass that path.
-        if (instruction.startsWith('#')) {
+        if (!mobileTurn && instruction.startsWith('#')) {
           const content = instruction.slice(1).trim();
           if (host.inkRenderer) {
             host.modalActive = true;
@@ -1167,7 +1170,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         // Update activity timestamp on every user interaction
         host.lastActivityAt = Date.now();
 
-        if (instruction.trim() === '/exit' || instruction.trim() === '/quit') {
+        if (!mobileTurn && (instruction.trim() === '/exit' || instruction.trim() === '/quit')) {
           // Fire-and-forget: don't block quit on telemetry
           host.telemetryManager.trackCommand({ command: instruction }).catch(() => {});
           const trigger = host.feedbackManager.shouldPrompt({ sessionEnding: true });
@@ -1179,7 +1182,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
           return;
         }
 
-        const isSlashCommand = instruction.startsWith('/');
+        const isSlashCommand = !mobileTurn && instruction.startsWith('/');
         if (isSlashCommand) {
           await host.telemetryManager.trackCommand({ command: instruction.split(' ')[0] });
         }
@@ -1194,7 +1197,9 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         }
 
         const turnStartTime = Date.now();
-        const turnSucceeded = await host.runInstruction(instruction);
+        const turnSucceeded = mobileTurn
+          ? await host.runInstruction(instruction, { mobileTurn })
+          : await host.runInstruction(instruction);
         if (postTurnAction) {
           const consumedAction = postTurnAction;
           postTurnAction = undefined;

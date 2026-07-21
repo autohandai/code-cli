@@ -274,6 +274,8 @@ describe('InstructionRunner command mode UI', () => {
 
   it('marks the turn summary as failed when the provider run errors after retries', async () => {
     const host = createHost();
+    const recordTurnFailure = vi.fn();
+    (host as AgentInstructionHost & { recordTurnFailure: (message: string) => void }).recordTurnFailure = recordTurnFailure;
     host.runReactLoop = vi.fn(async () => {
       throw new Error('Request timed out. The NVIDIA service may be experiencing high load.');
     });
@@ -285,6 +287,9 @@ describe('InstructionRunner command mode UI', () => {
 
       expect(result).toBe(false);
       expect(host.stopUI).toHaveBeenCalledWith(true, 'Session failed');
+      expect(recordTurnFailure).toHaveBeenCalledWith(
+        'Request timed out. The NVIDIA service may be experiencing high load.'
+      );
       expect(host.printCompletionSummary).toHaveBeenCalledWith(false, false);
     } finally {
       consoleErrorSpy.mockRestore();

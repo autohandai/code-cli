@@ -74,6 +74,7 @@ export AUTOHAND_HOME=/custom/path  # Changes ~/.autohand to /custom/path
 | `AUTOHAND_HOME` | Tüm Autohand verileri için temel dizin | `/custom/path` |
 | `AUTOHAND_CONFIG` | Özel yapılandırma dosyası yolu | `/path/to/config.toml` |
 | `AUTOHAND_API_URL` | API uç noktası (yapılandırmayı geçersiz kılar) | `https://api.autohand.ai` |
+| `AUTOHAND_AUTH_URL` | Oturum açma ve hesap eşitleme kaynağı (`AUTOHAND_API_URL`'den bağımsız) | `https://autohand.ai` |
 | `AUTOHAND_SECRET` | Şirket/ekip gizli anahtarı | `sk-xxx` |
 | `AUTOHAND_PERMISSION_CALLBACK_URL` | İzin geri çağırma URL'si (deneysel) | `http://localhost:3000/callback` |
 | `AUTOHAND_PERMISSION_CALLBACK_TIMEOUT` | MS cinsinden izin geri aramasında zaman aşımı | `5000` |

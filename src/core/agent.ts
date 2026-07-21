@@ -240,7 +240,10 @@ import {
 import { AutoReportManager } from '../reporting/AutoReportManager.js';
 import { SuggestionEngine } from './SuggestionEngine.js';
 import { ActiveAgentHeartbeat, ActiveAgentRegistry } from '../session/ActiveAgentRegistry.js';
-import type { MobileRelayController } from '../mobile/MobileRelay.js';
+import type {
+  MobileClaimedTurnOutcome,
+  MobileRelayController,
+} from '../mobile/MobileRelay.js';
 import { AuthClient } from '../auth/AuthClient.js';
 import { OpenResearchClient, ResearchPublicationError } from '../research/OpenResearchClient.js';
 import {
@@ -285,7 +288,7 @@ export class AutohandAgent {
   private outputListener?: (event: AgentOutputEvent) => void;
   private confirmationCallback?: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<PermissionPromptResponse>;
   private mobileRelayController?: MobileRelayController;
-  private mobileRemoteInstructionsQueued = 0;
+  private mobileTurnFailureMessage: string | null = null;
   private conversation!: ConversationManager;
   private toolManager!: ToolManager;
   private actionExecutor!: ActionExecutor;
@@ -799,13 +802,15 @@ export class AutohandAgent {
 
   async runInstruction(instruction: string, options?: RunInstructionOptions): Promise<boolean> {
     this.instructionRunner ??= new InstructionRunner(this as unknown as AgentInstructionHost);
-    const relay = this.mobileRelayController;
-    const useMobilePreview = Boolean(relay && this.mobileRemoteInstructionsQueued > 0);
-    if (!useMobilePreview || !relay) {
+    const mobileTurn = options?.mobileTurn;
+    const relay = mobileTurn?.relay;
+    const claimedTurn = mobileTurn?.turn;
+    if (!relay || !claimedTurn) {
       return this.instructionRunner.run(instruction, options);
     }
 
-    this.mobileRemoteInstructionsQueued -= 1;
+    this.mobileTurnFailureMessage = null;
+    let turnOutcome: MobileClaimedTurnOutcome | undefined;
     const batchId = `mobile-batch-${randomUUID()}`;
     this.files.enterPreviewMode(batchId);
     try {
@@ -814,6 +819,17 @@ export class AutohandAgent {
       if (!succeeded || changes.length === 0) {
         this.files.clearPendingChanges();
         this.files.exitPreviewMode();
+        turnOutcome = succeeded
+          ? {
+              status: 'completed',
+              ...(this.lastAssistantResponseForNotification
+                ? { output: this.lastAssistantResponseForNotification }
+                : {}),
+            }
+          : {
+              status: 'failed',
+              error: this.mobileTurnFailureMessage ?? 'The CLI could not complete this request.',
+            };
         return succeeded;
       }
 
@@ -823,12 +839,35 @@ export class AutohandAgent {
         : await this.files.applyPendingChanges(decision.selectedChangeIds);
       this.files.clearPendingChanges();
       this.files.exitPreviewMode();
-      return succeeded && result.errors.length === 0;
+      const changesSucceeded = result.errors.length === 0;
+      turnOutcome = changesSucceeded
+        ? {
+            status: 'completed',
+            ...(this.lastAssistantResponseForNotification
+              ? { output: this.lastAssistantResponseForNotification }
+              : {}),
+          }
+        : {
+            status: 'failed',
+            error: result.errors.join('\n') || 'The requested workspace changes were not applied.',
+          };
+      return succeeded && changesSucceeded;
     } catch (error) {
       this.files.clearPendingChanges();
       this.files.exitPreviewMode();
+      turnOutcome = {
+        status: 'failed',
+        error: this.mobileTurnFailureMessage ?? this.getDisplayErrorMessage(error),
+      };
       throw error;
     } finally {
+      await relay.finishClaimedTurn(
+        claimedTurn,
+        turnOutcome ?? {
+          status: 'failed',
+          error: this.mobileTurnFailureMessage ?? 'The CLI turn ended without a result.',
+        }
+      );
       void relay.refreshDeliveryStatus();
       const latestAssistant = [...this.conversation.history()]
         .reverse()
@@ -1536,8 +1575,8 @@ export class AutohandAgent {
     this.mobileRelayController = controller;
   }
 
-  markMobileInstructionQueued(): void {
-    this.mobileRemoteInstructionsQueued += 1;
+  private recordTurnFailure(message: string): void {
+    this.mobileTurnFailureMessage = message;
   }
 
   /**

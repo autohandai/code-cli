@@ -74,6 +74,7 @@ export AUTOHAND_HOME=/custom/path  # Changes ~/.autohand to /custom/path
 | __AH_KOD_0__ | Katalog bazowy dla wszystkich danych Autohand | __AH_KOD_1__ |
 | __AH_KOD_2__ | Niestandardowa ścieżka pliku konfiguracyjnego | __AH_KOD_3__ |
 | __AH_KOD_4__ | Punkt końcowy API (zastępuje konfigurację) | __AH_KOD_5__ |
+| `AUTOHAND_AUTH_URL` | Adres źródłowy logowania i synchronizacji konta (niezależny od `AUTOHAND_API_URL`) | `https://autohand.ai` |
 | __AH_KOD_6__ | Tajny klucz firmy/zespołu | __AH_KOD_7__ |
 | __AH_KOD_8__ | Adres URL wywołania zwrotnego pozwolenia (eksperymentalny) | __AH_KOD_9__ |
 | __AH_KOD_10__ | Limit czasu dla wywołania zwrotnego pozwolenia w ms | __AH_KOD_11__ |

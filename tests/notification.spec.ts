@@ -561,6 +561,32 @@ describe('NotificationService', () => {
   // ── 9. Error handling ──────────────────────────────────────────
 
   describe('error handling', () => {
+    it('reports a requested notification before RPC suppression and isolates listener failures', async () => {
+      const listener = vi.fn()
+        .mockRejectedValueOnce(new Error('listener failed'))
+        .mockResolvedValueOnce(undefined);
+      service.setListener(listener);
+
+      await expect(service.notify(
+        { body: 'Approval needed', reason: 'confirmation' },
+        defaultGuards({ isRpcMode: true }),
+      )).resolves.not.toThrow();
+      await service.notify(
+        { body: 'Task complete', reason: 'task_complete' },
+        defaultGuards({ notificationsConfig: false }),
+      );
+
+      expect(listener).toHaveBeenNthCalledWith(1, {
+        body: 'Approval needed',
+        reason: 'confirmation',
+      });
+      expect(listener).toHaveBeenNthCalledWith(2, {
+        body: 'Task complete',
+        reason: 'task_complete',
+      });
+      expect(mockNotify).not.toHaveBeenCalled();
+    });
+
     it('9a. notifier.notify throws: caught silently, no crash', async () => {
       Object.defineProperty(process, 'platform', { value: 'darwin' });
       service = new NotificationService();
