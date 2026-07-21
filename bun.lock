@@ -19,7 +19,7 @@
         "ink-spinner": "^5.0.0",
         "minimatch": "^10.2.5",
         "node-notifier": "^10.0.1",
-        "node-pty": "^1.1.0",
+        "node-pty": "1.1.0",
         "open": "^11.0.0",
         "ora": "^9.4.1",
         "qrcode": "^1.5.4",

@@ -10,7 +10,9 @@
  */
 
 import { execSync, spawn } from 'node:child_process';
-import { readdirSync, type Dirent } from 'node:fs';
+import { constants, readdirSync, type Dirent } from 'node:fs';
+import { access, chmod, stat } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { buildAutohandChildProcessEnv } from '../utils/childProcessEnv.js';
 
@@ -358,8 +360,80 @@ interface NodePtyModule {
   ): PtyProcess;
 }
 
+interface NodePtyPermissionOptions {
+  nodePtyRoot?: string;
+  platform?: NodeJS.Platform;
+  architecture?: string;
+}
+
+function resolveNodePtyRoot(): string | null {
+  try {
+    const require = createRequire(import.meta.url);
+    return path.dirname(require.resolve('node-pty/package.json'));
+  } catch {
+    return null;
+  }
+}
+
+export async function ensureNodePtyHelperExecutable(
+  options: NodePtyPermissionOptions = {},
+): Promise<boolean> {
+  const platform = options.platform ?? process.platform;
+  if (platform === 'win32') {
+    return true;
+  }
+
+  const architecture = options.architecture ?? process.arch;
+  const nodePtyRoot = options.nodePtyRoot ?? resolveNodePtyRoot();
+  if (nodePtyRoot === null) {
+    return false;
+  }
+
+  const nativeDirectories = [
+    path.join('build', 'Release'),
+    path.join('build', 'Debug'),
+    path.join('prebuilds', `${platform}-${architecture}`),
+  ];
+  let repairedHelper = false;
+
+  for (const nativeDirectory of nativeDirectories) {
+    const directory = path.join(nodePtyRoot, nativeDirectory);
+
+    try {
+      const [nativeModule, helper] = await Promise.all([
+        stat(path.join(directory, 'pty.node')),
+        stat(path.join(directory, 'spawn-helper')),
+      ]);
+
+      if (!nativeModule.isFile() || !helper.isFile()) {
+        continue;
+      }
+
+      const helperPath = path.join(directory, 'spawn-helper');
+      try {
+        await access(helperPath, constants.X_OK);
+      } catch {
+        await chmod(helperPath, (helper.mode & 0o7777) | 0o111);
+      }
+      repairedHelper = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        continue;
+      }
+
+      return false;
+    }
+  }
+
+  return repairedHelper;
+}
+
 async function defaultNodePtyLoader(): Promise<NodePtyModule | null> {
   try {
+    if (!await ensureNodePtyHelperExecutable()) {
+      return null;
+    }
+
     return await import('node-pty') as unknown as NodePtyModule;
   } catch {
     return null;
