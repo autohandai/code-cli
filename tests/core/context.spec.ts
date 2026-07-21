@@ -5,7 +5,7 @@
  *
  * Tests for src/core/context/ module
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ConversationManager } from '../../src/core/conversationManager.js';
 import { ContextOrchestrator } from '../../src/core/context/orchestrator.js';
 import { ContextCompactor } from '../../src/core/context/compactor.js';
@@ -511,6 +511,62 @@ describe('context/orchestrator', () => {
       const result = await orchestrator.prepareRequest(mockTools);
       expect(result.messages.length).toBeGreaterThan(0);
     });
+
+    it('emits critical and compact hook payloads with post-compaction usage', async () => {
+      const onHookEvent = vi.fn();
+      const hookOrchestrator = new ContextOrchestrator({
+        model: 'openai/gpt-4o-mini',
+        contextWindow: 1000,
+        conversationManager,
+        onHookEvent,
+      });
+      for (let index = 0; index < 6; index++) {
+        conversationManager.addMessage({
+          role: index % 2 === 0 ? 'user' : 'assistant',
+          content: `${index}${'x'.repeat(500)}`,
+        });
+      }
+      conversationManager.addMessage({ role: 'user', content: 'Continue' });
+      const usageBefore = hookOrchestrator.getUsage([]);
+
+      const result = await hookOrchestrator.prepareRequest([]);
+
+      expect(onHookEvent).toHaveBeenNthCalledWith(1, {
+        event: 'context:critical',
+        usagePercent: usageBefore.usagePercent,
+        remainingTokens: usageBefore.remainingTokens,
+      });
+      expect(onHookEvent).toHaveBeenNthCalledWith(2, {
+        event: 'context:compact',
+        croppedCount: result.croppedCount,
+        summary: result.summary,
+        usagePercent: result.usage.usagePercent,
+        reason: 'tiered-compaction',
+      });
+      expect(usageBefore.usagePercent).toBeGreaterThan(1);
+      expect(result.croppedCount).toBeGreaterThan(0);
+      expect(result.usage.usagePercent).toBeLessThan(usageBefore.usagePercent);
+    });
+
+    it('emits a warning hook when warning usage does not compact', async () => {
+      const onHookEvent = vi.fn();
+      const hookOrchestrator = new ContextOrchestrator({
+        model: 'openai/gpt-4o-mini', contextWindow: 1000, conversationManager, onHookEvent,
+      });
+      conversationManager.addMessage({ role: 'user', content: 'x'.repeat(2400) });
+
+      const result = await hookOrchestrator.prepareRequest([]);
+
+      expect(onHookEvent).toHaveBeenCalledOnce();
+      expect(onHookEvent).toHaveBeenCalledWith({
+        event: 'context:warning',
+        usagePercent: result.usage.usagePercent,
+        remainingTokens: result.usage.remainingTokens,
+      });
+      expect(result.usage.usagePercent).toBeGreaterThanOrEqual(0.8);
+      expect(result.usage.usagePercent).toBeLessThan(0.9);
+      expect(result.wasCropped).toBe(false);
+    });
   });
 
   describe('getUsage', () => {
@@ -566,6 +622,36 @@ describe('context/orchestrator', () => {
       expect(result.usage.totalTokens).toBeLessThan(before.totalTokens);
       expect(result.messages.at(-1)?.content).toContain('[Auto-Recovery]');
       expect(result.messages.some(message => message.content === 'Continue')).toBe(true);
+    });
+
+    it('emits overflow and compact payloads with before and after token counts', async () => {
+      const onHookEvent = vi.fn();
+      const hookOrchestrator = new ContextOrchestrator({
+        model: 'openai/gpt-4o-mini', conversationManager, onHookEvent,
+      });
+      for (let i = 0; i < 8; i++) {
+        conversationManager.addMessage({ role: 'user', content: `Request ${i} ${'x'.repeat(400)}` });
+        conversationManager.addMessage({ role: 'assistant', content: `Response ${i} ${'y'.repeat(400)}` });
+      }
+      conversationManager.addMessage({ role: 'user', content: 'Continue' });
+      const before = hookOrchestrator.getUsage(mockTools);
+
+      const result = await hookOrchestrator.handleOverflow(mockTools);
+
+      expect(onHookEvent).toHaveBeenCalledWith({
+        event: 'context:compact',
+        croppedCount: result.croppedCount,
+        summary: result.summary,
+        usagePercent: result.usage.usagePercent,
+        reason: 'overflow',
+      });
+      expect(onHookEvent).toHaveBeenCalledWith({
+        event: 'context:overflow',
+        tokensBefore: before.totalTokens,
+        tokensAfter: result.usage.totalTokens,
+        croppedCount: result.croppedCount,
+        usagePercent: result.usage.usagePercent,
+      });
     });
   });
 

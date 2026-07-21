@@ -72,6 +72,7 @@ export AUTOHAND_HOME=/custom/path  # ~/.autohand को /custom/path में �
 | `AUTOHAND_HOME`                        | सभी Autohand डेटा के लिए बेस डायरेक्टरी    | `/custom/path`                   |
 | `AUTOHAND_CONFIG`                      | कस्टम कॉन्फ़िगरेशन फ़ाइल पथ                | `/path/to/config.json`           |
 | `AUTOHAND_API_URL`                     | API एंडपॉइंट (कॉन्फ़िगरेशन ओवरराइड करता है) | `https://api.autohand.ai`        |
+| `AUTOHAND_AUTH_URL`                    | साइन-इन और अकाउंट सिंक ओरिजिन (`AUTOHAND_API_URL` से स्वतंत्र) | `https://autohand.ai` |
 | `AUTOHAND_SECRET`                      | कंपनी/टीम सीक्रेट की                       | `sk-xxx`                         |
 | `AUTOHAND_PERMISSION_CALLBACK_URL`     | अनुमति कॉलबैक URL (प्रयोगात्मक)             | `http://localhost:3000/callback` |
 | `AUTOHAND_PERMISSION_CALLBACK_TIMEOUT` | अनुमति कॉलबैक टाइमआउट (ms)                 | `5000`                           |

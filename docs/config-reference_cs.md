@@ -92,6 +92,7 @@ export AUTOHAND_HOME=/custom/path  # Changes ~/.autohand to /custom/path
 | `AUTOHAND_HOME` | Základní adresář pro všechna data Autohand | `/custom/path` |
 | `AUTOHAND_CONFIG` | Vlastní cesta konfiguračního souboru | `/path/to/config.toml` |
 | `AUTOHAND_API_URL` | Koncový bod API (přepíše konfiguraci) | `https://api.autohand.ai` |
+| `AUTOHAND_AUTH_URL` | Původ přihlášení a synchronizace účtu (nezávislý na `AUTOHAND_API_URL`) | `https://autohand.ai` |
 | `AUTOHAND_SECRET` | Tajný klíč společnosti/týmu | `sk-xxx` |
 | `AUTOHAND_PERMISSION_CALLBACK_URL` | URL pro zpětné volání oprávnění (experimentální) | `http://localhost:3000/callback` |
 | `AUTOHAND_PERMISSION_CALLBACK_TIMEOUT` | Časový limit pro zpětné volání oprávnění v ms | `5000` |

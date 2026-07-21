@@ -19,7 +19,10 @@ import type { LoadedConfig, ProviderName } from '../types.js';
 import type { ToolsRegistry } from './toolsRegistry.js';
 import type { UsageLimitRow } from '../commands/usage.js';
 import type { MobileImageAttachment } from '../mobile/MobileHandoffClient.js';
-import type { MobileRelayController } from '../mobile/MobileRelay.js';
+import type {
+  MobileClaimedTurnContext,
+  MobileRelayController,
+} from '../mobile/MobileRelay.js';
 import type { ExtensionService } from '../extensions/ExtensionService.js';
 import type { PendingPostTurnAction } from './agent/PostTurnActionCoordinator.js';
 
@@ -108,13 +111,21 @@ export interface SlashCommandContext {
     /** Queue a visible user instruction, matching a typed prompt in the interactive UI */
     enqueueInstruction?: (instruction: string) => void;
     /** Queue an instruction received from the mobile relay. */
-    enqueueMobileInstruction?: (instruction: string) => void;
+    enqueueMobileInstruction?: (instruction: string, turn: MobileClaimedTurnContext) => void;
     /** Queue a visible mobile instruction and hydrate its image attachments */
     enqueueInstructionWithImages?: (instruction: string, images: MobileImageAttachment[]) => void;
     /** Queue a mobile instruction and hydrate its image attachments. */
-    enqueueMobileInstructionWithImages?: (instruction: string, images: MobileImageAttachment[]) => void;
+    enqueueMobileInstructionWithImages?: (
+      instruction: string,
+      images: MobileImageAttachment[],
+      turn: MobileClaimedTurnContext
+    ) => void;
     /** Called after /go starts the live mobile relay. */
     onMobileRelayReady?: (controller: MobileRelayController) => void;
+    /** Surface the first confirmed iPhone claim for the active mobile relay. */
+    onMobileConnected?: (message: string) => void;
+    /** Surface revocation of the active mobile relay pairing. */
+    onMobileDisconnected?: (message: string) => void;
     /** Event emitter for RPC/ACP mode notifications */
     eventEmitter?: {
         emit: (event: string, data?: unknown) => void;

@@ -10,6 +10,16 @@ import terminalLink from 'terminal-link';
 import type { SlashCommand } from '../core/slashCommands.js';
 import { getAssistantChatLogContent } from '../session/chatLog.js';
 import type { Session, SessionManager } from '../session/SessionManager.js';
+
+const ANSI_BLACK_ON_WHITE = '\u001B[30;47m';
+const ANSI_RESET = '\u001B[0m';
+
+export function formatScannableTerminalQRCode(qr: string): string {
+  return qr
+    .split('\n')
+    .map((line) => `${ANSI_BLACK_ON_WHITE}${line}${ANSI_RESET}`)
+    .join('\n');
+}
 import type { LoadedConfig, ProviderName } from '../types.js';
 import {
   getMobileApiBaseUrl,
@@ -19,7 +29,11 @@ import {
   type MobileSessionSnapshot,
   type MobileSessionSnapshotMessage,
 } from '../mobile/MobileHandoffClient.js';
-import { startMobileRelay, type MobileRelayController } from '../mobile/MobileRelay.js';
+import {
+  startMobileRelay,
+  type MobileClaimedTurnContext,
+  type MobileRelayController,
+} from '../mobile/MobileRelay.js';
 
 export const metadata: SlashCommand = {
   command: '/go',
@@ -42,10 +56,16 @@ interface GoContext {
   config?: LoadedConfig;
   client?: MobileHandoffClientLike;
   enqueueInstruction?: (instruction: string) => void;
-  enqueueMobileInstruction?: (instruction: string) => void;
+  enqueueMobileInstruction?: (instruction: string, turn: MobileClaimedTurnContext) => void;
   enqueueInstructionWithImages?: (instruction: string, images: MobileImageAttachment[]) => void;
-  enqueueMobileInstructionWithImages?: (instruction: string, images: MobileImageAttachment[]) => void;
+  enqueueMobileInstructionWithImages?: (
+    instruction: string,
+    images: MobileImageAttachment[],
+    turn: MobileClaimedTurnContext
+  ) => void;
   onMobileRelayReady?: (controller: MobileRelayController) => void;
+  onMobileConnected?: (message: string) => void;
+  onMobileDisconnected?: (message: string) => void;
 }
 
 interface HandoffSessionContext extends GoContext {
@@ -200,16 +220,22 @@ export async function go(ctx: GoContext, args: string[] = []): Promise<string | 
         keepAwakeByDefault: true,
         enqueueInstruction: ctx.enqueueMobileInstruction ?? ctx.enqueueInstruction,
         enqueueInstructionWithImages: ctx.enqueueMobileInstructionWithImages ?? ctx.enqueueInstructionWithImages,
+        onMobileConnected: ctx.onMobileConnected,
+        onMobileDisconnected: ctx.onMobileDisconnected,
       });
       ctx.onMobileRelayReady?.(relay);
       void relay.refreshDeliveryStatus();
     }
 
     const appUrl = nativeAppUrl(pairing.pairingUrl);
-    const qr = await QRCode.toString(pairing.pairingUrl, {
+    const rawQr = await QRCode.toString(pairing.pairingUrl, {
       type: 'utf8',
       errorCorrectionLevel: 'M',
     });
+    // qrcode's UTF-8 renderer assumes a light terminal. Pin both foreground
+    // and background so dark themes still display a standards-compliant
+    // dark-on-light code that AVFoundation can recognize reliably.
+    const qr = formatScannableTerminalQRCode(rawQr);
 
     return [
       '',

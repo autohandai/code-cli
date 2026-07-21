@@ -74,6 +74,7 @@ export AUTOHAND_HOME=/custom/path  # Changes ~/.autohand to /custom/path
 | `AUTOHAND_HOME` | Базовый каталог для всех данных Autohand | `/custom/path` |
 | `AUTOHAND_CONFIG` | Пользовательский путь к файлу конфигурации | `/path/to/config.toml` |
 | `AUTOHAND_API_URL` | Конечная точка API (переопределяет конфигурацию) | `https://api.autohand.ai` |
+| `AUTOHAND_AUTH_URL` | Источник входа и синхронизации аккаунта (не зависит от `AUTOHAND_API_URL`) | `https://autohand.ai` |
 | `AUTOHAND_SECRET` | Секретный ключ компании/команды | `sk-xxx` |
 | `AUTOHAND_PERMISSION_CALLBACK_URL` | URL-адрес для обратного вызова разрешения (экспериментальный) | `http://localhost:3000/callback` |
 | `AUTOHAND_PERMISSION_CALLBACK_TIMEOUT` | Таймаут для обратного вызова разрешения в мс | `5000` |

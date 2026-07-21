@@ -31,7 +31,7 @@
     "build": "tsup",
     "postinstall": "node scripts/ensure-node-pty-helper-permissions.mjs",
     "predev": "bun install --frozen-lockfile",
-    "dev": "env -i PATH=\"/Users/igorcosta/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\" HOME=\"$HOME\" AUTOHAND_DEBUG=\"$AUTOHAND_DEBUG\" bun src/index.ts",
+    "dev": "env -i PATH=\"/Users/igorcosta/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\" HOME=\"$HOME\" AUTOHAND_DEBUG=\"$AUTOHAND_DEBUG\" ${AUTOHAND_API_URL:+AUTOHAND_API_URL=\"$AUTOHAND_API_URL\"} ${AUTOHAND_AUTH_URL:+AUTOHAND_AUTH_URL=\"$AUTOHAND_AUTH_URL\"} bun src/index.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "proof": "bun run proof:unit && bun run proof:build-tuistory",

@@ -74,6 +74,7 @@ export AUTOHAND_HOME=/custom/path  # Changes ~/.autohand to /custom/path
 | `AUTOHAND_HOME` | Alapkönyvtár az összes Autohand adathoz | `/custom/path` |
 | `AUTOHAND_CONFIG` | Egyéni konfigurációs fájl elérési útja | `/path/to/config.toml` |
 | `AUTOHAND_API_URL` | API-végpont (felülbírálja a konfigurációt) | `https://api.autohand.ai` |
+| `AUTOHAND_AUTH_URL` | Bejelentkezési és fiókszinkronizálási eredet (az `AUTOHAND_API_URL` értékétől független) | `https://autohand.ai` |
 | `AUTOHAND_SECRET` | Vállalat/csapat titkos kulcsa | `sk-xxx` |
 | `AUTOHAND_PERMISSION_CALLBACK_URL` | Az engedély visszahívásának URL-je (kísérleti) | `http://localhost:3000/callback` |
 | `AUTOHAND_PERMISSION_CALLBACK_TIMEOUT` | Az engedély-visszahívás időtúllépése ms-ban | `5000` |

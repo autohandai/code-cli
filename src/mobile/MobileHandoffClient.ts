@@ -52,20 +52,55 @@ export interface MobileRelayHeartbeatPayload {
   mode: 'queue' | 'steer';
 }
 
+export interface MobileRelayHeartbeatResult {
+  pairingClaimed: boolean;
+  pairingStatus?: MobilePairingStatus;
+}
+
+export type MobilePairingStatus = 'pending' | 'claimed' | 'expired' | 'revoked';
+
+const MOBILE_PAIRING_STATUSES = new Set<MobilePairingStatus>([
+  'pending',
+  'claimed',
+  'expired',
+  'revoked',
+]);
+
 export type MobileEventType =
   | 'permission_request'
   | 'directory_access_request'
   | 'changes_batch'
+  | 'session_turn_state'
   | 'pull_request_status'
   | 'deployment_status'
   | 'pull_request_merge_result'
   | 'session_artifacts'
-  | 'keep_awake_status';
+  | 'keep_awake_status'
+  | 'model_status';
 
 export interface MobileKeepAwakeStatus {
   supported: boolean;
   enabled: boolean;
   reason?: string;
+}
+
+export interface MobileModelStatus {
+  model: string;
+  provider: string;
+  status: 'applied' | 'failed';
+  error?: string;
+}
+
+export type MobileSessionTurnStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface MobileSessionTurnState {
+  workId: string;
+  status: MobileSessionTurnStatus;
+  prompt?: string;
+  output?: string;
+  error?: string;
+  startedAt?: string;
+  completedAt?: string;
 }
 
 export interface MobilePullRequestMergeResult {
@@ -138,11 +173,13 @@ export interface MobileEventPayloadMap {
   permission_request: Record<string, unknown>;
   directory_access_request: Record<string, unknown>;
   changes_batch: Record<string, unknown>;
+  session_turn_state: MobileSessionTurnState;
   pull_request_status: { pullRequest: MobilePullRequestReview };
   deployment_status: { deployments: MobileDeploymentStatus[] };
   pull_request_merge_result: MobilePullRequestMergeResult;
   session_artifacts: { artifacts: MobileArtifact[] };
   keep_awake_status: MobileKeepAwakeStatus;
+  model_status: MobileModelStatus;
 }
 
 interface MobileEventEnvelope {
@@ -164,7 +201,9 @@ export type MobileActionType =
   | 'changes_decision'
   | 'session_control'
   | 'pull_request_merge'
-  | 'keep_awake_control';
+  | 'keep_awake_control'
+  | 'retry_turn'
+  | 'set_model';
 
 export interface MobileAction {
   id: string;
@@ -221,12 +260,29 @@ export interface ClaimedWorkItem {
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
+  deliveryMode?: string | null;
+}
+
+export interface MobileWorkClaimScope {
+  deliveryMode: 'steer';
+  sessionId: string;
+  pairingId: string;
 }
 
 export interface WorkClaimResponse {
   success: boolean;
   work?: ClaimedWorkItem;
   error?: string;
+}
+
+export interface MobileWorkUpdatePayload {
+  status: 'completed' | 'failed' | 'cancelled';
+  completedAt: string;
+  error?: string;
+  payload?: {
+    deliveryState?: 'completed' | 'failed' | 'cancelled';
+    executionState?: 'completed' | 'failed' | 'cancelled';
+  };
 }
 
 export interface MobileHandoffClientConfig {
@@ -238,22 +294,39 @@ export interface MobileHandoffClientLike {
   getDeviceId(): Promise<string>;
   registerDevice(token: string, payload: RegisterMobileDevicePayload): Promise<void>;
   createPairing(token: string, payload: CreateMobilePairingPayload): Promise<MobilePairing>;
-  sendRelayHeartbeat(token: string, payload: MobileRelayHeartbeatPayload): Promise<void>;
-  claimWork(token: string, deviceId: string): Promise<ClaimedWorkItem | null>;
+  sendRelayHeartbeat(token: string, payload: MobileRelayHeartbeatPayload): Promise<MobileRelayHeartbeatResult>;
+  claimWork(
+    token: string,
+    deviceId: string,
+    scope?: MobileWorkClaimScope
+  ): Promise<ClaimedWorkItem | null>;
+  updateWork?(
+    token: string,
+    deviceId: string,
+    workId: string,
+    payload: MobileWorkUpdatePayload
+  ): Promise<ClaimedWorkItem>;
   publishMobileEvent?<EventType extends MobileEventType>(
     token: string,
     payload: PublishMobileEventPayload<EventType>
   ): Promise<void>;
-  pollMobileActions?(token: string, sessionId: string, deviceId: string, after: number): Promise<MobileActionPollResponse>;
+  pollMobileActions?(
+    token: string,
+    sessionId: string,
+    deviceId: string,
+    after: number,
+    pairingId?: string
+  ): Promise<MobileActionPollResponse>;
   uploadMobileArtifact?(token: string, sessionId: string, artifact: MobileArtifactUpload): Promise<MobileArtifact>;
 }
 
 export function getMobileApiBaseUrl(config?: LoadedConfig): string {
-  return (
-    config?.api?.baseUrl ||
-    process.env.AUTOHAND_API_URL ||
+  const baseUrl = (
+    process.env.AUTOHAND_API_URL?.trim() ||
+    config?.api?.baseUrl?.trim() ||
     DEFAULT_API_BASE_URL
-  ).replace(/\/+$/, '');
+  );
+  return baseUrl.replace(/\/+$/, '');
 }
 
 export class MobileHandoffClient implements MobileHandoffClientLike {
@@ -317,8 +390,14 @@ export class MobileHandoffClient implements MobileHandoffClientLike {
     return data.pairing;
   }
 
-  async sendRelayHeartbeat(token: string, payload: MobileRelayHeartbeatPayload): Promise<void> {
-    await this.request(`/v1/mobile/sessions/${encodeURIComponent(payload.sessionId)}/heartbeat`, token, {
+  async sendRelayHeartbeat(
+    token: string,
+    payload: MobileRelayHeartbeatPayload
+  ): Promise<MobileRelayHeartbeatResult> {
+    const data = await this.request<{
+      success?: boolean;
+      pairing?: { status?: string } | null;
+    }>(`/v1/mobile/sessions/${encodeURIComponent(payload.sessionId)}/heartbeat`, token, {
       method: 'POST',
       body: JSON.stringify({
         deviceId: payload.deviceId,
@@ -329,15 +408,29 @@ export class MobileHandoffClient implements MobileHandoffClientLike {
         'X-Device-ID': payload.deviceId,
       },
     });
+
+    const pairingStatus = data.pairing?.status;
+    const typedPairingStatus = pairingStatus && MOBILE_PAIRING_STATUSES.has(pairingStatus as MobilePairingStatus)
+      ? pairingStatus as MobilePairingStatus
+      : undefined;
+
+    return {
+      pairingClaimed: data.success === true && typedPairingStatus === 'claimed',
+      ...(typedPairingStatus ? { pairingStatus: typedPairingStatus } : {}),
+    };
   }
 
-  async claimWork(token: string, deviceId: string): Promise<ClaimedWorkItem | null> {
+  async claimWork(
+    token: string,
+    deviceId: string,
+    scope?: MobileWorkClaimScope
+  ): Promise<ClaimedWorkItem | null> {
     const data = await this.request<WorkClaimResponse>(
       '/v1/work/claim',
       token,
       {
         method: 'POST',
-        body: JSON.stringify({ deviceId }),
+        body: JSON.stringify({ deviceId, ...scope }),
         headers: {
           'X-Device-ID': deviceId,
         },
@@ -351,6 +444,31 @@ export class MobileHandoffClient implements MobileHandoffClientLike {
 
     if (!data.success || !data.work) {
       throw new Error(data.error || 'Invalid work claim response');
+    }
+
+    return data.work;
+  }
+
+  async updateWork(
+    token: string,
+    deviceId: string,
+    workId: string,
+    payload: MobileWorkUpdatePayload
+  ): Promise<ClaimedWorkItem> {
+    const data = await this.request<WorkClaimResponse>(
+      `/v1/work/${encodeURIComponent(workId)}`,
+      token,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+        headers: {
+          'X-Device-ID': deviceId,
+        },
+      }
+    );
+
+    if (!data.success || !data.work) {
+      throw new Error(data.error || 'Invalid work update response');
     }
 
     return data.work;
@@ -379,10 +497,13 @@ export class MobileHandoffClient implements MobileHandoffClientLike {
     token: string,
     sessionId: string,
     deviceId: string,
-    after: number
+    after: number,
+    pairingId?: string
   ): Promise<MobileActionPollResponse> {
+    const query = new URLSearchParams({ after: String(Math.max(after, 0)) });
+    if (pairingId) query.set('pairingId', pairingId);
     const data = await this.request<MobileActionPollResponse>(
-      `/v1/mobile/sessions/${encodeURIComponent(sessionId)}/actions?after=${Math.max(after, 0)}`,
+      `/v1/mobile/sessions/${encodeURIComponent(sessionId)}/actions?${query.toString()}`,
       token,
       {
         method: 'GET',

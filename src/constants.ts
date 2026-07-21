@@ -100,7 +100,10 @@ export const AUTOHAND_FILES = {
  */
 export const PROJECT_DIR_NAME = '.autohand';
 
-const getAuthBaseUrl = () => process['env']['AUTOHAND_API_URL'] || 'https://autohand.ai';
+const getAuthBaseUrl = () => {
+  const configured = process['env']['AUTOHAND_AUTH_URL']?.trim();
+  return (configured || 'https://autohand.ai').replace(/\/+$/, '');
+};
 
 export const AUTH_CONFIG = {
   get apiBaseUrl() { return `${getAuthBaseUrl()}/api/auth`; },

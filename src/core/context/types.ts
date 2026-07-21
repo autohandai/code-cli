@@ -101,6 +101,8 @@ export interface ContextOrchestratorOptions {
   onWarning?: (usage: ContextUsage) => void;
   /** Callback when context overflow is detected. */
   onOverflow?: (usage: ContextUsage) => void;
+  /** Callback for context lifecycle hook events. */
+  onHookEvent?: (context: ContextHookContext) => void | Promise<void>;
 }
 
 // ── Hook Context Types ───────────────────────────────────────────────────────

@@ -125,7 +125,7 @@ describe('RPCAdapter shutdown', () => {
     await shutdown;
 
     const methods = vi.mocked(writeNotification).mock.calls.map(([method]) => method);
-    expect(methods).toEqual(['autohand.agentEnd']);
+    expect(methods).toEqual(['autohand.hook.sessionEnd', 'autohand.agentEnd']);
     expect(agent.runInstruction).not.toHaveBeenCalled();
     expect(internals.keepaliveInterval).toBeNull();
   });
@@ -155,6 +155,7 @@ describe('RPCAdapter shutdown', () => {
     expect(vi.mocked(writeNotification).mock.calls.map(([method]) => method)).toEqual([
       'autohand.messageEnd',
       'autohand.turnEnd',
+      'autohand.hook.sessionEnd',
       'autohand.agentEnd',
     ]);
   });
@@ -185,6 +186,7 @@ describe('RPCAdapter shutdown', () => {
     expect(vi.mocked(writeNotification).mock.calls.map(([method]) => method)).toEqual([
       'autohand.messageEnd',
       'autohand.turnEnd',
+      'autohand.hook.sessionEnd',
       'autohand.agentEnd',
     ]);
 
@@ -193,6 +195,7 @@ describe('RPCAdapter shutdown', () => {
     expect(vi.mocked(writeNotification).mock.calls.map(([method]) => method)).toEqual([
       'autohand.messageEnd',
       'autohand.turnEnd',
+      'autohand.hook.sessionEnd',
       'autohand.agentEnd',
     ]);
   });

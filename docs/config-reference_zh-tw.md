@@ -74,6 +74,7 @@ export AUTOHAND_HOME=/custom/path  # Changes ~/.autohand to /custom/path
 | `AUTOHAND_HOME` |所有 Autohand 資料的基底目錄 | `/custom/path` |
 | `AUTOHAND_CONFIG` |自訂設定檔路徑| `/path/to/config.toml` |
 | `AUTOHAND_API_URL` | API端點（覆蓋配置）| `https://api.autohand.ai` |
+| `AUTOHAND_AUTH_URL` |登入與帳戶同步的來源（獨立於 `AUTOHAND_API_URL`）| `https://autohand.ai` |
 | `AUTOHAND_SECRET` |公司/團隊密碼金庫 | `sk-xxx` |
 | `AUTOHAND_PERMISSION_CALLBACK_URL` |權限回呼的 URL（實驗性）| `http://localhost:3000/callback` |
 | `AUTOHAND_PERMISSION_CALLBACK_TIMEOUT` |權限回呼逾時（以毫秒為單位） | `5000` |

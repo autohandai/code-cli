@@ -72,6 +72,7 @@ export AUTOHAND_HOME=/custom/path  # ~/.autohand를 /custom/path로 변경
 | `AUTOHAND_HOME`                        | 모든 Autohand 데이터의 기본 디렉토리            | `/custom/path`                   |
 | `AUTOHAND_CONFIG`                      | 사용자 지정 설정 파일 경로                      | `/path/to/config.json`           |
 | `AUTOHAND_API_URL`                     | API 엔드포인트 (설정 덮어쓰기)                  | `https://api.autohand.ai`        |
+| `AUTOHAND_AUTH_URL`                    | 로그인 및 계정 동기화 원본 (`AUTOHAND_API_URL`과 별도) | `https://autohand.ai` |
 | `AUTOHAND_SECRET`                      | 회사/팀 비밀 키                                 | `sk-xxx`                         |
 | `AUTOHAND_PERMISSION_CALLBACK_URL`     | 권한 콜백 URL (실험적)                          | `http://localhost:3000/callback` |
 | `AUTOHAND_PERMISSION_CALLBACK_TIMEOUT` | 권한 콜백 타임아웃 (밀리초)                     | `5000`                           |
