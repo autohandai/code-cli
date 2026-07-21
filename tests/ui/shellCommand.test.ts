@@ -7,8 +7,18 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { existsSync, readFileSync } from 'node:fs';
 import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import {
+  ensureNodePtyHelperExecutable,
   executeStreamingShellCommand,
   isImmediateCommand,
   isShellCommand,
@@ -158,6 +168,72 @@ describe('parseShellCommand', () => {
 });
 
 describe('executeStreamingShellCommand', () => {
+  it('repairs the node-pty native helper before PTY execution', async () => {
+    const nodePtyRoot = mkdtempSync(join(tmpdir(), 'autohand-node-pty-runtime-'));
+    const nativeDirectory = join(nodePtyRoot, 'prebuilds', 'darwin-arm64');
+    const helperPath = join(nativeDirectory, 'spawn-helper');
+
+    try {
+      mkdirSync(nativeDirectory, { recursive: true });
+      writeFileSync(join(nativeDirectory, 'pty.node'), 'native module placeholder');
+      writeFileSync(helperPath, '#!/bin/sh\nexit 0\n');
+      chmodSync(helperPath, 0o644);
+
+      await expect(ensureNodePtyHelperExecutable({
+        nodePtyRoot,
+        platform: 'darwin',
+        architecture: 'arm64',
+      })).resolves.toBe(true);
+      expect(statSync(helperPath).mode & 0o777).toBe(0o755);
+    } finally {
+      rmSync(nodePtyRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('disables PTY execution when the native helper layout is unavailable', async () => {
+    const nodePtyRoot = mkdtempSync(join(tmpdir(), 'autohand-node-pty-missing-'));
+
+    try {
+      await expect(ensureNodePtyHelperExecutable({
+        nodePtyRoot,
+        platform: 'linux',
+        architecture: 'x64',
+      })).resolves.toBe(false);
+    } finally {
+      rmSync(nodePtyRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts an already executable native helper without changing its mode', async () => {
+    const nodePtyRoot = mkdtempSync(join(tmpdir(), 'autohand-node-pty-executable-'));
+    const nativeDirectory = join(nodePtyRoot, 'build', 'Release');
+    const helperPath = join(nativeDirectory, 'spawn-helper');
+
+    try {
+      mkdirSync(nativeDirectory, { recursive: true });
+      writeFileSync(join(nativeDirectory, 'pty.node'), 'native module placeholder');
+      writeFileSync(helperPath, '#!/bin/sh\nexit 0\n');
+      chmodSync(helperPath, 0o500);
+
+      await expect(ensureNodePtyHelperExecutable({
+        nodePtyRoot,
+        platform: 'linux',
+        architecture: 'x64',
+      })).resolves.toBe(true);
+      expect(statSync(helperPath).mode & 0o777).toBe(0o500);
+    } finally {
+      rmSync(nodePtyRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('does not require executable helper permissions on Windows', async () => {
+    await expect(ensureNodePtyHelperExecutable({
+      nodePtyRoot: join(tmpdir(), 'autohand-node-pty-windows-missing'),
+      platform: 'win32',
+      architecture: 'x64',
+    })).resolves.toBe(true);
+  });
+
   it('maps CODEX_HOME to AUTOHAND_HOME for live shell commands', async () => {
     const autohandHome = join(tmpdir(), `autohand-shell-home-${Date.now()}`);
     process.env.AUTOHAND_HOME = autohandHome;
