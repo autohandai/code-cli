@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 
 const localInstallScriptTest = existsSync('install-local.sh') ? it : it.skip;
+const unixInstallScriptTest = process.platform === 'win32' ? it.skip : it;
 
 describe('local install scripts', () => {
   it('does not run the package build script twice from bun run go', () => {
@@ -66,12 +80,76 @@ describe('dependency install guardrails', () => {
     expect(gitignore.split(/\r?\n/)).not.toContain('bun.lock');
   });
 
+  unixInstallScriptTest('repairs node-pty helper permissions after dependency installation', () => {
+    const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      files?: string[];
+      scripts?: Record<string, string>;
+    };
+    const permissionScript = resolve('scripts/ensure-node-pty-helper-permissions.mjs');
+    const installRoot = mkdtempSync(join(tmpdir(), 'autohand-node-pty-install-'));
+    const installedPackageRoot = join(installRoot, 'node_modules', 'autohand-cli');
+    const installedPermissionScript = join(
+      installedPackageRoot,
+      'scripts',
+      'ensure-node-pty-helper-permissions.mjs',
+    );
+    const nodePtyRoot = join(installRoot, 'node_modules', 'node-pty');
+    const helperPath = join(
+      nodePtyRoot,
+      'prebuilds',
+      `${process.platform}-${process.arch}`,
+      'spawn-helper',
+    );
+
+    try {
+      expect(packageJson.scripts?.postinstall).toBe(
+        'node scripts/ensure-node-pty-helper-permissions.mjs',
+      );
+      expect(packageJson.files).toContain('scripts/ensure-node-pty-helper-permissions.mjs');
+      expect(existsSync(permissionScript)).toBe(true);
+
+      mkdirSync(join(installedPermissionScript, '..'), { recursive: true });
+      copyFileSync(permissionScript, installedPermissionScript);
+      mkdirSync(join(helperPath, '..'), { recursive: true });
+      writeFileSync(
+        join(nodePtyRoot, 'package.json'),
+        JSON.stringify({ name: 'node-pty', version: '1.1.0' }),
+      );
+      writeFileSync(helperPath, '#!/bin/sh\nexit 0\n');
+      writeFileSync(join(helperPath, '..', 'pty.node'), 'native module placeholder');
+      chmodSync(helperPath, 0o644);
+
+      execFileSync(process.execPath, [installedPermissionScript], { cwd: installedPackageRoot });
+
+      expect(statSync(helperPath).mode & 0o777).toBe(0o755);
+    } finally {
+      rmSync(installRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('does not apply Unix helper permissions on Windows installs', () => {
+    const permissionScript = resolve('scripts/ensure-node-pty-helper-permissions.mjs');
+    const missingNodePtyRoot = join(tmpdir(), `autohand-node-pty-windows-${Date.now()}`);
+
+    expect(() => {
+      execFileSync(process.execPath, [permissionScript, missingNodePtyRoot, 'win32', 'x64']);
+    }).not.toThrow();
+  });
+
   it('pins tuistory because its patch releases can introduce broken transitive ranges', () => {
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
       devDependencies?: Record<string, string>;
     };
 
     expect(packageJson.devDependencies?.tuistory).toBe('0.10.1');
+  });
+
+  it('pins node-pty while the native helper permission workaround targets its layout', () => {
+    const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      dependencies?: Record<string, string>;
+    };
+
+    expect(packageJson.dependencies?.['node-pty']).toBe('1.1.0');
   });
 
   it('uses the committed Bun lockfile in GitHub workflows', () => {
