@@ -13,6 +13,7 @@ import type {
   MobileEventPayloadMap,
   MobileEventType,
   MobileKeepAwakeStatus,
+  MobileModelStatus,
   MobilePullRequestReview,
   MobileSessionTurnState,
 } from './MobileHandoffClient.js';
@@ -98,7 +99,13 @@ export interface MobileRelayController {
   setKeepAwake(enabled: boolean): Promise<MobileKeepAwakeStatus>;
   setSessionControlHandler(handler: (command: 'cancel') => void): void;
   requestChangesDecision(batchId: string, changes: MobileChangePreview[]): Promise<MobileChangesDecision>;
+  setModelChangeHandler(handler: MobileModelChangeHandler): void;
 }
+
+export type MobileModelChangeHandler = (
+  provider: string,
+  model: string
+) => Promise<MobileModelStatus>;
 
 const MAX_MOBILE_IMAGE_BASE64_LENGTH = 5_000_000;
 const MOBILE_CONNECTED_MESSAGE = 'Mobile connected. Live prompts will run in this CLI session.';
@@ -168,6 +175,7 @@ interface ActiveMobileRelay {
     resolve: (value: PermissionPromptResponse | string | MobileChangesDecision | undefined) => void;
   }>;
   sessionControlHandler?: (command: 'cancel') => void;
+  modelChangeHandler?: MobileModelChangeHandler;
   keepAwakeController: KeepAwakeController;
 }
 
@@ -217,6 +225,9 @@ export function startMobileRelay(options: MobileRelayOptions): MobileRelayContro
     },
     requestChangesDecision: (batchId, changes) =>
       requestChangesDecision(options, relay, batchId, changes),
+    setModelChangeHandler: (handler) => {
+      if (!relay.disposed && activeRelay === relay) relay.modelChangeHandler = handler;
+    },
   };
 
   relay.timer = setInterval(() => {
@@ -247,6 +258,7 @@ function disposeRelay(relay: ActiveMobileRelay): void {
   clearInterval(relay.timer);
   relay.keepAwakeController.dispose();
   relay.sessionControlHandler = undefined;
+  relay.modelChangeHandler = undefined;
   for (const pending of [...relay.pendingActions.values()]) {
     pending.resolve(
       pending.kind === 'permission'
@@ -337,7 +349,7 @@ async function pollOnce(
       if (activeRelay !== relay) return;
       relay.actionCursor = Math.max(relay.actionCursor, actions.nextCursor);
       for (const action of actions.actions) {
-        await resolveAction(action, options, relay);
+        await resolveAction(action, options, relay, controller);
         if (activeRelay !== relay) return;
       }
     }
@@ -604,6 +616,7 @@ async function resolveAction(
   action: MobileAction,
   options: MobileRelayOptions,
   relay: ActiveMobileRelay,
+  controller: MobileRelayController,
 ): Promise<void> {
   if (relay.disposed || activeRelay !== relay) return;
 
@@ -614,6 +627,59 @@ async function resolveAction(
 
   if (action.actionType === 'session_control' && action.payload.command === 'cancel') {
     relay.sessionControlHandler?.('cancel');
+    return;
+  }
+
+  if (action.actionType === 'retry_turn') {
+    const prompt = action.payload.prompt;
+    if (typeof prompt === 'string' && prompt.trim().length > 0) {
+      const turn: MobileClaimedTurn = {
+        workId: `retry-${randomUUID()}`,
+        prompt,
+        startedAt: new Date().toISOString(),
+      };
+      await publishTurnState(options, {
+        workId: turn.workId,
+        status: 'running',
+        prompt: turn.prompt,
+        startedAt: turn.startedAt,
+      });
+      if (relay.disposed || activeRelay !== relay) return;
+      const context: MobileClaimedTurnContext = { turn, relay: controller };
+      options.enqueueInstruction(prompt, context);
+    }
+    return;
+  }
+
+  if (action.actionType === 'set_model') {
+    const provider = action.payload.provider;
+    const model = action.payload.model;
+    if (typeof provider === 'string' && typeof model === 'string') {
+      if (!relay.modelChangeHandler) {
+        await publishEvent(options, 'model_status', {
+          provider,
+          model,
+          status: 'failed',
+          error: 'This CLI session does not support switching models remotely yet.',
+        });
+        return;
+      }
+
+      let result: MobileModelStatus;
+      try {
+        result = await relay.modelChangeHandler(provider, model);
+      } catch (error) {
+        result = {
+          provider,
+          model,
+          status: 'failed',
+          error: error instanceof Error ? error.message : 'Failed to switch model.',
+        };
+      }
+
+      if (relay.disposed || activeRelay !== relay) return;
+      await publishEvent(options, 'model_status', result);
+    }
     return;
   }
 

@@ -5,9 +5,14 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import {
+  configureMobileRelayController,
   enqueueClaimedMobileInstruction,
   enqueueInteractiveInstruction,
 } from '../../src/core/agent/AgentDependencyComposer.js';
+import type {
+  MobileModelChangeHandler,
+  MobileRelayController,
+} from '../../src/mobile/MobileRelay.js';
 
 describe('enqueueInteractiveInstruction', () => {
   it('wakes the idle Ink loop after queueing a mobile instruction', () => {
@@ -78,5 +83,37 @@ describe('enqueueInteractiveInstruction', () => {
     enqueueInteractiveInstruction(host, 'pending prompt');
 
     expect(host.pendingInkInstructions).toEqual(['pending prompt']);
+  });
+});
+
+describe('configureMobileRelayController', () => {
+  it('routes remote model changes through the provider configuration manager', async () => {
+    let modelChangeHandler: MobileModelChangeHandler | undefined;
+    const applyModelChangeRemote = vi.fn().mockResolvedValue({
+      provider: 'openrouter',
+      model: 'anthropic/claude-sonnet-4.5',
+      status: 'applied' as const,
+    });
+    const relay = {
+      setSessionControlHandler: vi.fn(),
+      setModelChangeHandler: (handler: MobileModelChangeHandler) => {
+        modelChangeHandler = handler;
+      },
+    } as unknown as MobileRelayController;
+
+    configureMobileRelayController({
+      providerConfigManager: { applyModelChangeRemote },
+    }, relay);
+
+    expect(modelChangeHandler).toBeDefined();
+    await expect(modelChangeHandler?.('openrouter', 'anthropic/claude-sonnet-4.5')).resolves.toEqual({
+      provider: 'openrouter',
+      model: 'anthropic/claude-sonnet-4.5',
+      status: 'applied',
+    });
+    expect(applyModelChangeRemote).toHaveBeenCalledWith(
+      'openrouter',
+      'anthropic/claude-sonnet-4.5',
+    );
   });
 });

@@ -863,4 +863,186 @@ describe('MobileRelay event bridge', () => {
       }),
     ]));
   });
+
+  it('resubmits the prompt for a retry_turn action through the normal enqueue path', async () => {
+    const published: PublishMobileEventPayload[] = [];
+    const enqueueInstruction = vi.fn();
+    const actions: MobileAction[] = [{
+      id: 'retry-1',
+      sequence: 1,
+      actionType: 'retry_turn',
+      requestId: 'request-retry-1',
+      payload: { workId: 'original-work-id', prompt: 'run the failing tests again' },
+      createdAt: new Date().toISOString(),
+    }];
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue(undefined),
+      claimWork: vi.fn().mockResolvedValue(null),
+      publishMobileEvent: vi.fn().mockImplementation(async (_token, payload) => published.push(payload)),
+      pollMobileActions: vi.fn().mockResolvedValue({ actions, nextCursor: 1 }),
+    };
+
+    startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction,
+    });
+
+    await vi.waitFor(() => expect(enqueueInstruction).toHaveBeenCalledTimes(1));
+    const [prompt, context] = enqueueInstruction.mock.calls[0] as [string, { turn: { workId: string; prompt: string } }];
+    expect(prompt).toBe('run the failing tests again');
+    expect(context.turn.prompt).toBe('run the failing tests again');
+    // A retry gets its own fresh workId rather than reusing the original failed turn's id.
+    expect(context.turn.workId).not.toBe('original-work-id');
+    expect(published).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'session_turn_state',
+        payload: expect.objectContaining({ status: 'running', prompt: 'run the failing tests again' }),
+      }),
+    ]));
+  });
+
+  it('applies a set_model action via the registered handler and publishes the outcome', async () => {
+    const published: PublishMobileEventPayload[] = [];
+    const modelChangeHandler = vi.fn().mockResolvedValue({
+      provider: 'openrouter',
+      model: 'anthropic/claude-sonnet-4.5',
+      status: 'applied' as const,
+    });
+    const actions: MobileAction[] = [{
+      id: 'set-model-1',
+      sequence: 1,
+      actionType: 'set_model',
+      requestId: 'request-set-model-1',
+      payload: { provider: 'openrouter', model: 'anthropic/claude-sonnet-4.5' },
+      createdAt: new Date().toISOString(),
+    }];
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue(undefined),
+      claimWork: vi.fn().mockResolvedValue(null),
+      publishMobileEvent: vi.fn().mockImplementation(async (_token, payload) => published.push(payload)),
+      pollMobileActions: vi.fn().mockResolvedValue({ actions, nextCursor: 1 }),
+    };
+
+    const relay = startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+    });
+    relay.setModelChangeHandler(modelChangeHandler);
+
+    await vi.waitFor(() => expect(modelChangeHandler).toHaveBeenCalledWith('openrouter', 'anthropic/claude-sonnet-4.5'));
+    expect(published).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'model_status',
+        payload: { provider: 'openrouter', model: 'anthropic/claude-sonnet-4.5', status: 'applied' },
+      }),
+    ]));
+  });
+
+  it('does not reclassify an applied model change when publishing its status fails', async () => {
+    const transportError = new Error('mobile event transport unavailable');
+    const publishMobileEvent = vi.fn().mockRejectedValue(transportError);
+    const onError = vi.fn();
+    const modelChangeHandler = vi.fn().mockResolvedValue({
+      provider: 'openrouter',
+      model: 'anthropic/claude-sonnet-4.5',
+      status: 'applied' as const,
+    });
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue(undefined),
+      claimWork: vi.fn().mockResolvedValue(null),
+      publishMobileEvent,
+      pollMobileActions: vi.fn().mockResolvedValue({
+        actions: [{
+          id: 'set-model-transport-failure',
+          sequence: 1,
+          actionType: 'set_model',
+          requestId: 'request-set-model-transport-failure',
+          payload: { provider: 'openrouter', model: 'anthropic/claude-sonnet-4.5' },
+          createdAt: new Date().toISOString(),
+        }],
+        nextCursor: 1,
+      }),
+    };
+
+    const relay = startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+      onError,
+    });
+    relay.setModelChangeHandler(modelChangeHandler);
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(transportError));
+    expect(modelChangeHandler).toHaveBeenCalledOnce();
+    expect(publishMobileEvent).toHaveBeenCalledOnce();
+    expect(publishMobileEvent).toHaveBeenCalledWith('token', expect.objectContaining({
+      eventType: 'model_status',
+      payload: expect.objectContaining({ status: 'applied' }),
+    }));
+  });
+
+  it('reports model_status failed when no handler is registered for set_model', async () => {
+    const published: PublishMobileEventPayload[] = [];
+    const actions: MobileAction[] = [{
+      id: 'set-model-2',
+      sequence: 1,
+      actionType: 'set_model',
+      requestId: 'request-set-model-2',
+      payload: { provider: 'openrouter', model: 'anthropic/claude-sonnet-4.5' },
+      createdAt: new Date().toISOString(),
+    }];
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue(undefined),
+      claimWork: vi.fn().mockResolvedValue(null),
+      publishMobileEvent: vi.fn().mockImplementation(async (_token, payload) => published.push(payload)),
+      pollMobileActions: vi.fn().mockResolvedValue({ actions, nextCursor: 1 }),
+    };
+
+    startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+    });
+
+    await vi.waitFor(() => expect(published).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'model_status',
+        payload: expect.objectContaining({ status: 'failed' }),
+      }),
+    ])));
+  });
 });
