@@ -697,6 +697,7 @@ Az ügynök viselkedésének és iterációs korlátainak szabályozása.
     "toolSelectionCache": true,
     "autoMemory": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   }
 }
@@ -708,6 +709,7 @@ Az ügynök viselkedésének és iterációs korlátainak szabályozása.
 | `toolSelectionCache` | logikai | `true` | Gyorsítótárazza a körönkénti szerszámséma helyi kiválasztását az egyenértékű szerszámkiválasztási bemenethez |
 | `autoMemory` | logikai | `true` | Tartós felhasználói/projektmemóriák kibontása és mentése sikeres interaktív fordulatok után |
 | `idleLogoutEnabled` | logikai | `true` | Jelentkezzen ki a hitelesített interaktív munkamenetekből az üresjárati időtúllépés után |
+| `idleTimeoutMs` | szám | `3600000` | Az inaktivitás ezredmásodpercei a hitelesített munkamenet kijelentkeztetése előtt (60 perc) |
 | `debug` | logikai | `false` | Részletes hibakeresési kimenet engedélyezése (naplózza az ügynök belső állapotát az stderr-be) |
 
 ### Eszközséma kiválasztása
@@ -737,6 +739,8 @@ A hitelesített, régóta működő ügynöki munkamenetek életben tartásához
 }
 ```
 Egyetlen folyamathoz használja a `autohand --no-idle-logout` kódot, vagy állítsa be a `AUTOHAND_NO_IDLE_LOGOUT=1` értéket.
+
+Az inaktivitási idő módosításához állítsa az `idleTimeoutMs` értékét pozitív, ezredmásodpercben megadott időtartamra. Az alapértelmezett érték `3600000` (60 perc); az érvénytelen értékek az alapértelmezett értéket használják.
 
 ### Hibakeresési mód
 
@@ -1570,13 +1574,13 @@ Irányítsd a Autohand Chrome-bővítmény integrációját. Tekintse meg a telj
 
 ### CLI zászlók
 ```bash
-autohand --chrome          # Start with browser bridge enabled
-autohand --no-chrome       # Start with browser bridge disabled
+autohand --browser          # Start with browser bridge enabled
+autohand --no-browser       # Start with browser bridge disabled
 ```
 ### Slash parancsok
 ```
-/chrome                    # Open Chrome integration panel
-/chrome disconnect         # Close the browser bridge connection
+/browser                   # Open browser integration panel
+/browser disconnect        # Close the browser bridge connection
 ```
 ---
 
@@ -1613,6 +1617,7 @@ autohand --no-chrome       # Start with browser bridge disabled
     "enableRequestQueue": true,
     "toolSelectionCache": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   },
   "permissions": {
@@ -1697,6 +1702,7 @@ agent:
   enableRequestQueue: true
   toolSelectionCache: true
   idleLogoutEnabled: true
+  idleTimeoutMs: 3600000
   debug: false
 
 permissions:
@@ -1790,6 +1796,7 @@ maxIterations = 100
 enableRequestQueue = true
 toolSelectionCache = true
 idleLogoutEnabled = true
+idleTimeoutMs = 3600000
 debug = false
 
 [permissions]
@@ -1935,12 +1942,12 @@ Ezek a jelzők felülírják a konfigurációs fájl beállításait:
 | `--cc, --context-compact` | Környezettömörítés engedélyezése (alapértelmezett: be) |
 | `--no-cc, --no-context-compact` | Kontextustömörítés letiltása |
 
-### Chrome integráció
+### Böngészőintegráció
 
 | zászló | Leírás |
 | ------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `--chrome` | A Chrome böngésző integrációjának engedélyezése (ugyanaz, mint `/chrome`) |
-| `--no-chrome` | A Chrome böngésző integrációjának letiltása |
+| `--browser` | A böngészőintegráció engedélyezése (ugyanaz, mint `/browser`) |
+| `--no-browser` | A böngészőintegráció letiltása |
 
 ### Rendszerprompt
 
@@ -2087,11 +2094,11 @@ Az Autohand perjel parancsok gazdag készletét kínálja interaktív használat
 | `/repeat` | Ismétlődő munkák ütemezése |
 | `/yolo` | Yolo mód váltása (automatikus jóváhagyási eszközök) |
 
-### Chrome integráció
+### Böngészőintegráció
 
 | Parancs | Leírás |
 | ------------- | ------------------------------------------------------ |
-| `/chrome` | A Chrome böngésző integrációjának engedélyezése |
+| `/browser` | A Chrome böngésző integrációjának engedélyezése |
 
 ### UI és kijelző
 

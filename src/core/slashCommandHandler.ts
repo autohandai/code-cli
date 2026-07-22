@@ -8,11 +8,21 @@ import terminalLink from 'terminal-link';
 import type { SlashCommand } from './slashCommands.js';
 
 import type { SlashCommandContext } from './slashCommandTypes.js';
+import type { ExtensionRuntimeHost } from '../extensions/ExtensionRuntimeHost.js';
+import {
+  BROWSER_SLASH_COMMAND,
+  LEGACY_BROWSER_SLASH_COMMAND,
+  LEGACY_BROWSER_SLASH_COMMAND_WARNING,
+} from '../browser/compatibility.js';
 
 export class SlashCommandHandler {
   private readonly commandMap = new Map<string, SlashCommand>();
 
-  constructor(private readonly ctx: SlashCommandContext, commands: SlashCommand[]) {
+  constructor(
+    private readonly ctx: SlashCommandContext,
+    commands: SlashCommand[],
+    private readonly extensionRuntime?: ExtensionRuntimeHost,
+  ) {
     commands.forEach((cmd) => this.commandMap.set(cmd.command, cmd));
   }
 
@@ -20,11 +30,30 @@ export class SlashCommandHandler {
    * Check if a command is supported (exists in the command map)
    */
   isCommandSupported(command: string): boolean {
-    return this.commandMap.has(command);
+    if (command === LEGACY_BROWSER_SLASH_COMMAND) {
+      return this.commandMap.has(BROWSER_SLASH_COMMAND);
+    }
+    return this.commandMap.has(command) || this.extensionRuntime?.getCommand(command) !== undefined;
   }
 
   async handle(command: string, args: string[] = []): Promise<string | null> {
-    const meta = this.commandMap.get(command);
+    if (command === LEGACY_BROWSER_SLASH_COMMAND) {
+      if (!this.commandMap.has(BROWSER_SLASH_COMMAND)) {
+        this.printUnsupported(command);
+        return null;
+      }
+      const result = await this.handle(BROWSER_SLASH_COMMAND, args);
+      return result
+        ? `${LEGACY_BROWSER_SLASH_COMMAND_WARNING}\n${result}`
+        : LEGACY_BROWSER_SLASH_COMMAND_WARNING;
+    }
+
+    const runtimeCommand = this.extensionRuntime?.getCommand(command);
+    const meta = this.commandMap.get(command) ?? (runtimeCommand ? {
+      command: runtimeCommand.command,
+      description: runtimeCommand.description,
+      implemented: true,
+    } : undefined);
     if (!meta) {
       this.printUnsupported(command);
       return null;
@@ -32,6 +61,43 @@ export class SlashCommandHandler {
     if (meta && !meta.implemented) {
       this.printUnimplemented(meta);
       return null;
+    }
+
+    if (runtimeCommand) {
+      try {
+        const result = await runtimeCommand.execute({
+          args,
+          workspaceRoot: this.ctx.workspaceRoot,
+          isNonInteractive: this.ctx.isNonInteractive === true,
+          cli: {
+            getOption: (name) => this.extensionRuntime?.getCliOption(name),
+          },
+          ui: {
+            open: (viewId, props) => this.extensionRuntime!.createViewRequest(viewId, props),
+          },
+        });
+        if (typeof result === 'object' && result?.type === 'extension-view') {
+          const view = this.extensionRuntime?.getView(result.viewId);
+          if (!view) {
+            throw new Error(`Extension view "${result.viewId}" is unavailable`);
+          }
+          await this.ctx.onBeforeModal?.();
+          try {
+            const { showExtensionView } = await import('../extensions/ExtensionView.js');
+            return await showExtensionView(view, {
+              workspaceRoot: this.ctx.workspaceRoot,
+              args,
+              props: result.props,
+            });
+          } finally {
+            await this.ctx.onAfterModal?.();
+          }
+        }
+        return typeof result === 'string' ? result : null;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return `Extension command ${runtimeCommand.command} failed: ${message}`;
+      }
     }
 
     // Guard: interactive-only commands are not available in RPC/ACP mode
@@ -282,7 +348,7 @@ export class SlashCommandHandler {
             trackFeatureActivation: this.ctx.trackFeatureActivation,
           }, args);
         }
-        case '/chrome': {
+        case '/browser': {
           const { chrome } = await import('../commands/chrome.js');
           return chrome(this.ctx, args);
         }

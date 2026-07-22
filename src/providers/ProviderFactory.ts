@@ -24,8 +24,9 @@ import { BedrockProvider } from './BedrockProvider.js';
 import { CustomOpenAICompatibleProvider } from './CustomOpenAICompatibleProvider.js';
 import { isAwsBedrockProviderEnabled } from '../features/featureRegistry.js';
 import { isMLXSupported } from '../utils/platform.js';
-import type { AutohandConfig, ProviderName } from '../types.js';
+import type { AutohandConfig, ExtensionProviderId, ProviderName } from '../types.js';
 import { getCustomProviderConfig, isCustomProviderName, toCustomProviderName } from './customProviders.js';
+import { extensionRuntimeHost } from '../extensions/ExtensionRuntimeHost.js';
 
 /**
  * Custom error class for unconfigured provider
@@ -73,6 +74,17 @@ export class ProviderFactory {
      */
     static create(config: AutohandConfig): LLMProvider {
         const providerName = config.provider || 'openrouter';
+        const extensionProvider = extensionRuntimeHost.getProvider(providerName);
+        if (extensionProvider) {
+            const extensionConfig = config.extensionProviders?.[providerName as ExtensionProviderId];
+            if (!extensionConfig?.model) {
+                return new UnconfiguredProvider(providerName);
+            }
+            return extensionProvider.create(
+                { ...extensionConfig, model: extensionConfig.model },
+                config,
+            );
+        }
 
         if (isCustomProviderName(providerName)) {
             const customProvider = getCustomProviderConfig(config, providerName);
@@ -198,7 +210,12 @@ export class ProviderFactory {
             .sort((a, b) => a.displayName.localeCompare(b.displayName))
             .map((entry) => toCustomProviderName(entry.id));
         providers.push(...customProviders);
+        providers.push(...extensionRuntimeHost.getProviders().map((provider) => provider.name as ProviderName));
         return providers;
+    }
+
+    static getRuntimeProviderDisplayName(name: string): string | undefined {
+        return extensionRuntimeHost.getProvider(name)?.displayName;
     }
 
     /**
@@ -207,6 +224,9 @@ export class ProviderFactory {
      * MLX is always a valid provider name, but may not be available on non-Apple Silicon systems.
      */
     static isValidProvider(name: string, config?: Pick<AutohandConfig, 'features' | 'customProviders'> | null): name is ProviderName {
+        if (extensionRuntimeHost.getProvider(name)) {
+            return true;
+        }
         if (isCustomProviderName(name)) {
             return getCustomProviderConfig(config, name) !== undefined;
         }

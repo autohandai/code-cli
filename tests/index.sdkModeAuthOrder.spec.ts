@@ -12,12 +12,16 @@ describe('index SDK mode startup ordering', () => {
     const source = readFileSync(path.resolve(process.cwd(), 'src/index.ts'), 'utf8');
 
     const authGateIndex = source.indexOf('await ensureAuthenticated(authConfig');
-    const rpcModeIndex = source.indexOf("if (opts.mode === 'rpc')");
-    const acpModeIndex = source.indexOf("if (opts.mode === 'acp')");
+    const routerIndex = source.indexOf('const protocolLaunchMode = resolveProtocolLaunchMode(opts)');
+    const rpcModeIndex = source.indexOf("if (protocolLaunchMode === 'rpc')");
+    const acpModeIndex = source.indexOf("if (protocolLaunchMode === 'acp')");
 
     expect(authGateIndex).toBeGreaterThan(-1);
+    expect(routerIndex).toBeGreaterThan(-1);
     expect(rpcModeIndex).toBeGreaterThan(-1);
     expect(acpModeIndex).toBeGreaterThan(-1);
+    expect(routerIndex).toBeLessThan(rpcModeIndex);
+    expect(routerIndex).toBeLessThan(acpModeIndex);
     expect(rpcModeIndex).toBeLessThan(authGateIndex);
     expect(acpModeIndex).toBeLessThan(authGateIndex);
   });

@@ -34,7 +34,8 @@ export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
 export type BuiltInProviderName = 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure' | 'zai' | 'sakana' | 'vertexai' | 'xai' | 'cerebras' | 'nvidia' | 'deepseek' | 'bedrock';
 export type CustomProviderId = `custom:${string}`;
-export type ProviderName = BuiltInProviderName | CustomProviderId;
+export type ExtensionProviderId = `extension:${string}`;
+export type ProviderName = BuiltInProviderName | CustomProviderId | ExtensionProviderId;
 
 export type AzureAuthMethod = 'api-key' | 'entra-id' | 'managed-identity';
 export type OpenAIAuthMode = 'api-key' | 'chatgpt';
@@ -52,6 +53,10 @@ export interface ProviderSettings {
   contextWindow?: number;
   /** Reasoning effort level for reasoning-capable models (e.g., OpenAI) */
   reasoningEffort?: ReasoningEffort;
+}
+
+export interface ExtensionProviderSettings extends ProviderSettings {
+  [key: string]: unknown;
 }
 
 export type CustomProviderApiFormat = 'openai-compatible';
@@ -726,7 +731,7 @@ export interface TeamSettings {
 export interface ChromeConfigSettings {
   /** Installed extension id used for direct handoff into the Chrome extension UI */
   extensionId?: string;
-  /** Preferred Chromium browser for `/chrome` launches */
+  /** Preferred Chromium browser for `/browser` launches */
   browser?: 'auto' | 'chrome' | 'chromium' | 'brave' | 'edge';
   /** Browser user data root used to target the correct installed profile */
   userDataDir?: string;
@@ -766,6 +771,8 @@ export interface AutohandConfig {
   bedrock?: BedrockSettings;
   /** User-defined providers that can be selected with provider: "custom:<id>" */
   customProviders?: Record<string, CustomProviderSettings>;
+  /** Configuration owned by trusted runtime providers selected with provider: "extension:<id>" */
+  extensionProviders?: Partial<Record<ExtensionProviderId, ExtensionProviderSettings>>;
   workspace?: WorkspaceSettings;
   ui?: UISettings;
   agent?: AgentSettings;
@@ -945,9 +952,11 @@ export interface CLIOptions {
   yolo?: string;
   /** Timeout in seconds for auto-approve mode */
   timeout?: number;
-  /** Enable Chrome browser integration (same as /chrome) */
+  /** Enable browser integration. False when --no-browser is used. */
+  browser?: boolean;
+  /** @deprecated Compatibility input for --chrome and --no-chrome. */
   chrome?: boolean;
-  /** Disable Chrome browser integration */
+  /** @deprecated Compatibility input for older programmatic callers. */
   noChrome?: boolean;
 }
 
@@ -1362,8 +1371,9 @@ export type AgentAction =
   | { type: 'cron_delete'; schedule_id: string }
   | { type: 'list_schedules' }
   | { type: 'cancel_schedule'; schedule_id: string }
-  // Browser tools (available when Chrome extension is connected via /chrome)
+  // Browser tools (available when Chrome extension is connected via /browser)
   | { type: 'browser_screenshot'; format?: 'png' | 'jpeg'; quality?: number }
+  | { type: 'browser_take_full_page_screenshot'; format?: 'png' | 'jpeg'; quality?: number }
   | { type: 'browser_click'; selector: string }
   | { type: 'browser_type'; selector: string; text: string; clear?: boolean }
   | { type: 'browser_navigate'; url: string }

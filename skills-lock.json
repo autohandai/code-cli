@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "extension-builder": {
+      "source": "autohandai/community-skills",
+      "sourceType": "github",
+      "skillPath": "skills/extension-builder/SKILL.md",
+      "computedHash": "a315e4065da21fcfc7848cfe4759f8970f5c95b3e1f7527acedf6468361d04da"
+    }
+  }
+}

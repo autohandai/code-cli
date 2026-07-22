@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/autohandai/code-extensions/main/schema/autohand.extension.schema.json",
   "title": "Autohand Code Extension Manifest",
-  "description": "Declarative Autohand Code extension package manifest, API version 1.",
+  "description": "Autohand Code declarative and trusted-runtime extension package manifest, API version 1.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -68,12 +68,16 @@
         },
         "skills": {
           "$ref": "#/$defs/contributionPaths"
+        },
+        "runtime": {
+          "$ref": "#/$defs/contributionPaths"
         }
       },
       "anyOf": [
         { "required": ["tools"] },
         { "required": ["agents"] },
-        { "required": ["skills"] }
+        { "required": ["skills"] },
+        { "required": ["runtime"] }
       ]
     }
   },

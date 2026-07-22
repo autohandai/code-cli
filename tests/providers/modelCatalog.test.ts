@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -120,6 +120,59 @@ describe("modelCatalog", () => {
       const { getUserModelCatalogPath } = await importCatalog();
 
       expect(getUserModelCatalogPath()).toBe(join(dir, "models.json"));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("overlays a cached Pi-compatible catalog without replacing the user override", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "autohand-remote-models-"));
+    process.env.AUTOHAND_HOME = dir;
+    const remotePath = join(dir, "model-catalog", "models.json");
+    mkdirSync(join(dir, "model-catalog"), { recursive: true });
+    writeFileSync(remotePath, JSON.stringify({
+      nvidia: {
+        "nvidia/remote-model": {
+          id: "nvidia/remote-model",
+          name: "Remote Model",
+          api: "openai-completions",
+          provider: "nvidia",
+          baseUrl: "https://integrate.api.nvidia.com/v1",
+          reasoning: true,
+          input: ["text"],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 262144,
+          maxTokens: 32768,
+        },
+      },
+    }));
+    writeFileSync(join(dir, "models.json"), JSON.stringify({
+      providers: {
+        nvidia: {
+          defaultModel: "nvidia/local-model",
+          models: ["nvidia/local-model"],
+        },
+      },
+    }));
+
+    try {
+      const {
+        getProviderDefaultModel,
+        getProviderModelOptions,
+        getRemoteModelCatalogPath,
+      } = await importCatalog();
+
+      expect(getRemoteModelCatalogPath()).toBe(remotePath);
+      expect(getProviderDefaultModel("nvidia")).toBe("nvidia/local-model");
+      expect(getProviderModelOptions("nvidia")).toEqual(expect.arrayContaining([
+        { id: "nvidia/local-model" },
+        {
+          id: "nvidia/remote-model",
+          displayName: "Remote Model",
+          contextWindow: 262144,
+          reasoningEffort: "high",
+        },
+      ]));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

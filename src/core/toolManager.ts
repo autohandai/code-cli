@@ -1554,10 +1554,21 @@ Actions:
       },
     },
   },
-  // ── Browser tools (available when Chrome extension is connected via /chrome) ──
+  // ── Browser tools (available when Chrome extension is connected via /browser) ──
   {
     name: 'browser_screenshot',
     description: 'Capture a screenshot of the page currently visible in the Chrome browser tab. Returns a base64 PNG image. Only available when the Chrome extension is connected.',
+    parameters: {
+      type: 'object',
+      properties: {
+        format: { type: 'string', description: 'Image format', enum: ['png', 'jpeg'] },
+        quality: { type: 'number', description: 'JPEG quality 0-100 (default: 80)' },
+      },
+    },
+  },
+  {
+    name: 'browser_take_full_page_screenshot',
+    description: 'Capture the entire page in the current Chrome tab in one screenshot, including content outside the visible viewport. Use this instead of scrolling and stitching screenshots. Only available when the Chrome extension is connected.',
     parameters: {
       type: 'object',
       properties: {

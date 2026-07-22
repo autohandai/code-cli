@@ -13,12 +13,11 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execSync, spawnSync } from 'node:child_process';
-import packageJson from '../package.json' with { type: 'json' };
 import { getProviderConfig, loadConfig, resolveWorkspaceRoot, saveConfig } from './config.js';
 import { runStartupChecks, printStartupCheckResults, validateWorkspacePath } from './startup/checks.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/workspaceSafety.js';
 import { ensureAuthenticated } from './auth/index.js';
-import type { AuthUser, BuiltInProviderName, LoadedConfig, SearchProvider, SkillInstallScope } from './types.js';
+import type { AuthUser, BuiltInProviderName, LoadedConfig, SkillInstallScope } from './types.js';
 import { validateAuthOnStartup } from './auth/startupAuth.js';
 import { installProcessErrorHandlers } from './reporting/processErrorReporting.js';
 import { checkForUpdates, getInstallHint, type VersionCheckResult } from './utils/versionCheck.js';
@@ -27,11 +26,24 @@ import { initPingService, shutdownPingService, startPingService } from './teleme
 import { detectStdinType, readPipedStdin } from './utils/stdinDetector.js';
 import { buildPipePrompt } from './modes/pipeMode.js';
 import { shouldUseInteractivePipeHandoff } from './modes/pipeRouting.js';
-import { resolveAutoModeLaunchMode } from './modes/autoModeRouting.js';
-import { PROJECT_DIR_NAME } from './constants.js';
+import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from './constants.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessionWorktree.js';
 import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
-import { registerChromeCommand } from './browser/cliCommand.js';
+import { registerBrowserCommand, registerBrowserOptions } from './browser/cliCommand.js';
+import { formatDeprecatedBrowserOptionWarning } from './browser/compatibility.js';
+import {
+  normalizeContextCompactOption,
+  normalizeInitialCliOptions,
+  normalizePromptAndProtocolOptions,
+  normalizeSearchEngineOption,
+  normalizeTmuxWorktreeOption,
+  type RootCliOptions,
+} from './startup/cliOptions.js';
+import {
+  resolveAgentLaunchMode,
+  resolvePostAuthLaunchMode,
+  resolveProtocolLaunchMode,
+} from './startup/modeRouter.js';
 import { prepareBareModeConfig } from './runtime/bareMode.js';
 import {
   awaitCliLifecycleStep,
@@ -53,20 +65,20 @@ import {
   formatWelcomeVersionPrefix,
 } from './ui/theme/startup.js';
 import { AgentsGenerator } from './onboarding/agentsGenerator.js';
+import { buildAutomodeIterationPrompt } from './core/automodePrompt.js';
 import { looksLikeInlineAgents, parseInlineAgents } from './core/agents/AgentRegistry.js';
 import { getCustomProviderConfig, isCustomProviderName } from './providers/customProviders.js';
+import { runtimeVersion } from './utils/runtimeVersion.js';
 
-const SEARCH_PROVIDERS = [
-  'browser-profile',
-  'exa',
-  'google',
-  'brave',
-  'duckduckgo',
-  'parallel',
-] as const satisfies readonly SearchProvider[];
-
-function isSearchProvider(value: string): value is SearchProvider {
-  return SEARCH_PROVIDERS.some((provider) => provider === value);
+async function refreshModelCatalogBeforeAgentStart(options: {
+  bare?: boolean;
+  offline?: boolean;
+}): Promise<void> {
+  const { refreshModelCatalogOnStartup } = await import('./providers/modelCatalogUpdater.js');
+  await refreshModelCatalogOnStartup({
+    offline: options.offline === true || options.bare === true ? true : undefined,
+    userAgent: `autohand/${runtimeVersion}`,
+  });
 }
 
 function applyCliModelOverride(config: LoadedConfig, model: string): void {
@@ -106,7 +118,7 @@ function getGitCommit(): string {
     return process.env.BUILD_GIT_COMMIT;
   }
   // For alpha builds, version suffix encodes the source commit
-  const alphaCommit = getCommitFromAlphaVersion(packageJson.version);
+  const alphaCommit = getCommitFromAlphaVersion(runtimeVersion);
   if (alphaCommit) {
     return alphaCommit;
   }
@@ -123,7 +135,7 @@ function getGitCommit(): string {
  */
 function getVersionString(): string {
   const commit = getGitCommit();
-  return `${packageJson.version} (${commit})`;
+  return `${runtimeVersion} (${commit})`;
 }
 
 type McpConfigScope = 'user' | 'project';
@@ -171,7 +183,8 @@ import { registerExtensionsCommand } from './extensions/cli.js';
 installProcessErrorHandlers();
 
 const program = new Command();
-registerChromeCommand(program);
+registerBrowserCommand(program);
+registerBrowserOptions(program);
 registerExtensionsCommand(program);
 
 program
@@ -181,6 +194,7 @@ program
   .argument('[prompt]', 'Run a single instruction in command mode (same as -p)')
   .option('-p, --prompt [text]', 'Run a single instruction in command mode')
   .option('--bare', 'Minimal mode: skip hooks, LSP, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and AGENTS.md auto-discovery', false)
+  .option('--offline', 'Disable startup network operations, including model catalog refreshes', false)
   .option('--path <path>', 'Workspace path to operate in')
   .option('-y, --yes', 'Auto-confirm risky actions', false)
   .option('--y', 'Alias for --yes', false)
@@ -240,47 +254,22 @@ program
   .option('--plugin-dir <path>', 'Explicit plugin/meta-tool directory')
   .option('--yolo [pattern]', 'Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)')
   .option('--timeout <seconds>', 'Timeout in seconds for auto-approve mode', parseInt)
-  .option('--chrome', 'Enable Chrome browser integration (same as /chrome)')
-  .option('--no-chrome', 'Disable Chrome browser integration')
   .option('--fork <pathOrId>', 'Create and resume a new session branch from an existing session reference')
-  .action(async (positionalPrompt: string | undefined, opts: CLIOptions & { mode?: string; skillInstall?: string | boolean; project?: boolean; permissions?: boolean; worktree?: boolean | string; tmux?: boolean; setup?: boolean; about?: boolean; syncSettings?: string | boolean; cc?: boolean; searchEngine?: string; learn?: boolean; learnUpdate?: boolean; fork?: string; y?: boolean }) => {
+  .action(async (positionalPrompt: string | undefined, opts: RootCliOptions) => {
     // Clear screen immediately for Cursor-like behavior (before any output)
     if (process.stdout.isTTY && process.env.AUTOHAND_NO_BANNER !== '1') {
       process.stdout.write('\x1b[3J\x1b[2J\x1b[H');
     }
 
-    // When -p is passed without a value, Commander sets opts.prompt to true (boolean).
-    // Normalize to undefined so downstream code can detect "flag present, no text".
-    if ((opts as Record<string, unknown>).prompt === true) {
-      opts.prompt = undefined;
+    const normalization = normalizeInitialCliOptions(opts);
+    if (normalization.deprecatedBrowserOption) {
+      console.warn(chalk.yellow(formatDeprecatedBrowserOptionWarning(normalization.deprecatedBrowserOption)));
     }
-    if (opts.y === true) {
-      opts.yes = true;
-    }
-    if ((opts as Record<string, unknown>).autoMode === true) {
-      opts.autoMode = undefined;
-    }
-    if ((opts as Record<string, unknown>).goal === true) {
-      opts.goal = '';
-    }
-    if ((opts as Record<string, unknown>).systemPrompt) {
-      opts.sysPrompt = String((opts as Record<string, unknown>).systemPrompt);
-    }
-    if (opts.systemPromptFile) {
-      opts.sysPrompt = opts.systemPromptFile;
-    }
-    if ((opts as Record<string, unknown>).appendSystemPrompt) {
-      opts.appendSysPrompt = String((opts as Record<string, unknown>).appendSystemPrompt);
-    }
-    if (opts.appendSystemPromptFile) {
-      opts.appendSysPrompt = opts.appendSystemPromptFile;
-    }
-    if (opts.bare) {
-      process.env.AUTOHAND_CODE_SIMPLE = '1';
-      opts.syncSettings = false;
-      opts.contextCompact = false;
-      opts.noChrome = true;
-    }
+
+    const { extensionRuntimeHost } = await import('./extensions/ExtensionRuntimeHost.js');
+    extensionRuntimeHost.setCliOptions(opts as unknown as Record<string, unknown>);
+
+    await refreshModelCatalogBeforeAgentStart(opts);
 
     // `--agents` accepts inline JSON (Claude Code format) or a directory path.
     // Parse and validate inline JSON up front so users get a clear error before
@@ -294,27 +283,14 @@ program
       }
     }
 
-    // Positional argument acts as prompt (e.g. autohand 'explain this')
-    // -p/--prompt flag takes precedence if both are provided
-    if (positionalPrompt && !opts.prompt) {
-      opts.prompt = positionalPrompt;
-    }
-
-    // --acp is shorthand for --mode acp
-    if ((opts as any).acp) {
-      opts.mode = 'acp';
-    }
+    normalizePromptAndProtocolOptions(positionalPrompt, opts);
 
     // tmux sessions are intended to run with isolated worktrees by default.
     // Respect explicit --no-worktree (opts.worktree === false) as invalid with --tmux.
-    if (isTmuxEnabled(opts.tmux)) {
-      if (opts.worktree === false) {
-        console.error(chalk.red('--tmux cannot be used with --no-worktree'));
-        process.exit(1);
-      }
-      if (opts.worktree === undefined) {
-        opts.worktree = true;
-      }
+    const tmuxOptionError = normalizeTmuxWorktreeOption(opts);
+    if (tmuxOptionError) {
+      console.error(chalk.red(tmuxOptionError));
+      process.exit(1);
     }
 
     // Launch in tmux first (single-hop; child continues with AUTOHAND_TMUX_LAUNCHED=1)
@@ -430,13 +406,14 @@ program
     // Protocol modes reserve stdout for their SDK transports and cannot show
     // interactive auth/login UI. They perform their own non-interactive config,
     // workspace, and auth checks after stdout/stderr are prepared for the mode.
-    if (opts.mode === 'rpc') {
+    const protocolLaunchMode = resolveProtocolLaunchMode(opts);
+    if (protocolLaunchMode === 'rpc') {
       const { runRpcMode } = await import('./modes/rpc/index.js');
       process.exitCode = await runRpcMode(opts);
       return;
     }
 
-    if (opts.mode === 'acp') {
+    if (protocolLaunchMode === 'acp') {
       const { runAcpMode } = await import('./modes/acp/index.js');
       await runAcpMode(opts);
       return;
@@ -479,9 +456,7 @@ program
 
     // Map --cc flag to contextCompact option
     // Commander uses 'cc' for the flag name, we map it to 'contextCompact' for consistency
-    if (opts.cc !== undefined) {
-      opts.contextCompact = opts.cc;
-    }
+    normalizeContextCompactOption(opts);
 
     if (opts.goal !== undefined) {
       await runGoalFlag(opts);
@@ -491,30 +466,34 @@ program
     }
 
 
-    // Handle --no-chrome flag (disable chrome bridge in config)
-    if (opts.noChrome) {
+    // Disable the browser bridge when --no-browser (or its compatibility alias) is used.
+    if (opts.browser === false) {
       const config = await loadConfig(opts.config, process.cwd());
       if (config.chrome) {
         config.chrome.enabledByDefault = false;
         await saveConfig(config);
-        console.log(chalk.green("\u2713 Chrome browser integration disabled."));
+        console.log(chalk.green("\u2713 Browser integration disabled."));
       }
-      // Continue to normal CLI flow --chrome is not set, so normal mode
+      // Continue to the normal CLI flow without opening a browser handoff.
     }
 
     // Map --search-engine flag to searchEngine option
-    if (opts.searchEngine) {
-      const provider = opts.searchEngine.toLowerCase();
-      if (isSearchProvider(provider)) {
-        opts.searchEngine = provider;
-      } else {
-        console.error(chalk.red(`Invalid search engine: ${provider}. Valid options: ${SEARCH_PROVIDERS.join(', ')}`));
-        process.exit(1);
-      }
+    const searchEngineError = normalizeSearchEngineOption(opts);
+    if (searchEngineError) {
+      console.error(chalk.red(searchEngineError));
+      process.exit(1);
     }
 
+    const postAuthLaunchMode = resolvePostAuthLaunchMode({
+      mode: opts.mode,
+      autoMode: opts.autoMode,
+      prompt: opts.prompt,
+      argv: process.argv,
+      stdinIsTTY: Boolean(process.stdin.isTTY),
+    });
+
     // Teammate mode — headless process receiving tasks from lead
-    if (opts.mode === 'teammate') {
+    if (postAuthLaunchMode === 'teammate') {
       const { parseTeammateOptions, runTeammateMode } = await import('./modes/teammate.js');
       const teammateOpts = parseTeammateOptions(process.argv);
       if (!teammateOpts) {
@@ -525,28 +504,20 @@ program
       return;
     }
 
-    const hasAutoModeFlag = process.argv.some(arg => arg === '--auto-mode');
-    const autoModeLaunchMode = resolveAutoModeLaunchMode({
-      hasAutoModeFlag,
-      autoModeTask: opts.autoMode,
-      prompt: opts.prompt,
-      stdinIsTTY: Boolean(process.stdin.isTTY),
-    });
-
-    if (autoModeLaunchMode === 'unavailable') {
+    if (postAuthLaunchMode === 'auto-unavailable') {
       console.error(chalk.red('Interactive auto-mode requires a terminal (TTY). Use `autohand --auto-mode "<task>"` for standalone loops.'));
       process.exit(1);
     }
 
     // Handle standalone --auto-mode loops
-    if (autoModeLaunchMode === 'standalone') {
+    if (postAuthLaunchMode === 'auto-standalone') {
       // Commander's --no-worktree sets opts.worktree to false
       opts.noWorktree = opts.worktree === false;
       await runAutoMode(opts);
       return;
     }
 
-    if (autoModeLaunchMode === 'interactive') {
+    if (postAuthLaunchMode === 'auto-interactive') {
       opts.interactiveAutoMode = true;
     }
 
@@ -558,7 +529,10 @@ program
   .description('Resume a previous session')
   .option('--path <path>', 'Workspace path to operate in')
   .option('--model <model>', 'Override the configured LLM model')
-  .action(async (sessionId: string, opts: CLIOptions) => {
+  .option('--offline', 'Disable the model catalog refresh for this resumed session', false)
+  .action(async (sessionId: string, opts: CLIOptions & { offline?: boolean }) => {
+    await refreshModelCatalogBeforeAgentStart(opts);
+
     // Mandatory auth gate for resume
     let authConfig = await loadConfig(opts.config, process.cwd());
     authConfig = await ensureAuthenticated(authConfig);
@@ -1028,10 +1002,18 @@ program
   .command('update')
   .description('Check for updates and install if available')
   .option('--check', 'Only check for updates without installing')
-  .action(async (opts: { check?: boolean }) => {
-    const { runUpdate } = await import('./commands/update.js');
+  .option('--models', 'Refresh the remote model catalog without updating the CLI')
+  .action(async (opts: { check?: boolean; models?: boolean }) => {
+    const { runModelCatalogUpdate, runUpdate } = await import('./commands/update.js');
+    if (opts.models) {
+      if (opts.check) {
+        throw new Error('--check cannot be combined with --models');
+      }
+      await runModelCatalogUpdate({ currentVersion: runtimeVersion });
+      return;
+    }
     await runUpdate({
-      currentVersion: packageJson.version,
+      currentVersion: runtimeVersion,
       check: opts.check ?? false,
     });
   });
@@ -1040,10 +1022,18 @@ program
   .command('upgrade')
   .description('Check for updates and install if available')
   .option('--check', 'Only check for updates without installing')
-  .action(async (opts: { check?: boolean }) => {
-    const { runUpdate } = await import('./commands/update.js');
+  .option('--models', 'Refresh the remote model catalog without updating the CLI')
+  .action(async (opts: { check?: boolean; models?: boolean }) => {
+    const { runModelCatalogUpdate, runUpdate } = await import('./commands/update.js');
+    if (opts.models) {
+      if (opts.check) {
+        throw new Error('--check cannot be combined with --models');
+      }
+      await runModelCatalogUpdate({ currentVersion: runtimeVersion });
+      return;
+    }
     await runUpdate({
-      currentVersion: packageJson.version,
+      currentVersion: runtimeVersion,
       check: opts.check ?? false,
     });
   });
@@ -1329,7 +1319,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
     if (!options.bare) {
       runtimeResourceOwner.startPing(() => {
         initPingService({
-          cliVersion: packageJson.version,
+          cliVersion: runtimeVersion,
           clientType: 'cli',
         });
         startPingService();
@@ -1372,7 +1362,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
       runtimeResourceOwner.startBackgroundStartup({
         resolveAuthAndVersion: async () => {
           const versionCheckPromise = config.ui?.checkForUpdates !== false
-            ? checkForUpdates(packageJson.version, {
+            ? checkForUpdates(runtimeVersion, {
                 checkIntervalHours: config.ui?.updateCheckInterval ?? 24,
               })
             : Promise.resolve(null);
@@ -1542,8 +1532,8 @@ async function runCLI(options: CLIOptions): Promise<void> {
       return;
     }
 
-    // Handle --chrome flag: trigger Chrome handoff before entering interactive mode
-    if (options.chrome) {
+    // Handle --browser: trigger a browser handoff before entering interactive mode.
+    if (options.browser === true) {
       // Ensure native host is installed and paired to the configured extension id.
       const { ensureNativeHostInstalled, createBrowserHandoff, buildChromeOpenUrl, openChromeContinuation } = await import('./browser/chrome.js');
       const extensionId = config.chrome?.extensionId;
@@ -1575,11 +1565,12 @@ async function runCLI(options: CLIOptions): Promise<void> {
         { userDataDir: config.chrome?.userDataDir, profileDirectory: config.chrome?.profileDirectory },
       );
 
-      console.log(chalk.green('\n✓ Opened Chrome. Side panel (Cmd+E) to continue.'));
+      console.log(chalk.green('\n✓ Opened browser. Open the Autohand side panel (Cmd+E) to continue.'));
       console.log(chalk.gray(`  Session: ${sessionId}\n`));
     }
 
-    if (options.fork) {
+    const agentLaunchMode = resolveAgentLaunchMode(options);
+    if (agentLaunchMode === 'fork' && options.fork) {
         const forkEnabled = getFeatureState(config, 'experimental_fork')?.enabled === true;
         if (!forkEnabled) {
           console.error(chalk.red('The --fork flag is behind experimental_fork. Run /features enable experimental_fork, then try again.'));
@@ -1594,7 +1585,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
         if (!commandLifecycleController.signal.aborted) {
           process.exitCode = 0;
         }
-    } else if (options.prompt) {
+    } else if (agentLaunchMode === 'command' && options.prompt) {
       const succeeded = await agent.runCommandMode(
         options.prompt,
         commandLifecycleController.signal,
@@ -1602,7 +1593,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
       if (!commandLifecycleController.signal.aborted) {
         process.exitCode = succeeded ? 0 : 1;
       }
-    } else if (options.resumeSessionId) {
+    } else if (agentLaunchMode === 'resume' && options.resumeSessionId) {
       await agent.resumeSession(options.resumeSessionId);
       if (!commandLifecycleController.signal.aborted) {
         process.exitCode = 0;
@@ -2468,21 +2459,7 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
  * Build prompt for each auto-mode iteration
  */
 function buildIterationPrompt(taskPrompt: string, iteration: number): string {
-  return `# Auto-Mode Task (Iteration ${iteration})
-
-## Original Task
-${taskPrompt}
-
-## Instructions
-You are running in auto-mode, an autonomous development loop. Continue working on the task above.
-
-1. Review your previous work (check git log, file changes, test results)
-2. Identify what remains to be done
-3. Make progress on the task
-4. If the task is complete, output: <promise>DONE</promise>
-
-IMPORTANT: Only output <promise>DONE</promise> when ALL requirements are fully met.
-Do not stop early - keep improving until the task is truly complete.`;
+  return buildAutomodeIterationPrompt(taskPrompt, iteration);
 }
 
 function isCliEntrypoint(): boolean {
@@ -2495,11 +2472,51 @@ function isCliEntrypoint(): boolean {
 }
 
 if (isCliEntrypoint()) {
-  void program.parseAsync().catch((error: unknown) => {
+  void prepareRuntimeExtensionsForCli(program, process.argv)
+    .then(() => program.parseAsync())
+    .catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     console.error(chalk.red(message));
     process.exit(1);
   });
+}
+
+function argvOptionValue(argv: string[], option: string): string | undefined {
+  const index = argv.indexOf(option);
+  if (index >= 0) {
+    return argv[index + 1];
+  }
+  const prefix = `${option}=`;
+  return argv.find((value) => value.startsWith(prefix))?.slice(prefix.length);
+}
+
+async function prepareRuntimeExtensionsForCli(command: Command, argv: string[]): Promise<void> {
+  if (argv.includes('--bare')) {
+    return;
+  }
+  const workspaceRoot = path.resolve(argvOptionValue(argv, '--path') ?? process.cwd());
+  const [{ ExtensionRegistry }, runtimeModule, slashModule, { ProviderFactory }] = await Promise.all([
+    import('./extensions/ExtensionRegistry.js'),
+    import('./extensions/ExtensionRuntimeHost.js'),
+    import('./core/slashCommands.js'),
+    import('./providers/ProviderFactory.js'),
+  ]);
+  runtimeModule.extensionRuntimeHost.setReservedCapabilities({
+    reservedCommands: [
+      ...slashModule.SLASH_COMMANDS.map((item) => item.command),
+      '/chrome',
+    ],
+    reservedProviders: ProviderFactory.getProviderNames(),
+    reservedCliFlags: command.options
+      .flatMap((option) => [option.short, option.long])
+      .filter((flag): flag is string => typeof flag === 'string'),
+  });
+  const snapshot = await new ExtensionRegistry({
+    userRoot: AUTOHAND_PATHS.extensions,
+    projectRoot: path.join(workspaceRoot, PROJECT_DIR_NAME, 'extensions'),
+  }).load();
+  await runtimeModule.extensionRuntimeHost.sync(snapshot);
+  runtimeModule.registerExtensionCliFlags(command, runtimeModule.extensionRuntimeHost);
 }
 
 function launchInTmuxIfRequested(opts: CLIOptions & { mode?: string }): boolean {
@@ -2553,3 +2570,11 @@ function launchInTmuxIfRequested(opts: CLIOptions & { mode?: string }): boolean 
   console.log(chalk.gray(`Attach with: tmux attach-session -t ${sessionName}`));
   process.exit(0);
 }
+
+export type {
+  ExtensionCommandContext,
+  ExtensionCommandResult,
+  ExtensionRuntimeAPI,
+  ExtensionViewProps,
+  ExtensionViewRequest,
+} from './extensions/ExtensionRuntimeHost.js';

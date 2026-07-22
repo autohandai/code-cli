@@ -78,6 +78,7 @@ import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { SuggestionEngine } from '../SuggestionEngine.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { configureAgentRegistry, syncDynamicRuntimeExtensions } from './dynamicRuntimeExtensions.js';
+import { extensionRuntimeHost } from '../../extensions/ExtensionRuntimeHost.js';
 import { ExtensionService } from '../../extensions/ExtensionService.js';
 import type {
   MobileClaimedTurnContext,
@@ -1520,7 +1521,8 @@ export function initializeAgentDependencies(
     };
     host.slashHandler = new SlashCommandHandler(
       slashContext,
-      host.runtime.options.bare ? [] : SLASH_COMMANDS
+      host.runtime.options.bare ? [] : SLASH_COMMANDS,
+      host.runtime.options.bare ? undefined : extensionRuntimeHost,
     );
   }
 

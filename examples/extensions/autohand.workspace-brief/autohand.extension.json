@@ -1,0 +1,20 @@
+{
+  "$schema": "https://raw.githubusercontent.com/autohandai/code-extensions/main/schema/autohand.extension.schema.json",
+  "schemaVersion": 1,
+  "extensionApi": 1,
+  "id": "autohand.workspace-brief",
+  "name": "Workspace Brief",
+  "version": "1.0.0",
+  "description": "Gather a concise workspace snapshot and guide evidence-based project briefings.",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/autohandai/code-cli",
+  "contributes": {
+    "tools": [
+      "tools/workspace-status.json",
+      "tools/recent-commits.json"
+    ],
+    "skills": [
+      "skills/workspace-brief/SKILL.md"
+    ]
+  }
+}

@@ -30,6 +30,7 @@ vi.mock('../../../src/providers/ProviderFactory.js', async (importOriginal) => {
     ProviderFactory: {
       create: mockCreate,
       isValidProvider: actual.ProviderFactory.isValidProvider,
+      getRuntimeProviderDisplayName: actual.ProviderFactory.getRuntimeProviderDisplayName,
     },
   };
 });

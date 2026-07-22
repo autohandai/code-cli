@@ -1,6 +1,6 @@
 # Extending Autohand Code CLI
 
-This document covers extension points intended for developers working inside the Autohand Code CLI codebase or building integrations around its Ink UI.
+This document covers extension points intended for developers working inside the Autohand Code CLI codebase or building integrations around its Ink UI. Installable packages should use the trusted runtime surface documented in [Extension authoring](extension-authoring.md), including `api.ui.setStatusLine` and `api.ui.setHelpLine`.
 
 ## Status And Help Lines
 

@@ -100,6 +100,18 @@ describe('README branding', () => {
     }
   });
 
+  it('documents configurable idle logout controls in every supported language', async () => {
+    const root = process.cwd();
+
+    for (const configReferencePath of supportedConfigReferencePaths) {
+      const configReference = await readFile(join(root, configReferencePath), 'utf8');
+
+      expect(configReference).toContain('| `idleLogoutEnabled`');
+      expect(configReference).toContain('| `idleTimeoutMs`');
+      expect(configReference).toContain('"idleTimeoutMs": 3600000');
+    }
+  });
+
   it('invites developers to use the CLI-backed Code Agent SDK packages', async () => {
     const readme = await readFile(join(process.cwd(), 'README.md'), 'utf8');
 
