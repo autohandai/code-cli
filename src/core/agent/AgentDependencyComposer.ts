@@ -122,6 +122,26 @@ export function enqueueClaimedMobileInstruction(
   }
 }
 
+export function configureMobileRelayController(
+  host: AgentDependencyHost,
+  relay: MobileRelayController,
+): void {
+  host.setMobileRelayController?.(relay);
+  host.setConfirmationCallback?.((
+    message: string,
+    context?: { tool?: string; path?: string; command?: string },
+  ) => relay.requestPermission(message, context));
+  host.setDirectoryAccessCallback?.((path: string, reason?: string) =>
+    relay.requestDirectoryAccess(path, reason));
+  relay.setSessionControlHandler((command) => {
+    if (command === 'cancel') {
+      host.cancelCurrentInstruction?.();
+    }
+  });
+  relay.setModelChangeHandler((provider, model) =>
+    host.providerConfigManager.applyModelChangeRemote(provider, model));
+}
+
 function normalizeMcpToolOutcome(result: unknown): ToolActionOutcome {
   if (typeof result === 'string') {
     return { success: true, output: result };
@@ -1456,16 +1476,7 @@ export function initializeAgentDependencies(
         enqueueClaimedMobileInstruction(host, instructionWithImages, mobileTurn);
       },
       onMobileRelayReady: (relay: MobileRelayController) => {
-        host.setMobileRelayController?.(relay);
-        host.setConfirmationCallback?.((message: string, context?: { tool?: string; path?: string; command?: string }) =>
-          relay.requestPermission(message, context));
-        host.setDirectoryAccessCallback?.((path: string, reason?: string) =>
-          relay.requestDirectoryAccess(path, reason));
-        relay.setSessionControlHandler((command) => {
-          if (command === 'cancel') {
-            host.cancelCurrentInstruction?.();
-          }
-        });
+        configureMobileRelayController(host, relay);
       },
       onMobileConnected: (message: string) => {
         host.notifyUser?.(message);

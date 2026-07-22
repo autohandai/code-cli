@@ -3308,6 +3308,37 @@ export class ProviderConfigManager {
   }
 
   /**
+   * Remote-callable entry point for switching provider/model without any interactive
+   * UI (no Ink modals) — used by the mobile relay's `set_model` action. Reuses the
+   * same `applyModelChange` path the interactive `/model` picker calls, so behavior
+   * (config persistence, LLM client + delegator reinit, telemetry) stays identical.
+   */
+  async applyModelChangeRemote(
+    provider: string,
+    model: string,
+  ): Promise<{ provider: string; model: string; status: "applied" | "failed"; error?: string }> {
+    if (!ProviderFactory.isValidProvider(provider, this.runtime.config)) {
+      return { provider, model, status: "failed", error: `Unknown provider: ${provider}` };
+    }
+    const sanitized = sanitizeModelId(model);
+    if (!sanitized) {
+      return { provider, model, status: "failed", error: "Model name cannot be empty." };
+    }
+    try {
+      const currentModel = this.runtime.options.model ?? "";
+      await this.applyModelChange(provider, sanitized, currentModel);
+      return { provider, model: this.runtime.options.model ?? sanitized, status: "applied" };
+    } catch (error) {
+      return {
+        provider,
+        model,
+        status: "failed",
+        error: error instanceof Error ? error.message : "Failed to switch model.",
+      };
+    }
+  }
+
+  /**
    * Apply a model change and update all relevant state
    */
   private async applyModelChange(
