@@ -55,8 +55,8 @@ The fully qualified command installs and trusts only the Autohand formula. Start
 
 ```bash
 # Clone and build
-git clone https://github.com/autohandai/cli.git
-cd cli
+git clone https://github.com/autohandai/code-cli.git
+cd code-cli
 bun install
 bun run build
 
@@ -100,7 +100,7 @@ code --install-extension AutohandAI.vscode-autohand
 
 ### Zed Editor
 
-Install from the [Zed Extensions](https://zed.dev/extensions/autohand-acp) marketplace.
+Run Autohand Code CLI as a native ACP External Agent. See the [ACP integration guide](docs/guides/ACP.md) for Zed, JetBrains IDEs, JetBrains Air, and other ACP-compatible development environments.
 
 ## Code Agent SDK
 
@@ -209,8 +209,8 @@ autohand -p "refactor database queries" --dry-run
 | `--timeout <seconds>`           |       | Timeout in seconds for auto-approve mode                                         |
 | `--settings`                    |       | Configure Autohand Code CLI settings (same as /settings in interactive mode)     |
 | `--feedback`                    |       | Submit feedback                                                                  |
-| `--chrome`                      |       | Enable Chrome browser integration (same as /chrome)                              |
-| `--no-chrome`                   |       | Disable Chrome browser integration                                               |
+| `--browser`                     |       | Enable browser integration (same as /browser)                                    |
+| `--no-browser`                  |       | Disable browser integration                                                      |
 
 ## Agent Skills
 
@@ -324,7 +324,7 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/message`         | Send team message                                                                |
 | `/import`          | Import data from Claude, Codex, Gemini, Cursor, OpenCode, Kimi, and other agents |
 | `/repeat`          | Repeat previous actions                                                          |
-| `/chrome`          | Chrome browser integration                                                       |
+| `/browser`         | Browser integration                                                              |
 | `/review`          | Code review                                                                      |
 
 `/go --steer` and `/handoff session --steer` keep the paired iOS app updated
@@ -380,7 +380,7 @@ autohand extensions install ./examples/extensions/autohand.code-health
 autohand extensions list
 ```
 
-Extensions execute no code during install or startup. They can contribute tools, focused agents, and portable Agent Skills; contributed tools use the existing permission and hook pipeline when invoked. Mention `$extension-builder` to create, extend, or adapt an extension from a description or Pi package. See [Using extensions](docs/extensions.md), [Extension authoring](docs/extension-authoring.md), and the [five working examples](examples/extensions).
+Declarative extensions contribute tools, focused agents, and portable Agent Skills without package-code execution. Reviewed runtime extensions installed with `--trust` can also register slash commands, Ink UI, status/help segments, keybindings, CLI flags, hooks, providers, and permission policy. Mention `$extension-builder` to create, extend, or adapt an extension from a description or Pi package. See the [extension-builder guide and terminal demo](docs/guides/building-autohand-extensions.md), [Using extensions](docs/extensions.md), [Extension authoring](docs/extension-authoring.md), and the [seven working examples](examples/extensions).
 
 ### Notebooks
 
@@ -397,7 +397,7 @@ Extensions execute no code during install or startup. They can contribute tools,
 ### Skills & Browser
 
 `use_skill`, `sleep` - Activate skills or pause execution.
-`screenshot`, `navigate`, `get_page_content`, `click`, `type_input`, `select_dropdown` - Chrome browser integration.
+`screenshot`, `navigate`, `get_page_content`, `click`, `type_input`, `select_dropdown` - Browser integration.
 
 ## Configuration
 
@@ -544,9 +544,11 @@ docker run -it autohand
 - [Playbook](AUTOHAND_PLAYBOOK.md) - 20 use cases for the software development lifecycle
 - [Features](docs/features.md) - Complete feature and experiment list
 - [Agent Skills](docs/agent-skills.md) - Skills system guide
+- [ACP integration guide](docs/guides/ACP.md) - Use the native ACP agent in compatible editors, IDEs, and ADEs
 - [Extending Autohand Code CLI](docs/extending.md) - Build tools, skills, hooks, MCP servers, and integrations
 - [Autohand Code extensions](docs/extensions.md) - Validate, install, inspect, and manage declarative extension packages
 - [Extension authoring](docs/extension-authoring.md) - Package tools and agents for the public extension ecosystem
+- [Model catalog updates](docs/model-catalog.md) - Automatic refresh, offline fallback, Pi-compatible publication, and admin PR workflow
 - [Configuration Reference](docs/config-reference.md) - All config options
   - [English](docs/config-reference.md)
   - [日本語](docs/config-reference_ja.md)
@@ -585,12 +587,12 @@ We welcome contributions! Please read our [Contributing Guide](CONTRIBUTING.md) 
 
 - Join our [Discord community](https://discord.gg/ZM3TCtwCwG)
 - Check the [documentation](docs/)
-- Open an issue on [GitHub](https://github.com/autohandai/cli/issues)
+- Open an issue on [GitHub](https://github.com/autohandai/code-cli/issues)
 
 ## Community
 
 - **Discord**: https://discord.gg/ZM3TCtwCwG
-- **GitHub**: https://github.com/autohandai/cli
+- **GitHub**: https://github.com/autohandai/code-cli
 - **Website**: https://autohand.ai
 - **X**: [@autohandai](https://x.com/autohandai)
 
@@ -611,7 +613,7 @@ Apache License 2.0 - Free for individuals, non-profits, educational institutions
 
 - Website: https://autohand.ai
 - CLI Install: https://autohand.ai/cli/
-- GitHub: https://github.com/autohandai/cli
+- GitHub: https://github.com/autohandai/code-cli
 - API Backend: https://github.com/autohandai/api
 - Discord: https://discord.gg/ZM3TCtwCwG
 

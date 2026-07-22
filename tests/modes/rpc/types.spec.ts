@@ -274,6 +274,9 @@ describe('JSON-RPC 2.0 Types', () => {
       expect(RPC_METHODS.BROWSER_HANDOFF_ATTACH).toBe('autohand.browserHandoff.attach');
       expect(RPC_METHODS.BROWSER_HANDOFF_ATTACH_LATEST).toBe('autohand.browserHandoff.attachLatest');
       expect(RPC_METHODS.PERMISSION_RESPONSE).toBe('autohand.permissionResponse');
+      expect(RPC_METHODS.SESSION_ATTACH).toBe('autohand.session.attach');
+      expect(RPC_METHODS.YOLO_SET).toBe('autohand.yoloSet');
+      expect(RPC_METHODS.YOLO_SET_COMPAT).toBe('autohand.yolo.set');
     });
   });
 

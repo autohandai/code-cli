@@ -27,6 +27,7 @@ import type {
   ExtensionProvenance,
   ExtensionScope,
   ExtensionSkillContribution,
+  ExtensionRuntimeContribution,
   ExtensionSnapshot,
   ExtensionToolContribution,
   LoadedExtension,
@@ -53,6 +54,7 @@ interface ParsedCandidate {
   tools: ExtensionToolContribution[];
   agents: ExtensionAgentContribution[];
   skills: ExtensionSkillContribution[];
+  runtimes: ExtensionRuntimeContribution[];
 }
 
 export interface ValidatedExtensionPackage extends ParsedCandidate {}
@@ -127,21 +129,29 @@ async function readJsonContribution(file: string): Promise<unknown> {
   return parseExtensionJson(text, 'extension contribution');
 }
 
-async function readState(candidate: CandidatePackage): Promise<{ disabled: boolean; linked: boolean }> {
+async function readState(candidate: CandidatePackage): Promise<{
+  disabled: boolean;
+  linked: boolean;
+  trusted: boolean;
+}> {
   const installationPath = candidate.installationPath;
   if (!installationPath) {
-    return { disabled: false, linked: false };
+    return { disabled: false, linked: false, trusted: false };
   }
   const linked = (await fs.lstat(installationPath).catch(() => null))?.isSymbolicLink() === true;
   const statePath = path.join(path.dirname(installationPath), '.state', `${candidate.manifest.id}.json`);
   if (!fs.existsSync(statePath)) {
-    return { disabled: false, linked };
+    return { disabled: false, linked, trusted: false };
   }
   const parsed = ExtensionStateSchema.safeParse(await readJsonContribution(statePath));
   if (!parsed.success) {
     throw new Error(`Invalid extension state: ${parsed.error.issues[0]?.message ?? 'unknown validation error'}`);
   }
-  return { disabled: parsed.data.disabled === true, linked: linked || parsed.data.linked === true };
+  return {
+    disabled: parsed.data.disabled === true,
+    linked: linked || parsed.data.linked === true,
+    trusted: parsed.data.trusted === true,
+  };
 }
 
 async function parseTool(candidate: CandidatePackage, file: string): Promise<ExtensionToolContribution> {
@@ -189,6 +199,14 @@ async function parseSkill(candidate: CandidatePackage, file: string): Promise<Ex
   return { definition: parsed.skill, provenance: provenance(candidate, file) };
 }
 
+function parseRuntime(candidate: CandidatePackage, file: string): ExtensionRuntimeContribution {
+  const extension = path.extname(file).toLowerCase();
+  if (!['.js', '.mjs', '.cjs'].includes(extension)) {
+    throw new Error(`Runtime entrypoint must be compiled JavaScript (.js, .mjs, or .cjs): ${file}`);
+  }
+  return { file, provenance: provenance(candidate, file) };
+}
+
 function duplicateName(values: string[]): string | undefined {
   const seen = new Set<string>();
   for (const value of values) {
@@ -223,12 +241,13 @@ async function parseCandidateOrThrow(
   const state = await readState(candidate);
   const extension: LoadedExtension = { ...candidate, ...state };
   if (state.disabled) {
-    return { extension, tools: [], agents: [], skills: [] };
+    return { extension, tools: [], agents: [], skills: [], runtimes: [] };
   }
 
   const tools = await Promise.all(candidate.contributionFiles.tools.map((file) => parseTool(candidate, file)));
   const agents = await Promise.all(candidate.contributionFiles.agents.map((file) => parseAgent(candidate, file)));
   const skills = await Promise.all(candidate.contributionFiles.skills.map((file) => parseSkill(candidate, file)));
+  const runtimes = candidate.contributionFiles.runtime.map((file) => parseRuntime(candidate, file));
   const duplicateTool = duplicateName(tools.map((tool) => tool.definition.name));
   const duplicateAgent = duplicateName(agents.map((agent) => agent.name));
   const duplicateSkill = duplicateName(skills.map((skill) => skill.definition.name));
@@ -249,7 +268,7 @@ async function parseCandidateOrThrow(
   if (reservedSkill) {
     throw new Error(`Contribution "${reservedSkill.definition.name}" conflicts with a reserved runtime skill`);
   }
-  return { extension, tools, agents, skills };
+  return { extension, tools, agents, skills, runtimes };
 }
 
 export async function validateExtensionPackage(
@@ -282,6 +301,7 @@ export class ExtensionRegistry {
     const tools: ExtensionToolContribution[] = [];
     const agents: ExtensionAgentContribution[] = [];
     const skills: ExtensionSkillContribution[] = [];
+    const runtimes: ExtensionRuntimeContribution[] = [];
     const toolOwners = new Map<string, string>();
     const agentOwners = new Map<string, string>();
     const skillOwners = new Map<string, string>();
@@ -333,9 +353,10 @@ export class ExtensionRegistry {
         skillOwners.set(skill.definition.name, candidate.manifest.id);
         skills.push(skill);
       }
+      runtimes.push(...parsed.runtimes);
     }
 
-    return { extensions, tools, agents, skills, diagnostics };
+    return { extensions, tools, agents, skills, runtimes, diagnostics };
   }
 
   private async discoverRoot(
@@ -413,6 +434,8 @@ export class ExtensionRegistry {
           ? 'invalid_state'
           : message.toLowerCase().includes('agent skill')
             ? 'invalid_skill'
+            : message.toLowerCase().includes('runtime entrypoint')
+            ? 'invalid_runtime'
             : message.toLowerCase().includes('agent')
             ? 'invalid_agent'
             : 'invalid_tool',
@@ -433,5 +456,6 @@ export type {
   ExtensionToolContribution,
   ExtensionAgentContribution,
   ExtensionSkillContribution,
+  ExtensionRuntimeContribution,
   MetaToolDefinition,
 };

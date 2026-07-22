@@ -419,6 +419,8 @@ Controle o comportamento do agente e limites de iteração.
   "agent": {
     "maxIterations": 100,
     "enableRequestQueue": true,
+    "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   }
 }
@@ -428,7 +430,11 @@ Controle o comportamento do agente e limites de iteração.
 | -------------------- | ------- | ------- | ---------------------------------------------------------------------------------- |
 | `maxIterations`      | number  | `100`   | Máximo de iterações de ferramentas por solicitação do usuário antes de parar       |
 | `enableRequestQueue` | boolean | `true`  | Permitir que usuários digitem e enfileirem solicitações enquanto o agente trabalha |
+| `idleLogoutEnabled`  | boolean | `true`  | Encerrar sessões interativas autenticadas após o tempo limite de inatividade        |
+| `idleTimeoutMs`      | number  | `3600000` | Milissegundos de inatividade antes de encerrar uma sessão autenticada (60 minutos) |
 | `debug`              | boolean | `false` | Habilitar output de debug detalhado (logs do estado interno do agente para stderr)   |
+
+Defina `idleLogoutEnabled` como `false` para desativar o logout por inatividade. Para alterar o período, defina `idleTimeoutMs` como uma duração positiva em milissegundos. O padrão é `3600000` (60 minutos); valores inválidos usam o padrão.
 
 ### Modo Debug
 
@@ -1150,6 +1156,8 @@ Para uma experiência interativa mais precisa, use `/learn` dentro de uma sessã
   "agent": {
     "maxIterations": 100,
     "enableRequestQueue": true,
+    "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   },
   "permissions": {
@@ -1249,6 +1257,8 @@ ui:
 agent:
   maxIterations: 100
   enableRequestQueue: true
+  idleLogoutEnabled: true
+  idleTimeoutMs: 3600000
   debug: false
 
 permissions:
@@ -1372,6 +1382,8 @@ Estas flags sobrescrevem as configurações do arquivo:
 | `--dry-run`                   | Visualizar sem executar                                                                                      |
 | `--unrestricted`              | Sem prompts de aprovação                                                                                     |
 | `--restricted`                | Negar operações perigosas                                                                                    |
+| `--browser`                  | Habilitar integração com o navegador                                                                         |
+| `--no-browser`               | Desabilitar integração com o navegador                                                                       |
 | `--auto-skill`                | Gerar skills automaticamente com base na análise do projeto (veja também `/learn` para consultor interativo) |
 | `--setup`                     | Executar o assistente de configuração para configurar ou reconfigurar o Autohand                             |
 | `--about`                     | Mostrar informações sobre o Autohand (versão, links, informações de contribuição)                            |

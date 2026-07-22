@@ -171,6 +171,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
 
   // Browser operations (Chrome extension bridge only)
   browser_screenshot: 'browser',
+  browser_take_full_page_screenshot: 'browser',
   browser_click: 'browser',
   browser_type: 'browser',
   browser_navigate: 'browser',
@@ -240,7 +241,8 @@ export const CONTEXT_POLICIES: Record<ClientContext, ToolPolicy> = {
     allowedCategories: ['read', 'write', 'browser', 'meta'],
     allowedTools: [
       // Browser tools — ALWAYS available, highest priority
-      'browser_screenshot', 'browser_click', 'browser_type', 'browser_navigate',
+      'browser_screenshot', 'browser_take_full_page_screenshot',
+      'browser_click', 'browser_type', 'browser_navigate',
       'browser_scroll', 'browser_find_element', 'browser_press_key',
       'browser_get_page_context', 'browser_get_element', 'browser_wait_for_element',
       'browser_read_console', 'browser_read_network', 'browser_get_tabs',
@@ -515,6 +517,7 @@ const RELEVANCE_CATEGORIES: Record<string, RelevanceCategory> = {
 
   // Browser
   browser_screenshot: 'browser',
+  browser_take_full_page_screenshot: 'browser',
   browser_click: 'browser',
   browser_type: 'browser',
   browser_navigate: 'browser',

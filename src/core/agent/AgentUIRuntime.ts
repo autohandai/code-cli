@@ -16,6 +16,7 @@ import { buildHostTokenUsageStatus, formatElapsedTime, formatSessionActualTokens
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { buildStatusLineExtension, getConfigStatusLineSettings } from './StatusLineSettings.js';
 import { resolveStatusLineGitLabel } from './AgentContextRuntime.js';
+import { extensionRuntimeHost } from '../../extensions/ExtensionRuntimeHost.js';
 
 export interface AgentUIRuntimeHost {
   [key: string]: any;
@@ -175,7 +176,20 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
         onImageDetected: (data: Buffer, mimeType: string, filename?: string) =>
           host.imageManager.add(data, mimeType, filename),
         filesProvider: () => host.workspaceFileCollector.getCachedFiles(),
-        slashCommands: host.runtime?.options?.bare ? [] : SLASH_COMMANDS,
+        slashCommands: host.runtime?.options?.bare ? [] : [
+          ...SLASH_COMMANDS,
+          ...extensionRuntimeHost.getCommands().map((command) => ({
+            command: command.command,
+            description: command.description,
+            implemented: true,
+          })),
+        ],
+        extensionKeybindings: host.runtime?.options?.bare
+          ? []
+          : extensionRuntimeHost.getKeybindings(),
+        runtimeLineExtensions: host.runtime?.options?.bare
+          ? undefined
+          : extensionRuntimeHost.getLineExtensions(),
         workspaceRoot: host.runtime?.workspaceRoot,
         resolveShellSuggestion: (input) =>
           typeof host.resolveLlmShellSuggestion === 'function'

@@ -274,7 +274,7 @@ function formatTurnMemoryUpdate(saved: ExtractedMemory[]): string {
 
 export class AutohandAgent {
   private static readonly INTERACTIVE_SLASH_COMMANDS = new Set([
-    '/chrome', '/hooks', '/feedback', '/permissions', '/login', '/logout',
+    '/browser', '/chrome', '/hooks', '/feedback', '/permissions', '/login', '/logout',
     '/agents-new', '/agents new', '/resume', '/theme', '/language',
     '/model', '/skills', '/skills install', '/skills-install',
     '/skills new', '/skills-new', '/mcp', '/mcp install', '/mcp-install',
@@ -562,7 +562,18 @@ export class AutohandAgent {
    * Auto-commit: Run lint, test, then use LLM to generate commit message
    */
   private async performAutoCommit(signal?: AbortSignal): Promise<void> {
-    return performAgentAutoCommit(this as unknown as AgentProjectOperationsHost, signal);
+    return performAgentAutoCommit(this.createProjectOperationsHost(), signal);
+  }
+
+  private createProjectOperationsHost(): AgentProjectOperationsHost {
+    return {
+      codeQualityPipeline: this.codeQualityPipeline,
+      environmentBootstrap: this.environmentBootstrap,
+      files: this.files,
+      memoryManager: this.memoryManager,
+      runInstruction: (instruction, options) => this.runInstruction(instruction, options),
+      runtime: this.runtime,
+    };
   }
 
   private async restoreSessionState(sessionId: string) {
@@ -638,7 +649,7 @@ export class AutohandAgent {
   }
 
   private async handleMemoryStore(content: string): Promise<void> {
-    return handleAgentMemoryStore(this as unknown as AgentProjectOperationsHost, content);
+    return handleAgentMemoryStore(this.createProjectOperationsHost(), content);
   }
 
   private scheduleTurnMemoryReflection(success: boolean): void {
@@ -740,11 +751,11 @@ export class AutohandAgent {
   }
 
   private printGitDiff(): void {
-    return printAgentGitDiff(this as unknown as AgentProjectOperationsHost);
+    return printAgentGitDiff(this.createProjectOperationsHost());
   }
 
   private async undoLastMutation(): Promise<void> {
-    return undoAgentLastMutation(this as unknown as AgentProjectOperationsHost);
+    return undoAgentLastMutation(this.createProjectOperationsHost());
   }
 
 
@@ -775,7 +786,7 @@ export class AutohandAgent {
   }
 
   private async createAgentsFile(): Promise<void> {
-    return createAgentInstructionsFile(this as unknown as AgentProjectOperationsHost);
+    return createAgentInstructionsFile(this.createProjectOperationsHost());
   }
 
   /**
@@ -879,7 +890,20 @@ export class AutohandAgent {
   }
 
   private handleToolOutput(chunk: ToolOutputChunk): void {
-    return handleAgentToolOutput(this as unknown as AgentToolOutputRuntimeHost, chunk);
+    return handleAgentToolOutput(this.createToolOutputRuntimeHost(), chunk);
+  }
+
+  private createToolOutputRuntimeHost(): AgentToolOutputRuntimeHost {
+    const agent = this;
+
+    return {
+      queueToolMessageChunk: (name, content, toolCallId, stream) => {
+        agent.queueToolMessageChunk(name, content, toolCallId, stream);
+      },
+      sessionManager: agent.sessionManager,
+      get toolOutputQueue() { return agent.toolOutputQueue; },
+      set toolOutputQueue(value) { agent.toolOutputQueue = value; },
+    };
   }
 
   private queueToolMessageChunk(
@@ -889,7 +913,7 @@ export class AutohandAgent {
     stream?: 'stdout' | 'stderr'
   ): void {
     return queueAgentToolMessageChunk(
-      this as unknown as AgentToolOutputRuntimeHost,
+      this.createToolOutputRuntimeHost(),
       name,
       content,
       toolCallId,
@@ -899,7 +923,7 @@ export class AutohandAgent {
 
   private async saveToolMessage(name: string, content: string, toolCallId?: string): Promise<void> {
     return saveAgentToolMessage(
-      this as unknown as AgentToolOutputRuntimeHost,
+      this.createToolOutputRuntimeHost(),
       name,
       content,
       toolCallId
@@ -1423,7 +1447,7 @@ export class AutohandAgent {
    * Run environment bootstrap before implementation
    */
   private async runEnvironmentBootstrap(): Promise<BootstrapResult> {
-    return runAgentEnvironmentBootstrap(this as unknown as AgentProjectOperationsHost);
+    return runAgentEnvironmentBootstrap(this.createProjectOperationsHost());
   }
 
   private async saveUserMessage(content: string): Promise<void> {
@@ -1443,7 +1467,7 @@ export class AutohandAgent {
    * Run code quality pipeline after file modifications
    */
   private async runQualityPipeline(): Promise<boolean> {
-    return runAgentQualityPipeline(this as unknown as AgentProjectOperationsHost);
+    return runAgentQualityPipeline(this.createProjectOperationsHost());
   }
 
   /**
@@ -1582,6 +1606,9 @@ export class AutohandAgent {
 
   setMobileRelayController(controller: MobileRelayController): void {
     this.mobileRelayController = controller;
+    controller.setPairingClaimHandler(() => {
+      this.notifyUser('✓ Autohand Mobile connected to this session.');
+    });
   }
 
   private recordTurnFailure(message: string): void {
@@ -1894,10 +1921,22 @@ export class AutohandAgent {
     turnSucceeded: boolean,
   ): Promise<string | null> {
     return executePendingPostTurnAction(
-      this as unknown as PostTurnActionHost,
+      this.createPostTurnActionHost(),
       action,
       turnSucceeded,
     );
+  }
+
+  private createPostTurnActionHost(): PostTurnActionHost {
+    const agent = this;
+
+    return {
+      get interactiveAutomodeEnabled() { return agent.interactiveAutomodeEnabled; },
+      requestResearchPublication: (reportPath) => agent.requestResearchPublication(reportPath),
+      runtime: agent.runtime,
+      runtimeResourceShutdownController: agent.runtimeResourceShutdownController,
+      get shouldExit() { return agent.shouldExit; },
+    };
   }
 
   private updateContextUsage(messages: LLMMessage[], tools?: import('../types.js').FunctionDefinition[]): void {

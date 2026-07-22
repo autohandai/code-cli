@@ -10,6 +10,7 @@ import fs from 'fs-extra';
 import { existsSync } from 'node:fs';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import packageJson from '../../package.json' with { type: 'json' };
 import { SLASH_COMMANDS } from '../../src/core/slashCommands.js';
@@ -56,6 +57,19 @@ const MODAL_NUMERIC_SHORTCUTS = new Set<string>([
 ]);
 
 type ModalNumericShortcut = '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9';
+
+function latestStableRepositoryVersion(): string {
+  const tags = execFileSync('git', ['tag', '--merged', 'HEAD', '--list', '--sort=-version:refname'], {
+    cwd: path.resolve(import.meta.dirname, '../..'),
+    encoding: 'utf8',
+  }).split(/\r?\n/u);
+  const tag = tags.find((candidate) => /^v\d+\.\d+\.\d+$/u.test(candidate));
+
+  if (!tag) {
+    throw new Error('Expected the test checkout to have a stable semantic-version tag');
+  }
+  return tag.slice(1);
+}
 
 function isModalNumericShortcut(value: string | undefined): value is ModalNumericShortcut {
   return value !== undefined && MODAL_NUMERIC_SHORTCUTS.has(value);
@@ -232,8 +246,44 @@ describe('built CLI Tuistory smoke tests', () => {
     expect(output).toContain('Usage');
     expect(output).toContain('--prompt');
     expect(output).toContain('--mode');
+    expect(output).toContain('--browser');
+    expect(output).toContain('--no-browser');
+    expect(output).not.toContain('--chrome');
+    expect(output).not.toContain('--no-chrome');
+    expect(output).toMatch(/\bbrowser\b/u);
+    expect(output).not.toMatch(/^\s+chrome\s/mu);
     expect(output).toContain('--help');
     expect(output).toContain('--version');
+
+    await waitForExit(session);
+    expectCleanExit(session);
+  });
+
+  it('documents the model-only update flow from the built CLI', async () => {
+    const session = await trackSession(launchBuiltAutohand(['update', '--help'], {
+      waitForDataTimeout: 15_000,
+    }));
+
+    await session.waitForText('--models', { timeout: 10_000 });
+    const output = session.readAll();
+
+    expect(output).toContain('--models');
+    expect(output).toContain('model catalog');
+
+    await waitForExit(session);
+    expectCleanExit(session);
+  });
+
+  it('documents offline model-catalog behavior for resumed sessions', async () => {
+    const session = await trackSession(launchBuiltAutohand(['resume', '--help'], {
+      waitForDataTimeout: 15_000,
+    }));
+
+    await session.waitForText('--offline', { timeout: 10_000 });
+    const output = session.readAll();
+
+    expect(output).toContain('--offline');
+    expect(output).toContain('model catalog');
 
     await waitForExit(session);
     expectCleanExit(session);
@@ -248,6 +298,23 @@ describe('built CLI Tuistory smoke tests', () => {
     const output = session.readAll();
 
     expect(output).toContain(packageJson.version);
+    expect(output).toMatch(/\d+\.\d+\.\d+ \((?:[0-9a-f]{7,40}|unknown)\)/);
+
+    await waitForExit(session);
+    expectCleanExit(session);
+  });
+
+  it('renders the latest stable repository tag when development versioning is enabled', async () => {
+    const expectedVersion = latestStableRepositoryVersion();
+    const session = await trackSession(launchBuiltAutohand(['--version'], {
+      env: { AUTOHAND_VERSION_SOURCE: 'git' },
+      waitForDataTimeout: 15_000,
+    }));
+
+    await session.waitForText(expectedVersion, { timeout: 10_000 });
+    const output = session.readAll();
+
+    expect(output).toContain(`${expectedVersion} (`);
     expect(output).toMatch(/\d+\.\d+\.\d+ \((?:[0-9a-f]{7,40}|unknown)\)/);
 
     await waitForExit(session);
@@ -821,6 +888,43 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(screen).toContain('/about');
     expect(screen).toContain('/add-dir');
     expect(screen).toContain('Tab to accept');
+
+    await exitInteractive(session);
+  });
+
+  it('uses /browser and keeps /chrome as a hidden compatibility alias', async () => {
+    const session = await launchInteractive();
+
+    await waitForComposer(session);
+    await session.type('/bro');
+    await session.text({
+      timeout: 10_000,
+      waitFor: (text) => text.includes('/browser') && text.includes('Tab to accept'),
+    });
+    const screen = await session.text({ trimEnd: true });
+
+    expect(screen).toContain('/browser');
+    expect(screen).not.toContain('/chrome');
+
+    await clearComposerInput(session);
+    await session.type('/chr');
+    const hiddenAliasScreen = await session.text({
+      timeout: 10_000,
+      waitFor: (text) => composerLineIncludes(text, '/chr') && !text.includes('Tab to accept'),
+      trimEnd: true,
+    });
+    expect(hiddenAliasScreen).not.toContain('/chrome');
+
+    await clearComposerInput(session);
+    await session.type('/browser disconnect');
+    await session.press('enter');
+    await session.waitForText('Browser bridge disconnected and disabled.', { timeout: 10_000 });
+
+    await waitForComposer(session);
+    await session.type('/chrome disconnect');
+    await session.press('enter');
+    await session.waitForText('The /chrome command is retained only for compatibility. Use /browser instead.', { timeout: 10_000 });
+    await session.waitForText('Browser bridge disconnected and disabled.', { timeout: 10_000 });
 
     await exitInteractive(session);
   });

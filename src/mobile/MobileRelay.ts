@@ -98,6 +98,7 @@ export interface MobileRelayController {
   publishArtifactsFromText(text: string): Promise<void>;
   setKeepAwake(enabled: boolean): Promise<MobileKeepAwakeStatus>;
   setSessionControlHandler(handler: (command: 'cancel') => void): void;
+  setPairingClaimHandler(handler: () => void): void;
   requestChangesDecision(batchId: string, changes: MobileChangePreview[]): Promise<MobileChangesDecision>;
   setModelChangeHandler(handler: MobileModelChangeHandler): void;
 }
@@ -176,6 +177,8 @@ interface ActiveMobileRelay {
   }>;
   sessionControlHandler?: (command: 'cancel') => void;
   modelChangeHandler?: MobileModelChangeHandler;
+  pairingClaimHandler?: () => void;
+  pairingClaimDelivered: boolean;
   keepAwakeController: KeepAwakeController;
 }
 
@@ -193,6 +196,7 @@ export function startMobileRelay(options: MobileRelayOptions): MobileRelayContro
     mobileConnected: false,
     actionCursor: 0,
     pendingActions: new Map(),
+    pairingClaimDelivered: false,
     keepAwakeController,
   };
   const controller: MobileRelayController = {
@@ -222,6 +226,11 @@ export function startMobileRelay(options: MobileRelayOptions): MobileRelayContro
     setKeepAwake: (enabled) => setKeepAwake(options, relay, enabled),
     setSessionControlHandler: (handler) => {
       if (!relay.disposed && activeRelay === relay) relay.sessionControlHandler = handler;
+    },
+    setPairingClaimHandler: (handler) => {
+      if (relay.disposed || activeRelay !== relay) return;
+      relay.pairingClaimHandler = handler;
+      deliverPairingClaim(options, relay);
     },
     requestChangesDecision: (batchId, changes) =>
       requestChangesDecision(options, relay, batchId, changes),
@@ -259,6 +268,7 @@ function disposeRelay(relay: ActiveMobileRelay): void {
   relay.keepAwakeController.dispose();
   relay.sessionControlHandler = undefined;
   relay.modelChangeHandler = undefined;
+  relay.pairingClaimHandler = undefined;
   for (const pending of [...relay.pendingActions.values()]) {
     pending.resolve(
       pending.kind === 'permission'
@@ -301,7 +311,7 @@ async function pollOnce(
         && !relay.mobileConnected
       ) {
         relay.mobileConnected = true;
-        options.onMobileConnected?.(MOBILE_CONNECTED_MESSAGE);
+        deliverPairingClaim(options, relay);
       }
     } catch (error) {
       if (activeRelay !== relay) return;
@@ -429,6 +439,32 @@ async function retryTerminalTransport(
 
   if (lastError) options.onError?.(lastError);
   return false;
+}
+
+function deliverPairingClaim(
+  options: MobileRelayOptions,
+  relay: ActiveMobileRelay,
+): void {
+  if (
+    relay.disposed ||
+    activeRelay !== relay ||
+    !relay.mobileConnected ||
+    relay.pairingClaimDelivered ||
+    (!relay.pairingClaimHandler && !options.onMobileConnected)
+  ) {
+    return;
+  }
+
+  relay.pairingClaimDelivered = true;
+  try {
+    if (relay.pairingClaimHandler) {
+      relay.pairingClaimHandler();
+    } else {
+      options.onMobileConnected?.(MOBILE_CONNECTED_MESSAGE);
+    }
+  } catch (error) {
+    options.onError?.(error as Error);
+  }
 }
 
 async function publishEvent<EventType extends MobileEventType>(

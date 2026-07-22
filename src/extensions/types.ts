@@ -25,6 +25,7 @@ export interface ExtensionPackage {
     tools: string[];
     agents: string[];
     skills: string[];
+    runtime: string[];
   };
 }
 
@@ -32,6 +33,7 @@ export interface LoadedExtension extends ExtensionPackage {
   scope: ExtensionScope;
   disabled: boolean;
   linked: boolean;
+  trusted: boolean;
 }
 
 export interface ExtensionToolContribution {
@@ -53,12 +55,20 @@ export interface ExtensionSkillContribution {
   provenance: ExtensionProvenance;
 }
 
+export interface ExtensionRuntimeContribution {
+  file: string;
+  provenance: ExtensionProvenance;
+}
+
 export type ExtensionDiagnosticCode =
   | 'invalid_manifest'
   | 'invalid_state'
   | 'invalid_tool'
   | 'invalid_agent'
   | 'invalid_skill'
+  | 'invalid_runtime'
+  | 'runtime_untrusted'
+  | 'runtime_activation_failed'
   | 'invalid_package_directory'
   | 'contribution_conflict'
   | 'unreadable_root';
@@ -76,5 +86,6 @@ export interface ExtensionSnapshot {
   tools: ExtensionToolContribution[];
   agents: ExtensionAgentContribution[];
   skills: ExtensionSkillContribution[];
+  runtimes: ExtensionRuntimeContribution[];
   diagnostics: ExtensionDiagnostic[];
 }

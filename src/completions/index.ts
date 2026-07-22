@@ -32,6 +32,7 @@ const DEFAULT_CONFIG: CompletionConfig = {
     '/undo',
     '/memory',
     '/init',
+    '/browser',
     '/agents',
     '/agents-new',
     '/feedback',
@@ -64,6 +65,8 @@ const DEFAULT_CONFIG: CompletionConfig = {
     { flag: '--temperature', description: 'Sampling temperature' },
     { flag: '--unrestricted', description: 'Skip all approval prompts' },
     { flag: '--restricted', description: 'Block all dangerous operations' },
+    { flag: '--browser', description: 'Enable browser integration' },
+    { flag: '--no-browser', description: 'Disable browser integration' },
     { flag: '--no-idle-logout', description: 'Keep authenticated idle sessions alive' },
     { flag: '--help', description: 'Show help' },
     { flag: '--version', description: 'Show version' },
@@ -93,7 +96,7 @@ _autohand_completions() {
     opts="${opts}"
 
     # Subcommands
-    subcommands="resume login logout mcp sessions agents init completion"
+    subcommands="resume login logout mcp sessions agents init completion browser"
 
     # MCP subcommands
     mcp_subcommands="add remove list install"

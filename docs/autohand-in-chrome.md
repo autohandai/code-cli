@@ -6,7 +6,7 @@ Autohand in Chrome connects your CLI coding agent to a Chrome extension, giving 
 
 ```
 CLI (autohand)
-  ├── /chrome command creates a handoff token
+  ├── /browser command creates a handoff token
   ├── Opens Chrome with the Autohand side panel
   └── Communicates via native messaging (JSON-RPC 2.0)
         │
@@ -32,7 +32,7 @@ Install the Autohand Chrome extension from the Chrome Web Store or load it unpac
 autohand
 
 # In the REPL, run:
-/chrome
+/browser
 ```
 
 Select **Open in Chrome** from the menu. This will:
@@ -47,20 +47,20 @@ Press **Cmd+E** (macOS) or **Ctrl+E** (Windows/Linux) to toggle the side panel. 
 ## CLI Flags
 
 ```bash
-autohand --chrome          # Start with browser bridge enabled
-autohand --no-chrome       # Start with browser bridge disabled
+autohand --browser          # Start with browser bridge enabled
+autohand --no-browser       # Start with browser bridge disabled
 ```
 
 ## Slash Commands
 
 | Command | Description |
 |---------|-------------|
-| `/chrome` | Open the Chrome integration panel with connection status |
-| `/chrome disconnect` | Close the browser bridge and disable it |
+| `/browser` | Open the browser integration panel with connection status |
+| `/browser disconnect` | Close the browser bridge and disable it |
 
-## `/chrome` Panel
+## `/browser` Panel
 
-When you run `/chrome`, you see a panel with:
+When you run `/browser`, you see a panel with:
 
 - **Connection**: `Connected` (green), `Disconnected` (yellow), or `Not installed` (red)
 - **Status**: Whether the native host is installed
@@ -153,7 +153,7 @@ Add to `~/.autohand/config.json`:
 
 ### Connecting
 
-1. User runs `/chrome` → selects **Open in Chrome**
+1. User runs `/browser` → selects **Open in Chrome**
 2. CLI creates a handoff token in `~/.autohand/chrome/handoffs/`
 3. Chrome opens, extension attaches to the session via the token
 4. Native messaging bridge forwards JSON-RPC between CLI and extension
@@ -164,7 +164,7 @@ The connection can be closed from either side:
 
 **From CLI:**
 ```
-/chrome disconnect
+/browser disconnect
 ```
 
 **From extension:**
@@ -179,7 +179,7 @@ If the connection drops (CLI crash, browser restart, etc.):
 3. Manual retry via the banner's retry button or the header reconnect icon
 4. Re-focusing the side panel also triggers a reconnect attempt
 
-**From CLI:** Run `/chrome` again and select **Open in Chrome** to create a new handoff.
+**From CLI:** Run `/browser` again and select **Open in Chrome** to create a new handoff.
 
 ### Heartbeat
 
@@ -222,15 +222,15 @@ Site-level permissions are inherited from the Chrome extension's host permission
 
 ### "Not installed" status
 
-The native messaging host is not installed. Run `/chrome` and select **Reconnect extension**, or:
+The native messaging host is not installed. Run `/browser` and select **Reconnect extension**, or:
 
 ```bash
-autohand --chrome
+autohand --browser
 ```
 
 ### "Disconnected" status
 
-The CLI is running but no active handoff exists. Run `/chrome` → **Open in Chrome** to create one.
+The CLI is running but no active handoff exists. Run `/browser` → **Open in Chrome** to create one.
 
 ### Extension can't find the CLI
 

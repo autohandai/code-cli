@@ -59,6 +59,73 @@ describe('MobileRelay event bridge', () => {
     expect(onMobileConnected.mock.calls.flat().join(' ')).not.toContain('sensitive');
   });
 
+  it('reports a claimed pairing exactly once through the relay controller', async () => {
+    vi.useFakeTimers();
+    const sendRelayHeartbeat = vi.fn()
+      .mockResolvedValueOnce({ pairingClaimed: false, pairingStatus: 'pending' })
+      .mockResolvedValue({ pairingClaimed: true, pairingStatus: 'claimed' });
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat,
+      claimWork: vi.fn().mockResolvedValue(null),
+    };
+    const onPairingClaimed = vi.fn();
+
+    const relay = startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+    });
+    relay.setPairingClaimHandler(onPairingClaimed);
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onPairingClaimed).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(onPairingClaimed).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(sendRelayHeartbeat).toHaveBeenCalledTimes(5);
+    expect(onPairingClaimed).toHaveBeenCalledOnce();
+  });
+
+  it('delivers a claimed pairing observed before the controller handler is registered', async () => {
+    vi.useFakeTimers();
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({
+        pairingClaimed: true,
+        pairingStatus: 'claimed',
+      }),
+      claimWork: vi.fn().mockResolvedValue(null),
+    };
+    const relay = startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    const onPairingClaimed = vi.fn();
+    relay.setPairingClaimHandler(onPairingClaimed);
+
+    expect(onPairingClaimed).toHaveBeenCalledOnce();
+  });
+
   it('stops the active relay when its pairing is revoked', async () => {
     vi.useFakeTimers();
     let resolveHeartbeat!: (value: {

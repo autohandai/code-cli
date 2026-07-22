@@ -41,13 +41,13 @@ describe('local install scripts', () => {
     expect(unitProofScript).not.toContain('bun run');
   });
 
-  it('runs dev through a minimal bun environment', () => {
+  it('runs dev through a portable minimal bun environment', () => {
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
       scripts?: Record<string, string>;
     };
     const devScript = packageJson.scripts?.dev ?? '';
 
-    expect(devScript).toBe('env -i PATH="/Users/igorcosta/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" AUTOHAND_DEBUG="$AUTOHAND_DEBUG" ${AUTOHAND_API_URL:+AUTOHAND_API_URL="$AUTOHAND_API_URL"} ${AUTOHAND_AUTH_URL:+AUTOHAND_AUTH_URL="$AUTOHAND_AUTH_URL"} bun src/index.ts');
+    expect(devScript).toBe('env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" AUTOHAND_VERSION_SOURCE=git AUTOHAND_DEBUG="$AUTOHAND_DEBUG" ${AUTOHAND_API_URL:+AUTOHAND_API_URL="$AUTOHAND_API_URL"} ${AUTOHAND_AUTH_URL:+AUTOHAND_AUTH_URL="$AUTOHAND_AUTH_URL"} bun src/index.ts');
   });
 
   it('preserves AUTOHAND_DEBUG through the sanitized dev environment', () => {
@@ -58,6 +58,15 @@ describe('local install scripts', () => {
 
     expect(devScript).toContain('env -i ');
     expect(devScript).toContain('AUTOHAND_DEBUG="$AUTOHAND_DEBUG"');
+  });
+
+  it('opts development runs into repository-tag version resolution', () => {
+    const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    const devScript = packageJson.scripts?.dev ?? '';
+
+    expect(devScript).toContain('AUTOHAND_VERSION_SOURCE=git');
   });
 
   localInstallScriptTest('compiles the installed binary without running nested package scripts', () => {

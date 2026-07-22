@@ -1,0 +1,10 @@
+{
+  "name": "brief_workspace_status",
+  "description": "Show the current Git workspace status for a project briefing",
+  "parameters": {
+    "type": "object",
+    "properties": {}
+  },
+  "handler": "git status --short",
+  "source": "user"
+}

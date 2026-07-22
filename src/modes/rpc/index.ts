@@ -48,6 +48,7 @@ import type {
   AutoresearchPruneParams,
   PlanModeSetParams,
   GetHistoryParams,
+  SessionAttachParams,
   YoloSetParams,
   McpListToolsParams,
   McpSetVscodeToolsParams,
@@ -848,9 +849,26 @@ async function handleSingleRequest(
         break;
       }
 
-      case RPC_METHODS.YOLO_SET: {
+      case RPC_METHODS.SESSION_ATTACH: {
+        const sessionParams = params as SessionAttachParams | undefined;
+        if (!sessionParams?.sessionId) {
+          if (shouldRespond) {
+            return createErrorResponse(
+              id!,
+              JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+              'Missing required parameter: sessionId'
+            );
+          }
+          return null;
+        }
+        result = await adapter.handleSessionAttach(id!, sessionParams);
+        break;
+      }
+
+      case RPC_METHODS.YOLO_SET:
+      case RPC_METHODS.YOLO_SET_COMPAT: {
         const yoloParams = params as YoloSetParams | undefined;
-        if (!yoloParams?.pattern) {
+        if (typeof yoloParams?.pattern !== 'string') {
           if (shouldRespond) {
             return createErrorResponse(
               id!,

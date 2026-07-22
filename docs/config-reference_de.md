@@ -756,6 +756,7 @@ Steuern Sie das Agentenverhalten und die Iterationslimits.
     "toolSelectionCache": true,
     "autoMemory": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   }
 }
@@ -768,6 +769,7 @@ Steuern Sie das Agentenverhalten und die Iterationslimits.
 | `toolSelectionCache` | boolean | `true`  | Lokale pro-Turn-Tool-Schema-Auswahl für gleichwertige Tool-Selection-Eingaben cachen |
 | `autoMemory`         | boolean | `true`  | Langlebige Benutzer-/Projekt-Memories nach erfolgreichen interaktiven Turns extrahieren und speichern |
 | `idleLogoutEnabled`  | boolean | `true`  | Authentifizierte interaktive Sitzungen nach der Leerlaufzeit abmelden              |
+| `idleTimeoutMs`      | number  | `3600000` | Millisekunden Inaktivität vor der Abmeldung einer authentifizierten Sitzung (60 Minuten) |
 | `debug`              | boolean | `false` | Ausführliche Debug-Ausgabe aktivieren (protokolliert internen Agentenstatus nach stderr)              |
 
 ### Tool-Schema-Auswahl
@@ -801,6 +803,8 @@ Um authentifizierte langlaufende Agentensitzungen am Leben zu erhalten, während
 ```
 
 Für einen einzelnen Prozess verwenden Sie `autohand --no-idle-logout` oder setzen Sie `AUTOHAND_NO_IDLE_LOGOUT=1`.
+
+Setzen Sie `idleTimeoutMs` auf eine positive Dauer in Millisekunden, um die Leerlaufzeit zu ändern. Der Standardwert ist `3600000` (60 Minuten); ungültige Werte verwenden den Standardwert.
 
 ### Debug-Modus
 
@@ -1698,15 +1702,15 @@ Steuern Sie die Autohand Chrome-Erweiterungs-Integration. Siehe die vollständig
 ### CLI-Flags
 
 ```bash
-autohand --chrome          # Mit aktivierter Browser-Bridge starten
-autohand --no-chrome       # Mit deaktivierter Browser-Bridge starten
+autohand --browser          # Mit aktivierter Browser-Bridge starten
+autohand --no-browser       # Mit deaktivierter Browser-Bridge starten
 ```
 
 ### Slash-Befehle
 
 ```
-/chrome                    # Chrome-Integrationspanel öffnen
-/chrome disconnect         # Browser-Bridge-Verbindung schließen
+/browser                   # Browser-Integrationspanel öffnen
+/browser disconnect        # Browser-Bridge-Verbindung schließen
 ```
 
 ---
@@ -1745,6 +1749,7 @@ autohand --no-chrome       # Mit deaktivierter Browser-Bridge starten
     "enableRequestQueue": true,
     "toolSelectionCache": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   },
   "permissions": {
@@ -1831,6 +1836,7 @@ agent:
   enableRequestQueue: true
   toolSelectionCache: true
   idleLogoutEnabled: true
+  idleTimeoutMs: 3600000
   debug: false
 
 permissions:
@@ -1926,6 +1932,7 @@ maxIterations = 100
 enableRequestQueue = true
 toolSelectionCache = true
 idleLogoutEnabled = true
+idleTimeoutMs = 3600000
 debug = false
 
 [permissions]
@@ -2077,12 +2084,12 @@ Diese Flags überschreiben Konfigurationsdatei-Einstellungen:
 | `--cc, --context-compact`     | Kontextkomprimierung aktivieren (Standard: an)                                                        |
 | `--no-cc, --no-context-compact` | Kontextkomprimierung deaktivieren                                                                    |
 
-### Chrome-Integration
+### Browser-Integration
 
 | Flag                          | Beschreibung                                                                                    |
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
-| `--chrome`                    | Chrome-Browser-Integration aktivieren (gleich wie `/chrome`)                                          |
-| `--no-chrome`                 | Chrome-Browser-Integration deaktivieren                                                             |
+| `--browser`                   | Browser-Integration aktivieren (entspricht `/browser`)                                               |
+| `--no-browser`                | Browser-Integration deaktivieren                                                                     |
 
 ### System-Prompt
 
@@ -2229,11 +2236,11 @@ Autohand bietet eine umfangreiche Reihe von Slash-Befehlen für die interaktive 
 | `/repeat`     | Wiederkehrende Aufgaben planen                               |
 | `/yolo`       | YOLO-Modus umschalten (Tools automatisch genehmigen)                 |
 
-### Chrome-Integration
+### Browser-Integration
 
 | Befehl       | Beschreibung                                           |
 | ------------- | ----------------------------------------------------- |
-| `/chrome`     | Chrome-Browser-Integration aktivieren                     |
+| `/browser`    | Chrome-Browser-Integration aktivieren                     |
 
 ### UI & Anzeige
 

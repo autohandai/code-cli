@@ -697,6 +697,7 @@ Comportamento dell'agente di controllo e limiti di iterazione.
     "toolSelectionCache": true,
     "autoMemory": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   }
 }
@@ -708,6 +709,7 @@ Comportamento dell'agente di controllo e limiti di iterazione.
 | `toolSelectionCache` | booleano | `true` | Memorizza nella cache la selezione dello schema dello strumento locale per turno per l'input di selezione dello strumento equivalente |
 | `autoMemory` | booleano | `true` | Estrai e salva ricordi durevoli di utenti/progetti dopo turni interattivi riusciti |
 | `idleLogoutEnabled` | booleano | `true` | Disconnettersi dalle sessioni interattive autenticate dopo il timeout di inattività |
+| `idleTimeoutMs` | numero | `3600000` | Millisecondi di inattività prima di disconnettere una sessione autenticata (60 minuti) |
 | `debug` | booleano | `false` | Abilita output di debug dettagliato (registra lo stato interno dell'agente su stderr) |
 
 ### Selezione dello schema degli strumenti
@@ -737,6 +739,8 @@ Per mantenere attive le sessioni autenticate dell'agente di lunga durata mentre 
 }
 ```
 Per un singolo processo, utilizzare `autohand --no-idle-logout` o impostare `AUTOHAND_NO_IDLE_LOGOUT=1`.
+
+Imposta `idleTimeoutMs` su una durata positiva in millisecondi per modificare il periodo di inattività. Il valore predefinito è `3600000` (60 minuti); i valori non validi utilizzano il valore predefinito.
 
 ### Modalità di debug
 
@@ -1570,13 +1574,13 @@ Controlla l'integrazione dell'estensione Autohand Chrome. Consulta la guida comp
 
 ### Flag CLI
 ```bash
-autohand --chrome          # Start with browser bridge enabled
-autohand --no-chrome       # Start with browser bridge disabled
+autohand --browser          # Start with browser bridge enabled
+autohand --no-browser       # Start with browser bridge disabled
 ```
 ### Comandi barra
 ```
-/chrome                    # Open Chrome integration panel
-/chrome disconnect         # Close the browser bridge connection
+/browser                   # Open browser integration panel
+/browser disconnect        # Close the browser bridge connection
 ```
 ---
 
@@ -1613,6 +1617,7 @@ autohand --no-chrome       # Start with browser bridge disabled
     "enableRequestQueue": true,
     "toolSelectionCache": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   },
   "permissions": {
@@ -1697,6 +1702,7 @@ agent:
   enableRequestQueue: true
   toolSelectionCache: true
   idleLogoutEnabled: true
+  idleTimeoutMs: 3600000
   debug: false
 
 permissions:
@@ -1790,6 +1796,7 @@ maxIterations = 100
 enableRequestQueue = true
 toolSelectionCache = true
 idleLogoutEnabled = true
+idleTimeoutMs = 3600000
 debug = false
 
 [permissions]
@@ -1935,12 +1942,12 @@ Questi flag sovrascrivono le impostazioni del file di configurazione:
 | `--cc, --context-compact` | Abilita la compattazione del contesto (impostazione predefinita: attivata) |
 | `--no-cc, --no-context-compact` | Disabilita compattazione del contesto |
 
-### Integrazione con Chrome
+### Integrazione con il browser
 
 | Bandiera | Descrizione |
 | ----------------------- | ---------------------------------------------------------------------------------------- |
-| `--chrome` | Abilita l'integrazione del browser Chrome (come `/chrome`) |
-| `--no-chrome` | Disattiva l'integrazione del browser Chrome |
+| `--browser` | Abilita l'integrazione del browser (come `/browser`) |
+| `--no-browser` | Disattiva l'integrazione del browser |
 
 ### Richiesta di sistema
 
@@ -2087,11 +2094,11 @@ Autohand fornisce un ricco set di comandi slash per l'uso interattivo. Digita `/
 | `/repeat` | Pianifica lavori ricorrenti |
 | `/yolo` | Attiva/disattiva la modalità yolo (strumenti di approvazione automatica) |
 
-### Integrazione con Chrome
+### Integrazione con il browser
 
 | Comando | Descrizione |
 | ------------- | ----------------------------------------------------- |
-| `/chrome` | Abilita l'integrazione del browser Chrome |
+| `/browser` | Abilita l'integrazione del browser Chrome |
 
 ### Interfaccia utente e display
 

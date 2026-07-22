@@ -1,0 +1,102 @@
+name: Open model catalog pull request
+
+on:
+  workflow_dispatch:
+    inputs:
+      draft_id:
+        description: Immutable R2 draft identifier
+        required: true
+        type: string
+      source_sha:
+        description: Git blob SHA edited by the administrator
+        required: true
+        type: string
+      submitted_by:
+        description: Administrator identity for the pull request body
+        required: true
+        type: string
+      summary:
+        description: Short reason for the catalog update
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: model-catalog-admin-${{ inputs.draft_id }}
+  cancel-in-progress: false
+
+jobs:
+  create-pull-request:
+    runs-on: ubuntu-latest
+    env:
+      BRANCH_NAME: automation/model-catalog-admin-${{ github.run_id }}
+      DRAFT_ID: ${{ inputs.draft_id }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      GH_TOKEN: ${{ secrets.MODEL_CATALOG_PR_TOKEN || github.token }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_MODELS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_MODELS_SECRET_ACCESS_KEY }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_MODELS_BUCKET: ${{ secrets.R2_MODELS_BUCKET }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.MODEL_CATALOG_PR_TOKEN || github.token }}
+
+      - name: Verify the source catalog has not moved
+        run: test "$(git hash-object src/providers/models.json)" = "$SOURCE_SHA"
+
+      - name: Download immutable admin draft
+        run: |
+          test "$(printf '%s' "$DRAFT_ID" | tr -cd 'A-Za-z0-9_-')" = "$DRAFT_ID"
+          aws s3 cp \
+            "s3://${R2_MODELS_BUCKET}/cli/drafts/${DRAFT_ID}.json" \
+            "$RUNNER_TEMP/model-catalog-draft.json" \
+            --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+            --only-show-errors
+
+      - name: Apply and validate the draft
+        run: |
+          node .github/scripts/apply-model-catalog-draft.mjs \
+            --draft "$RUNNER_TEMP/model-catalog-draft.json" \
+            --catalog src/providers/models.json \
+            --source-sha "$SOURCE_SHA"
+          node .github/scripts/generate-model-catalog.mjs \
+            --catalog src/providers/models.json \
+            --output "$RUNNER_TEMP/models.json"
+
+      - name: Commit catalog change
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH_NAME"
+          git add -- src/providers/models.json
+          git diff --cached --exit-code && { echo "Draft does not change the catalog" >&2; exit 1; }
+          git commit \
+            -m "Update model catalog from admin draft ${DRAFT_ID}" \
+            -m "Co-authored-by: Autohand Evolve <code-noreply@autohand.ai>"
+          git push origin "HEAD:refs/heads/$BRANCH_NAME"
+
+      - name: Open pull request
+        env:
+          SUBMITTED_BY: ${{ inputs.submitted_by }}
+          SUMMARY: ${{ inputs.summary }}
+        run: |
+          {
+            echo "Submitted from the Autohand admin model catalog manager."
+            echo
+            echo "- Draft: \`$DRAFT_ID\`"
+            echo "- Submitted by: $SUBMITTED_BY"
+            echo "- Reason: ${SUMMARY:-Not provided}"
+            echo
+            echo "Merging this pull request publishes the catalog through the main-branch R2 workflow."
+          } > "$RUNNER_TEMP/pull-request.md"
+          gh pr create \
+            --base main \
+            --head "$BRANCH_NAME" \
+            --title "Update model catalog from admin" \
+            --body-file "$RUNNER_TEMP/pull-request.md"

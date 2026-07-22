@@ -174,10 +174,11 @@ Active LLM provider to use.
 | `"sakana"`     | Sakana.AI Fugu API           |
 | `"bedrock"`    | AWS Bedrock                  |
 | `"custom:<id>"` | User-defined OpenAI-compatible provider from `customProviders` |
+| `"extension:<id>"` | Provider registered by a trusted runtime extension and configured in `extensionProviders` |
 
 ### Provider model catalog
 
-Autohand stores bundled provider model lists in `src/providers/models.json` and copies that file to `dist/providers/models.json` in packaged builds. Provider pickers, ACP/RPC model discovery, and static provider fallbacks read from this catalog instead of hardcoded TypeScript arrays.
+Autohand stores bundled provider model lists in `src/providers/models.json` and copies that file to `dist/providers/models.json` in packaged builds. Provider pickers, ACP/RPC model discovery, and static provider fallbacks read from this catalog instead of hardcoded TypeScript arrays. At normal startup the CLI also checks `https://code.autohand.ai/cli/models.json` for a validated Pi-compatible update when the last successful check is at least four hours old.
 
 To add or update bundled model choices, edit the relevant provider entry in `models.json`:
 
@@ -195,7 +196,9 @@ To add or update bundled model choices, edit the relevant provider entry in `mod
 }
 ```
 
-For a local override without changing the installed package, create `~/.autohand/models.json` or set `AUTOHAND_MODELS_CATALOG=/path/to/models.json`. Override entries are merged ahead of bundled entries and deduplicated by model id. OpenRouter and other providers with live model APIs still try live discovery first, then merge or fall back to catalog entries.
+For a local override without changing the installed package, create `~/.autohand/models.json` or set `AUTOHAND_MODELS_CATALOG=/path/to/models.json`. Local override entries are merged ahead of the last valid downloaded catalog, which is merged ahead of bundled entries; all layers are deduplicated by model ID. OpenRouter and other providers with live model APIs still try live discovery first, then merge or fall back to catalog entries.
+
+Use `autohand update --models` or `autohand upgrade --models` to force an immediate refresh. Use `autohand --offline` or `AUTOHAND_OFFLINE=1` to disable automatic startup checks. `AUTOHAND_MODELS_URL` can select another compatible endpoint for development. See [Model catalog updates](model-catalog.md) for the cache, validation, fallback, and publication contracts.
 
 ### `openrouter`
 
@@ -308,6 +311,25 @@ For local OpenAI-compatible servers that do not require auth, set `apiKeyRequire
 | `contextWindow`   | number  | No       | Auto    | Exact context window for token budgeting, status, telemetry, and sync metadata. |
 | `reasoningEffort` | string  | No       | -       | Optional `none`, `low`, `medium`, `high`, or `xhigh`. Sent as `reasoning_effort` for custom OpenAI-compatible requests. |
 | `models`          | array   | No       | -       | Optional model picker entries with per-model context and reasoning metadata. |
+
+### `extensionProviders`
+
+Trusted runtime extensions can register providers in the `extension:` namespace. Install and review the owning extension with `--trust`, select its exact provider id, and place provider-owned configuration under the same key:
+
+```json
+{
+  "provider": "extension:company-release",
+  "extensionProviders": {
+    "extension:company-release": {
+      "model": "release-model",
+      "apiKey": "company-api-key",
+      "baseUrl": "https://models.example.com"
+    }
+  }
+}
+```
+
+`model` is required. Other fields are defined by the extension provider. Keep credentials in user config or environment variables rather than the extension package. Removing or disabling the extension makes its provider unavailable; it does not delete saved provider configuration.
 
 ### `ollama`
 
@@ -779,6 +801,7 @@ Control agent behavior and iteration limits.
     "toolSelectionCache": true,
     "autoMemory": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   }
 }
@@ -791,6 +814,7 @@ Control agent behavior and iteration limits.
 | `toolSelectionCache` | boolean | `true`  | Cache local per-turn tool schema selection for equivalent tool-selection input |
 | `autoMemory`         | boolean | `true`  | Extract and save durable user/project memories after successful interactive turns |
 | `idleLogoutEnabled`  | boolean | `true`  | Log out authenticated interactive sessions after the idle timeout              |
+| `idleTimeoutMs`      | number  | `3600000` | Milliseconds of inactivity before logging out an authenticated session (60 minutes) |
 | `debug`              | boolean | `false` | Enable verbose debug output (logs agent internal state to stderr)              |
 
 ### Tool Schema Selection
@@ -824,6 +848,8 @@ To keep authenticated long-running agent sessions alive while they wait for work
 ```
 
 For a single process, use `autohand --no-idle-logout` or set `AUTOHAND_NO_IDLE_LOGOUT=1`.
+
+Set `idleTimeoutMs` to a positive duration in milliseconds to change the idle period. The default is `3600000` (60 minutes); invalid values fall back to the default.
 
 ### Debug Mode
 
@@ -1721,15 +1747,15 @@ Control the Autohand Chrome extension integration. See the full guide at [Autoha
 ### CLI Flags
 
 ```bash
-autohand --chrome          # Start with browser bridge enabled
-autohand --no-chrome       # Start with browser bridge disabled
+autohand --browser          # Start with browser bridge enabled
+autohand --no-browser       # Start with browser bridge disabled
 ```
 
 ### Slash Commands
 
 ```
-/chrome                    # Open Chrome integration panel
-/chrome disconnect         # Close the browser bridge connection
+/browser                   # Open browser integration panel
+/browser disconnect        # Close the browser bridge connection
 ```
 
 ---
@@ -1768,6 +1794,7 @@ autohand --no-chrome       # Start with browser bridge disabled
     "enableRequestQueue": true,
     "toolSelectionCache": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   },
   "permissions": {
@@ -1854,6 +1881,7 @@ agent:
   enableRequestQueue: true
   toolSelectionCache: true
   idleLogoutEnabled: true
+  idleTimeoutMs: 3600000
   debug: false
 
 permissions:
@@ -1949,6 +1977,7 @@ maxIterations = 100
 enableRequestQueue = true
 toolSelectionCache = true
 idleLogoutEnabled = true
+idleTimeoutMs = 3600000
 debug = false
 
 [permissions]
@@ -2091,6 +2120,8 @@ These flags override config file settings:
 | `--acp`                       | Shorthand for --mode acp (Agent Client Protocol over stdio)                                    |
 | `--teammate-mode <mode>`      | Team display mode: auto, in-process, or tmux                                                   |
 
+To register the native stdio agent in Zed, JetBrains IDEs, JetBrains Air, or another compatible development environment, see the [ACP integration guide](./guides/ACP.md).
+
 ### UI & Language
 
 | Flag                          | Description                                                                                    |
@@ -2100,12 +2131,12 @@ These flags override config file settings:
 | `--cc, --context-compact`     | Enable context compaction (default: on)                                                        |
 | `--no-cc, --no-context-compact` | Disable context compaction                                                                    |
 
-### Chrome Integration
+### Browser Integration
 
 | Flag                          | Description                                                                                    |
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
-| `--chrome`                    | Enable Chrome browser integration (same as `/chrome`)                                          |
-| `--no-chrome`                 | Disable Chrome browser integration                                                             |
+| `--browser`                   | Enable browser integration (same as `/browser`)                                                |
+| `--no-browser`                | Disable browser integration                                                                    |
 
 ### System Prompt
 
@@ -2254,11 +2285,11 @@ Autohand provides a rich set of slash commands for interactive use. Type `/` in 
 | `/repeat`     | Schedule recurring jobs                               |
 | `/yolo`       | Toggle yolo mode (auto-approve tools)                 |
 
-### Chrome Integration
+### Browser Integration
 
 | Command       | Description                                           |
 | ------------- | ----------------------------------------------------- |
-| `/chrome`     | Enable Chrome browser integration                     |
+| `/browser`    | Enable browser integration                            |
 
 ### UI & Display
 

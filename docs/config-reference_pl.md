@@ -697,6 +697,7 @@ Kontroluj zachowanie agenta i limity iteracji.
     "toolSelectionCache": true,
     "autoMemory": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   }
 }
@@ -707,7 +708,8 @@ Kontroluj zachowanie agenta i limity iteracji.
 | __AH_KOD_2__ | wartość logiczna | __AH_KOD_3__ | Zezwalaj użytkownikom na wpisywanie i kolejkowanie żądań podczas pracy agenta |
 | __AH_KOD_4__ | wartość logiczna | __AH_KOD_5__ | Buforuj lokalny wybór schematu narzędzia na obrót dla równoważnych danych wejściowych dotyczących wyboru narzędzia |
 | __AH_KOD_6__ | wartość logiczna | __AH_KOD_7__ | Wyodrębniaj i zapisuj trwałe wspomnienia użytkowników/projektów po udanych interaktywnych turach |
-| __AH_KOD_8__ | wartość logiczna | __AH_KOD_9__ | Wyloguj uwierzytelnione sesje interaktywne po upływie limitu czasu bezczynności |
+| `idleLogoutEnabled` | wartość logiczna | `true` | Wyloguj uwierzytelnione sesje interaktywne po upływie limitu czasu bezczynności |
+| `idleTimeoutMs` | numer | `3600000` | Milisekundy bezczynności przed wylogowaniem uwierzytelnionej sesji (60 minut) |
 | __AH_KOD_10__ | wartość logiczna | __AH_KOD_11__ | Włącz szczegółowe dane wyjściowe debugowania (loguje stan wewnętrzny agenta na stderr) |
 
 ### Wybór schematu narzędzia
@@ -737,6 +739,8 @@ Aby utrzymać uwierzytelnione, długotrwałe sesje agentów podczas oczekiwania 
 }
 ```
 Dla pojedynczego procesu użyj `autohand --no-idle-logout` lub ustaw `AUTOHAND_NO_IDLE_LOGOUT=1`.
+
+Ustaw `idleTimeoutMs` na dodatni czas w milisekundach, aby zmienić okres bezczynności. Wartość domyślna to `3600000` (60 minut); nieprawidłowe wartości używają wartości domyślnej.
 
 ### Tryb debugowania
 
@@ -1570,13 +1574,13 @@ Kontroluj integrację rozszerzenia Autohand Chrome. Zobacz pełny przewodnik na 
 
 ### Flagi CLI
 ```bash
-autohand --chrome          # Start with browser bridge enabled
-autohand --no-chrome       # Start with browser bridge disabled
+autohand --browser          # Start with browser bridge enabled
+autohand --no-browser       # Start with browser bridge disabled
 ```
 ### Polecenia z ukośnikiem
 ```
-/chrome                    # Open Chrome integration panel
-/chrome disconnect         # Close the browser bridge connection
+/browser                   # Open browser integration panel
+/browser disconnect        # Close the browser bridge connection
 ```
 ---
 
@@ -1613,6 +1617,7 @@ autohand --no-chrome       # Start with browser bridge disabled
     "enableRequestQueue": true,
     "toolSelectionCache": true,
     "idleLogoutEnabled": true,
+    "idleTimeoutMs": 3600000,
     "debug": false
   },
   "permissions": {
@@ -1697,6 +1702,7 @@ agent:
   enableRequestQueue: true
   toolSelectionCache: true
   idleLogoutEnabled: true
+  idleTimeoutMs: 3600000
   debug: false
 
 permissions:
@@ -1790,6 +1796,7 @@ maxIterations = 100
 enableRequestQueue = true
 toolSelectionCache = true
 idleLogoutEnabled = true
+idleTimeoutMs = 3600000
 debug = false
 
 [permissions]
@@ -1935,12 +1942,12 @@ Te flagi zastępują ustawienia pliku konfiguracyjnego:
 | __AH_KOD_6__ | Włącz zagęszczanie kontekstu (domyślnie: włączone) |
 | __AH_KOD_7__ | Wyłącz zagęszczanie kontekstu |
 
-### Integracja z Chrome
+### Integracja z przeglądarką
 
 | Flaga | Opis |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| __AH_KOD_8__ | Włącz integrację z przeglądarką Chrome (tak samo jak `/chrome`) |
-| __AH_KOD_10__ | Wyłącz integrację przeglądarki Chrome |
+| `--browser` | Włącz integrację z przeglądarką (tak samo jak `/browser`) |
+| `--no-browser` | Wyłącz integrację z przeglądarką |
 
 ### Monit systemowy
 
@@ -2087,11 +2094,11 @@ Autohand zapewnia bogaty zestaw poleceń ukośnikowych do użytku interaktywnego
 | __AH_KOD_23__ | Zaplanuj powtarzające się zadania |
 | __AH_KOD_24__ | Przełącz tryb yolo (narzędzia automatycznego zatwierdzania) |
 
-### Integracja z Chrome
+### Integracja z przeglądarką
 
 | Polecenie | Opis |
 | --------- | -------------------------------------- |
-| __AH_KOD_25__ | Włącz integrację przeglądarki Chrome |
+| `/browser` | Włącz integrację z przeglądarką |
 
 ### Interfejs użytkownika i wyświetlacz
 

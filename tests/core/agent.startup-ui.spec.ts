@@ -451,6 +451,25 @@ describe('agent startup and active input UI', () => {
     expect(inkRenderer.setStatus).not.toHaveBeenCalled();
   });
 
+  it('notifies the active UI when the mobile relay reports a claimed pairing', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    agent.notifyUser = vi.fn();
+    const setPairingClaimHandler = vi.fn();
+
+    agent.setMobileRelayController({ setPairingClaimHandler } as any);
+
+    expect(setPairingClaimHandler).toHaveBeenCalledTimes(1);
+    const onPairingClaimed = setPairingClaimHandler.mock.calls[0]?.[0];
+    onPairingClaimed({
+      id: 'pairing-1',
+      status: 'claimed',
+      claimedAt: '2026-07-20T01:02:03.000Z',
+    });
+    expect(agent.notifyUser).toHaveBeenCalledWith(
+      '✓ Autohand Mobile connected to this session.'
+    );
+  });
+
   it('ensureSpinnerRunning does not restart ora while terminal regions are active', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const spinner = {
@@ -1111,7 +1130,7 @@ describe('agent startup and active input UI', () => {
   });
 
   it('does not start persistent input for interactive slash commands', () => {
-    // Regression: interactive commands like /permissions, /hooks, /chrome
+    // Regression: interactive commands like /permissions, /hooks, /browser
     // must NOT activate the persistent input because it renders a status line
     // that conflicts with the command's own interactive UI.
     const interactiveCommands = (AutohandAgent as any).INTERACTIVE_SLASH_COMMANDS as Set<string>;
@@ -1119,6 +1138,9 @@ describe('agent startup and active input UI', () => {
     expect(interactiveCommands).toBeInstanceOf(Set);
     expect(interactiveCommands.has('/permissions')).toBe(true);
     expect(interactiveCommands.has('/hooks')).toBe(true);
+    expect(interactiveCommands.has('/browser')).toBe(true);
+    // The deprecated alias remains classified as interactive even though it is
+    // intentionally absent from command discovery and help.
     expect(interactiveCommands.has('/chrome')).toBe(true);
     expect(interactiveCommands.has('/theme')).toBe(true);
     expect(interactiveCommands.has('/model')).toBe(true);

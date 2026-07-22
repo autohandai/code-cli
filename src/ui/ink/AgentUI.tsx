@@ -19,6 +19,7 @@ import { FileMentionDropdown, parseFileSuggestions, matchFileMention, type FileM
 import { SlashCommandDropdown, matchSlashCommand, buildSlashSuggestions, buildSubcommandSuggestions, type SlashCommandSuggestion } from './SlashCommandDropdown.js';
 import { SkillMentionDropdown, matchSkillMention, buildSkillSuggestions, type SkillSuggestion } from './SkillMentionDropdown.js';
 import type { SlashCommand } from '../../core/slashCommandTypes.js';
+import type { ExtensionKeybinding } from '../../extensions/ExtensionRuntimeHost.js';
 import type { SkillMentionInfo } from '../mentionFilter.js';
 import { UserMessage } from './UserMessage.js';
 import { ShortcutsHelpPanel } from './ShortcutsHelpPanel.js';
@@ -84,6 +85,12 @@ export interface AgentUIState {
   lineExtensions?: AgentUILineExtensions;
   /** Built-in status-line settings rendered separately from extension-provided line extensions. */
   configuredLineExtensions?: AgentUILineExtensions;
+  /** Runtime slash commands replaced when extensions are enabled or disabled. */
+  runtimeSlashCommands?: SlashCommand[];
+  /** Runtime keybindings replaced when extensions are enabled or disabled. */
+  extensionKeybindings?: ExtensionKeybinding[];
+  /** Runtime extension status/help segments kept separate from transient UI extensions. */
+  extensionLineExtensions?: AgentUILineExtensions;
   /** Monotonic refresh signal used when lazy suggestion providers resolve. */
   suggestionRefreshId?: number;
 }
@@ -117,6 +124,8 @@ export interface AgentUIProps {
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
   /** Optional extension points for the fixed status/help lines. */
   lineExtensions?: AgentUILineExtensions;
+  /** Trusted extension shortcuts routed through registered slash commands. */
+  extensionKeybindings?: ExtensionKeybinding[];
   /** Replace a queued instruction owned by the renderer. */
   onReplaceQueuedInstruction?: (index: number, text: string) => void;
   /** Remove a queued instruction owned by the renderer. */
@@ -129,6 +138,33 @@ interface TextBufferKeyInfo {
   meta?: boolean;
   shift?: boolean;
   sequence?: string;
+}
+
+const RESERVED_EXTENSION_KEYBINDINGS = new Set(['ctrl+c', 'ctrl+d', 'shift+tab', 'escape', 'enter', 'return']);
+
+export function matchesExtensionKeybinding(
+  input: string,
+  key: InkKey,
+  binding: Pick<ExtensionKeybinding, 'key' | 'command'>,
+): boolean {
+  const normalized = binding.key.toLowerCase();
+  if (RESERVED_EXTENSION_KEYBINDINGS.has(normalized)) {
+    return false;
+  }
+  const parts = normalized.split('+');
+  const primary = parts.at(-1);
+  const modifiers = new Set(parts.slice(0, -1));
+  const expectsMeta = modifiers.has('meta') || modifiers.has('alt');
+  if (key.ctrl !== modifiers.has('ctrl') || key.shift !== modifiers.has('shift') || key.meta !== expectsMeta) {
+    return false;
+  }
+  if (primary === 'tab') return key.tab;
+  if (primary === 'up') return key.upArrow;
+  if (primary === 'down') return key.downArrow;
+  if (primary === 'left') return key.leftArrow;
+  if (primary === 'right') return key.rightArrow;
+  if (primary === 'space') return input === ' ';
+  return input.toLowerCase() === primary;
 }
 
 const INK_TEXTBUFFER_VIEWPORT_HEIGHT = 10;
@@ -579,16 +615,19 @@ export function AgentUI({
   enableQueueInput = true,
   onImageDetected,
   filesProvider,
-  slashCommands,
+  slashCommands: slashCommandProps,
   skillsProvider,
   workspaceRoot,
   suggestionProvider,
   lineExtensions,
+  extensionKeybindings: extensionKeybindingProps = [],
   onReplaceQueuedInstruction,
   onRemoveQueuedInstruction,
 }: AgentUIProps) {
   const { colors } = useTheme();
   const { t } = useTranslation();
+  const slashCommands = state.runtimeSlashCommands ?? slashCommandProps;
+  const extensionKeybindings = state.extensionKeybindings ?? extensionKeybindingProps;
   const [input, setInput] = useState(state.currentInput || '');
   const [cursorOffset, setCursorOffset] = useState((state.currentInput || '').length);
   const [ctrlCCount, setCtrlCCount] = useState(0);
@@ -681,6 +720,8 @@ export function AgentUI({
   filesProviderRef.current = filesProvider;
   const slashCommandsRef = useRef(slashCommands);
   slashCommandsRef.current = slashCommands;
+  const extensionKeybindingsRef = useRef(extensionKeybindings);
+  extensionKeybindingsRef.current = extensionKeybindings;
   const slashVisibleRef = useRef(slashVisible);
   slashVisibleRef.current = slashVisible;
   const slashSuggestionsRef = useRef(slashSuggestions);
@@ -1132,6 +1173,14 @@ export function AgentUI({
       if (pasteResult.completedText !== undefined) {
         insertPastedText(pasteResult.completedText);
       }
+      return;
+    }
+
+    const extensionKeybinding = extensionKeybindingsRef.current.find((binding) =>
+      matchesExtensionKeybinding(char, key, binding)
+      && (binding.when === 'always' || textBufferRef.current.getText().trim().length === 0));
+    if (extensionKeybinding) {
+      onInstructionRef.current(extensionKeybinding.command);
       return;
     }
 
@@ -1733,6 +1782,7 @@ export function AgentUI({
   })();
   const effectiveLineExtensions = state.lineExtensions ?? lineExtensions;
   const effectiveConfiguredLineExtensions = state.configuredLineExtensions;
+  const effectiveRuntimeLineExtensions = state.extensionLineExtensions;
 
   return (
     <Box flexDirection="column">
@@ -1790,6 +1840,7 @@ export function AgentUI({
         model={state.model}
         lineExtensions={effectiveLineExtensions}
         configuredLineExtensions={effectiveConfiguredLineExtensions}
+        runtimeLineExtensions={effectiveRuntimeLineExtensions}
         fileMentionDropdown={
           <FileMentionDropdown
             suggestions={fileMentionSuggestions}
@@ -2386,6 +2437,7 @@ interface FixedBottomProps {
   model?: string;
   lineExtensions?: AgentUILineExtensions;
   configuredLineExtensions?: AgentUILineExtensions;
+  runtimeLineExtensions?: AgentUILineExtensions;
   fileMentionDropdown?: React.ReactNode;
   slashCommandDropdown?: React.ReactNode;
   skillMentionDropdown?: React.ReactNode;
@@ -2418,6 +2470,7 @@ const FixedBottom = memo(function FixedBottom({
   model,
   lineExtensions,
   configuredLineExtensions,
+  runtimeLineExtensions,
   fileMentionDropdown,
   slashCommandDropdown,
   skillMentionDropdown,
@@ -2442,7 +2495,11 @@ const FixedBottom = memo(function FixedBottom({
         contextTokens={contextTokens}
         provider={provider}
         model={model}
-        lineExtension={mergeLineExtensions(configuredLineExtensions?.status, lineExtensions?.status)}
+        lineExtension={mergeLineExtensions(
+          configuredLineExtensions?.status,
+          lineExtensions?.status,
+          runtimeLineExtensions?.status,
+        )}
       />
       <InputLineWrapper
         isWorking={isWorking}
@@ -2466,7 +2523,11 @@ const FixedBottom = memo(function FixedBottom({
         contextTokens={contextTokens}
         provider={provider}
         model={model}
-        lineExtension={mergeLineExtensions(configuredLineExtensions?.help, lineExtensions?.help)}
+        lineExtension={mergeLineExtensions(
+          configuredLineExtensions?.help,
+          lineExtensions?.help,
+          runtimeLineExtensions?.help,
+        )}
       />
       <CtrlCWarning ctrlCCount={ctrlCCount} />
       <FooterClearance />
