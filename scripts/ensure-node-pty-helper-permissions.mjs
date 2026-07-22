@@ -41,6 +41,7 @@ if (platform !== 'win32' && nodePtyRoot !== null) {
         await access(helperPath, constants.X_OK);
       } catch {
         await chmod(helperPath, (helper.mode & 0o7777) | 0o111);
+        await access(helperPath, constants.X_OK);
       }
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {

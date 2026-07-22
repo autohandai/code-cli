@@ -414,6 +414,7 @@ export async function ensureNodePtyHelperExecutable(
         await access(helperPath, constants.X_OK);
       } catch {
         await chmod(helperPath, (helper.mode & 0o7777) | 0o111);
+        await access(helperPath, constants.X_OK);
       }
       repairedHelper = true;
     } catch (error) {
@@ -861,16 +862,21 @@ export async function executeStreamingShellCommand(
     return executeShellCommandAsync(trimmedCommand, cwd, DEFAULT_SHELL_TIMEOUT, options);
   }
 
-  return new Promise((resolve, reject) => {
-    const { file, args } = getPtyShellLaunch(trimmedCommand);
-    const ptyProcess = nodePty.spawn(file, args, {
+  const { file, args } = getPtyShellLaunch(trimmedCommand);
+  let ptyProcess: PtyProcess;
+  try {
+    ptyProcess = nodePty.spawn(file, args, {
       name: process.env.TERM || 'xterm-256color',
       cols: Math.max(20, options.columns ?? process.stdout.columns ?? 80),
       rows: Math.max(10, options.rows ?? process.stdout.rows ?? 24),
       cwd: cwd ?? process.cwd(),
       env: buildAutohandChildProcessEnv(),
     });
+  } catch {
+    return executeShellCommandAsync(trimmedCommand, cwd, DEFAULT_SHELL_TIMEOUT, options);
+  }
 
+  return new Promise((resolve, reject) => {
     let output = '';
     let settled = false;
     function cleanup(): void {
