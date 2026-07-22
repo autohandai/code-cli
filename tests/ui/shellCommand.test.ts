@@ -384,6 +384,34 @@ describe('executeStreamingShellCommand', () => {
     }
   });
 
+  it('falls back to non-PTY execution when native PTY startup fails', async () => {
+    setNodePtyLoaderForTests(async () => ({
+      spawn: () => {
+        throw new Error('posix_spawnp failed');
+      },
+    }));
+    const stdinIsTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const stdoutIsTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+
+    try {
+      const script = 'process.stdout.write("fallback-ok")';
+      const result = await executeStreamingShellCommand(
+        `${process.execPath} -e ${JSON.stringify(script)}`,
+        tmpdir(),
+        { preferPty: true },
+      );
+
+      expect(result).toMatchObject({ success: true, output: 'fallback-ok' });
+    } finally {
+      if (stdinIsTty) Object.defineProperty(process.stdin, 'isTTY', stdinIsTty);
+      else delete (process.stdin as { isTTY?: boolean }).isTTY;
+      if (stdoutIsTty) Object.defineProperty(process.stdout, 'isTTY', stdoutIsTty);
+      else delete (process.stdout as { isTTY?: boolean }).isTTY;
+    }
+  });
+
   it('removes its abort listener after non-PTY completion', async () => {
     const controller = new AbortController();
     const addEventListener = vi.spyOn(controller.signal, 'addEventListener');
