@@ -117,37 +117,188 @@ function normalizeLimit(limit?: number): number {
   return Math.max(1, Math.min(Math.floor(limit ?? 10), 20));
 }
 
-function agentSearchText(agent: CatalogSubAgent): string {
-  return [
-    agent.name,
-    agent.description,
-    agent.category,
-    agent.path,
-    agent.model,
-    ...agent.tools,
-  ].filter(Boolean).join(' ').toLowerCase();
+/** Natural-language glue words that should not influence ranking. */
+const STOP_TOKENS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'to', 'for', 'of', 'in', 'on', 'at', 'by', 'with', 'from',
+  'into', 'over', 'under', 'as', 'is', 'are', 'be', 'this', 'that', 'these', 'those',
+  'need', 'needs', 'needed', 'want', 'wants', 'bring', 'find', 'get', 'use', 'using',
+  'please', 'help', 'me', 'my', 'our', 'your', 'some', 'any', 'all',
+]);
+
+/** Split query into searchable tokens (hyphens/underscores count as separators). */
+export function tokenizeSubAgentQuery(query: string): string[] {
+  return query
+    .toLowerCase()
+    .trim()
+    .split(/[\s/_.,:;|+()-]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0 && !STOP_TOKENS.has(token));
 }
 
-function matchesQuery(agent: CatalogSubAgent, query: string): boolean {
-  const tokens = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) return true;
-  const searchText = agentSearchText(agent);
-  return tokens.every((token) => searchText.includes(token));
+function normalizeNameKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
-function formatAgentResults(agents: CatalogSubAgent[]): string {
-  return agents.map((agent, index) => {
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Role/title tokens that appear on dozens of agents — keep them weak so specific domain terms win. */
+const GENERIC_ROLE_TOKENS = new Set([
+  'agent',
+  'assistant',
+  'developer',
+  'engineer',
+  'expert',
+  'pro',
+  'specialist',
+  'architect',
+  'manager',
+  'reviewer',
+  'tester',
+  'analyst',
+  'designer',
+  'writer',
+  'coder',
+  'task',
+  'work',
+  'code',
+  'app',
+  'system',
+  'service',
+]);
+
+/** True when token appears as a whole word/segment (avoids "ui" matching "guidance"). */
+function containsToken(haystack: string, token: string): boolean {
+  if (!token) return false;
+  if (token.length <= 2) {
+    const pattern = new RegExp(`(?:^|[^a-z0-9])${escapeRegExp(token)}(?:[^a-z0-9]|$)`, 'i');
+    return pattern.test(haystack);
+  }
+  return haystack.toLowerCase().includes(token.toLowerCase());
+}
+
+function tokenWeight(token: string): number {
+  if (GENERIC_ROLE_TOKENS.has(token)) return 0.25;
+  if (token.length <= 2) return 1.4;
+  return 1;
+}
+
+/**
+ * Rank a catalog agent against a free-text query.
+ * Uses soft token matching (any token can contribute) with stronger weights for
+ * name hits so realistic LLM queries like "UI design specialist" still surface
+ * ui-designer even when not every adjective appears in the registry description.
+ */
+export function scoreSubAgentMatch(agent: CatalogSubAgent, query: string): number {
+  const tokens = tokenizeSubAgentQuery(query);
+  if (tokens.length === 0) {
+    return 1;
+  }
+
+  const name = agent.name.toLowerCase();
+  const nameKey = normalizeNameKey(agent.name);
+  const category = agent.category.toLowerCase();
+  const description = agent.description.toLowerCase();
+  const toolsText = agent.tools.join(' ').toLowerCase();
+  const pathText = agent.path.toLowerCase();
+  const nameSegments = name.split(/[-_./]+/).filter(Boolean);
+
+  let score = 0;
+  let matchedTokens = 0;
+
+  const queryKey = normalizeNameKey(query);
+  if (queryKey && (nameKey === queryKey || name === query.toLowerCase().trim())) {
+    score += 200;
+  } else if (queryKey && nameKey.includes(queryKey) && queryKey.length >= 3) {
+    score += 120;
+  }
+
+  for (const token of tokens) {
+    let tokenScore = 0;
+    const tokenKey = normalizeNameKey(token);
+    const weight = tokenWeight(token);
+
+    if (name === token || nameKey === tokenKey || nameSegments.includes(token)) {
+      tokenScore += 80;
+    } else if (
+      containsToken(name, token)
+      || (tokenKey.length >= 3 && nameKey.includes(tokenKey))
+    ) {
+      tokenScore += 50;
+    }
+
+    if (containsToken(category, token) || category.split(/[-_/]/).includes(token)) {
+      tokenScore += 20;
+    }
+
+    if (containsToken(description, token)) {
+      tokenScore += 12;
+    }
+
+    if (containsToken(toolsText, token)) {
+      tokenScore += 6;
+    }
+
+    if (containsToken(pathText, token)) {
+      tokenScore += 4;
+    }
+
+    if (tokenScore > 0) {
+      matchedTokens += 1;
+      score += tokenScore * weight;
+    }
+  }
+
+  if (matchedTokens === 0) {
+    return 0;
+  }
+
+  // Prefer fuller token coverage without requiring every token (strict AND failed
+  // against the live awesome-sub-agents wording).
+  score += matchedTokens * 15;
+  if (matchedTokens === tokens.length) {
+    score += 25;
+  }
+
+  // Prefer agents whose primary name segment is a query token (ui-designer over
+  // powershell-ui-architect for "UI specialist").
+  const primarySegment = nameSegments[0];
+  if (primarySegment && tokens.includes(primarySegment) && !GENERIC_ROLE_TOKENS.has(primarySegment)) {
+    score += 40;
+  }
+
+  // Prefer compact names when scores are otherwise close.
+  score += Math.max(0, 12 - nameSegments.length * 2);
+
+  return score;
+}
+
+function matchesCategory(agent: CatalogSubAgent, category?: string): boolean {
+  if (!category) return true;
+  const needle = category.toLowerCase().trim();
+  if (!needle) return true;
+  const hay = agent.category.toLowerCase();
+  return hay === needle || hay.includes(needle) || needle.includes(hay);
+}
+
+function formatAgentResults(agents: CatalogSubAgent[], query: string): string {
+  const header = `Found ${agents.length} sub-agent${agents.length === 1 ? '' : 's'} matching "${query.trim() || '*'}":`;
+  const body = agents.map((agent, index) => {
     const lines = [
-      `${index + 1}. **${agent.name}** [${agent.category}]`,
-      `   ${agent.description}`,
-      `   Tools: ${agent.tools.join(', ')}`,
-      `   Install: install_sub_agent name="${agent.name}"`,
+      `${index + 1}. name: ${agent.name}`,
+      `   category: ${agent.category}`,
+      `   description: ${agent.description}`,
+      `   tools: ${agent.tools.join(', ')}`,
     ];
     if (agent.model) {
-      lines.splice(3, 0, `   Model: ${agent.model}`);
+      lines.push(`   model: ${agent.model}`);
     }
+    lines.push(`   install: install_sub_agent name="${agent.name}"`);
     return lines.join('\n');
   }).join('\n\n');
+
+  return `${header}\n\n${body}`;
 }
 
 export async function searchSubAgentsCatalog(
@@ -155,19 +306,29 @@ export async function searchSubAgentsCatalog(
   options: SearchSubAgentsOptions = {},
 ): Promise<string> {
   const registry = await fetchRegistry(options);
-  const category = options.category?.toLowerCase();
   const limit = normalizeLimit(options.limit);
+  const normalizedQuery = query?.trim() ?? '';
 
-  const matches = registry.agents
-    .filter((agent) => !category || agent.category.toLowerCase() === category)
-    .filter((agent) => matchesQuery(agent, query))
-    .slice(0, limit);
+  const ranked = registry.agents
+    .filter((agent) => matchesCategory(agent, options.category))
+    .map((agent) => ({ agent, score: scoreSubAgentMatch(agent, normalizedQuery) }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.agent.name.localeCompare(b.agent.name);
+    })
+    .slice(0, limit)
+    .map((entry) => entry.agent);
 
-  if (matches.length === 0) {
-    return `No sub-agents found matching "${query}".`;
+  if (ranked.length === 0) {
+    return [
+      `No sub-agents found matching "${normalizedQuery || '*'}".`,
+      'Try broader role terms (for example "ui", "backend", "security", "react") or omit the category filter.',
+      `Catalog: ${registry.repository}`,
+    ].join('\n');
   }
 
-  return formatAgentResults(matches);
+  return formatAgentResults(ranked, normalizedQuery);
 }
 
 function findAgent(agents: CatalogSubAgent[], name: string): CatalogSubAgent | undefined {
@@ -180,8 +341,11 @@ function findSimilarAgents(agents: CatalogSubAgent[], name: string): CatalogSubA
   const normalized = name.toLowerCase().trim();
   if (!normalized) return [];
   return agents
-    .filter((agent) => agentSearchText(agent).includes(normalized))
-    .slice(0, 5);
+    .map((agent) => ({ agent, score: scoreSubAgentMatch(agent, normalized) }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.agent.name.localeCompare(b.agent.name))
+    .slice(0, 5)
+    .map((entry) => entry.agent);
 }
 
 function safeAgentFilename(name: string): string {
