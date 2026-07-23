@@ -16,6 +16,7 @@
         { "id": "deepseek/deepseek-v4", "displayName": "DeepSeek V4" },
         { "id": "anthropic/claude-5-sonnet", "displayName": "Claude 5 Sonnet" },
         { "id": "anthropic/claude-5-opus", "displayName": "Claude 5 Opus" },
+        { "id": "x-ai/grok-4.5", "displayName": "Grok 4.5" },
         { "id": "x-ai/grok-2-latest", "displayName": "Grok 2 Latest" },
         { "id": "meta-llama/llama-3.1-70b-instruct", "displayName": "Llama 3.1 70B Instruct" }
       ]
@@ -114,12 +115,17 @@
       ]
     },
     "xai": {
-      "defaultModel": "grok-4.20-reasoning",
-      "runtimeDefaultModel": "grok-4.20-reasoning",
+      "defaultModel": "grok-4.5",
+      "runtimeDefaultModel": "grok-4.5",
       "models": [
-        "grok-4.20-reasoning",
-        "grok-4-1-fast-reasoning-latest",
-        "grok-4.20-0309-reasoning"
+        { "id": "grok-4.5", "displayName": "Grok 4.5" },
+        { "id": "grok-4.5-latest", "displayName": "Grok 4.5 Latest" },
+        { "id": "grok-build-0.1", "displayName": "Grok Build 0.1" },
+        { "id": "grok-4.3", "displayName": "Grok 4.3" },
+        { "id": "grok-4.20-reasoning", "displayName": "Grok 4.20 Reasoning" },
+        { "id": "grok-4-1-fast-reasoning-latest", "displayName": "Grok 4.1 Fast Reasoning" },
+        { "id": "grok-4.20-0309-reasoning", "displayName": "Grok 4.20 0309 Reasoning" },
+        { "id": "grok-4.20-0309-non-reasoning", "displayName": "Grok 4.20 0309 Non-Reasoning" }
       ]
     },
     "cerebras": {

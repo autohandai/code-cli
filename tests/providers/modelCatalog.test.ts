@@ -38,6 +38,13 @@ describe("modelCatalog", () => {
       "gpt-5.6-luna",
       "gpt-5.4",
     ]));
+    expect(getProviderDefaultModel("xai")).toBe("grok-4.5");
+    expect(getProviderModelIds("xai")).toEqual(expect.arrayContaining([
+      "grok-4.5",
+      "grok-4.5-latest",
+      "grok-4.3",
+      "grok-4.20-reasoning",
+    ]));
   });
 
   it("keeps runtime defaults separate from user-facing defaults when needed", async () => {
