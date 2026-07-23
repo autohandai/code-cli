@@ -27,7 +27,7 @@ jobs:
         with:
           ref: main
 
-      - name: Generate Pi-compatible catalog
+      - name: Generate model catalog
         run: |
           mkdir -p "$RUNNER_TEMP/autohand-model-catalog"
           node .github/scripts/generate-model-catalog.mjs \
