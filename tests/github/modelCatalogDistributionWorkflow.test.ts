@@ -90,6 +90,28 @@ describe("model catalog distribution automation", () => {
     expect(source).toContain('`revision=${revision}`');
   });
 
+  it("reports a clear error when a required flag's value is empty, e.g. an unset GitHub secret", () => {
+    let error: (Error & { stderr?: string }) | undefined;
+    try {
+      execFileSync(process.execPath, [
+        PUBLISH_SCRIPT,
+        "--input", "/nonexistent/models.json",
+        "--bucket", "",
+        "--endpoint", "https://example.r2.cloudflarestorage.com",
+        "--source-commit", "abc123",
+        "--revision-prefix", "cli/revisions/",
+        "--latest-key", "cli/models.json",
+        "--metadata-key", "cli/catalog.json",
+      ], { encoding: "utf8" });
+    } catch (caught) {
+      error = caught as Error & { stderr?: string };
+    }
+
+    expect(error).toBeDefined();
+    expect(String(error?.stderr)).toContain("--bucket");
+    expect(String(error?.stderr)).toContain("empty or unset");
+  });
+
   it("turns an R2 admin draft into a reviewable pull request without auto-merging", () => {
     const source = readFileSync(ADMIN_WORKFLOW, "utf8");
     const workflow = parseYaml(source) as {
