@@ -11,12 +11,14 @@ import ora, { type Ora } from 'ora';
 import { BaseUIManager, type UIManager } from './UIManager.js';
 import { PersistentInput, type PersistentInputOptions } from './persistentInput.js';
 import type { TerminalRegions } from './terminalRegions.js';
+import type { InteractionMode } from '../core/agent/InteractionModeController.js';
 
 export interface PlainUIManagerOptions {
   workspaceRoot?: string;
   silentMode?: boolean;
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
   suggestionProvider?: () => string | undefined;
+  onCycleInteractionMode?: () => InteractionMode;
 }
 
 export class PlainUIManager extends BaseUIManager implements UIManager {
@@ -41,6 +43,7 @@ export class PlainUIManager extends BaseUIManager implements UIManager {
       silentMode: this.options.silentMode,
       resolveShellSuggestion: this.options.resolveShellSuggestion,
       suggestionProvider: this.options.suggestionProvider,
+      onCycleInteractionMode: this.options.onCycleInteractionMode,
     };
 
     this.persistentInput = new PersistentInput(persistentInputOptions);

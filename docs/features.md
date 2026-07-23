@@ -32,7 +32,7 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 - [x] Theme support (dark/light in config)
 - [x] Syntax-highlighted code blocks
 - [x] Interactive diff viewer (accept/reject/edit)
-- [x] **Plan Mode**: Toggle with Shift+Tab, colorful status indicator, edit tool limiting
+- [x] **Interaction Modes**: Cycle edit, plan, YOLO, and auto modes with Shift+Tab
 - [x] **IDE Integration**: `/ide` command to connect to VS Code, Cursor, Zed, Antigravity
 - [ ] Redo for file changes
 - [ ] Search history and command palette

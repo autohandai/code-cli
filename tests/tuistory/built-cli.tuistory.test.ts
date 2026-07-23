@@ -637,6 +637,40 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
+  it('cycles Shift+Tab through plan, yolo, automode, and default', async () => {
+    const session = await launchInteractive();
+
+    await waitForComposer(session);
+
+    for (const indicator of ['[PLAN]', '[YOLO]', '[AUTO]']) {
+      await session.press(['shift', 'tab']);
+      const screen = await session.text({
+        timeout: 5_000,
+        waitFor: (text) => text.includes(indicator),
+        trimEnd: true,
+      });
+      expect(screen).toContain(indicator);
+    }
+
+    await session.press(['shift', 'tab']);
+    const defaultScreen = await session.text({
+      timeout: 5_000,
+      waitFor: (text) => (
+        text.includes('❯')
+        && !text.includes('[PLAN]')
+        && !text.includes('[YOLO]')
+        && !text.includes('[AUTO]')
+      ),
+      trimEnd: true,
+    });
+
+    expect(defaultScreen).not.toContain('[PLAN]');
+    expect(defaultScreen).not.toContain('[YOLO]');
+    expect(defaultScreen).not.toContain('[AUTO]');
+
+    await exitInteractive(session);
+  });
+
   it('starts device auth from the startup auth gate', async () => {
     const state = await createTempAutohandHome({
       config: {

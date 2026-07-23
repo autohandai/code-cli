@@ -223,6 +223,50 @@ describe('AgentUI terminal resize rendering', () => {
   });
 });
 
+describe('AgentUI interaction mode shortcut', () => {
+  it('cycles Shift+Tab through plan, yolo, automode, and default', async () => {
+    const modes = ['plan', 'yolo', 'automode', 'default'] as const;
+    let currentMode: typeof modes[number] | 'default' = 'default';
+    const onCycleInteractionMode = vi.fn(() => {
+      currentMode = modes.shift() ?? 'default';
+      return currentMode;
+    });
+    const { lastFrame, stdin } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state: createInitialUIState(),
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+            getInteractionMode: () => currentMode,
+            onCycleInteractionMode,
+          })
+        )
+      )
+    );
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    for (const indicator of ['[PLAN]', '[YOLO]', '[AUTO]']) {
+      stdin.write('\x1b[Z');
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(stripAnsi(lastFrame() ?? '')).toContain(indicator);
+    }
+
+    stdin.write('\x1b[Z');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const defaultFrame = stripAnsi(lastFrame() ?? '');
+    expect(defaultFrame).not.toContain('[PLAN]');
+    expect(defaultFrame).not.toContain('[YOLO]');
+    expect(defaultFrame).not.toContain('[AUTO]');
+    expect(onCycleInteractionMode).toHaveBeenCalledTimes(4);
+  });
+});
+
 describe('AgentUI composer suggestions', () => {
   const slashCommands = [
     { command: '/help', description: 'Show help', implemented: true },

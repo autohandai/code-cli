@@ -538,7 +538,7 @@ describe('prompt hot tips', () => {
       .join('\n');
 
     expect(lines).toContain('tab accepts suggestion');
-    expect(lines).toContain('shift + tab toggles plan mode');
+    expect(lines).toContain('shift + tab cycles interaction modes');
     expect(lines).toContain('? toggles this shortcuts panel');
     expect(lines).not.toContain('ctrl + g');
     expect(lines).not.toContain('esc esc to edit previous message');
@@ -701,6 +701,101 @@ describe('prompt shortcut key helpers', () => {
     expect(shouldAutoHideShortcutHelp('\t', { name: 'tab', sequence: '\t', shift: false } as readline.Key)).toBe(false);
     expect(shouldAutoHideShortcutHelp('\x1b[Z', { name: 'tab', sequence: '\x1b[Z', shift: false } as readline.Key)).toBe(false);
     expect(shouldAutoHideShortcutHelp('', { name: 'escape' } as readline.Key)).toBe(false);
+  });
+});
+
+describe('idle prompt interaction mode cycling', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('routes Shift+Tab through the agent-owned four-mode cycle', async () => {
+    const writes: string[] = [];
+    const stdOutput = new EventEmitter() as NodeJS.WriteStream & {
+      columns: number;
+      write: (chunk: string | Buffer) => boolean;
+    };
+    stdOutput.columns = 100;
+    stdOutput.write = vi.fn((chunk: string | Buffer) => {
+      writes.push(String(chunk));
+      return true;
+    });
+
+    const stdInput = new EventEmitter() as NodeJS.ReadStream & {
+      isTTY: boolean;
+      setRawMode: (mode: boolean) => void;
+      setEncoding: (encoding: BufferEncoding) => void;
+      resume: () => void;
+      pause: () => void;
+      read: () => null;
+    };
+    stdInput.isTTY = true;
+    stdInput.setRawMode = vi.fn();
+    stdInput.setEncoding = vi.fn();
+    stdInput.resume = vi.fn();
+    stdInput.pause = vi.fn();
+    stdInput.read = vi.fn(() => null);
+
+    const rl = new EventEmitter() as readline.Interface & {
+      line: string;
+      cursor: number;
+      input: NodeJS.ReadStream;
+      output: NodeJS.WriteStream;
+      close: () => void;
+      pause: () => void;
+      resume: () => void;
+      prompt: () => void;
+      setPrompt: (prompt: string) => void;
+      _refreshLine?: () => void;
+      _moveCursor?: () => void;
+    };
+    rl.line = '';
+    rl.cursor = 0;
+    rl.input = stdInput;
+    rl.output = stdOutput;
+    rl.close = vi.fn();
+    rl.pause = vi.fn();
+    rl.resume = vi.fn();
+    rl.prompt = vi.fn();
+    rl.setPrompt = vi.fn();
+    rl._refreshLine = vi.fn();
+    rl._moveCursor = vi.fn();
+
+    vi.spyOn(readline, 'createInterface').mockReturnValue(rl);
+    vi.spyOn(readline, 'emitKeypressEvents').mockImplementation(() => undefined);
+    vi.spyOn(readline, 'cursorTo').mockImplementation(() => true as any);
+    vi.spyOn(readline, 'clearLine').mockImplementation(() => true as any);
+    vi.spyOn(readline, 'moveCursor').mockImplementation(() => true as any);
+
+    const modes = ['plan', 'yolo', 'automode', 'default'] as const;
+    const onCycleInteractionMode = vi.fn(() => modes.shift() ?? 'default');
+    const { readInstruction, promptInterrupt } = await import('../../src/ui/inputPrompt.js');
+    const promptPromise = readInstruction(
+      () => [],
+      [],
+      undefined,
+      { input: stdInput, output: stdOutput, onCycleInteractionMode }
+    );
+
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    for (let index = 0; index < 4; index++) {
+      stdInput.emit('keypress', '\x1b[Z', {
+        name: 'backtab',
+        sequence: '\x1b[Z',
+        shift: true,
+      } satisfies Partial<readline.Key>);
+    }
+
+    expect(onCycleInteractionMode).toHaveBeenCalledTimes(4);
+    expect(writes.join('')).toContain('[PLAN]');
+    expect(writes.join('')).toContain('[YOLO]');
+    expect(writes.join('')).toContain('[AUTO]');
+    expect(writes.join('')).toContain('[EDIT]');
+
+    promptInterrupt('done');
+    await expect(promptPromise).resolves.toBe('done');
   });
 });
 

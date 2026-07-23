@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { plan, metadata, getPlanModeManager } from '../../src/commands/plan.js';
 import type { SlashCommandContext } from '../../src/core/slashCommandTypes.js';
+import type { InteractionMode } from '../../src/core/agent/InteractionModeController.js';
 
 function stripAnsi(value: string): string {
   return value.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
@@ -42,6 +43,23 @@ describe('/plan command', () => {
   });
 
   describe('toggle behavior', () => {
+    it('selects plan through the canonical interaction mode controller', async () => {
+      let interactionMode: InteractionMode = 'yolo';
+      const setInteractionMode = vi.fn((mode: InteractionMode) => {
+        interactionMode = mode;
+        return mode;
+      });
+      const ctx = {
+        getInteractionMode: () => interactionMode,
+        setInteractionMode,
+      } as unknown as SlashCommandContext;
+
+      await plan(ctx, '');
+
+      expect(setInteractionMode).toHaveBeenCalledWith('plan');
+      expect(interactionMode).toBe('plan');
+    });
+
     it('enables plan mode when called without args and disabled', async () => {
       const manager = getPlanModeManager();
       expect(manager.isEnabled()).toBe(false);

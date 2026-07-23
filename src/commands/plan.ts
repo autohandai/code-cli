@@ -52,29 +52,43 @@ export function formatPlanModeToggleMessage(enabled: boolean): string {
   return `${chalk.gray('Plan mode')} ${chalk.red('OFF')}`;
 }
 
-export async function plan(_ctx: SlashCommandContext, args?: string, opts?: PlanOptions): Promise<string | null> {
+export async function plan(ctx: SlashCommandContext, args?: string, opts?: PlanOptions): Promise<string | null> {
   const manager = getPlanModeManager();
   const subcommand = args?.trim().toLowerCase();
   const out = opts?.output ?? console.log;
+  const isEnabled = () => ctx.getInteractionMode
+    ? ctx.getInteractionMode() === 'plan'
+    : manager.isEnabled();
+  const setEnabled = (enabled: boolean) => {
+    if (ctx.setInteractionMode) {
+      ctx.setInteractionMode(enabled ? 'plan' : 'default');
+      return;
+    }
+    if (enabled) {
+      manager.enable();
+    } else {
+      manager.disable();
+    }
+  };
 
   switch (subcommand) {
     case 'on':
     case 'enable':
-      if (manager.isEnabled()) {
+      if (isEnabled()) {
         out(chalk.yellow('Plan mode is already enabled.'));
         return null;
       }
-      manager.enable();
+      setEnabled(true);
       out(formatPlanModeToggleMessage(true));
       return null;
 
     case 'off':
     case 'disable':
-      if (!manager.isEnabled()) {
+      if (!isEnabled()) {
         out(chalk.yellow('Plan mode is not enabled.'));
         return null;
       }
-      manager.disable();
+      setEnabled(false);
       out(formatPlanModeToggleMessage(false));
       return null;
 
@@ -84,11 +98,11 @@ export async function plan(_ctx: SlashCommandContext, args?: string, opts?: Plan
     case '':
     case undefined:
       // Toggle
-      if (manager.isEnabled()) {
-        manager.disable();
+      if (isEnabled()) {
+        setEnabled(false);
         out(formatPlanModeToggleMessage(false));
       } else {
-        manager.enable();
+        setEnabled(true);
         out(formatPlanModeToggleMessage(true));
       }
       return null;
@@ -103,8 +117,7 @@ Usage:
   /plan status - Show current plan state
 
 Keyboard shortcut:
-  Shift+Tab (twice) - Enter plan mode
-  Shift+Tab (once)  - Exit plan mode (when in plan mode)
+  Shift+Tab - Cycle edit, plan, YOLO, and auto modes
 `));
       return null;
   }

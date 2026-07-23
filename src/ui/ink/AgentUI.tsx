@@ -42,6 +42,11 @@ import { buildFileMentionSuggestions } from '../mentionFilter.js';
 import { getContentDisplay } from '../displayUtils.js';
 import type { ChatLogMessage } from '../../session/chatLog.js';
 import { formatCompactTokens } from '../../core/agent/AgentFormatter.js';
+import {
+  getInteractionModeDescription,
+  getInteractionModeIndicator,
+  type InteractionMode,
+} from '../../core/agent/InteractionModeController.js';
 
 export interface ContextTokenDisplay {
   used: number;
@@ -93,6 +98,8 @@ export interface AgentUIState {
   extensionLineExtensions?: AgentUILineExtensions;
   /** Monotonic refresh signal used when lazy suggestion providers resolve. */
   suggestionRefreshId?: number;
+  /** Current mutually-exclusive editing interaction mode. */
+  interactionMode: InteractionMode;
 }
 
 export interface AgentUILineExtensions {
@@ -130,6 +137,10 @@ export interface AgentUIProps {
   onReplaceQueuedInstruction?: (index: number, text: string) => void;
   /** Remove a queued instruction owned by the renderer. */
   onRemoveQueuedInstruction?: (index: number) => void;
+  /** Read the canonical interaction mode owned by the agent session. */
+  getInteractionMode?: () => InteractionMode;
+  /** Cycle the canonical interaction mode and return the selected mode. */
+  onCycleInteractionMode?: () => InteractionMode;
 }
 
 interface TextBufferKeyInfo {
@@ -623,6 +634,8 @@ export function AgentUI({
   extensionKeybindings: extensionKeybindingProps = [],
   onReplaceQueuedInstruction,
   onRemoveQueuedInstruction,
+  getInteractionMode,
+  onCycleInteractionMode,
 }: AgentUIProps) {
   const { colors } = useTheme();
   const { t } = useTranslation();
@@ -633,6 +646,9 @@ export function AgentUI({
   const [ctrlCCount, setCtrlCCount] = useState(0);
   const [planModeIndicator, setPlanModeIndicator] = useState('');
   const [planModeStatusKey, setPlanModeStatusKey] = useState('');
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>(
+    getInteractionMode?.() ?? state.interactionMode ?? 'default'
+  );
   const [queueSelectionIndex, setQueueSelectionIndex] = useState<number | null>(null);
   const [editingQueueIndex, setEditingQueueIndex] = useState<number | null>(null);
   
@@ -708,6 +724,10 @@ export function AgentUI({
   onReplaceQueuedInstructionRef.current = onReplaceQueuedInstruction;
   const onRemoveQueuedInstructionRef = useRef(onRemoveQueuedInstruction);
   onRemoveQueuedInstructionRef.current = onRemoveQueuedInstruction;
+  const getInteractionModeRef = useRef(getInteractionMode);
+  getInteractionModeRef.current = getInteractionMode;
+  const onCycleInteractionModeRef = useRef(onCycleInteractionMode);
+  onCycleInteractionModeRef.current = onCycleInteractionMode;
   const queuedInstructionsRef = useRef(state.queuedInstructions);
   queuedInstructionsRef.current = state.queuedInstructions;
   const queueSelectionIndexRef = useRef(queueSelectionIndex);
@@ -896,6 +916,10 @@ export function AgentUI({
     const updateIndicator = () => {
       setPlanModeIndicator(planModeManager.getPromptIndicator());
       setPlanModeStatusKey(planModeManager.getStatusDescriptionKey());
+      setInteractionMode(
+        getInteractionModeRef.current?.()
+          ?? (planModeManager.isEnabled() ? 'plan' : 'default')
+      );
     };
 
     planModeManager.on('enabled', updateIndicator);
@@ -911,6 +935,10 @@ export function AgentUI({
       planModeManager.off('execution:started', updateIndicator);
     };
   }, []);
+
+  useEffect(() => {
+    setInteractionMode(getInteractionModeRef.current?.() ?? state.interactionMode);
+  }, [state.interactionMode]);
 
   // Sync input changes to parent for preservation across pause/resume
   useEffect(() => {
@@ -1184,10 +1212,16 @@ export function AgentUI({
       return;
     }
 
-    // Handle Shift+Tab for plan mode toggle
+    // Handle Shift+Tab for interaction mode cycling
     if (key.tab && key.shift) {
+      const cycleInteractionMode = onCycleInteractionModeRef.current;
+      if (cycleInteractionMode) {
+        setInteractionMode(cycleInteractionMode());
+        return;
+      }
       const planModeManager = getPlanModeManager();
       planModeManager.handleShiftTab();
+      setInteractionMode(planModeManager.isEnabled() ? 'plan' : 'default');
       return;
     }
 
@@ -1775,7 +1809,7 @@ export function AgentUI({
     if (/^[\s\u200B-\u200D\uFEFF]*!/u.test(input)) {
       return 'shell';
     }
-    if (getPlanModeManager().isEnabled()) {
+    if (interactionMode === 'plan') {
       return 'plan';
     }
     return 'default';
@@ -1783,14 +1817,19 @@ export function AgentUI({
   const effectiveLineExtensions = state.lineExtensions ?? lineExtensions;
   const effectiveConfiguredLineExtensions = state.configuredLineExtensions;
   const effectiveRuntimeLineExtensions = state.extensionLineExtensions;
+  const interactionModeIndicator = interactionMode === 'plan'
+    ? planModeIndicator || getInteractionModeIndicator('plan')
+    : getInteractionModeIndicator(interactionMode);
+  const interactionModeDescription = interactionMode === 'plan' && planModeStatusKey
+    ? t(planModeStatusKey)
+    : getInteractionModeDescription(interactionMode);
 
   return (
     <Box flexDirection="column">
-      {/* Plan mode indicator */}
-      {planModeIndicator && planModeStatusKey && (
+      {interactionModeIndicator && (
         <Box>
-          <Text color={colors.accent} bold>{planModeIndicator}</Text>
-          <Text color={colors.muted}> {t(planModeStatusKey)}</Text>
+          <Text color={colors.accent} bold>{interactionModeIndicator}</Text>
+          <Text color={colors.muted}> {interactionModeDescription}</Text>
         </Box>
       )}
 
@@ -2563,5 +2602,6 @@ export function createInitialUIState(): AgentUIState {
     model: undefined,
     lineExtensions: undefined,
     configuredLineExtensions: undefined,
+    interactionMode: 'default',
   };
 }

@@ -14,6 +14,9 @@ import { getPlanModeManager } from '../../src/commands/plan.js';
 import { ApiError } from '../../src/providers/errors.js';
 import { buildToolLoopCallSignature } from '../../src/core/agent/ToolLoopSignature.js';
 import { setNodePtyLoaderForTests } from '../../src/ui/shellCommand.js';
+import type { AgentRuntime, LLMProvider } from '../../src/types.js';
+import type { FileActionManager } from '../../src/actions/filesystem.js';
+import type { InteractionMode } from '../../src/core/agent/InteractionModeController.js';
 
 async function waitForAssertion(assertion: () => void, attempts = 20): Promise<void> {
   let lastError: unknown;
@@ -51,7 +54,198 @@ function overrideStreamTTY(
   };
 }
 
+function createInteractionModeAgent(options: AgentRuntime['options'] = {}): {
+  agent: AutohandAgent;
+  runtime: AgentRuntime;
+} {
+  const runtime = {
+    config: {
+      provider: 'openrouter',
+      openrouter: { model: 'test-model' },
+      permissions: { mode: 'interactive' },
+      ui: { useInkRenderer: false },
+    },
+    workspaceRoot: '/test/workspace',
+    options,
+  } as AgentRuntime;
+  const llm = {
+    generate: vi.fn(),
+    generateStream: vi.fn(),
+    getModel: vi.fn().mockReturnValue('test-model'),
+  } as unknown as LLMProvider;
+  const files = {
+    root: '/test/workspace',
+    readFile: vi.fn(),
+    writeFile: vi.fn(),
+  } as unknown as FileActionManager;
+
+  return {
+    agent: new AutohandAgent(llm, files, runtime),
+    runtime,
+  };
+}
+
 describe('agent startup and active input UI', () => {
+  it.each(['allow:read_file', 'deny:run_command'])(
+    'preserves granular startup YOLO policy %s instead of broadening it to allow all',
+    (yoloPattern) => {
+      const { runtime } = createInteractionModeAgent({ yolo: yoloPattern });
+
+      expect(runtime.options.yolo).toBe(yoloPattern);
+    }
+  );
+
+  it.each([
+    {
+      name: 'restricted',
+      options: { restricted: true },
+      expected: { restricted: true, dryRun: false },
+    },
+    {
+      name: 'dry-run',
+      options: { dryRun: true },
+      expected: { restricted: false, dryRun: true },
+    },
+  ])('preserves the $name safety baseline for granular startup YOLO', ({ options, expected }) => {
+    const yoloPattern = 'allow:read_file';
+    const { agent, runtime } = createInteractionModeAgent({
+      ...options,
+      yolo: yoloPattern,
+    });
+    const internals = agent as unknown as {
+      getInteractionMode(): InteractionMode;
+      permissionManager: { getMode(): string };
+    };
+
+    expect(internals.getInteractionMode()).toBe('yolo');
+    expect(runtime.options.yolo).toBe(yoloPattern);
+    expect(runtime.options.yes).toBe(false);
+    expect(runtime.options.unrestricted).toBe(false);
+    expect(runtime.options.restricted).toBe(expected.restricted);
+    expect(runtime.options.dryRun).toBe(expected.dryRun);
+    expect(internals.permissionManager.getMode()).toBe('restricted');
+  });
+
+  it('does not broaden granular startup YOLO to tools outside its allow policy', async () => {
+    const { agent, runtime } = createInteractionModeAgent({
+      yolo: 'allow:read_file',
+    });
+    const confirmationCallback = vi.fn().mockResolvedValue(false);
+    agent.setConfirmationCallback(confirmationCallback);
+
+    const decision = await (agent as unknown as {
+      confirmDangerousAction(
+        message: string,
+        context: { tool: string; command: string }
+      ): Promise<{ decision: string }>;
+    }).confirmDangerousAction('Run command?', {
+      tool: 'run_command',
+      command: 'bun test',
+    });
+
+    expect(runtime.options.yes).toBe(false);
+    expect(runtime.options.unrestricted).toBe(false);
+    expect(decision).toEqual({ decision: 'deny_once' });
+    expect(confirmationCallback).toHaveBeenCalledOnce();
+  });
+
+  it('gives interactive automode precedence over a conflicting startup YOLO flag', () => {
+    const { agent, runtime } = createInteractionModeAgent({
+      interactiveAutoMode: true,
+      yolo: 'allow:read_file',
+    });
+    const internals = agent as unknown as {
+      getInteractionMode(): InteractionMode;
+      interactiveAutomodeEnabled: boolean;
+    };
+
+    expect(internals.getInteractionMode()).toBe('automode');
+    expect(internals.interactiveAutomodeEnabled).toBe(true);
+    expect(runtime.options.yolo).toBeUndefined();
+  });
+
+  it('cycles the real agent through mutually-exclusive modes and restores default approvals', () => {
+    const planModeManager = getPlanModeManager();
+    planModeManager.disable();
+    const { agent, runtime } = createInteractionModeAgent();
+    const internals = agent as unknown as {
+      cycleInteractionMode(): InteractionMode;
+      interactiveAutomodeEnabled: boolean;
+      permissionManager: { getMode(): string };
+    };
+
+    try {
+      expect(internals.cycleInteractionMode()).toBe('plan');
+      expect(planModeManager.isEnabled()).toBe(true);
+      expect(runtime.options.yolo).toBeUndefined();
+      expect(internals.interactiveAutomodeEnabled).toBe(false);
+      expect(internals.permissionManager.getMode()).toBe('interactive');
+
+      expect(internals.cycleInteractionMode()).toBe('yolo');
+      expect(planModeManager.isEnabled()).toBe(false);
+      expect(runtime.options.yolo).toBe('allow:*');
+      expect(internals.interactiveAutomodeEnabled).toBe(false);
+      expect(internals.permissionManager.getMode()).toBe('unrestricted');
+
+      expect(internals.cycleInteractionMode()).toBe('automode');
+      expect(planModeManager.isEnabled()).toBe(false);
+      expect(runtime.options.yolo).toBeUndefined();
+      expect(internals.interactiveAutomodeEnabled).toBe(true);
+      expect(internals.permissionManager.getMode()).toBe('unrestricted');
+
+      expect(internals.cycleInteractionMode()).toBe('default');
+      expect(planModeManager.isEnabled()).toBe(false);
+      expect(runtime.options.yolo).toBeUndefined();
+      expect(internals.interactiveAutomodeEnabled).toBe(false);
+      expect(runtime.options.yes).toBe(false);
+      expect(runtime.options.unrestricted).toBe(false);
+      expect(runtime.options.restricted).toBe(false);
+      expect(runtime.options.dryRun).toBe(false);
+      expect(internals.permissionManager.getMode()).toBe('interactive');
+    } finally {
+      planModeManager.disable();
+    }
+  });
+
+  it.each([
+    {
+      name: 'restricted',
+      options: { restricted: true },
+      expected: { restricted: true, dryRun: false },
+    },
+    {
+      name: 'dry-run',
+      options: { dryRun: true },
+      expected: { restricted: false, dryRun: true },
+    },
+  ])('restores the $name baseline after cycling through elevated modes', ({ options, expected }) => {
+    const planModeManager = getPlanModeManager();
+    planModeManager.disable();
+    const { agent, runtime } = createInteractionModeAgent(options);
+    const internals = agent as unknown as {
+      cycleInteractionMode(): InteractionMode;
+      permissionManager: { getMode(): string };
+    };
+
+    try {
+      internals.cycleInteractionMode();
+      internals.cycleInteractionMode();
+      expect(runtime.options.unrestricted).toBe(true);
+      expect(runtime.options.dryRun).toBe(false);
+
+      internals.cycleInteractionMode();
+      internals.cycleInteractionMode();
+
+      expect(runtime.options.yes).toBe(false);
+      expect(runtime.options.unrestricted).toBe(false);
+      expect(runtime.options.restricted).toBe(expected.restricted);
+      expect(runtime.options.dryRun).toBe(expected.dryRun);
+      expect(internals.permissionManager.getMode()).toBe('restricted');
+    } finally {
+      planModeManager.disable();
+    }
+  });
+
   it('syncInteractiveAutomodePermissions enables unrestricted approvals when interactive auto-mode is on', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
 
@@ -90,6 +284,8 @@ describe('agent startup and active input UI', () => {
       setMode: vi.fn(),
     };
     agent.basePermissionMode = 'interactive';
+    agent.baseUnrestrictedMode = false;
+    agent.baseRestrictedMode = false;
     agent.interactiveAutomodeEnabled = false;
 
     (agent as any).syncInteractiveAutomodePermissions();
@@ -98,6 +294,34 @@ describe('agent startup and active input UI', () => {
     expect(agent.runtime.options.unrestricted).toBe(false);
     expect(agent.runtime.options.restricted).toBe(false);
     expect(agent.permissionManager.setMode).toHaveBeenCalledWith('interactive');
+  });
+
+  it('restores baseline approvals after enabling and disabling interactive auto-mode', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+
+    agent.runtime = {
+      options: {
+        yes: false,
+        unrestricted: false,
+        restricted: false,
+      },
+    };
+    agent.permissionManager = {
+      setMode: vi.fn(),
+    };
+    agent.basePermissionMode = 'interactive';
+    agent.baseYesMode = false;
+    agent.baseUnrestrictedMode = false;
+    agent.baseRestrictedMode = false;
+    agent.interactiveAutomodeEnabled = false;
+
+    (agent as any).setInteractiveAutomodeEnabled(true);
+    (agent as any).setInteractiveAutomodeEnabled(false);
+
+    expect(agent.runtime.options.yes).toBe(false);
+    expect(agent.runtime.options.unrestricted).toBe(false);
+    expect(agent.runtime.options.restricted).toBe(false);
+    expect(agent.permissionManager.setMode).toHaveBeenLastCalledWith('interactive');
   });
 
   it('syncInteractiveAutomodePermissions preserves the --yes CLI baseline', () => {
@@ -139,6 +363,8 @@ describe('agent startup and active input UI', () => {
       setMode: vi.fn(),
     };
     agent.basePermissionMode = 'interactive';
+    agent.baseUnrestrictedMode = true;
+    agent.baseRestrictedMode = false;
     agent.interactiveAutomodeEnabled = false;
 
     (agent as any).syncInteractiveAutomodePermissions();
@@ -163,6 +389,8 @@ describe('agent startup and active input UI', () => {
       setMode: vi.fn(),
     };
     agent.basePermissionMode = 'unrestricted';
+    agent.baseUnrestrictedMode = false;
+    agent.baseRestrictedMode = true;
     agent.interactiveAutomodeEnabled = false;
 
     (agent as any).syncInteractiveAutomodePermissions();

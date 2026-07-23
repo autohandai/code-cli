@@ -133,7 +133,7 @@ Features:
 - **Smart Paste**: Paste any amount of code (5+ lines shows compact indicator, full content sent to LLM)
 - Press `ESC` to cancel in-flight requests
 - Press `Ctrl+C` twice to exit
-- Press `Shift+Tab` to toggle plan mode
+- Press `Shift+Tab` to cycle edit, plan, YOLO, and auto modes
 - Press `?` to toggle keyboard shortcuts panel
 - Press `Enter` or `Shift+Enter` for newlines in multi-line input
 

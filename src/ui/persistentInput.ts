@@ -23,6 +23,7 @@ import { handleTextBufferKey } from './textBufferKeyHandler.js';
 import { safeSetRawMode } from './rawMode.js';
 import { getPrimaryShellCommandSuggestion, isImmediateCommand } from './shellCommand.js';
 import { getPlanModeManager } from '../commands/plan.js';
+import type { InteractionMode } from '../core/agent/InteractionModeController.js';
 
 export interface QueuedMessage {
   text: string;
@@ -40,6 +41,8 @@ export interface PersistentInputOptions {
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
   /** Lazy provider for the current next-step suggestion shown as ghost text. */
   suggestionProvider?: () => string | undefined;
+  /** Cycle the agent-owned interaction mode selected by Shift+Tab. */
+  onCycleInteractionMode?: () => InteractionMode;
 }
 
 type RawModeReadStream = NodeJS.ReadStream & {
@@ -81,6 +84,7 @@ export class PersistentInput extends EventEmitter {
   private workspaceRoot: string;
   private resolveShellSuggestion?: (input: string) => Promise<string | null>;
   private suggestionProvider?: () => string | undefined;
+  private onCycleInteractionMode?: () => InteractionMode;
   private shellSuggestionRequestId = 0;
   private pendingSuggestionId = 0;
   private queueShortcutSelectionIndex: number | null = null;
@@ -105,6 +109,7 @@ export class PersistentInput extends EventEmitter {
     this.workspaceRoot = options.workspaceRoot ?? process.cwd();
     this.resolveShellSuggestion = options.resolveShellSuggestion;
     this.suggestionProvider = options.suggestionProvider;
+    this.onCycleInteractionMode = options.onCycleInteractionMode;
     this.regions = createTerminalRegions(this.output);
     this.textBuffer = new TextBuffer(80, 5);
   }
@@ -509,8 +514,12 @@ export class PersistentInput extends EventEmitter {
       return;
     }
 
-    // Shift+Tab toggles plan mode while the agent is actively working.
+    // Shift+Tab cycles interaction modes while the agent is actively working.
     if (isShiftTabShortcut(_str, key)) {
+      if (this.onCycleInteractionMode) {
+        this.emit('interaction-mode-changed', this.onCycleInteractionMode());
+        return;
+      }
       const planModeManager = getPlanModeManager();
       planModeManager.handleShiftTab();
       this.emit('plan-mode-toggled', planModeManager.isEnabled());
@@ -954,7 +963,7 @@ export class PersistentInput extends EventEmitter {
     const lines = [
       chalk.cyan('\nShortcuts'),
       chalk.gray('  / commands · @ mention files · ! shell commands'),
-      chalk.gray('  Enter submit · Tab autocomplete · Shift+Tab plan mode'),
+      chalk.gray('  Enter submit · Tab autocomplete · Shift+Tab cycle mode'),
       chalk.gray('  Shift+Enter newline · Ctrl+Q queue browser'),
       chalk.gray('  Esc interrupt · Ctrl+C twice to exit'),
     ];

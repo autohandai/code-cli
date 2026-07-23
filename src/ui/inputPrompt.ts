@@ -20,6 +20,8 @@ import {
 import type { SlashCommand } from '../core/slashCommands.js';
 import { MentionPreview } from './mentionPreview.js';
 import { formatPlanModeToggleMessage, getPlanModeManager } from '../commands/plan.js';
+import type { InteractionMode } from '../core/agent/InteractionModeController.js';
+import { formatInteractionModeChangeMessage } from './interactionModePresentation.js';
 import { safeSetRawMode } from './rawMode.js';
 import {
   type ImageMimeType,
@@ -294,7 +296,7 @@ const CONTEXTUAL_HELP_ROWS: Array<{ left: string; right: string }> = [
   { left: '/ for commands', right: '! for shell commands' },
   { left: '@ for file paths', right: 'tab accepts suggestion' },
   { left: '$ for skills', right: 'tab accepts suggestion' },
-  { left: '? toggles this shortcuts panel', right: 'shift + tab toggles plan mode' },
+  { left: '? toggles this shortcuts panel', right: 'shift + tab cycles interaction modes' },
   { left: 'shift + enter inserts newline', right: 'alt + enter inserts newline' },
   { left: 'enter submits prompt', right: 'ctrl + c clears input / exits' },
   { left: 'esc interrupts active turn', right: 'type /, @, $, or ! to switch mode' },
@@ -405,7 +407,7 @@ export function buildPromptHotTips(
     defaultFileTip,
     { label: 'Type $ for skills' },
     { label: 'Type /, @, $, or ! to switch suggestion mode' },
-    { label: 'Shift+Tab toggles plan mode' },
+    { label: 'Shift+Tab cycles edit, plan, YOLO, and auto modes' },
   ];
 }
 
@@ -1203,6 +1205,7 @@ type ImageDetectedCallback = (
 interface PromptIO {
   input?: NodeJS.ReadStream;
   output?: NodeJS.WriteStream;
+  onCycleInteractionMode?: () => InteractionMode;
 }
 
 type PromptResult =
@@ -1550,6 +1553,7 @@ export async function readInstruction(
         resolveShellSuggestion,
         pendingSuggestion,
         skillsProvider,
+        onCycleInteractionMode: io.onCycleInteractionMode,
       });
 
       if (result.kind === 'abort') {
@@ -1579,6 +1583,7 @@ interface PromptOnceOptions {
   pendingSuggestion?: Promise<void>;
   /** Lazy provider for skill mentions ($ prefix). Returns cached skills on subsequent calls. */
   skillsProvider?: () => SkillMentionInfo[];
+  onCycleInteractionMode?: () => InteractionMode;
 }
 
 /**
@@ -1789,6 +1794,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
     resolveShellSuggestion,
     pendingSuggestion,
     skillsProvider,
+    onCycleInteractionMode,
   } = options;
 
   // Reset module-level render state so stale values from the previous
@@ -2515,8 +2521,14 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         return;
       }
 
-      // ── Shift+Tab: plan mode toggle ───────────────────────────────────
+      // ── Shift+Tab: interaction mode cycle ─────────────────────────────
       if (isShiftTabShortcut(_str, key)) {
+        if (onCycleInteractionMode) {
+          showPromptMessage(
+            formatInteractionModeChangeMessage(onCycleInteractionMode())
+          );
+          return;
+        }
         const planModeManager = getPlanModeManager();
         const wasEnabled = planModeManager.isEnabled();
         planModeManager.handleShiftTab();
