@@ -11,7 +11,8 @@ function parseArgs(args) {
   for (let index = 0; index < args.length; index += 2) {
     const flag = args[index];
     const value = args[index + 1];
-    if (!flag?.startsWith("--") || !value) throw new Error(`Invalid argument near ${flag ?? "end of input"}`);
+    if (!flag?.startsWith("--")) throw new Error(`Expected a flag starting with "--", found "${flag ?? "end of input"}"`);
+    if (!value) throw new Error(`Value for ${flag} is empty or unset — check the corresponding environment variable/secret`);
     options[flag.slice(2)] = value;
   }
   for (const required of ["input", "bucket", "endpoint", "source-commit", "revision-prefix", "latest-key", "metadata-key"]) {
