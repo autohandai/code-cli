@@ -150,6 +150,7 @@ describe('/go command', () => {
       getDeviceId: vi.fn().mockResolvedValue('device-1'),
       registerDevice: vi.fn().mockResolvedValue(undefined),
       sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      publishMobileEvent: vi.fn().mockResolvedValue(undefined),
       createPairing: vi.fn().mockResolvedValue({
         id: 'pairing-1',
         pairingUrl: 'https://autohand.ai/code/go?pairing=pairing-1&token=secret',
@@ -178,6 +179,7 @@ describe('/go command', () => {
             deliveryMode: 'steer',
             sessionId: 'session-1',
             pairingId: 'pairing-1',
+            approvalMode: 'restricted',
           },
           createdAt: '2026-05-13T00:00:00.000Z',
           updatedAt: '2026-05-13T00:00:01.000Z',
@@ -185,6 +187,11 @@ describe('/go command', () => {
         .mockResolvedValue(null),
     };
     const enqueueInstruction = vi.fn();
+    const applyPermissionMode = vi.fn().mockReturnValue({
+      previousMode: 'interactive',
+      appliedMode: 'restricted',
+      rollbackIfCurrent: vi.fn().mockReturnValue(true),
+    });
 
     const result = await go({
       sessionManager: createSessionManager(createSession()),
@@ -197,11 +204,11 @@ describe('/go command', () => {
       },
       client,
       enqueueInstruction,
+      applyPermissionMode,
       onMobileConnected,
     });
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await vi.waitFor(() => expect(enqueueInstruction).toHaveBeenCalledOnce());
 
     expect(stripAnsi(result || '')).toContain('Relay: listening for mobile prompts');
     expect(client.sendRelayHeartbeat).toHaveBeenCalledWith('token', {
@@ -222,6 +229,7 @@ describe('/go command', () => {
         relay: expect.any(Object),
       }),
     );
+    expect(applyPermissionMode).toHaveBeenCalledWith('restricted');
     expect(onMobileConnected).toHaveBeenCalledOnce();
     expect(onMobileConnected).toHaveBeenCalledWith(
       'Mobile connected. Live prompts will run in this CLI session.'

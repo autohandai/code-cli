@@ -326,6 +326,7 @@ export class SlashCommandHandler {
             onMobileRelayReady: this.ctx.onMobileRelayReady,
             onMobileConnected: this.ctx.onMobileConnected,
             onMobileDisconnected: this.ctx.onMobileDisconnected,
+            applyPermissionMode: this.ctx.applyMobilePermissionMode,
           }, args);
         }
         case '/handoff session': {
@@ -344,6 +345,7 @@ export class SlashCommandHandler {
             onMobileRelayReady: this.ctx.onMobileRelayReady,
             onMobileConnected: this.ctx.onMobileConnected,
             onMobileDisconnected: this.ctx.onMobileDisconnected,
+            applyPermissionMode: this.ctx.applyMobilePermissionMode,
             isFeatureEnabled: this.ctx.isFeatureEnabled,
             trackFeatureActivation: this.ctx.trackFeatureActivation,
           }, args);
