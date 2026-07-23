@@ -70,7 +70,7 @@
     "@agentclientprotocol/sdk": "0.19.1",
     "@aws-sdk/client-bedrock": "^3.1086.0",
     "@aws-sdk/client-bedrock-runtime": "^3.1086.0",
-    "@aws-sdk/credential-providers": "^3.1086.0",
+    "@aws-sdk/credential-providers": "^3.1090.0",
     "@ff-labs/fff-bun": "0.9.6",
     "chalk": "^5.6.2",
     "commander": "^14.0.3",
