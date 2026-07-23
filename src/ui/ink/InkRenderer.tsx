@@ -68,6 +68,56 @@ export interface SetWorkingOptions {
   succeeded?: boolean;
 }
 
+const MAX_LIVE_OUTPUT_CHARS = 256 * 1024;
+const MAX_COMPLETED_LIVE_OUTPUT_CHARS = 64 * 1024;
+const MAX_COMPLETED_COMMAND_CHARS = 4 * 1024;
+const LIVE_OUTPUT_TRUNCATION_MARKER = '[earlier live output truncated]';
+
+function appendBoundedLiveOutput(current: string, addition: string): string {
+  const combined = current + addition;
+  if (combined.length <= MAX_LIVE_OUTPUT_CHARS) {
+    return combined;
+  }
+
+  const suffixLength = MAX_LIVE_OUTPUT_CHARS - LIVE_OUTPUT_TRUNCATION_MARKER.length - 1;
+  return `${LIVE_OUTPUT_TRUNCATION_MARKER}\n${combined.slice(-suffixLength)}`;
+}
+
+function completedOutputTail(output: string, maxChars: number): string {
+  const normalized = output.trimEnd();
+  if (normalized.length <= maxChars) {
+    return normalized;
+  }
+
+  const prefix = `${LIVE_OUTPUT_TRUNCATION_MARKER}\n`;
+  if (maxChars <= prefix.length) {
+    return normalized.slice(-maxChars);
+  }
+  return `${prefix}${normalized.slice(-(maxChars - prefix.length))}`;
+}
+
+function formatCompletedLiveOutput(
+  command: string,
+  sections: string[],
+): string {
+  const rawHeader = `$ ${command}`;
+  const header = rawHeader.length <= MAX_COMPLETED_COMMAND_CHARS
+    ? rawHeader
+    : `${rawHeader.slice(0, MAX_COMPLETED_COMMAND_CHARS - 1)}…`;
+  const nonEmptySections = sections.filter((section) => section.trim().length > 0);
+  if (nonEmptySections.length === 0) {
+    return header;
+  }
+
+  const separatorChars = nonEmptySections.length;
+  const availableChars = MAX_COMPLETED_LIVE_OUTPUT_CHARS - header.length - separatorChars;
+  const sectionBudget = Math.max(1, Math.floor(availableChars / nonEmptySections.length));
+  return [
+    header,
+    ...nonEmptySections.map((section) => completedOutputTail(section, sectionBudget)),
+  ].join('\n');
+}
+
 function completionLabel(status?: TurnCompletionStatus): string {
   return status === 'failed' ? 'Failed' : 'Completed';
 }
@@ -746,9 +796,9 @@ export class InkRenderer {
       this.pendingLiveOutput.set(id, pending);
     }
     if (stream === 'stdout') {
-      pending.stdout += stripAnsiCodes(chunk);
+      pending.stdout = appendBoundedLiveOutput(pending.stdout, stripAnsiCodes(chunk));
     } else {
-      pending.stderr += stripAnsiCodes(chunk);
+      pending.stderr = appendBoundedLiveOutput(pending.stderr, stripAnsiCodes(chunk));
     }
 
     // Schedule a flush if not already pending
@@ -762,6 +812,9 @@ export class InkRenderer {
 
   /** Flush accumulated live command output buffers to React state */
   private flushLiveCommandOutput(): void {
+    if (this.liveOutputFlushTimer) {
+      clearTimeout(this.liveOutputFlushTimer);
+    }
     this.liveOutputFlushTimer = null;
 
     if (this.pendingLiveOutput.size === 0) {
@@ -777,8 +830,8 @@ export class InkRenderer {
 
         return {
           ...entry,
-          stdout: entry.stdout + pending.stdout,
-          stderr: entry.stderr + pending.stderr,
+          stdout: appendBoundedLiveOutput(entry.stdout, pending.stdout),
+          stderr: appendBoundedLiveOutput(entry.stderr, pending.stderr),
         };
       })
     });
@@ -798,8 +851,8 @@ export class InkRenderer {
           if (e.id !== id) return e;
           return {
             ...e,
-            stdout: e.stdout + pending.stdout,
-            stderr: e.stderr + pending.stderr,
+            stdout: appendBoundedLiveOutput(e.stdout, pending.stdout),
+            stderr: appendBoundedLiveOutput(e.stderr, pending.stderr),
           };
         })
       };
@@ -817,22 +870,22 @@ export class InkRenderer {
       return;
     }
 
-    const lines = [`$ ${entry.command}`];
+    const sections: string[] = [];
     if (entry.stdout.trim()) {
-      lines.push(entry.stdout.trimEnd());
+      sections.push(entry.stdout);
     }
     if (entry.stderr.trim()) {
-      lines.push(entry.stderr.trimEnd());
+      sections.push(entry.stderr);
     }
-    if (!success && error && !lines.includes(error)) {
-      lines.push(error);
+    if (!success && error && !sections.includes(error)) {
+      sections.push(error);
     }
 
     const finalizedEntry: ToolOutputEntry = {
       id: `tool-${++this.toolIdCounter}`,
       tool: 'shell',
       success,
-      output: lines.join('\n'),
+      output: formatCompletedLiveOutput(entry.command, sections),
       timestamp: Date.now(),
     };
 
@@ -852,9 +905,17 @@ export class InkRenderer {
   }
 
   toggleActiveLiveCommandExpanded(): void {
-    const active = this.state.liveCommands[this.state.liveCommands.length - 1];
+    let active = this.state.liveCommands[this.state.liveCommands.length - 1];
     if (!active) {
       return;
+    }
+
+    if (this.pendingLiveOutput.has(active.id)) {
+      this.flushLiveCommandOutput();
+      active = this.state.liveCommands[this.state.liveCommands.length - 1];
+      if (!active) {
+        return;
+      }
     }
 
     this.updateState({

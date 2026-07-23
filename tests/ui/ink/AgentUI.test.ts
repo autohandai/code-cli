@@ -267,6 +267,46 @@ describe('AgentUI interaction mode shortcut', () => {
   });
 });
 
+describe('AgentUI live command shortcut', () => {
+  it('forwards Ctrl+O to the active live command while preserving the composer', async () => {
+    const onToggleLiveCommandExpanded = vi.fn();
+    const state = createInitialUIState();
+    state.currentInput = 'next instruction';
+    state.liveCommands = [{
+      id: 'background-1',
+      command: '! bun run proof',
+      stdout: 'running tests\n',
+      stderr: '',
+      startedAt: Date.now(),
+      isExpanded: false,
+    }];
+    const { lastFrame, stdin } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+            onToggleLiveCommandExpanded,
+          })
+        )
+      )
+    );
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    stdin.write('\x0f');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(onToggleLiveCommandExpanded).toHaveBeenCalledOnce();
+    expect(stripAnsi(lastFrame() ?? '')).toContain('next instruction');
+  });
+});
+
 describe('AgentUI composer suggestions', () => {
   const slashCommands = [
     { command: '/help', description: 'Show help', implemented: true },

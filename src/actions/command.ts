@@ -5,6 +5,7 @@
  */
 import { spawn } from 'node:child_process';
 import type { SpawnOptions } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { buildAutohandChildProcessEnv } from '../utils/childProcessEnv.js';
 
@@ -32,10 +33,16 @@ export interface CommandResult {
   signal?: NodeJS.Signals | null;
 }
 
+export interface BackgroundProcessCompletion {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  error?: Error;
+}
+
 export interface RunCommandOptions {
   /** Directory relative to cwd to execute in */
   directory?: string;
-  /** Run process in background (detached) */
+  /** Run detached from the current turn; live observation lasts while the host CLI remains alive. */
   background?: boolean;
   /** Use shell mode for piping/chaining (bash -c on Unix, cmd /c on Windows) */
   shell?: boolean;
@@ -47,12 +54,64 @@ export interface RunCommandOptions {
   onStdout?: (chunk: string) => void;
   /** Stream stderr output */
   onStderr?: (chunk: string) => void;
+  /** Observe background completion or spawn failure while the host CLI remains alive. */
+  onBackgroundExit?: (completion: BackgroundProcessCompletion) => void;
   /** Run command with inherited stdio for interactive prompts (passwords, etc.) */
   interactive?: boolean;
   /** Cancel a foreground command. Already-started detached commands ignore later aborts. */
   signal?: AbortSignal;
   /** Grace period between SIGTERM and SIGKILL for foreground termination. */
   killGracePeriodMs?: number;
+}
+
+function unrefBackgroundHandle(handle: unknown): void {
+  if (
+    typeof handle !== 'object'
+    || handle === null
+    || !('unref' in handle)
+    || typeof handle.unref !== 'function'
+  ) {
+    return;
+  }
+
+  try {
+    handle.unref();
+  } catch {
+    // Some stream implementations expose unref but reject it after closing.
+  }
+}
+
+function toCommandSpawnError(error: unknown, cmd: string, workDir: string): Error {
+  const spawnError = error as NodeJS.ErrnoException;
+  if (spawnError.code === 'ENOENT') {
+    if (!existsSync(workDir)) {
+      return new Error(`Working directory not found: ${workDir}`);
+    }
+    return new Error(`Command not found: ${cmd}`);
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+function invokeBackgroundExit(
+  callback: RunCommandOptions['onBackgroundExit'],
+  completion: BackgroundProcessCompletion,
+): void {
+  try {
+    callback?.(completion);
+  } catch {
+    // Detached-process observers must not destabilize the CLI event loop.
+  }
+}
+
+function invokeBackgroundOutput(
+  callback: ((chunk: string) => void) | undefined,
+  chunk: string,
+): void {
+  try {
+    callback?.(chunk);
+  } catch {
+    // Output observers are isolated from the detached process lifecycle.
+  }
 }
 
 /**
@@ -109,24 +168,88 @@ export function runCommand(
     try {
       child = spawn(cmd, args, spawnOptions);
     } catch (error) {
-      const err = error as NodeJS.ErrnoException;
-      if (err.code === 'ENOENT') {
-        reject(new Error(`Command not found: ${cmd}`));
-      } else {
-        reject(error);
+      const spawnError = toCommandSpawnError(error, cmd, workDir);
+      if (options.background) {
+        invokeBackgroundExit(options.onBackgroundExit, {
+          code: null,
+          signal: null,
+          error: spawnError,
+        });
       }
+      reject(spawnError);
       return;
     }
 
-    // For background processes, unref and return immediately with PID
+    // Observe detached output and completion without making the caller await it.
     if (options.background) {
-      child.unref();
-      resolve({
-        stdout: '',
-        stderr: '',
-        code: null,
-        backgroundPid: child.pid,
-        signal: null,
+      let completed = false;
+      let startSettled = false;
+      let streamError: Error | undefined;
+      const complete = (completion: BackgroundProcessCompletion): void => {
+        if (completed) return;
+        completed = true;
+        invokeBackgroundExit(options.onBackgroundExit, completion);
+      };
+
+      const failStart = (error: Error): void => {
+        if (startSettled) return;
+        startSettled = true;
+        reject(error);
+      };
+
+      child.stdout?.setEncoding('utf8');
+      child.stderr?.setEncoding('utf8');
+      child.stdout?.on('data', (chunk: string) => {
+        invokeBackgroundOutput(options.onStdout, chunk);
+      });
+      child.stderr?.on('data', (chunk: string) => {
+        invokeBackgroundOutput(options.onStderr, chunk);
+      });
+
+      child.once('error', (error: unknown) => {
+        const spawnError = toCommandSpawnError(error, cmd, workDir);
+        complete({
+          code: null,
+          signal: null,
+          error: spawnError,
+        });
+        failStart(spawnError);
+      });
+      const recordStreamError = (error: unknown): void => {
+        streamError ??= error instanceof Error ? error : new Error(String(error));
+      };
+      child.stdout?.once('error', recordStreamError);
+      child.stderr?.once('error', recordStreamError);
+      child.once('close', (code, signal) => {
+        complete({
+          code,
+          signal,
+          ...(streamError ? { error: streamError } : {}),
+        });
+      });
+
+      child.once('spawn', () => {
+        const backgroundPid = child.pid;
+        if (backgroundPid === undefined) {
+          const spawnError = new Error(`Command started without a process ID: ${cmd}`);
+          complete({ code: null, signal: null, error: spawnError });
+          failStart(spawnError);
+          child.kill();
+          return;
+        }
+
+        if (startSettled) return;
+        startSettled = true;
+        unrefBackgroundHandle(child);
+        unrefBackgroundHandle(child.stdout);
+        unrefBackgroundHandle(child.stderr);
+        resolve({
+          stdout: '',
+          stderr: '',
+          code: null,
+          backgroundPid,
+          signal: null,
+        });
       });
       return;
     }
@@ -209,16 +332,16 @@ export function runCommand(
     }
 
     if (!options.interactive) {
-      child.stdout?.on('data', (chunk: Buffer | string) => {
-        const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-        stdout += text;
-        options.onStdout?.(text);
+      child.stdout?.setEncoding('utf8');
+      child.stderr?.setEncoding('utf8');
+      child.stdout?.on('data', (chunk: string) => {
+        stdout += chunk;
+        options.onStdout?.(chunk);
       });
 
-      child.stderr?.on('data', (chunk: Buffer | string) => {
-        const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-        stderr += text;
-        options.onStderr?.(text);
+      child.stderr?.on('data', (chunk: string) => {
+        stderr += chunk;
+        options.onStderr?.(chunk);
       });
     }
 
@@ -227,11 +350,7 @@ export function runCommand(
         finishWithError(new CommandAbortedError(stdout, stderr));
         return;
       }
-      if (error.code === 'ENOENT') {
-        finishWithError(new Error(`Command not found: ${cmd}`));
-      } else {
-        finishWithError(error);
-      }
+      finishWithError(toCommandSpawnError(error, cmd, workDir));
     });
 
     child.once('close', (code, signal) => {

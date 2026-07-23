@@ -14,7 +14,13 @@ import { constants, readdirSync, type Dirent } from 'node:fs';
 import { access, chmod, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import {
+  runCommand,
+  type BackgroundProcessCompletion,
+} from '../actions/command.js';
 import { buildAutohandChildProcessEnv } from '../utils/childProcessEnv.js';
+
+export type { BackgroundProcessCompletion } from '../actions/command.js';
 
 /**
  * Default timeout for shell commands (30 seconds)
@@ -332,8 +338,10 @@ export interface ExecuteStreamingShellCommandOptions extends ExecuteShellCommand
   preferPty?: boolean;
   columns?: number;
   rows?: number;
-  /** Run process in background (detached). Returns immediately with PID. */
+  /** Run detached from the current turn; live observation lasts while the host CLI remains alive. */
   background?: boolean;
+  /** Observe background completion or spawn failure while the host CLI remains alive. */
+  onBackgroundExit?: (completion: BackgroundProcessCompletion) => void;
 }
 
 interface PtyDisposable {
@@ -817,35 +825,27 @@ export async function executeStreamingShellCommand(
   
   // Handle background mode - spawn detached process and return immediately
   if (options.background) {
-    return new Promise((resolve) => {
-      let child: ReturnType<typeof spawn>;
-      try {
-        child = spawn(trimmedCommand, {
-          cwd: cwd ?? process.cwd(),
-          shell: true,
-          detached: true,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: buildAutohandChildProcessEnv(),
-        });
-      } catch (error) {
-        const execError = error as Error;
-        resolve({
-          success: false,
-          error: execError.message || 'Unknown error'
-        });
-        return;
-      }
-      
-      // Unref the child so the parent can exit independently
-      child.unref();
-      
-      // Return immediately with PID
-      resolve({
+    try {
+      const result = await runCommand(trimmedCommand, [], cwd ?? process.cwd(), {
+        shell: true,
+        background: true,
+        signal: options.signal,
+        onStdout: options.onStdout,
+        onStderr: options.onStderr,
+        onBackgroundExit: options.onBackgroundExit,
+      });
+      return {
         success: true,
         output: '',
-        backgroundPid: child.pid
-      });
-    });
+        backgroundPid: result.backgroundPid,
+      };
+    } catch (error) {
+      const spawnError = error instanceof Error ? error : new Error(String(error));
+      return {
+        success: false,
+        error: spawnError.message || 'Unknown error',
+      };
+    }
   }
   
   const shouldUsePty = options.preferPty === true && process.stdin.isTTY && process.stdout.isTTY;

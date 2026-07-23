@@ -227,4 +227,78 @@ describe('InkRenderer live command blocks', () => {
 
     renderer.finishLiveCommand(commandId, true);
   });
+
+  it('shows buffered live command output immediately when the user expands it', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    const commandId = renderer.startLiveCommand('! bun run proof');
+    renderer.appendLiveCommandOutput(commandId, 'stdout', 'running tests\n');
+
+    renderer.toggleActiveLiveCommandExpanded();
+
+    expect(renderer.getState().liveCommands[0]).toMatchObject({
+      id: commandId,
+      isExpanded: true,
+      stdout: 'running tests\n',
+    });
+
+    renderer.finishLiveCommand(commandId, true);
+  });
+
+  it('bounds long-running live command output while preserving the newest lines', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    const commandId = renderer.startLiveCommand('! bun dev');
+    renderer.appendLiveCommandOutput(
+      commandId,
+      'stdout',
+      `${'old-output\n'.repeat(30_000)}latest-background-line\n`,
+    );
+
+    renderer.toggleActiveLiveCommandExpanded();
+
+    const stdout = renderer.getState().liveCommands[0]?.stdout ?? '';
+    expect(stdout.length).toBeLessThanOrEqual(256 * 1024);
+    expect(stdout).toContain('[earlier live output truncated]');
+    expect(stdout).toContain('latest-background-line');
+
+    renderer.finishLiveCommand(commandId, true);
+  });
+
+  it('keeps completed background output concise without losing the command or newest lines', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    const commandId = renderer.startLiveCommand('! bun run proof');
+    renderer.appendLiveCommandOutput(
+      commandId,
+      'stdout',
+      `${'old-stdout\n'.repeat(30_000)}latest-completed-line\n`,
+    );
+    renderer.appendLiveCommandOutput(
+      commandId,
+      'stderr',
+      `${'old-stderr\n'.repeat(30_000)}latest-completed-warning\n`,
+    );
+
+    renderer.finishLiveCommand(commandId, true);
+
+    const output = (renderer.getState().toolOutputs[0] as { output: string }).output;
+    expect(output.length).toBeLessThanOrEqual(64 * 1024);
+    expect(output).toContain('$ ! bun run proof');
+    expect(output).toContain('[earlier live output truncated]');
+    expect(output).toContain('latest-completed-line');
+    expect(output).toContain('latest-completed-warning');
+  });
 });
