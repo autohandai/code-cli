@@ -462,6 +462,8 @@ export function initializeAgentDependencies(
       onModalPause: async <T>(fn: () => Promise<T>) => host.withModalPause(fn),
       onLiveCommandStart: (command) => host.inkRenderer?.startLiveCommand(command) ?? '',
       onLiveCommandOutput: (id, stream, chunk) => host.inkRenderer?.appendLiveCommandOutput(id, stream, chunk),
+      onLiveCommandFinish: (id, success, error) =>
+        host.inkRenderer?.finishLiveCommand(id, success, error),
       onLiveCommandRemove: (id) => host.inkRenderer?.removeLiveCommand(id),
       onRequestDirectoryAccess: async (path, reason) => host.requestDirectoryAccess(path, reason),
       onMetaToolCreated: () => {

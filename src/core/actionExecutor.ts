@@ -9,7 +9,7 @@ import { diffLines } from 'diff';
 import { highlightLine, detectLanguage } from '../ui/syntaxHighlight.js';
 import { getTheme, isThemeInitialized, hexToRgb } from '../ui/theme/index.js';
 import { addDependency, removeDependency } from '../actions/dependencies.js';
-import { runCommand } from '../actions/command.js';
+import { runCommand, type BackgroundProcessCompletion } from '../actions/command.js';
 import { executeStreamingShellCommand } from '../ui/shellCommand.js';
 import { listDirectoryTree, fileStats as getFileStats, checksumFile } from '../actions/metadata.js';
 import {
@@ -188,6 +188,7 @@ export interface ActionExecutorOptions {
   /** Callbacks for live command display in Ink TUI (used by shell tool) */
   onLiveCommandStart?: (command: string) => string;
   onLiveCommandOutput?: (id: string, stream: 'stdout' | 'stderr', chunk: string) => void;
+  onLiveCommandFinish?: (id: string, success: boolean, error?: string) => void;
   onLiveCommandRemove?: (id: string) => void;
   onMetaToolCreated?: (definition: MetaToolDefinition) => void;
 }
@@ -197,6 +198,11 @@ type ToolFailureOutcome = Extract<ToolActionOutcome, { success: false }>;
 
 interface ToolOutcomeCapture {
   failure?: ToolFailureOutcome;
+}
+
+interface BackgroundCommandTracker {
+  onExit(completion: BackgroundProcessCompletion): void;
+  markStarted(): void;
 }
 
 const GOAL_TOOL_TYPES = new Set<string>([
@@ -238,6 +244,7 @@ export class ActionExecutor {
   private readonly onRequestDirectoryAccess?: AgentExecutorDeps['onRequestDirectoryAccess'];
   private readonly onLiveCommandStart?: AgentExecutorDeps['onLiveCommandStart'];
   private readonly onLiveCommandOutput?: AgentExecutorDeps['onLiveCommandOutput'];
+  private readonly onLiveCommandFinish?: AgentExecutorDeps['onLiveCommandFinish'];
   private readonly onLiveCommandRemove?: AgentExecutorDeps['onLiveCommandRemove'];
   private readonly onMetaToolCreated?: AgentExecutorDeps['onMetaToolCreated'];
   private readonly securityScanner: SecurityScanner;
@@ -272,6 +279,7 @@ export class ActionExecutor {
     this.onRequestDirectoryAccess = deps.onRequestDirectoryAccess;
     this.onLiveCommandStart = deps.onLiveCommandStart;
     this.onLiveCommandOutput = deps.onLiveCommandOutput;
+    this.onLiveCommandFinish = deps.onLiveCommandFinish;
     this.onLiveCommandRemove = deps.onLiveCommandRemove;
     this.onMetaToolCreated = deps.onMetaToolCreated;
     this.securityScanner = new SecurityScanner();
@@ -604,6 +612,64 @@ export class ActionExecutor {
     }
     const message = String(error).trim();
     return message || 'Tool execution failed.';
+  }
+
+  private createBackgroundCommandTracker(
+    liveCommandId: string | undefined,
+  ): BackgroundCommandTracker | undefined {
+    if (!liveCommandId || !this.onLiveCommandFinish) {
+      return undefined;
+    }
+
+    let started = false;
+    let finished = false;
+    let pendingCompletion: BackgroundProcessCompletion | undefined;
+    const finish = (completion: BackgroundProcessCompletion): void => {
+      if (finished) {
+        return;
+      }
+      finished = true;
+
+      const error = this.formatBackgroundCommandError(completion);
+      this.onLiveCommandFinish?.(liveCommandId, error === undefined, error);
+    };
+
+    return {
+      onExit: (completion) => {
+        if (finished || pendingCompletion) {
+          return;
+        }
+        if (!started) {
+          pendingCompletion = completion;
+          return;
+        }
+        finish(completion);
+      },
+      markStarted: () => {
+        if (started) {
+          return;
+        }
+        started = true;
+        if (pendingCompletion) {
+          const completion = pendingCompletion;
+          pendingCompletion = undefined;
+          finish(completion);
+        }
+      },
+    };
+  }
+
+  private formatBackgroundCommandError(completion: BackgroundProcessCompletion): string | undefined {
+    if (completion.error) {
+      return `Background command failed: ${this.normalizeToolError(completion.error)}`;
+    }
+    if (completion.signal) {
+      return `Background command terminated by ${completion.signal}.`;
+    }
+    if (completion.code !== 0) {
+      return `Background command exited with code ${completion.code ?? 'unknown'}.`;
+    }
+    return undefined;
   }
 
   private isAbortFailure(error: unknown, signal?: AbortSignal): boolean {
@@ -1412,10 +1478,14 @@ export class ActionExecutor {
         // on Windows — matching the behavior of Claude Code and Gemini CLI.
         // Command + args are joined into a single shell string.
         const shellCmd = cmdStr;
-        const liveCommandId = !action.background && this.shouldDisplayToolOutput()
+        const liveCommandId = this.shouldDisplayToolOutput()
+          && (!action.background || Boolean(this.onLiveCommandFinish && this.onLiveCommandRemove))
           ? this.onLiveCommandStart?.(cmdStr)
           : undefined;
         const hasLiveDisplay = Boolean(liveCommandId);
+        const backgroundTracker = action.background
+          ? this.createBackgroundCommandTracker(liveCommandId)
+          : undefined;
 
         const emitLiveOutput = (stream: 'stdout' | 'stderr', data: string): void => {
           if (!hasLiveDisplay || !liveCommandId) {
@@ -1442,11 +1512,9 @@ export class ActionExecutor {
                 emitOutput('stderr', chunk);
                 emitLiveOutput('stderr', chunk);
               },
+              ...(backgroundTracker ? { onBackgroundExit: backgroundTracker.onExit } : {}),
             }
           );
-          if (liveCommandId) {
-            this.onLiveCommandRemove?.(liveCommandId);
-          }
         } catch (err) {
           if (liveCommandId) {
             this.onLiveCommandRemove?.(liveCommandId);
@@ -1462,6 +1530,17 @@ export class ActionExecutor {
           }
           const output = `Error running "${cmdStr}": ${error.message}`;
           return this.recordToolFailure(capture, 'command', output, output, null);
+        }
+
+        const backgroundProcessStarted = action.background === true
+          && typeof result.backgroundPid === 'number'
+          && Number.isSafeInteger(result.backgroundPid)
+          && result.backgroundPid > 0
+          && result.code === null;
+        if (backgroundProcessStarted) {
+          backgroundTracker?.markStarted();
+        } else if (liveCommandId) {
+          this.onLiveCommandRemove?.(liveCommandId);
         }
 
         // Build output header with description if provided
@@ -1485,7 +1564,7 @@ export class ActionExecutor {
         }
 
         const output = parts.join('\n');
-        if (result.code !== 0) {
+        if (!backgroundProcessStarted && result.code !== 0) {
           return this.recordToolFailure(
             capture,
             'command',
@@ -1503,12 +1582,16 @@ export class ActionExecutor {
 
         const cmdStr = `${action.command} ${(action.args ?? []).join(' ')}`.trim();
         const commandId = this.shouldDisplayToolOutput()
+          && (!action.background || Boolean(this.onLiveCommandFinish && this.onLiveCommandRemove))
           ? this.onLiveCommandStart?.(cmdStr)
           : undefined;
         const hasLiveDisplay = Boolean(commandId);
 
         if (hasLiveDisplay) {
           const liveId = commandId!;
+          const backgroundTracker = action.background
+            ? this.createBackgroundCommandTracker(liveId)
+            : undefined;
           try {
             const result = await executeStreamingShellCommand(
               cmdStr,
@@ -1521,9 +1604,19 @@ export class ActionExecutor {
                 rows: process.stdout.rows,
                 background: action.background,
                 signal: context?.signal,
+                ...(backgroundTracker ? { onBackgroundExit: backgroundTracker.onExit } : {}),
               }
             );
-            this.onLiveCommandRemove!(liveId);
+            const backgroundProcessStarted = action.background === true
+              && result.success
+              && typeof result.backgroundPid === 'number'
+              && Number.isSafeInteger(result.backgroundPid)
+              && result.backgroundPid > 0;
+            if (backgroundProcessStarted) {
+              backgroundTracker?.markStarted();
+            } else {
+              this.onLiveCommandRemove!(liveId);
+            }
             const header = action.description
               ? `$ ${action.description}\n> ${cmdStr}`
               : `$ ${cmdStr}`;
@@ -1588,8 +1681,14 @@ export class ActionExecutor {
           result.stdout,
           result.stderr,
         ].filter(Boolean);
+        if (result.backgroundPid) {
+          parts.push(`[Background PID: ${result.backgroundPid}]`);
+        }
         const output = parts.join('\n');
-        if (result.code !== 0) {
+        const backgroundProcessStarted = action.background === true
+          && result.backgroundPid !== undefined
+          && result.code === null;
+        if (!backgroundProcessStarted && result.code !== 0) {
           return this.recordToolFailure(
             capture,
             'command',

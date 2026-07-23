@@ -4,7 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { runCommand, runShellCommand } from '../src/actions/command.js';
+import {
+  runCommand,
+  runShellCommand,
+  type BackgroundProcessCompletion,
+} from '../src/actions/command.js';
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -40,6 +44,23 @@ async function waitForProcessExit(pid: number, timeoutMs = 1_000): Promise<void>
   }
 }
 
+async function waitForDetachedCompletion<T>(
+  completion: Promise<T>,
+  timeoutMs = 2_000,
+): Promise<T> {
+  let timeoutId: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`Timed out waiting for detached completion after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([completion, timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 describe('runCommand', () => {
   const testDir = join(tmpdir(), 'autohand-command-test-' + Date.now());
   const subDir = join(testDir, 'subdir');
@@ -63,6 +84,19 @@ describe('runCommand', () => {
   it('captures stderr', async () => {
     const result = await runCommand('node', ['-e', 'console.error("err")'], testDir);
     expect(result.stderr.trim()).toBe('err');
+    expect(result.code).toBe(0);
+  });
+
+  it('preserves UTF-8 code points split across foreground output chunks', async () => {
+    const script = [
+      "const value = Buffer.from('🌍')",
+      'process.stdout.write(value.subarray(0, 2))',
+      'setTimeout(() => process.stdout.write(value.subarray(2)), 30)',
+    ].join(';');
+
+    const result = await runCommand(process.execPath, ['-e', script], testDir);
+
+    expect(result.stdout).toBe('🌍');
     expect(result.code).toBe(0);
   });
 
@@ -142,9 +176,218 @@ describe('runCommand', () => {
     if (result.backgroundPid) {
       try {
         process.kill(result.backgroundPid, 'SIGTERM');
+        await waitForProcessExit(result.backgroundPid);
       } catch {
         // Process may have already exited
       }
+    }
+  });
+
+  it('streams detached output and reports completion exactly once', async () => {
+    let stdout = '';
+    let stderr = '';
+    let resolveCompletion!: (completion: BackgroundProcessCompletion) => void;
+    const completionPromise = new Promise<BackgroundProcessCompletion>((resolve) => {
+      resolveCompletion = resolve;
+    });
+    const onBackgroundExit = vi.fn(resolveCompletion);
+
+    const result = await runCommand(
+      process.execPath,
+      ['-e', [
+        "process.stdout.write('background stdout\\n')",
+        "process.stderr.write('background stderr\\n')",
+        'setTimeout(() => process.exit(7), 30)',
+      ].join(';')],
+      testDir,
+      {
+        background: true,
+        onStdout: (chunk) => {
+          stdout += chunk;
+        },
+        onStderr: (chunk) => {
+          stderr += chunk;
+        },
+        onBackgroundExit,
+      }
+    );
+
+    expect(result).toMatchObject({
+      stdout: '',
+      stderr: '',
+      code: null,
+      signal: null,
+    });
+    expect(result.backgroundPid).toBeGreaterThan(0);
+
+    await expect(waitForDetachedCompletion(completionPromise)).resolves.toEqual({
+      code: 7,
+      signal: null,
+    });
+    expect(stdout).toBe('background stdout\n');
+    expect(stderr).toBe('background stderr\n');
+    expect(onBackgroundExit).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves UTF-8 code points split across detached output chunks', async () => {
+    let stdout = '';
+    let resolveCompletion!: (completion: BackgroundProcessCompletion) => void;
+    const completionPromise = new Promise<BackgroundProcessCompletion>((resolve) => {
+      resolveCompletion = resolve;
+    });
+    const script = [
+      "const value = Buffer.from('🌍')",
+      'process.stdout.write(value.subarray(0, 2))',
+      'setTimeout(() => process.stdout.write(value.subarray(2)), 30)',
+    ].join(';');
+
+    await runCommand(process.execPath, ['-e', script], testDir, {
+      background: true,
+      onStdout: (chunk) => {
+        stdout += chunk;
+      },
+      onBackgroundExit: resolveCompletion,
+    });
+
+    await expect(waitForDetachedCompletion(completionPromise)).resolves.toEqual({
+      code: 0,
+      signal: null,
+    });
+    expect(stdout).toBe('🌍');
+  });
+
+  it('reports a detached spawn failure without emitting an unhandled error', async () => {
+    let resolveCompletion!: (completion: BackgroundProcessCompletion) => void;
+    const completionPromise = new Promise<BackgroundProcessCompletion>((resolve) => {
+      resolveCompletion = resolve;
+    });
+    const onBackgroundExit = vi.fn(resolveCompletion);
+    const missingCommand = 'autohand-background-command-that-does-not-exist';
+
+    await expect(runCommand(missingCommand, [], testDir, {
+        background: true,
+        onBackgroundExit,
+      })).rejects.toThrow(`Command not found: ${missingCommand}`);
+
+    const completion = await waitForDetachedCompletion(completionPromise);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(completion).toMatchObject({ code: null, signal: null });
+    expect(completion.error).toEqual(expect.objectContaining({
+      message: `Command not found: ${missingCommand}`,
+    }));
+    expect(onBackgroundExit).toHaveBeenCalledTimes(1);
+  });
+
+  it('distinguishes a missing working directory from a missing command', async () => {
+    let resolveCompletion!: (completion: BackgroundProcessCompletion) => void;
+    const completionPromise = new Promise<BackgroundProcessCompletion>((resolve) => {
+      resolveCompletion = resolve;
+    });
+    const missingDirectory = join(testDir, 'missing-background-cwd');
+
+    await expect(runCommand(process.execPath, [], missingDirectory, {
+      background: true,
+      onBackgroundExit: resolveCompletion,
+    })).rejects.toThrow(`Working directory not found: ${missingDirectory}`);
+
+    const completion = await waitForDetachedCompletion(completionPromise);
+    expect(completion.error?.message).toBe(`Working directory not found: ${missingDirectory}`);
+  });
+
+  it('keeps streaming after a detached command signal is aborted later', async () => {
+    const controller = new AbortController();
+    let stdout = '';
+    let resolveCompletion!: (completion: BackgroundProcessCompletion) => void;
+    const completionPromise = new Promise<BackgroundProcessCompletion>((resolve) => {
+      resolveCompletion = resolve;
+    });
+
+    const result = await runCommand(
+      process.execPath,
+      ['-e', "setTimeout(() => process.stdout.write('after abort\\n'), 30); setTimeout(() => process.exit(0), 50)"],
+      testDir,
+      {
+        background: true,
+        signal: controller.signal,
+        onStdout: (chunk) => {
+          stdout += chunk;
+        },
+        onBackgroundExit: resolveCompletion,
+      }
+    );
+
+    expect(result.backgroundPid).toBeGreaterThan(0);
+    controller.abort();
+
+    await expect(waitForDetachedCompletion(completionPromise)).resolves.toEqual({
+      code: 0,
+      signal: null,
+    });
+    expect(stdout).toBe('after abort\n');
+  });
+
+  it('drains high-volume detached output without blocking process completion', async () => {
+    let resolveCompletion!: (completion: BackgroundProcessCompletion) => void;
+    const completionPromise = new Promise<BackgroundProcessCompletion>((resolve) => {
+      resolveCompletion = resolve;
+    });
+    const bytesPerStream = 512 * 1024;
+
+    const result = await runCommand(
+      process.execPath,
+      ['-e', [
+        `process.stdout.write('o'.repeat(${bytesPerStream}))`,
+        `process.stderr.write('e'.repeat(${bytesPerStream}))`,
+      ].join(';')],
+      testDir,
+      {
+        background: true,
+        onBackgroundExit: resolveCompletion,
+      }
+    );
+
+    expect(result.backgroundPid).toBeGreaterThan(0);
+    await expect(waitForDetachedCompletion(completionPromise)).resolves.toEqual({
+      code: 0,
+      signal: null,
+    });
+  });
+
+  it('does not invoke the background completion observer for foreground work', async () => {
+    const onBackgroundExit = vi.fn();
+
+    const result = await runCommand(
+      process.execPath,
+      ['-e', "process.stdout.write('foreground')"],
+      testDir,
+      { onBackgroundExit }
+    );
+
+    expect(result).toMatchObject({ code: 0, stdout: 'foreground' });
+    expect(onBackgroundExit).not.toHaveBeenCalled();
+  });
+
+  it('reports the terminating signal for a detached command', async () => {
+    let resolveCompletion!: (completion: BackgroundProcessCompletion) => void;
+    const completionPromise = new Promise<BackgroundProcessCompletion>((resolve) => {
+      resolveCompletion = resolve;
+    });
+    const result = await runCommand(
+      process.execPath,
+      ['-e', 'setInterval(() => undefined, 1000)'],
+      testDir,
+      { background: true, onBackgroundExit: resolveCompletion }
+    );
+
+    process.kill(result.backgroundPid!, 'SIGTERM');
+
+    const completion = await waitForDetachedCompletion(completionPromise);
+    if (process.platform === 'win32') {
+      expect(completion.error).toBeUndefined();
+      expect(completion.code !== null || completion.signal !== null).toBe(true);
+    } else {
+      expect(completion).toEqual({ code: null, signal: 'SIGTERM' });
     }
   });
 
@@ -408,7 +651,10 @@ describe('runCommand with shell: true (always-shell mode)', () => {
     expect(result.backgroundPid).toBeDefined();
     expect(typeof result.backgroundPid).toBe('number');
     if (result.backgroundPid) {
-      try { process.kill(result.backgroundPid, 'SIGTERM'); } catch { /* may already be gone */ }
+      try {
+        process.kill(result.backgroundPid, 'SIGTERM');
+        await waitForProcessExit(result.backgroundPid);
+      } catch { /* may already be gone */ }
     }
   });
 });

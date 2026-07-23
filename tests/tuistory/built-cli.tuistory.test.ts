@@ -1285,6 +1285,81 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   }, 90_000);
 
+  it('streams and expands background shell output with Ctrl+O', async () => {
+    const backgroundScript = [
+      'let line = 1',
+      'const parentPid = process.ppid',
+      'setInterval(() => { try { process.kill(parentPid, 0); } catch { process.exit(0); } }, 250)',
+      "const timer = setInterval(() => { console.log('background-line-' + String(line).padStart(2, '0')); line += 1; if (line > 16) { clearInterval(timer); setTimeout(() => process.exit(0), 60000); } }, 25)",
+    ].join(';');
+    const openRouterServer = await createMockOpenRouterSequenceServer([
+      JSON.stringify({
+        thought: 'Run the requested task in the background.',
+        toolCalls: [{
+          tool: 'shell',
+          args: {
+            command: `${process.execPath} -e ${JSON.stringify(backgroundScript)}`,
+            background: true,
+          },
+        }],
+      }),
+      JSON.stringify({
+        reflection: 'The background task started and can continue independently.',
+        toolCalls: [],
+        finalResponse: 'Background task started.',
+      }),
+    ]);
+    mockServers.push(openRouterServer);
+
+    const state = await createTempAutohandHome({
+      config: {
+        openrouter: { baseUrl: openRouterServer.baseUrl },
+        ui: { promptSuggestions: false },
+        agent: { maxIterations: 3 },
+      },
+    });
+    tempStates.push(state);
+
+    const session = await trackSession(
+      launchBuiltAutohand([
+        '--path',
+        state.workspaceRoot,
+        '--config',
+        state.configPath,
+        '--y',
+      ], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        waitForDataTimeout: 15_000,
+      })
+    );
+
+    await waitForComposer(session);
+    await session.type('Start a background shell task and keep its output visible');
+    await session.press('enter');
+    const permissionOrRunning = await session.text({
+      timeout: 30_000,
+      waitFor: (text) => (
+        text.includes('Allow the agent to run a shell command with live output?')
+        || text.includes('Ctrl+O expand')
+      ),
+    });
+    if (permissionOrRunning.includes('Allow the agent to run a shell command with live output?')) {
+      await session.press('enter');
+    }
+
+    await session.waitForText('background-line-16', { timeout: 10_000 });
+    await session.waitForText('Ctrl+O expand', { timeout: 10_000 });
+    expect(session.readAll()).not.toContain('background-line-01');
+
+    await session.press(['ctrl', 'o']);
+    await session.waitForText('Ctrl+O collapse', { timeout: 5_000 });
+    await session.waitForText('background-line-01', { timeout: 5_000 });
+    await session.waitForText('Background task started.', { timeout: 30_000 });
+
+    await exitInteractive(session);
+  }, 90_000);
+
   it('keeps premature deep research incomplete and exposes the blockers through status', async () => {
     const openRouterServer = await createMockOpenRouterSequenceServer([
       JSON.stringify({
