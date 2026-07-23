@@ -240,6 +240,13 @@ export class XAIProvider implements LLMProvider {
             input: this.toXAIInputItems(request.messages),
         };
 
+        // Responses API has no system role in input — fold system/persona prompts
+        // into instructions so main agent and built-in sub-agents keep identity.
+        const instructions = this.extractInstructions(request.messages);
+        if (instructions) {
+            body.instructions = instructions;
+        }
+
         // Map tools to xAI's server-side tool format or standard function definitions.
         // Only set tool_choice when tools are present — Grok 4.5 / CLI proxy reject
         // tool_choice without tools (invalid_request).
@@ -386,32 +393,44 @@ export class XAIProvider implements LLMProvider {
         });
     }
 
+    private extractInstructions(
+        messages: Array<{ role: string; content: string }>,
+    ): string | undefined {
+        const parts = messages
+            .filter((msg) => msg.role === 'system' && typeof msg.content === 'string' && msg.content.trim())
+            .map((msg) => msg.content.trim());
+        return parts.length > 0 ? parts.join('\n\n') : undefined;
+    }
+
     // Convert the internal message format to xAI Responses API input items.
     private toXAIInputItems(messages: Array<{ role: string; content: string; name?: string; tool_call_id?: string; tool_calls?: LLMToolCall[] }>): Array<Record<string, unknown>> {
         const items: Array<Record<string, unknown>> = [];
 
         for (const msg of messages) {
             if (msg.role === 'system') {
-                // xAI doesn't support system role in the input array —
-                // push it as an instructions-style prefix via a user message.
+                // Handled via body.instructions (Responses API has no system role).
                 continue;
             }
 
-            if (msg.role === 'tool' && msg.tool_call_id && msg.content) {
+            if (msg.role === 'tool' && msg.tool_call_id) {
                 items.push({
                     type: 'function_call_output',
                     call_id: msg.tool_call_id,
-                    output: msg.content,
+                    output: typeof msg.content === 'string' ? msg.content : '',
                 });
                 continue;
             }
 
             if (msg.role === 'assistant' && msg.tool_calls?.length) {
-                items.push({
-                    type: 'message',
-                    role: 'assistant',
-                    content: [], // will have function_calls appended
-                });
+                // Replay prior native tool calls as top-level function_call items.
+                // Do not emit an empty assistant content message — Grok rejects noise.
+                if (typeof msg.content === 'string' && msg.content.trim()) {
+                    items.push({
+                        type: 'message',
+                        role: 'assistant',
+                        content: [{ type: 'output_text', text: msg.content }],
+                    });
+                }
                 for (const tc of msg.tool_calls) {
                     items.push({
                         type: 'function_call',
@@ -424,10 +443,14 @@ export class XAIProvider implements LLMProvider {
             }
 
             if (msg.content && typeof msg.content === 'string' && msg.content.trim()) {
+                const role = msg.role === 'assistant' ? 'assistant' : 'user';
                 items.push({
                     type: 'message',
-                    role: msg.role === 'user' ? 'user' : 'user',
-                    content: [{ type: 'input_text', text: msg.content }],
+                    role,
+                    content: [{
+                        type: role === 'assistant' ? 'output_text' : 'input_text',
+                        text: msg.content,
+                    }],
                 });
             }
         }
