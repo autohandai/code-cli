@@ -117,7 +117,7 @@
     "tsup": "^8.5.1",
     "tsx": "^4.23.1",
     "tuistory": "0.10.1",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },
   "overrides": {
