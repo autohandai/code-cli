@@ -5,11 +5,24 @@
  */
 import type { SessionMessage } from './types.js';
 
+export interface ChatToolBatchItem {
+  tool: string;
+  label: string;
+  detail?: string;
+  success: boolean;
+}
+
+export interface ChatToolBatchGroup {
+  tool: string;
+  items: ChatToolBatchItem[];
+}
+
 export interface ChatLogMessage {
-  role: 'user' | 'assistant' | 'tool' | 'tool_call' | 'completion' | 'notification';
+  role: 'user' | 'assistant' | 'tool' | 'tool_call' | 'tool_batch' | 'completion' | 'notification';
   content: string;
   tool?: string;
   success?: boolean;
+  groups?: ChatToolBatchGroup[];
 }
 
 function decodeJsonStringLiteral(value: string): string {

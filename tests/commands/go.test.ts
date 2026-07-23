@@ -3,12 +3,32 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import stripAnsi from 'strip-ansi';
 import { formatScannableTerminalQRCode, go, handoffSession } from '../../src/commands/go.js';
 import { stopMobileRelay } from '../../src/mobile/MobileRelay.js';
 import type { MobileHandoffClientLike } from '../../src/mobile/MobileHandoffClient.js';
 import type { Session, SessionManager } from '../../src/session/SessionManager.js';
+
+const mobileTerminalReporterConstructed = vi.hoisted(() => vi.fn());
+const mobileTerminalReport = vi.hoisted(() => vi.fn(async () => undefined));
+const mobileTerminalFlush = vi.hoisted(() => vi.fn(async () => undefined));
+const validateAuthSession = vi.hoisted(() => vi.fn());
+
+vi.mock('../../src/auth/index.js', () => ({
+  getAuthClient: () => ({ validateSession: validateAuthSession }),
+}));
+
+vi.mock('../../src/mobile/MobileTerminalReporter.js', () => ({
+  MobileTerminalReporter: class MobileTerminalReporterMock {
+    constructor(options: unknown) {
+      mobileTerminalReporterConstructed(options);
+    }
+
+    report = mobileTerminalReport;
+    flush = mobileTerminalFlush;
+  },
+}));
 
 vi.mock('qrcode', () => ({
   default: {
@@ -43,6 +63,17 @@ function createSessionManager(session: Session | null): SessionManager {
 }
 
 describe('/go command', () => {
+  beforeEach(() => {
+    mobileTerminalReporterConstructed.mockClear();
+    mobileTerminalReport.mockClear();
+    mobileTerminalFlush.mockClear();
+    validateAuthSession.mockReset();
+    validateAuthSession.mockResolvedValue({
+      authenticated: true,
+      user: { id: 'verified-user-1', email: 'user@example.com', name: 'User' },
+    });
+  });
+
   it('pins QR contrast to dark modules on a light terminal field', () => {
     const formatted = formatScannableTerminalQRCode('QR\nCODE');
 
@@ -234,6 +265,231 @@ describe('/go command', () => {
     expect(onMobileConnected).toHaveBeenCalledWith(
       'Mobile connected. Live prompts will run in this CLI session.'
     );
+    stopMobileRelay();
+  });
+
+  it('keeps a token-only login durable using the registration owner', async () => {
+    let relay: Parameters<NonNullable<Parameters<typeof go>[0]['onMobileRelayReady']>>[0] | undefined;
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('shared-device-1'),
+      registerDevice: vi.fn().mockResolvedValue({
+        profile: { id: 'verified-user-1' },
+        account: { id: 'verified-account-1' },
+      }),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      createPairing: vi.fn().mockResolvedValue({
+        id: 'pairing-token-only',
+        pairingUrl: 'https://autohand.ai/code/go?pairing=pairing-token-only&token=secret',
+        expiresAt: '2026-05-13T00:10:00.000Z',
+        pollIntervalMs: 2000,
+        session: {
+          id: 'session-1',
+          deviceId: 'shared-device-1',
+          workspacePath: '/Users/test/project',
+          projectName: 'project',
+          model: 'gpt-5.3-codex',
+          provider: 'openai',
+        },
+      }),
+      claimWork: vi.fn().mockResolvedValue(null),
+      updateWork: vi.fn().mockResolvedValue({}),
+      publishMobileEvent: vi.fn().mockResolvedValue(undefined),
+    };
+
+    await go({
+      sessionManager: createSessionManager(createSession()),
+      workspaceRoot: '/Users/test/project',
+      model: 'gpt-5.3-codex',
+      provider: 'openai',
+      config: {
+        configPath: '/tmp/config.json',
+        auth: { token: 'token-without-profile' },
+      },
+      client,
+      enqueueInstruction: vi.fn(),
+      onMobileRelayReady: (controller) => { relay = controller; },
+    });
+
+    expect(validateAuthSession).not.toHaveBeenCalled();
+    expect(mobileTerminalReporterConstructed).toHaveBeenCalledWith(expect.objectContaining({
+      owner: {
+        profileId: 'verified-user-1',
+        accountId: 'verified-account-1',
+      },
+    }));
+    await relay!.finishClaimedTurn({
+      workId: 'work-token-only',
+      prompt: 'safe prompt',
+      startedAt: '2026-05-13T00:00:00.000Z',
+    }, { status: 'completed', output: 'done' });
+    expect(mobileTerminalReport).toHaveBeenCalledWith(expect.objectContaining({
+      workId: 'work-token-only',
+      status: 'completed',
+    }));
+    expect(client.updateWork).not.toHaveBeenCalled();
+    stopMobileRelay();
+  });
+
+  it('uses the same-API registration identity when the separate auth endpoint is unavailable', async () => {
+    validateAuthSession.mockRejectedValueOnce(new Error('auth endpoint unavailable'));
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('same-api-device-1'),
+      registerDevice: vi.fn().mockResolvedValue({
+        profile: { id: 'same-api-profile' },
+        account: { id: 'same-api-account' },
+      }),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      createPairing: vi.fn().mockResolvedValue({
+        id: 'pairing-same-api',
+        pairingUrl: 'https://autohand.ai/code/go?pairing=pairing-same-api&token=secret',
+        expiresAt: '2026-05-13T00:10:00.000Z',
+        pollIntervalMs: 2000,
+        session: {
+          id: 'session-1',
+          deviceId: 'same-api-device-1',
+          workspacePath: '/Users/test/project',
+          projectName: 'project',
+          model: 'gpt-5.3-codex',
+          provider: 'openai',
+        },
+      }),
+      claimWork: vi.fn().mockResolvedValue(null),
+    };
+
+    const result = await go({
+      sessionManager: createSessionManager(createSession()),
+      workspaceRoot: '/Users/test/project',
+      model: 'gpt-5.3-codex',
+      provider: 'openai',
+      config: {
+        configPath: '/tmp/config.json',
+        auth: { token: 'same-api-token' },
+      },
+      client,
+      enqueueInstruction: vi.fn(),
+    });
+
+    expect(stripAnsi(result || '')).toContain('Relay: listening for mobile prompts');
+    expect(validateAuthSession).not.toHaveBeenCalled();
+    expect(mobileTerminalReporterConstructed).toHaveBeenCalledWith(expect.objectContaining({
+      owner: {
+        profileId: 'same-api-profile',
+        accountId: 'same-api-account',
+      },
+    }));
+    stopMobileRelay();
+  });
+
+  it('keeps legacy profile-only API responses on direct terminal retries without creating an outbox', async () => {
+    let relay: Parameters<NonNullable<Parameters<typeof go>[0]['onMobileRelayReady']>>[0] | undefined;
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('legacy-device-1'),
+      registerDevice: vi.fn().mockResolvedValue({ profile: { id: 'legacy-profile-only' } }),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      createPairing: vi.fn().mockResolvedValue({
+        id: 'pairing-legacy-api',
+        pairingUrl: 'https://autohand.ai/code/go?pairing=pairing-legacy-api&token=secret',
+        expiresAt: '2026-05-13T00:10:00.000Z',
+        pollIntervalMs: 2000,
+        session: {
+          id: 'session-1',
+          deviceId: 'legacy-device-1',
+          workspacePath: '/Users/test/project',
+          projectName: 'project',
+          model: 'gpt-5.3-codex',
+          provider: 'openai',
+        },
+      }),
+      claimWork: vi.fn().mockResolvedValue(null),
+      updateWork: vi.fn().mockResolvedValue({}),
+      publishMobileEvent: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const result = await go({
+      sessionManager: createSessionManager(createSession()),
+      workspaceRoot: '/Users/test/project',
+      model: 'gpt-5.3-codex',
+      provider: 'openai',
+      config: {
+        configPath: '/tmp/config.json',
+        auth: { token: 'legacy-api-token' },
+      },
+      client,
+      enqueueInstruction: vi.fn(),
+      onMobileRelayReady: (controller) => { relay = controller; },
+    });
+
+    expect(stripAnsi(result || '')).toContain('Relay: listening for mobile prompts');
+    expect(mobileTerminalReporterConstructed).not.toHaveBeenCalled();
+    await relay!.finishClaimedTurn({
+      workId: 'legacy-work',
+      prompt: 'legacy prompt',
+      startedAt: '2026-05-13T00:00:00.000Z',
+    }, { status: 'completed', output: 'done' });
+    expect(client.updateWork).toHaveBeenCalledWith(
+      'legacy-api-token',
+      'legacy-device-1',
+      'legacy-work',
+      expect.objectContaining({ status: 'completed' }),
+    );
+    stopMobileRelay();
+  });
+
+  it('uses the registration owner instead of a stale cached profile for the outbox scope', async () => {
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('shared-device-1'),
+      registerDevice: vi.fn().mockResolvedValue({
+        profile: { id: 'current-profile-b' },
+        account: { id: 'current-account-b' },
+      }),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      createPairing: vi.fn().mockResolvedValue({
+        id: 'pairing-current-account',
+        pairingUrl: 'https://autohand.ai/code/go?pairing=pairing-current-account&token=secret',
+        expiresAt: '2026-05-13T00:10:00.000Z',
+        pollIntervalMs: 2000,
+        session: {
+          id: 'session-1',
+          deviceId: 'shared-device-1',
+          workspacePath: '/Users/test/project',
+          projectName: 'project',
+          model: 'gpt-5.3-codex',
+          provider: 'openai',
+        },
+      }),
+      claimWork: vi.fn().mockResolvedValue(null),
+    };
+
+    await go({
+      sessionManager: createSessionManager(createSession()),
+      workspaceRoot: '/Users/test/project',
+      model: 'gpt-5.3-codex',
+      provider: 'openai',
+      config: {
+        configPath: '/tmp/config.json',
+        auth: {
+          token: 'current-account-token',
+          user: {
+            id: 'stale-profile-a',
+            email: 'stale@example.com',
+            name: 'Stale User',
+          },
+        },
+      },
+      client,
+      enqueueInstruction: vi.fn(),
+    });
+
+    expect(validateAuthSession).not.toHaveBeenCalled();
+    expect(mobileTerminalReporterConstructed).toHaveBeenCalledWith(expect.objectContaining({
+      owner: {
+        profileId: 'current-profile-b',
+        accountId: 'current-account-b',
+      },
+    }));
+    expect(mobileTerminalReporterConstructed).not.toHaveBeenCalledWith(expect.objectContaining({
+      owner: expect.objectContaining({ profileId: 'stale-profile-a' }),
+    }));
     stopMobileRelay();
   });
 

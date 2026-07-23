@@ -25,6 +25,7 @@ import { collectMobileDeliveryStatus, mergeMobilePullRequest } from './MobileDel
 import type { MobilePullRequestMergeRequest, MobilePullRequestMergeResult } from './MobileDeliveryStatus.js';
 import { KeepAwakeController } from './KeepAwakeController.js';
 import { collectAndUploadMobileArtifacts } from './MobileArtifacts.js';
+import type { MobileTerminalReporterLike } from './MobileTerminalReporter.js';
 
 export interface MobileChangePreview {
   id: string;
@@ -71,12 +72,14 @@ interface MobileRelayOptions {
   onMobileConnected?: (message: string) => void;
   onMobileDisconnected?: (message: string) => void;
   onError?: (error: Error) => void;
+  terminalReporter?: MobileTerminalReporterLike;
 }
 
 export interface MobileClaimedTurn {
   workId: string;
   prompt: string;
   startedAt: string;
+  updateClaimedWork?: boolean;
 }
 
 export interface MobileClaimedTurnContext {
@@ -260,6 +263,7 @@ export function startMobileRelay(options: MobileRelayOptions): MobileRelayContro
   }, Math.max(options.pollIntervalMs, 1_000));
   activeRelay = relay;
   relay.timer.unref?.();
+  void flushTerminalReporter(options, true);
   void pollOnce(options, relay, controller);
   if (options.keepAwakeByDefault !== undefined) {
     const keepAwakeState = options.keepAwakeByDefault
@@ -310,6 +314,7 @@ async function pollOnce(
 
   relay.polling = true;
   try {
+    void flushTerminalReporter(options, false);
     try {
       const heartbeat = await options.client.sendRelayHeartbeat(options.token, {
         sessionId: options.sessionId,
@@ -340,7 +345,20 @@ async function pollOnce(
       sessionId: options.sessionId,
       pairingId: options.pairingId,
     });
-    if (activeRelay !== relay) return;
+    if (activeRelay !== relay) {
+      if (work && claimedWorkMatchesRelayScope(work, options)) {
+        await finishClaimedTurn(options, {
+          workId: work.id,
+          prompt: work.prompt,
+          startedAt: work.startedAt ?? new Date().toISOString(),
+          updateClaimedWork: true,
+        }, {
+          status: 'cancelled',
+          error: 'Mobile relay was replaced before the claimed turn could start.',
+        });
+      }
+      return;
+    }
     if (work && !claimedWorkMatchesRelayScope(work, options)) {
       options.onError?.(new Error('Claimed work did not match the active mobile relay scope.'));
     } else if (work?.prompt) {
@@ -348,6 +366,7 @@ async function pollOnce(
         workId: work.id,
         prompt: work.prompt,
         startedAt: work.startedAt ?? new Date().toISOString(),
+        updateClaimedWork: true,
       };
       let permissionModeApplication: MobilePermissionModeApplication | undefined;
       if (work.payload?.approvalMode !== undefined) {
@@ -481,6 +500,24 @@ async function finishClaimedTurn(
     ...('error' in outcome && outcome.error ? { error: outcome.error } : {}),
   } satisfies MobileSessionTurnState;
 
+  if (options.terminalReporter) {
+    try {
+      await options.terminalReporter.report({
+        workId: turn.workId,
+        status: outcome.status,
+        startedAt: turn.startedAt,
+        completedAt,
+        updateClaimedWork: turn.updateClaimedWork !== false,
+        prompt: turn.prompt,
+        ...('output' in outcome && outcome.output ? { output: outcome.output } : {}),
+        ...('error' in outcome && outcome.error ? { error: outcome.error } : {}),
+      });
+      return;
+    } catch (error) {
+      options.onError?.(error as Error);
+    }
+  }
+
   const updateWork = options.client.updateWork?.bind(options.client);
   if (updateWork) {
     await retryTerminalTransport(options, async () => {
@@ -498,6 +535,18 @@ async function finishClaimedTurn(
 
   await retryTerminalTransport(options, () =>
     publishEvent(options, 'session_turn_state', terminalState, terminalState.workId));
+}
+
+async function flushTerminalReporter(
+  options: MobileRelayOptions,
+  ignoreSchedule: boolean,
+): Promise<void> {
+  if (!options.terminalReporter) return;
+  try {
+    await options.terminalReporter.flush(ignoreSchedule ? { ignoreSchedule: true } : undefined);
+  } catch (error) {
+    options.onError?.(error as Error);
+  }
 }
 
 async function retryTerminalTransport(
@@ -861,6 +910,7 @@ async function resolveAction(
         workId: `retry-${randomUUID()}`,
         prompt,
         startedAt: new Date().toISOString(),
+        updateClaimedWork: false,
       };
       await publishTurnState(options, {
         workId: turn.workId,

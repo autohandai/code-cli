@@ -191,6 +191,14 @@ export interface ActionExecutorOptions {
   onLiveCommandFinish?: (id: string, success: boolean, error?: string) => void;
   onLiveCommandRemove?: (id: string) => void;
   onMetaToolCreated?: (definition: MetaToolDefinition) => void;
+  /** Push todo_write tasks into the sticky Ink activity panel. */
+  onActivityTodosUpdated?: (todos: Array<{
+    id?: string;
+    title?: string;
+    content?: string;
+    status?: string;
+    activeForm?: string;
+  }>) => void;
 }
 
 type AgentExecutorDeps = ActionExecutorOptions;
@@ -247,6 +255,7 @@ export class ActionExecutor {
   private readonly onLiveCommandFinish?: AgentExecutorDeps['onLiveCommandFinish'];
   private readonly onLiveCommandRemove?: AgentExecutorDeps['onLiveCommandRemove'];
   private readonly onMetaToolCreated?: AgentExecutorDeps['onMetaToolCreated'];
+  private readonly onActivityTodosUpdated?: AgentExecutorDeps['onActivityTodosUpdated'];
   private readonly securityScanner: SecurityScanner;
   private readonly searchCache: Map<string, string> = new Map();
   private fffSearchProviderPromise: Promise<FFFSearchProvider> | null = null;

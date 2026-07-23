@@ -36,6 +36,7 @@ import {
   type MobilePermissionModeChange,
   type MobileRelayController,
 } from '../mobile/MobileRelay.js';
+import { MobileTerminalReporter } from '../mobile/MobileTerminalReporter.js';
 
 export const metadata: SlashCommand = {
   command: '/go',
@@ -170,13 +171,15 @@ export async function go(ctx: GoContext, args: string[] = []): Promise<string | 
     ].join('\n');
   }
 
+  const apiBaseUrl = getMobileApiBaseUrl(ctx.config);
   const client = ctx.client ?? new MobileHandoffClient({
-    baseUrl: getMobileApiBaseUrl(ctx.config),
+    baseUrl: apiBaseUrl,
+    timeoutMs: ctx.config?.network?.timeout,
   });
 
   try {
     const deviceId = await client.getDeviceId();
-    await client.registerDevice(token, {
+    const registration = await client.registerDevice(token, {
       deviceId,
       clientType: 'cli',
       agentName: `${os.hostname()} Autohand Code`,
@@ -192,6 +195,18 @@ export async function go(ctx: GoContext, args: string[] = []): Promise<string | 
         clientVersion: session.metadata.clientVersion,
       },
     });
+
+    let verifiedTerminalOwner: { profileId: string; accountId: string } | undefined;
+    if (mode === 'steer') {
+      const registrationProfileId = registration?.profile.id.trim();
+      const registrationAccountId = registration?.account?.id.trim();
+      if (registrationProfileId && registrationAccountId) {
+        verifiedTerminalOwner = {
+          profileId: registrationProfileId,
+          accountId: registrationAccountId,
+        };
+      }
+    }
 
     const pairing = await client.createPairing(token, {
       deviceId,
@@ -211,6 +226,18 @@ export async function go(ctx: GoContext, args: string[] = []): Promise<string | 
     });
 
     if (mode === 'steer' && ctx.enqueueInstruction) {
+      const terminalReporter = verifiedTerminalOwner
+        ? new MobileTerminalReporter({
+          client,
+          token,
+          apiBaseUrl,
+          owner: verifiedTerminalOwner,
+          deviceId,
+          sessionId: session.metadata.sessionId,
+          pairingId: pairing.id,
+          retryDelayMs: ctx.config?.network?.retryDelay,
+        })
+        : undefined;
       const relay = startMobileRelay({
         client,
         token,
@@ -226,6 +253,7 @@ export async function go(ctx: GoContext, args: string[] = []): Promise<string | 
         onMobileConnected: ctx.onMobileConnected,
         onMobileDisconnected: ctx.onMobileDisconnected,
         applyPermissionMode: ctx.applyPermissionMode,
+        ...(terminalReporter ? { terminalReporter } : {}),
       });
       ctx.onMobileRelayReady?.(relay);
       void relay.refreshDeliveryStatus();

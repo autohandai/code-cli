@@ -11,6 +11,7 @@ import {
   type MobilePermissionModeChange,
 } from '../../src/mobile/MobileRelay.js';
 import type {
+  ClaimedWorkItem,
   MobileAction,
   MobileHandoffClientLike,
   MobilePermissionMode,
@@ -810,6 +811,86 @@ describe('MobileRelay event bridge', () => {
         }),
       }),
     ]));
+  });
+
+  it('cancels work claimed after its relay is replaced while claimWork is in flight', async () => {
+    let resolveClaim!: (work: ClaimedWorkItem | null) => void;
+    const pendingClaim = new Promise<ClaimedWorkItem | null>((resolve) => {
+      resolveClaim = resolve;
+    });
+    const enqueueInstruction = vi.fn();
+    const updateWork = vi.fn().mockResolvedValue(undefined);
+    const report = vi.fn().mockResolvedValue(undefined);
+    const terminalReporter = {
+      report,
+      flush: vi.fn().mockResolvedValue(undefined),
+    };
+    const oldClient: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      claimWork: vi.fn(() => pendingClaim),
+      updateWork,
+      publishMobileEvent: vi.fn().mockResolvedValue(undefined),
+    };
+
+    startMobileRelay({
+      client: oldClient,
+      token: 'old-token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction,
+      terminalReporter,
+    });
+    await vi.waitFor(() => expect(oldClient.claimWork).toHaveBeenCalledOnce());
+
+    startMobileRelay({
+      client: {
+        getDeviceId: vi.fn().mockResolvedValue('device-2'),
+        registerDevice: vi.fn().mockResolvedValue(undefined),
+        createPairing: vi.fn(),
+        sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+        claimWork: vi.fn().mockResolvedValue(null),
+      },
+      token: 'replacement-token',
+      deviceId: 'device-2',
+      sessionId: 'session-2',
+      pairingId: 'pairing-2',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+    });
+    resolveClaim({
+      id: 'work-claimed-by-replaced-relay',
+      repo: '/workspace',
+      branch: 'main',
+      prompt: 'do not execute under the replacement relay',
+      priority: 0,
+      status: 'running',
+      agentId: null,
+      deviceId: 'device-1',
+      payload: {
+        deliveryMode: 'steer',
+        sessionId: 'session-1',
+        pairingId: 'pairing-1',
+      },
+      createdAt: '2026-07-22T00:00:00.000Z',
+      updatedAt: '2026-07-22T00:00:00.000Z',
+      startedAt: '2026-07-22T00:00:00.000Z',
+    });
+
+    await vi.waitFor(() => expect(report).toHaveBeenCalledWith(expect.objectContaining({
+      workId: 'work-claimed-by-replaced-relay',
+      status: 'cancelled',
+      updateClaimedWork: true,
+      error: 'Mobile relay was replaced before the claimed turn could start.',
+    })));
+    expect(enqueueInstruction).not.toHaveBeenCalled();
+    expect(updateWork).not.toHaveBeenCalled();
   });
 
   it('cancels claimed work when its relay is replaced during permission-mode application', async () => {

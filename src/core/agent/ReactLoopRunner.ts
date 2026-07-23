@@ -70,7 +70,7 @@ export interface ReactLoopInkRenderer {
   setStatus(status: string): void;
   addToolCall(tool: AgentAction['type'], detail: string): void;
   addToolOutputBatch(
-    items: Array<{ tool: AgentAction['type']; label: string; detail: string; success: boolean }>,
+    items: Array<{ tool: AgentAction['type']; label: string; detail?: string; success: boolean }>,
     thought?: string,
   ): void;
   addToolOutput(
@@ -219,6 +219,48 @@ export function formatToolCallLogDetail(call: ToolCallRequest): string {
   }
 
   return truncateToolCallDetail(JSON.stringify(args));
+}
+
+export interface ToolCallLogLine {
+  tool: AgentAction['type'];
+  detail: string;
+}
+
+const MAX_GROUPED_LOG_DETAILS = 2;
+
+/**
+ * Collapse runs of parallel calls to the same tool into a single log line so
+ * the Ink history shows one "⠋ read_file a.ts, b.ts (+N more)" entry instead
+ * of one entry per file.
+ */
+export function collapseToolCallLogLines(calls: ToolCallRequest[]): ToolCallLogLine[] {
+  const lines: ToolCallLogLine[] = [];
+  let index = 0;
+  while (index < calls.length) {
+    const tool = calls[index]!.tool;
+    const details: string[] = [];
+    let count = 0;
+    while (index < calls.length && calls[index]!.tool === tool) {
+      const detail = formatToolCallLogDetail(calls[index]!);
+      if (detail) {
+        details.push(detail);
+      }
+      count += 1;
+      index += 1;
+    }
+    if (count === 1) {
+      lines.push({ tool, detail: details[0] ?? '' });
+      continue;
+    }
+    const shown = details.slice(0, MAX_GROUPED_LOG_DETAILS);
+    const hidden = details.length - shown.length;
+    const joined = shown.join(', ');
+    lines.push({
+      tool,
+      detail: truncateToolCallDetail(hidden > 0 ? `${joined} (+${hidden} more)` : joined),
+    });
+  }
+  return lines;
 }
 
 function isFileDiffPreview(result: ToolExecutionResult): boolean {
@@ -702,8 +744,8 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
           : undefined;
 
         if (host.inkRenderer && displayToolOutput) {
-          for (const call of payload.toolCalls) {
-            host.inkRenderer.addToolCall(call.tool, formatToolCallLogDetail(call));
+          for (const line of collapseToolCallLogLines(payload.toolCalls)) {
+            host.inkRenderer.addToolCall(line.tool, line.detail);
           }
         }
 
@@ -737,6 +779,18 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
             thought?: string;
           }> = [];
 
+          const formatResultForDisplay = (
+            result: ToolExecutionResult,
+            call: ToolCallRequest | undefined,
+          ): string => {
+            const filePath = call?.args?.path as string | undefined;
+            const command = call?.args?.command as string | undefined;
+            const commandArgs = call?.args?.args as string[] | undefined;
+            return result.success
+              ? formatToolOutputForDisplay({ tool: result.tool, content: result.output ?? '', charLimit, filePath, command, commandArgs }).output
+              : result.error ?? result.output ?? 'Tool failed';
+          };
+
           // Execute all tools with progress callback
           const renderToolResult = (
             result: ToolExecutionResult,
@@ -751,17 +805,61 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
               deferredDiffResults.push({ result, call, thought: resultThought });
               return;
             }
-            const filePath = call?.args?.path as string | undefined;
-            const command = call?.args?.command as string | undefined;
-            const commandArgs = call?.args?.args as string[] | undefined;
             host.inkRenderer.addToolOutput(
               result.tool,
               result.success,
-              result.success
-                ? formatToolOutputForDisplay({ tool: result.tool, content: result.output ?? '', charLimit, filePath, command, commandArgs }).output
-                : result.error ?? result.output ?? 'Tool failed',
+              formatResultForDisplay(result, call),
               resultThought,
             );
+          };
+
+          // Parallel calls to the same tool are collected and flushed as one
+          // grouped batch (✔ read_file (N) + tree items) once all members land.
+          interface PendingBatchItem {
+            item: { tool: AgentAction['type']; label: string; detail?: string; success: boolean };
+            output: string;
+            thought?: string;
+          }
+          interface PendingToolGroup {
+            expected: number;
+            items: PendingBatchItem[];
+          }
+          const toolCallCounts = new Map<AgentAction['type'], number>();
+          for (const call of otherCalls) {
+            toolCallCounts.set(call.tool, (toolCallCounts.get(call.tool) ?? 0) + 1);
+          }
+          const pendingGroups = new Map<AgentAction['type'], PendingToolGroup>();
+          for (const [tool, count] of toolCallCounts) {
+            if (count > 1) {
+              pendingGroups.set(tool, { expected: count, items: [] });
+            }
+          }
+
+          const toBatchItem = (result: ToolExecutionResult, displayOutput: string): PendingBatchItem['item'] => {
+            const [firstLine, ...rest] = displayOutput.split('\n');
+            const detailText = rest.join(' ').trim();
+            return {
+              tool: result.tool,
+              label: truncateToolCallDetail((firstLine ?? '').trim() || result.tool, 120),
+              detail: detailText ? truncateToolCallDetail(detailText, 100) : undefined,
+              success: result.success,
+            };
+          };
+
+          const flushToolGroup = (group: PendingToolGroup): void => {
+            if (!host.inkRenderer || !displayToolOutput || group.items.length === 0) {
+              return;
+            }
+            if (group.items.length === 1) {
+              const single = group.items[0]!;
+              host.inkRenderer.addToolOutput(single.item.tool, single.item.success, single.output, single.thought);
+            } else {
+              host.inkRenderer.addToolOutputBatch(
+                group.items.map(({ item }) => item),
+                group.items.find((entry) => entry.thought)?.thought,
+              );
+            }
+            group.items = [];
           };
 
           const checkpoint = workspaceChangeCapture
@@ -779,7 +877,23 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
               if (totalTools > 1 && !host.inkRenderer) {
                 host.setSpinnerStatus(`Running tools (${completedCount}/${totalTools})...`);
               }
-              renderToolResult(result, otherCalls[index], completedCount === 1 ? thought : undefined);
+              const resultThought = completedCount === 1 ? thought : undefined;
+              const call = otherCalls[index];
+              const group = host.inkRenderer && displayToolOutput ? pendingGroups.get(result.tool) : undefined;
+              if (!group) {
+                renderToolResult(result, call, resultThought);
+                return;
+              }
+              if (workspaceChangeCapture && isFileDiffPreview(result)) {
+                group.expected -= 1;
+                deferredDiffResults.push({ result, call, thought: resultThought });
+                return;
+              }
+              const displayOutput = formatResultForDisplay(result, call);
+              group.items.push({ item: toBatchItem(result, displayOutput), output: displayOutput, thought: resultThought });
+              if (group.items.length >= group.expected) {
+                flushToolGroup(group);
+              }
             }, { signal: abortController.signal });
           } finally {
             if (workspaceChangeCapture && checkpoint) {
@@ -788,6 +902,12 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
                 return null;
               });
             }
+          }
+
+          // Safety net for partial batches (e.g. aborted mid-flight): render
+          // whatever group members completed instead of dropping them.
+          for (const group of pendingGroups.values()) {
+            flushToolGroup(group);
           }
 
           if (abortController.signal.aborted) {

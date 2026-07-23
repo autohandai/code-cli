@@ -15,6 +15,7 @@ import { render, type Instance } from 'ink';
 import {
   AgentUI,
   createInitialUIState,
+  type ActivityItem,
   type AgentUILineExtensions,
   type AgentUIState,
   type ContextTokenDisplay,
@@ -715,15 +716,11 @@ export class InkRenderer {
       chatMessages: [
         ...this.state.chatMessages,
         {
-          role: 'tool',
-          tool: 'tools',
+          role: 'tool_batch',
+          tool: groups.length === 1 ? groups[0]!.tool : 'tools',
           success: entry.allSuccess,
-          content: groups.map((group) => {
-            const lines = group.items.map((item) =>
-              item.detail ? `  ${item.label} - ${item.detail}` : `  ${item.label}`
-            );
-            return `${group.tool}${group.items.length > 1 ? ` (${group.items.length})` : ''}\n${lines.join('\n')}`;
-          }).join('\n'),
+          content: '',
+          groups,
         },
       ],
     });
@@ -953,6 +950,37 @@ export class InkRenderer {
    */
   setProviderModel(provider: string, model: string): void {
     this.updateState({ provider, model });
+  }
+
+  /**
+   * Replace todo-kind activity items while preserving active sub-agent rows.
+   */
+  setTodoActivityItems(todos: ActivityItem[]): void {
+    const existing = this.state.activityItems ?? [];
+    const subagents = existing.filter((item) => item.kind === 'subagent');
+    this.updateState({
+      activityItems: [...todos.filter((item) => item.kind === 'todo'), ...subagents],
+    });
+  }
+
+  /**
+   * Upsert a single activity row (used for sub-agent start/stop lifecycle).
+   */
+  upsertActivityItem(item: ActivityItem): void {
+    const existing = this.state.activityItems ?? [];
+    const index = existing.findIndex((entry) => entry.id === item.id);
+    if (index === -1) {
+      this.updateState({ activityItems: [...existing, item] });
+      return;
+    }
+    const next = existing.slice();
+    next[index] = { ...existing[index], ...item };
+    this.updateState({ activityItems: next });
+  }
+
+  /** Clear all sticky activity rows (new turn / /new). */
+  clearActivityItems(): void {
+    this.updateState({ activityItems: [] });
   }
 
   /**
