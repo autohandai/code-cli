@@ -2535,7 +2535,8 @@ export class ActionExecutor {
           category: action.category,
           limit: action.limit,
         });
-        console.log(chalk.gray(result.split('\n').slice(0, 15).join('\n')));
+        // Show a full catalog page (header + several multi-line agent cards).
+        console.log(chalk.gray(result.split('\n').slice(0, 60).join('\n')));
         return result;
       }
       case 'install_sub_agent': {
