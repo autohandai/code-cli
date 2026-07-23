@@ -1491,6 +1491,46 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
+  it('preserves one visible copy of chat history across repeated slash menu cycles', async () => {
+    const userMessage = 'Keep this history visible after the model picker.';
+    const assistantMessage = 'MODEL_PICKER_HISTORY_SENTINEL';
+    const preload = await createMockOpenRouterFetchPreload(assistantMessage);
+    mockOpenRouterFetchPreloads.push(preload);
+    const session = await launchInteractive({
+      env: {
+        NODE_OPTIONS: [
+          process.env.NODE_OPTIONS,
+          `--import=${preload.importSpecifier}`,
+        ].filter(Boolean).join(' '),
+      },
+    });
+
+    await waitForComposer(session);
+    await session.type(userMessage);
+    await session.press('enter');
+    await session.waitForText(assistantMessage, { timeout: 60_000 });
+    await waitForComposer(session);
+
+    for (const modal of [
+      { command: '/model', title: 'What would you like to change?' },
+      { command: '/theme', title: 'Select a theme:' },
+    ]) {
+      await session.type(modal.command);
+      await session.press('enter');
+      await session.waitForText(modal.title, { timeout: 10_000 });
+      await session.press('escape');
+      await waitForComposer(session);
+    }
+
+    const screen = await session.text({ trimEnd: true });
+    await exitInteractive(session);
+
+    expect(screen, screen).toContain(userMessage);
+    expect(screen, screen).toContain(assistantMessage);
+    expect(screen.match(new RegExp(userMessage.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))).toHaveLength(1);
+    expect(screen.match(new RegExp(assistantMessage, 'g'))).toHaveLength(1);
+  });
+
   it('selects Ollama and applies the first listed model to the status line', async () => {
     const selectedModel = 'tuistory-first:latest';
     const ollamaServer = await createMockOllamaServer([selectedModel, 'tuistory-second:latest']);

@@ -987,6 +987,9 @@ export class InkRenderer {
       // Ink 7 schedules useInput cleanup through React's passive-effect queue.
       // Callers yield a macrotask after pause() so the modal can attach a fresh
       // readable listener and re-enable raw mode without racing the composer.
+      // Clear the live composer frame before unmounting so it does not remain
+      // above the fresh composer after the modal closes. resume() replays the
+      // canonical chat transcript instead of relying on this frame's pixels.
       const instance = this.instance;
       try {
         instance.clear();
@@ -1040,21 +1043,14 @@ export class InkRenderer {
       // Create fresh ref for new instance
       this.wrapperRef = React.createRef<AgentUIWrapperHandle>();
 
-      // CRITICAL: do not replay already-committed Static history before
-      // mounting the new Ink instance.
-      //
-      // Why: every time we unmount/remount Ink (on every modal cycle), the
-      // FRESH Ink instance has no memory of what the PREVIOUS instance
-      // committed to scrollback. If we hand it the same full chat array with
-      // no offset, it cheerfully re-commits everything below the originals.
-      //
-      // The original items remain in the terminal's scrollback buffer
-      // (committed by the previous Ink instance's onRender). Keep the
-      // transcript in state for dedupe/suppression logic, but advance the
-      // static offset so only future chat messages are emitted.
+      // Unmounting the previous Ink instance removes its visible primary-screen
+      // frame before the alternate-screen modal opens. Replay the canonical
+      // chatMessages state when remounting so modal commands never erase the
+      // user's transcript. Legacy arrays stay empty to avoid rendering their
+      // entries alongside the canonical chat history.
       this.state = {
         ...this.state,
-        staticChatMessageOffset: this.state.chatMessages.length,
+        staticChatMessageOffset: 0,
         userMessages: [],
         toolOutputs: [],
         notifications: [],

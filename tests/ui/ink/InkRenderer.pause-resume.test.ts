@@ -184,7 +184,7 @@ describe('InkRenderer pause/resume cycle', () => {
     );
   });
 
-  it('clears the last composer frame before unmounting on pause', () => {
+  it('clears the live composer frame before unmounting for a modal', () => {
     renderer.start();
     const instance = (renderer as any).instance as {
       clear: ReturnType<typeof vi.fn>;
@@ -226,29 +226,31 @@ describe('InkRenderer pause/resume cycle', () => {
     }
   });
 
-  it('drops already-committed userMessages and toolOutputs on resume to prevent duplicate scrollback', async () => {
+  it('replays preserved chat messages after a modal while dropping legacy duplicate arrays', async () => {
     // Regression for: every modal cycle (/theme, /model, /settings, etc.)
-    // unmounts and remounts Ink. The previous Ink instance committed all
-    // userMessages/toolOutputs as <Static> items into the terminal's
-    // scrollback. Mounting a fresh Ink with the SAME state hands it the
-    // same arrays — and Ink dutifully re-commits them as new <Static>
-    // items, duplicating the entire chat history on every modal cycle.
+    // unmounts and remounts Ink. Unmounting removes the primary-screen frame,
+    // so the canonical chatMessages transcript must be replayed by the fresh
+    // Ink instance. Legacy userMessages/toolOutputs mirror those entries and
+    // must remain empty to avoid rendering a second copy.
     //
-    // resume() must clear those arrays so the new Ink only renders the
-    // composer + status. The original messages remain in scrollback as
-    // committed pixels.
+    // resume() therefore preserves canonical history at offset zero while
+    // clearing only the legacy arrays.
     renderer.start();
 
     renderer.addUserMessage('first prompt');
     renderer.addUserMessage('second prompt');
+    renderer.addAssistantMessage('assistant response');
     renderer.addToolOutput({ tool: 'shell', success: true, output: 'ok' });
 
     expect(renderer.getState().userMessages).toEqual(['first prompt', 'second prompt']);
     expect(renderer.getState().toolOutputs.length).toBe(1);
+    const chatMessages = renderer.getState().chatMessages;
 
     renderer.pause();
     await renderer.resume();
 
+    expect(renderer.getState().chatMessages).toEqual(chatMessages);
+    expect(renderer.getState().staticChatMessageOffset).toBe(0);
     expect(renderer.getState().userMessages).toEqual([]);
     expect(renderer.getState().toolOutputs).toEqual([]);
 
