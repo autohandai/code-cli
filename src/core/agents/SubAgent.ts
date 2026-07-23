@@ -245,16 +245,20 @@ export class SubAgent {
             // Prefer native tool calls if available
             const payload = this.parseResponse(completion);
 
-            // Add assistant message to conversation
+            // Preserve native tool_calls on the assistant turn so Responses API
+            // providers (xAI OAuth / Grok 4.5) can continue multi-turn tool use.
+            const assistantMessage: {
+                role: 'assistant';
+                content: string;
+                tool_calls?: typeof completion.toolCalls;
+            } = {
+                role: 'assistant',
+                content: completion.content || '',
+            };
             if (completion.toolCalls?.length) {
-                // For native tool calls, add the raw response
-                this.conversation.addMessage({
-                    role: 'assistant',
-                    content: completion.content || ''
-                });
-            } else {
-                this.conversation.addMessage({ role: 'assistant', content: completion.content });
+                assistantMessage.tool_calls = completion.toolCalls;
             }
+            this.conversation.addMessage(assistantMessage);
 
             if (payload.thought) {
                 console.log(chalk.gray(`[${this.name}] ${payload.thought}`));

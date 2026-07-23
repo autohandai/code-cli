@@ -13,6 +13,122 @@ describe('XAIProvider', () => {
     vi.restoreAllMocks();
   });
 
+  it('maps system prompts into instructions for sub-agent personas', async () => {
+    const provider = new XAIProvider({
+      apiKey: 'xai-key',
+      model: 'grok-4.5',
+    });
+
+    const sseBody = [
+      'event: response.completed',
+      `data: ${JSON.stringify({
+        type: 'response.completed',
+        response: {
+          id: 'resp-system',
+          created_at: 1234567890,
+          output_text: 'ok',
+          output: [],
+        },
+      })}`,
+      '',
+    ].join('\n');
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(sseBody, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      }),
+    );
+
+    await provider.complete({
+      messages: [
+        { role: 'system', content: 'You are the researcher sub-agent.' },
+        { role: 'user', content: 'Explore the repo.' },
+      ],
+    });
+
+    const body = JSON.parse(String((fetchSpy.mock.calls[0]?.[1] as RequestInit).body));
+    expect(body.instructions).toBe('You are the researcher sub-agent.');
+    expect(body.input).toEqual([
+      {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'Explore the repo.' }],
+      },
+    ]);
+  });
+
+  it('replays assistant tool_calls as function_call items for multi-turn sub-agent loops', async () => {
+    const provider = new XAIProvider({
+      apiKey: 'xai-key',
+      model: 'grok-4.5',
+    });
+
+    const sseBody = [
+      'event: response.completed',
+      `data: ${JSON.stringify({
+        type: 'response.completed',
+        response: {
+          id: 'resp-history',
+          created_at: 1234567890,
+          output_text: 'done',
+          output: [],
+        },
+      })}`,
+      '',
+    ].join('\n');
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(sseBody, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      }),
+    );
+
+    await provider.complete({
+      messages: [
+        { role: 'user', content: 'Read package.json' },
+        {
+          role: 'assistant',
+          content: '',
+          tool_calls: [{
+            id: 'call_1',
+            type: 'function',
+            function: {
+              name: 'read_file',
+              arguments: '{"path":"package.json"}',
+            },
+          }],
+        },
+        {
+          role: 'tool',
+          tool_call_id: 'call_1',
+          content: '{"ok":true}',
+        },
+      ],
+    });
+
+    const body = JSON.parse(String((fetchSpy.mock.calls[0]?.[1] as RequestInit).body));
+    expect(body.input).toEqual([
+      {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'Read package.json' }],
+      },
+      {
+        type: 'function_call',
+        call_id: 'call_1',
+        name: 'read_file',
+        arguments: '{"path":"package.json"}',
+      },
+      {
+        type: 'function_call_output',
+        call_id: 'call_1',
+        output: '{"ok":true}',
+      },
+    ]);
+  });
+
   it('surfaces xAI-specific authentication errors', async () => {
     const provider = new XAIProvider({
       apiKey: 'invalid-key',

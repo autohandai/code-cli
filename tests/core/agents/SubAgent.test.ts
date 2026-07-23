@@ -193,6 +193,79 @@ describe('SubAgent', () => {
     expect(toolNames).not.toContain('read_file');
   });
 
+  it('records native tool_calls on assistant messages so Responses API providers can continue multi-turn tool use', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const executeForTool = vi.fn().mockResolvedValue({
+      success: true,
+      output: 'file contents',
+    });
+    const complete = vi.fn()
+      .mockResolvedValueOnce({
+        id: 'tool-turn',
+        created: 1,
+        content: '',
+        toolCalls: [nativeToolCall('read_file', { path: 'package.json' })],
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'answer',
+        created: 2,
+        content: 'Done.',
+        raw: {},
+      });
+    const llm = {
+      getName: () => 'xai',
+      complete,
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: vi.fn().mockResolvedValue([]),
+      isAvailable: vi.fn().mockResolvedValue(true),
+      setModel: vi.fn(),
+    } satisfies LLMProvider;
+    const actionExecutor = { executeForTool } as unknown as ActionExecutor;
+
+    const subAgent = new SubAgent({
+      name: 'researcher',
+      description: 'Built-in researcher',
+      systemPrompt: 'You research codebases.',
+      tools: ['read_file'],
+      path: '/tmp/researcher.md',
+      source: 'builtin',
+    }, llm, actionExecutor, {
+      clientContext: 'cli',
+      depth: 0,
+      maxDepth: 0,
+    });
+
+    try {
+      await expect(subAgent.run('Read package.json')).resolves.toBe('Done.');
+      expect(complete).toHaveBeenCalledTimes(2);
+
+      const secondCallMessages = complete.mock.calls[1]?.[0]?.messages as Array<Record<string, unknown>>;
+      const assistantWithTools = secondCallMessages.find(
+        (message) => message.role === 'assistant' && Array.isArray(message.tool_calls),
+      );
+      expect(assistantWithTools).toEqual(expect.objectContaining({
+        role: 'assistant',
+        tool_calls: [expect.objectContaining({
+          id: 'call-read_file',
+          type: 'function',
+          function: expect.objectContaining({
+            name: 'read_file',
+          }),
+        })],
+      }));
+
+      const toolResult = secondCallMessages.find((message) => message.role === 'tool');
+      expect(toolResult).toEqual(expect.objectContaining({
+        role: 'tool',
+        tool_call_id: 'call-read_file',
+        content: 'file contents',
+      }));
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it('uses the parent authorization policy before nested tool execution', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const executeForTool = vi.fn().mockResolvedValue({ success: true, output: 'should not run' });
