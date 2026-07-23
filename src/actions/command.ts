@@ -364,6 +364,35 @@ export function runCommand(
 }
 
 /**
+ * Send SIGTERM to a detached process group, then SIGKILL after a grace
+ * period if it hasn't exited. Used to stop background processes tracked
+ * by BackgroundProcessRegistry (see src/core/agent/BackgroundProcessRegistry.ts).
+ * Never throws — a process that's already gone is treated as already stopped.
+ */
+export async function killProcessGroup(
+  pid: number,
+  gracePeriodMs: number = DEFAULT_KILL_GRACE_PERIOD_MS,
+): Promise<void> {
+  try {
+    process.kill(-pid, 'SIGTERM');
+  } catch {
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      try {
+        process.kill(-pid, 'SIGKILL');
+      } catch {
+        // Process group already gone.
+      }
+      resolve();
+    }, gracePeriodMs);
+    timer.unref?.();
+  });
+}
+
+/**
  * Detect whether a command string contains shell operators that
  * require `shell: true` to execute correctly (pipes, redirections,
  * chaining, globs, variable expansion, etc.).
