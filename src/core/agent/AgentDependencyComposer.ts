@@ -61,7 +61,10 @@ import { formatInteractionModeChangeMessage } from '../../ui/interactionModePres
 import type { InteractionMode } from './InteractionModeController.js';
 import packageJson from '../../../package.json' with { type: 'json' };
 import { ImageManager, type ImageMimeType } from '../ImageManager.js';
-import type { MobileImageAttachment } from '../../mobile/MobileHandoffClient.js';
+import type {
+  MobileImageAttachment,
+  MobilePermissionMode,
+} from '../../mobile/MobileHandoffClient.js';
 import { IntentDetector } from '../IntentDetector.js';
 import { EnvironmentBootstrap } from '../EnvironmentBootstrap.js';
 import { CodeQualityPipeline } from '../CodeQualityPipeline.js';
@@ -84,6 +87,7 @@ import { extensionRuntimeHost } from '../../extensions/ExtensionRuntimeHost.js';
 import { ExtensionService } from '../../extensions/ExtensionService.js';
 import type {
   MobileClaimedTurnContext,
+  MobilePermissionModeChange,
   MobileRelayController,
 } from '../../mobile/MobileRelay.js';
 import type { PendingPostTurnAction } from './PostTurnActionCoordinator.js';
@@ -143,6 +147,99 @@ export function configureMobileRelayController(
   });
   relay.setModelChangeHandler((provider, model) =>
     host.providerConfigManager.applyModelChangeRemote(provider, model));
+}
+
+const MOBILE_PERMISSION_SAFETY_RANK: Record<MobilePermissionMode, number> = {
+  restricted: 0,
+  interactive: 1,
+  unrestricted: 2,
+};
+
+/** Apply a mobile-selected permission mode through the session's canonical mode setter. */
+export function applyMobilePermissionMode(
+  host: {
+    applyAcpMode(mode: MobilePermissionMode): void;
+    getPermissionMode(): MobilePermissionMode;
+    getInteractionMode?(): InteractionMode;
+    setInteractionMode?(mode: InteractionMode): InteractionMode;
+    notifyUser?(message: string): void;
+  },
+  mode: MobilePermissionMode,
+): MobilePermissionModeChange {
+  const previousMode = host.getPermissionMode();
+  const previousInteractionMode = host.getInteractionMode?.();
+  const restorePreviousState = (): void => {
+    if (host.getPermissionMode() !== previousMode) {
+      host.applyAcpMode(previousMode);
+    }
+    if (
+      previousInteractionMode !== undefined
+      && host.getInteractionMode?.() !== previousInteractionMode
+    ) {
+      host.setInteractionMode?.(previousInteractionMode);
+    }
+    const restored = host.getPermissionMode() === previousMode
+      && (
+        previousInteractionMode === undefined
+        || host.getInteractionMode?.() === previousInteractionMode
+      );
+    if (!restored) {
+      throw new Error(
+        'Failed to restore the previous permission mode after abandoning mobile work.',
+      );
+    }
+  };
+  try {
+    host.applyAcpMode(mode);
+  } catch (error) {
+    const failedMode = host.getPermissionMode();
+    if (MOBILE_PERMISSION_SAFETY_RANK[previousMode] <= MOBILE_PERMISSION_SAFETY_RANK[failedMode]) {
+      try {
+        restorePreviousState();
+      } catch (restoreError) {
+        throw new Error(
+          restoreError instanceof Error
+            ? restoreError.message
+            : 'Failed to restore the previous permission mode after abandoning mobile work.',
+          { cause: error },
+        );
+      }
+    }
+    throw error;
+  }
+  const appliedMode = host.getPermissionMode();
+  const appliedInteractionMode = host.getInteractionMode?.();
+  if (appliedMode === mode && previousMode !== appliedMode) {
+    try {
+      host.notifyUser?.(`Autohand Mobile changed this session permission mode to ${mode}.`);
+    } catch {
+      // Local notification failures must not reclassify an applied permission change.
+    }
+  }
+  return {
+    previousMode,
+    appliedMode,
+    rollbackIfCurrent: () => {
+      if (host.getPermissionMode() !== appliedMode) return false;
+      if (
+        appliedInteractionMode !== undefined
+        && host.getInteractionMode?.() !== appliedInteractionMode
+      ) {
+        return false;
+      }
+      if (
+        previousMode === appliedMode
+        && previousInteractionMode === appliedInteractionMode
+      ) {
+        return true;
+      }
+      if (MOBILE_PERMISSION_SAFETY_RANK[previousMode] > MOBILE_PERMISSION_SAFETY_RANK[appliedMode]) {
+        return false;
+      }
+      restorePreviousState();
+      return true;
+    },
+  };
 }
 
 function normalizeMcpToolOutcome(result: unknown): ToolActionOutcome {
@@ -1498,6 +1595,19 @@ export function initializeAgentDependencies(
       onMobileDisconnected: (message: string) => {
         host.notifyUser?.(message);
       },
+      applyMobilePermissionMode: (mode: MobilePermissionMode) =>
+        applyMobilePermissionMode({
+          applyAcpMode: (selectedMode) => host.applyAcpMode(selectedMode),
+          getPermissionMode: () => {
+            const effectiveMode = host.permissionManager.getMode();
+            return effectiveMode === 'restricted' || effectiveMode === 'unrestricted'
+              ? effectiveMode
+              : 'interactive';
+          },
+          getInteractionMode: () => host.getInteractionMode(),
+          setInteractionMode: (selectedMode) => host.setInteractionMode(selectedMode),
+          notifyUser: (message) => host.notifyUser?.(message),
+        }, mode),
       // Set/clear YOLO mode for /yolo and /no-yolo commands
       setYoloMode: (pattern: string | undefined) => {
         host.runtime.options.yolo = pattern;

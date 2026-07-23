@@ -18,9 +18,13 @@ import type { RepeatManager } from './RepeatManager.js';
 import type { LoadedConfig, ProviderName } from '../types.js';
 import type { ToolsRegistry } from './toolsRegistry.js';
 import type { UsageLimitRow } from '../commands/usage.js';
-import type { MobileImageAttachment } from '../mobile/MobileHandoffClient.js';
+import type {
+  MobileImageAttachment,
+  MobilePermissionMode,
+} from '../mobile/MobileHandoffClient.js';
 import type {
   MobileClaimedTurnContext,
+  MobilePermissionModeChange,
   MobileRelayController,
 } from '../mobile/MobileRelay.js';
 import type { ExtensionService } from '../extensions/ExtensionService.js';
@@ -131,6 +135,8 @@ export interface SlashCommandContext {
     onMobileConnected?: (message: string) => void;
     /** Surface revocation of the active mobile relay pairing. */
     onMobileDisconnected?: (message: string) => void;
+    /** Apply a mobile-selected permission mode to the active CLI session. */
+    applyMobilePermissionMode?: (mode: MobilePermissionMode) => MobilePermissionModeChange;
     /** Event emitter for RPC/ACP mode notifications */
     eventEmitter?: {
         emit: (event: string, data?: unknown) => void;
