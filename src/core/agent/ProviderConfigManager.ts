@@ -50,6 +50,9 @@ import type {
   ReasoningEffort,
   OpenAIAuthMode,
   OpenAISettings,
+  XAIAuthMode,
+  XAIOAuthAuth,
+  XAISettings,
   VertexAISettings,
   BedrockApiMode,
   BedrockAuthMode,
@@ -61,6 +64,13 @@ import type { TelemetryManager } from "../../telemetry/TelemetryManager.js";
 import { AgentDelegator } from "../agents/AgentDelegator.js";
 import type { ActionExecutor } from "../actionExecutor.js";
 import { authenticateOpenAIChatGPT } from "../../providers/openaiAuth.js";
+import {
+  authenticateXAIOAuth,
+  isXAIOAuthAuthExpired,
+  loadGrokCliAuth,
+  XAI_OAUTH_API_BASE_URL,
+} from "../../providers/xaiAuth.js";
+import { XAI_MODELS } from "../../providers/XAIProvider.js";
 import {
   getCustomProviderConfig,
   isCustomProviderName,
@@ -515,12 +525,19 @@ export class ProviderConfigManager {
       return !!openAIConfig.apiKey && openAIConfig.apiKey !== "replace-me";
     }
 
+    if (provider === "xai") {
+      const xaiConfig = config as XAISettings;
+      if (xaiConfig.authMode === "oauth") {
+        return !!xaiConfig.oauthAuth?.accessToken;
+      }
+      return !!xaiConfig.apiKey && xaiConfig.apiKey !== "replace-me";
+    }
+
     if (
       provider === "openrouter" ||
       provider === "llmgateway" ||
       provider === "zai" ||
       provider === "sakana" ||
-      provider === "xai" ||
       provider === "nvidia" ||
       provider === "deepseek"
     ) {
@@ -2430,39 +2447,86 @@ export class ProviderConfigManager {
   private async configureXAI(): Promise<void> {
     try {
       console.log(chalk.cyan(t("providers.wizard.xai.title")));
-      console.log(
-        chalk.gray(
-          t("providers.config.apiKeyUrl", {
-            url: t("providers.wizard.xai.apiKeyUrl"),
-          }) + "\n",
-        ),
-      );
 
-      const apiKey = await showPassword({
-        title: t("providers.config.enterApiKey", {
-          provider: t("providers.xai"),
-        }),
-        placeholder: t("ui.apiKeyPlaceholder"),
-      });
-
-      if (!apiKey) {
+      const authMode = await this.promptXAIAuthMode();
+      if (!authMode) {
         console.log(chalk.gray("\n" + t("providers.config.cancelled")));
         return;
       }
 
-      const model =
-        (await showInput({
-          title: t("providers.wizard.xai.enterModel"),
-          defaultValue: getProviderDefaultModel("xai", "grok-4.20-reasoning"),
-        })) ?? undefined;
-      if (!model) {
+      let apiKey = "";
+      let oauthAuth: XAIOAuthAuth | undefined;
+
+      if (authMode === "oauth") {
+        oauthAuth = (await this.promptXAIOAuthAuth()) ?? undefined;
+        if (!oauthAuth) {
+          console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+          return;
+        }
+      } else {
+        console.log(
+          chalk.gray(
+            t("providers.config.apiKeyUrl", {
+              url: t("providers.wizard.xai.apiKeyUrl"),
+            }) + "\n",
+          ),
+        );
+
+        apiKey =
+          (await showPassword({
+            title: t("providers.config.enterApiKey", {
+              provider: t("providers.xai"),
+            }),
+            placeholder: t("ui.apiKeyPlaceholder"),
+          })) ?? "";
+
+        if (!apiKey) {
+          console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+          return;
+        }
+      }
+
+      const modelChoices: ModalOption[] = [
+        ...XAI_MODELS.map((name) => ({
+          label: name,
+          value: name,
+        })),
+        {
+          label: t("providers.config.customModel"),
+          value: "__custom__",
+        },
+      ];
+
+      const modelResult = await showModal({
+        title: t("providers.config.selectModel"),
+        options: modelChoices,
+        initialIndex: Math.max(0, XAI_MODELS.indexOf(getProviderDefaultModel("xai", "grok-4.5"))),
+      });
+
+      if (!modelResult) {
         console.log(chalk.gray("\n" + t("providers.config.cancelled")));
         return;
+      }
+
+      let model = modelResult.value as string;
+      if (model === "__custom__") {
+        model =
+          (await showInput({
+            title: t("providers.wizard.xai.enterModel"),
+            defaultValue: getProviderDefaultModel("xai", "grok-4.5"),
+          })) ?? "";
+        if (!model) {
+          console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+          return;
+        }
       }
 
       this.runtime.config.xai = {
-        apiKey,
-        baseUrl: "https://api.x.ai/v1",
+        authMode,
+        ...(authMode === "api-key" && { apiKey }),
+        ...(authMode === "oauth" && { oauthAuth }),
+        baseUrl:
+          authMode === "oauth" ? XAI_OAUTH_API_BASE_URL : "https://api.x.ai/v1",
         model,
       };
 
@@ -2486,6 +2550,88 @@ export class ProviderConfigManager {
       );
     } catch (error) {
       throw error;
+    }
+  }
+
+  private async promptXAIAuthMode(): Promise<XAIAuthMode | null> {
+    const existing = this.runtime.config.xai?.authMode === "oauth" ? "oauth" : "api-key";
+    const result = await showModal({
+      title: t("providers.xaiAuth.chooseTitle"),
+      options: [
+        {
+          label: t("providers.xaiAuth.apiKeyLabel"),
+          value: "api-key",
+          description: t("providers.xaiAuth.apiKeyDescription"),
+        },
+        {
+          label: t("providers.xaiAuth.oauthLabel"),
+          value: "oauth",
+          description: t("providers.xaiAuth.oauthDescription"),
+        },
+      ],
+      initialIndex: existing === "oauth" ? 1 : 0,
+    });
+    return (result?.value as XAIAuthMode | undefined) ?? null;
+  }
+
+  private async promptXAIOAuthAuth(): Promise<XAIOAuthAuth | null> {
+    const existing = this.runtime.config.xai?.oauthAuth;
+    if (existing?.accessToken && !isXAIOAuthAuthExpired(existing)) {
+      return existing;
+    }
+
+    const grokCliAuth = await loadGrokCliAuth();
+    if (grokCliAuth && !isXAIOAuthAuthExpired(grokCliAuth)) {
+      const reuse = await showModal({
+        title: t("providers.xaiAuth.chooseTitle"),
+        options: [
+          {
+            label: t("providers.xaiAuth.reuseGrokCliLabel"),
+            value: "reuse",
+            description: t("providers.xaiAuth.reuseGrokCliDescription"),
+          },
+          {
+            label: t("providers.xaiAuth.oauthLabel"),
+            value: "fresh",
+            description: t("providers.xaiAuth.oauthDescription"),
+          },
+        ],
+      });
+      if (!reuse) return null;
+      if (reuse.value === "reuse") {
+        return grokCliAuth;
+      }
+    }
+
+    try {
+      console.log(chalk.gray(`\n${t("providers.xaiAuth.starting")}`));
+      return await authenticateXAIOAuth({
+        onPrompt: ({ verificationUrl, userCode, browserOpened }) => {
+          console.log(chalk.gray(`${t("providers.xaiAuth.browserPrompt")}\n`));
+          console.log(chalk.white(verificationUrl));
+          console.log(
+            chalk.gray(
+              t("providers.xaiAuth.deviceCodeLabel", { code: userCode }),
+            ),
+          );
+          console.log(
+            chalk.gray(
+              t(
+                browserOpened
+                  ? "providers.xaiAuth.browserOpened"
+                  : "providers.xaiAuth.openManually",
+              ),
+            ),
+          );
+          console.log(chalk.gray(t("providers.xaiAuth.waiting") + "\n"));
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.log(
+        chalk.red(`\n${t("providers.xaiAuth.failed", { message })}`),
+      );
+      return null;
     }
   }
 

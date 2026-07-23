@@ -746,6 +746,22 @@
       "changeAuthOnly": "Change authentication only",
       "changeModelAndAuth": "Change model and authentication"
     },
+    "xaiAuth": {
+      "chooseTitle": "Choose how to connect xAI (Grok)",
+      "apiKeyLabel": "Use API key",
+      "apiKeyDescription": "Pay-per-use billing with your xAI Console API key",
+      "oauthLabel": "Use Grok account (OAuth)",
+      "oauthDescription": "Sign in with SuperGrok or X Premium — no API key required",
+      "reuseGrokCliLabel": "Reuse existing Grok CLI login",
+      "reuseGrokCliDescription": "Use credentials already stored in ~/.grok/auth.json",
+      "starting": "Starting xAI / Grok sign-in...",
+      "browserPrompt": "Finish xAI sign-in in your browser:",
+      "browserOpened": "Browser opened. Complete the sign-in to continue.",
+      "openManually": "Could not open your browser automatically. Visit the URL above.",
+      "deviceCodeLabel": "Enter this code if prompted: {{code}}",
+      "waiting": "Waiting for the browser sign-in to finish...",
+      "failed": "xAI sign-in failed: {{message}}"
+    },
     "hints": {
       "openrouter": "Cloud - Access to 100+ models (Claude, GPT-4, etc.)",
       "openai": "Cloud - Official OpenAI models (GPT-4o, o1, etc.)",
@@ -757,7 +773,7 @@
       "zai": "Cloud - Z.ai GLM models (glm-5.2, glm-5.1, GLM-4.5, CogView)",
       "sakana": "Cloud - Sakana Fugu multi-agent models through the Sakana API",
       "vertexai": "Cloud - Google Cloud Vertex AI (Gemini, Claude, GLM models)",
-      "xai": "Cloud - xAI Grok models with web search, X search, and code execution",
+      "xai": "Cloud - xAI Grok 4.5 and Grok models (API key or SuperGrok OAuth)",
       "cerebras": "Cloud - Cerebras AI with GLM and Qwen models",
       "nvidia": "Cloud - NVIDIA NIM models (Llama, Phi, Gemma, Mixtral, etc.)",
       "deepseek": "Cloud - DeepSeek API models (V4 Flash, V4 Pro, reasoning)",
@@ -901,8 +917,8 @@
       },
       "xai": {
         "title": "xAI (Grok) Configuration",
-        "apiKeyUrl": "https://console.x.ai/keys",
-        "enterModel": "Enter the model ID (e.g., grok-4.20-reasoning, grok-4-1-fast-reasoning)"
+        "apiKeyUrl": "https://console.x.ai/team/default/api-keys",
+        "enterModel": "Enter the model ID (e.g., grok-4.5, grok-4.3, grok-4.20-reasoning)"
       },
       "cerebras": {
         "title": "Cerebras AI Configuration",
