@@ -14,6 +14,8 @@ import type {
   MobileEventType,
   MobileKeepAwakeStatus,
   MobileModelStatus,
+  MobilePermissionMode,
+  MobilePermissionModeStatus,
   MobilePullRequestReview,
   MobileSessionTurnState,
 } from './MobileHandoffClient.js';
@@ -40,6 +42,12 @@ export type MobileChangesDecision = {
   selectedChangeIds?: string[];
 };
 
+export interface MobilePermissionModeChange {
+  previousMode: MobilePermissionMode;
+  appliedMode: MobilePermissionMode;
+  rollbackIfCurrent(): boolean;
+}
+
 interface MobileRelayOptions {
   client: MobileHandoffClientLike;
   token: string;
@@ -59,6 +67,7 @@ interface MobileRelayOptions {
   keepAwakeController?: KeepAwakeController;
   keepAwakeByDefault?: boolean;
   mergePullRequest?: (request: MobilePullRequestMergeRequest) => Promise<MobilePullRequestMergeResult>;
+  applyPermissionMode?: (mode: MobilePermissionMode) => MobilePermissionModeChange;
   onMobileConnected?: (message: string) => void;
   onMobileDisconnected?: (message: string) => void;
   onError?: (error: Error) => void;
@@ -119,6 +128,11 @@ const MOBILE_IMAGE_MIME_TYPES: readonly MobileImageMimeType[] = [
   'image/gif',
   'image/webp',
 ];
+const MOBILE_PERMISSION_MODES: readonly MobilePermissionMode[] = [
+  'interactive',
+  'restricted',
+  'unrestricted',
+];
 
 function decodeMobileImages(payload: Record<string, unknown> | null): MobileImageAttachment[] {
   const rawImages = payload?.images;
@@ -170,6 +184,7 @@ interface ActiveMobileRelay {
   polling: boolean;
   mobileConnected: boolean;
   actionCursor: number;
+  permissionModeActionResults: Map<string, MobilePermissionModeStatus>;
   pendingActions: Map<string, {
     kind: 'permission' | 'directory' | 'changes';
     path?: string;
@@ -195,6 +210,7 @@ export function startMobileRelay(options: MobileRelayOptions): MobileRelayContro
     polling: false,
     mobileConnected: false,
     actionCursor: 0,
+    permissionModeActionResults: new Map(),
     pendingActions: new Map(),
     pairingClaimDelivered: false,
     keepAwakeController,
@@ -279,6 +295,7 @@ function disposeRelay(relay: ActiveMobileRelay): void {
     );
   }
   relay.pendingActions.clear();
+  relay.permissionModeActionResults.clear();
   if (activeRelay === relay) activeRelay = null;
 }
 
@@ -332,19 +349,83 @@ async function pollOnce(
         prompt: work.prompt,
         startedAt: work.startedAt ?? new Date().toISOString(),
       };
+      let permissionModeApplication: MobilePermissionModeApplication | undefined;
+      if (work.payload?.approvalMode !== undefined) {
+        permissionModeApplication = applyPermissionMode(
+          options,
+          relay,
+          work.payload.approvalMode,
+        );
+        try {
+          await publishPermissionModeStatus(
+            options,
+            relay,
+            permissionModeApplication.status,
+            turn.workId,
+          );
+        } catch (error) {
+          rollbackPermissionModeChange(options, permissionModeApplication.change);
+          options.onError?.(error as Error);
+          if (activeRelay !== relay) {
+            await finishClaimedTurn(options, turn, {
+              status: 'cancelled',
+              error: 'Mobile relay was replaced before the claimed turn could start.',
+            });
+          } else {
+            await finishClaimedTurn(options, turn, {
+              status: 'failed',
+              error: 'Failed to acknowledge mobile permission mode change.',
+            });
+          }
+          return;
+        }
+        if (activeRelay !== relay) {
+          rollbackPermissionModeChange(options, permissionModeApplication.change);
+          await finishClaimedTurn(options, turn, {
+            status: 'cancelled',
+            error: 'Mobile relay was replaced before the claimed turn could start.',
+          });
+          return;
+        }
+        if (permissionModeApplication.status.status === 'failed') {
+          rollbackPermissionModeChange(options, permissionModeApplication.change);
+          await finishClaimedTurn(options, turn, {
+            status: 'failed',
+            error: permissionModeApplication.status.error ?? 'Failed to change permission mode.',
+          });
+          return;
+        }
+      }
       await publishTurnState(options, {
         workId: turn.workId,
         status: 'running',
         prompt: turn.prompt,
         startedAt: turn.startedAt,
       });
-      if (activeRelay !== relay) return;
+      if (activeRelay !== relay) {
+        rollbackPermissionModeChange(options, permissionModeApplication?.change);
+        await finishClaimedTurn(options, turn, {
+          status: 'cancelled',
+          error: 'Mobile relay was replaced before the claimed turn could start.',
+        });
+        return;
+      }
       const images = decodeMobileImages(work.payload);
       const context: MobileClaimedTurnContext = { turn, relay: controller };
-      if (images.length > 0 && options.enqueueInstructionWithImages) {
-        options.enqueueInstructionWithImages(work.prompt, images, context);
-      } else {
-        options.enqueueInstruction(work.prompt, context);
+      try {
+        if (images.length > 0 && options.enqueueInstructionWithImages) {
+          options.enqueueInstructionWithImages(work.prompt, images, context);
+        } else {
+          options.enqueueInstruction(work.prompt, context);
+        }
+      } catch (error) {
+        rollbackPermissionModeChange(options, permissionModeApplication?.change);
+        options.onError?.(error as Error);
+        await finishClaimedTurn(options, turn, {
+          status: 'failed',
+          error: error instanceof Error ? error.message : 'Failed to enqueue claimed mobile work.',
+        });
+        return;
       }
     }
 
@@ -357,11 +438,13 @@ async function pollOnce(
         options.pairingId,
       );
       if (activeRelay !== relay) return;
-      relay.actionCursor = Math.max(relay.actionCursor, actions.nextCursor);
       for (const action of actions.actions) {
         await resolveAction(action, options, relay, controller);
         if (activeRelay !== relay) return;
+        relay.actionCursor = Math.max(relay.actionCursor, action.sequence);
+        relay.permissionModeActionResults.delete(action.id.trim());
       }
+      relay.actionCursor = Math.max(relay.actionCursor, actions.nextCursor);
     }
   } catch (error) {
     if (activeRelay === relay) options.onError?.(error as Error);
@@ -534,6 +617,111 @@ async function setKeepAwake(
   return status;
 }
 
+interface MobilePermissionModeApplication {
+  status: MobilePermissionModeStatus;
+  change?: MobilePermissionModeChange;
+}
+
+function applyPermissionMode(
+  options: MobileRelayOptions,
+  relay: ActiveMobileRelay,
+  requestedMode: unknown,
+): MobilePermissionModeApplication {
+  const requestedModeLabel = typeof requestedMode === 'string' ? requestedMode : '';
+  const mode = MOBILE_PERMISSION_MODES.includes(requestedModeLabel as MobilePermissionMode)
+    ? requestedModeLabel as MobilePermissionMode
+    : undefined;
+
+  if (relay.disposed || activeRelay !== relay) {
+    return { status: {
+      requestedMode: requestedModeLabel,
+      status: 'failed',
+      error: 'Mobile relay is no longer active.',
+    } };
+  }
+  if (!relay.mobileConnected) {
+    return { status: {
+      requestedMode: requestedModeLabel,
+      status: 'failed',
+      error: 'Mobile pairing must be claimed before changing permission mode.',
+    } };
+  }
+  if (!mode) {
+    return { status: {
+      requestedMode: requestedModeLabel,
+      status: 'failed',
+      error: 'Unsupported mobile permission mode.',
+    } };
+  }
+  if (!options.applyPermissionMode) {
+    return { status: {
+      requestedMode: mode,
+      status: 'failed',
+      error: 'This CLI session does not support changing permission mode remotely.',
+    } };
+  }
+
+  try {
+    const change = options.applyPermissionMode(mode);
+    if (relay.disposed || activeRelay !== relay) {
+      return {
+        status: {
+          requestedMode: mode,
+          status: 'failed',
+          error: 'Mobile relay is no longer active.',
+        },
+        change,
+      };
+    }
+    if (change.appliedMode !== mode) {
+      return {
+        status: {
+          requestedMode: mode,
+          status: 'failed',
+          error: 'Permission mode application did not complete synchronously.',
+        },
+        change,
+      };
+    }
+    return {
+      status: {
+        requestedMode: mode,
+        appliedMode: mode,
+        status: 'applied',
+      },
+      change,
+    };
+  } catch (error) {
+    return { status: {
+        requestedMode: mode,
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'Failed to change permission mode.',
+      } };
+  }
+}
+
+function rollbackPermissionModeChange(
+  options: MobileRelayOptions,
+  change: MobilePermissionModeChange | undefined,
+): void {
+  if (!change) return;
+  try {
+    change.rollbackIfCurrent();
+  } catch (error) {
+    options.onError?.(error as Error);
+  }
+}
+
+async function publishPermissionModeStatus(
+  options: MobileRelayOptions,
+  relay: ActiveMobileRelay,
+  status: MobilePermissionModeStatus,
+  requestId?: string,
+): Promise<void> {
+  if (relay.disposed || activeRelay !== relay) return;
+  await publishEvent(options, 'permission_mode_status', status, requestId);
+}
+
 function waitForAction<T extends PermissionPromptResponse | string | MobileChangesDecision | undefined>(
   options: MobileRelayOptions,
   relay: ActiveMobileRelay,
@@ -684,6 +872,27 @@ async function resolveAction(
       const context: MobileClaimedTurnContext = { turn, relay: controller };
       options.enqueueInstruction(prompt, context);
     }
+    return;
+  }
+
+  if (action.actionType === 'set_permission_mode') {
+    const actionId = action.id.trim();
+    const requestId = action.requestId?.trim() || actionId;
+    if (!actionId || !requestId) {
+      options.onError?.(new Error('Mobile permission-mode action is missing a stable identifier.'));
+      return;
+    }
+
+    let status = relay.permissionModeActionResults.get(actionId);
+    if (!status) {
+      const application = applyPermissionMode(options, relay, action.payload.mode);
+      status = application.status;
+      if (status.status === 'failed') {
+        rollbackPermissionModeChange(options, application.change);
+      }
+      relay.permissionModeActionResults.set(actionId, status);
+    }
+    await publishPermissionModeStatus(options, relay, status, requestId);
     return;
   }
 

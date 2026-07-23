@@ -26,12 +26,14 @@ import {
   MobileHandoffClient,
   type MobileHandoffClientLike,
   type MobileImageAttachment,
+  type MobilePermissionMode,
   type MobileSessionSnapshot,
   type MobileSessionSnapshotMessage,
 } from '../mobile/MobileHandoffClient.js';
 import {
   startMobileRelay,
   type MobileClaimedTurnContext,
+  type MobilePermissionModeChange,
   type MobileRelayController,
 } from '../mobile/MobileRelay.js';
 
@@ -64,6 +66,7 @@ interface GoContext {
     turn: MobileClaimedTurnContext
   ) => void;
   onMobileRelayReady?: (controller: MobileRelayController) => void;
+  applyPermissionMode?: (mode: MobilePermissionMode) => MobilePermissionModeChange;
   onMobileConnected?: (message: string) => void;
   onMobileDisconnected?: (message: string) => void;
 }
@@ -222,6 +225,7 @@ export async function go(ctx: GoContext, args: string[] = []): Promise<string | 
         enqueueInstructionWithImages: ctx.enqueueMobileInstructionWithImages ?? ctx.enqueueInstructionWithImages,
         onMobileConnected: ctx.onMobileConnected,
         onMobileDisconnected: ctx.onMobileDisconnected,
+        applyPermissionMode: ctx.applyPermissionMode,
       });
       ctx.onMobileRelayReady?.(relay);
       void relay.refreshDeliveryStatus();

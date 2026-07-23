@@ -68,6 +68,7 @@ const MOBILE_PAIRING_STATUSES = new Set<MobilePairingStatus>([
 
 export type MobileEventType =
   | 'permission_request'
+  | 'permission_mode_status'
   | 'directory_access_request'
   | 'changes_batch'
   | 'session_turn_state'
@@ -90,6 +91,20 @@ export interface MobileModelStatus {
   status: 'applied' | 'failed';
   error?: string;
 }
+
+export type MobilePermissionMode = 'interactive' | 'restricted' | 'unrestricted';
+
+export type MobilePermissionModeStatus =
+  | {
+    requestedMode: string;
+    appliedMode: MobilePermissionMode;
+    status: 'applied';
+  }
+  | {
+    requestedMode: string;
+    status: 'failed';
+    error: string;
+  };
 
 export type MobileSessionTurnStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
@@ -171,6 +186,7 @@ export interface MobileDeliveryStatusSnapshot {
 
 export interface MobileEventPayloadMap {
   permission_request: Record<string, unknown>;
+  permission_mode_status: MobilePermissionModeStatus;
   directory_access_request: Record<string, unknown>;
   changes_batch: Record<string, unknown>;
   session_turn_state: MobileSessionTurnState;
@@ -197,6 +213,7 @@ export type PublishMobileEventPayload<EventType extends MobileEventType = Mobile
 
 export type MobileActionType =
   | 'permission_response'
+  | 'set_permission_mode'
   | 'directory_access_response'
   | 'changes_decision'
   | 'session_control'

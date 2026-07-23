@@ -8,15 +8,28 @@ import {
   startMobileRelay,
   stopMobileRelay,
   type MobileChangePreview,
+  type MobilePermissionModeChange,
 } from '../../src/mobile/MobileRelay.js';
 import type {
   MobileAction,
   MobileHandoffClientLike,
+  MobilePermissionMode,
   PublishMobileEventPayload,
 } from '../../src/mobile/MobileHandoffClient.js';
 import { KeepAwakeController } from '../../src/mobile/KeepAwakeController.js';
 import { EventEmitter } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
+
+function createPermissionModeChange(
+  appliedMode: MobilePermissionMode,
+  previousMode: MobilePermissionMode = 'interactive',
+): MobilePermissionModeChange {
+  return {
+    previousMode,
+    appliedMode,
+    rollbackIfCurrent: vi.fn().mockReturnValue(true),
+  };
+}
 
 describe('MobileRelay event bridge', () => {
   afterEach(() => {
@@ -475,6 +488,530 @@ describe('MobileRelay event bridge', () => {
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({
       message: 'Claimed work did not match the active mobile relay scope.',
     }));
+  });
+
+  it('applies a claimed work permission mode before enqueueing its prompt', async () => {
+    vi.useFakeTimers();
+    const callOrder: string[] = [];
+    const published: PublishMobileEventPayload[] = [];
+    const rollbackIfCurrent = vi.fn().mockReturnValue(true);
+    const applyPermissionMode = vi.fn().mockImplementation((mode: MobilePermissionMode) => {
+      callOrder.push(`mode:${mode}`);
+      return {
+        previousMode: 'interactive' as const,
+        appliedMode: mode,
+        rollbackIfCurrent,
+      };
+    });
+    const enqueueInstruction = vi.fn().mockImplementation(() => {
+      callOrder.push('enqueue');
+    });
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      claimWork: vi.fn().mockResolvedValueOnce({
+        id: 'work-with-permission-mode',
+        repo: '/workspace',
+        branch: 'main',
+        prompt: 'continue from mobile',
+        priority: 0,
+        status: 'running',
+        agentId: null,
+        deviceId: 'device-1',
+        payload: {
+          deliveryMode: 'steer',
+          sessionId: 'session-1',
+          pairingId: 'pairing-1',
+          approvalMode: 'unrestricted',
+        },
+        createdAt: '2026-07-22T00:00:00.000Z',
+        updatedAt: '2026-07-22T00:00:00.000Z',
+      }).mockResolvedValue(null),
+      publishMobileEvent: vi.fn().mockImplementation(async (_token, payload) => published.push(payload)),
+    };
+
+    startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction,
+      applyPermissionMode,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(applyPermissionMode).toHaveBeenCalledWith('unrestricted');
+    expect(rollbackIfCurrent).not.toHaveBeenCalled();
+    expect(enqueueInstruction).toHaveBeenCalledOnce();
+    expect(callOrder).toEqual(['mode:unrestricted', 'enqueue']);
+    expect(published).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'permission_mode_status',
+        requestId: 'work-with-permission-mode',
+        payload: {
+          requestedMode: 'unrestricted',
+          appliedMode: 'unrestricted',
+          status: 'applied',
+        },
+      }),
+    ]));
+  });
+
+  it('rolls back a claimed work permission mode when enqueueing fails', async () => {
+    vi.useFakeTimers();
+    const enqueueError = new Error('instruction queue unavailable');
+    const rollbackIfCurrent = vi.fn().mockReturnValue(true);
+    const updateWork = vi.fn().mockResolvedValue(undefined);
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      claimWork: vi.fn().mockResolvedValueOnce({
+        id: 'work-with-enqueue-failure',
+        repo: '/workspace',
+        branch: 'main',
+        prompt: 'continue under restricted permissions',
+        priority: 0,
+        status: 'running',
+        agentId: null,
+        deviceId: 'device-1',
+        payload: {
+          deliveryMode: 'steer',
+          sessionId: 'session-1',
+          pairingId: 'pairing-1',
+          approvalMode: 'restricted',
+        },
+        createdAt: '2026-07-22T00:00:00.000Z',
+        updatedAt: '2026-07-22T00:00:00.000Z',
+      }).mockResolvedValue(null),
+      updateWork,
+      publishMobileEvent: vi.fn().mockResolvedValue(undefined),
+    };
+
+    startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(() => {
+        throw enqueueError;
+      }),
+      applyPermissionMode: vi.fn().mockReturnValue({
+        previousMode: 'interactive',
+        appliedMode: 'restricted',
+        rollbackIfCurrent,
+      }),
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(rollbackIfCurrent).toHaveBeenCalledOnce();
+    expect(updateWork).toHaveBeenCalledWith(
+      'token',
+      'device-1',
+      'work-with-enqueue-failure',
+      expect.objectContaining({
+        status: 'failed',
+        error: enqueueError.message,
+      }),
+    );
+  });
+
+  it('fails claimed work when its permission-mode acknowledgement cannot be delivered', async () => {
+    vi.useFakeTimers();
+    const transportError = new Error('permission acknowledgement unavailable');
+    const rollbackIfCurrent = vi.fn().mockReturnValue(true);
+    const applyPermissionMode = vi.fn().mockReturnValue({
+      previousMode: 'interactive',
+      appliedMode: 'restricted',
+      rollbackIfCurrent,
+    });
+    const enqueueInstruction = vi.fn();
+    const updateWork = vi.fn().mockResolvedValue(undefined);
+    const onError = vi.fn();
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      claimWork: vi.fn().mockResolvedValueOnce({
+        id: 'work-with-undelivered-permission-status',
+        repo: '/workspace',
+        branch: 'main',
+        prompt: 'continue under restricted permissions',
+        priority: 0,
+        status: 'running',
+        agentId: null,
+        deviceId: 'device-1',
+        payload: {
+          deliveryMode: 'steer',
+          sessionId: 'session-1',
+          pairingId: 'pairing-1',
+          approvalMode: 'restricted',
+        },
+        createdAt: '2026-07-22T00:00:00.000Z',
+        updatedAt: '2026-07-22T00:00:00.000Z',
+      }).mockResolvedValue(null),
+      updateWork,
+      publishMobileEvent: vi.fn().mockImplementation(async (_token, payload) => {
+        if (payload.eventType === 'permission_mode_status') throw transportError;
+      }),
+    };
+
+    startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction,
+      applyPermissionMode,
+      onError,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(applyPermissionMode).toHaveBeenCalledWith('restricted');
+    expect(rollbackIfCurrent).toHaveBeenCalledOnce();
+    expect(enqueueInstruction).not.toHaveBeenCalled();
+    expect(updateWork).toHaveBeenCalledWith(
+      'token',
+      'device-1',
+      'work-with-undelivered-permission-status',
+      expect.objectContaining({
+        status: 'failed',
+        error: 'Failed to acknowledge mobile permission mode change.',
+      }),
+    );
+    expect(onError).toHaveBeenCalledWith(transportError);
+  });
+
+  it.each([
+    {
+      scenario: 'an unsupported permission mode',
+      approvalMode: 'full-access',
+      applyPermissionMode: vi.fn(),
+      expectedModeCall: undefined,
+      expectedError: 'Unsupported mobile permission mode.',
+    },
+    {
+      scenario: 'no permission-mode callback',
+      approvalMode: 'restricted',
+      applyPermissionMode: undefined,
+      expectedModeCall: undefined,
+      expectedError: 'This CLI session does not support changing permission mode remotely.',
+    },
+    {
+      scenario: 'a permission-mode application failure',
+      approvalMode: 'restricted',
+      applyPermissionMode: vi.fn().mockImplementation(() => {
+        throw new Error('Permission manager unavailable.');
+      }),
+      expectedModeCall: 'restricted',
+      expectedError: 'Permission manager unavailable.',
+    },
+  ])('blocks claimed work when it has $scenario', async ({
+    approvalMode,
+    applyPermissionMode,
+    expectedModeCall,
+    expectedError,
+  }) => {
+    vi.useFakeTimers();
+    const published: PublishMobileEventPayload[] = [];
+    const enqueueInstruction = vi.fn();
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      claimWork: vi.fn().mockResolvedValueOnce({
+        id: 'work-with-unsupported-permission-mode',
+        repo: '/workspace',
+        branch: 'main',
+        prompt: 'continue under the current policy',
+        priority: 0,
+        status: 'running',
+        agentId: null,
+        deviceId: 'device-1',
+        payload: {
+          deliveryMode: 'steer',
+          sessionId: 'session-1',
+          pairingId: 'pairing-1',
+          approvalMode,
+        },
+        createdAt: '2026-07-22T00:00:00.000Z',
+        updatedAt: '2026-07-22T00:00:00.000Z',
+      }).mockResolvedValue(null),
+      updateWork: vi.fn().mockResolvedValue(undefined),
+      publishMobileEvent: vi.fn().mockImplementation(async (_token, payload) => published.push(payload)),
+    };
+
+    startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction,
+      applyPermissionMode,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    if (expectedModeCall) {
+      expect(applyPermissionMode).toHaveBeenCalledWith(expectedModeCall);
+    } else if (applyPermissionMode) {
+      expect(applyPermissionMode).not.toHaveBeenCalled();
+    }
+    expect(enqueueInstruction).not.toHaveBeenCalled();
+    expect(client.updateWork).toHaveBeenCalledWith(
+      'token',
+      'device-1',
+      'work-with-unsupported-permission-mode',
+      expect.objectContaining({
+        status: 'failed',
+        error: expectedError,
+        payload: {
+          deliveryState: 'failed',
+          executionState: 'failed',
+        },
+      }),
+    );
+    expect(published).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'permission_mode_status',
+        payload: {
+          requestedMode: approvalMode,
+          status: 'failed',
+          error: expectedError,
+        },
+      }),
+      expect.objectContaining({
+        eventType: 'session_turn_state',
+        requestId: 'work-with-unsupported-permission-mode',
+        payload: expect.objectContaining({
+          workId: 'work-with-unsupported-permission-mode',
+          status: 'failed',
+          error: expectedError,
+        }),
+      }),
+    ]));
+  });
+
+  it('cancels claimed work when its relay is replaced during permission-mode application', async () => {
+    vi.useFakeTimers();
+    const published: PublishMobileEventPayload[] = [];
+    const updateWork = vi.fn().mockResolvedValue(undefined);
+    const enqueueInstruction = vi.fn();
+    const replacementClient: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-2'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      claimWork: vi.fn().mockResolvedValue(null),
+    };
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      claimWork: vi.fn().mockResolvedValueOnce({
+        id: 'work-from-replaced-relay',
+        repo: '/workspace',
+        branch: 'main',
+        prompt: 'continue under restricted permissions',
+        priority: 0,
+        status: 'running',
+        agentId: null,
+        deviceId: 'device-1',
+        payload: {
+          deliveryMode: 'steer',
+          sessionId: 'session-1',
+          pairingId: 'pairing-1',
+          approvalMode: 'restricted',
+        },
+        createdAt: '2026-07-22T00:00:00.000Z',
+        updatedAt: '2026-07-22T00:00:00.000Z',
+      }).mockResolvedValue(null),
+      updateWork,
+      publishMobileEvent: vi.fn().mockImplementation(async (_token, payload) => published.push(payload)),
+    };
+    const rollbackIfCurrent = vi.fn().mockReturnValue(true);
+    const applyPermissionMode = vi.fn((mode: MobilePermissionMode) => {
+      startMobileRelay({
+        client: replacementClient,
+        token: 'replacement-token',
+        deviceId: 'device-2',
+        sessionId: 'session-2',
+        pairingId: 'pairing-2',
+        mode: 'steer',
+        pollIntervalMs: 1_000,
+        enqueueInstruction: vi.fn(),
+      });
+      return {
+        previousMode: 'interactive' as const,
+        appliedMode: mode,
+        rollbackIfCurrent,
+      };
+    });
+
+    startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction,
+      applyPermissionMode,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(applyPermissionMode).toHaveBeenCalledWith('restricted');
+    expect(rollbackIfCurrent).toHaveBeenCalledOnce();
+    expect(enqueueInstruction).not.toHaveBeenCalled();
+    expect(updateWork).toHaveBeenCalledWith(
+      'token',
+      'device-1',
+      'work-from-replaced-relay',
+      expect.objectContaining({
+        status: 'cancelled',
+        payload: {
+          deliveryState: 'cancelled',
+          executionState: 'cancelled',
+        },
+      }),
+    );
+    expect(published).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'session_turn_state',
+        requestId: 'work-from-replaced-relay',
+        payload: expect.objectContaining({
+          workId: 'work-from-replaced-relay',
+          status: 'cancelled',
+        }),
+      }),
+    ]));
+    expect(published).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ eventType: 'permission_mode_status' }),
+    ]));
+  });
+
+  it('cancels claimed work when its relay is replaced while publishing the running state', async () => {
+    let releaseRunningState!: () => void;
+    const runningStatePublication = new Promise<void>((resolve) => {
+      releaseRunningState = resolve;
+    });
+    const updateWork = vi.fn().mockResolvedValue(undefined);
+    const enqueueInstruction = vi.fn();
+    const rollbackIfCurrent = vi.fn().mockReturnValue(true);
+    const applyPermissionMode = vi.fn().mockReturnValue({
+      previousMode: 'interactive',
+      appliedMode: 'restricted',
+      rollbackIfCurrent,
+    });
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      claimWork: vi.fn().mockResolvedValueOnce({
+        id: 'work-replaced-during-running-status',
+        repo: '/workspace',
+        branch: 'main',
+        prompt: 'continue after the running status',
+        priority: 0,
+        status: 'running',
+        agentId: null,
+        deviceId: 'device-1',
+        payload: {
+          deliveryMode: 'steer',
+          sessionId: 'session-1',
+          pairingId: 'pairing-1',
+          approvalMode: 'restricted',
+        },
+        createdAt: '2026-07-22T00:00:00.000Z',
+        updatedAt: '2026-07-22T00:00:00.000Z',
+      }).mockResolvedValue(null),
+      updateWork,
+      publishMobileEvent: vi.fn().mockImplementation(async (_token, payload) => {
+        if (
+          payload.eventType === 'session_turn_state'
+          && payload.payload.status === 'running'
+        ) {
+          await runningStatePublication;
+        }
+      }),
+    };
+
+    startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction,
+      applyPermissionMode,
+    });
+
+    await vi.waitFor(() => expect(client.publishMobileEvent).toHaveBeenCalledWith(
+      'token',
+      expect.objectContaining({
+        eventType: 'session_turn_state',
+        payload: expect.objectContaining({ status: 'running' }),
+      }),
+    ));
+
+    startMobileRelay({
+      client: {
+        getDeviceId: vi.fn().mockResolvedValue('device-2'),
+        registerDevice: vi.fn().mockResolvedValue(undefined),
+        createPairing: vi.fn(),
+        sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+        claimWork: vi.fn().mockResolvedValue(null),
+      },
+      token: 'replacement-token',
+      deviceId: 'device-2',
+      sessionId: 'session-2',
+      pairingId: 'pairing-2',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+    });
+    releaseRunningState();
+
+    await vi.waitFor(() => expect(updateWork).toHaveBeenCalledWith(
+      'token',
+      'device-1',
+      'work-replaced-during-running-status',
+      expect.objectContaining({
+        status: 'cancelled',
+        payload: {
+          deliveryState: 'cancelled',
+          executionState: 'cancelled',
+        },
+      }),
+    ));
+    expect(rollbackIfCurrent).toHaveBeenCalledOnce();
+    expect(enqueueInstruction).not.toHaveBeenCalled();
   });
 
   it('does not let a revoked heartbeat from a replaced relay stop the new relay', async () => {
@@ -1021,6 +1558,247 @@ describe('MobileRelay event bridge', () => {
         payload: { provider: 'openrouter', model: 'anthropic/claude-sonnet-4.5', status: 'applied' },
       }),
     ]));
+  });
+
+  it('rejects permission-mode actions until the mobile pairing is claimed', async () => {
+    const published: PublishMobileEventPayload[] = [];
+    const applyPermissionMode = vi.fn().mockReturnValue(createPermissionModeChange('unrestricted'));
+    const actions: MobileAction[] = [{
+      id: 'set-permission-mode-before-claim',
+      sequence: 1,
+      actionType: 'set_permission_mode',
+      requestId: 'request-set-permission-mode-before-claim',
+      payload: { mode: 'unrestricted' },
+      createdAt: new Date().toISOString(),
+    }];
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({
+        pairingClaimed: false,
+        pairingStatus: 'pending',
+      }),
+      claimWork: vi.fn().mockResolvedValue(null),
+      publishMobileEvent: vi.fn().mockImplementation(async (_token, payload) => published.push(payload)),
+      pollMobileActions: vi.fn().mockResolvedValue({ actions, nextCursor: 1 }),
+    };
+
+    startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+      applyPermissionMode,
+    });
+
+    await vi.waitFor(() => expect(published).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'permission_mode_status',
+        requestId: 'request-set-permission-mode-before-claim',
+        payload: {
+          requestedMode: 'unrestricted',
+          status: 'failed',
+          error: 'Mobile pairing must be claimed before changing permission mode.',
+        },
+      }),
+    ])));
+    expect(applyPermissionMode).not.toHaveBeenCalled();
+  });
+
+  it('applies a supported permission mode action and publishes its acknowledgement', async () => {
+    const published: PublishMobileEventPayload[] = [];
+    const applyPermissionMode = vi.fn().mockReturnValue(createPermissionModeChange('restricted'));
+    const actions: MobileAction[] = [{
+      id: 'set-permission-mode-1',
+      sequence: 1,
+      actionType: 'set_permission_mode',
+      requestId: 'request-set-permission-mode-1',
+      payload: { mode: 'restricted' },
+      createdAt: new Date().toISOString(),
+    }];
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      claimWork: vi.fn().mockResolvedValue(null),
+      publishMobileEvent: vi.fn().mockImplementation(async (_token, payload) => published.push(payload)),
+      pollMobileActions: vi.fn().mockResolvedValue({ actions, nextCursor: 1 }),
+    };
+
+    startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+      applyPermissionMode,
+    });
+
+    await vi.waitFor(() => expect(applyPermissionMode).toHaveBeenCalledWith('restricted'));
+    expect(published).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'permission_mode_status',
+        requestId: 'request-set-permission-mode-1',
+        payload: {
+          requestedMode: 'restricted',
+          appliedMode: 'restricted',
+          status: 'applied',
+        },
+      }),
+    ]));
+  });
+
+  it('retries a permission-mode action when its acknowledgement fails', async () => {
+    vi.useFakeTimers();
+    const transportError = new Error('permission status transport unavailable');
+    const published: PublishMobileEventPayload[] = [];
+    const applyPermissionMode = vi.fn().mockReturnValue(createPermissionModeChange('restricted'));
+    const onError = vi.fn();
+    const action: MobileAction = {
+      id: 'set-permission-mode-retry',
+      sequence: 1,
+      actionType: 'set_permission_mode',
+      requestId: 'request-set-permission-mode-retry',
+      payload: { mode: 'restricted' },
+      createdAt: new Date().toISOString(),
+    };
+    const pollMobileActions = vi.fn().mockImplementation(
+      async (_token, _sessionId, _deviceId, cursor: number) => (
+        cursor === 0
+          ? { actions: [action], nextCursor: 1 }
+          : { actions: [], nextCursor: 1 }
+      )
+    );
+    const publishMobileEvent = vi.fn()
+      .mockRejectedValueOnce(transportError)
+      .mockImplementation(async (_token, payload) => published.push(payload));
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      claimWork: vi.fn().mockResolvedValue(null),
+      publishMobileEvent,
+      pollMobileActions,
+    };
+
+    startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+      applyPermissionMode,
+      onError,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(applyPermissionMode).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledWith(transportError);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(applyPermissionMode).toHaveBeenCalledOnce();
+    expect(published).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'permission_mode_status',
+        requestId: 'request-set-permission-mode-retry',
+        payload: expect.objectContaining({ status: 'applied' }),
+      }),
+    ]));
+  });
+
+  it('uses the action id to correlate permission-mode acknowledgements without a request id', async () => {
+    const published: PublishMobileEventPayload[] = [];
+    const applyPermissionMode = vi.fn().mockReturnValue(createPermissionModeChange('restricted'));
+    const action: MobileAction = {
+      id: 'set-permission-mode-without-request-id',
+      sequence: 1,
+      actionType: 'set_permission_mode',
+      requestId: null,
+      payload: { mode: 'restricted' },
+      createdAt: new Date().toISOString(),
+    };
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      claimWork: vi.fn().mockResolvedValue(null),
+      publishMobileEvent: vi.fn().mockImplementation(async (_token, payload) => published.push(payload)),
+      pollMobileActions: vi.fn().mockResolvedValue({ actions: [action], nextCursor: 1 }),
+    };
+
+    startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+      applyPermissionMode,
+    });
+
+    await vi.waitFor(() => expect(published).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'permission_mode_status',
+        requestId: action.id,
+      }),
+    ])));
+  });
+
+  it('does not apply a permission-mode action without a stable action id', async () => {
+    const applyPermissionMode = vi.fn().mockReturnValue(createPermissionModeChange('restricted'));
+    const onError = vi.fn();
+    const action: MobileAction = {
+      id: '   ',
+      sequence: 1,
+      actionType: 'set_permission_mode',
+      requestId: null,
+      payload: { mode: 'restricted' },
+      createdAt: new Date().toISOString(),
+    };
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      claimWork: vi.fn().mockResolvedValue(null),
+      publishMobileEvent: vi.fn().mockResolvedValue(undefined),
+      pollMobileActions: vi.fn().mockResolvedValue({ actions: [action], nextCursor: 1 }),
+    };
+
+    startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+      applyPermissionMode,
+      onError,
+    });
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'Mobile permission-mode action is missing a stable identifier.',
+    })));
+    expect(applyPermissionMode).not.toHaveBeenCalled();
   });
 
   it('does not reclassify an applied model change when publishing its status fails', async () => {
