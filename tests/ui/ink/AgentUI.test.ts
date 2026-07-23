@@ -709,6 +709,105 @@ describe('AgentUI processing chat scrollback', () => {
   });
 });
 
+describe('AgentUI grouped tool batch rendering', () => {
+  it('renders a tool_batch chat message as one grouped block with tree connectors', () => {
+    const state = {
+      ...createInitialUIState(),
+      chatMessages: [
+        { role: 'user' as const, content: 'read those files' },
+        {
+          role: 'tool_batch' as const,
+          tool: 'read_file',
+          success: true,
+          content: '',
+          groups: [
+            {
+              tool: 'read_file',
+              items: [
+                { tool: 'read_file', label: 'src/a.ts', detail: '10 lines - 120 B', success: true },
+                { tool: 'read_file', label: 'src/b.ts', detail: '20 lines - 240 B', success: true },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const { lastFrame } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+          })
+        )
+      )
+    );
+
+    const output = stripAnsi(lastFrame() ?? '');
+    expect(output).toContain('✔ read_file (2)');
+    expect(output).toContain('├ src/a.ts');
+    expect(output).toContain('10 lines - 120 B');
+    expect(output).toContain('└ src/b.ts');
+    expect(output.match(/read_file/g)).toHaveLength(1);
+  });
+
+  it('collapses batch groups beyond four visible items', () => {
+    const state = {
+      ...createInitialUIState(),
+      chatMessages: [
+        {
+          role: 'tool_batch' as const,
+          tool: 'read_file',
+          success: true,
+          content: '',
+          groups: [
+            {
+              tool: 'read_file',
+              items: ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts'].map((label) => ({
+                tool: 'read_file',
+                label,
+                detail: '1 lines - 4 B',
+                success: true,
+              })),
+            },
+          ],
+        },
+      ],
+    };
+
+    const { lastFrame } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+          })
+        )
+      )
+    );
+
+    const output = stripAnsi(lastFrame() ?? '');
+    expect(output).toContain('✔ read_file (6)');
+    expect(output).toContain('a.ts');
+    expect(output).toContain('d.ts');
+    expect(output).not.toContain('e.ts');
+    expect(output).toContain('+2 more');
+  });
+});
+
 describe('AgentUI bracketed paste input', () => {
   function renderPasteComposer(onInstruction = vi.fn()) {
     const state = createInitialUIState();

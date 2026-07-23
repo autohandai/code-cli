@@ -24,6 +24,7 @@ import type { SkillMentionInfo } from '../mentionFilter.js';
 import { UserMessage } from './UserMessage.js';
 import { ShortcutsHelpPanel } from './ShortcutsHelpPanel.js';
 import { SitrepMessage, parseSitrepText } from './SitrepMessage.js';
+import { TaskActivityPanel, type ActivityItem } from './TaskActivityPanel.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/index.js';
 import { getPlanModeManager } from '../../commands/plan.js';
@@ -47,6 +48,8 @@ import {
   getInteractionModeIndicator,
   type InteractionMode,
 } from '../../core/agent/InteractionModeController.js';
+
+export type { ActivityItem } from './TaskActivityPanel.js';
 
 export interface ContextTokenDisplay {
   used: number;
@@ -100,6 +103,11 @@ export interface AgentUIState {
   suggestionRefreshId?: number;
   /** Current mutually-exclusive editing interaction mode. */
   interactionMode: InteractionMode;
+  /**
+   * Grouped multi-step / multi-agent activity (todo_write + sub-agents).
+   * Rendered sticky above the status line.
+   */
+  activityItems?: ActivityItem[];
 }
 
 export interface AgentUILineExtensions {
@@ -1787,7 +1795,7 @@ export function AgentUI({
     [chatHistoryItems, staticChatMessageOffset]
   );
   const chatIncludesToolOutput = useMemo(() =>
-    state.chatMessages.some((message) => message.role === 'tool'),
+    state.chatMessages.some((message) => message.role === 'tool' || message.role === 'tool_batch'),
     [state.chatMessages]
   );
   const chatIncludesFinalResponse = useMemo(() => {
@@ -1869,6 +1877,7 @@ export function AgentUI({
         queuedInstructions={state.queuedInstructions}
         selectedQueueIndex={queueSelectionIndex}
         completionStats={chatIncludesCompletion ? null : state.completionStats}
+        activityItems={state.activityItems ?? []}
         enableQueueInput={enableQueueInput}
         input={input}
         cursorOffset={cursorOffset}
@@ -2014,6 +2023,20 @@ const ChatHistoryMessage = memo(function ChatHistoryMessage({
     );
   }
 
+  if (message.role === 'tool_batch') {
+    return (
+      <ToolOutputBatchStatic
+        entry={{
+          id: `chat-tool-batch-${index}`,
+          type: 'batch',
+          groups: message.groups ?? [],
+          allSuccess: message.success ?? true,
+          timestamp: index,
+        }}
+      />
+    );
+  }
+
   if (message.role === 'tool_call') {
     return <ToolCallHistoryMessage tool={message.tool ?? 'tool'} detail={message.content} />;
   }
@@ -2130,6 +2153,7 @@ interface StatusSectionProps {
   queuedInstructions: string[];
   selectedQueueIndex: number | null;
   completionStats: { elapsed: string; tokens: string; status?: TurnCompletionStatus } | null;
+  activityItems?: ActivityItem[];
   contextPercent?: number;
   contextTokens?: ContextTokenDisplay;
   provider?: string;
@@ -2196,6 +2220,7 @@ const StatusSection = memo(function StatusSection({
   queuedInstructions,
   selectedQueueIndex,
   completionStats,
+  activityItems = [],
   contextPercent,
   contextTokens,
   provider,
@@ -2207,9 +2232,13 @@ const StatusSection = memo(function StatusSection({
   // Show queue or completion stats in a stable position
   const showQueue = queuedInstructions.length > 0 && isWorking;
   const showCompletionStats = !isWorking && completionStats;
+  const showActivity = activityItems.length > 0;
 
   return (
     <>
+      {/* Grouped todos + sub-agent runs — sticky above the spinner/status line */}
+      {showActivity && <TaskActivityPanel items={activityItems} />}
+
       {/* Status line with spinner - always renders for stability */}
       <StatusLine
         isWorking={isWorking}
@@ -2254,6 +2283,7 @@ const StatusSection = memo(function StatusSection({
          prev.completionStats?.elapsed === next.completionStats?.elapsed &&
          prev.completionStats?.tokens === next.completionStats?.tokens &&
          prev.completionStats?.status === next.completionStats?.status &&
+         prev.activityItems === next.activityItems &&
          prev.provider === next.provider &&
          prev.model === next.model &&
          prev.lineExtension === next.lineExtension;
@@ -2466,6 +2496,7 @@ interface FixedBottomProps {
   queuedInstructions: string[];
   selectedQueueIndex: number | null;
   completionStats: { elapsed: string; tokens: string; status?: TurnCompletionStatus } | null;
+  activityItems?: ActivityItem[];
   enableQueueInput: boolean;
   input: string;
   cursorOffset: number;
@@ -2499,6 +2530,7 @@ const FixedBottom = memo(function FixedBottom({
   queuedInstructions,
   selectedQueueIndex,
   completionStats,
+  activityItems = [],
   enableQueueInput,
   input,
   cursorOffset,
@@ -2530,6 +2562,7 @@ const FixedBottom = memo(function FixedBottom({
         queuedInstructions={queuedInstructions}
         selectedQueueIndex={selectedQueueIndex}
         completionStats={completionStats}
+        activityItems={activityItems}
         contextPercent={contextPercent}
         contextTokens={contextTokens}
         provider={provider}
@@ -2603,5 +2636,6 @@ export function createInitialUIState(): AgentUIState {
     lineExtensions: undefined,
     configuredLineExtensions: undefined,
     interactionMode: 'default',
+    activityItems: [],
   };
 }

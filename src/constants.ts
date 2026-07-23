@@ -28,6 +28,9 @@ export const AUTOHAND_PATHS = {
   /** Active local CLI session heartbeat files */
   activeAgents: path.join(AUTOHAND_HOME, 'active-agents'),
 
+  /** Privacy-minimal unacknowledged mobile terminal reports */
+  mobileTerminalReports: path.join(AUTOHAND_HOME, 'mobile', 'terminal-reports'),
+
   /** Project knowledge base */
   projects: path.join(AUTOHAND_HOME, 'projects'),
 

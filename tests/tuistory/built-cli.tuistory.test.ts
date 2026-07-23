@@ -1285,6 +1285,61 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   }, 90_000);
 
+  it('groups parallel read_file calls into a single batched render', async () => {
+    const files = ['alpha.txt', 'beta.txt', 'gamma.txt', 'delta.txt'];
+    const openRouterServer = await createMockOpenRouterSequenceServer([
+      JSON.stringify({
+        thought: 'Read all four notes together.',
+        toolCalls: files.map((file) => ({ tool: 'read_file', args: { path: file } })),
+      }),
+      JSON.stringify({
+        reflection: 'All four notes were read.',
+        toolCalls: [],
+        finalResponse: 'All four notes are read.',
+      }),
+    ]);
+    mockServers.push(openRouterServer);
+
+    const state = await createTempAutohandHome({
+      config: {
+        openrouter: { baseUrl: openRouterServer.baseUrl },
+        ui: { promptSuggestions: false },
+        agent: { maxIterations: 3 },
+      },
+    });
+    tempStates.push(state);
+    for (const [index, file] of files.entries()) {
+      await writeFile(path.join(state.workspaceRoot, file), `note ${index}\nbody ${index}\nend ${index}\n`);
+    }
+
+    const session = await trackSession(
+      launchBuiltAutohand([
+        '--path',
+        state.workspaceRoot,
+        '--config',
+        state.configPath,
+        '--y',
+      ], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        waitForDataTimeout: 15_000,
+      })
+    );
+
+    await waitForComposer(session);
+    await session.type('Read all four notes');
+    await session.press('enter');
+    await session.waitForText('All four notes are read.', { timeout: 60_000 });
+
+    const output = session.readAll();
+    expect(output).toContain('✔ read_file (4)');
+    expect(output.match(/✔ read_file/g) ?? []).toHaveLength(1);
+    expect(output).toContain('alpha.txt, beta.txt (+2 more)');
+    expect(output).toContain('├ alpha.txt');
+    expect(output).toContain('└ delta.txt');
+    await exitInteractive(session);
+  }, 90_000);
+
   it('streams and expands background shell output with Ctrl+O', async () => {
     const backgroundScript = [
       'let line = 1',

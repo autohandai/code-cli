@@ -7,11 +7,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   type AgentReactLoopHost,
+  collapseToolCallLogLines,
   formatComposerToolCallStatus,
   isDeferredFinalResponse,
   runAgentReactLoop,
   shouldDisplayToolOutput,
 } from '../../../src/core/agent/ReactLoopRunner.js';
+import type { ToolCallRequest } from '../../../src/types.js';
 import { ReactionParser } from '../../../src/core/agent/ReactionParser.js';
 
 describe('ReactLoopRunner composer status', () => {
@@ -931,6 +933,256 @@ describe('ReactLoopRunner composer status', () => {
         ],
         toolChoice: 'auto',
       }));
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+});
+
+describe('ReactLoopRunner parallel tool grouping', () => {
+  it('collapses consecutive same-tool calls into one log line', () => {
+    const calls = [
+      { id: '1', tool: 'read_file', args: { path: 'src/a.ts' } },
+      { id: '2', tool: 'read_file', args: { path: 'src/b.ts' } },
+      { id: '3', tool: 'read_file', args: { path: 'src/c.ts' } },
+      { id: '4', tool: 'run_command', args: { command: 'bun test' } },
+      { id: '5', tool: 'read_file', args: { path: 'src/d.ts' } },
+    ] as unknown as ToolCallRequest[];
+
+    expect(collapseToolCallLogLines(calls)).toEqual([
+      { tool: 'read_file', detail: 'src/a.ts, src/b.ts (+1 more)' },
+      { tool: 'run_command', detail: 'bun test' },
+      { tool: 'read_file', detail: 'src/d.ts' },
+    ]);
+  });
+
+  it('keeps single tool calls as individual log lines', () => {
+    const calls = [
+      { id: '1', tool: 'read_file', args: { path: 'src/a.ts' } },
+      { id: '2', tool: 'glob', args: { pattern: 'src/**/*.ts' } },
+    ] as unknown as ToolCallRequest[];
+
+    expect(collapseToolCallLogLines(calls)).toEqual([
+      { tool: 'read_file', detail: 'src/a.ts' },
+      { tool: 'glob', detail: 'src/**/*.ts' },
+    ]);
+  });
+
+  it('groups parallel same-tool results into a single batch render', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const parser = new ReactionParser();
+    const addToolCall = vi.fn();
+    const addToolOutput = vi.fn();
+    const addToolOutputBatch = vi.fn();
+    const paths = ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/d.ts'];
+    const llmComplete = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: 'tool-call',
+        created: 1,
+        content: JSON.stringify({
+          thought: 'Reading the four files together.',
+          toolCalls: paths.map((path) => ({ tool: 'read_file', args: { path } })),
+        }),
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'answer',
+        created: 2,
+        content: '{"finalResponse":"Done reading."}',
+        raw: {},
+      });
+
+    const host = createReactLoopTestHost(llmComplete, parser);
+    host.runtime.config.ui = { showThinking: true, silentToolOutput: false };
+    host.inkRenderer = {
+      setStatus: vi.fn(),
+      addToolCall,
+      addToolOutputBatch,
+      addToolOutput,
+      setThinking: vi.fn(),
+      setElapsed: vi.fn(),
+      setTokens: vi.fn(),
+      setWorking: vi.fn(),
+      setFinalResponse: vi.fn(),
+    };
+    host.toolManager.execute = vi.fn(async (calls: ToolCallRequest[], onResult) => {
+      const results = calls.map((call) => ({
+        tool: 'read_file' as const,
+        success: true,
+        output: `first\nsecond\nthird of ${String(call.args?.path)}`,
+      }));
+      results.forEach((result, index) => onResult(index, result));
+      return results;
+    });
+
+    try {
+      await runAgentReactLoop(host, new AbortController());
+
+      expect(addToolCall).toHaveBeenCalledTimes(1);
+      expect(addToolCall).toHaveBeenCalledWith('read_file', 'src/a.ts, src/b.ts (+2 more)');
+      expect(addToolOutput).not.toHaveBeenCalled();
+      expect(addToolOutputBatch).toHaveBeenCalledTimes(1);
+      const [items, thought] = addToolOutputBatch.mock.calls[0] as [
+        Array<{ tool: string; label: string; detail?: string; success: boolean }>,
+        string | undefined,
+      ];
+      expect(items).toHaveLength(4);
+      expect(items.every((item) => item.tool === 'read_file' && item.success)).toBe(true);
+      expect(items[0]?.label).toContain('a.ts');
+      expect(items[0]?.detail).toContain('lines');
+      expect(thought).toBe('Reading the four files together.');
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('renders singleton tools individually while grouping same-tool batches', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const parser = new ReactionParser();
+    const addToolCall = vi.fn();
+    const addToolOutput = vi.fn();
+    const addToolOutputBatch = vi.fn();
+    const llmComplete = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: 'tool-call',
+        created: 1,
+        content: JSON.stringify({
+          thought: 'Read both files then run the tests.',
+          toolCalls: [
+            { tool: 'read_file', args: { path: 'src/a.ts' } },
+            { tool: 'read_file', args: { path: 'src/b.ts' } },
+            { tool: 'run_command', args: { command: 'bun test' } },
+          ],
+        }),
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'answer',
+        created: 2,
+        content: '{"finalResponse":"All done."}',
+        raw: {},
+      });
+
+    const host = createReactLoopTestHost(llmComplete, parser);
+    host.runtime.config.ui = { showThinking: true, silentToolOutput: false };
+    host.inkRenderer = {
+      setStatus: vi.fn(),
+      addToolCall,
+      addToolOutputBatch,
+      addToolOutput,
+      setThinking: vi.fn(),
+      setElapsed: vi.fn(),
+      setTokens: vi.fn(),
+      setWorking: vi.fn(),
+      setFinalResponse: vi.fn(),
+    };
+    host.toolManager.execute = vi.fn(async (calls: ToolCallRequest[], onResult) => {
+      const results = calls.map((call) => ({
+        tool: call.tool,
+        success: true,
+        output: call.tool === 'run_command' ? '3 tests passed' : `contents of ${String(call.args?.path)}`,
+      }));
+      results.forEach((result, index) => onResult(index, result));
+      return results;
+    });
+
+    try {
+      await runAgentReactLoop(host, new AbortController());
+
+      expect(addToolCall).toHaveBeenCalledTimes(2);
+      expect(addToolCall).toHaveBeenNthCalledWith(1, 'read_file', 'src/a.ts, src/b.ts');
+      expect(addToolCall).toHaveBeenNthCalledWith(2, 'run_command', 'bun test');
+      expect(addToolOutputBatch).toHaveBeenCalledTimes(1);
+      const [items, thought] = addToolOutputBatch.mock.calls[0] as [
+        Array<{ tool: string; label: string; success: boolean }>,
+        string | undefined,
+      ];
+      expect(items).toHaveLength(2);
+      expect(thought).toBe('Read both files then run the tests.');
+      expect(addToolOutput).toHaveBeenCalledTimes(1);
+      expect(addToolOutput).toHaveBeenCalledWith(
+        'run_command',
+        true,
+        expect.stringContaining('bun test'),
+        undefined,
+      );
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('keeps file diff previews out of the grouped batch and renders leftovers individually', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const parser = new ReactionParser();
+    const addToolCall = vi.fn();
+    const addToolOutput = vi.fn();
+    const addToolOutputBatch = vi.fn();
+    const llmComplete = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: 'tool-call',
+        created: 1,
+        content: JSON.stringify({
+          toolCalls: [
+            { tool: 'write_file', args: { path: 'src/a.ts' } },
+            { tool: 'write_file', args: { path: 'src/b.ts' } },
+          ],
+        }),
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'answer',
+        created: 2,
+        content: '{"finalResponse":"Files written."}',
+        raw: {},
+      });
+
+    const host = createReactLoopTestHost(llmComplete, parser);
+    host.runtime.config.ui = { showThinking: false, silentToolOutput: false };
+    host.inkRenderer = {
+      setStatus: vi.fn(),
+      addToolCall,
+      addToolOutputBatch,
+      addToolOutput,
+      setThinking: vi.fn(),
+      setElapsed: vi.fn(),
+      setTokens: vi.fn(),
+      setWorking: vi.fn(),
+      setFinalResponse: vi.fn(),
+    };
+    host.toolManager.execute = vi.fn(async (calls: ToolCallRequest[], onResult) => {
+      const results = calls.map((call) => ({
+        tool: 'write_file' as const,
+        success: true,
+        output: String(call.args?.path).endsWith('a.ts')
+          ? 'Added 3 lines, removed 1 line in src/a.ts'
+          : 'File written successfully.',
+      }));
+      results.forEach((result, index) => onResult(index, result));
+      return results;
+    });
+
+    try {
+      await runAgentReactLoop(host, new AbortController());
+
+      expect(addToolCall).toHaveBeenCalledTimes(1);
+      expect(addToolCall).toHaveBeenCalledWith('write_file', 'src/a.ts, src/b.ts');
+      expect(addToolOutputBatch).not.toHaveBeenCalled();
+      expect(addToolOutput).toHaveBeenCalledTimes(2);
+      expect(addToolOutput).toHaveBeenCalledWith(
+        'write_file',
+        true,
+        'File written successfully.',
+        undefined,
+      );
+      expect(addToolOutput).toHaveBeenCalledWith(
+        'write_file',
+        true,
+        expect.stringContaining('Added 3 lines'),
+        undefined,
+      );
     } finally {
       logSpy.mockRestore();
     }

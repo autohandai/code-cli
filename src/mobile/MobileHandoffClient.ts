@@ -45,6 +45,11 @@ export interface RegisterMobileDevicePayload {
   metadata?: Record<string, unknown>;
 }
 
+export interface MobileDeviceRegistration {
+  profile: { id: string };
+  account?: { id: string };
+}
+
 export interface MobileRelayHeartbeatPayload {
   sessionId: string;
   deviceId: string;
@@ -307,9 +312,31 @@ export interface MobileHandoffClientConfig {
   timeoutMs?: number;
 }
 
+export class MobileHandoffRequestError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly retryAfterMs?: number,
+  ) {
+    super(`Mobile API request failed with status ${status}`);
+    this.name = 'MobileHandoffRequestError';
+  }
+}
+
+function parseRetryAfter(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return undefined;
+  return Math.max(0, timestamp - Date.now());
+}
+
 export interface MobileHandoffClientLike {
   getDeviceId(): Promise<string>;
-  registerDevice(token: string, payload: RegisterMobileDevicePayload): Promise<void>;
+  registerDevice(
+    token: string,
+    payload: RegisterMobileDevicePayload,
+  ): Promise<MobileDeviceRegistration | void>;
   createPairing(token: string, payload: CreateMobilePairingPayload): Promise<MobilePairing>;
   sendRelayHeartbeat(token: string, payload: MobileRelayHeartbeatPayload): Promise<MobileRelayHeartbeatResult>;
   claimWork(
@@ -371,8 +398,14 @@ export class MobileHandoffClient implements MobileHandoffClientLike {
     }
   }
 
-  async registerDevice(token: string, payload: RegisterMobileDevicePayload): Promise<void> {
-    await this.request('/v1/devices/register', token, {
+  async registerDevice(
+    token: string,
+    payload: RegisterMobileDevicePayload,
+  ): Promise<MobileDeviceRegistration | void> {
+    const data = await this.request<{
+      profile?: { id?: unknown };
+      account?: { id?: unknown };
+    }>('/v1/devices/register', token, {
       method: 'POST',
       body: JSON.stringify({
         deviceId: payload.deviceId,
@@ -384,6 +417,13 @@ export class MobileHandoffClient implements MobileHandoffClientLike {
         'X-Device-ID': payload.deviceId,
       },
     });
+    const profileId = typeof data.profile?.id === 'string' ? data.profile.id.trim() : '';
+    const accountId = typeof data.account?.id === 'string' ? data.account.id.trim() : '';
+    if (!profileId) return;
+    return {
+      profile: { id: profileId },
+      ...(accountId ? { account: { id: accountId } } : {}),
+    };
   }
 
   async createPairing(token: string, payload: CreateMobilePairingPayload): Promise<MobilePairing> {
@@ -581,8 +621,10 @@ export class MobileHandoffClient implements MobileHandoffClientLike {
       }
 
       if (!response.ok) {
-        const text = await response.text().catch(() => 'Unknown error');
-        throw new Error(`API error: ${response.status} ${text}`);
+        throw new MobileHandoffRequestError(
+          response.status,
+          parseRetryAfter(response.headers.get('Retry-After')),
+        );
       }
 
       return await response.json() as T;

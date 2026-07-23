@@ -61,6 +61,47 @@ describe('InkRenderer live command blocks', () => {
     ]);
   });
 
+  it('records grouped parallel tool output as a single batch chat message', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    renderer.addToolCall('read_file', 'src/a.ts, src/b.ts (+2 more)');
+    renderer.addToolOutputBatch([
+      { tool: 'read_file', label: 'src/a.ts', detail: '10 lines - 120 B', success: true },
+      { tool: 'read_file', label: 'src/b.ts', detail: '20 lines - 240 B', success: true },
+      { tool: 'read_file', label: 'src/c.ts', detail: '30 lines - 360 B', success: true },
+      { tool: 'read_file', label: 'src/d.ts', detail: '40 lines - 480 B', success: false },
+    ]);
+
+    const state = renderer.getState();
+    expect(state.chatMessages).toHaveLength(2);
+    expect(state.chatMessages[0]).toEqual({
+      role: 'tool_call',
+      tool: 'read_file',
+      content: 'src/a.ts, src/b.ts (+2 more)',
+    });
+    expect(state.chatMessages[1]).toMatchObject({
+      role: 'tool_batch',
+      success: false,
+      groups: [
+        {
+          tool: 'read_file',
+          items: [
+            { tool: 'read_file', label: 'src/a.ts', detail: '10 lines - 120 B', success: true },
+            { tool: 'read_file', label: 'src/b.ts', detail: '20 lines - 240 B', success: true },
+            { tool: 'read_file', label: 'src/c.ts', detail: '30 lines - 360 B', success: true },
+            { tool: 'read_file', label: 'src/d.ts', detail: '40 lines - 480 B', success: false },
+          ],
+        },
+      ],
+    });
+    expect(state.toolOutputs).toHaveLength(1);
+    expect(state.toolOutputs[0]).toMatchObject({ type: 'batch', allSuccess: false });
+  });
+
   it('keeps completed turns in chronological transcript order', () => {
     const renderer = new InkRenderer({
       onInstruction: () => {},

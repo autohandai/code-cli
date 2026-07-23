@@ -102,6 +102,29 @@ describe('relay heartbeat', () => {
   });
 });
 
+describe('mobile device registration identity', () => {
+  it('returns the verified profile and account resolved by the mobile API', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      success: true,
+      device: { deviceId: 'device-1' },
+      profile: { id: 'profile-1' },
+      account: { id: 'account-1' },
+    }), {
+      status: 201,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    const client = new MobileHandoffClient({ baseUrl: 'https://preview-api.example.com' });
+
+    await expect(client.registerDevice('auth-sensitive', {
+      deviceId: 'device-1',
+      clientType: 'cli',
+    })).resolves.toEqual({
+      profile: { id: 'profile-1' },
+      account: { id: 'account-1' },
+    });
+  });
+});
+
 describe('mobile work lifecycle', () => {
   it('sends the exact steer session scope when claiming live work', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
