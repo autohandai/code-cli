@@ -39,6 +39,7 @@ export type ProviderName = BuiltInProviderName | CustomProviderId | ExtensionPro
 
 export type AzureAuthMethod = 'api-key' | 'entra-id' | 'managed-identity';
 export type OpenAIAuthMode = 'api-key' | 'chatgpt';
+export type XAIAuthMode = 'api-key' | 'oauth';
 export type BedrockApiMode = 'converse' | 'openai-chat' | 'openai-responses';
 export type BedrockAuthMode = 'aws-credentials' | 'bedrock-api-key';
 
@@ -144,10 +145,25 @@ export interface BedrockSettings extends ProviderSettings {
   apiKey?: string;
 }
 
-/** xAI (xAI) settings for the xAI API. */
+/** Stored xAI OAuth (SuperGrok / X Premium) credentials. */
+export interface XAIOAuthAuth {
+  accessToken: string;
+  refreshToken?: string;
+  idToken?: string;
+  expiresAt?: string;
+  lastRefresh?: string;
+  email?: string;
+  userId?: string;
+}
+
+/** xAI (Grok) settings for the xAI API or SuperGrok OAuth login. */
 export interface XAISettings extends ProviderSettings {
-    /** xAI API key (required). */
-    apiKey: string;
+  /** xAI API key — required for authMode api-key. */
+  apiKey?: string;
+  /** Authentication mode: paid API key or SuperGrok / X Premium OAuth. */
+  authMode?: XAIAuthMode;
+  /** OAuth credentials when authMode is oauth. */
+  oauthAuth?: XAIOAuthAuth;
 }
 
 /** Cerebras AI settings for the Cerebras API. */

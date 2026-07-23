@@ -13,7 +13,7 @@ import { ASCII_FRIEND } from '../utils/asciiArt.js';
 import fse from 'fs-extra';
 import { join } from 'path';
 
-import type { AutohandConfig, LoadedConfig, ProviderName, BuiltInProviderName, AzureSettings, AzureAuthMethod, PermissionMode, SearchProvider, ReasoningEffort, OpenAIAuthMode, OpenAIChatGPTAuth, OpenAISettings, VertexAISettings, BedrockSettings, BedrockApiMode, BedrockAuthMode } from '../types.js';
+import type { AutohandConfig, LoadedConfig, ProviderName, BuiltInProviderName, AzureSettings, AzureAuthMethod, PermissionMode, SearchProvider, ReasoningEffort, OpenAIAuthMode, OpenAIChatGPTAuth, OpenAISettings, XAIAuthMode, XAIOAuthAuth, XAISettings, VertexAISettings, BedrockSettings, BedrockApiMode, BedrockAuthMode } from '../types.js';
 import { getProviderConfig } from '../config.js';
 import { ProviderFactory } from '../providers/ProviderFactory.js';
 import { ZAI_MODELS, ZAI_DEFAULT_BASE_URL } from '../providers/ZaiProvider.js';
@@ -24,6 +24,12 @@ import { DEEPSEEK_MODELS, DEEPSEEK_DEFAULT_BASE_URL } from '../providers/DeepSee
 import { BEDROCK_DEFAULT_MODEL, BEDROCK_DEFAULT_REGION, BEDROCK_MODELS, resolveBedrockAuthMode, resolveBedrockEndpoint } from '../providers/BedrockProvider.js';
 import { getProviderDefaultModel } from '../providers/modelCatalog.js';
 import { authenticateOpenAIChatGPT, isChatGPTAuthExpired } from '../providers/openaiAuth.js';
+import {
+  authenticateXAIOAuth,
+  isXAIOAuthAuthExpired,
+  loadGrokCliAuth,
+  XAI_OAUTH_API_BASE_URL,
+} from '../providers/xaiAuth.js';
 import { installLlamaCpp, probeLlamaCppEnvironment } from '../providers/llamaCppSetup.js';
 import { ProjectAnalyzer } from './projectAnalyzer.js';
 import { AgentsGenerator } from './agentsGenerator.js';
@@ -109,6 +115,8 @@ interface OnboardingState {
   reasoningEffort?: ReasoningEffort;
   openAIAuthMode?: OpenAIAuthMode;
   openAIChatGPTAuth?: OpenAIChatGPTAuth;
+  xaiAuthMode?: XAIAuthMode;
+  xaiOAuthAuth?: XAIOAuthAuth;
   authToken?: string;
   authUser?: { id: string; email: string; name: string };
   skipped: OnboardingStep[];
@@ -209,6 +217,20 @@ export class SetupWizard {
             const chatgptAuth = await this.promptOpenAIChatGPTAuth();
             if (!chatgptAuth) return this.cancelled();
             this.state.openAIChatGPTAuth = chatgptAuth;
+          } else {
+            const apiKey = await this.promptApiKey(provider);
+            if (apiKey === null) return this.cancelled();
+            await this.validateApiKeyDuringSetup();
+          }
+        } else if (provider === 'xai') {
+          const authMode = await this.promptXAIAuthMode();
+          if (!authMode) return this.cancelled();
+          this.state.xaiAuthMode = authMode;
+
+          if (authMode === 'oauth') {
+            const oauthAuth = await this.promptXAIOAuthAuth();
+            if (!oauthAuth) return this.cancelled();
+            this.state.xaiOAuthAuth = oauthAuth;
           } else {
             const apiKey = await this.promptApiKey(provider);
             if (apiKey === null) return this.cancelled();
@@ -328,6 +350,10 @@ export class SetupWizard {
       return this.isOpenAIConfigured(providerConfig as OpenAISettings);
     }
 
+    if (provider === 'xai') {
+      return this.isXAIConfigured(providerConfig as XAISettings);
+    }
+
     if (provider === 'vertexai') {
       const vertexaiConfig = providerConfig as VertexAISettings;
       return !!(vertexaiConfig.authToken && vertexaiConfig.authToken.length >= 10);
@@ -418,6 +444,10 @@ export class SetupWizard {
       return this.isOpenAIConfigured(providerConfig as OpenAISettings);
     }
 
+    if (provider === 'xai') {
+      return this.isXAIConfigured(providerConfig as XAISettings);
+    }
+
     if (provider === 'vertexai') {
       const vertexaiConfig = providerConfig as VertexAISettings;
       return !!(vertexaiConfig.authToken && vertexaiConfig.authToken.length >= 10);
@@ -491,6 +521,78 @@ export class SetupWizard {
     });
 
     return (result?.value as OpenAIAuthMode | undefined) ?? null;
+  }
+
+  private async promptXAIAuthMode(): Promise<XAIAuthMode | null> {
+    const result = await showModal({
+      title: t('providers.xaiAuth.chooseTitle'),
+      options: [
+        {
+          label: t('providers.xaiAuth.apiKeyLabel'),
+          value: 'api-key',
+          description: t('providers.xaiAuth.apiKeyDescription'),
+        },
+        {
+          label: t('providers.xaiAuth.oauthLabel'),
+          value: 'oauth',
+          description: t('providers.xaiAuth.oauthDescription'),
+        },
+      ],
+      initialIndex: this.getExistingXAIAuthMode() === 'oauth' ? 1 : 0,
+    });
+    return (result?.value as XAIAuthMode | undefined) ?? null;
+  }
+
+  private async promptXAIOAuthAuth(): Promise<XAIOAuthAuth | null> {
+    const existing = this.getExistingXAIOAuthAuth();
+    if (existing && !isXAIOAuthAuthExpired(existing)) {
+      this.state.xaiOAuthAuth = existing;
+      return existing;
+    }
+
+    const grokCliAuth = await loadGrokCliAuth();
+    if (grokCliAuth && !isXAIOAuthAuthExpired(grokCliAuth)) {
+      const reuse = await showModal({
+        title: t('providers.xaiAuth.chooseTitle'),
+        options: [
+          {
+            label: t('providers.xaiAuth.reuseGrokCliLabel'),
+            value: 'reuse',
+            description: t('providers.xaiAuth.reuseGrokCliDescription'),
+          },
+          {
+            label: t('providers.xaiAuth.oauthLabel'),
+            value: 'fresh',
+            description: t('providers.xaiAuth.oauthDescription'),
+          },
+        ],
+        initialIndex: 0,
+      });
+      if (!reuse) return null;
+      if (reuse.value === 'reuse') {
+        this.state.xaiOAuthAuth = grokCliAuth;
+        return grokCliAuth;
+      }
+    }
+
+    try {
+      console.log(chalk.gray(`\n  ${t('providers.xaiAuth.starting')}`));
+      const auth = await authenticateXAIOAuth({
+        onPrompt: async ({ verificationUrl, userCode, browserOpened }) => {
+          console.log(chalk.gray(`\n  ${t('providers.xaiAuth.browserPrompt')}`));
+          console.log(chalk.white(`  ${verificationUrl}`));
+          console.log(chalk.gray(`  ${t('providers.xaiAuth.deviceCodeLabel', { code: userCode })}`));
+          console.log(chalk.gray(`  ${browserOpened ? t('providers.xaiAuth.browserOpened') : t('providers.xaiAuth.openManually')}`));
+          console.log(chalk.gray(`  ${t('providers.xaiAuth.waiting')}\n`));
+        },
+      });
+      this.state.xaiOAuthAuth = auth;
+      return auth;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.log(chalk.red(`\n  ${t('providers.xaiAuth.failed', { message })}`));
+      return null;
+    }
   }
 
   private async promptOpenAIChatGPTAuth(): Promise<OpenAIChatGPTAuth | null> {
@@ -1069,6 +1171,20 @@ export class SetupWizard {
           model: this.state.model ?? this.getDefaultModel('openai'),
           baseUrl: this.getDefaultBaseUrl('openai'),
           ...(this.state.reasoningEffort !== undefined && { reasoningEffort: this.state.reasoningEffort })
+        };
+      } else if (this.state.provider === 'xai' && this.state.xaiAuthMode === 'oauth') {
+        config.xai = {
+          authMode: 'oauth',
+          oauthAuth: this.state.xaiOAuthAuth,
+          model: this.state.model ?? this.getDefaultModel('xai'),
+          baseUrl: XAI_OAUTH_API_BASE_URL,
+        };
+      } else if (this.state.provider === 'xai') {
+        config.xai = {
+          authMode: 'api-key',
+          apiKey: this.state.apiKey,
+          model: this.state.model ?? this.getDefaultModel('xai'),
+          baseUrl: this.getDefaultBaseUrl('xai'),
         };
       } else if (this.state.provider === 'vertexai' && this.state.vertexaiConfig) {
         config.vertexai = this.state.vertexaiConfig;
@@ -2113,6 +2229,23 @@ export class SetupWizard {
   private getExistingOpenAIChatGPTAuth(): OpenAIChatGPTAuth | null {
     const auth = this.existingConfig?.openai?.chatgptAuth;
     return auth && auth.accessToken && auth.accountId ? auth : null;
+  }
+
+  private getExistingXAIAuthMode(): XAIAuthMode {
+    const config = this.existingConfig?.xai;
+    return config?.authMode === 'oauth' ? 'oauth' : 'api-key';
+  }
+
+  private getExistingXAIOAuthAuth(): XAIOAuthAuth | null {
+    const auth = this.existingConfig?.xai?.oauthAuth;
+    return auth && auth.accessToken ? auth : null;
+  }
+
+  private isXAIConfigured(config: XAISettings): boolean {
+    if (config.authMode === 'oauth') {
+      return !!config.oauthAuth?.accessToken;
+    }
+    return !!config.apiKey && config.apiKey !== 'replace-me' && config.apiKey.length >= 10;
   }
 
   private isOpenAIConfigured(config: OpenAISettings): boolean {

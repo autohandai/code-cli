@@ -15,6 +15,7 @@ import type {
   ProviderSettings,
   AzureSettings,
   OpenAISettings,
+  XAISettings,
   VertexAISettings,
   BedrockSettings,
   BedrockApiMode,
@@ -993,6 +994,18 @@ export function getProviderConfig(
         return null;
       }
     }
+  } else if (builtInProvider === "xai") {
+    const xaiEntry = entry as XAISettings;
+    if (!xaiEntry.model) {
+      return null;
+    }
+    if (xaiEntry.authMode === "oauth") {
+      if (!xaiEntry.oauthAuth?.accessToken) {
+        return null;
+      }
+    } else if (!xaiEntry.apiKey || xaiEntry.apiKey === "replace-me") {
+      return null;
+    }
   } else if (
     builtInProvider === "openrouter" ||
     builtInProvider === "llmgateway" ||
@@ -1052,6 +1065,8 @@ function defaultBaseUrlFor(
       return DEFAULT_OPENAI_URL;
     case "mlx":
       return p ? `http://localhost:${p}` : DEFAULT_MLX_URL;
+    case "xai":
+      return "https://api.x.ai/v1";
     case "nvidia":
       return "https://integrate.api.nvidia.com/v1";
     case "bedrock":

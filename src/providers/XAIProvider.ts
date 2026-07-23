@@ -5,7 +5,15 @@
  */
 
 import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
-import type { LLMRequest, LLMResponse, LLMToolCall, LLMUsage, FunctionDefinition } from '../types.js';
+import type {
+    LLMRequest,
+    LLMResponse,
+    LLMToolCall,
+    LLMUsage,
+    FunctionDefinition,
+    XAISettings,
+    XAIOAuthAuth,
+} from '../types.js';
 import { ApiError, classifyApiError, type ApiErrorCode } from './errors.js';
 import { normalizeLLMUsage } from './usage.js';
 import {
@@ -13,23 +21,27 @@ import {
     getProviderModelIds,
     mergeModelIds,
 } from './modelCatalog.js';
+import {
+    isXAIOAuthAuthExpired,
+    loadPersistedXAIOAuthAuth,
+    refreshXAIOAuthAuth,
+    XAI_API_BASE_URL,
+    XAI_OAUTH_API_BASE_URL,
+} from './xaiAuth.js';
 
 /** Canonical list of supported xAI models from the JSON model catalog. */
 export const XAI_MODELS = getProviderModelIds('xai');
 
 /** Default model when none is specified. */
-export const XAI_DEFAULT_MODEL = getProviderDefaultModel('xai', 'grok-4.20-reasoning');
-
-/** xAI API base URL. */
-const XAI_API_BASE_URL = 'https://api.x.ai/v1';
+export const XAI_DEFAULT_MODEL = getProviderDefaultModel('xai', 'grok-4.5');
 
 const XAI_FRIENDLY_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
     auth_failed:
-        'Authentication failed. Please verify your xAI API key in ~/.autohand/config.json.',
+        'Authentication failed. Sign in with xAI OAuth or verify your API key in ~/.autohand/config.json.',
     payment_required:
-        'Payment required. Please check your xAI account balance or billing settings.',
+        'Payment required. Please check your xAI account balance, SuperGrok subscription, or billing settings.',
     access_denied:
-        'Access denied. Your xAI API key may not have permission for this model.',
+        'Access denied. Your xAI credentials may not have permission for this model or OAuth tier.',
     server_error:
         'The xAI service encountered an error. Please try again later.',
     network_error:
@@ -126,9 +138,15 @@ interface XAIResponsesStreamErrorPayload {
  * xAI provider implementation using the OpenAI-compatible Responses API.
  *
  * Target models:
- *   - grok-4.20-reasoning        (latest reasoning model)
+ *   - grok-4.5                   (flagship coding / agentic model)
+ *   - grok-4.3                   (previous generation)
+ *   - grok-4.20-reasoning        (reasoning variant)
  *   - grok-4-1-fast-reasoning    (fast reasoning, aliases: grok-4-1-fast-reasoning-latest)
  *   - grok-4.20-0309-reasoning   (specific dated release)
+ *
+ * Auth:
+ *   - API key → https://api.x.ai/v1
+ *   - OAuth (SuperGrok / X Premium) → https://cli-chat-proxy.grok.com/v1
  *
  * Server-side tools (specified by type, no function schema needed):
  *   - web_search
@@ -139,10 +157,14 @@ export class XAIProvider implements LLMProvider {
     private baseUrl: string;
     private apiKey: string;
     private model: string;
+    private authMode: 'api-key' | 'oauth';
+    private oauthAuth?: XAIOAuthAuth;
 
-    constructor(config: { apiKey?: string; baseUrl?: string; model?: string }) {
+    constructor(config: XAISettings | { apiKey?: string; baseUrl?: string; model?: string; authMode?: 'api-key' | 'oauth'; oauthAuth?: XAIOAuthAuth }) {
+        this.authMode = config.authMode === 'oauth' ? 'oauth' : 'api-key';
         this.apiKey = config.apiKey || '';
-        this.baseUrl = (config.baseUrl || XAI_API_BASE_URL).replace(/\/$/, '');
+        this.oauthAuth = 'oauthAuth' in config ? config.oauthAuth : undefined;
+        this.baseUrl = this.resolveBaseUrl(config.baseUrl);
         this.model = config.model || XAI_DEFAULT_MODEL;
     }
 
@@ -191,6 +213,9 @@ export class XAIProvider implements LLMProvider {
     }
 
     async isAvailable(): Promise<boolean> {
+        if (this.authMode === 'oauth') {
+            return !!this.oauthAuth?.accessToken;
+        }
         if (!this.apiKey) return false;
         try {
             const headers = await this.buildAuthHeaders();
@@ -212,14 +237,16 @@ export class XAIProvider implements LLMProvider {
         const body: Record<string, unknown> = {
             model: request.model || this.model,
             stream: true,
-            tool_choice: 'auto',
             input: this.toXAIInputItems(request.messages),
         };
 
-        // Map tools to xAI's server-side tool format or standard function definitions
+        // Map tools to xAI's server-side tool format or standard function definitions.
+        // Only set tool_choice when tools are present — Grok 4.5 / CLI proxy reject
+        // tool_choice without tools (invalid_request).
         const tools = this.mapToXAITools(request.tools);
         if (tools.length > 0) {
             body.tools = tools;
+            body.tool_choice = 'auto';
         }
 
         const headers = await this.buildAuthHeaders();
@@ -279,17 +306,70 @@ export class XAIProvider implements LLMProvider {
     // ------------------------------------------------------------------
 
     private async buildAuthHeaders(): Promise<Record<string, string>> {
+        if (this.authMode === 'oauth') {
+            if (!this.oauthAuth?.accessToken) {
+                const persisted = await loadPersistedXAIOAuthAuth();
+                if (persisted?.accessToken) {
+                    this.oauthAuth = persisted;
+                }
+            }
+
+            if (!this.oauthAuth?.accessToken) {
+                throw new ApiError(
+                    'xAI OAuth authentication is missing. Sign in again with SuperGrok / X Premium.',
+                    'auth_failed',
+                    401,
+                    false,
+                );
+            }
+
+            if (isXAIOAuthAuthExpired(this.oauthAuth)) {
+                try {
+                    this.oauthAuth = await refreshXAIOAuthAuth(this.oauthAuth);
+                } catch (error) {
+                    const message =
+                        (error as Error).message ||
+                        'xAI OAuth token refresh failed. Sign in again.';
+                    throw new ApiError(message, 'auth_failed', 401, false);
+                }
+            }
+
+            return {
+                Authorization: `Bearer ${this.oauthAuth.accessToken}`,
+                // Grok CLI proxy identity headers (subscription OAuth path).
+                'x-xai-token-auth': 'xai-grok-cli',
+                'x-grok-client-identifier': 'autohand-cli',
+                'x-grok-client-version': '1.0.0',
+            };
+        }
+
         return {
             Authorization: `Bearer ${this.apiKey}`,
         };
     }
 
+    private resolveBaseUrl(configBaseUrl?: string): string {
+        if (this.authMode === 'oauth') {
+            if (!configBaseUrl || configBaseUrl === XAI_API_BASE_URL) {
+                return XAI_OAUTH_API_BASE_URL;
+            }
+            return configBaseUrl.replace(/\/$/, '');
+        }
+        return (configBaseUrl || XAI_API_BASE_URL).replace(/\/$/, '');
+    }
+
     // Map the generic LLMRequest.tools (FunctionDefinition[]) to xAI tool payloads.
     // xAI built-in tools use a simple `{ type: "web_search" }` form.
-    // If the user supplies a custom FunctionDefinition whose name matches a known
-    // server-side tool we emit the server-side variant; everything else becomes a
-    // standard `function` tool.
-    private mapToXAITools(tools?: FunctionDefinition[]): Array<XAITool | { type: 'function'; function: { name: string; description?: string; parameters?: Record<string, unknown> } }> {
+    // Client function tools use the Responses API shape (flat name/description/parameters),
+    // not the Chat Completions nested `{ type, function: { name } }` shape.
+    private mapToXAITools(tools?: FunctionDefinition[]): Array<
+        XAITool | {
+            type: 'function';
+            name: string;
+            description?: string;
+            parameters?: Record<string, unknown>;
+        }
+    > {
         if (!tools?.length) return [];
 
         return tools.map((tool) => {
@@ -299,11 +379,9 @@ export class XAIProvider implements LLMProvider {
             }
             return {
                 type: 'function' as const,
-                function: {
-                    name: tool.name,
-                    description: tool.description,
-                    parameters: tool.parameters,
-                },
+                name: tool.name,
+                description: tool.description,
+                parameters: tool.parameters ?? { type: 'object', properties: {} },
             };
         });
     }
