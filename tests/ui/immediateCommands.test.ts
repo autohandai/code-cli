@@ -302,20 +302,28 @@ describe('PersistentInput immediate command handling', () => {
     expect(renderFixedRegion).toHaveBeenCalled();
   });
 
-  it('Shift+Tab toggles plan mode and emits plan-mode-toggled while working', () => {
-    const pi = new PersistentInput({ silentMode: true });
+  it('Shift+Tab cycles all interaction modes while working', () => {
+    const modes = ['plan', 'yolo', 'automode', 'default'] as const;
+    const onCycleInteractionMode = vi.fn(() => modes.shift() ?? 'default');
+    const pi = new PersistentInput({
+      silentMode: true,
+      onCycleInteractionMode,
+    });
     (pi as any).isActive = true;
     const manager = getPlanModeManager();
     manager.disable();
 
-    const toggled: boolean[] = [];
-    pi.on('plan-mode-toggled', (enabled: boolean) => toggled.push(enabled));
+    const changed: string[] = [];
+    pi.on('interaction-mode-changed', (mode: string) => changed.push(mode));
 
     const handler = (pi as any).handleKeypress;
     handler('\u001b[Z', { name: 'backtab', shift: true });
     handler('\u001b[Z', { name: 'backtab', shift: true });
+    handler('\u001b[Z', { name: 'backtab', shift: true });
+    handler('\u001b[Z', { name: 'backtab', shift: true });
 
-    expect(toggled).toEqual([true, false]);
+    expect(onCycleInteractionMode).toHaveBeenCalledTimes(4);
+    expect(changed).toEqual(['plan', 'yolo', 'automode', 'default']);
     expect(pi.getCurrentInput()).toBe('');
     manager.disable();
   });

@@ -13,6 +13,7 @@ import type { LLMProvider } from '../providers/LLMProvider.js';
 import { safeEmitKeypressEvents } from '../ui/inputPrompt.js';
 
 import { safeSetRawMode } from '../ui/rawMode.js';
+import { getPlanModeManager } from '../commands/plan.js';
 import { isAutohandDebugEnabled, writeAutohandDebugLine } from '../utils/debugLog.js';
 import type { UIManager } from '../ui/UIManager.js';
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
@@ -83,6 +84,11 @@ import { SimpleChatHandler, type SimpleChatAgent } from './agent/SimpleChatHandl
 import { McpStartupCoordinator } from './agent/McpStartupCoordinator.js';
 import { MentionResolver } from './agent/MentionResolver.js';
 import { SystemPromptBuilder } from './agent/SystemPromptBuilder.js';
+import {
+  InteractionModeController,
+  type InteractionMode,
+  type InteractionModePermissionProfile,
+} from './agent/InteractionModeController.js';
 import {
   syncDynamicRuntimeExtensions,
   type DynamicRuntimeExtensionHost,
@@ -372,7 +378,11 @@ export class AutohandAgent {
   private promptSeedInput = '';
   private interactiveAutomodeEnabled = false;
   private baseYesMode = false;
+  private baseUnrestrictedMode = false;
+  private baseRestrictedMode = false;
+  private baseDryRunMode = false;
   private basePermissionMode: PermissionMode = 'interactive';
+  private interactionModeController!: InteractionModeController;
   private lastRenderedStatus = '';
   private activityIndicator!: ActivityIndicator;
   private lastAssistantResponseForNotification = '';
@@ -410,7 +420,34 @@ export class AutohandAgent {
     private readonly runtime: AgentRuntime
   ) {
     this.baseYesMode = runtime.options.yes === true;
+    this.baseUnrestrictedMode = runtime.options.unrestricted === true;
+    this.baseRestrictedMode = runtime.options.restricted === true;
+    this.baseDryRunMode = runtime.options.dryRun === true;
     initializeAgentDependencies(this as unknown as AgentDependencyHost, llm, files, runtime);
+    this.interactionModeController = new InteractionModeController({
+      isPlanEnabled: () => getPlanModeManager().isEnabled(),
+      isYoloEnabled: () => Boolean(this.runtime.options.yolo),
+      isAutomodeEnabled: () => this.interactiveAutomodeEnabled,
+      setPlanEnabled: (enabled) => {
+        const manager = getPlanModeManager();
+        if (enabled === manager.isEnabled()) {
+          return;
+        }
+        if (enabled) {
+          manager.enable();
+        } else {
+          manager.disable();
+        }
+      },
+      setYoloEnabled: (enabled) => {
+        this.runtime.options.yolo = enabled ? 'allow:*' : undefined;
+      },
+      setAutomodeEnabled: (enabled) => {
+        this.interactiveAutomodeEnabled = enabled;
+      },
+      setPermissionProfile: (profile) => this.setInteractionModePermissionProfile(profile),
+    });
+    this.interactionModeController.normalizeCurrentMode();
     this.sessionDiffStatsTracker = new SessionDiffStatsTracker(runtime.workspaceRoot);
     this.instructionRunner = new InstructionRunner(this as unknown as AgentInstructionHost);
   }
@@ -629,6 +666,7 @@ export class AutohandAgent {
       get suggestionEngine() { return agent.suggestionEngine; },
       workspaceFileCollector: agent.workspaceFileCollector,
       writeDebugLine: (line: string) => agent.writeDebugLine(line),
+      cycleInteractionMode: () => agent.cycleInteractionMode(),
     };
   }
 
@@ -1619,11 +1657,58 @@ export class AutohandAgent {
    * Apply ACP mode changes to runtime and permission behavior.
    */
   applyAcpMode(modeId: string): void {
-    return applyAgentAcpMode(this, modeId);
+    if (this.interactionModeController) {
+      this.setInteractionMode('default');
+    }
+    applyAgentAcpMode(this, modeId);
+    this.baseYesMode = this.runtime.options.yes === true;
+    this.baseUnrestrictedMode = this.runtime.options.unrestricted === true;
+    this.baseRestrictedMode = this.runtime.options.restricted === true;
+    this.baseDryRunMode = this.runtime.options.dryRun === true;
+    this.basePermissionMode = this.permissionManager.getMode();
   }
 
   private setInteractiveAutomodeEnabled(enabled: boolean): void {
+    if (this.interactionModeController) {
+      if (enabled) {
+        this.setInteractionMode('automode');
+      } else if (this.getInteractionMode() === 'automode') {
+        this.setInteractionMode('default');
+      }
+      return;
+    }
     this.interactiveAutomodeEnabled = enabled;
+    this.syncInteractiveAutomodePermissions();
+  }
+
+  private getInteractionMode(): InteractionMode {
+    return this.interactionModeController.getMode();
+  }
+
+  private setInteractionMode(mode: InteractionMode): InteractionMode {
+    const selectedMode = this.interactionModeController.setMode(mode);
+    this.inkRenderer?.setInteractionMode?.(selectedMode);
+    return selectedMode;
+  }
+
+  private cycleInteractionMode(): InteractionMode {
+    const selectedMode = this.interactionModeController.cycle();
+    this.inkRenderer?.setInteractionMode?.(selectedMode);
+    return selectedMode;
+  }
+
+  private setInteractionModePermissionProfile(
+    profile: InteractionModePermissionProfile
+  ): void {
+    if (profile === 'unrestricted') {
+      this.runtime.options.yes = true;
+      this.runtime.options.unrestricted = true;
+      this.runtime.options.restricted = false;
+      this.runtime.options.dryRun = false;
+      this.permissionManager.setMode('unrestricted');
+      return;
+    }
+
     this.syncInteractiveAutomodePermissions();
   }
 
@@ -1632,21 +1717,35 @@ export class AutohandAgent {
       this.runtime.options.yes = true;
       this.runtime.options.unrestricted = true;
       this.runtime.options.restricted = false;
+      this.runtime.options.dryRun = false;
       this.permissionManager.setMode('unrestricted');
       return;
     }
 
     // CLI flags override config file settings (restricted takes precedence for safety)
-    if (this.runtime.options.restricted) {
+    if (this.baseDryRunMode) {
       this.runtime.options.yes = false;
       this.runtime.options.unrestricted = false;
+      this.runtime.options.restricted = false;
+      this.runtime.options.dryRun = true;
       this.permissionManager.setMode('restricted');
       return;
     }
 
-    if (this.runtime.options.unrestricted) {
+    if (this.baseRestrictedMode) {
+      this.runtime.options.yes = false;
+      this.runtime.options.unrestricted = false;
+      this.runtime.options.restricted = true;
+      this.runtime.options.dryRun = false;
+      this.permissionManager.setMode('restricted');
+      return;
+    }
+
+    if (this.baseUnrestrictedMode) {
       this.runtime.options.yes = true;
+      this.runtime.options.unrestricted = true;
       this.runtime.options.restricted = false;
+      this.runtime.options.dryRun = false;
       this.permissionManager.setMode('unrestricted');
       return;
     }
@@ -1655,6 +1754,7 @@ export class AutohandAgent {
       this.runtime.options.yes = true;
       this.runtime.options.unrestricted = false;
       this.runtime.options.restricted = false;
+      this.runtime.options.dryRun = false;
       this.permissionManager.setMode('interactive');
       return;
     }
@@ -1663,6 +1763,7 @@ export class AutohandAgent {
       this.runtime.options.yes = false;
       this.runtime.options.unrestricted = false;
       this.runtime.options.restricted = true;
+      this.runtime.options.dryRun = false;
       this.permissionManager.setMode('restricted');
       return;
     }
@@ -1671,6 +1772,7 @@ export class AutohandAgent {
       this.runtime.options.yes = true;
       this.runtime.options.unrestricted = true;
       this.runtime.options.restricted = false;
+      this.runtime.options.dryRun = false;
       this.permissionManager.setMode('unrestricted');
       return;
     }
@@ -1678,6 +1780,7 @@ export class AutohandAgent {
     this.runtime.options.yes = false;
     this.runtime.options.unrestricted = false;
     this.runtime.options.restricted = false;
+    this.runtime.options.dryRun = false;
     this.permissionManager.setMode('interactive');
   }
 

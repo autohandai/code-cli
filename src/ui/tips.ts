@@ -7,7 +7,7 @@ import { shuffleInPlace } from './displayUtils.js';
 
 const DEFAULT_TIPS: string[] = [
   'Use @filename to give the agent context about specific files',
-  'Press Shift+Tab to toggle plan mode for read-only exploration',
+  'Press Shift+Tab to cycle edit, plan, YOLO, and auto modes',
   'Type /undo to revert the last change the agent made',
   'Use /memory to save and recall project-specific notes',
   'Press Shift+Enter to add newlines in your prompt',

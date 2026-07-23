@@ -13,6 +13,7 @@ import type { SlashCommand } from '../core/slashCommandTypes.js';
 import type { SkillMentionInfo } from './mentionFilter.js';
 import type { ExtensionKeybinding } from '../extensions/ExtensionRuntimeHost.js';
 import type { AgentUILineExtensions } from './ink/AgentUI.js';
+import type { InteractionMode } from '../core/agent/InteractionModeController.js';
 
 export interface InkUIManagerOptions {
   onInstruction: (text: string) => void;
@@ -28,6 +29,8 @@ export interface InkUIManagerOptions {
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
   extensionKeybindings?: ExtensionKeybinding[];
   runtimeLineExtensions?: AgentUILineExtensions;
+  getInteractionMode?: () => InteractionMode;
+  onCycleInteractionMode?: () => InteractionMode;
   rendererFactory?: (options: InkRendererOptions) => InkRenderer;
 }
 

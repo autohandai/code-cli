@@ -57,6 +57,8 @@ import { intervalToCron, shorthandToHuman, shorthandToMs } from '../../commands/
 import { ActivityIndicator } from '../../ui/activityIndicator.js';
 import { NotificationService, type NotificationOptions } from '../../utils/notification.js';
 import { formatPlanModeToggleMessage } from '../../commands/plan.js';
+import { formatInteractionModeChangeMessage } from '../../ui/interactionModePresentation.js';
+import type { InteractionMode } from './InteractionModeController.js';
 import packageJson from '../../../package.json' with { type: 'json' };
 import { ImageManager, type ImageMimeType } from '../ImageManager.js';
 import type { MobileImageAttachment } from '../../mobile/MobileHandoffClient.js';
@@ -1200,6 +1202,7 @@ export function initializeAgentDependencies(
       workspaceRoot: host.runtime.workspaceRoot,
       resolveShellSuggestion: (input) => host.resolveLlmShellSuggestion(input),
       suggestionProvider: () => host.suggestionEngine?.getNextPromptSuggestion() ?? undefined,
+      onCycleInteractionMode: () => host.cycleInteractionMode(),
     });
 
     host.persistentInput.on('queued', (text: string, count: number) => {
@@ -1259,11 +1262,9 @@ export function initializeAgentDependencies(
       }
     });
 
-    host.persistentInput.on('plan-mode-toggled', (enabled: boolean) => {
+    const displayInteractionModeChange = (message: string) => {
       const statusLine = host.formatStatusLine();
       host.persistentInput.setStatusLine(statusLine);
-
-      const message = formatPlanModeToggleMessage(enabled);
 
       const usingTerminalRegions = host.isUsingTerminalRegionsForActiveTurn();
       if (usingTerminalRegions) {
@@ -1289,6 +1290,14 @@ export function initializeAgentDependencies(
       if (!host.inkRenderer) {
         host.forceRenderSpinner();
       }
+    };
+
+    host.persistentInput.on('plan-mode-toggled', (enabled: boolean) => {
+      displayInteractionModeChange(formatPlanModeToggleMessage(enabled));
+    });
+
+    host.persistentInput.on('interaction-mode-changed', (mode: InteractionMode) => {
+      displayInteractionModeChange(formatInteractionModeChangeMessage(mode));
     });
 
     // Create context object with getter for currentSession (dynamic access)
@@ -1366,6 +1375,8 @@ export function initializeAgentDependencies(
       },
       isInteractiveAutomodeEnabled: () => host.interactiveAutomodeEnabled,
       setInteractiveAutomodeEnabled: (enabled: boolean) => host.setInteractiveAutomodeEnabled(enabled),
+      getInteractionMode: () => host.getInteractionMode(),
+      setInteractionMode: (mode: InteractionMode) => host.setInteractionMode(mode),
       // Share command needs current session - use getter for dynamic access
       get currentSession() {
         return sessionMgr.getCurrentSession() ?? undefined;

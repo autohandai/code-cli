@@ -35,6 +35,7 @@ import {
   serializeWorkspaceChangeSet,
   type WorkspaceChangeSet,
 } from '../../core/agent/WorkspaceChangeCapture.js';
+import type { InteractionMode } from '../../core/agent/InteractionModeController.js';
 
 export interface InkRendererOptions {
   onInstruction: (text: string) => void;
@@ -59,6 +60,8 @@ export interface InkRendererOptions {
   lineExtensions?: AgentUILineExtensions;
   extensionKeybindings?: ExtensionKeybinding[];
   runtimeLineExtensions?: AgentUILineExtensions;
+  getInteractionMode?: () => InteractionMode;
+  onCycleInteractionMode?: () => InteractionMode;
 }
 
 export interface SetWorkingOptions {
@@ -96,6 +99,8 @@ interface AgentUIWrapperProps {
   extensionKeybindings?: ExtensionKeybinding[];
   onReplaceQueuedInstruction: (index: number, text: string) => void;
   onRemoveQueuedInstruction: (index: number) => void;
+  getInteractionMode?: () => InteractionMode;
+  onCycleInteractionMode?: () => InteractionMode;
 }
 
 /**
@@ -123,6 +128,8 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       extensionKeybindings,
       onReplaceQueuedInstruction,
       onRemoveQueuedInstruction,
+      getInteractionMode,
+      onCycleInteractionMode,
     } = props;
 
     const [state, setState] = useState<AgentUIState>(initialState);
@@ -165,6 +172,8 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         extensionKeybindings={extensionKeybindings}
         onReplaceQueuedInstruction={onReplaceQueuedInstruction}
         onRemoveQueuedInstruction={onRemoveQueuedInstruction}
+        getInteractionMode={getInteractionMode}
+        onCycleInteractionMode={onCycleInteractionMode}
       />
     );
   }
@@ -268,6 +277,7 @@ export class InkRenderer {
       lineExtensions: options.lineExtensions,
       extensionKeybindings: options.extensionKeybindings,
       extensionLineExtensions: options.runtimeLineExtensions,
+      interactionMode: options.getInteractionMode?.() ?? 'default',
     };
     this.wrapperRef = React.createRef<AgentUIWrapperHandle>();
   }
@@ -336,6 +346,8 @@ export class InkRenderer {
             extensionKeybindings={this.options.extensionKeybindings}
             onReplaceQueuedInstruction={(index, text) => this.replaceQueuedInstruction(index, text)}
             onRemoveQueuedInstruction={(index) => this.removeQueuedInstruction(index)}
+            getInteractionMode={this.options.getInteractionMode}
+            onCycleInteractionMode={this.options.onCycleInteractionMode}
           />
         </I18nProvider>
       </ThemeProvider>,
@@ -488,6 +500,10 @@ export class InkRenderer {
    */
   setStatus(status: string): void {
     this.updateState({ status });
+  }
+
+  setInteractionMode(interactionMode: InteractionMode): void {
+    this.updateState({ interactionMode });
   }
 
   /**
@@ -676,7 +692,10 @@ export class InkRenderer {
    * Ink's log-update state with raw ANSI escape sequences.
    */
   resetAndClearScreen(): void {
-    const newState = createInitialUIState();
+    const newState = {
+      ...createInitialUIState(),
+      interactionMode: this.options.getInteractionMode?.() ?? this.state.interactionMode,
+    };
     this.state = newState;
     if (this.wrapperRef.current) {
       this.wrapperRef.current.updateState(newState);
@@ -1064,6 +1083,8 @@ export class InkRenderer {
               extensionKeybindings={this.options.extensionKeybindings}
               onReplaceQueuedInstruction={(index, text) => this.replaceQueuedInstruction(index, text)}
               onRemoveQueuedInstruction={(index) => this.removeQueuedInstruction(index)}
+              getInteractionMode={this.options.getInteractionMode}
+              onCycleInteractionMode={this.options.onCycleInteractionMode}
             />
           </I18nProvider>
         </ThemeProvider>,
@@ -1190,7 +1211,10 @@ export class InkRenderer {
    * Clear all state for a new task
    */
   reset(): void {
-    const newState = createInitialUIState();
+    const newState = {
+      ...createInitialUIState(),
+      interactionMode: this.options.getInteractionMode?.() ?? this.state.interactionMode,
+    };
     this.state = newState;
 
     // Use React state update if wrapper is mounted

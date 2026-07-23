@@ -25,6 +25,7 @@ import type {
 } from '../mobile/MobileRelay.js';
 import type { ExtensionService } from '../extensions/ExtensionService.js';
 import type { PendingPostTurnAction } from './agent/PostTurnActionCoordinator.js';
+import type { InteractionMode } from './agent/InteractionModeController.js';
 
 export interface SlashCommandContext {
     listWorkspaceFiles?: () => Promise<void>;
@@ -80,6 +81,10 @@ export interface SlashCommandContext {
     isInteractiveAutomodeEnabled?: () => boolean;
     /** Toggle interactive auto-mode state for /automode commands */
     setInteractiveAutomodeEnabled?: (enabled: boolean) => void;
+    /** Read the canonical interactive editing mode. */
+    getInteractionMode?: () => InteractionMode;
+    /** Select one canonical interactive editing mode. */
+    setInteractionMode?: (mode: InteractionMode) => InteractionMode;
     /** MCP client manager for /mcp commands */
     mcpManager?: McpClientManager;
     /** File action manager for /add-dir commands */

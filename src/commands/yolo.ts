@@ -11,19 +11,29 @@ import type { SlashCommandContext } from '../core/slashCommandTypes.js';
  * If already active, disables it.
  */
 export async function toggleYolo(ctx: SlashCommandContext): Promise<string | null> {
-  if (!ctx.setYoloMode) {
+  if (!ctx.setInteractionMode && !ctx.setYoloMode) {
     return 'YOLO mode toggle not available in this context.';
   }
 
-  const isActive = ctx.permissionManager.getMode() === 'unrestricted';
+  const isActive = ctx.getInteractionMode
+    ? ctx.getInteractionMode() === 'yolo'
+    : ctx.permissionManager.getMode() === 'unrestricted';
 
   if (isActive) {
-    ctx.setYoloMode(undefined);
+    if (ctx.setInteractionMode) {
+      ctx.setInteractionMode('default');
+    } else {
+      ctx.setYoloMode?.(undefined);
+    }
     console.log();
-    console.log(chalk.cyan('YOLO mode deactivated. Returning to interactive approval.'));
+    console.log(chalk.cyan('YOLO mode deactivated. Returning to default edit mode.'));
     console.log();
   } else {
-    ctx.setYoloMode('allow:*');
+    if (ctx.setInteractionMode) {
+      ctx.setInteractionMode('yolo');
+    } else {
+      ctx.setYoloMode?.('allow:*');
+    }
     console.log();
     console.log(chalk.yellow.bold('🚀 YOLO MODE ACTIVATED'));
     console.log(chalk.gray('You only live once! All actions will be auto-approved.'));

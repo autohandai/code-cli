@@ -13,6 +13,7 @@ import { BARE_SLASH_COMMANDS_DISABLED_MESSAGE } from '../../runtime/bareMode.js'
 import { extensionRuntimeHost } from '../../extensions/ExtensionRuntimeHost.js';
 import type { AgentRuntime } from '../../types.js';
 import type { ImageMimeType } from '../ImageManager.js';
+import type { InteractionMode } from './InteractionModeController.js';
 
 export interface AgentPromptInstructionHost {
   flushDeferredDebugLines(): void;
@@ -44,6 +45,7 @@ export interface AgentPromptInstructionHost {
     getCachedFiles(): string[];
   };
   writeDebugLine(line: string): void;
+  cycleInteractionMode(): InteractionMode;
 }
 
 interface PromptSkillSummary {
@@ -98,7 +100,7 @@ export async function promptForAgentInstruction(host: AgentPromptInstructionHost
           })),
         ],
         statusLine,
-        {}, // default IO
+        { onCycleInteractionMode: () => host.cycleInteractionMode() },
         (data, mimeType, filename) => host.imageManager.add(data, mimeType, filename),
         host.runtime.workspaceRoot,
         initialValue,
