@@ -367,7 +367,7 @@ describe('slash command dispatch – output vs instruction', () => {
     const ctx = { ...createMinimalContext(), isNonInteractive: true };
     const handler = new SlashCommandHandler(ctx, SLASH_COMMANDS);
 
-    const interactiveCommands = ['/model', '/cc', '/search', '/theme', '/language', '/feedback'];
+    const interactiveCommands = ['/model', '/cc', '/search', '/theme', '/language', '/feedback', '/ps', '/stop'];
     for (const cmd of interactiveCommands) {
       const result = await handler.handle(cmd);
       expect(result).toContain('requires an interactive terminal');

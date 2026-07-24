@@ -80,4 +80,13 @@ describe('BackgroundProcessRegistry', () => {
     expect(killProcessGroupSpy).toHaveBeenCalledWith(2, undefined);
     expect(registry.list()).toEqual([]);
   });
+
+  it('killAll() on an empty registry resolves without calling killProcessGroup', async () => {
+    const killProcessGroupSpy = vi.spyOn(commandActions, 'killProcessGroup').mockResolvedValue(undefined);
+    const registry = new BackgroundProcessRegistry();
+
+    await expect(registry.killAll()).resolves.toBeUndefined();
+
+    expect(killProcessGroupSpy).not.toHaveBeenCalled();
+  });
 });

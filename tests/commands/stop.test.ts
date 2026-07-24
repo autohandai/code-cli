@@ -64,6 +64,34 @@ describe('/stop', () => {
     expect(output).toContain('not a valid process index');
   });
 
+  it('reports an error for "0" as an out-of-range index', async () => {
+    const registry = new BackgroundProcessRegistry();
+    const output = await stop({ backgroundProcessRegistry: registry }, ['0']);
+
+    expect(output).toContain('not a valid process index');
+  });
+
+  it('reports an error for a negative index', async () => {
+    const registry = new BackgroundProcessRegistry();
+    const output = await stop({ backgroundProcessRegistry: registry }, ['-1']);
+
+    expect(output).toContain('not a valid process index');
+  });
+
+  it('reports an error for a non-integer index', async () => {
+    const registry = new BackgroundProcessRegistry();
+    const output = await stop({ backgroundProcessRegistry: registry }, ['1.5']);
+
+    expect(output).toContain('not a valid process index');
+  });
+
+  it('treats an empty-string arg the same as no argument at all', async () => {
+    const registry = new BackgroundProcessRegistry();
+    const output = await stop({ backgroundProcessRegistry: registry }, ['']);
+
+    expect(output).toBe('No background processes running.');
+  });
+
   it('reports an error for an unknown index', async () => {
     const registry = new BackgroundProcessRegistry();
     registry.register(4242, 'bun run dev', undefined);

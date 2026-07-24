@@ -3,6 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { formatBackgroundProcessEntry } from '../core/agent/BackgroundProcessRegistry.js';
 import type { BackgroundProcessEntry, BackgroundProcessRegistry } from '../core/agent/BackgroundProcessRegistry.js';
 
 export interface StopCommandContext {
@@ -10,7 +11,7 @@ export interface StopCommandContext {
 }
 
 function formatEntryList(entries: BackgroundProcessEntry[]): string {
-  return entries.map((entry) => `${entry.id}  ${entry.command}  (pid ${entry.pid})`).join('\n');
+  return entries.map(formatBackgroundProcessEntry).join('\n');
 }
 
 /**
