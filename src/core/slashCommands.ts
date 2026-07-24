@@ -42,6 +42,7 @@ import * as sync from '../commands/sync.js';
 import * as addDir from '../commands/add-dir.js';
 import * as language from '../commands/language.js';
 import * as plan from '../commands/plan.js';
+import * as psCmd from '../commands/ps.js';
 import * as about from '../commands/about.js';
 import * as ide from '../commands/ide.js';
 import * as history from '../commands/history.js';
@@ -117,6 +118,7 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   addDir.metadata,
   language.metadata,
   plan.metadata,
+  psCmd.metadata,
   about.metadata,
   ide.metadata,
   history.metadata,
