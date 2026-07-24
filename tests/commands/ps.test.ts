@@ -32,5 +32,6 @@ describe('/ps', () => {
     expect(output).toContain('pid 4242');
     expect(output).toContain('2  npm run watch:css');
     expect(output).toContain('pid 4343');
+    expect(output).toMatch(/running \d+m\d{2}s/);
   });
 });
