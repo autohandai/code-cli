@@ -13,6 +13,7 @@ import type { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import type { AutomodeManager } from './AutomodeManager.js';
 import type { FileActionManager } from '../actions/filesystem.js';
 import type { McpClientManager } from '../mcp/McpClientManager.js';
+import type { BackgroundProcessRegistry } from './agent/BackgroundProcessRegistry.js';
 import type { TeamManager } from './teams/TeamManager.js';
 import type { RepeatManager } from './RepeatManager.js';
 import type { LoadedConfig, ProviderName } from '../types.js';
@@ -91,6 +92,8 @@ export interface SlashCommandContext {
     setInteractionMode?: (mode: InteractionMode) => InteractionMode;
     /** MCP client manager for /mcp commands */
     mcpManager?: McpClientManager;
+    /** Registry of currently running background shell processes, for /ps and /stop */
+    backgroundProcessRegistry?: BackgroundProcessRegistry;
     /** File action manager for /add-dir commands */
     fileManager?: FileActionManager;
     /** Additional directories added via --add-dir or /add-dir */
