@@ -297,6 +297,9 @@ export async function shutdownAgentRuntimeResources(host: AgentLifecycleHost): P
       if (heartbeat) cleanupTasks.push(callResourceCleanup(() => heartbeat.stop()));
       if (host.teamManager) cleanupTasks.push(callResourceCleanup(() => host.teamManager.shutdown()));
       if (host.mcpManager) cleanupTasks.push(callResourceCleanup(() => host.mcpManager.disconnectAll()));
+      if (host.backgroundProcessRegistry) {
+        cleanupTasks.push(callResourceCleanup(() => host.backgroundProcessRegistry.killAll()));
+      }
       if (host.initReady) cleanupTasks.push(callResourceCleanup(() => host.initReady));
       host.turnMemoryReflectionQueued = false;
       if (host.flushTurnMemoryReflection) {
