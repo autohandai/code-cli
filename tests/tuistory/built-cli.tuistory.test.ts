@@ -1519,6 +1519,116 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   }, 60_000);
 
+  it('runs /ps and /stop immediately while a slow foreground command is still active', async () => {
+    const backgroundScript = [
+      'let line = 1',
+      'const parentPid = process.ppid',
+      'setInterval(() => { try { process.kill(parentPid, 0); } catch { process.exit(0); } }, 250)',
+      "setInterval(() => { console.log('tick-' + line); line += 1; }, 100)",
+    ].join(';');
+    const slowForegroundScript = 'setTimeout(() => process.exit(0), 4000)';
+    const openRouterServer = await createMockOpenRouterSequenceServer([
+      JSON.stringify({
+        thought: 'Start the background task, then run a slow foreground command.',
+        toolCalls: [
+          {
+            tool: 'shell',
+            args: {
+              command: `${process.execPath} -e ${JSON.stringify(backgroundScript)}`,
+              background: true,
+            },
+          },
+          {
+            tool: 'run_command',
+            args: {
+              command: `${process.execPath} -e ${JSON.stringify(slowForegroundScript)}`,
+            },
+          },
+        ],
+      }),
+      JSON.stringify({
+        reflection: 'The background task started and the slow foreground command finished.',
+        toolCalls: [],
+        finalResponse: 'Background task started and slow command finished.',
+      }),
+    ]);
+    mockServers.push(openRouterServer);
+
+    const state = await createTempAutohandHome({
+      config: {
+        openrouter: { baseUrl: openRouterServer.baseUrl },
+        ui: { promptSuggestions: false },
+        agent: { maxIterations: 3 },
+      },
+    });
+    tempStates.push(state);
+
+    const session = await trackSession(
+      launchBuiltAutohand([
+        '--path',
+        state.workspaceRoot,
+        '--config',
+        state.configPath,
+        '--y',
+      ], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        waitForDataTimeout: 15_000,
+      })
+    );
+
+    await waitForComposer(session);
+    await session.type('Start a background task, then run a slow foreground command');
+    await session.press('enter');
+
+    // The background tool call resolves almost instantly; the slow
+    // foreground command (4s) keeps the turn active while we test /ps
+    // and /stop below.
+    await session.waitForText('Background PID:', { timeout: 15_000 });
+    const startedOutput = session.readAll();
+    const pidMatch = startedOutput.match(/Background PID: (\d+)/);
+    expect(pidMatch, startedOutput).toBeTruthy();
+    const pid = Number(pidMatch![1]);
+    expect(startedOutput).not.toContain('Background task started and slow command finished.');
+
+    // The slow foreground command is still running (turn still active).
+    // A queued /ps would only show up after it finishes (~4s) and the
+    // model's final response arrives; a short 3s timeout proves it ran
+    // immediately instead.
+    await session.type('/ps');
+    await session.press('enter');
+    await session.waitForText(`pid ${pid}`, { timeout: 3_000 });
+    expect(session.readAll()).not.toContain('Background task started and slow command finished.');
+
+    await session.type('/stop 1');
+    await session.press('enter');
+    await session.waitForText('Stopped', { timeout: 3_000 });
+    expect(session.readAll()).not.toContain('Background task started and slow command finished.');
+
+    const exitDeadline = Date.now() + 5_000;
+    let processExited = false;
+    while (Date.now() < exitDeadline) {
+      try {
+        process.kill(pid, 0);
+      } catch {
+        processExited = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(processExited, `expected pid ${pid} to have exited after /stop`).toBe(true);
+
+    // The original turn continues and eventually completes normally.
+    await session.waitForText('Background task started and slow command finished.', { timeout: 15_000 });
+
+    await waitForComposer(session);
+    await session.type('/ps');
+    await session.press('enter');
+    await session.waitForText('No background processes running.', { timeout: 10_000 });
+
+    await exitInteractive(session);
+  }, 60_000);
+
   it('keeps premature deep research incomplete and exposes the blockers through status', async () => {
     const openRouterServer = await createMockOpenRouterSequenceServer([
       JSON.stringify({
