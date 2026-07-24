@@ -1415,6 +1415,110 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   }, 90_000);
 
+  it('lists and stops a background shell process with /ps and /stop', async () => {
+    const backgroundScript = [
+      'let line = 1',
+      'const parentPid = process.ppid',
+      'setInterval(() => { try { process.kill(parentPid, 0); } catch { process.exit(0); } }, 250)',
+      "setInterval(() => { console.log('tick-' + line); line += 1; }, 100)",
+    ].join(';');
+    const openRouterServer = await createMockOpenRouterSequenceServer([
+      JSON.stringify({
+        thought: 'Run the requested long-lived task in the background.',
+        toolCalls: [{
+          tool: 'shell',
+          args: {
+            command: `${process.execPath} -e ${JSON.stringify(backgroundScript)}`,
+            background: true,
+          },
+        }],
+      }),
+      JSON.stringify({
+        reflection: 'The background task started and can continue independently.',
+        toolCalls: [],
+        finalResponse: 'Background task started.',
+      }),
+    ]);
+    mockServers.push(openRouterServer);
+
+    const state = await createTempAutohandHome({
+      config: {
+        openrouter: { baseUrl: openRouterServer.baseUrl },
+        ui: { promptSuggestions: false },
+        agent: { maxIterations: 3 },
+      },
+    });
+    tempStates.push(state);
+
+    const session = await trackSession(
+      launchBuiltAutohand([
+        '--path',
+        state.workspaceRoot,
+        '--config',
+        state.configPath,
+        '--y',
+      ], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        waitForDataTimeout: 15_000,
+      })
+    );
+
+    await waitForComposer(session);
+    await session.type('Start a long-lived background task and keep it running');
+    await session.press('enter');
+    const permissionOrStarted = await session.text({
+      timeout: 30_000,
+      waitFor: (text) => (
+        text.includes('Allow the agent to run a shell command with live output?')
+        || text.includes('Background task started.')
+      ),
+    });
+    if (permissionOrStarted.includes('Allow the agent to run a shell command with live output?')) {
+      await session.press('enter');
+    }
+    await session.waitForText('Background task started.', { timeout: 30_000 });
+
+    const startedOutput = session.readAll();
+    const pidMatch = startedOutput.match(/Background PID: (\d+)/);
+    expect(pidMatch, startedOutput).toBeTruthy();
+    const pid = Number(pidMatch![1]);
+
+    await waitForComposer(session);
+    await session.type('/ps');
+    await session.press('enter');
+    await session.waitForText(`pid ${pid}`, { timeout: 10_000 });
+    const psOutput = session.readAll();
+    expect(psOutput).toContain(`pid ${pid}`);
+    expect(psOutput).toMatch(/^1\s{2}/m);
+
+    await waitForComposer(session);
+    await session.type('/stop 1');
+    await session.press('enter');
+    await session.waitForText('Stopped', { timeout: 10_000 });
+    expect(session.readAll()).toContain(`pid ${pid}`);
+
+    const exitDeadline = Date.now() + 5_000;
+    let processExited = false;
+    while (Date.now() < exitDeadline) {
+      try {
+        process.kill(pid, 0);
+      } catch {
+        processExited = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(processExited, `expected pid ${pid} to have exited after /stop`).toBe(true);
+
+    await waitForComposer(session);
+    await session.type('/ps');
+    await session.press('enter');
+    await session.waitForText('No background processes running.', { timeout: 10_000 });
+
+    await exitInteractive(session);
+  }, 60_000);
+
   it('keeps premature deep research incomplete and exposes the blockers through status', async () => {
     const openRouterServer = await createMockOpenRouterSequenceServer([
       JSON.stringify({
