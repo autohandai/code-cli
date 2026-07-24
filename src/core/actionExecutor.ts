@@ -10,6 +10,7 @@ import { highlightLine, detectLanguage } from '../ui/syntaxHighlight.js';
 import { getTheme, isThemeInitialized, hexToRgb } from '../ui/theme/index.js';
 import { addDependency, removeDependency } from '../actions/dependencies.js';
 import { runCommand, type BackgroundProcessCompletion } from '../actions/command.js';
+import type { BackgroundProcessRegistry } from './agent/BackgroundProcessRegistry.js';
 import { executeStreamingShellCommand } from '../ui/shellCommand.js';
 import { listDirectoryTree, fileStats as getFileStats, checksumFile } from '../actions/metadata.js';
 import {
@@ -199,6 +200,8 @@ export interface ActionExecutorOptions {
     status?: string;
     activeForm?: string;
   }>) => void;
+  /** Registry of currently running background shell processes, for /ps and /stop. */
+  backgroundProcessRegistry?: BackgroundProcessRegistry;
 }
 
 type AgentExecutorDeps = ActionExecutorOptions;
@@ -256,6 +259,7 @@ export class ActionExecutor {
   private readonly onLiveCommandRemove?: AgentExecutorDeps['onLiveCommandRemove'];
   private readonly onMetaToolCreated?: AgentExecutorDeps['onMetaToolCreated'];
   private readonly onActivityTodosUpdated?: AgentExecutorDeps['onActivityTodosUpdated'];
+  private readonly backgroundProcessRegistry?: AgentExecutorDeps['backgroundProcessRegistry'];
   private readonly securityScanner: SecurityScanner;
   private readonly searchCache: Map<string, string> = new Map();
   private fffSearchProviderPromise: Promise<FFFSearchProvider> | null = null;
@@ -291,6 +295,7 @@ export class ActionExecutor {
     this.onLiveCommandFinish = deps.onLiveCommandFinish;
     this.onLiveCommandRemove = deps.onLiveCommandRemove;
     this.onMetaToolCreated = deps.onMetaToolCreated;
+    this.backgroundProcessRegistry = deps.backgroundProcessRegistry;
     this.securityScanner = new SecurityScanner();
   }
 
@@ -1495,6 +1500,7 @@ export class ActionExecutor {
         const backgroundTracker = action.background
           ? this.createBackgroundCommandTracker(liveCommandId)
           : undefined;
+        let backgroundRegistryId: number | undefined;
 
         const emitLiveOutput = (stream: 'stdout' | 'stderr', data: string): void => {
           if (!hasLiveDisplay || !liveCommandId) {
@@ -1521,7 +1527,14 @@ export class ActionExecutor {
                 emitOutput('stderr', chunk);
                 emitLiveOutput('stderr', chunk);
               },
-              ...(backgroundTracker ? { onBackgroundExit: backgroundTracker.onExit } : {}),
+              ...(action.background ? {
+                onBackgroundExit: (completion: BackgroundProcessCompletion) => {
+                  if (backgroundRegistryId !== undefined) {
+                    this.backgroundProcessRegistry?.remove(backgroundRegistryId);
+                  }
+                  backgroundTracker?.onExit(completion);
+                },
+              } : {}),
             }
           );
         } catch (err) {
@@ -1547,6 +1560,11 @@ export class ActionExecutor {
           && result.backgroundPid > 0
           && result.code === null;
         if (backgroundProcessStarted) {
+          backgroundRegistryId = this.backgroundProcessRegistry?.register(
+            result.backgroundPid!,
+            cmdStr,
+            action.directory,
+          );
           backgroundTracker?.markStarted();
         } else if (liveCommandId) {
           this.onLiveCommandRemove?.(liveCommandId);
@@ -1601,6 +1619,7 @@ export class ActionExecutor {
           const backgroundTracker = action.background
             ? this.createBackgroundCommandTracker(liveId)
             : undefined;
+          let backgroundRegistryId: number | undefined;
           try {
             const result = await executeStreamingShellCommand(
               cmdStr,
@@ -1613,7 +1632,14 @@ export class ActionExecutor {
                 rows: process.stdout.rows,
                 background: action.background,
                 signal: context?.signal,
-                ...(backgroundTracker ? { onBackgroundExit: backgroundTracker.onExit } : {}),
+                ...(action.background ? {
+                  onBackgroundExit: (completion: BackgroundProcessCompletion) => {
+                    if (backgroundRegistryId !== undefined) {
+                      this.backgroundProcessRegistry?.remove(backgroundRegistryId);
+                    }
+                    backgroundTracker?.onExit(completion);
+                  },
+                } : {}),
               }
             );
             const backgroundProcessStarted = action.background === true
@@ -1622,6 +1648,11 @@ export class ActionExecutor {
               && Number.isSafeInteger(result.backgroundPid)
               && result.backgroundPid > 0;
             if (backgroundProcessStarted) {
+              backgroundRegistryId = this.backgroundProcessRegistry?.register(
+                result.backgroundPid!,
+                cmdStr,
+                action.directory,
+              );
               backgroundTracker?.markStarted();
             } else {
               this.onLiveCommandRemove!(liveId);
@@ -1655,6 +1686,7 @@ export class ActionExecutor {
 
         // Fallback to regular runCommand when no live display is available
         let result: Awaited<ReturnType<typeof runCommand>>;
+        let fallbackBackgroundRegistryId: number | undefined;
         try {
           result = await runCommand(
             cmdStr,
@@ -1665,6 +1697,13 @@ export class ActionExecutor {
               shell: true,
               background: action.background,
               signal: context?.signal,
+              ...(action.background ? {
+                onBackgroundExit: () => {
+                  if (fallbackBackgroundRegistryId !== undefined) {
+                    this.backgroundProcessRegistry?.remove(fallbackBackgroundRegistryId);
+                  }
+                },
+              } : {}),
             }
           );
         } catch (err) {
@@ -1697,6 +1736,13 @@ export class ActionExecutor {
         const backgroundProcessStarted = action.background === true
           && result.backgroundPid !== undefined
           && result.code === null;
+        if (backgroundProcessStarted) {
+          fallbackBackgroundRegistryId = this.backgroundProcessRegistry?.register(
+            result.backgroundPid!,
+            cmdStr,
+            action.directory,
+          );
+        }
         if (!backgroundProcessStarted && result.code !== 0) {
           return this.recordToolFailure(
             capture,
