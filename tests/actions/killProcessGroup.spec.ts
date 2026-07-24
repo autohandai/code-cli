@@ -63,4 +63,25 @@ describe('killProcessGroup', () => {
     // A PID essentially guaranteed not to exist.
     await expect(killProcessGroup(999_999, 10)).resolves.toBeUndefined();
   });
+
+  it('falls back to a direct kill when the pid is not a process-group leader', async () => {
+    // A non-detached child inherits the parent's process group rather than
+    // becoming its own group leader, so process.kill(-pid, signal) throws
+    // (no such process group) while process.kill(pid, signal) succeeds —
+    // this proves the fallback path added for Windows compatibility.
+    const { spawn } = await import('node:child_process');
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)']);
+    await new Promise<void>((resolve, reject) => {
+      child.once('spawn', () => resolve());
+      child.once('error', reject);
+    });
+    const pid = child.pid!;
+
+    expect(() => process.kill(pid, 0)).not.toThrow();
+
+    await killProcessGroup(pid, 50);
+    await waitForProcessExit(pid);
+
+    expect(() => process.kill(pid, 0)).toThrow();
+  });
 });
