@@ -8,6 +8,7 @@ import type { FileActionManager } from '../src/actions/filesystem.js';
 import * as commandActions from '../src/actions/command.js';
 import { ActionExecutor } from '../src/core/actionExecutor.js';
 import * as shellActions from '../src/ui/shellCommand.js';
+import { BackgroundProcessRegistry } from '../src/core/agent/BackgroundProcessRegistry.js';
 import type { AgentAction, AgentRuntime } from '../src/types.js';
 
 interface BackgroundExit {
@@ -46,6 +47,7 @@ function createExecutor(options: {
   onLiveCommandOutput?: (id: string, stream: 'stdout' | 'stderr', chunk: string) => void;
   onLiveCommandFinish?: (id: string, success: boolean, error?: string) => void;
   onLiveCommandRemove?: (id: string) => void;
+  backgroundProcessRegistry?: BackgroundProcessRegistry;
 }): ActionExecutor {
   return new ActionExecutor({
     runtime: createRuntime(options.ui),
@@ -56,6 +58,7 @@ function createExecutor(options: {
     onLiveCommandOutput: options.onLiveCommandOutput,
     onLiveCommandFinish: options.onLiveCommandFinish,
     onLiveCommandRemove: options.onLiveCommandRemove,
+    backgroundProcessRegistry: options.backgroundProcessRegistry,
   });
 }
 
@@ -416,4 +419,108 @@ describe('ActionExecutor live tool output display', () => {
       expect(onLiveCommandStart).not.toHaveBeenCalled();
     },
   );
+
+  it('registers a background run_command in the registry and removes it on exit', async () => {
+    let callbacks: BackgroundLifecycleCallbacks | undefined;
+    vi.spyOn(commandActions, 'runCommand').mockImplementation(
+      async (_command, _args, _cwd, options = {}) => {
+        callbacks = options as BackgroundLifecycleCallbacks;
+        return {
+          stdout: '',
+          stderr: '',
+          code: null,
+          signal: null,
+          backgroundPid: 4242,
+        };
+      },
+    );
+    const registry = new BackgroundProcessRegistry();
+    const executor = createExecutor({
+      onLiveCommandStart: vi.fn(() => 'live-1'),
+      onLiveCommandOutput: vi.fn(),
+      onLiveCommandFinish: vi.fn(),
+      onLiveCommandRemove: vi.fn(),
+      backgroundProcessRegistry: registry,
+    });
+
+    await executor.executeForTool(
+      { type: 'run_command', command: 'node server.js', background: true },
+      { approvalHandled: true },
+    );
+
+    expect(registry.list()).toEqual([
+      expect.objectContaining({ pid: 4242, command: 'node server.js' }),
+    ]);
+
+    callbacks?.onBackgroundExit?.({ code: 0, signal: null });
+    expect(registry.list()).toEqual([]);
+  });
+
+  it('registers a background shell command (live display) in the registry and removes it on exit', async () => {
+    let callbacks: BackgroundLifecycleCallbacks | undefined;
+    vi.spyOn(shellActions, 'executeStreamingShellCommand').mockImplementation(
+      async (_command, _cwd, options = {}) => {
+        callbacks = options as BackgroundLifecycleCallbacks;
+        return {
+          success: true,
+          output: '',
+          error: undefined,
+          backgroundPid: 4343,
+        } as never;
+      },
+    );
+    const registry = new BackgroundProcessRegistry();
+    const executor = createExecutor({
+      onLiveCommandStart: vi.fn(() => 'live-shell-1'),
+      onLiveCommandOutput: vi.fn(),
+      onLiveCommandFinish: vi.fn(),
+      onLiveCommandRemove: vi.fn(),
+      backgroundProcessRegistry: registry,
+    });
+
+    await executor.executeForTool(
+      { type: 'shell', command: 'bun', args: ['dev'], background: true },
+      { approvalHandled: true },
+    );
+
+    expect(registry.list()).toEqual([
+      expect.objectContaining({ pid: 4343, command: 'bun dev' }),
+    ]);
+
+    callbacks?.onBackgroundExit?.({ code: 0, signal: null });
+    expect(registry.list()).toEqual([]);
+  });
+
+  it('registers a background shell command even when silent tool output hides the live panel', async () => {
+    let callbacks: BackgroundLifecycleCallbacks | undefined;
+    vi.spyOn(commandActions, 'runCommand').mockImplementation(
+      async (_command, _args, _cwd, options = {}) => {
+        callbacks = options as BackgroundLifecycleCallbacks;
+        return {
+          stdout: '',
+          stderr: '',
+          code: null,
+          signal: null,
+          backgroundPid: 4444,
+        };
+      },
+    );
+    const registry = new BackgroundProcessRegistry();
+    const executor = createExecutor({
+      ui: { silentToolOutput: true },
+      backgroundProcessRegistry: registry,
+    });
+
+    await executor.executeForTool(
+      { type: 'shell', command: 'bun', args: ['dev'], background: true },
+      { approvalHandled: true },
+    );
+
+    expect(registry.list()).toEqual([
+      expect.objectContaining({ pid: 4444, command: 'bun dev' }),
+    ]);
+
+    callbacks?.onBackgroundExit?.({ code: 0, signal: null });
+    expect(registry.list()).toEqual([]);
+  });
 });
