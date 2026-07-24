@@ -77,11 +77,15 @@ describe('killProcessGroup', () => {
     });
     const pid = child.pid!;
 
-    expect(() => process.kill(pid, 0)).not.toThrow();
+    try {
+      expect(() => process.kill(pid, 0)).not.toThrow();
 
-    await killProcessGroup(pid, 50);
-    await waitForProcessExit(pid);
+      await killProcessGroup(pid, 50);
+      await waitForProcessExit(pid);
 
-    expect(() => process.kill(pid, 0)).toThrow();
+      expect(() => process.kill(pid, 0)).toThrow();
+    } finally {
+      try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+    }
   });
 });

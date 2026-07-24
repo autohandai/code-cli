@@ -364,6 +364,28 @@ export function runCommand(
 }
 
 /**
+ * Send a signal to a detached process group, falling back to a direct pid
+ * kill on Windows or if the group no longer exists. Returns whether the
+ * signal was delivered to something — false means the pid is already gone.
+ */
+function attemptKill(pid: number, signal: NodeJS.Signals): boolean {
+  if (process.platform !== 'win32') {
+    try {
+      process.kill(-pid, signal);
+      return true;
+    } catch {
+      // Process group doesn't exist or already gone; fall back to direct kill.
+    }
+  }
+  try {
+    process.kill(pid, signal);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Send SIGTERM to a detached process group, then SIGKILL after a grace
  * period if it hasn't exited. Used to stop background processes tracked
  * by BackgroundProcessRegistry (see src/core/agent/BackgroundProcessRegistry.ts).
@@ -373,48 +395,15 @@ export async function killProcessGroup(
   pid: number,
   gracePeriodMs: number = DEFAULT_KILL_GRACE_PERIOD_MS,
 ): Promise<void> {
-  // Try process-group kill on POSIX; fall back to direct kill on Windows or if it fails.
-  if (process.platform !== 'win32') {
-    try {
-      process.kill(-pid, 'SIGTERM');
-    } catch {
-      // Process group doesn't exist or already gone; fall back to direct kill.
-      try {
-        process.kill(pid, 'SIGTERM');
-      } catch {
-        // Already dead.
-        return;
-      }
-    }
-  } else {
-    // Windows doesn't support process groups; try direct kill.
-    try {
-      process.kill(pid, 'SIGTERM');
-    } catch {
-      return;
-    }
+  if (!attemptKill(pid, 'SIGTERM')) {
+    // Already dead — no point waiting out the grace period.
+    return;
   }
 
   await new Promise<void>((resolve) => {
     const timer = setTimeout(() => {
-      // Grace period elapsed; escalate to SIGKILL with same fallback pattern.
-      if (process.platform !== 'win32') {
-        try {
-          process.kill(-pid, 'SIGKILL');
-        } catch {
-          try {
-            process.kill(pid, 'SIGKILL');
-          } catch {
-            // Already dead.
-          }
-        }
-      } else {
-        try {
-          process.kill(pid, 'SIGKILL');
-        } catch {
-          // Already dead.
-        }
-      }
+      // Grace period elapsed; escalate to SIGKILL regardless of outcome.
+      attemptKill(pid, 'SIGKILL');
       resolve();
     }, gracePeriodMs);
     timer.unref?.();

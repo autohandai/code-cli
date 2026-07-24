@@ -4,17 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { formatBackgroundProcessEntry } from '../core/agent/BackgroundProcessRegistry.js';
 import type { BackgroundProcessRegistry } from '../core/agent/BackgroundProcessRegistry.js';
 
 export interface PsCommandContext {
   backgroundProcessRegistry?: BackgroundProcessRegistry;
-}
-
-function formatElapsed(startedAt: number): string {
-  const totalSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}m${seconds.toString().padStart(2, '0')}s`;
 }
 
 /**
@@ -26,9 +20,7 @@ export async function ps(ctx: PsCommandContext): Promise<string> {
     return 'No background processes running.';
   }
 
-  const lines = entries.map((entry) => (
-    `${entry.id}  ${entry.command}  (pid ${entry.pid}, running ${formatElapsed(entry.startedAt)})`
-  ));
+  const lines = entries.map(formatBackgroundProcessEntry);
   return `${chalk.bold('Background processes:')}\n${lines.join('\n')}`;
 }
 
