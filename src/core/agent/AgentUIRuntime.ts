@@ -95,8 +95,18 @@ function echoInkSubmittedInstructionImmediately(host: AgentUIRuntimeHost, text: 
   }
 }
 
-function isLiveDeepResearchStatusCommand(text: string): boolean {
-  return /^\/deep-(?:research|search)\s+status\s*$/i.test(text.trim());
+/**
+ * Slash commands safe to run concurrently with an active instruction turn:
+ * read-only or self-contained side effects that don't touch turn/conversation
+ * state, so they can bypass the instruction queue instead of waiting for the
+ * current turn to finish. /ps and /stop exist specifically to inspect/kill a
+ * background process while the agent is busy, so queueing them defeats their purpose.
+ */
+function isConcurrentSafeSlashCommand(text: string): boolean {
+  const trimmed = text.trim();
+  return /^\/deep-(?:research|search)\s+status\s*$/i.test(trimmed)
+    || /^\/ps\s*$/i.test(trimmed)
+    || /^\/stop(?:\s+\S+)?\s*$/i.test(trimmed);
 }
 
 function shouldSuppressDuplicateNotification(host: AgentUIRuntimeHost, message: string): boolean {
@@ -462,7 +472,7 @@ export async function handleAgentInkSubmittedInstruction(host: AgentUIRuntimeHos
       return;
     }
 
-    if (host.isInstructionActive && isLiveDeepResearchStatusCommand(text)) {
+    if (host.isInstructionActive && isConcurrentSafeSlashCommand(text)) {
       const normalized = text.trim();
       const { command, args } = host.parseSlashCommand(normalized);
       host.inkRenderer?.addUserMessage?.(normalized);
