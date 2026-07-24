@@ -214,6 +214,10 @@ export class SlashCommandHandler {
           const { ps } = await import('../commands/ps.js');
           return ps({ backgroundProcessRegistry: this.ctx.backgroundProcessRegistry });
         }
+        case '/stop': {
+          const { stop } = await import('../commands/stop.js');
+          return stop({ backgroundProcessRegistry: this.ctx.backgroundProcessRegistry }, args);
+        }
         case '/new': {
           const { newConversation } = await import('../commands/new.js');
           return newConversation({
