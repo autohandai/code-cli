@@ -373,18 +373,47 @@ export async function killProcessGroup(
   pid: number,
   gracePeriodMs: number = DEFAULT_KILL_GRACE_PERIOD_MS,
 ): Promise<void> {
-  try {
-    process.kill(-pid, 'SIGTERM');
-  } catch {
-    return;
+  // Try process-group kill on POSIX; fall back to direct kill on Windows or if it fails.
+  if (process.platform !== 'win32') {
+    try {
+      process.kill(-pid, 'SIGTERM');
+    } catch {
+      // Process group doesn't exist or already gone; fall back to direct kill.
+      try {
+        process.kill(pid, 'SIGTERM');
+      } catch {
+        // Already dead.
+        return;
+      }
+    }
+  } else {
+    // Windows doesn't support process groups; try direct kill.
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {
+      return;
+    }
   }
 
   await new Promise<void>((resolve) => {
     const timer = setTimeout(() => {
-      try {
-        process.kill(-pid, 'SIGKILL');
-      } catch {
-        // Process group already gone.
+      // Grace period elapsed; escalate to SIGKILL with same fallback pattern.
+      if (process.platform !== 'win32') {
+        try {
+          process.kill(-pid, 'SIGKILL');
+        } catch {
+          try {
+            process.kill(pid, 'SIGKILL');
+          } catch {
+            // Already dead.
+          }
+        }
+      } else {
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {
+          // Already dead.
+        }
       }
       resolve();
     }, gracePeriodMs);
