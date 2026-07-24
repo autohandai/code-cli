@@ -28,7 +28,7 @@ export class BackgroundProcessRegistry {
   private nextId = 1;
   private readonly entries = new Map<number, BackgroundProcessEntry>();
 
-  register(pid: number, command: string, directory: string | undefined): number {
+  register(pid: number, command: string, directory?: string): number {
     const id = this.nextId;
     this.nextId += 1;
     this.entries.set(id, { id, pid, command, directory, startedAt: Date.now() });
