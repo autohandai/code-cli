@@ -104,7 +104,7 @@ export class SlashCommandHandler {
     const INTERACTIVE_ONLY = new Set([
       '/model', '/cc', '/search', '/theme', '/language', '/feedback', '/skills new', '/skills-new',
       '/squad', '/statusline',
-      '/publish-research',
+      '/publish-research', '/ps', '/stop',
     ]);
     if (this.ctx.isNonInteractive && INTERACTIVE_ONLY.has(command)) {
       return `Command ${command} requires an interactive terminal. Use the dedicated RPC method or API instead.`;
@@ -209,6 +209,10 @@ export class SlashCommandHandler {
             undoFileMutation: this.ctx.undoFileMutation ?? (async () => {}),
             removeLastTurn: this.ctx.removeLastTurn ?? (() => {})
           });
+        }
+        case '/ps': {
+          const { ps } = await import('../commands/ps.js');
+          return ps({ backgroundProcessRegistry: this.ctx.backgroundProcessRegistry });
         }
         case '/new': {
           const { newConversation } = await import('../commands/new.js');
