@@ -69,6 +69,7 @@ import { IntentDetector } from '../IntentDetector.js';
 import { EnvironmentBootstrap } from '../EnvironmentBootstrap.js';
 import { CodeQualityPipeline } from '../CodeQualityPipeline.js';
 import { WorkspaceFileCollector } from './WorkspaceFileCollector.js';
+import { BackgroundProcessRegistry } from './BackgroundProcessRegistry.js';
 import { ProviderConfigManager } from './ProviderConfigManager.js';
 import { ReactionParser } from './ReactionParser.js';
 import { ShellSuggestionProvider } from './ShellSuggestionProvider.js';
@@ -299,6 +300,7 @@ export function initializeAgentDependencies(
     host.interactiveAutomodeEnabled = runtime.options.interactiveAutoMode === true;
     host.ignoreFilter = new GitIgnoreParser(runtime.workspaceRoot, []);
     host.workspaceFileCollector = new WorkspaceFileCollector(runtime.workspaceRoot, host.ignoreFilter);
+    host.backgroundProcessRegistry = new BackgroundProcessRegistry();
     host.mentionResolver = new MentionResolver({
       getWorkspaceRoot: () => host.runtime.workspaceRoot,
       files: host.files,
@@ -511,6 +513,7 @@ export function initializeAgentDependencies(
       onFileModified: (filePath, changeType, toolCallId) => {
         host.markFilesModified(filePath, changeType, toolCallId);
       },
+      backgroundProcessRegistry: host.backgroundProcessRegistry,
       onAskFollowup: (question, suggestedAnswers) => host.executeAskFollowupQuestion(question, suggestedAnswers),
       onPlanCreated: (plan, filePath) => host.handlePlanCreated(plan, filePath),
       onPermissionRequest: async (context) => {
@@ -1417,6 +1420,7 @@ export function initializeAgentDependencies(
         await syncDynamicRuntimeExtensions(host, host.runtime);
       },
       mcpManager: host.mcpManager,
+      backgroundProcessRegistry: host.backgroundProcessRegistry,
       llm: host.llm,
       workspaceRoot: runtime.workspaceRoot,
       get model() {

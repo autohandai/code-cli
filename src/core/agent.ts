@@ -77,6 +77,7 @@ import { EnvironmentBootstrap, type BootstrapResult } from './EnvironmentBootstr
 import { CodeQualityPipeline } from './CodeQualityPipeline.js';
 import { formatExplorationLabel } from './agent/AgentFormatter.js';
 import { WorkspaceFileCollector } from './agent/WorkspaceFileCollector.js';
+import { BackgroundProcessRegistry } from './agent/BackgroundProcessRegistry.js';
 import { ProviderConfigManager } from './agent/ProviderConfigManager.js';
 import { ReactionParser } from './agent/ReactionParser.js';
 import { ShellSuggestionProvider } from './agent/ShellSuggestionProvider.js';
@@ -320,6 +321,7 @@ export class AutohandAgent {
   private mcpReady: Promise<void> | null = null;
   private activeAbortController: AbortController | null = null;
   private workspaceFileCollector!: WorkspaceFileCollector;
+  private backgroundProcessRegistry!: BackgroundProcessRegistry;
   private mentionResolver!: MentionResolver;
   private providerConfigManager!: ProviderConfigManager;
   private reactionParser!: ReactionParser;
