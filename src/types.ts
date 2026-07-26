@@ -865,6 +865,12 @@ export interface InlineAgentDefinition {
 
 export interface CLIOptions {
   prompt?: string;
+  /** Structured output mode for a one-shot command. */
+  commandOutputFormat?: CommandOutputFormat;
+  /** Raw value from --output-format, normalized into commandOutputFormat at startup. */
+  outputFormat?: string;
+  /** Raw value from --json, normalized into commandOutputFormat at startup. */
+  json?: string | boolean;
   /** Minimal mode: disable featureful startup and require explicit context/auth. */
   bare?: boolean;
   path?: string;
@@ -975,6 +981,9 @@ export interface CLIOptions {
   /** @deprecated Compatibility input for older programmatic callers. */
   noChrome?: boolean;
 }
+
+/** Output contract for one-shot command mode. */
+export type CommandOutputFormat = 'text' | 'stream-json' | 'json';
 
 export interface PromptContext {
   workspaceRoot: string;

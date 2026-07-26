@@ -1,7 +1,13 @@
 #!/usr/bin/env node
 process.title = 'Autohand Code';
 // Set terminal window/icon title (OSC 0 - works in Ghostty, iTerm2, and most terminals)
-if (process.stdout.isTTY) {
+const requestsStructuredCommandOutput = process.argv.some((arg) => (
+  arg === '--json'
+  || arg.startsWith('--json=')
+  || arg === '--output-format'
+  || arg.startsWith('--output-format=')
+));
+if (process.stdout.isTTY && !requestsStructuredCommandOutput) {
   process.stdout.write('\x1b]0;Autohand Code\x07');
 }
 // Set environment variable for detection by Expect and other tools
@@ -26,6 +32,12 @@ import { initPingService, shutdownPingService, startPingService } from './teleme
 import { detectStdinType, readPipedStdin } from './utils/stdinDetector.js';
 import { buildPipePrompt } from './modes/pipeMode.js';
 import { shouldUseInteractivePipeHandoff } from './modes/pipeRouting.js';
+import {
+  CommandOutputWriter,
+  isStructuredCommandOutput,
+  redirectConsoleOutputToStderr,
+  resolveCommandOutputFormat,
+} from './modes/commandOutput.js';
 import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from './constants.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessionWorktree.js';
 import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
@@ -193,6 +205,8 @@ program
   .version(getVersionString(), '-v, --version', 'output the current version')
   .argument('[prompt]', 'Run a single instruction in command mode (same as -p)')
   .option('-p, --prompt [text]', 'Run a single instruction in command mode')
+  .option('--output-format <format>', 'Command output format: stream-json')
+  .option('--json [mode]', 'Command JSON output: stream (default) or local')
   .option('--bare', 'Minimal mode: skip hooks, LSP, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and AGENTS.md auto-discovery', false)
   .option('--offline', 'Disable startup network operations, including model catalog refreshes', false)
   .option('--path <path>', 'Workspace path to operate in')
@@ -257,7 +271,12 @@ program
   .option('--fork <pathOrId>', 'Create and resume a new session branch from an existing session reference')
   .action(async (positionalPrompt: string | undefined, opts: RootCliOptions) => {
     // Clear screen immediately for Cursor-like behavior (before any output)
-    if (process.stdout.isTTY && process.env.AUTOHAND_NO_BANNER !== '1') {
+    if (
+      process.stdout.isTTY
+      && process.env.AUTOHAND_NO_BANNER !== '1'
+      && opts.outputFormat === undefined
+      && opts.json === undefined
+    ) {
       process.stdout.write('\x1b[3J\x1b[2J\x1b[H');
     }
 
@@ -265,6 +284,13 @@ program
     if (normalization.deprecatedBrowserOption) {
       console.warn(chalk.yellow(formatDeprecatedBrowserOptionWarning(normalization.deprecatedBrowserOption)));
     }
+
+    const commandOutputResolution = resolveCommandOutputFormat(opts);
+    if ('error' in commandOutputResolution) {
+      console.error(chalk.red(commandOutputResolution.error));
+      process.exit(1);
+    }
+    opts.commandOutputFormat = commandOutputResolution.format;
 
     const { extensionRuntimeHost } = await import('./extensions/ExtensionRuntimeHost.js');
     extensionRuntimeHost.setCliOptions(opts as unknown as Record<string, unknown>);
@@ -284,6 +310,15 @@ program
     }
 
     normalizePromptAndProtocolOptions(positionalPrompt, opts);
+
+    if (
+      isStructuredCommandOutput(opts.commandOutputFormat)
+      && !opts.prompt
+      && process.stdin.isTTY
+    ) {
+      console.error(chalk.red('Structured output requires a one-shot prompt. Use -p or --prompt.'));
+      process.exit(1);
+    }
 
     // tmux sessions are intended to run with isolated worktrees by default.
     // Respect explicit --no-worktree (opts.worktree === false) as invalid with --tmux.
@@ -1095,6 +1130,12 @@ async function runCLI(options: CLIOptions): Promise<void> {
   const agentHolder: { current: AutohandAgent | null } = { current: null };
   const commandLifecycleController = new AbortController();
   let agent: AutohandAgent | null = null;
+  const structuredOutput = isStructuredCommandOutput(options.commandOutputFormat);
+  const commandOutputWriter = structuredOutput
+    ? new CommandOutputWriter(options.commandOutputFormat ?? 'text')
+    : undefined;
+  const restoreConsoleOutput = structuredOutput ? redirectConsoleOutputToStderr() : undefined;
+  let commandOutputCompleted = false;
   const runtimeResourceOwner = new CliRuntimeResourceOwner<
     AuthUser,
     VersionCheckResult,
@@ -1298,8 +1339,10 @@ async function runCLI(options: CLIOptions): Promise<void> {
     };
 
     // Print banner FIRST for immediate visual feedback
-    printBanner();
-    if (sessionWorktree && process.stdout.isTTY) {
+    if (!structuredOutput) {
+      printBanner();
+    }
+    if (!structuredOutput && sessionWorktree && process.stdout.isTTY) {
       console.log(chalk.gray(`Using git worktree: ${sessionWorktree.worktreePath}`));
       console.log(chalk.gray(`Branch: ${sessionWorktree.branchName}${sessionWorktree.createdBranch ? ' (new)' : ''}\n`));
     }
@@ -1327,7 +1370,9 @@ async function runCLI(options: CLIOptions): Promise<void> {
     }
 
     // Print welcome immediately with no version/auth info - don't block on network
-    printWelcome(runtime, undefined, null);
+    if (!structuredOutput) {
+      printWelcome(runtime, undefined, null);
+    }
 
     // Ensure all stdout is flushed before Ink takes over the alternate screen buffer
     // This prevents banner/welcome output from appearing mid-render in Ink's UI
@@ -1344,8 +1389,10 @@ async function runCLI(options: CLIOptions): Promise<void> {
           runStartupChecks(workspaceRoot),
           commandLifecycleController.signal,
         );
-        printStartupCheckResults(checkResults);
-        if (!checkResults.allRequiredMet) {
+        if (!structuredOutput) {
+          printStartupCheckResults(checkResults);
+        }
+        if (!structuredOutput && !checkResults.allRequiredMet) {
           console.log(chalk.yellow('Continuing anyway, but some features may not work correctly.\n'));
         }
       } catch {
@@ -1586,10 +1633,16 @@ async function runCLI(options: CLIOptions): Promise<void> {
           process.exitCode = 0;
         }
     } else if (agentLaunchMode === 'command' && options.prompt) {
+      if (commandOutputWriter) {
+        agent.setOutputListener((event) => commandOutputWriter.handleEvent(event));
+      }
       const succeeded = await agent.runCommandMode(
         options.prompt,
         commandLifecycleController.signal,
       );
+      commandOutputWriter?.finish(succeeded);
+      commandOutputCompleted = true;
+      agent.setOutputListener(undefined);
       if (!commandLifecycleController.signal.aborted) {
         process.exitCode = succeeded ? 0 : 1;
       }
@@ -1606,6 +1659,8 @@ async function runCLI(options: CLIOptions): Promise<void> {
     }
   } catch (error) {
     if (!commandLifecycleController.signal.aborted) {
+      const message = error instanceof Error ? error.message : String(error);
+      commandOutputWriter?.writeError(message);
       if (error instanceof Error) {
         console.error(chalk.red(error.message));
       } else {
@@ -1614,11 +1669,15 @@ async function runCLI(options: CLIOptions): Promise<void> {
       process.exitCode = 1;
     }
   } finally {
+    if (!commandOutputCompleted) {
+      commandOutputWriter?.finish(false);
+    }
     await Promise.allSettled([
       agent?.shutdownRuntimeResources(),
       runtimeResourceOwner?.shutdown(),
     ]);
     agentHolder.current = null;
+    restoreConsoleOutput?.();
   }
 }
 

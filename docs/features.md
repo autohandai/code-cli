@@ -205,7 +205,7 @@ effect immediately — no restart required.
 
 ## Composable Workflows
 - [x] **Pipe Mode**: `echo 'code' | autohand 'explain'`
-- [x] **JSON Output**: `--json` flag for ndjson
+- [x] **JSON Output**: `--output-format stream-json` or `--json stream` for NDJSON events; `--json local` for one final result object
 - [x] **Smart Stdin Detection**: Auto-detects piped input vs TTY
 - [x] Verbose mode with `--verbose` (progress to stderr)
 

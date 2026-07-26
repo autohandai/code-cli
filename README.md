@@ -153,13 +153,27 @@ autohand -p "update dependencies" --yes --auto-commit
 
 # Dry run (preview changes without applying)
 autohand -p "refactor database queries" --dry-run
+
+# Stream lifecycle events as JSON Lines
+autohand -p "review this diff" --output-format stream-json
+
+# Equivalent stream alias, or write only the final result object
+autohand -p "review this diff" --json stream
+autohand -p "review this diff" --json local
 ```
+
+`--output-format stream-json` and `--json stream` write one JSON object per
+agent event to stdout. Events include `thinking`, `tool_start`, `tool_end`,
+`file_modified`, `result`, and `error`. `--json local` suppresses intermediate
+events and writes exactly one final `result` or `error` object to stdout.
 
 ### CLI Options
 
 | Option                          | Short | Description                                                                      |
 | ------------------------------- | ----- | -------------------------------------------------------------------------------- |
 | `--prompt <text>`               | `-p`  | Run a single instruction in command mode                                         |
+| `--output-format stream-json`   |       | Stream command lifecycle events as JSON Lines                                    |
+| `--json <stream\|local>`        |       | Stream JSON Lines or write only the final JSON result (`--json` defaults to stream) |
 | `--yes`                         | `-y`  | Auto-confirm risky actions                                                       |
 | `--auto-commit`                 | `-c`  | Auto-commit changes after completing tasks                                       |
 | `--dry-run`                     |       | Preview actions without applying mutations                                       |
