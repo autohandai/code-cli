@@ -535,7 +535,11 @@ export class InstructionRunner {
 
       // Ensure the cursor is on a fresh blank line after cleanup so the next
       // prompt box doesn't overwrite the last output row.
-      if (process.stdout.isTTY && !host.useInkRenderer) {
+      if (
+        process.stdout.isTTY
+        && !host.useInkRenderer
+        && host.runtime.options.commandOutputFormat === 'text'
+      ) {
         process.stdout.write('\n');
       }
 

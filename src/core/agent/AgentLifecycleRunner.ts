@@ -706,7 +706,10 @@ export async function runAgentCommandMode(
       }
 
       if (succeeded) {
-        if (host.runtime.config.ui?.terminalBell !== false) {
+        if (
+          host.runtime.config.ui?.terminalBell !== false
+          && host.runtime.options.commandOutputFormat === 'text'
+        ) {
           process.stdout.write('\x07');
         }
 
