@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import fs from 'fs-extra';
-import { execFile, spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -101,47 +101,72 @@ export interface StatusLineGitLabelHost {
     workspaceRoot: string;
     value?: string;
     checkedAt: number;
+    refreshing?: boolean;
   };
 }
 
-function runGitStatusLineCommand(workspaceRoot: string, args: string[]): string | undefined {
-  const result = spawnSync('git', args, {
-    cwd: workspaceRoot,
-    encoding: 'utf8',
-    timeout: 200,
+function runGitStatusLineCommand(workspaceRoot: string, args: string[]): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    execFile('git', args, {
+      cwd: workspaceRoot,
+      encoding: 'utf8',
+      timeout: 200,
+    }, (error, stdout) => {
+      resolve(error ? undefined : (stdout.trim() || undefined));
+    });
   });
-  if (result.status !== 0) {
-    return undefined;
-  }
-  const value = result.stdout?.trim();
-  return value || undefined;
 }
 
+async function refreshStatusLineGitLabel(
+  host: StatusLineGitLabelHost,
+  workspaceRoot: string,
+): Promise<void> {
+  const insideWorktree = await runGitStatusLineCommand(workspaceRoot, ['rev-parse', '--is-inside-work-tree']);
+  const value = insideWorktree === 'true'
+    ? (await runGitStatusLineCommand(workspaceRoot, ['branch', '--show-current']))
+      || `worktree:${path.basename(workspaceRoot)}`
+    : undefined;
+
+  host.statusLineGitLabelCache = {
+    workspaceRoot,
+    value,
+    checkedAt: Date.now(),
+    refreshing: false,
+  };
+}
+
+/**
+ * Returns the cached git label, refreshing it in the background when stale.
+ *
+ * This is called from the once-a-second status refresh during a turn. Running
+ * git synchronously here froze the event loop mid-keystroke every time the cache
+ * expired, which the composer showed as a stutter, so the caller never waits.
+ */
 export function resolveStatusLineGitLabel(host: StatusLineGitLabelHost): string | undefined {
   const workspaceRoot = host.runtime?.workspaceRoot;
   if (!workspaceRoot) {
     return undefined;
   }
-  const now = Date.now();
+
   const cached = host.statusLineGitLabelCache;
-  if (
-    cached &&
-    cached.workspaceRoot === workspaceRoot &&
-    now - cached.checkedAt < STATUS_LINE_GIT_LABEL_CACHE_MS
-  ) {
-    return cached.value;
+  const usable = cached && cached.workspaceRoot === workspaceRoot ? cached : undefined;
+  const stale = !usable || Date.now() - usable.checkedAt >= STATUS_LINE_GIT_LABEL_CACHE_MS;
+
+  if (stale && !usable?.refreshing) {
+    host.statusLineGitLabelCache = {
+      workspaceRoot,
+      value: usable?.value,
+      checkedAt: usable?.checkedAt ?? 0,
+      refreshing: true,
+    };
+    void refreshStatusLineGitLabel(host, workspaceRoot).catch(() => {
+      if (host.statusLineGitLabelCache) {
+        host.statusLineGitLabelCache.refreshing = false;
+      }
+    });
   }
 
-  const insideWorktree = runGitStatusLineCommand(workspaceRoot, ['rev-parse', '--is-inside-work-tree']);
-  if (insideWorktree !== 'true') {
-    host.statusLineGitLabelCache = { workspaceRoot, value: undefined, checkedAt: now };
-    return undefined;
-  }
-
-  const branch = runGitStatusLineCommand(workspaceRoot, ['branch', '--show-current']);
-  const value = branch || `worktree:${path.basename(workspaceRoot)}`;
-  host.statusLineGitLabelCache = { workspaceRoot, value, checkedAt: now };
-  return value;
+  return usable?.value;
 }
 
 export async function buildAgentUserMessage(
