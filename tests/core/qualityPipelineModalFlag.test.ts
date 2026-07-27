@@ -70,15 +70,12 @@ describe('Quality Pipeline modalActive flag', () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync('src/core/agent/InstructionRunner.ts', 'utf-8');
 
-    // Find the section after runQualityPipeline call
     const runQualityIndex = source.indexOf('await host.runQualityPipeline()');
-    const afterQualitySection = source.substring(
-      runQualityIndex,
-      runQualityIndex + 300
-    );
+    const resetIndex = source.indexOf('host.modalActive = false', runQualityIndex);
 
-    // Verify modalActive is set to false after quality pipeline
-    expect(afterQualitySection).toContain('host.modalActive = false');
+    expect(runQualityIndex).toBeGreaterThanOrEqual(0);
+    expect(resetIndex).toBeGreaterThan(runQualityIndex);
+    expect(source.slice(runQualityIndex, resetIndex)).toContain('finally');
   });
 
   it('should suppress hook output when modalActive is true', async () => {
