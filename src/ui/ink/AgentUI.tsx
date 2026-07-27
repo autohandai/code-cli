@@ -48,6 +48,7 @@ import {
   getInteractionModeIndicator,
   type InteractionMode,
 } from '../../core/agent/InteractionModeController.js';
+import { AnnouncementLine } from './AnnouncementLine.js';
 
 export type { ActivityItem } from './TaskActivityPanel.js';
 
@@ -57,6 +58,13 @@ export interface ContextTokenDisplay {
 }
 
 export type TurnCompletionStatus = 'completed' | 'failed';
+
+export interface AnnouncementLineState {
+  id: string;
+  text: string;
+  hint: string;
+  visible: boolean;
+}
 
 export interface AgentUIState {
   isWorking: boolean;
@@ -108,6 +116,8 @@ export interface AgentUIState {
    * Rendered sticky above the status line.
    */
   activityItems?: ActivityItem[];
+  /** Highest-priority active CLI announcement rendered above status. */
+  announcement?: AnnouncementLineState;
 }
 
 export interface AgentUILineExtensions {
@@ -120,6 +130,8 @@ export interface AgentUIProps {
   onInstruction: (text: string) => void;
   onEscape: () => void;
   onCtrlC: () => void;
+  /** Dismiss the currently rendered announcement without changing composer input. */
+  onDismissAnnouncement?: (id: string) => void;
   onToggleLiveCommandExpanded?: () => void;
   onInputChange?: (input: string) => void;
   enableQueueInput?: boolean;
@@ -159,7 +171,15 @@ interface TextBufferKeyInfo {
   sequence?: string;
 }
 
-const RESERVED_EXTENSION_KEYBINDINGS = new Set(['ctrl+c', 'ctrl+d', 'shift+tab', 'escape', 'enter', 'return']);
+const RESERVED_EXTENSION_KEYBINDINGS = new Set([
+  'ctrl+c',
+  'ctrl+d',
+  'ctrl+x',
+  'shift+tab',
+  'escape',
+  'enter',
+  'return',
+]);
 
 export function matchesExtensionKeybinding(
   input: string,
@@ -629,6 +649,7 @@ export function AgentUI({
   onInstruction,
   onEscape,
   onCtrlC,
+  onDismissAnnouncement,
   onToggleLiveCommandExpanded,
   onInputChange,
   enableQueueInput = true,
@@ -722,6 +743,10 @@ export function AgentUI({
   onEscapeRef.current = onEscape;
   const onCtrlCRef = useRef(onCtrlC);
   onCtrlCRef.current = onCtrlC;
+  const onDismissAnnouncementRef = useRef(onDismissAnnouncement);
+  onDismissAnnouncementRef.current = onDismissAnnouncement;
+  const announcementRef = useRef(state.announcement);
+  announcementRef.current = state.announcement;
   const onToggleLiveCommandExpandedRef = useRef(onToggleLiveCommandExpanded);
   onToggleLiveCommandExpandedRef.current = onToggleLiveCommandExpanded;
   const onInstructionRef = useRef(onInstruction);
@@ -1299,6 +1324,11 @@ export function AgentUI({
       return;
     }
 
+    if (key.ctrl && char === 'x' && announcementRef.current?.visible) {
+      onDismissAnnouncementRef.current?.(announcementRef.current.id);
+      return;
+    }
+
     if (key.ctrl && char === 'o' && liveCommandsRef.current.length > 0) {
       onToggleLiveCommandExpandedRef.current?.();
       return;
@@ -1870,6 +1900,8 @@ export function AgentUI({
 
       {/* Fixed bottom section - always renders for layout stability */}
       <FixedBottom
+        announcement={state.announcement}
+        terminalColumns={windowSize.columns ?? process.stdout.columns ?? 80}
         isWorking={state.isWorking}
         status={state.status}
         elapsed={state.elapsed}
@@ -2489,6 +2521,8 @@ const SkillMentionWrapper = memo(function SkillMentionWrapper({
  * Split into StatusSection and InputSection for better memoization
  */
 interface FixedBottomProps {
+  announcement?: AnnouncementLineState;
+  terminalColumns: number;
   isWorking: boolean;
   status: string;
   elapsed: string;
@@ -2523,6 +2557,8 @@ interface FixedBottomProps {
 }
 
 const FixedBottom = memo(function FixedBottom({
+  announcement,
+  terminalColumns,
   isWorking,
   status,
   elapsed,
@@ -2554,6 +2590,14 @@ const FixedBottom = memo(function FixedBottom({
 }: FixedBottomProps) {
   return (
     <>
+      {announcement ? (
+        <AnnouncementLine
+          text={announcement.text}
+          hint={announcement.hint}
+          visible={announcement.visible}
+          columns={terminalColumns}
+        />
+      ) : null}
       <StatusSection
         isWorking={isWorking}
         status={status}

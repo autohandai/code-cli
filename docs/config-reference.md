@@ -2300,8 +2300,11 @@ Autohand provides a rich set of slash commands for interactive use. Type `/` in 
 | `/theme`      | Change color theme                                    |
 | `/language`   | Change display language                               |
 | `/feedback`   | Send feedback to the Autohand team                    |
+| `/whatsnew`   | View and dismiss active CLI announcements             |
 
 ---
+
+Published CLI announcements are mandatory per-item notices rather than a configurable channel. The highest-priority active item appears above the composer and cached notices may also appear in the interactive launch output. Press `Ctrl+X` to dismiss the visible item or use `/whatsnew` to review all active items. `--offline` skips announcement network requests while continuing to render the last successful cache.
 
 ## System Prompt Customization
 

@@ -873,6 +873,8 @@ export interface CLIOptions {
   json?: string | boolean;
   /** Minimal mode: disable featureful startup and require explicit context/auth. */
   bare?: boolean;
+  /** Disable startup network operations while retaining local cached state. */
+  offline?: boolean;
   path?: string;
   yes?: boolean;
   dryRun?: boolean;

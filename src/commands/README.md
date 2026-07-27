@@ -31,6 +31,7 @@ Each command is a separate TypeScript file that exports:
 | `/squad` | `squad.ts` | Open/manage the standalone Autohand Squad runtime. |
 | `/usage` | `usage.ts` | Show project token activity by day, week, or month |
 | `/statusline` | `statusline.ts` | Configure composer status-line fields |
+| `/whatsnew` | `whatsnew.ts` | View and dismiss active CLI announcements |
 
 ## Adding a New Command
 

@@ -245,6 +245,9 @@ import {
   type AgentSessionAccountingHost,
 } from './agent/AgentSessionAccounting.js';
 import { AutoReportManager } from '../reporting/AutoReportManager.js';
+import type {
+  AnnouncementManager,
+} from '../announcements/AnnouncementManager.js';
 import { SuggestionEngine } from './SuggestionEngine.js';
 import { ActiveAgentHeartbeat, ActiveAgentRegistry } from '../session/ActiveAgentRegistry.js';
 import type {
@@ -331,6 +334,8 @@ export class AutohandAgent {
   private activeProvider!: ProviderName;
   private errorLogger!: ErrorLogger;
   private autoReportManager!: AutoReportManager;
+  private announcementManager!: AnnouncementManager;
+  private announcementUnsubscribe: ReturnType<AnnouncementManager['subscribe']> | null = null;
   private notificationService!: NotificationService;
   private versionCheckResult?: VersionCheckResult;
   private teamManager!: TeamManager;

@@ -105,6 +105,7 @@ export class SlashCommandHandler {
       '/model', '/cc', '/search', '/theme', '/language', '/feedback', '/skills new', '/skills-new',
       '/squad', '/statusline',
       '/publish-research', '/ps', '/stop',
+      '/whatsnew',
     ]);
     if (this.ctx.isNonInteractive && INTERACTIVE_ONLY.has(command)) {
       return `Command ${command} requires an interactive terminal. Use the dedicated RPC method or API instead.`;
@@ -150,6 +151,15 @@ export class SlashCommandHandler {
         case '/about': {
           const { about } = await import('../commands/about.js');
           return about(this.ctx);
+        }
+        case '/whatsnew': {
+          const { whatsnew } = await import('../commands/whatsnew.js');
+          await this.ctx.onBeforeModal?.();
+          try {
+            return await whatsnew({ announcementManager: this.ctx.announcementManager });
+          } finally {
+            await this.ctx.onAfterModal?.();
+          }
         }
         case '/agents': {
           const { handler } = await import('../commands/agents.js');

@@ -81,6 +81,11 @@ import { buildAutomodeIterationPrompt } from './core/automodePrompt.js';
 import { looksLikeInlineAgents, parseInlineAgents } from './core/agents/AgentRegistry.js';
 import { getCustomProviderConfig, isCustomProviderName } from './providers/customProviders.js';
 import { runtimeVersion } from './utils/runtimeVersion.js';
+import {
+  getAnnouncementManager,
+  renderLaunchAnnouncement,
+  type AnnouncementManager,
+} from './announcements/index.js';
 
 async function refreshModelCatalogBeforeAgentStart(options: {
   bare?: boolean;
@@ -1369,9 +1374,17 @@ async function runCLI(options: CLIOptions): Promise<void> {
       });
     }
 
+    const announcementManager = getAnnouncementManager(config);
+    announcementManager.setNetworkEnabled(!options.bare && !options.offline);
+
     // Print welcome immediately with no version/auth info - don't block on network
     if (!structuredOutput) {
-      printWelcome(runtime, undefined, null);
+      printWelcome(
+        runtime,
+        undefined,
+        null,
+        resolveAgentLaunchMode(options) === 'command' ? undefined : announcementManager,
+      );
     }
 
     // Ensure all stdout is flushed before Ink takes over the alternate screen buffer
@@ -1735,7 +1748,12 @@ function buildWelcomeSuggestions(isLoggedIn: boolean, workspaceRoot: string): We
   return suggestions;
 }
 
-function printWelcome(runtime: AgentRuntime, authUser?: AuthUser, versionCheck?: VersionCheckResult | null): void {
+function printWelcome(
+  runtime: AgentRuntime,
+  authUser?: AuthUser,
+  versionCheck?: VersionCheckResult | null,
+  announcementManager?: AnnouncementManager,
+): void {
   if (!process.stdout.isTTY) {
     return;
   }
@@ -1776,6 +1794,18 @@ function printWelcome(runtime: AgentRuntime, authUser?: AuthUser, versionCheck?:
 
   console.log(formatWelcomeStatusLine(model, ccEnabled, dir));
   console.log();
+
+  const topAnnouncement = announcementManager?.getTop() ?? null;
+  if (topAnnouncement && announcementManager) {
+    for (const line of renderLaunchAnnouncement(
+      topAnnouncement,
+      announcementManager.getActive().length,
+    )) {
+      console.log(line);
+    }
+    console.log();
+    void announcementManager.markSeen(topAnnouncement.id);
+  }
 
   // Build contextual suggestions based on auth state and available features
   const suggestions = buildWelcomeSuggestions(isLoggedIn, dir);

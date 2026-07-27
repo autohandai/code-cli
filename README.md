@@ -329,6 +329,7 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/add-dir`         | Add additional workspace directory                                               |
 | `/plan`            | Create a task plan                                                               |
 | `/about`           | Show information about Autohand Code CLI                                         |
+| `/whatsnew`        | View and dismiss active CLI announcements                                        |
 | `/ide`             | Open in IDE                                                                      |
 | `/history`         | View command history                                                             |
 | `/mcp`             | Manage MCP servers                                                               |
@@ -340,6 +341,8 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/repeat`          | Repeat previous actions                                                          |
 | `/browser`         | Browser integration                                                              |
 | `/review`          | Code review                                                                      |
+
+Published CLI announcements appear as a cached launch block and a persistent line above the composer. Press `Ctrl+X` to dismiss the visible item, or use `/whatsnew` to review and dismiss all active announcements. Dismissal is per announcement; `--offline` keeps cached announcements visible without making announcement requests.
 
 `/go --steer` and `/handoff session --steer` keep the paired iOS app updated
 with permission/change requests and read-only GitHub delivery metadata. While a

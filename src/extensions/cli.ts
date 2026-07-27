@@ -386,6 +386,10 @@ function withScope(args: string[], scope?: string): string[] {
   return scope ? [...args, '--scope', scope] : args;
 }
 
+function requestsJson(program: Command, localValue?: boolean): boolean {
+  return localValue === true || program.opts<{ json?: string | boolean }>().json !== undefined;
+}
+
 export function registerExtensionsCommand(program: Command): void {
   const extensions = program
     .command('extensions')
@@ -399,7 +403,7 @@ export function registerExtensionsCommand(program: Command): void {
     .option('--scope <scope>', 'Filter by user or project scope')
     .action(async (options: { json?: boolean; scope?: string }) => executeRegisteredCommand(
       program,
-      withScope(['list', ...(options.json ? ['--json'] : [])], options.scope),
+      withScope(['list', ...(requestsJson(program, options.json) ? ['--json'] : [])], options.scope),
     ));
 
   extensions
@@ -409,7 +413,7 @@ export function registerExtensionsCommand(program: Command): void {
     .option('--scope <scope>', 'Select user or project scope')
     .action(async (id: string, options: { json?: boolean; scope?: string }) => executeRegisteredCommand(
       program,
-      withScope(['show', id, ...(options.json ? ['--json'] : [])], options.scope),
+      withScope(['show', id, ...(requestsJson(program, options.json) ? ['--json'] : [])], options.scope),
     ));
 
   extensions
@@ -418,7 +422,7 @@ export function registerExtensionsCommand(program: Command): void {
     .option('--json', 'Emit machine-readable JSON', false)
     .action(async (sourcePath: string, options: { json?: boolean }) => executeRegisteredCommand(
       program,
-      ['validate', sourcePath, ...(options.json ? ['--json'] : [])],
+      ['validate', sourcePath, ...(requestsJson(program, options.json) ? ['--json'] : [])],
     ));
 
   extensions
@@ -470,6 +474,6 @@ export function registerExtensionsCommand(program: Command): void {
     .option('--json', 'Emit machine-readable JSON', false)
     .action(async (options: { json?: boolean }) => executeRegisteredCommand(
       program,
-      ['doctor', ...(options.json ? ['--json'] : [])],
+      ['doctor', ...(requestsJson(program, options.json) ? ['--json'] : [])],
     ));
 }

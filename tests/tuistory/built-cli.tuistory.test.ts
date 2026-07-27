@@ -625,6 +625,180 @@ describe('interactive built CLI Tuistory tests', () => {
     });
   }
 
+  const cachedAnnouncements = [
+    {
+      id: 'tuistory-announcement-one',
+      title: 'Voice dictation is here',
+      description: null,
+      priority: 100,
+      steps: [{
+        id: 'tuistory-step-one',
+        order: 0,
+        type: 'image',
+        mediaUrl: 'https://example.test/ignored.png',
+        posterUrl: null,
+        title: null,
+        description: 'Keep your draft while dismissing this announcement.',
+        ctaLabel: 'Read docs',
+        ctaUrl: 'https://example.test/voice',
+      }],
+    },
+    {
+      id: 'tuistory-announcement-two',
+      title: 'Squad mode is ready',
+      description: null,
+      priority: 50,
+      steps: [{
+        id: 'tuistory-step-two',
+        order: 0,
+        type: 'image',
+        mediaUrl: 'https://example.test/ignored.png',
+        posterUrl: null,
+        title: null,
+        description: 'Run /team to start.',
+        ctaLabel: null,
+        ctaUrl: null,
+      }],
+    },
+  ];
+
+  async function launchWithCachedAnnouncements(): Promise<Session> {
+    const state = await createTempAutohandHome();
+    tempStates.push(state);
+    await writeFile(
+      path.join(state.autohandHome, 'announcements.json'),
+      JSON.stringify({ announcements: cachedAnnouncements, dismissedIds: [] }, null, 2),
+    );
+    return trackSession(launchBuiltAutohand([
+      '--path',
+      state.workspaceRoot,
+      '--config',
+      state.configPath,
+      '--offline',
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      waitForDataTimeout: 15_000,
+    }));
+  }
+
+  it('renders a cached launch block and persistent top-priority announcement line', async () => {
+    const session = await launchWithCachedAnnouncements();
+
+    await waitForComposer(session);
+    const output = session.readAll();
+    const screen = await session.text({ trimEnd: true });
+
+    expect(output).toContain("What's new  ·  Voice dictation is here");
+    expect(output).toContain('+1 more · /whatsnew');
+    expect(screen).toContain('Voice dictation is here');
+    expect(screen).toContain('^X hide  /whatsnew');
+
+    await exitInteractive(session);
+  });
+
+  it('dismisses with Ctrl+X without modifying composer input and advances the line', async () => {
+    const session = await launchWithCachedAnnouncements();
+    await waitForComposer(session);
+    await session.type('preserve this draft');
+    await waitForCursorAfterTypedText(session, 'preserve this draft');
+
+    await session.press(['ctrl', 'x']);
+    const screen = await session.text({
+      timeout: 10_000,
+      showCursor: true,
+      trimEnd: true,
+      waitFor: (text) => text.includes('Squad mode is ready') && text.includes('preserve this draft'),
+    });
+
+    expect(composerLineIncludes(screen, 'preserve this draft')).toBe(true);
+    const liveAnnouncementLines = screen.split('\n').filter((line) => line.includes('^X hide'));
+    expect(liveAnnouncementLines).toHaveLength(1);
+    expect(liveAnnouncementLines[0]).toContain('Squad mode is ready');
+    expect(liveAnnouncementLines[0]).not.toContain('Voice dictation is here');
+
+    await exitInteractive(session);
+  });
+
+  it('opens /whatsnew, dismisses the selection, and restores the composer on Escape', async () => {
+    const session = await launchWithCachedAnnouncements();
+    await waitForComposer(session);
+
+    await session.type('/whatsnew');
+    await session.press('enter');
+    await session.text({
+      timeout: 10_000,
+      waitFor: (text) => text.includes("What's new") && text.includes('enter dismiss'),
+    });
+    await session.press('enter');
+    await session.text({
+      timeout: 10_000,
+      waitFor: (text) => (
+        text.includes("What's new")
+        && text.includes('Squad mode is ready')
+        && !text.includes('Voice dictation is here')
+      ),
+    });
+    await session.press('escape');
+    const restored = await session.text({
+      timeout: 10_000,
+      waitFor: (text) => text.includes('❯') && text.includes('Squad mode is ready'),
+      trimEnd: true,
+    });
+
+    expect(restored).toContain('❯');
+    expect(restored).toContain('Squad mode is ready');
+    await exitInteractive(session);
+  });
+
+  it('reserves no announcement row when the cache is empty', async () => {
+    const session = await launchInteractive();
+
+    await waitForComposer(session);
+    const screen = await session.text({ trimEnd: true });
+    expect(screen).not.toContain('^X hide');
+    expect(screen).not.toContain('/whatsnew');
+
+    await exitInteractive(session);
+  });
+
+  it('prints no cached announcement in prompt command mode', async () => {
+    const openRouterServer = await createMockOpenRouterSequenceServer([
+      'Command mode completed without announcement output.',
+    ]);
+    mockServers.push(openRouterServer);
+    const state = await createTempAutohandHome({
+      config: {
+        openrouter: { baseUrl: openRouterServer.baseUrl },
+      },
+    });
+    tempStates.push(state);
+    await writeFile(
+      path.join(state.autohandHome, 'announcements.json'),
+      JSON.stringify({ announcements: cachedAnnouncements, dismissedIds: [] }, null, 2),
+    );
+    const session = await trackSession(launchBuiltAutohand([
+      '--path',
+      state.workspaceRoot,
+      '--config',
+      state.configPath,
+      '--offline',
+      '--prompt',
+      'Run command mode.',
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      waitForDataTimeout: 15_000,
+    }));
+
+    await session.waitForText('Command mode completed without announcement output.', { timeout: 20_000 });
+    await waitForExit(session, 20_000);
+    const output = session.readAll();
+    expect(output).not.toContain('Voice dictation is here');
+    expect(output).not.toContain("What's new");
+    expectCleanExit(session);
+  });
+
   it('starts the interactive TUI without real auth, network, or user home state', async () => {
     const session = await launchInteractive();
 
