@@ -37,7 +37,11 @@ import {
   SYNC_CONSENT_REQUIRED,
   SYNC_INCLUDE_DEFAULT,
 } from './types.js';
-import { mergeMemoryEventLogContents } from '../memory/MemoryEventLog.js';
+import {
+  MemoryEventLog,
+  mergeMemoryEventLogContents,
+} from '../memory/MemoryEventLog.js';
+import { materializeMemoryProjection } from '../memory/MemoryProjection.js';
 
 const MANIFEST_VERSION = 1;
 const SYNC_STATE_FILE = '.sync-state.json';
@@ -357,16 +361,26 @@ export class SyncService {
         );
       }
 
-      const uploads = [...actions.uploads];
+      const authoritativeFiles = new Map(
+        authoritativeManifest.files.map((file) => [file.path, file]),
+      );
+      const uploadsByPath = new Map<string, SyncFileEntry>();
+      for (const upload of actions.uploads) {
+        const current = authoritativeFiles.get(upload.path);
+        if (current) {
+          uploadsByPath.set(current.path, current);
+        }
+      }
       for (const conflict of actions.conflicts) {
         if (conflict.path !== MEMORY_EVENT_LOG_SYNC_PATH) {
           continue;
         }
         const merged = authoritativeManifest.files.find((file) => file.path === conflict.path);
         if (merged && merged.hash !== conflict.hash) {
-          uploads.push(merged);
+          uploadsByPath.set(merged.path, merged);
         }
       }
+      const uploads = [...uploadsByPath.values()];
 
       // 5. Upload local changes, including a newly merged canonical memory log.
       if (uploads.length > 0) {
@@ -653,6 +667,15 @@ export class SyncService {
                 : undefined,
             });
           }, SESSION_INDEX_LOCK_OPTIONS);
+          const memoryDirectory = path.dirname(path.dirname(localPath));
+          await withFileLock(
+            path.join(memoryDirectory, 'events', '.view.lock'),
+            async () => {
+              const entries = await new MemoryEventLog(memoryDirectory).replay();
+              await materializeMemoryProjection(memoryDirectory, entries);
+            },
+            SESSION_INDEX_LOCK_OPTIONS,
+          );
         } else {
           await fs.ensureDir(path.dirname(localPath));
           if (context) this.assertOperationActive(context);

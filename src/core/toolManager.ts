@@ -1106,7 +1106,7 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'recall_memory',
-    description: 'Recall stored memories and preferences. Use to check what preferences are already saved or to find specific information.',
+    description: 'Recall stored memories and preferences ranked by content, tags, and recency. Use to check what preferences are already saved or to find specific information.',
     parameters: {
       type: 'object',
       properties: {
@@ -1115,6 +1115,63 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
       },
       required: []
     }
+  },
+  {
+    name: 'inspect_memory',
+    description: 'Inspect canonical memory through a bounded hierarchical outline, zoom into a summary node, invalidate derived summaries, or rebuild JSON projections from the event log.',
+    parameters: {
+      type: 'object',
+      properties: {
+        operation: {
+          type: 'string',
+          description: 'Operation to perform: outline, zoom, forget derived summaries, or rebuild materialized JSON from canonical events.',
+          enum: ['outline', 'zoom', 'forget', 'rebuild']
+        },
+        level: {
+          type: 'string',
+          description: 'Memory level. Defaults to project.',
+          enum: ['user', 'project']
+        },
+        snapshot_id: {
+          type: 'string',
+          description: 'Stable snapshot identifier returned by outline. Required for zoom; optional for forget.'
+        },
+        node_id: {
+          type: 'string',
+          description: 'Summary node identifier returned by outline. Required for zoom.'
+        },
+        max_lines: {
+          type: 'number',
+          description: 'Maximum lines in outline or zoom output.'
+        },
+        max_chars: {
+          type: 'number',
+          description: 'Maximum characters in outline or zoom output.'
+        }
+      },
+      required: ['operation']
+    }
+  },
+  {
+    name: 'delete_memory',
+    description: 'Delete an obsolete memory by ID. The deletion is retained as a canonical event so projections can be rebuilt without resurrecting it.',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Memory ID returned by recall_memory or /memory.'
+        },
+        level: {
+          type: 'string',
+          description: 'Memory level. Defaults to project.',
+          enum: ['user', 'project']
+        }
+      },
+      required: ['id']
+    },
+    requiresApproval: true,
+    approvalMessage: 'Allow the agent to delete this memory from the current view? The canonical deletion event will be retained.'
   },
   {
     name: 'create_meta_tool',

@@ -16,6 +16,7 @@ import type {
   MemoryEventSnapshot,
   MemoryLevel,
 } from './types.js';
+import { assertSafeMemoryId, isSafeMemoryId } from './MemoryPathSafety.js';
 
 const EVENT_LOG_VERSION = 1;
 const EVENT_DIRECTORY = 'events';
@@ -76,8 +77,8 @@ function parseMemoryEvent(value: unknown, lineNumber: number): MemoryEvent {
   if (event.level !== 'user' && event.level !== 'project') {
     throw new MemoryEventLogCorruptionError('level is invalid', lineNumber);
   }
-  if (typeof event.memoryId !== 'string' || !event.memoryId) {
-    throw new MemoryEventLogCorruptionError('memoryId must be a non-empty string', lineNumber);
+  if (typeof event.memoryId !== 'string' || !isSafeMemoryId(event.memoryId)) {
+    throw new MemoryEventLogCorruptionError('memoryId is unsafe or invalid', lineNumber);
   }
   if (typeof event.occurredAt !== 'string' || Number.isNaN(Date.parse(event.occurredAt))) {
     throw new MemoryEventLogCorruptionError('occurredAt must be an ISO timestamp', lineNumber);
@@ -107,7 +108,7 @@ function parseEventLogContent(content: string | Buffer): MemoryEvent[] {
   if (!text.endsWith('\n')) {
     throw new MemoryEventLogCorruptionError('record is missing its trailing newline', 1);
   }
-  return text
+  const events = text
     .split('\n')
     .filter((line) => line.length > 0)
     .map((line, index) => {
@@ -120,6 +121,18 @@ function parseEventLogContent(content: string | Buffer): MemoryEvent[] {
         throw new MemoryEventLogCorruptionError((error as Error).message, index + 1);
       }
     });
+  const eventLines = new Map<string, number>();
+  for (const [index, event] of events.entries()) {
+    const previousLine = eventLines.get(event.eventId);
+    if (previousLine !== undefined) {
+      throw new MemoryEventLogCorruptionError(
+        `duplicate eventId ${event.eventId} also appears at line ${previousLine}`,
+        index + 1,
+      );
+    }
+    eventLines.set(event.eventId, index + 1);
+  }
+  return events;
 }
 
 export function mergeMemoryEventLogContents(
@@ -258,6 +271,7 @@ export class MemoryEventLog {
       Number.isNaN(previous) ? now : Math.max(now, previous + 1),
     ).toISOString();
     if (input.operation === 'delete') {
+      assertSafeMemoryId(input.memoryId);
       return {
         version: EVENT_LOG_VERSION,
         eventId,
@@ -268,6 +282,7 @@ export class MemoryEventLog {
       };
     }
 
+    assertSafeMemoryId(input.entry.id);
     return {
       version: EVENT_LOG_VERSION,
       eventId,
@@ -286,24 +301,7 @@ export class MemoryEventLog {
 
   private async readAllLocked(): Promise<MemoryEvent[]> {
     const content = await this.readRepairedContentLocked();
-    if (!content) {
-      return [];
-    }
-
-    return content
-      .split('\n')
-      .filter((line) => line.length > 0)
-      .map((line, index) => {
-        try {
-          return parseMemoryEvent(JSON.parse(line), index + 1);
-        } catch (error) {
-          if (error instanceof MemoryEventLogCorruptionError) {
-            throw error;
-          }
-          const message = error instanceof Error ? error.message : String(error);
-          throw new MemoryEventLogCorruptionError(message, index + 1);
-        }
-      });
+    return parseEventLogContent(content);
   }
 
   private async readRepairedContentLocked(): Promise<string> {

@@ -191,6 +191,15 @@ describe('SystemPromptBuilder', () => {
     expect(prompt).not.toContain('## Available Agents');
   });
 
+  it('describes canonical memory inspection, deletion, and derived-summary recovery', async () => {
+    const prompt = await createBuilder().build();
+
+    expect(prompt).toContain('inspect_memory');
+    expect(prompt).toContain('delete_memory');
+    expect(prompt).toContain('derived summaries');
+    expect(prompt).toContain('canonical memory event history');
+  });
+
   it('adds an Autohand override before Codex skill installer instructions', async () => {
     const codexInstallerBody = [
       'Install skills with the helper scripts.',

@@ -14,6 +14,8 @@ export {
   MemorySummaryCorruptionError,
   MemorySummaryTree,
 } from './MemorySummaryTree.js';
+export { materializeMemoryProjection } from './MemoryProjection.js';
+export { assertSafeMemoryId, isSafeMemoryId } from './MemoryPathSafety.js';
 export * from './types.js';
 export {
   extractAndSaveSessionMemories,

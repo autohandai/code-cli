@@ -65,6 +65,8 @@ export const AVAILABLE_TOOLS = {
   memory: [
     'save_memory',
     'recall_memory',
+    'inspect_memory',
+    'delete_memory',
   ],
   planning: [
     'plan',

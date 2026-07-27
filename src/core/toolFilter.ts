@@ -54,6 +54,8 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   smart_context_cropper: 'meta',
   save_memory: 'meta',
   recall_memory: 'meta',
+  inspect_memory: 'meta',
+  delete_memory: 'meta',
   create_meta_tool: 'meta',
   delegate_task: 'meta',
   delegate_parallel: 'meta',
@@ -253,7 +255,7 @@ export const CONTEXT_POLICIES: Record<ClientContext, ToolPolicy> = {
       'web_search', 'fetch_url',
       // Communication
       'plan', 'ask_followup_question', 'todo_write',
-      'save_memory', 'recall_memory',
+      'save_memory', 'recall_memory', 'inspect_memory',
       'tools_registry',
     ],
     blockedTools: [
@@ -536,6 +538,8 @@ const RELEVANCE_CATEGORIES: Record<string, RelevanceCategory> = {
   // Meta
   save_memory: 'meta',
   recall_memory: 'meta',
+  inspect_memory: 'meta',
+  delete_memory: 'meta',
   smart_context_cropper: 'meta',
   create_meta_tool: 'meta',
   custom_command: 'verification',

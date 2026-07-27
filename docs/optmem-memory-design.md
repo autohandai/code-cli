@@ -9,18 +9,18 @@ Reviewed on 2026-07-27. Primary sources only:
 
 ## Executive Summary
 
-OptMem is not a vector-memory system. It is an append-only event log plus a deterministic binary summary tree. The useful ideas for this CLI are the immutable raw log, summary-cache invalidation via `forget`, explicit wake/part contracts, and the strong crash/concurrency test suite.
+OptMem is not a vector-memory system. It is an append-only event log plus a deterministic binary summary tree. Autohand now adopts that same source-of-truth boundary: the immutable event log is canonical, while entry JSON, indexes, and summaries are projections.
 
 What does not map cleanly is OptMem's human-in-the-loop `nap` flow, regex-only retrieval, and the assumption that memories are one-line immutable records. This CLI already has mutable JSON entries, tag search, and automatic summarization; replacing that contract would break compatibility for `/memory`, `save_memory`, `recall_memory`, sync, and existing tests.
 
 ## Current CLI Baseline
 
-Today the CLI stores one JSON file per memory entry and updates an existing entry when token-overlap similarity reaches `0.6` in [`src/memory/MemoryManager.ts`](../src/memory/MemoryManager.ts). Retrieval is substring/tag search plus simple recency ordering, and `getContextMemories()` injects the most recent entries rather than a navigable summary structure. Context summarization can also persist extracted facts back into project memory through [`src/core/context/summarizer.ts`](../src/core/context/summarizer.ts).
+The CLI keeps one JSON file per current memory entry for compatibility and updates an existing entry when token-overlap similarity reaches `0.6` in [`src/memory/MemoryManager.ts`](../src/memory/MemoryManager.ts). Every snapshot, create, update, and delete is also recorded in `.autohand/memory/events/LOG.jsonl`, which is the canonical history used to repair those JSON projections.
 
-That means any OptMem-inspired work should be additive:
-- keep `MemoryEntry` JSON files and current `MemoryManager` methods as the public compatibility layer
-- avoid changing `/memory`, `save_memory`, `recall_memory`, or sync storage layout in the first stage
-- treat any append-only log or summary tree as an internal sidecar index
+The public compatibility contract remains additive:
+- keep `MemoryEntry` JSON files and current `MemoryManager` methods available
+- preserve `/memory`, `save_memory`, and `recall_memory` while adding outline, zoom, rebuild, and canonical deletion
+- treat JSON entries, indexes, and summary trees as rebuildable views of the canonical event history
 
 ## Concrete Mechanisms
 
@@ -36,31 +36,35 @@ That means any OptMem-inspired work should be additive:
 
 | Recommendation | What | Why |
 | --- | --- | --- |
-| Adopt now | Append-only sidecar event log for memory writes and updates | Gives auditability, crash recovery, and rebuildable derived views without breaking current JSON entry reads. |
-| Adopt now | Rebuildable summary cache separate from canonical memory entries | Matches current context-compaction needs and avoids destructive edits to user-visible memories. |
-| Adopt now | Explicit corruption recovery path for derived memory artifacts | OptMem's `forget` model is better than silent fallback when summaries are blank or torn. |
-| Adopt now | Strong invariants and crash/concurrency tests | OptMem's tests are more valuable than the exact storage format; this repo should validate torn writes, duplicate IDs, output caps, and rebuild behavior. |
+| Adopted | Canonical append-only event log for memory writes and updates | Gives auditability, crash recovery, convergent sync, and rebuildable compatibility views. |
+| Adopted | Rebuildable summary cache separate from canonical memory entries | Matches current context-compaction needs and avoids destructive edits to user-visible memories. |
+| Adopted | Explicit corruption recovery path for derived memory artifacts | `forget` invalidates derived data explicitly instead of silently changing canonical memory. |
+| Adopted | Strong invariants and crash/concurrency tests | Coverage includes torn writes, duplicate events, output caps, snapshot stability, sync merges, and rebuild behavior. |
 | Avoid now | Human-authored `nap` as the only compaction path | This CLI already auto-summarizes. Forcing manual compaction would slow normal flows and break expectations. |
 | Avoid now | Regex-only retrieval and no semantic ranker | Too weak for project/user memory retrieval in a TypeScript CLI with broader use cases. |
 | Avoid now | Replacing current JSON memory files with fixed-width records | Would disrupt `/memory`, sync, existing tests, and any external assumptions about `.autohand/memory/`. |
-| Later | Hierarchical `zoom` UI over memory summaries | Useful once a sidecar summary tree exists; it can become a power-user inspection tool without replacing `recall_memory`. |
-| Later | Snapshot-stable multi-part "wake" equivalent for long memory injections | Worth adding only if memory context starts exceeding current prompt budgets regularly. |
-| Later | Recency-aware retrieval that combines semantic hits with summary-tree navigation | Best follow-up once append-only events and derived summaries exist. |
+| Adopted | Hierarchical `outline` and `zoom` over memory summaries | Available through `/memory` and `inspect_memory` without replacing `recall_memory`. |
+| Adopted | Snapshot-stable bounded wake equivalent for long memory injections | Context injection uses a stable event-count snapshot with explicit line and character budgets. |
+| Adopted | Recency-aware retrieval combined with content and tag relevance | `recall_memory` preserves its output contract while ranking relevant current entries. |
 
 ## Staged Proposal That Preserves Current Compatibility
 
 ### Implementation status
 
-Stages 0 and 1 are implemented:
+Stages 0 through 3 are implemented:
 
-- each user/project memory directory keeps an append-only `events/LOG.jsonl`
-- the first mutation snapshots legacy JSON entries before recording new events
+- every user/project root keeps its canonical history at `memory/events/LOG.jsonl`
+- the first initialization snapshots legacy JSON entries before recording new events
 - create, update, and delete events are serialized under cross-process locks
 - incomplete trailing records are truncated before the next append, while corrupt complete records fail explicitly
-- memory entry and index JSON files use atomic replacement, and the event log can rebuild that materialized view
-- event logs remain local audit/recovery artifacts and are excluded from settings sync; existing memory JSON remains the compatible synced representation
+- memory entry and index JSON files use atomic replacement and are repaired from canonical events during startup or explicit rebuild
+- global event histories participate in settings sync and are merged by event ID; locks and derived summaries are excluded
+- deterministic binary summary snapshots live under `memory/derived/summaries/`, enforce line/character budgets, retain a bounded set of recent snapshots, and can be invalidated without touching canonical data
+- `getContextMemories()` switches large memory sets to bounded outlines
+- `recall_memory` ranks content, tag, and recency matches
+- `inspect_memory` and `/memory outline|zoom|forget|rebuild|delete` expose the lifecycle without replacing existing flat-list behavior
 
-The write order is event first, then materialized JSON and index. A crash can therefore leave the view behind the log, but cannot create an unrecorded committed memory mutation. Replaying the log repairs that view.
+The write order is event first, then materialized JSON and index. A crash can therefore leave a projection behind the log, but cannot create an unrecorded committed mutation. Replaying the log repairs projections. Derived summaries are always cache, never source of truth.
 
 ### Stage 0: Safety-first hardening
 
@@ -72,11 +76,11 @@ The write order is event first, then materialized JSON and index. A crash can th
   - derived summaries can be invalidated and rebuilt
   - output injected into model context respects explicit byte/line budgets
 
-### Stage 1: Append-only sidecar log
+### Stage 1: Canonical append-only log
 
-- On every `store()` and `updateMemory()`, append a sidecar event record such as `create`, `update`, `delete`, `summary-derived`.
+- On every `store()`, `updateMemory()`, and `delete()`, append a canonical `create`, `update`, or `delete` event.
 - Keep the JSON entry as the materialized latest state.
-- Use the sidecar log for audit/rebuild only; do not route existing reads through it yet.
+- Use the event log as canonical history and JSON as the compatibility read projection.
 
 Suggested internal layout:
 
@@ -92,16 +96,16 @@ Suggested internal layout:
 
 ### Stage 2: Derived summary tree for context injection
 
-- Build a summary tree from sidecar events or canonical entries.
+- Build a summary tree from a stable replay of canonical events.
 - Use it only for `getContextMemories()` and future compaction helpers.
 - Make invalidation non-destructive: delete derived summary nodes and recompute them, never delete raw memory entries.
 
 This is the OptMem idea worth copying most directly: summaries are cache, not source of truth.
 
-### Stage 3: Optional inspection and retrieval upgrades
+### Stage 3: Inspection and retrieval upgrades
 
-- Add an internal or slash-command debug view for hierarchical memory inspection similar to `zoom`.
-- Preserve current `recall_memory` behavior, then layer in recency-aware ranking and optional semantic retrieval.
+- Add agent-tool and slash-command views for hierarchical memory inspection similar to `zoom`.
+- Preserve current `recall_memory` response fields while layering in content, tag, and recency ranking.
 - Keep `/memory` as the human-readable latest-state view, not the append-only event stream.
 
 ## Evaluation Ideas To Reuse
@@ -115,12 +119,12 @@ OptMem's `test.py` is unusually concrete. The best ideas to port are:
 
 ## Recommended Direction
 
-Recommended path: borrow OptMem's storage discipline and test discipline, not its full interaction model.
+Implemented direction: borrow OptMem's storage discipline and test discipline while preserving Autohand's existing interaction model.
 
 Specifically:
 - adopt immutable event recording under the current memory layer
 - treat summaries as rebuildable derived state
 - add explicit corruption recovery and concurrency tests
-- defer any user-facing `wake` or `zoom` UX until the sidecar summary tree proves useful
+- expose bounded outline/zoom views without making them mandatory for normal recall
 
-That gives most of the robustness upside while preserving today's TypeScript CLI contracts.
+This gives the robustness and navigation benefits without creating a second memory source of truth.

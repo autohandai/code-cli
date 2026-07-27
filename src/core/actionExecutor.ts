@@ -2456,6 +2456,57 @@ export class ActionExecutor {
         console.log(chalk.gray(formatted));
         return formatted;
       }
+      case 'inspect_memory': {
+        if (!this.memoryManager) {
+          return 'Memory manager not available';
+        }
+        const level = action.level ?? 'project';
+        const options = {
+          ...(action.max_lines === undefined ? {} : { maxLines: action.max_lines }),
+          ...(action.max_chars === undefined ? {} : { maxChars: action.max_chars }),
+        };
+        if (action.operation === 'outline') {
+          const outline = await this.memoryManager.getMemoryOutline(level, options);
+          return [
+            `Memory outline: level=${level} snapshot=${outline.snapshotId} events=${outline.eventCount ?? 0} memories=${outline.totalEntries}`,
+            outline.text || '(empty)',
+            'Use inspect_memory(operation="zoom", snapshot_id="...", node_id="...") to open a summary node.',
+          ].join('\n');
+        }
+        if (action.operation === 'zoom') {
+          if (!action.snapshot_id || !action.node_id) {
+            throw new Error('inspect_memory zoom requires snapshot_id and node_id');
+          }
+          const outline = await this.memoryManager.zoomMemory(
+            level,
+            action.snapshot_id,
+            action.node_id,
+            options,
+          );
+          return [
+            `Memory zoom: level=${level} snapshot=${outline.snapshotId}`,
+            `Nodes: ${outline.nodes.map((node) => node.id).join(', ')}`,
+            outline.text || '(empty)',
+          ].join('\n');
+        }
+        if (action.operation === 'forget') {
+          const invalidated = await this.memoryManager.forgetMemorySummaries(
+            level,
+            action.snapshot_id,
+          );
+          return `Invalidated ${invalidated} derived memory summar${invalidated === 1 ? 'y' : 'ies'}; canonical events and memories were preserved.`;
+        }
+        const rebuilt = await this.memoryManager.rebuildFromEventLog(level);
+        return `Rebuilt ${level} memory projection from canonical events: restored ${rebuilt.restored}, removed ${rebuilt.removed}.`;
+      }
+      case 'delete_memory': {
+        if (!this.memoryManager) {
+          return 'Memory manager not available';
+        }
+        const level = action.level ?? 'project';
+        await this.memoryManager.delete(action.id, level);
+        return `Deleted ${level} memory ${action.id}; the canonical deletion event was retained.`;
+      }
       case 'create_meta_tool': {
         const result = await this.metaToolService.createMetaTool({
           name: action.name,

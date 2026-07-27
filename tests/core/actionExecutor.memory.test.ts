@@ -60,6 +60,7 @@ describe('memory management tools', () => {
       enum: ['outline', 'zoom', 'forget', 'rebuild'],
     });
     expect(remove?.parameters.required).toEqual(['id']);
+    expect(remove?.requiresApproval).toBe(true);
   });
 
   it('returns a bounded outline with stable snapshot and zoom identifiers', async () => {

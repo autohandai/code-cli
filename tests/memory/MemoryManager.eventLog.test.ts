@@ -19,7 +19,9 @@ async function createManager(): Promise<{
 }> {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-memory-manager-'));
   temporaryRoots.push(workspaceRoot);
-  const manager = new MemoryManager(workspaceRoot);
+  const manager = new MemoryManager(workspaceRoot, {
+    userMemoryDir: path.join(workspaceRoot, 'user-memory'),
+  });
   await manager.initialize();
   return {
     manager,
@@ -183,7 +185,10 @@ describe('MemoryManager event log integration', () => {
     await fs.remove(path.join(memoryDir, `${created.id}.json`));
     await fs.remove(path.join(memoryDir, 'index.json'));
 
-    const restarted = new MemoryManager(path.dirname(path.dirname(memoryDir)));
+    const workspaceRoot = path.dirname(path.dirname(memoryDir));
+    const restarted = new MemoryManager(workspaceRoot, {
+      userMemoryDir: path.join(workspaceRoot, 'user-memory'),
+    });
     await restarted.initialize();
 
     await expect(restarted.get(created.id, 'project')).resolves.toMatchObject({
@@ -193,5 +198,37 @@ describe('MemoryManager event log integration', () => {
     await expect(fs.readJson(path.join(memoryDir, 'index.json'))).resolves.toMatchObject({
       entries: [{ id: created.id }],
     });
+  });
+
+  it('does not rewrite an already-current projection during startup repair', async () => {
+    const { manager, memoryDir } = await createManager();
+    const created = await manager.store('Keep current projections stable', 'project');
+    const entryPath = path.join(memoryDir, `${created.id}.json`);
+    const indexPath = path.join(memoryDir, 'index.json');
+    const beforeEntry = await fs.stat(entryPath);
+    const beforeIndex = await fs.stat(indexPath);
+    const workspaceRoot = path.dirname(path.dirname(memoryDir));
+
+    const restarted = new MemoryManager(workspaceRoot, {
+      userMemoryDir: path.join(workspaceRoot, 'user-memory'),
+    });
+    await restarted.initialize();
+
+    expect((await fs.stat(entryPath)).ino).toBe(beforeEntry.ino);
+    expect((await fs.stat(indexPath)).ino).toBe(beforeIndex.ino);
+  });
+
+  it('rejects memory identifiers that could escape .autohand/memory', async () => {
+    const { manager, memoryDir } = await createManager();
+    const outsidePath = path.join(path.dirname(memoryDir), 'outside.json');
+    await fs.writeJson(outsidePath, { protected: true });
+
+    await expect(manager.get('../outside', 'project')).rejects.toThrow(
+      /invalid memory identifier/i,
+    );
+    await expect(manager.delete('../outside', 'project')).rejects.toThrow(
+      /invalid memory identifier/i,
+    );
+    await expect(fs.pathExists(outsidePath)).resolves.toBe(true);
   });
 });

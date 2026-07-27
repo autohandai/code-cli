@@ -267,7 +267,9 @@ Skills can specify which tools they need via the `allowed-tools` field. Availabl
 | Tool | Description |
 |------|-------------|
 | `save_memory` | Persist information |
-| `recall_memory` | Retrieve saved information |
+| `recall_memory` | Retrieve information ranked by content, tags, and recency |
+| `inspect_memory` | Outline or zoom memory, invalidate derived summaries, or rebuild projections |
+| `delete_memory` | Delete an obsolete memory while retaining its canonical deletion event |
 
 ### Planning
 

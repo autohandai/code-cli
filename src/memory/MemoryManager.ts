@@ -20,6 +20,8 @@ import { scheduleBackgroundSync } from '../sync/runtimeSyncService.js';
 import { atomicRemoveFile, atomicWriteJson, withFileLock } from '../utils/atomicFile.js';
 import { MemoryEventLog } from './MemoryEventLog.js';
 import { MemorySummaryTree } from './MemorySummaryTree.js';
+import { materializeMemoryProjection } from './MemoryProjection.js';
+import { assertSafeMemoryId } from './MemoryPathSafety.js';
 
 const SIMILARITY_THRESHOLD = 0.6;
 const MEMORY_INDEX_LOCK_OPTIONS = {
@@ -28,14 +30,18 @@ const MEMORY_INDEX_LOCK_OPTIONS = {
   retryDelayMs: 10,
 } as const;
 
+export interface MemoryManagerOptions {
+  userMemoryDir?: string;
+}
+
 export class MemoryManager {
   private readonly userMemoryDir: string;
   private projectMemoryDir: string | null = null;
   private readonly eventLogs = new Map<MemoryLevel, MemoryEventLog>();
   private readonly summaryTrees = new Map<MemoryLevel, MemorySummaryTree>();
 
-  constructor(workspaceRoot?: string) {
-    this.userMemoryDir = AUTOHAND_PATHS.memory;
+  constructor(workspaceRoot?: string, options: MemoryManagerOptions = {}) {
+    this.userMemoryDir = options.userMemoryDir ?? AUTOHAND_PATHS.memory;
     if (workspaceRoot) {
       this.projectMemoryDir = path.join(workspaceRoot, PROJECT_DIR_NAME, 'memory');
     }
@@ -110,6 +116,7 @@ export class MemoryManager {
   }
 
   async updateMemory(id: string, content: string, level: MemoryLevel, tags?: string[]): Promise<MemoryEntry> {
+    assertSafeMemoryId(id);
     return this.withMemoryMutationLock(level, () => this.updateMemoryUnlocked(id, content, level, tags));
   }
 
@@ -144,6 +151,7 @@ export class MemoryManager {
   }
 
   async get(id: string, level: MemoryLevel): Promise<MemoryEntry | null> {
+    assertSafeMemoryId(id);
     const dir = this.getMemoryDir(level);
     const entryPath = path.join(dir, `${id}.json`);
 
@@ -193,6 +201,7 @@ export class MemoryManager {
   }
 
   async delete(id: string, level: MemoryLevel): Promise<void> {
+    assertSafeMemoryId(id);
     await this.withMemoryMutationLock(level, () => this.deleteUnlocked(id, level));
   }
 
@@ -353,39 +362,11 @@ export class MemoryManager {
   ): Promise<{ restored: number; removed: number }> {
     const dir = this.getMemoryDir(level);
     const replayed = await eventLog.replay();
-    const replayedById = new Map(replayed.map((entry) => [entry.id, entry]));
-    const files = await fs.readdir(dir);
-    let restored = 0;
-    let removed = 0;
-
-    for (const entry of replayed) {
-      const entryPath = path.join(dir, `${entry.id}.json`);
-      if (!(await fs.pathExists(entryPath))) {
-        restored += 1;
-      }
-      await atomicWriteJson(entryPath, entry);
-    }
-
-    for (const file of files) {
-      if (!file.endsWith('.json') || file === 'index.json') {
-        continue;
-      }
-      const id = file.slice(0, -'.json'.length);
-      if (!replayedById.has(id)) {
-        await atomicRemoveFile(path.join(dir, file));
-        removed += 1;
-      }
-    }
-
-    const index: MemoryIndex = {
-      version: 1,
-      entries: replayed.map((entry) => this.toIndexEntry(entry)),
-    };
-    await atomicWriteJson(path.join(dir, 'index.json'), index);
+    const result = await materializeMemoryProjection(dir, replayed);
     if (syncAfterRebuild) {
       scheduleBackgroundSync();
     }
-    return { restored, removed };
+    return result;
   }
 
   private calculateSimilarity(a: string, b: string): number {
@@ -553,7 +534,7 @@ export class MemoryManager {
       preview: entry.content.slice(0, 100),
       createdAt: entry.createdAt,
       updatedAt: entry.updatedAt,
-      tags: entry.tags,
+      ...(entry.tags === undefined ? {} : { tags: entry.tags }),
     };
   }
 }

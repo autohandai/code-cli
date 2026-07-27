@@ -1528,7 +1528,15 @@ These items require explicit opt-in in your config:
 
 ### Conflict Resolution
 
-When conflicts occur (same file modified on multiple devices), the **cloud version wins**. This ensures consistency when logging in on new devices.
+Memory history is handled differently from ordinary files. The canonical
+`memory/events/LOG.jsonl` histories are merged by event ID and the merged log is
+uploaded again; one device never replaces another device's memory history with
+cloud-wins semantics. Compatibility JSON files remain syncable materialized
+views. Locks and `memory/derived/` summary caches never sync.
+
+For ordinary file conflicts (the same non-memory-log file modified on multiple
+devices), the **cloud version wins**. This ensures consistency when logging in
+on new devices.
 
 ### Security
 
@@ -2004,6 +2012,12 @@ Autohand stores data in `~/.autohand/` (or `$AUTOHAND_HOME`):
 ├── sessions/            # Session history
 ├── projects/            # Project knowledge base
 ├── memory/              # User-level memory
+│   ├── events/
+│   │   └── LOG.jsonl    # Canonical append-only history
+│   ├── derived/
+│   │   └── summaries/   # Rebuildable local outline cache
+│   ├── index.json       # Rebuildable compatibility index
+│   └── <memory-id>.json # Rebuildable latest-state compatibility view
 ├── commands/            # Custom commands
 ├── agents/              # Agent definitions
 ├── tools/               # Custom meta-tools
@@ -2019,6 +2033,12 @@ Autohand stores data in `~/.autohand/` (or `$AUTOHAND_HOME`):
 <project>/.autohand/
 ├── settings.local.json  # Local project permissions (gitignore this)
 ├── memory/              # Project-specific memory
+│   ├── events/
+│   │   └── LOG.jsonl    # Canonical append-only project history
+│   ├── derived/
+│   │   └── summaries/   # Rebuildable local outline cache
+│   ├── index.json       # Rebuildable compatibility index
+│   └── <memory-id>.json # Rebuildable latest-state compatibility view
 ├── skills/              # Project-specific skills
 └── tools/               # Project-specific meta-tools
 ```
@@ -2232,7 +2252,7 @@ Autohand provides a rich set of slash commands for interactive use. Type `/` in 
 
 | Command       | Description                                           |
 | ------------- | ----------------------------------------------------- |
-| `/memory`     | View and manage stored memories                       |
+| `/memory`     | List memory; `outline`, `zoom`, `forget`, `rebuild`, or `delete` |
 | `/settings`   | Configure Autohand settings                           |
 | `/statusline` | Configure composer status-line fields                 |
 | `/experiments` | Toggle experimental feature switches                  |
