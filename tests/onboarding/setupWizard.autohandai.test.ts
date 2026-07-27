@@ -27,6 +27,8 @@ vi.mock("../../src/ui/ink/components/Modal.js", () => ({
   showInput: mockShowInput,
   showPassword: mockShowPassword,
   showConfirm: mockShowConfirm,
+  prepareModalRender: vi.fn(),
+  cleanupModalRender: vi.fn(),
 }));
 
 vi.mock("fs-extra", () => ({
@@ -131,9 +133,11 @@ function primeCloudConfirms(): void {
 
 describe("SetupWizard autohandai onboarding", () => {
   const originalFetch = globalThis.fetch;
+  const originalAutohandInferenceFlag = process.env.AUTOHAND_FEATURE_AUTOHAND_INFERENCE;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.AUTOHAND_FEATURE_AUTOHAND_INFERENCE = "1";
     mockPathExists.mockResolvedValue(false);
     mockCheckWorkspaceSafety.mockReturnValue({ safe: true });
     mockDetectLocale.mockReturnValue({ locale: "en", source: "fallback" });
@@ -145,6 +149,11 @@ describe("SetupWizard autohandai onboarding", () => {
 
   afterEach(() => {
     (globalThis as typeof globalThis & { fetch: typeof originalFetch }).fetch = originalFetch;
+    if (originalAutohandInferenceFlag === undefined) {
+      delete process.env.AUTOHAND_FEATURE_AUTOHAND_INFERENCE;
+    } else {
+      process.env.AUTOHAND_FEATURE_AUTOHAND_INFERENCE = originalAutohandInferenceFlag;
+    }
   });
 
   it("uses the cloud account token when an existing auth token is present and skips the API key prompt", async () => {

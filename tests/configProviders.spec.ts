@@ -10,6 +10,7 @@ import type { AutohandConfig } from '../src/types.js';
 describe('getProviderConfig', () => {
   it('returns autohandai cloud settings with the default base url', () => {
     const cfg: AutohandConfig = {
+      features: { autohand_inference: true },
       provider: 'autohandai',
       autohandai: {
         plan: 'cloud',
@@ -29,11 +30,27 @@ describe('getProviderConfig', () => {
 
   it('returns null when autohandai sdk/api-key cloud config has no API key', () => {
     const cfg: AutohandConfig = {
+      features: { autohand_inference: true },
       provider: 'autohandai',
       autohandai: {
         plan: 'cloud',
         authMode: 'api-key',
         apiKey: '',
+        model: 'fantail',
+      }
+    };
+
+    const result = getProviderConfig(cfg);
+    expect(result).toBeNull();
+  });
+
+  it('returns null for autohandai while autohand_inference is disabled', () => {
+    const cfg: AutohandConfig = {
+      provider: 'autohandai',
+      autohandai: {
+        plan: 'cloud',
+        authMode: 'api-key',
+        apiKey: 'ah-test-key',
         model: 'fantail',
       }
     };

@@ -10,6 +10,7 @@ import {
   getProviderModelIds,
   mergeModelIds,
 } from "../../providers/modelCatalog.js";
+import { isAutohandInferenceEnabled } from "../../featureFlags.js";
 
 // ============================================================================
 // Hook Lifecycle Notification Constants
@@ -472,11 +473,19 @@ export function parseAvailableModels(config: LoadedConfig): string[] {
   // Add current model
   const providerName = config.provider ?? "openrouter";
   const providerConfig = (config as unknown as Record<string, unknown>)[providerName];
-  if (hasProviderModel(providerConfig)) {
+  if (
+    hasProviderModel(providerConfig) &&
+    (providerName !== "autohandai" || isAutohandInferenceEnabled(config))
+  ) {
     models.push(providerConfig.model);
   }
 
-  return mergeModelIds(models, ["fantail", "moa", ...getProviderModelIds("openrouter")]);
+  return mergeModelIds(
+    models,
+    isAutohandInferenceEnabled(config)
+      ? ["fantail", "moa", ...getProviderModelIds("openrouter")]
+      : getProviderModelIds("openrouter"),
+  );
 }
 
 /**
@@ -493,6 +502,9 @@ export function resolveDefaultMode(config?: LoadedConfig): string {
  */
 export function resolveDefaultModel(config: LoadedConfig): string {
   const providerName = config.provider ?? "openrouter";
+  if (providerName === "autohandai" && !isAutohandInferenceEnabled(config)) {
+    return getProviderDefaultModel("openrouter");
+  }
   const providerConfig = (config as unknown as Record<string, unknown>)[providerName];
   if (hasProviderModel(providerConfig)) {
     return providerConfig.model;

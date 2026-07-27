@@ -158,6 +158,28 @@ These explicit inputs remain available in bare mode:
 
 ## Provider Settings
 
+### `features.autohand_inference`
+
+Autohand-hosted inference is behind the `autohand_inference` feature flag before the release is merged into mainline defaults.
+
+```json
+{
+  "features": {
+    "autohand_inference": true
+  }
+}
+```
+
+Environment opt-in is also supported:
+
+```bash
+AUTOHAND_FEATURE_AUTOHAND_INFERENCE=1 autohand
+# or
+AUTOHAND_FEATURES=autohand_inference autohand
+```
+
+When disabled, Autohand is hidden from setup and `/model`, Fantail/Moa are hidden from ACP and JSON-RPC model discovery, and `autohandai` provider config resolves as unavailable.
+
 ### `provider`
 
 Active LLM provider to use.
@@ -205,6 +227,8 @@ Use `autohand update --models` or `autohand upgrade --models` to force an immedi
 ### `autohandai`
 
 Autohand AI provider configuration. Cloud mode uses Autohand-hosted OpenAI-compatible inference at `https://api.autohand.ai/v1`; Local mode uses Apple Silicon MLX inference.
+
+Requires `features.autohand_inference: true` or `AUTOHAND_FEATURE_AUTOHAND_INFERENCE=1`.
 
 ```json
 {

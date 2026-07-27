@@ -23,6 +23,7 @@ import type {
   AutohandAISettings,
 } from "./types.js";
 import { AUTOHAND_FILES } from "./constants.js";
+import { isAutohandInferenceEnabled } from "./featureFlags.js";
 import { autoInitTheme, configureThemeSources, themeExists } from "./ui/theme/index.js";
 import { loadLocalProjectSettings, type LocalProjectSettings } from "./permissions/localProjectPermissions.js";
 import { isAwsBedrockProviderEnabled } from "./features/featureRegistry.js";
@@ -591,9 +592,12 @@ function mergeEnvVariables(config: AutohandConfig): AutohandConfig {
   };
 
   if (
-    process.env.AUTOHAND_AI_API_KEY ||
-    process.env.AUTOHAND_AI_BASE_URL ||
-    process.env.AUTOHAND_AI_PLAN
+    isAutohandInferenceEnabled(config) &&
+    (
+      process.env.AUTOHAND_AI_API_KEY ||
+      process.env.AUTOHAND_AI_BASE_URL ||
+      process.env.AUTOHAND_AI_PLAN
+    )
   ) {
     const existing = config.autohandai ?? {
       plan: "cloud" as const,
@@ -985,6 +989,10 @@ export function getProviderConfig(
       model,
       baseUrl,
     };
+  }
+
+  if (chosen === "autohandai" && !isAutohandInferenceEnabled(config)) {
+    return null;
   }
 
   if (chosen === "bedrock" && !isAwsBedrockProviderEnabled(config)) {

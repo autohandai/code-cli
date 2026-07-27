@@ -31,6 +31,7 @@ const mockPermissionManager = {
 };
 
 const mockAgent = {
+  runtime: { config: {} },
   getSessionManager: vi.fn().mockReturnValue(mockSessionManager),
   attachSession: vi.fn().mockResolvedValue({
     sessionId: 'attached-session',
@@ -96,6 +97,7 @@ describe('RPC Adapter - P2 Handlers', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAgent.runtime = { config: {} };
 
     // Re-establish mocks after clearAllMocks
     mockAgent.getSessionManager.mockReturnValue(mockSessionManager);
@@ -940,6 +942,7 @@ describe('RPC Adapter - Browser handoff', () => {
     };
     mockAgent.getHookManager.mockReturnValue(mockHookManager);
     mockAgent.shutdownRuntimeResources.mockResolvedValue(undefined);
+    mockAgent.runtime = { config: {} };
     mockAgent.getSessionManager.mockReturnValue({
       ...mockSessionManager,
       getCurrentSession: vi.fn().mockReturnValue({
@@ -962,7 +965,23 @@ describe('RPC Adapter - Browser handoff', () => {
     vi.useRealTimers();
   });
 
-  it('returns Autohand AI Fantail models from supported models', async () => {
+  it('hides Autohand AI Fantail models from supported models while autohand_inference is disabled', async () => {
+    const result = await adapter.handleGetSupportedModels();
+
+    expect(result.models.map((model) => model.id)).not.toContain('fantail');
+    expect(result.models.map((model) => model.id)).not.toContain('moa');
+  });
+
+  it('returns Autohand AI Fantail models from supported models when autohand_inference is enabled', async () => {
+    mockAgent.runtime = { config: { features: { autohand_inference: true } } };
+    adapter = new RPCAdapter();
+    adapter.initialize(
+      mockAgent as any,
+      mockConversation as any,
+      'test-model',
+      '/test/workspace'
+    );
+
     const result = await adapter.handleGetSupportedModels();
 
     expect(result.models.map((model) => model.id)).toContain('fantail');

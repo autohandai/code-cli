@@ -316,7 +316,7 @@ describe('i18n module', () => {
     it('should have provider hints', () => {
       expect(t('providers.hints.openrouter')).toContain('Cloud');
       expect(t('providers.hints.autohandai')).toContain('Cloud');
-      expect(t('providers.autohandaiPlan.cloud')).toBe('Cloud');
+      expect(t('providers.autohandaiPlan.cloud')).toBe('Hosted');
       expect(t('providers.autohandaiPlan.local')).toBe('Local');
       expect(t('providers.hints.openai')).toContain('Cloud');
       expect(t('providers.hints.ollama')).toContain('Local');

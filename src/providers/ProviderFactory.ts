@@ -28,6 +28,7 @@ import { isMLXSupported } from '../utils/platform.js';
 import type { AutohandConfig, ExtensionProviderId, ProviderName } from '../types.js';
 import { getCustomProviderConfig, isCustomProviderName, toCustomProviderName } from './customProviders.js';
 import { extensionRuntimeHost } from '../extensions/ExtensionRuntimeHost.js';
+import { isAutohandInferenceEnabled } from '../featureFlags.js';
 
 /**
  * Custom error class for unconfigured provider
@@ -101,6 +102,9 @@ export class ProviderFactory {
 
         switch (providerName) {
             case 'autohandai':
+                if (!isAutohandInferenceEnabled(config)) {
+                    return new UnconfiguredProvider('autohandai');
+                }
                 if (!config.autohandai) {
                     return new UnconfiguredProvider('autohandai');
                 }
@@ -208,7 +212,9 @@ export class ProviderFactory {
      */
     static getProviderNames(config?: Pick<AutohandConfig, 'features' | 'customProviders'> | null): ProviderName[] {
         // Sorted DESC by display name: Autohand AI, Z.ai, xAI, Vertex AI, Sakana.AI, NVIDIA, OpenRouter, OpenAI, Ollama, MLX, LLM Gateway, llama.cpp, DeepSeek, Cerebras, Bedrock, Azure
-        const providers: ProviderName[] = ['autohandai', 'zai', 'xai', 'vertexai', 'sakana', 'nvidia', 'openrouter', 'openai', 'ollama', 'llmgateway', 'llamacpp', 'deepseek', 'cerebras', 'azure'];
+        const providers: ProviderName[] = isAutohandInferenceEnabled(config)
+            ? ['autohandai', 'zai', 'xai', 'vertexai', 'sakana', 'nvidia', 'openrouter', 'openai', 'ollama', 'llmgateway', 'llamacpp', 'deepseek', 'cerebras', 'azure']
+            : ['zai', 'xai', 'vertexai', 'sakana', 'nvidia', 'openrouter', 'openai', 'ollama', 'llmgateway', 'llamacpp', 'deepseek', 'cerebras', 'azure'];
         if (isAwsBedrockProviderEnabled(config)) {
             providers.splice(providers.indexOf('azure'), 0, 'bedrock');
         }

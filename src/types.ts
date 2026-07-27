@@ -341,6 +341,8 @@ export interface AutoReportSettings {
 }
 
 export interface FeatureFlagSettings {
+  /** Gate Autohand-hosted inference provider, models, setup, RPC, and ACP surfaces. */
+  autohand_inference?: boolean;
   /** Remote feature flag environment (default: production) */
   environment?: string;
   /** Local opt-outs for remote feature flags. Users can only force remote-enabled flags off. */

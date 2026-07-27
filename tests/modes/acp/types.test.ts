@@ -319,18 +319,28 @@ describe("buildConfigOptions()", () => {
 // ===========================================================================
 
 describe("parseAvailableModels()", () => {
-  it("returns a list including popular models", () => {
+  it("returns a list including popular models while autohand inference is disabled", () => {
     const config = makeConfig();
     const models = parseAvailableModels(config);
 
-    expect(models).toContain("fantail");
-    expect(models).toContain("moa");
+    expect(models).not.toContain("fantail");
+    expect(models).not.toContain("moa");
     expect(models).toContain("your-modelcard-id-here");
     expect(models).toContain("your-modelcard-id-here");
     expect(models).toContain("openai/gpt-4o");
     expect(models).toContain("openai/gpt-5");
     expect(models).toContain("google/gemini-3.0-pro");
     expect(models).toContain("deepseek/deepseek-v4");
+  });
+
+  it("includes Fantail and Moa when autohand_inference is enabled", () => {
+    const config = makeConfig({
+      features: { autohand_inference: true },
+    });
+    const models = parseAvailableModels(config);
+
+    expect(models).toContain("fantail");
+    expect(models).toContain("moa");
   });
 
   it("places the configured model first when it exists", () => {
@@ -427,8 +437,23 @@ describe("resolveDefaultModel()", () => {
     expect(resolveDefaultModel(config)).toBe("llama3.2:latest");
   });
 
-  it("returns model for autohandai provider settings", () => {
+  it("falls back for autohandai provider settings while autohand_inference is disabled", () => {
     const config = makeConfig({
+      provider: "autohandai",
+      autohandai: {
+        plan: "cloud",
+        authMode: "api-key",
+        apiKey: "ah-test-key",
+        model: "moa",
+      },
+    } as any);
+
+    expect(resolveDefaultModel(config)).toBe("anthropic/claude-5-sonnet");
+  });
+
+  it("returns model for autohandai provider settings when autohand_inference is enabled", () => {
+    const config = makeConfig({
+      features: { autohand_inference: true },
       provider: "autohandai",
       autohandai: {
         plan: "cloud",
