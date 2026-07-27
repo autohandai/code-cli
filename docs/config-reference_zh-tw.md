@@ -707,7 +707,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | `maxIterations` |數量 | `100` |停止前每個使用者請求的最大工具迭代次數
 | `enableRequestQueue` |布林 | `true` |允許使用者在代理程式工作時鍵入請求並對其進行排隊 |
 | `toolSelectionCache` |布林 | `true` |快取本地每轉工具模式選擇以取得等效的工具選擇輸入 |
-| `autoMemory` |布林 | `true` |成功互動後擷取並儲存持久的使用者/專案記憶 |
+| `autoMemory` |布林 | `true` |在互動回合完成後擷取並儲存持久的使用者／專案記憶，包括從失敗與取消中獲得且有證據支持的經驗 |
 | `idleLogoutEnabled` |布林 | `true` |空閒逾時後登出經過驗證的互動式會話 |
 | `idleTimeoutMs` |數量 | `3600000` |登出已驗證工作階段前允許的閒置毫秒數（60 分鐘）|
 | `debug` |布林 | `false` |啟用詳細偵錯輸出（將代理內部狀態記錄到 stderr）|

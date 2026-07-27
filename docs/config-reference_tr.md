@@ -707,7 +707,7 @@ Kontrol aracısı davranışı ve yineleme sınırları.
 | `maxIterations` | sayı | `100` | Durdurmadan önce kullanıcı isteği başına maksimum araç yinelemesi |
 | `enableRequestQueue` | boole | `true` | Aracı çalışırken kullanıcıların istekleri yazmasına ve sıraya koymasına izin ver |
 | `toolSelectionCache` | boole | `true` | Eşdeğer takım seçimi girişi için tur başına yerel takım şeması seçimini önbelleğe alın |
-| `autoMemory` | boole | `true` | Başarılı etkileşimli dönüşlerden sonra dayanıklı kullanıcı/proje anılarını çıkarın ve kaydedin |
+| `autoMemory` | boole | `true` | Tamamlanan etkileşimli dönüşlerden sonra, başarısızlık ve iptallerden elde edilen kanıta dayalı dersler dahil olmak üzere kalıcı kullanıcı/proje anılarını çıkarın ve kaydedin |
 | `idleLogoutEnabled` | boole | `true` | Boşta kalma zaman aşımından sonra kimliği doğrulanmış etkileşimli oturumlardan çıkış yapın |
 | `idleTimeoutMs` | sayı | `3600000` | Kimliği doğrulanmış bir oturum kapatılmadan önceki boşta kalma süresi, milisaniye cinsinden (60 dakika) |
 | `debug` | boole | `false` | Ayrıntılı hata ayıklama çıktısını etkinleştirin (aracının dahili durumunu stderr'e kaydeder) |

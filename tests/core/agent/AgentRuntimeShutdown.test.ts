@@ -183,7 +183,7 @@ describe('AutohandAgent runtime resource shutdown', () => {
     const runQueuedTurnMemoryReflection = vi.fn().mockResolvedValue(undefined);
     const agent = createShutdownAgent({
       turnMemoryReflectionInFlight: reflection,
-      turnMemoryReflectionQueued: false,
+      turnMemoryReflectionQueue: [],
       runQueuedTurnMemoryReflection,
     });
     const internals = agent as unknown as Record<string, any>;
@@ -192,11 +192,11 @@ describe('AutohandAgent runtime resource shutdown', () => {
     const shutdown = agent.shutdownRuntimeResources().then(() => {
       settled = true;
     });
-    internals.scheduleTurnMemoryReflection(true);
+    internals.scheduleTurnMemoryReflection({ status: 'succeeded' });
     await Promise.resolve();
 
     expect(settled).toBe(false);
-    expect(internals.turnMemoryReflectionQueued).toBe(false);
+    expect(internals.turnMemoryReflectionQueue).toEqual([]);
     expect(runQueuedTurnMemoryReflection).not.toHaveBeenCalled();
 
     releaseReflection?.();
@@ -238,7 +238,7 @@ describe('AutohandAgent runtime resource shutdown', () => {
     });
     const internals = agent as unknown as Record<string, any>;
 
-    internals.scheduleTurnMemoryReflection(true);
+    internals.scheduleTurnMemoryReflection({ status: 'succeeded' });
     const reflection = internals.turnMemoryReflectionInFlight as Promise<void>;
     const request = complete.mock.calls[0]?.[0] as { signal?: AbortSignal };
     const shutdown = agent.shutdownRuntimeResources();

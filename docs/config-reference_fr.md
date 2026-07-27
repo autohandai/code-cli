@@ -707,7 +707,7 @@ Contrôlez le comportement de l’agent et les limites d’itération.
 | `maxIterations` | numéro | `100` | Itérations maximales de l'outil par demande utilisateur avant l'arrêt |
 | `enableRequestQueue` | booléen | `true` | Autoriser les utilisateurs à saisir et à mettre en file d'attente des demandes pendant que l'agent travaille |
 | `toolSelectionCache` | booléen | `true` | Mettre en cache la sélection locale du schéma d'outil par tour pour une entrée de sélection d'outil équivalente |
-| `autoMemory` | booléen | `true` | Extrayez et enregistrez des mémoires utilisateur/projet durables après des tours interactifs réussis |
+| `autoMemory` | booléen | `true` | Extraire et enregistrer des mémoires utilisateur/projet durables après les tours interactifs terminés, y compris les enseignements étayés issus des échecs et annulations |
 | `idleLogoutEnabled` | booléen | `true` | Déconnectez-vous des sessions interactives authentifiées après le délai d'inactivité |
 | `idleTimeoutMs` | numéro | `3600000` | Millisecondes d'inactivité avant la déconnexion d'une session authentifiée (60 minutes) |
 | `debug` | booléen | `false` | Activer la sortie de débogage détaillée (enregistre l'état interne de l'agent dans stderr) |

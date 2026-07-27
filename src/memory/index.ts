@@ -10,4 +10,6 @@ export {
   extractAndSaveSessionMemories,
   type ExtractedMemory,
   type ExtractionDeps,
+  type TurnMemoryReflectionFailureCategory,
+  type TurnMemoryReflectionOutcome,
 } from './extractSessionMemories.js';

@@ -707,7 +707,7 @@ Comportamento dell'agente di controllo e limiti di iterazione.
 | `maxIterations` | numero | `100` | Numero massimo di iterazioni dello strumento per richiesta dell'utente prima dell'arresto |
 | `enableRequestQueue` | booleano | `true` | Consenti agli utenti di digitare e accodare le richieste mentre l'agente sta lavorando |
 | `toolSelectionCache` | booleano | `true` | Memorizza nella cache la selezione dello schema dello strumento locale per turno per l'input di selezione dello strumento equivalente |
-| `autoMemory` | booleano | `true` | Estrai e salva ricordi durevoli di utenti/progetti dopo turni interattivi riusciti |
+| `autoMemory` | booleano | `true` | Estrai e salva memorie durevoli di utenti/progetti dopo i turni interattivi completati, incluse lezioni supportate da prove tratte da errori e annullamenti |
 | `idleLogoutEnabled` | booleano | `true` | Disconnettersi dalle sessioni interattive autenticate dopo il timeout di inattività |
 | `idleTimeoutMs` | numero | `3600000` | Millisecondi di inattività prima di disconnettere una sessione autenticata (60 minuti) |
 | `debug` | booleano | `false` | Abilita output di debug dettagliato (registra lo stato interno dell'agente su stderr) |
