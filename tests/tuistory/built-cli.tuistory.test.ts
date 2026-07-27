@@ -1230,6 +1230,51 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
+  it('persists slash-command usage without arguments in the project memory ledger', async () => {
+    const state = await createTempAutohandHome();
+    tempStates.push(state);
+    const session = await trackSession(
+      launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        waitForDataTimeout: 15_000,
+      }),
+    );
+
+    await waitForComposer(session);
+    await session.type('/about private-argument');
+    await session.press('enter');
+    await session.waitForText('Autohand', { timeout: 10_000 });
+    await exitInteractive(session);
+
+    const log = await readFile(
+      path.join(state.workspaceRoot, '.autohand', 'memory', 'events', 'LOG.jsonl'),
+      'utf8',
+    );
+    const event = log
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .find((candidate) => (
+        candidate.operation === 'capability_used'
+        && (candidate.capability as { name?: string } | undefined)?.name === '/about'
+      ));
+
+    expect(event).toMatchObject({
+      operation: 'capability_used',
+      level: 'project',
+      capability: {
+        kind: 'slash_command',
+        name: '/about',
+        source: 'core',
+      },
+      origin: 'user',
+      outcome: 'succeeded',
+    });
+    expect(event).not.toHaveProperty('args');
+    expect(log).not.toContain('private-argument');
+  });
+
   it('keeps a saved research report local when the publish prompt uses its default choice', async () => {
     const reportPath = '.autohand/research/publish-candidate.md';
     const state = await createTempAutohandHome({

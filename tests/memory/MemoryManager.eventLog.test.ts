@@ -58,6 +58,56 @@ describe('MemoryManager event log integration', () => {
     expect(events[0]?.entry?.source).toBe('manual');
   });
 
+  it('learns ranked project capabilities from canonical usage events', async () => {
+    const { manager, memoryDir } = await createManager();
+
+    await manager.recordCapabilityUse({
+      kind: 'skill',
+      name: 'tdd',
+      source: 'autohand-project',
+      origin: 'user',
+      outcome: 'succeeded',
+    });
+    await manager.recordCapabilityUse({
+      kind: 'skill',
+      name: 'tdd',
+      source: 'autohand-project',
+      origin: 'agent',
+      outcome: 'succeeded',
+    });
+    await manager.recordCapabilityUse({
+      kind: 'slash_command',
+      name: '/release',
+      source: 'extension:release-tools',
+      origin: 'user',
+      outcome: 'failed',
+    });
+
+    const learned = await manager.getLearnedProjectCapabilities();
+    const context = await manager.getContextMemories();
+    const events = await new MemoryEventLog(memoryDir).readAll();
+
+    expect(learned[0]).toMatchObject({
+      kind: 'skill',
+      name: 'tdd',
+      source: 'autohand-project',
+      uses: 2,
+      successfulUses: 2,
+      userUses: 1,
+      agentUses: 1,
+    });
+    expect(learned[0]!.score).toBeGreaterThan(learned[1]!.score);
+    expect(context).toContain('## Learned Project Capabilities');
+    expect(context).toContain('Skill `tdd`');
+    expect(context).not.toContain('Slash command `/release`');
+    expect(events.map((event) => event.operation)).toEqual([
+      'capability_used',
+      'capability_used',
+      'capability_used',
+    ]);
+  });
+
+
   it('preserves every entry in the index during parallel stores', async () => {
     const { manager, memoryDir } = await createManager();
 

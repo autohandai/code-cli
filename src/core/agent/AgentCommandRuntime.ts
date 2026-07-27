@@ -630,7 +630,7 @@ export function handleAgentSkillTool(
       if (skill.isActive) {
         return { success: true, output: `Skill "${name}" is already active.` };
       }
-      const success = host.skillsRegistry.activateSkill(name);
+      const success = host.skillsRegistry.activateSkill(name, 'agent');
       return success
         ? { success: true, output: `Activated skill: ${name}\n${skill.description}` }
         : {

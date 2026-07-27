@@ -484,7 +484,10 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
       args: { name: 'Display Skill', activate: true },
     }]);
 
-    expect(internals.skillsRegistry.activateSkill).toHaveBeenCalledWith('display-skill-id');
+    expect(internals.skillsRegistry.activateSkill).toHaveBeenCalledWith(
+      'display-skill-id',
+      'agent',
+    );
     expect(result).toMatchObject({
       success: true,
       output: expect.stringContaining('Activated skill: Display Skill'),

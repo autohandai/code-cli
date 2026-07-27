@@ -38,6 +38,7 @@ import type { AgentRuntime, HookEvent, ToolActionOutcome } from '../../types.js'
 import { AgentDelegator } from '../agents/AgentDelegator.js';
 import { ErrorLogger } from '../errorLogger.js';
 import { MemoryManager } from '../../memory/MemoryManager.js';
+import type { CapabilityUsageInput } from '../../memory/types.js';
 import { FeedbackManager } from '../../feedback/FeedbackManager.js';
 import { TelemetryManager } from '../../telemetry/TelemetryManager.js';
 import { SkillsRegistry } from '../../skills/SkillsRegistry.js';
@@ -640,6 +641,11 @@ export function initializeAgentDependencies(
       cliVersion: packageJson.version
     });
     host.skillsRegistry = new SkillsRegistry(AUTOHAND_PATHS.skills);
+    if (!runtime.options.bare) {
+      host.skillsRegistry.setCapabilityUsageRecorder((usage: CapabilityUsageInput) =>
+        host.memoryManager.recordCapabilityUse(usage)
+      );
+    }
     host.telemetryManager = new TelemetryManager({
       enabled: runtime.config.telemetry?.enabled === true,
       apiBaseUrl: runtime.config.telemetry?.apiBaseUrl || 'https://api.autohand.ai',
@@ -1162,7 +1168,7 @@ export function initializeAgentDependencies(
                   } else if (activate) {
                     // Try to activate after successful install
                     try {
-                      const activateResult = host.skillsRegistry.activateSkill(skill.id);
+                      const activateResult = host.skillsRegistry.activateSkill(skill.id, 'agent');
                       if (activateResult) {
                         result = `${installResult}\n\nActivated skill: ${skill.name}`;
                       } else {

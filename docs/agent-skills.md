@@ -271,6 +271,12 @@ Skills can specify which tools they need via the `allowed-tools` field. Availabl
 | `inspect_memory` | Outline or zoom memory, invalidate derived summaries, or rebuild projections |
 | `delete_memory` | Delete an obsolete memory while retaining its canonical deletion event |
 
+Skill activations are learned as project capability usage in the canonical
+memory event log. The derived project ranking distinguishes user and agent use,
+so frequently successful skills can inform later sessions without copying skill
+bodies into memory. Slash-command usage follows the same privacy-safe model,
+but commands are only suggested and never automatically executed.
+
 ### Planning
 
 | Tool | Description |

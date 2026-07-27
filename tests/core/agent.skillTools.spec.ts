@@ -58,7 +58,7 @@ describe('AutohandAgent skill and sleep tools', () => {
 
     const result = agent.handleSkillTool({ command: 'activate', name: 'reviewer' });
 
-    expect(agent.skillsRegistry.activateSkill).toHaveBeenCalledWith('reviewer');
+    expect(agent.skillsRegistry.activateSkill).toHaveBeenCalledWith('reviewer', 'agent');
     expect(result).toEqual({
       success: true,
       output: 'Activated skill: reviewer\nReview code',

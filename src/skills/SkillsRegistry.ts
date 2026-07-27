@@ -23,6 +23,10 @@ import {
 } from '../constants.js';
 import type { TelemetryManager } from '../telemetry/TelemetryManager.js';
 import type { SkillUseData } from '../telemetry/types.js';
+import type {
+  CapabilityUsageInput,
+  CapabilityUsageOrigin,
+} from '../memory/types.js';
 import type { CommunitySkillsClient, CommunitySkillPackage, BackupPayload } from './CommunitySkillsClient.js';
 import {
   assertCommunityPathSymlinkSafe,
@@ -100,6 +104,10 @@ export class SkillsRegistry {
   private workspaceRoot: string | null = null;
   private readonly defaultSource: SkillSource;
   private telemetryManager: TelemetryManager | null = null;
+  private capabilityUsageRecorder:
+    | ((usage: CapabilityUsageInput) => void | Promise<void>)
+    | null = null;
+  private readonly capabilityUsageWrites = new Set<Promise<void>>();
   private communityClient: CommunitySkillsClient | null = null;
   private readonly extensionSkillNames = new Set<string>();
 
@@ -116,6 +124,18 @@ export class SkillsRegistry {
    */
   setTelemetryManager(telemetryManager: TelemetryManager): void {
     this.telemetryManager = telemetryManager;
+  }
+
+  setCapabilityUsageRecorder(
+    recorder: (usage: CapabilityUsageInput) => void | Promise<void>,
+  ): void {
+    this.capabilityUsageRecorder = recorder;
+  }
+
+  async flushCapabilityUsage(): Promise<void> {
+    while (this.capabilityUsageWrites.size > 0) {
+      await Promise.allSettled([...this.capabilityUsageWrites]);
+    }
   }
 
   /**
@@ -659,7 +679,7 @@ export class SkillsRegistry {
   /**
    * Activate a skill by name
    */
-  activateSkill(name: string): boolean {
+  activateSkill(name: string, origin: CapabilityUsageOrigin = 'user'): boolean {
     const skill = this.skills.get(name);
     if (!skill) {
       return false;
@@ -669,9 +689,29 @@ export class SkillsRegistry {
     this.trackSkillEvent({
       skillName: name,
       source: skill.source,
-      activationType: 'explicit',
+      activationType: origin === 'agent' ? 'auto' : 'explicit',
       action: 'activate',
     });
+    const recorder = this.capabilityUsageRecorder;
+    if (!recorder) {
+      return true;
+    }
+    try {
+      const write = Promise.resolve(recorder({
+        kind: 'skill',
+        name,
+        source: skill.source,
+        origin,
+        outcome: 'succeeded',
+      }))
+        .catch(() => {})
+        .finally(() => {
+          this.capabilityUsageWrites.delete(write);
+        });
+      this.capabilityUsageWrites.add(write);
+    } catch {
+      // Capability learning is best-effort and must not block skill activation.
+    }
     return true;
   }
 
