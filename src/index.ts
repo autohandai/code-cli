@@ -67,6 +67,7 @@ import { getFeatureState } from './features/featureRegistry.js';
 import { getTerminalColumns, renderAutohandLogo } from './utils/asciiArt.js';
 import {
   formatInstallHint,
+  formatPeerSessionsLine,
   formatStartupBanner,
   formatUpdateAvailable,
   formatUpdateReady,
@@ -76,6 +77,7 @@ import {
   formatWelcomeTitle,
   formatWelcomeVersionPrefix,
 } from './ui/theme/startup.js';
+import { ActiveAgentRegistry } from './session/ActiveAgentRegistry.js';
 import { AgentsGenerator } from './onboarding/agentsGenerator.js';
 import { buildAutomodeIterationPrompt } from './core/automodePrompt.js';
 import { looksLikeInlineAgents, parseInlineAgents } from './core/agents/AgentRegistry.js';
@@ -1380,11 +1382,15 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
     // Print welcome immediately with no version/auth info - don't block on network
     if (!structuredOutput) {
+      const peerCount = !options.bare && resolveAgentLaunchMode(options) === 'interactive'
+        ? await countWorkspacePeers(workspaceRoot)
+        : 0;
       printWelcome(
         runtime,
         undefined,
         null,
         resolveAgentLaunchMode(options) === 'command' ? undefined : announcementManager,
+        peerCount,
       );
     }
 
@@ -1754,6 +1760,7 @@ function printWelcome(
   authUser?: AuthUser,
   versionCheck?: VersionCheckResult | null,
   announcementManager?: AnnouncementManager,
+  peerCount = 0,
 ): void {
   if (!process.stdout.isTTY) {
     return;
@@ -1808,6 +1815,11 @@ function printWelcome(
     void announcementManager.markSeen(topAnnouncement.id);
   }
 
+  if (peerCount > 0) {
+    console.log(formatPeerSessionsLine(peerCount));
+    console.log();
+  }
+
   // Build contextual suggestions based on auth state and available features
   const suggestions = buildWelcomeSuggestions(isLoggedIn, dir);
   console.log(formatWelcomeTitle());
@@ -1816,6 +1828,16 @@ function printWelcome(
   }
 
   console.log();
+}
+
+async function countWorkspacePeers(workspaceRoot: string): Promise<number> {
+  try {
+    const records = await new ActiveAgentRegistry().listActive();
+    const normalizedWorkspace = path.resolve(workspaceRoot);
+    return records.filter((record) => path.resolve(record.workspaceRoot) === normalizedWorkspace).length;
+  } catch {
+    return 0;
+  }
 }
 
 /**

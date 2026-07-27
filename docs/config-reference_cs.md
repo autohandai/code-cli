@@ -730,6 +730,20 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | `idleTimeoutMs` | číslo | `3600000` | Milisekundy nečinnosti před odhlášením ověřené relace (60 minut) |
 | `debug` | booleovský | `false` | Povolit podrobný výstup ladění (protokoluje interní stav agenta do stderr) |
 
+## Povědomí o souběžných relacích
+
+```json
+{
+  "sessions": {
+    "awareness": "warn"
+  }
+}
+```
+
+| Pole | Typ | Výchozí | Popis |
+| --- | --- | --- | --- |
+| `awareness` | řetězec | `"warn"` | `passive` zobrazuje ostatní relace, `warn` navíc hlásí rizikové změny Gitu a kolize souborů a `coordinate` žádá o potvrzení před zápisem cesty nárokované jinou živou relací |
+
 ### Výběr schématu nástroje
 
 Autohand neodesílá každé úplné schéma nástroje na každý požadavek LLM. Systémová výzva obsahuje kompaktní katalog funkcí nástrojů a každý požadavek odhaluje pouze malou sadu konkrétních schémat vybraných z:

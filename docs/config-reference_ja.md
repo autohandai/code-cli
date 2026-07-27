@@ -433,6 +433,20 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | `idleTimeoutMs`      | number  | `3600000`  | 認証済みセッションをログアウトするまでの非アクティブ時間（ミリ秒、60分）   |
 | `debug`              | boolean | `false`    | 詳細なデバッグ出力を有効化（エージェント内部状態をstderrにログ）           |
 
+## 同時セッションの認識
+
+```json
+{
+  "sessions": {
+    "awareness": "warn"
+  }
+}
+```
+
+| フィールド | 型 | デフォルト | 説明 |
+| --- | --- | --- | --- |
+| `awareness` | string | `"warn"` | `passive` は他のセッションを表示し、`warn` は危険な Git 操作とファイル競合も警告し、`coordinate` は別の稼働中セッションが要求したパスへ書き込む前に確認します |
+
 アイドル時のログアウトを無効にするには、`idleLogoutEnabled` を `false` に設定します。期間を変更するには、`idleTimeoutMs` に正のミリ秒値を設定します。デフォルトは `3600000`（60分）で、無効な値はデフォルトに戻ります。
 
 ### デバッグモード

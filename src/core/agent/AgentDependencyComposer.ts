@@ -517,6 +517,9 @@ export function initializeAgentDependencies(
         host.markFilesModified(filePath, changeType, toolCallId);
       },
       backgroundProcessRegistry: host.backgroundProcessRegistry,
+      peerAwareness: host.peerAwareness,
+      onPeerWarning: (warning) => host.emitPeerWarning(warning),
+      onToolActivity: (activity) => host.setPeerToolActivity(activity),
       onAskFollowup: (question, suggestedAnswers) => host.executeAskFollowupQuestion(question, suggestedAnswers),
       onPlanCreated: (plan, filePath) => host.handlePlanCreated(plan, filePath),
       onPermissionRequest: async (context) => {

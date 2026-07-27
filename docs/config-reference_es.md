@@ -419,6 +419,20 @@ Controla el comportamiento del agente y límites de iteración.
 | `idleTimeoutMs`      | number  | `3600000`      | Milisegundos de inactividad antes de cerrar una sesión autenticada (60 minutos)     |
 | `debug`              | boolean | `false`        | Habilitar output de debug detallado (logs del estado interno del agente a stderr) |
 
+## Conciencia de sesiones concurrentes
+
+```json
+{
+  "sessions": {
+    "awareness": "warn"
+  }
+}
+```
+
+| Campo | Tipo | Predeterminado | Descripción |
+| --- | --- | --- | --- |
+| `awareness` | string | `"warn"` | `passive` muestra otras sesiones, `warn` también avisa de operaciones Git y colisiones de archivos riesgosas, y `coordinate` pide confirmación antes de escribir una ruta reclamada por otra sesión activa |
+
 Establece `idleLogoutEnabled` en `false` para desactivar el cierre de sesión por inactividad. Para cambiar el período, establece `idleTimeoutMs` en una duración positiva en milisegundos. El valor predeterminado es `3600000` (60 minutos); los valores no válidos usan el valor predeterminado.
 
 ### Modo Debug

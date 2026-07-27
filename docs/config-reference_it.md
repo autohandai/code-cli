@@ -712,6 +712,20 @@ Comportamento dell'agente di controllo e limiti di iterazione.
 | `idleTimeoutMs` | numero | `3600000` | Millisecondi di inattività prima di disconnettere una sessione autenticata (60 minuti) |
 | `debug` | booleano | `false` | Abilita output di debug dettagliato (registra lo stato interno dell'agente su stderr) |
 
+## Consapevolezza delle sessioni simultanee
+
+```json
+{
+  "sessions": {
+    "awareness": "warn"
+  }
+}
+```
+
+| Campo | Tipo | Predefinito | Descrizione |
+| --- | --- | --- | --- |
+| `awareness` | stringa | `"warn"` | `passive` mostra le altre sessioni, `warn` segnala anche operazioni Git e collisioni di file rischiose, e `coordinate` chiede conferma prima di scrivere un percorso rivendicato da un'altra sessione attiva |
+
 ### Selezione dello schema degli strumenti
 
 Autohand non invia tutti gli schemi completi degli strumenti su ogni richiesta LLM. Il prompt del sistema include un catalogo compatto delle funzionalità dello strumento e ogni richiesta espone solo un piccolo insieme di schemi concreti selezionati da:

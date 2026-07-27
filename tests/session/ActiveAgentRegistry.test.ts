@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -62,6 +62,37 @@ describe('ActiveAgentRegistry', () => {
     expect(await registry.listActive()).toEqual([]);
   });
 
+  it('round-trips activity while remaining compatible with older records', async () => {
+    const registry = new ActiveAgentRegistry(tempRoot, {
+      now: () => new Date('2026-01-01T00:00:01.000Z'),
+      isPidAlive: () => true,
+    });
+    const activity = {
+      phase: 'editing' as const,
+      instruction: 'refactor the auth module',
+      pathsWritten: ['src/a.ts'],
+      headRef: { branch: 'main', sha: 'abc' },
+    };
+
+    await registry.write(createRecord({ sessionId: 'active', activity }));
+    await registry.write(createRecord({ sessionId: 'legacy' }));
+    const records = await registry.listActive();
+
+    expect(records.find((record) => record.sessionId === 'active')?.activity).toEqual(activity);
+    expect(records.find((record) => record.sessionId === 'legacy')?.activity).toBeUndefined();
+  });
+
+  it('keeps the registry directory and records private', async () => {
+    await chmod(tempRoot, 0o755);
+    const registry = new ActiveAgentRegistry(tempRoot, { isPidAlive: () => true });
+
+    await registry.write(createRecord());
+
+    const [filename] = await readdir(tempRoot);
+    expect((await stat(tempRoot)).mode & 0o777).toBe(0o700);
+    expect((await stat(path.join(tempRoot, filename!))).mode & 0o777).toBe(0o600);
+  });
+
   it('does not restart or recreate its record when stop races the initial write', async () => {
     const registry = new ActiveAgentRegistry(tempRoot, { isPidAlive: () => true });
     const originalWrite = registry.write.bind(registry);
@@ -104,6 +135,11 @@ describe('ActiveAgentRegistry', () => {
         contextPercent: 100,
         tokensUsed: 0,
       }),
+      getActivity: () => ({
+        phase: 'editing',
+        instruction: 'working on auth',
+        pathsWritten: ['src/auth.ts'],
+      }),
     });
 
     const startPromise = heartbeat.start();
@@ -119,6 +155,80 @@ describe('ActiveAgentRegistry', () => {
     expect(writeSpy).toHaveBeenCalledTimes(1);
     expect(await registry.listActive()).toEqual([]);
 
+    await heartbeat.stop();
+  });
+
+  it('writes host activity on each heartbeat update', async () => {
+    const registry = new ActiveAgentRegistry(tempRoot, { isPidAlive: () => true });
+    const session = new Session(tempRoot, {
+      sessionId: 'activity-session',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      lastActiveAt: '2026-01-01T00:00:00.000Z',
+      projectPath: '/repo',
+      projectName: 'repo',
+      model: 'openai/gpt-4o-mini',
+      messageCount: 0,
+      status: 'active',
+    });
+    const heartbeat = new ActiveAgentHeartbeat(registry, {
+      runtime: {
+        config: {},
+        options: {},
+        workspaceRoot: '/repo',
+      } as AgentRuntime,
+      getProvider: () => 'openrouter',
+      getSession: () => session,
+      getStatusSnapshot: () => ({
+        model: 'openai/gpt-4o-mini',
+        workspace: '/repo',
+        contextPercent: 100,
+        tokensUsed: 0,
+      }),
+      getActivity: () => ({ phase: 'editing', pathsWritten: ['src/a.ts'] }),
+    });
+
+    await heartbeat.update('working');
+
+    expect((await registry.listActive())[0]?.activity).toEqual({
+      phase: 'editing',
+      pathsWritten: ['src/a.ts'],
+    });
+    await heartbeat.stop();
+  });
+
+  it('runs peer polling on the same heartbeat update', async () => {
+    const registry = new ActiveAgentRegistry(tempRoot, { isPidAlive: () => true });
+    const session = new Session(tempRoot, {
+      sessionId: 'polling-session',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      lastActiveAt: '2026-01-01T00:00:00.000Z',
+      projectPath: '/repo',
+      projectName: 'repo',
+      model: 'openai/gpt-4o-mini',
+      messageCount: 0,
+      status: 'active',
+    });
+    const onHeartbeat = vi.fn(async () => {});
+    const heartbeat = new ActiveAgentHeartbeat(registry, {
+      runtime: {
+        config: {},
+        options: {},
+        workspaceRoot: '/repo',
+      } as AgentRuntime,
+      getProvider: () => 'openrouter',
+      getSession: () => session,
+      getStatusSnapshot: () => ({
+        model: 'openai/gpt-4o-mini',
+        workspace: '/repo',
+        contextPercent: 100,
+        tokensUsed: 0,
+      }),
+      onHeartbeat,
+    });
+
+    await heartbeat.update();
+
+    expect(onHeartbeat).toHaveBeenCalledOnce();
     await heartbeat.stop();
   });
 });

@@ -712,6 +712,20 @@ Kontrol aracısı davranışı ve yineleme sınırları.
 | `idleTimeoutMs` | sayı | `3600000` | Kimliği doğrulanmış bir oturum kapatılmadan önceki boşta kalma süresi, milisaniye cinsinden (60 dakika) |
 | `debug` | boole | `false` | Ayrıntılı hata ayıklama çıktısını etkinleştirin (aracının dahili durumunu stderr'e kaydeder) |
 
+## Eşzamanlı oturum farkındalığı
+
+```json
+{
+  "sessions": {
+    "awareness": "warn"
+  }
+}
+```
+
+| Alan | Tür | Varsayılan | Açıklama |
+| --- | --- | --- | --- |
+| `awareness` | dize | `"warn"` | `passive` diğer oturumları gösterir, `warn` riskli Git işlemleri ve dosya çakışmaları için de uyarır, `coordinate` ise başka bir canlı oturumun sahiplendiği yola yazmadan önce onay ister |
+
 ### Araç Şeması Seçimi
 
 Autohand her LLM isteğinde her araç şemasının tamamını göndermez. Sistem istemi, kompakt bir araç yetenek kataloğu içerir ve her istek, aşağıdakilerden seçilen yalnızca küçük bir dizi somut şemayı ortaya çıkarır:

@@ -712,6 +712,20 @@ Contrôlez le comportement de l’agent et les limites d’itération.
 | `idleTimeoutMs` | numéro | `3600000` | Millisecondes d'inactivité avant la déconnexion d'une session authentifiée (60 minutes) |
 | `debug` | booléen | `false` | Activer la sortie de débogage détaillée (enregistre l'état interne de l'agent dans stderr) |
 
+## Détection des sessions simultanées
+
+```json
+{
+  "sessions": {
+    "awareness": "warn"
+  }
+}
+```
+
+| Champ | Type | Défaut | Description |
+| --- | --- | --- | --- |
+| `awareness` | chaîne | `"warn"` | `passive` affiche les autres sessions, `warn` signale aussi les opérations Git et collisions de fichiers risquées, et `coordinate` demande confirmation avant d'écrire un chemin revendiqué par une autre session active |
+
 ### Sélection du schéma d'outil
 
 Autohand n'envoie pas tous les schémas d'outils complets à chaque demande LLM. L'invite système comprend un catalogue compact de capacités d'outils, et chaque requête n'expose qu'un petit ensemble de schémas concrets sélectionnés parmi :
