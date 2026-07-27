@@ -392,6 +392,20 @@ Kontrol perilaku agent dan batas iterasi.
 | `idleTimeoutMs`      | number  | `3600000` | Milidetik tidak aktif sebelum keluar dari sesi terautentikasi (60 menit) |
 | `debug`              | boolean | `false` | Aktifkan output debug verbose (log status internal agent ke stderr)     |
 
+## Kesadaran sesi bersamaan
+
+```json
+{
+  "sessions": {
+    "awareness": "warn"
+  }
+}
+```
+
+| Bidang | Tipe | Default | Deskripsi |
+| --- | --- | --- | --- |
+| `awareness` | string | `"warn"` | `passive` menampilkan sesi lain, `warn` juga memperingatkan mutasi Git dan tabrakan file yang berisiko, dan `coordinate` meminta konfirmasi sebelum menulis path yang diklaim sesi aktif lain |
+
 Atur `idleLogoutEnabled` ke `false` untuk menonaktifkan logout saat tidak aktif. Untuk mengubah periodenya, atur `idleTimeoutMs` ke durasi positif dalam milidetik. Nilai default adalah `3600000` (60 menit); nilai yang tidak valid menggunakan default.
 
 ### Mode Debug

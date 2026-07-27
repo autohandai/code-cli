@@ -167,6 +167,7 @@ import {
   addAgentUIToolOutput,
   addAgentUIToolOutputs,
   buildAgentSpinnerStatusText,
+  withPeerLineExtension,
   cleanupAgentUI,
   clearAgentComposerInput,
   ensureAgentSpinnerRunning,
@@ -254,6 +255,12 @@ import type {
 } from '../announcements/AnnouncementManager.js';
 import { SuggestionEngine } from './SuggestionEngine.js';
 import { ActiveAgentHeartbeat, ActiveAgentRegistry } from '../session/ActiveAgentRegistry.js';
+import {
+  buildActivity,
+  PeerAwarenessManager,
+  resolveAwarenessTier,
+  type PeerWarning,
+} from '../session/peers/index.js';
 import type {
   MobileClaimedTurnOutcome,
   MobileRelayController,
@@ -359,6 +366,12 @@ export class AutohandAgent {
   private instructionRunner!: InstructionRunner;
   private sessionDiffStatsTracker?: SessionDiffStatsTracker;
   private activeAgentHeartbeat: ActiveAgentHeartbeat | null = null;
+  private readonly peerAwareness: PeerAwarenessManager;
+  private currentPeerToolName?: string;
+  private currentPeerCommand?: string;
+  private currentInstructionText?: string;
+  private peerActiveToolCount = 0;
+  private peerAwaitingInputCount = 0;
   private readonly runtimeResourceShutdownController = new AbortController();
   private runtimeResourceShutdownPromise: Promise<void> | null = null;
 
@@ -439,6 +452,11 @@ export class AutohandAgent {
     this.baseUnrestrictedMode = runtime.options.unrestricted === true;
     this.baseRestrictedMode = runtime.options.restricted === true;
     this.baseDryRunMode = runtime.options.dryRun === true;
+    this.peerAwareness = new PeerAwarenessManager({
+      workspaceRoot: runtime.workspaceRoot,
+      sessionId: String(process.pid),
+      tier: resolveAwarenessTier(runtime.config),
+    });
     initializeAgentDependencies(this as unknown as AgentDependencyHost, llm, files, runtime);
     this.interactionModeController = new InteractionModeController({
       isPlanEnabled: () => getPlanModeManager().isEnabled(),
@@ -876,6 +894,20 @@ export class AutohandAgent {
   }
 
   async runInstruction(instruction: string, options?: RunInstructionOptions): Promise<boolean> {
+    this.currentInstructionText = instruction;
+    try {
+      return await this.runInstructionWithPeerActivity(instruction, options);
+    } finally {
+      if (this.currentInstructionText === instruction) {
+        this.currentInstructionText = undefined;
+      }
+    }
+  }
+
+  private async runInstructionWithPeerActivity(
+    instruction: string,
+    options?: RunInstructionOptions,
+  ): Promise<boolean> {
     this.instructionRunner ??= new InstructionRunner(this as unknown as AgentInstructionHost);
     const mobileTurn = options?.mobileTurn;
     const relay = mobileTurn?.relay;
@@ -1224,11 +1256,11 @@ export class AutohandAgent {
         ? providerSettings.displayName
         : provider;
     this.ui?.setProviderModel?.(providerLabel, model);
-    this.inkRenderer?.setConfiguredLineExtensions?.(buildStatusLineExtension({
+    this.inkRenderer?.setConfiguredLineExtensions?.(withPeerLineExtension(buildStatusLineExtension({
       settings: getConfigStatusLineSettings(this.runtime.config),
       sessionDiffStats: this.sessionDiffStatsTracker?.getStats(),
       sessionHasFileChanges: this.filesModifiedThisSession === true,
-    }));
+    }), this.peerAwareness.getPeers().length));
   }
 
   /**
@@ -2215,7 +2247,12 @@ export class AutohandAgent {
     message: string,
     context?: { tool?: string; path?: string; command?: string }
   ): Promise<PermissionPromptResult> {
-    return confirmAgentDangerousAction(this, message, context);
+    this.peerAwaitingInputCount += 1;
+    try {
+      return await confirmAgentDangerousAction(this, message, context);
+    } finally {
+      this.peerAwaitingInputCount = Math.max(0, this.peerAwaitingInputCount - 1);
+    }
   }
 
   /**
@@ -2241,7 +2278,12 @@ export class AutohandAgent {
     question: string,
     suggestedAnswers?: string[]
   ): Promise<string> {
-    return executeAgentAskFollowupQuestion(this, question, suggestedAnswers);
+    this.peerAwaitingInputCount += 1;
+    try {
+      return await executeAgentAskFollowupQuestion(this, question, suggestedAnswers);
+    } finally {
+      this.peerAwaitingInputCount = Math.max(0, this.peerAwaitingInputCount - 1);
+    }
   }
 
   /**
@@ -2393,6 +2435,12 @@ export class AutohandAgent {
     await previousHeartbeat?.stop().catch(() => {});
     if (this.runtimeResourceShutdownPromise || this.runtimeResourceShutdownController?.signal.aborted) return;
 
+    const sessionId = this.sessionManager.getCurrentSession()?.metadata.sessionId;
+    if (sessionId) {
+      this.peerAwareness.setSessionId(sessionId);
+    }
+    await this.peerAwareness.adoptRepoBaseline().catch(() => {});
+
     const heartbeat = new ActiveAgentHeartbeat(
       new ActiveAgentRegistry(),
       {
@@ -2400,6 +2448,17 @@ export class AutohandAgent {
         getProvider: () => this.activeProvider,
         getSession: () => this.sessionManager.getCurrentSession(),
         getStatusSnapshot: () => this.getStatusSnapshot(),
+        getActivity: () => buildActivity({
+          isInstructionActive: this.isInstructionActive,
+          awaitingInput: this.peerAwaitingInputCount > 0,
+          activeTool: this.currentPeerToolName,
+          instruction: this.currentInstructionText,
+          command: this.currentPeerCommand,
+          pathsWritten: this.peerAwareness.getPathsWritten(),
+          claims: this.peerAwareness.getClaims(),
+          headRef: this.peerAwareness.getRepoBaseline(),
+        }),
+        onHeartbeat: () => this.refreshPeerAwareness(),
       },
     );
     this.activeAgentHeartbeat = heartbeat;
@@ -2422,5 +2481,41 @@ export class AutohandAgent {
 
   private async updateActiveAgentHeartbeat(status?: 'idle' | 'working'): Promise<void> {
     await this.activeAgentHeartbeat?.update(status ?? (this.isInstructionActive ? 'working' : 'idle'));
+  }
+
+  private setPeerToolActivity(activity?: { tool: string; command?: string }): void {
+    if (activity) {
+      this.peerActiveToolCount += 1;
+      this.currentPeerToolName = activity.tool;
+      this.currentPeerCommand = activity.command;
+      return;
+    }
+    this.peerActiveToolCount = Math.max(0, this.peerActiveToolCount - 1);
+    if (this.peerActiveToolCount === 0) {
+      this.currentPeerToolName = undefined;
+      this.currentPeerCommand = undefined;
+    }
+  }
+
+  private emitPeerWarning(warning: PeerWarning): void {
+    if (this.inkRenderer) {
+      this.inkRenderer.addNotification(warning.message);
+      return;
+    }
+    this.notifyUser(warning.message);
+  }
+
+  private async refreshPeerAwareness(): Promise<void> {
+    const refresh = await this.peerAwareness.refresh();
+    for (const warning of refresh.warnings) {
+      this.emitPeerWarning(warning);
+    }
+    for (const peer of refresh.joined) {
+      this.emitPeerWarning({
+        kind: 'repo-drift',
+        message: `Another session joined this project (${peer.model}, ${(peer.activity?.phase ?? peer.status).replace(/_/gu, ' ')}).`,
+      });
+    }
+    this.syncProviderModelStatusLine();
   }
 }

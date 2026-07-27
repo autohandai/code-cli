@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import path from 'node:path';
+import fse from 'fs-extra';
 import { showModal, showInput, type ModalOption } from '../ui/ink/components/Modal.js';
 import { diffLines } from 'diff';
 import { highlightLine, detectLanguage } from '../ui/syntaxHighlight.js';
@@ -118,6 +120,10 @@ import {
   rescoreExperiments,
 } from '../autoresearch/analysis.js';
 import { AgentRegistry } from './agents/AgentRegistry.js';
+import {
+  isGitMutationCommand,
+  type PeerWarning,
+} from '../session/peers/index.js';
 
 /** Response from permission-request hook */
 export interface PermissionHookResponse {
@@ -202,6 +208,16 @@ export interface ActionExecutorOptions {
   }>) => void;
   /** Registry of currently running background shell processes, for /ps and /stop. */
   backgroundProcessRegistry?: BackgroundProcessRegistry;
+  /** Concurrent sessions sharing this workspace. */
+  peerAwareness?: {
+    warnForWrite(relativePath: string, currentMtimeMs?: number): PeerWarning[];
+    warnForCommand(command: string): PeerWarning[];
+    adoptRepoBaseline(): Promise<void>;
+    recordRead(relativePath: string, mtimeMs: number): void;
+    recordWrite(relativePath: string): void;
+  };
+  onPeerWarning?: (warning: PeerWarning) => void;
+  onToolActivity?: (activity?: { tool: string; command?: string }) => void;
 }
 
 type AgentExecutorDeps = ActionExecutorOptions;
@@ -209,6 +225,10 @@ type ToolFailureOutcome = Extract<ToolActionOutcome, { success: false }>;
 
 interface ToolOutcomeCapture {
   failure?: ToolFailureOutcome;
+}
+
+interface ActionExecutionState {
+  started: boolean;
 }
 
 interface BackgroundCommandTracker {
@@ -228,6 +248,35 @@ const GOAL_TOOL_TYPES = new Set<string>([
   'start_queued_goal',
   'dequeue_goal',
   'remove_queued_goal',
+]);
+
+const PEER_GIT_COMMAND_BY_ACTION: Readonly<Record<string, string>> = {
+  git_switch: 'git switch',
+  git_cherry_pick: 'git cherry-pick',
+  git_cherry_pick_abort: 'git cherry-pick',
+  git_cherry_pick_continue: 'git cherry-pick',
+  git_rebase: 'git rebase',
+  git_rebase_abort: 'git rebase',
+  git_rebase_continue: 'git rebase',
+  git_rebase_skip: 'git rebase',
+  git_merge: 'git merge',
+  git_merge_abort: 'git merge',
+  git_commit: 'git commit',
+  auto_commit: 'git commit',
+  git_reset: 'git reset',
+  git_push: 'git push',
+};
+
+const PEER_DIRECT_WRITE_ACTIONS = new Set<string>([
+  'write_file',
+  'append_file',
+  'apply_patch',
+  'notebook_edit',
+  'create_directory',
+  'delete_path',
+  'search_replace',
+  'format_file',
+  'git_checkout',
 ]);
 
 export class ActionExecutor {
@@ -260,6 +309,9 @@ export class ActionExecutor {
   private readonly onMetaToolCreated?: AgentExecutorDeps['onMetaToolCreated'];
   private readonly onActivityTodosUpdated?: AgentExecutorDeps['onActivityTodosUpdated'];
   private readonly backgroundProcessRegistry?: AgentExecutorDeps['backgroundProcessRegistry'];
+  private readonly peerAwareness?: AgentExecutorDeps['peerAwareness'];
+  private readonly onPeerWarning?: AgentExecutorDeps['onPeerWarning'];
+  private readonly onToolActivity?: AgentExecutorDeps['onToolActivity'];
   private readonly securityScanner: SecurityScanner;
   private readonly searchCache: Map<string, string> = new Map();
   private fffSearchProviderPromise: Promise<FFFSearchProvider> | null = null;
@@ -296,6 +348,9 @@ export class ActionExecutor {
     this.onLiveCommandRemove = deps.onLiveCommandRemove;
     this.onMetaToolCreated = deps.onMetaToolCreated;
     this.backgroundProcessRegistry = deps.backgroundProcessRegistry;
+    this.peerAwareness = deps.peerAwareness;
+    this.onPeerWarning = deps.onPeerWarning;
+    this.onToolActivity = deps.onToolActivity;
     this.securityScanner = new SecurityScanner();
   }
 
@@ -715,7 +770,7 @@ export class ActionExecutor {
   }
 
   async execute(action: AgentAction, context?: ToolExecutionContext): Promise<string | undefined> {
-    return this.executeLegacy(action, context);
+    return this.withToolActivity(action, () => this.executeLegacy(action, context));
   }
 
   async executeForTool(
@@ -733,7 +788,10 @@ export class ActionExecutor {
 
     const capture: ToolOutcomeCapture = {};
     try {
-      const output = await this.executeLegacy(action, context, capture);
+      const output = await this.withToolActivity(
+        action,
+        () => this.executeLegacy(action, context, capture),
+      );
       if (context?.signal?.aborted) {
         return this.createAbortedOutcome();
       }
@@ -758,6 +816,7 @@ export class ActionExecutor {
     changeType: 'create' | 'modify' | 'delete',
     toolCallId?: string,
   ): void {
+    this.peerAwareness?.recordWrite(this.toWorkspaceRelative(filePath) ?? filePath);
     if (toolCallId === undefined) {
       this.onFileModified?.(filePath, changeType);
       return;
@@ -765,10 +824,151 @@ export class ActionExecutor {
     this.onFileModified?.(filePath, changeType, toolCallId);
   }
 
+  private async withToolActivity<T>(action: AgentAction, operation: () => Promise<T>): Promise<T> {
+    const command = this.commandForPeerGuard(action);
+    this.onToolActivity?.({
+      tool: action.type,
+      ...(command ? { command } : {}),
+    });
+    try {
+      return await operation();
+    } finally {
+      this.onToolActivity?.();
+    }
+  }
+
+  private async preflightPeerAction(action: AgentAction): Promise<string | undefined> {
+    const command = this.commandForPeerGuard(action);
+    if (command) {
+      this.emitPeerWarnings(this.peerAwareness?.warnForCommand(command) ?? []);
+    }
+
+    for (const candidate of this.writePathsForPeerGuard(action)) {
+      const relativePath = this.toWorkspaceRelative(candidate);
+      if (!relativePath) {
+        continue;
+      }
+      const currentMtimeMs = await this.readMtime(relativePath);
+      const warnings = this.peerAwareness?.warnForWrite(relativePath, currentMtimeMs) ?? [];
+      this.emitPeerWarnings(warnings);
+      const claimConflict = warnings.find((warning) => warning.kind === 'claim-conflict');
+      if (!claimConflict || this.isPeerConfirmationBypassed()) {
+        continue;
+      }
+      const confirmed = await this.confirmDangerousAction(claimConflict.message, {
+        tool: action.type,
+        path: relativePath,
+      });
+      if (!confirmed) {
+        return `Skipped ${action.type}: ${relativePath} is claimed by another session.`;
+      }
+    }
+    return undefined;
+  }
+
+  private emitPeerWarnings(warnings: PeerWarning[]): void {
+    for (const warning of warnings) {
+      this.onPeerWarning?.(warning);
+    }
+  }
+
+  private isPeerConfirmationBypassed(): boolean {
+    return this.runtime.options.yes === true
+      || this.runtime.config.ui?.autoConfirm === true
+      || Boolean(this.runtime.options.yolo)
+      || this.runtime.options.unrestricted === true;
+  }
+
+  private async recordPeerRead(filePath: string): Promise<void> {
+    const relativePath = this.toWorkspaceRelative(filePath);
+    if (!relativePath) {
+      return;
+    }
+    const mtimeMs = await this.readMtime(relativePath);
+    if (mtimeMs !== undefined) {
+      this.peerAwareness?.recordRead(relativePath, mtimeMs);
+    }
+  }
+
+  private async readMtime(relativePath: string): Promise<number | undefined> {
+    try {
+      const stats = await fse.stat(path.resolve(this.runtime.workspaceRoot, relativePath));
+      return stats.mtimeMs;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private toWorkspaceRelative(filePath: string): string | undefined {
+    let resolved: string;
+    try {
+      resolved = this.resolveWorkspacePath(filePath);
+    } catch {
+      return undefined;
+    }
+    const relativePath = path.relative(this.runtime.workspaceRoot, resolved);
+    if (!relativePath || relativePath === '..' || relativePath.startsWith(`..${path.sep}`)) {
+      return undefined;
+    }
+    return relativePath.split(path.sep).join('/');
+  }
+
+  private commandForPeerGuard(action: AgentAction): string | undefined {
+    if (action.type === 'run_command' || action.type === 'shell') {
+      return `${action.command ?? ''} ${(action.args ?? []).join(' ')}`.trim() || undefined;
+    }
+    if (action.type === 'git_checkout') {
+      return `git checkout ${action.path ?? ''}`.trim();
+    }
+    return PEER_GIT_COMMAND_BY_ACTION[action.type];
+  }
+
+  private writePathsForPeerGuard(action: AgentAction): string[] {
+    if (PEER_DIRECT_WRITE_ACTIONS.has(action.type)) {
+      const candidate = 'path' in action && typeof action.path === 'string'
+        ? action.path
+        : undefined;
+      return candidate ? [candidate] : [];
+    }
+    if (action.type === 'rename_path') {
+      return [action.from, action.to].filter((value): value is string => Boolean(value));
+    }
+    if (action.type === 'copy_path') {
+      return action.to ? [action.to] : [];
+    }
+    if (action.type === 'add_dependency' || action.type === 'remove_dependency') {
+      return ['package.json'];
+    }
+    if (action.type === 'multi_file_edit') {
+      return action.file_path ? [action.file_path] : [];
+    }
+    if (action.type === 'todo_write') {
+      return ['.autohand/agents/tasks/todos.json'];
+    }
+    return [];
+  }
+
   private async executeLegacy(
     action: AgentAction,
     context?: ToolExecutionContext,
     capture?: ToolOutcomeCapture,
+  ): Promise<string | undefined> {
+    const command = this.commandForPeerGuard(action);
+    const executionState: ActionExecutionState = { started: false };
+    try {
+      return await this.executeAction(action, context, capture, executionState);
+    } finally {
+      if (executionState.started && command && isGitMutationCommand(command)) {
+        await this.peerAwareness?.adoptRepoBaseline().catch(() => {});
+      }
+    }
+  }
+
+  private async executeAction(
+    action: AgentAction,
+    context?: ToolExecutionContext,
+    capture?: ToolOutcomeCapture,
+    executionState?: ActionExecutionState,
   ): Promise<string | undefined> {
     if (!action || typeof action.type !== 'string' || action.type.length === 0) {
       throw new Error('Unsupported action type');
@@ -804,6 +1004,20 @@ export class ActionExecutor {
       if (authorization.approvalHandled) {
         context = { ...context, approvalHandled: true };
       }
+    }
+
+    const peerPreflightFailure = await this.preflightPeerAction(action);
+    if (peerPreflightFailure) {
+      return this.recordToolFailure(
+        capture,
+        'authorization',
+        peerPreflightFailure,
+        peerPreflightFailure,
+      );
+    }
+
+    if (executionState) {
+      executionState.started = true;
     }
 
     switch (action.type) {
@@ -978,6 +1192,7 @@ export class ActionExecutor {
         const limit = typeof action.limit === 'number' ? action.limit : 0;
 
         const fullContents = await this.files.readFile(action.path);
+        await this.recordPeerRead(action.path);
         this.recordExploration('read', action.path);
 
         const allLines = fullContents.split('\n');

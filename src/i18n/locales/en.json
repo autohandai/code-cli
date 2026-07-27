@@ -188,6 +188,7 @@
       "categories": {
         "ui": "UI & Display",
         "agent": "Agent Behavior",
+        "sessions": "Sessions",
         "permissions": "Permissions",
         "network": "Network",
         "telemetry": "Telemetry & Reporting",
@@ -236,6 +237,10 @@
         "sessionRetryDelayDesc": "Delay between retries in milliseconds",
         "debug": "Debug mode",
         "debugDesc": "Enable debug output"
+      },
+      "sessions": {
+        "awareness": "Concurrent session awareness",
+        "awarenessDesc": "How this session reacts when others are open in the same project: passive shows them, warn also flags risky moments, coordinate asks before writing files another session claimed"
       },
       "permissions": {
         "mode": "Permission mode",
@@ -343,7 +348,9 @@
       "title": "Saved Sessions",
       "noSessions": "No saved sessions found.",
       "selectPrompt": "Select a session to resume:",
-      "sessionInfo": "{{name}} - {{date}}"
+      "sessionInfo": "{{name}} - {{date}}",
+      "peerActive": "1 other session is active in this project",
+      "peersActive": "{{count}} other sessions are active in this project"
     },
     "resume": {
       "description": "resume a previous session",

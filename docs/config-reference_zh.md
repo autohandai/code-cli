@@ -420,6 +420,20 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | `idleTimeoutMs`      | number  | `3600000` | 退出已认证会话前允许的空闲毫秒数（60 分钟） |
 | `debug`              | boolean | `false` | 启用详细调试输出（将代理内部状态日志记录到 stderr） |
 
+## 并发会话感知
+
+```json
+{
+  "sessions": {
+    "awareness": "warn"
+  }
+}
+```
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `awareness` | string | `"warn"` | `passive` 显示其他会话，`warn` 还会警告有风险的 Git 操作和文件冲突，`coordinate` 会在写入其他活跃会话已声明的路径前请求确认 |
+
 将 `idleLogoutEnabled` 设为 `false` 可禁用空闲退出。要更改空闲时长，请将 `idleTimeoutMs` 设为正的毫秒值。默认值为 `3600000`（60 分钟）；无效值会回退到默认值。
 
 ### 调试模式

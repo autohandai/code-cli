@@ -3,7 +3,7 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import fs from 'fs-extra';
+import fse from 'fs-extra';
 import path from 'node:path';
 import { AUTOHAND_PATHS } from '../constants.js';
 import type { AgentRuntime, ProviderName, TokenUsageStatus } from '../types.js';
@@ -14,6 +14,21 @@ export const ACTIVE_AGENT_STALE_MS = 15_000;
 
 export type ActiveAgentMode = 'interactive' | 'command' | 'rpc' | 'acp' | 'teammate';
 export type ActiveAgentStatus = 'idle' | 'working';
+export type ActiveAgentPhase =
+  | 'idle'
+  | 'thinking'
+  | 'editing'
+  | 'running_command'
+  | 'waiting_input';
+
+export interface ActiveAgentActivity {
+  phase: ActiveAgentPhase;
+  instruction?: string;
+  command?: string;
+  pathsWritten: string[];
+  claims?: string[];
+  headRef?: { branch: string | null; sha: string };
+}
 
 export interface ActiveAgentRecord {
   version: 1;
@@ -32,6 +47,7 @@ export interface ActiveAgentRecord {
   tokensUsed: number;
   tokensUsageStatus?: TokenUsageStatus;
   sessionTokensUsed?: number;
+  activity?: ActiveAgentActivity;
 }
 
 export interface ActiveAgentStatusSnapshot {
@@ -61,17 +77,21 @@ export class ActiveAgentRegistry {
   }
 
   async write(record: ActiveAgentRecord): Promise<void> {
-    await fs.ensureDir(this.dir);
-    await fs.writeJson(this.recordPath(record.sessionId), record, { spaces: 2 });
+    await fse.ensureDir(this.dir, { mode: 0o700 });
+    await fse.chmod(this.dir, 0o700).catch(() => {});
+    const filePath = this.recordPath(record.sessionId);
+    await fse.writeJson(filePath, record, { spaces: 2, mode: 0o600 });
+    await fse.chmod(filePath, 0o600).catch(() => {});
   }
 
   async remove(sessionId: string): Promise<void> {
-    await fs.remove(this.recordPath(sessionId));
+    await fse.remove(this.recordPath(sessionId));
   }
 
   async listActive(): Promise<ActiveAgentRecord[]> {
-    await fs.ensureDir(this.dir);
-    const filenames = await fs.readdir(this.dir);
+    await fse.ensureDir(this.dir, { mode: 0o700 });
+    await fse.chmod(this.dir, 0o700).catch(() => {});
+    const filenames = await fse.readdir(this.dir);
     const records: ActiveAgentRecord[] = [];
 
     await Promise.all(filenames
@@ -79,14 +99,14 @@ export class ActiveAgentRegistry {
       .map(async (filename) => {
         const filePath = path.join(this.dir, filename);
         try {
-          const record = await fs.readJson(filePath) as ActiveAgentRecord;
+          const record = await fse.readJson(filePath) as ActiveAgentRecord;
           if (!isValidActiveAgentRecord(record) || this.isStale(record)) {
-            await fs.remove(filePath);
+            await fse.remove(filePath);
             return;
           }
           records.push(record);
         } catch {
-          await fs.remove(filePath).catch(() => {});
+          await fse.remove(filePath).catch(() => {});
         }
       }));
 
@@ -111,6 +131,8 @@ export interface ActiveAgentHeartbeatOptions {
   getProvider: () => ProviderName | string;
   getSession: () => Session | null;
   getStatusSnapshot: () => ActiveAgentStatusSnapshot;
+  getActivity?: () => ActiveAgentActivity | undefined;
+  onHeartbeat?: () => Promise<void> | void;
 }
 
 export class ActiveAgentHeartbeat {
@@ -145,6 +167,7 @@ export class ActiveAgentHeartbeat {
     const snapshot = this.options.getStatusSnapshot();
     const now = new Date().toISOString();
     const sessionId = session.metadata.sessionId;
+    const activity = this.options.getActivity?.();
     const updatePromise = this.writeUpdate({
         version: 1,
         pid: process.pid,
@@ -162,6 +185,7 @@ export class ActiveAgentHeartbeat {
         tokensUsed: snapshot.tokensUsed,
         tokensUsageStatus: snapshot.tokensUsageStatus,
         sessionTokensUsed: snapshot.sessionTokensUsed,
+        ...(activity ? { activity } : {}),
       }, sessionId);
     this.pendingUpdates.add(updatePromise);
     void updatePromise.then(
@@ -187,6 +211,12 @@ export class ActiveAgentHeartbeat {
     await this.registry.write(record);
     if (this.stopped) {
       await this.registry.remove(sessionId).catch(() => {});
+      return;
+    }
+    try {
+      await this.options.onHeartbeat?.();
+    } catch {
+      // Peer awareness is advisory; a failed registry poll must not stop the heartbeat.
     }
   }
 
@@ -229,5 +259,35 @@ function isValidActiveAgentRecord(value: unknown): value is ActiveAgentRecord {
     && typeof record.updatedAt === 'string'
     && typeof record.messageCount === 'number'
     && typeof record.contextPercent === 'number'
-    && typeof record.tokensUsed === 'number';
+    && typeof record.tokensUsed === 'number'
+    && (record.activity === undefined || isValidActiveAgentActivity(record.activity));
+}
+
+function isValidActiveAgentActivity(value: unknown): value is ActiveAgentActivity {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const activity = value as Partial<ActiveAgentActivity>;
+  const phases: ActiveAgentPhase[] = [
+    'idle',
+    'thinking',
+    'editing',
+    'running_command',
+    'waiting_input',
+  ];
+  return typeof activity.phase === 'string'
+    && phases.includes(activity.phase as ActiveAgentPhase)
+    && Array.isArray(activity.pathsWritten)
+    && activity.pathsWritten.every((candidate) => typeof candidate === 'string')
+    && (activity.claims === undefined
+      || (Array.isArray(activity.claims)
+        && activity.claims.every((candidate) => typeof candidate === 'string')))
+    && (activity.instruction === undefined || typeof activity.instruction === 'string')
+    && (activity.command === undefined || typeof activity.command === 'string')
+    && (activity.headRef === undefined || (
+      typeof activity.headRef === 'object'
+      && activity.headRef !== null
+      && (activity.headRef.branch === null || typeof activity.headRef.branch === 'string')
+      && typeof activity.headRef.sha === 'string'
+    ));
 }

@@ -420,6 +420,20 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | `idleTimeoutMs`      | number  | `3600000` | 인증된 세션에서 로그아웃하기 전 비활성 시간(밀리초, 60분) |
 | `debug`              | boolean | `false` | 상세 디버그 출력 활성화 (에이전트 내부 상태 로그를 stderr에 기록) |
 
+## 동시 세션 인식
+
+```json
+{
+  "sessions": {
+    "awareness": "warn"
+  }
+}
+```
+
+| 필드 | 유형 | 기본값 | 설명 |
+| --- | --- | --- | --- |
+| `awareness` | string | `"warn"` | `passive`는 다른 세션을 표시하고, `warn`은 위험한 Git 작업과 파일 충돌도 경고하며, `coordinate`는 다른 활성 세션이 점유한 경로에 쓰기 전에 확인을 요청합니다 |
+
 유휴 로그아웃을 비활성화하려면 `idleLogoutEnabled`를 `false`로 설정합니다. 기간을 변경하려면 `idleTimeoutMs`를 양의 밀리초 값으로 설정합니다. 기본값은 `3600000`(60분)이며 잘못된 값은 기본값으로 대체됩니다.
 
 ### 디버그 모드

@@ -33,6 +33,7 @@ Localized references:
 - [Workspace Settings](#workspace-settings)
 - [UI Settings](#ui-settings)
 - [Agent Settings](#agent-settings)
+- [Concurrent Session Awareness](#concurrent-session-awareness)
 - [Permissions Settings](#permissions-settings)
 - [Patch Mode](#patch-mode)
 - [Network Settings](#network-settings)
@@ -816,6 +817,20 @@ Control agent behavior and iteration limits.
 | `idleLogoutEnabled`  | boolean | `true`  | Log out authenticated interactive sessions after the idle timeout              |
 | `idleTimeoutMs`      | number  | `3600000` | Milliseconds of inactivity before logging out an authenticated session (60 minutes) |
 | `debug`              | boolean | `false` | Enable verbose debug output (logs agent internal state to stderr)              |
+
+## Concurrent Session Awareness
+
+```json
+{
+  "sessions": {
+    "awareness": "warn"
+  }
+}
+```
+
+| Field       | Type   | Default  | Description |
+| ----------- | ------ | -------- | ----------- |
+| `awareness` | string | `"warn"` | `passive` shows peers, `warn` also reports risky git and file collisions, and `coordinate` asks before writing a path claimed by another live session |
 
 ### Tool Schema Selection
 

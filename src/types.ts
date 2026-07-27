@@ -306,6 +306,11 @@ export interface AgentSettings {
   autoMemory?: boolean;
 }
 
+export interface SessionsSettings {
+  /** How this session reacts to other sessions in the same workspace (default: warn). */
+  awareness?: 'passive' | 'warn' | 'coordinate';
+}
+
 export interface TelemetrySettings {
   /** Enable/disable telemetry (default: false, opt-in) */
   enabled?: boolean;
@@ -792,6 +797,7 @@ export interface AutohandConfig {
   workspace?: WorkspaceSettings;
   ui?: UISettings;
   agent?: AgentSettings;
+  sessions?: SessionsSettings;
   telemetry?: TelemetrySettings;
   permissions?: PermissionSettings;
   network?: NetworkSettings;

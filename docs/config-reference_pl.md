@@ -712,6 +712,20 @@ Kontroluj zachowanie agenta i limity iteracji.
 | `idleTimeoutMs` | numer | `3600000` | Milisekundy bezczynności przed wylogowaniem uwierzytelnionej sesji (60 minut) |
 | __AH_KOD_10__ | wartość logiczna | __AH_KOD_11__ | Włącz szczegółowe dane wyjściowe debugowania (loguje stan wewnętrzny agenta na stderr) |
 
+## Świadomość równoczesnych sesji
+
+```json
+{
+  "sessions": {
+    "awareness": "warn"
+  }
+}
+```
+
+| Pole | Typ | Domyślnie | Opis |
+| --- | --- | --- | --- |
+| `awareness` | ciąg | `"warn"` | `passive` pokazuje inne sesje, `warn` dodatkowo ostrzega o ryzykownych operacjach Git i kolizjach plików, a `coordinate` prosi o potwierdzenie przed zapisem ścieżki zajętej przez inną aktywną sesję |
+
 ### Wybór schematu narzędzia
 
 Autohand nie wysyła każdego pełnego schematu narzędzia na każde żądanie LLM. Podpowiedź systemowa zawiera kompaktowy katalog możliwości narzędzi, a każde żądanie udostępnia tylko niewielki zestaw konkretnych schematów wybranych spośród:

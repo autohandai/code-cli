@@ -13,7 +13,7 @@ import type { BuiltInProviderName, LoadedConfig } from '../types.js';
 
 export type SettingType = 'boolean' | 'string' | 'number' | 'enum' | 'password';
 
-export type SettingCategory = 'ui' | 'agent' | 'permissions' | 'network' | 'telemetry' | 'automode' | 'teams' | 'search';
+export type SettingCategory = 'ui' | 'agent' | 'sessions' | 'permissions' | 'network' | 'telemetry' | 'automode' | 'teams' | 'search';
 
 export interface SettingDef {
   key: string;
@@ -88,6 +88,7 @@ const PROVIDER_CONFIG_FIELD_ALIASES: Record<string, 'apiKey' | 'baseUrl' | 'mode
 export const SETTING_CATEGORIES: CategoryDef[] = [
   { id: 'ui', labelKey: 'commands.settings.categories.ui' },
   { id: 'agent', labelKey: 'commands.settings.categories.agent' },
+  { id: 'sessions', labelKey: 'commands.settings.categories.sessions' },
   { id: 'permissions', labelKey: 'commands.settings.categories.permissions' },
   { id: 'network', labelKey: 'commands.settings.categories.network' },
   { id: 'telemetry', labelKey: 'commands.settings.categories.telemetry' },
@@ -122,6 +123,9 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
   { key: 'agent.sessionRetryLimit', labelKey: 'commands.settings.agent.sessionRetryLimit', descriptionKey: 'commands.settings.agent.sessionRetryLimitDesc', category: 'agent', type: 'number', defaultValue: 3 },
   { key: 'agent.sessionRetryDelay', labelKey: 'commands.settings.agent.sessionRetryDelay', descriptionKey: 'commands.settings.agent.sessionRetryDelayDesc', category: 'agent', type: 'number', defaultValue: 1000 },
   { key: 'agent.debug', labelKey: 'commands.settings.agent.debug', descriptionKey: 'commands.settings.agent.debugDesc', category: 'agent', type: 'boolean', defaultValue: false },
+
+  // Concurrent Sessions
+  { key: 'sessions.awareness', labelKey: 'commands.settings.sessions.awareness', descriptionKey: 'commands.settings.sessions.awarenessDesc', category: 'sessions', type: 'enum', enumValues: ['passive', 'warn', 'coordinate'], defaultValue: 'warn' },
 
   // Permissions
   { key: 'permissions.mode', labelKey: 'commands.settings.permissions.mode', descriptionKey: 'commands.settings.permissions.modeDesc', category: 'permissions', type: 'enum', enumValues: ['interactive', 'unrestricted', 'restricted'], defaultValue: 'interactive' },

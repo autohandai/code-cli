@@ -10,6 +10,7 @@ import { t } from '../i18n/index.js';
 import { AgentRegistry } from '../core/agents/AgentRegistry.js';
 import { loadConfig } from '../config.js';
 import { ActiveAgentRegistry, type ActiveAgentRecord } from '../session/ActiveAgentRegistry.js';
+import { sanitizeAnnouncementText } from '../announcements/AnnouncementContent.js';
 
 export const metadata = {
     command: '/agents',
@@ -104,6 +105,23 @@ export function formatActiveAgents(records: ActiveAgentRecord[], now = new Date(
         const tokens = compactNumber(record.sessionTokensUsed ?? record.tokensUsed).padEnd(8);
         const updated = formatAge(now.getTime() - Date.parse(record.updatedAt)).padEnd(9);
         lines.push(`${status} ${project} ${chalk.cyan(session)} ${model} ${context} ${tokens} ${updated} ${record.pid}`);
+        if (record.activity) {
+            const phase = record.activity.phase.replace(/_/gu, ' ');
+            lines.push(`  ${chalk.blue('Phase:')} ${phase}`);
+            const instruction = sanitizePeerText(record.activity.instruction);
+            const command = sanitizePeerText(record.activity.command);
+            if (instruction) lines.push(`  ${chalk.blue('Instruction:')} ${instruction}`);
+            if (command) lines.push(`  ${chalk.blue('Command:')} ${command}`);
+            if (record.activity.pathsWritten.length > 0) {
+                const recentPaths = record.activity.pathsWritten
+                    .slice(0, 3)
+                    .map((filePath) => sanitizePeerText(filePath))
+                    .filter((filePath): filePath is string => Boolean(filePath));
+                if (recentPaths.length > 0) {
+                    lines.push(`  ${chalk.blue('Recent paths:')} ${recentPaths.join(', ')}`);
+                }
+            }
+        }
     }
 
     lines.push('', chalk.gray('Esc/Ctrl+C to exit • `autohand agents --once` for a static snapshot'));
@@ -186,4 +204,13 @@ function formatAge(ageMs: number): string {
     const minutes = Math.floor(seconds / 60);
     if (minutes < 60) return `${minutes}m`;
     return `${Math.floor(minutes / 60)}h`;
+}
+
+function sanitizePeerText(value: string | undefined): string | undefined {
+    if (!value) return undefined;
+    const sanitized = sanitizeAnnouncementText(value, {
+        maxCharacters: 200,
+        preserveParagraphs: false,
+    });
+    return sanitized || undefined;
 }

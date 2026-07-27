@@ -9,6 +9,7 @@ import { Theme, setTheme } from '../../../src/ui/theme/Theme.js';
 import { COLOR_TOKENS, type ResolvedColors } from '../../../src/ui/theme/types.js';
 import {
   formatStartupBanner,
+  formatPeerSessionsLine,
   formatWelcomeStatusLine,
   formatWelcomeSuggestion,
 } from '../../../src/ui/theme/startup.js';
@@ -49,5 +50,10 @@ describe('startup theme formatting', () => {
     const suggestion = formatWelcomeSuggestion('/theme', 'change the color theme');
     expect(suggestion).toContain('\x1b[38;2;18;52;86m/theme \x1b[39m');
     expect(suggestion).toContain('\x1b[38;2;102;119;136mchange the color theme\x1b[39m');
+  });
+
+  it('formats active peers for the TTY welcome block', () => {
+    expect(formatPeerSessionsLine(1)).toContain('1 other session');
+    expect(formatPeerSessionsLine(3)).toContain('3 other sessions');
   });
 });

@@ -19,6 +19,11 @@ import { resolveStatusLineGitLabel } from './AgentContextRuntime.js';
 import { extensionRuntimeHost } from '../../extensions/ExtensionRuntimeHost.js';
 import { t } from '../../i18n/index.js';
 import type { AnnouncementLineState } from '../../ui/ink/AgentUI.js';
+import type { AgentUILineExtensions } from '../../ui/ink/AgentUI.js';
+import {
+  mergeLineExtensions,
+  type LineExtension,
+} from '../../ui/ink/StatusLine.js';
 
 export interface AgentUIRuntimeHost {
   [key: string]: any;
@@ -26,6 +31,33 @@ export interface AgentUIRuntimeHost {
 
 const USER_NOTIFICATION_DEDUPE_WINDOW_MS = 10 * 60 * 1000;
 const MAX_PENDING_INK_SUBMIT_ECHOES = 20;
+
+export function buildPeerLineExtension(peerCount: number): LineExtension | undefined {
+  if (peerCount <= 0) {
+    return undefined;
+  }
+  return {
+    segments: [{
+      id: 'session-peers',
+      text: `⚉ ${peerCount} ${peerCount === 1 ? 'peer' : 'peers'}`,
+      color: 'warning',
+    }],
+  };
+}
+
+export function withPeerLineExtension(
+  configured: AgentUILineExtensions | undefined,
+  peerCount: number,
+): AgentUILineExtensions | undefined {
+  const peerExtension = buildPeerLineExtension(peerCount);
+  if (!configured && !peerExtension) {
+    return undefined;
+  }
+  return {
+    ...configured,
+    help: mergeLineExtensions(configured?.help, peerExtension),
+  };
+}
 
 export function handleAgentCtrlCExitRequest(host: AgentUIRuntimeHost): void {
   if (host.shouldExit) {
@@ -278,6 +310,7 @@ export async function initializeAgentUI(host: AgentUIRuntimeHost, abortControlle
         host.syncProviderModelStatusLine();
         await host.ui?.start();
         host.inkRenderer = host.ui?.getInkRenderer?.() ?? host.inkRenderer;
+        host.syncProviderModelStatusLine();
         host.ui?.setWorking(true, 'Gathering context...');
         host.runtime.inkRenderer = host.inkRenderer;
         syncAgentAnnouncementLine(host);
@@ -623,14 +656,14 @@ export function forceRenderAgentSpinner(host: AgentUIRuntimeHost): void {
     const statusLine = `${verb}... (esc to interrupt · ${elapsed} · ${tokens}${queueHint})`;
     const footerLine = host.formatStatusLine();
     host.persistentInput.setStatusLine(footerLine);
-    host.inkRenderer?.setConfiguredLineExtensions?.(buildStatusLineExtension({
+    host.inkRenderer?.setConfiguredLineExtensions?.(withPeerLineExtension(buildStatusLineExtension({
       settings: getConfigStatusLineSettings(host.runtime.config),
       workspaceRoot: host.runtime.workspaceRoot,
       homeDir: os.homedir(),
       gitLabel: resolveStatusLineGitLabel(host),
       sessionDiffStats: host.sessionDiffStatsTracker?.getStats?.(),
       sessionHasFileChanges: host.filesModifiedThisSession === true,
-    }));
+    }), host.peerAwareness?.getPeers?.().length ?? 0));
     const usingTerminalRegions = host.isUsingTerminalRegionsForActiveTurn();
 
     if (host.inkRenderer) {

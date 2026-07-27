@@ -16,6 +16,8 @@ import {
   formatSettingValue,
   type SettingCategory,
 } from '../../src/commands/settings.js';
+import { resolveAwarenessTier } from '../../src/session/peers/PeerWarnings.js';
+import type { LoadedConfig } from '../../src/types.js';
 
 describe('getNestedValue', () => {
   it('reads a top-level key', () => {
@@ -154,6 +156,26 @@ describe('SETTINGS_REGISTRY', () => {
       type: 'boolean',
       defaultValue: true,
     });
+  });
+
+  it('exposes concurrent session awareness as a warn-by-default enum', () => {
+    const setting = SETTINGS_REGISTRY.find(s => s.key === 'sessions.awareness');
+    expect(setting).toMatchObject({
+      category: 'sessions',
+      type: 'enum',
+      enumValues: ['passive', 'warn', 'coordinate'],
+      defaultValue: 'warn',
+    });
+  });
+});
+
+describe('resolveAwarenessTier', () => {
+  it('uses warn when the setting is absent or invalid', () => {
+    expect(resolveAwarenessTier({ configPath: '/tmp/config.json' } as LoadedConfig)).toBe('warn');
+    expect(resolveAwarenessTier({
+      configPath: '/tmp/config.json',
+      sessions: { awareness: 'invalid' },
+    } as unknown as LoadedConfig)).toBe('warn');
   });
 });
 

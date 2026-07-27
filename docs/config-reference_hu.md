@@ -712,6 +712,20 @@ Az ügynök viselkedésének és iterációs korlátainak szabályozása.
 | `idleTimeoutMs` | szám | `3600000` | Az inaktivitás ezredmásodpercei a hitelesített munkamenet kijelentkeztetése előtt (60 perc) |
 | `debug` | logikai | `false` | Részletes hibakeresési kimenet engedélyezése (naplózza az ügynök belső állapotát az stderr-be) |
 
+## Egyidejű munkamenetek észlelése
+
+```json
+{
+  "sessions": {
+    "awareness": "warn"
+  }
+}
+```
+
+| Mező | Típus | Alapértelmezett | Leírás |
+| --- | --- | --- | --- |
+| `awareness` | karakterlánc | `"warn"` | A `passive` megjeleníti a többi munkamenetet, a `warn` a kockázatos Git- és fájlütközéseket is jelzi, a `coordinate` pedig megerősítést kér egy másik élő munkamenet által lefoglalt útvonal írása előtt |
+
 ### Eszközséma kiválasztása
 
 A Autohand nem küld el minden teljes eszközsémát minden LLM-kérelemnél. A rendszerprompt tartalmaz egy kompakt eszközképesség-katalógust, és minden kérés csak egy kis konkrét sémát tesz közzé, amely a következők közül választható ki:

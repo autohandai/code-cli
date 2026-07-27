@@ -38,6 +38,26 @@ describe('/agents command', () => {
     expect(output).toContain('9876');
   });
 
+  it('shows sanitized phase, instruction, command, and recent paths', () => {
+    const output = formatActiveAgents([
+      createRecord({
+        activity: {
+          phase: 'running_command',
+          instruction: '\u001b[2JRefactor auth\u202E',
+          command: 'bun test',
+          pathsWritten: ['src/auth.ts', 'tests/auth.test.ts'],
+        },
+      }),
+    ]);
+
+    expect(output).toContain('running command');
+    expect(output).toContain('Refactor auth');
+    expect(output).toContain('bun test');
+    expect(output).toContain('src/auth.ts');
+    expect(output).not.toContain('\u001b[2J');
+    expect(output).not.toContain('\u202E');
+  });
+
   it('prints a static snapshot when --once is passed', async () => {
     const registry = {
       listActive: async () => [createRecord({ sessionId: 'static123456' })],

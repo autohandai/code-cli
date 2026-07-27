@@ -6,6 +6,7 @@
 
 import chalk from 'chalk';
 import { themedFg } from './Theme.js';
+import { t } from '../../i18n/index.js';
 
 export function formatStartupBanner(logo: string): string {
   return logo
@@ -54,6 +55,11 @@ export function formatWelcomeTitle(): string {
 
 export function formatWelcomeSuggestion(command: string, description: string): string {
   return themedFg('accent', `${command} `, chalk.cyan) + themedFg('muted', description, chalk.gray);
+}
+
+export function formatPeerSessionsLine(count: number): string {
+  const key = count === 1 ? 'commands.sessions.peerActive' : 'commands.sessions.peersActive';
+  return themedFg('warning', `⚉ ${t(key, { count })}`, chalk.yellow);
 }
 
 export function formatSessionEnding(): string {

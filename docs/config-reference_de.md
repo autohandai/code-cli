@@ -772,6 +772,20 @@ Steuern Sie das Agentenverhalten und die Iterationslimits.
 | `idleTimeoutMs`      | number  | `3600000` | Millisekunden Inaktivität vor der Abmeldung einer authentifizierten Sitzung (60 Minuten) |
 | `debug`              | boolean | `false` | Ausführliche Debug-Ausgabe aktivieren (protokolliert internen Agentenstatus nach stderr)              |
 
+## Bewusstsein für parallele Sitzungen
+
+```json
+{
+  "sessions": {
+    "awareness": "warn"
+  }
+}
+```
+
+| Feld | Typ | Standard | Beschreibung |
+| --- | --- | --- | --- |
+| `awareness` | string | `"warn"` | `passive` zeigt andere Sitzungen, `warn` meldet zusätzlich riskante Git- und Dateikollisionen, und `coordinate` fragt vor dem Schreiben eines von einer anderen aktiven Sitzung beanspruchten Pfads nach |
+
 ### Tool-Schema-Auswahl
 
 Autohand sendet nicht jedes vollständige Tool-Schema bei jeder LLM-Anfrage. Der System-Prompt enthält einen kompakten Tool-Fähigkeitenkatalog, und jede Anfrage legt nur eine kleine Menge konkreter Schemas offen, ausgewählt aus:
