@@ -220,6 +220,15 @@ export function runCommand(
       };
       child.stdout?.once('error', recordStreamError);
       child.stderr?.once('error', recordStreamError);
+      child.once('exit', (code, signal) => {
+        if (signal) {
+          complete({
+            code,
+            signal,
+            ...(streamError ? { error: streamError } : {}),
+          });
+        }
+      });
       child.once('close', (code, signal) => {
         complete({
           code,

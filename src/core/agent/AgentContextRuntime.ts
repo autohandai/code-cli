@@ -110,7 +110,7 @@ function runGitStatusLineCommand(workspaceRoot: string, args: string[]): Promise
     execFile('git', args, {
       cwd: workspaceRoot,
       encoding: 'utf8',
-      timeout: 200,
+      timeout: 5_000,
     }, (error, stdout) => {
       resolve(error ? undefined : (stdout.trim() || undefined));
     });
@@ -121,11 +121,18 @@ async function refreshStatusLineGitLabel(
   host: StatusLineGitLabelHost,
   workspaceRoot: string,
 ): Promise<void> {
-  const insideWorktree = await runGitStatusLineCommand(workspaceRoot, ['rev-parse', '--is-inside-work-tree']);
-  const value = insideWorktree === 'true'
-    ? (await runGitStatusLineCommand(workspaceRoot, ['branch', '--show-current']))
-      || `worktree:${path.basename(workspaceRoot)}`
-    : undefined;
+  const branch = await runGitStatusLineCommand(
+    workspaceRoot,
+    ['symbolic-ref', '--quiet', '--short', 'HEAD'],
+  );
+  const insideWorktree = branch
+    ? 'true'
+    : await runGitStatusLineCommand(workspaceRoot, ['rev-parse', '--is-inside-work-tree']);
+  const value = branch || (insideWorktree === 'true' ? `worktree:${path.basename(workspaceRoot)}` : undefined);
+
+  if (host.statusLineGitLabelCache?.workspaceRoot !== workspaceRoot) {
+    return;
+  }
 
   host.statusLineGitLabelCache = {
     workspaceRoot,
@@ -159,10 +166,16 @@ export function resolveStatusLineGitLabel(host: StatusLineGitLabelHost): string 
       checkedAt: usable?.checkedAt ?? 0,
       refreshing: true,
     };
-    void refreshStatusLineGitLabel(host, workspaceRoot).catch(() => {
-      if (host.statusLineGitLabelCache) {
-        host.statusLineGitLabelCache.refreshing = false;
+    setImmediate(() => {
+      if (host.statusLineGitLabelCache?.workspaceRoot !== workspaceRoot) {
+        return;
       }
+      void refreshStatusLineGitLabel(host, workspaceRoot).catch(() => {
+        const current = host.statusLineGitLabelCache;
+        if (current?.workspaceRoot === workspaceRoot) {
+          current.refreshing = false;
+        }
+      });
     });
   }
 

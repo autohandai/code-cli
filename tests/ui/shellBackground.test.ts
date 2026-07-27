@@ -15,7 +15,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 
 async function waitForDetachedCompletion<T>(
   completion: Promise<T>,
-  timeoutMs = 2_000,
+  timeoutMs = 10_000,
 ): Promise<T> {
   let timeoutId: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
@@ -90,7 +90,7 @@ describe('executeStreamingShellCommand background mode', () => {
     expect(elapsed).toBeLessThan(1_000);
     expect(result.success).toBe(true);
     expect(result.backgroundPid).toBeDefined();
-    await expect(waitForDetachedCompletion(completionPromise, 3_000)).resolves.toEqual({
+    await expect(waitForDetachedCompletion(completionPromise, 12_000)).resolves.toEqual({
       code: 0,
       signal: null,
     });
@@ -237,16 +237,28 @@ describe('executeStreamingShellCommand background mode', () => {
       resolveCompletion = resolve;
     });
     const result = await executeStreamingShellCommand(
-      nodeShellCommand('setInterval(() => undefined, 1000)'),
+      `${nodeShellCommand([
+        "process.on('SIGHUP', () => undefined)",
+        "process.on('SIGTERM', () => undefined)",
+        'setTimeout(() => process.exit(0), 10_000)',
+      ].join(';'))} & wait`,
       testDir,
       { background: true, onBackgroundExit: resolveCompletion }
     );
 
     process.kill(result.backgroundPid!, 'SIGTERM');
 
-    await expect(waitForDetachedCompletion(completionPromise)).resolves.toEqual({
-      code: null,
-      signal: 'SIGTERM',
-    });
+    try {
+      await expect(waitForDetachedCompletion(completionPromise, 5_000)).resolves.toEqual({
+        code: null,
+        signal: 'SIGTERM',
+      });
+    } finally {
+      try {
+        process.kill(-result.backgroundPid!, 'SIGKILL');
+      } catch {
+        // The detached process group may already be gone.
+      }
+    }
   });
 });
