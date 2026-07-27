@@ -30,7 +30,7 @@ import {
 const originalAutohandHome = process.env.AUTOHAND_HOME;
 const originalCodexHome = process.env.CODEX_HOME;
 
-async function waitForProcessId(filePath: string, timeoutMs = 1_000): Promise<number> {
+async function waitForProcessId(filePath: string, timeoutMs = 10_000): Promise<number> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (existsSync(filePath)) {
