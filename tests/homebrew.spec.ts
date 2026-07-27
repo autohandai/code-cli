@@ -105,6 +105,7 @@ describe('Homebrew formula', () => {
     it('installs the canonical command and keeps the previous command as an alias', () => {
       expect(formula).toContain('bin.install "autohand"');
       expect(formula).toContain('bin.install_symlink "autohand" => "autohand-code"');
+      expect(formula).toContain('bin.install_symlink "autohand" => "agent"');
       expect(formula).toContain('shell_output("#{bin}/autohand --version")');
     });
 

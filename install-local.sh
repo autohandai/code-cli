@@ -115,16 +115,19 @@ else
     INSTALL_PATH="$HOME/.local/bin/autohand"
 fi
 ALIAS_PATH="$(dirname "$INSTALL_PATH")/autohand-code"
+AGENT_ALIAS_PATH="$(dirname "$INSTALL_PATH")/agent"
 
 echo "📥 Installing to $INSTALL_PATH..."
 if [ -w "$(dirname "$INSTALL_PATH")" ]; then
     cp "binaries/$BINARY" "$INSTALL_PATH"
     chmod +x "$INSTALL_PATH"
     ln -sfn "$(basename "$INSTALL_PATH")" "$ALIAS_PATH"
+    ln -sfn "$(basename "$INSTALL_PATH")" "$AGENT_ALIAS_PATH"
 else
     sudo cp "binaries/$BINARY" "$INSTALL_PATH"
     sudo chmod +x "$INSTALL_PATH"
     sudo ln -sfn "$(basename "$INSTALL_PATH")" "$ALIAS_PATH"
+    sudo ln -sfn "$(basename "$INSTALL_PATH")" "$AGENT_ALIAS_PATH"
 fi
 
 # Verify installation
