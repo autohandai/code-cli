@@ -13,6 +13,7 @@ import { SyncApiClient } from '../../src/sync/SyncApiClient.js';
 import { computeHash, encrypt, isEncrypted } from '../../src/sync/encryption.js';
 import type { SyncEvent, SyncManifest } from '../../src/sync/types.js';
 import { acquireFileLock } from '../../src/utils/atomicFile.js';
+import { MemoryEventLog } from '../../src/memory/MemoryEventLog.js';
 
 // Mock the constants module
 vi.mock('../../src/constants.js', () => ({
@@ -1757,6 +1758,65 @@ describe('SyncService - File filtering', () => {
 
     expect(status.fileCount).toBe(1);
     expect(status.totalSize).toBe(Buffer.byteLength('{"version":1}\n'));
+  });
+
+  it('merges a downloaded canonical memory log without replacing local history', async () => {
+    const localMemoryDir = path.join(tempDir, 'memory');
+    const remoteMemoryDir = path.join(tempDir, 'remote-memory');
+    const localLog = new MemoryEventLog(localMemoryDir);
+    const remoteLog = new MemoryEventLog(remoteMemoryDir);
+    const memoryEntry = (id: string) => ({
+      id,
+      content: `Memory ${id}`,
+      createdAt: '2026-07-27T00:00:00.000Z',
+      updatedAt: '2026-07-27T00:00:00.000Z',
+    });
+    await localLog.append({ operation: 'create', level: 'user', entry: memoryEntry('local') });
+    await remoteLog.append({ operation: 'create', level: 'user', entry: memoryEntry('remote') });
+    const localPath = path.join(localMemoryDir, 'events', 'LOG.jsonl');
+    const localPrefix = await fs.readFile(localPath, 'utf8');
+    const remoteContent = await fs.readFile(
+      path.join(remoteMemoryDir, 'events', 'LOG.jsonl'),
+    );
+    (mockApiClient.initiateDownload as ReturnType<typeof vi.fn>).mockResolvedValue({
+      downloadUrls: { 'memory/events/LOG.jsonl': 'https://example.com/memory-log' },
+    });
+    (mockApiClient.downloadFile as ReturnType<typeof vi.fn>).mockResolvedValue(remoteContent);
+
+    const service = new SyncService({
+      authToken: 'test-token',
+      userId: 'test-user',
+      config: { enabled: true, interval: 300000 },
+      apiClient: mockApiClient,
+    });
+    (service as unknown as { basePath: string }).basePath = tempDir;
+    const downloadFiles = (
+      service as unknown as {
+        downloadFiles(
+          files: Array<{ path: string; hash: string; size: number; modifiedAt: string }>,
+          enabledRoots: string[],
+          onDownloaded: () => void,
+          emitEvents: boolean,
+        ): Promise<void>;
+      }
+    ).downloadFiles.bind(service);
+
+    await downloadFiles(
+      [{
+        path: 'memory/events/LOG.jsonl',
+        hash: 'remote',
+        size: remoteContent.length,
+        modifiedAt: new Date().toISOString(),
+      }],
+      ['memory/'],
+      () => {},
+      false,
+    );
+
+    expect((await fs.readFile(localPath, 'utf8')).startsWith(localPrefix)).toBe(true);
+    expect(new Set((await localLog.replay()).map((entry) => entry.id))).toEqual(
+      new Set(['local', 'remote']),
+    );
   });
 
   it('includes telemetry when consent is given', async () => {

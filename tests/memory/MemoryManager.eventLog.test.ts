@@ -176,4 +176,22 @@ describe('MemoryManager event log integration', () => {
     expect(recalled[0]?.content).toBe('Use Vitest fake timers for scheduler tests');
     expect(recalled.every((memory) => memory.level === 'project')).toBe(true);
   });
+
+  it('automatically repairs the materialized projection from canonical events on startup', async () => {
+    const { manager, memoryDir } = await createManager();
+    const created = await manager.store('Recover this projection automatically', 'project');
+    await fs.remove(path.join(memoryDir, `${created.id}.json`));
+    await fs.remove(path.join(memoryDir, 'index.json'));
+
+    const restarted = new MemoryManager(path.dirname(path.dirname(memoryDir)));
+    await restarted.initialize();
+
+    await expect(restarted.get(created.id, 'project')).resolves.toMatchObject({
+      id: created.id,
+      content: created.content,
+    });
+    await expect(fs.readJson(path.join(memoryDir, 'index.json'))).resolves.toMatchObject({
+      entries: [{ id: created.id }],
+    });
+  });
 });
