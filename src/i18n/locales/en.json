@@ -789,8 +789,8 @@
       "bedrock": "Cloud - AWS Bedrock enterprise models and OpenAI-compatible endpoints"
     },
     "autohandaiPlan": {
-      "choose": "Choose an Autohand AI plan",
-      "cloud": "Cloud",
+      "choose": "Choose an Autohand plan",
+      "cloud": "Hosted",
       "cloudDescription": "Use Autohand-hosted Fantail and Moa models at api.autohand.ai",
       "local": "Local",
       "localDescription": "Install MLX locally, choose a coding model your Mac can run, and start a local server",

@@ -18,6 +18,7 @@ import { classifyApiError, type ApiErrorCode } from '../../providers/errors.js';
 import { getAllCatalogModelOptions } from '../../providers/modelCatalog.js';
 import type { ConversationManager } from '../../core/conversationManager.js';
 import type {
+  AutohandConfig,
   LLMMessage,
   ToolOutputChunk,
   AgentStatusSnapshot,
@@ -26,6 +27,7 @@ import type {
   McpServerConfigEntry,
   LoadedConfig,
 } from '../../types.js';
+import { isAutohandInferenceEnabled } from '../../featureFlags.js';
 import type {
   JsonRpcId,
   RpcMessage,
@@ -3993,14 +3995,18 @@ export class RPCAdapter {
    */
   async handleGetSupportedModels(): Promise<GetSupportedModelsResult> {
     try {
-      const models = [
-        { id: 'fantail', displayName: 'Autohand AI Fantail' },
-        { id: 'moa', displayName: 'Autohand AI Moa (Thinking)' },
-        ...getAllCatalogModelOptions().map((model) => ({
+      const config = (this.agent as unknown as { runtime?: { config?: AutohandConfig } } | null)
+        ?.runtime?.config;
+      const autohandModels = isAutohandInferenceEnabled(config)
+        ? [
+            { id: 'fantail', displayName: 'Autohand AI Fantail' },
+            { id: 'moa', displayName: 'Autohand AI Moa (Thinking)' },
+          ]
+        : [];
+      const models = [...autohandModels, ...getAllCatalogModelOptions().map((model) => ({
         id: model.id,
         displayName: model.displayName ?? model.id,
-        })),
-      ];
+      }))];
       return {
         models,
       };

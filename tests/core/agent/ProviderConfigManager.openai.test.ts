@@ -544,6 +544,7 @@ describe("ProviderConfigManager openai auth mode", () => {
 
   it("shows user-facing provider names in provider selection when no active provider is configured", async () => {
     runtime.config.provider = "zai";
+    runtime.config.features = { autohand_inference: true };
 
     mockShowModal.mockResolvedValueOnce(null);
 
@@ -552,7 +553,9 @@ describe("ProviderConfigManager openai auth mode", () => {
     const options = mockShowModal.mock.calls[0][0].options;
     expect(options.some((option: { label: string }) => option.label.includes("Z.ai"))).toBe(true);
     expect(options.some((option: { label: string }) => option.label.includes("Sakana.AI"))).toBe(true);
-    expect(options.some((option: { label: string }) => option.label.includes("Autohand AI"))).toBe(true);
+    const autohandOption = options.find((option: { value: string }) => option.value === "autohandai");
+    expect(autohandOption?.label).toContain("Autohand");
+    expect(autohandOption?.label).not.toContain("(hosted)");
     expect(options.some((option: { label: string }) => option.label.includes("LLM Gateway"))).toBe(true);
     expect(options.some((option: { label: string }) => option.label.includes("DeepSeek"))).toBe(true);
   });
@@ -698,5 +701,20 @@ describe("ProviderConfigManager openai auth mode", () => {
       reasoningEffort: "xhigh",
     });
     expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+
+  it("hides Autohand from provider selection while autohand_inference is disabled", async () => {
+    runtime.config.provider = "zai";
+    runtime.config.zai = {
+      apiKey: "zai-key-long-enough",
+      model: "glm-4.5",
+      baseUrl: "https://api.z.ai/api/paas/v4",
+    };
+    mockShowModal.mockResolvedValueOnce(null);
+
+    await manager.promptModelSelection();
+
+    const options = mockShowModal.mock.calls[0][0].options;
+    expect(options.some((option: { value: string }) => option.value === "autohandai")).toBe(false);
   });
 });
