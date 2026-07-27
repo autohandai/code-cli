@@ -76,6 +76,42 @@ describe('AnnouncementClient', () => {
     expect((fetchMock.mock.calls[0]?.[1] as RequestInit).signal?.aborted).toBe(true);
   });
 
+  it('aborts a response whose body stalls after headers arrive', async () => {
+    // The abort timer must outlive the header exchange: a server that answers with
+    // headers and then stalls the body would otherwise hang `/whatsnew` forever,
+    // because that command awaits refresh() with the UI already paused.
+    const fetchMock = vi.fn((_url: URL, init: RequestInit) => Promise.resolve({
+      ok: true,
+      json: () => new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      }),
+    } as unknown as Response));
+    const client = new AnnouncementClient(config(), {
+      fetch: fetchMock,
+      requestTimeoutMs: 5,
+    });
+
+    expect(await client.fetchAnnouncements()).toBeNull();
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).signal?.aborted).toBe(true);
+  });
+
+  it('awaits the seen and dismiss requests instead of detaching them', async () => {
+    let completed = false;
+    const fetchMock = vi.fn(async () => {
+      await new Promise((resolve) => { setTimeout(resolve, 5); });
+      completed = true;
+      return new Response('{}', { status: 200 });
+    });
+    const client = new AnnouncementClient(config(), { fetch: fetchMock });
+
+    await client.postSeen('announcement-1', 2);
+    expect(completed).toBe(true);
+
+    completed = false;
+    await client.postDismiss('announcement-1');
+    expect(completed).toBe(true);
+  });
+
   it('swallows seen and dismiss request failures', async () => {
     const fetchMock = vi.fn().mockRejectedValue(new Error('offline'));
     const client = new AnnouncementClient(config(), { fetch: fetchMock });

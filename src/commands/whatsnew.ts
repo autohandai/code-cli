@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
+import { t } from '../i18n/index.js';
 import type { CliAnnouncement } from '../announcements/AnnouncementContent.js';
 import type { AnnouncementManagerContract } from '../announcements/AnnouncementManager.js';
 
@@ -32,7 +33,7 @@ function toModalOption(announcement: CliAnnouncement): ModalOption {
 export async function whatsnew(ctx: WhatsNewContext): Promise<string | null> {
   const manager = ctx.announcementManager;
   if (!manager) {
-    return 'Announcements are unavailable in this session.';
+    return t('announcements.unavailable');
   }
 
   await manager.refresh();
@@ -40,15 +41,15 @@ export async function whatsnew(ctx: WhatsNewContext): Promise<string | null> {
   while (true) {
     const active = manager.getActive();
     if (active.length === 0) {
-      return 'No new announcements.';
+      return t('announcements.none');
     }
 
     await Promise.all(active.map((announcement) => manager.markSeen(announcement.id)));
     const selected = await showModal({
-      title: "What's new",
+      title: t('announcements.modalTitle'),
       options: active.map(toModalOption),
       maxVisible: active.length,
-      hint: '↑↓ move  ·  enter dismiss  ·  esc close',
+      hint: t('announcements.modalHint'),
     });
     if (!selected) {
       return null;

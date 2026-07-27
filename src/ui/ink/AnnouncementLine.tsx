@@ -3,9 +3,10 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import React from 'react';
+import React, { memo } from 'react';
 import { Box, Text } from 'ink';
 import stringWidth from 'string-width';
+import { useTheme } from '../theme/ThemeContext.js';
 
 export interface AnnouncementLineProps {
   text: string;
@@ -17,10 +18,15 @@ export interface AnnouncementLineProps {
 const MINIMUM_HINT_COLUMNS = 40;
 const CONTENT_HINT_GAP = 2;
 
+// Built once. This runs inside the bottom region, which re-renders on every
+// spinner frame, and constructing an ICU segmenter per frame is not free.
+const GRAPHEME_SEGMENTER = typeof Intl.Segmenter === 'function'
+  ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+  : null;
+
 function graphemes(value: string): string[] {
-  if (typeof Intl.Segmenter === 'function') {
-    const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-    return Array.from(segmenter.segment(value), (part) => part.segment);
+  if (GRAPHEME_SEGMENTER) {
+    return Array.from(GRAPHEME_SEGMENTER.segment(value), (part) => part.segment);
   }
   return Array.from(value);
 }
@@ -50,12 +56,14 @@ export function truncateAnnouncementLine(value: string, maxWidth: number): strin
   return `${output}…`;
 }
 
-export function AnnouncementLine({
+function AnnouncementLineComponent({
   text,
   hint,
   visible,
   columns,
 }: AnnouncementLineProps): React.ReactNode {
+  const { theme } = useTheme();
+
   if (!visible) {
     return null;
   }
@@ -70,8 +78,10 @@ export function AnnouncementLine({
 
   return (
     <Box width={normalizedColumns} justifyContent={showHint ? 'space-between' : 'flex-start'}>
-      <Text>{content}</Text>
-      {showHint ? <Text>{hint}</Text> : null}
+      <Text>{theme.fg('accent', content)}</Text>
+      {showHint ? <Text>{theme.fg('muted', hint)}</Text> : null}
     </Box>
   );
 }
+
+export const AnnouncementLine = memo(AnnouncementLineComponent);

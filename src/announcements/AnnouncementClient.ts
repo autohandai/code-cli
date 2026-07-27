@@ -54,28 +54,19 @@ export class AnnouncementClient {
     url.searchParams.set('appVersion', this.clientVersion);
     url.searchParams.set('platform', this.platform);
 
-    const response = await this.request(url, {
+    const payload = await this.requestJson(url, {
       method: 'GET',
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (!response?.ok) {
-      return null;
-    }
-
-    try {
-      return parseAnnouncementResponse(await response.json());
-    } catch {
-      return null;
-    }
+    return payload === null ? null : parseAnnouncementResponse(payload);
   }
 
   async postSeen(id: string, lastStep: number | null): Promise<void> {
-    const body = lastStep === null ? {} : { lastStep };
-    void this.post(id, 'seen', body);
+    await this.post(id, 'seen', lastStep === null ? {} : { lastStep });
   }
 
   async postDismiss(id: string): Promise<void> {
-    void this.post(id, 'dismiss');
+    await this.post(id, 'dismiss');
   }
 
   private async post(
@@ -91,7 +82,7 @@ export class AnnouncementClient {
     const url = new URL(
       `${this.apiBaseUrl}/v1/announcements/${encodeURIComponent(id)}/${action}`,
     );
-    await this.request(url, {
+    await this.send(url, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -101,18 +92,36 @@ export class AnnouncementClient {
     });
   }
 
-  private async request(url: URL, init: RequestInit): Promise<Response | null> {
+  /**
+   * Runs a request with the abort timer held open for the whole exchange,
+   * including `consume`. Releasing it once the headers land would leave a
+   * stalled response body with no deadline at all.
+   */
+  private async withDeadline<T>(
+    url: URL,
+    init: RequestInit,
+    consume: (response: Response) => Promise<T>,
+  ): Promise<T | null> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
     try {
-      return await this.fetchImplementation(url, {
+      const response = await this.fetchImplementation(url, {
         ...init,
         signal: controller.signal,
       });
+      return response.ok ? await consume(response) : null;
     } catch {
       return null;
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private async requestJson(url: URL, init: RequestInit): Promise<unknown | null> {
+    return this.withDeadline(url, init, (response) => response.json());
+  }
+
+  private async send(url: URL, init: RequestInit): Promise<void> {
+    await this.withDeadline(url, init, async () => undefined);
   }
 }

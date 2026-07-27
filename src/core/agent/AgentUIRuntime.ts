@@ -17,6 +17,7 @@ import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { buildStatusLineExtension, getConfigStatusLineSettings } from './StatusLineSettings.js';
 import { resolveStatusLineGitLabel } from './AgentContextRuntime.js';
 import { extensionRuntimeHost } from '../../extensions/ExtensionRuntimeHost.js';
+import { t } from '../../i18n/index.js';
 import type { AnnouncementLineState } from '../../ui/ink/AgentUI.js';
 
 export interface AgentUIRuntimeHost {
@@ -170,7 +171,7 @@ export function getAgentAnnouncementLine(host: AgentUIRuntimeHost): Announcement
   return {
     id: announcement.id,
     text: `◆ ${announcement.headline}${announcement.bodyLines[0] ? ` — ${announcement.bodyLines[0]}` : ''}`,
-    hint: '^X hide  /whatsnew',
+    hint: t('announcements.lineHint'),
     visible: true,
   };
 }

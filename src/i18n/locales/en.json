@@ -1138,5 +1138,14 @@
     "hu": "Magyar (Hungarian)",
     "hi": "हिन्दी (Hindi)",
     "id": "Bahasa Indonesia (Indonesian)"
+  },
+  "announcements": {
+    "launchLabel": "What's new",
+    "moreHint": "+{{count}} more · /whatsnew",
+    "lineHint": "^X hide  /whatsnew",
+    "modalTitle": "What's new",
+    "modalHint": "↑↓ move  ·  enter dismiss  ·  esc close",
+    "none": "No new announcements.",
+    "unavailable": "Announcements are unavailable in this session."
   }
 }
