@@ -24,6 +24,7 @@ import {
   isShellCommand,
   parseShellCommand,
   setNodePtyLoaderForTests,
+  supportsPtyExecution,
 } from '../../src/ui/shellCommand.js';
 
 const originalAutohandHome = process.env.AUTOHAND_HOME;
@@ -382,6 +383,133 @@ describe('executeStreamingShellCommand', () => {
       if (stdoutIsTty) Object.defineProperty(process.stdout, 'isTTY', stdoutIsTty);
       else delete (process.stdout as { isTTY?: boolean }).isTTY;
     }
+  });
+
+  describe('PTY runtime support', () => {
+    // node-pty's read loop does not work under Bun: the PTY yields no data and
+    // never fires onExit, so an awaited shell command hangs forever. Measured on
+    // the same command and env: node exits in ~1.5s with 882 bytes, bun produces
+    // 0 bytes and never exits. The CLI runs under Bun (`bun src/index.ts`), so
+    // the PTY path has to be skipped there.
+    it('reports PTY support per runtime', () => {
+      expect(supportsPtyExecution({ node: '22.0.0' } as NodeJS.ProcessVersions)).toBe(true);
+      expect(supportsPtyExecution({ node: '22.0.0', bun: '1.2.0' } as unknown as NodeJS.ProcessVersions)).toBe(false);
+    });
+
+    it('never spawns a PTY under Bun and still runs the command', async () => {
+      const spawn = vi.fn(() => {
+        throw new Error('PTY must not be spawned under Bun');
+      });
+      setNodePtyLoaderForTests(async () => ({ spawn }));
+
+      const bunVersions = { ...process.versions, bun: '1.2.0' } as NodeJS.ProcessVersions;
+      const versionsDescriptor = Object.getOwnPropertyDescriptor(process, 'versions')!;
+      Object.defineProperty(process, 'versions', { configurable: true, value: bunVersions });
+      const stdinIsTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+      const stdoutIsTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+      Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+      Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+
+      try {
+        const script = 'process.stdout.write("ran-without-pty")';
+        const result = await executeStreamingShellCommand(
+          `${process.execPath} -e ${JSON.stringify(script)}`,
+          tmpdir(),
+          { preferPty: true },
+        );
+
+        expect(spawn).not.toHaveBeenCalled();
+        expect(result).toMatchObject({ success: true, output: 'ran-without-pty' });
+      } finally {
+        Object.defineProperty(process, 'versions', versionsDescriptor);
+        if (stdinIsTty) Object.defineProperty(process.stdin, 'isTTY', stdinIsTty);
+        else delete (process.stdin as { isTTY?: boolean }).isTTY;
+        if (stdoutIsTty) Object.defineProperty(process.stdout, 'isTTY', stdoutIsTty);
+        else delete (process.stdout as { isTTY?: boolean }).isTTY;
+      }
+    });
+  });
+
+  describe('PTY lifecycle diagnostics', () => {
+    // A real session had a 2-second command sit in a PTY for 25+ minutes with no
+    // output and no exit, and left nothing behind to diagnose it with. These lines
+    // make the next occurrence answerable: did the child ever emit a byte, and
+    // what pid should be inspected while it is still alive.
+    function withTty<T>(run: () => Promise<T>): Promise<T> {
+      const stdinIsTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+      const stdoutIsTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+      Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+      Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+      return run().finally(() => {
+        if (stdinIsTty) Object.defineProperty(process.stdin, 'isTTY', stdinIsTty);
+        else delete (process.stdin as { isTTY?: boolean }).isTTY;
+        if (stdoutIsTty) Object.defineProperty(process.stdout, 'isTTY', stdoutIsTty);
+        else delete (process.stdout as { isTTY?: boolean }).isTTY;
+      });
+    }
+
+    function fakePty(capture: {
+      data?: (chunk: string) => void;
+      exit?: (event: { exitCode: number; signal?: number }) => void;
+    }) {
+      return {
+        spawn: () => ({
+          pid: 4242,
+          onData: (handler: (chunk: string) => void) => {
+            capture.data = handler;
+            return { dispose: vi.fn() };
+          },
+          onExit: (handler: (event: { exitCode: number; signal?: number }) => void) => {
+            capture.exit = handler;
+            return { dispose: vi.fn() };
+          },
+          kill: vi.fn(),
+        }),
+      };
+    }
+
+    async function runWithDebug(debugEnabled: boolean): Promise<string[]> {
+      const previous = process.env.AUTOHAND_DEBUG;
+      if (debugEnabled) process.env.AUTOHAND_DEBUG = '1';
+      else delete process.env.AUTOHAND_DEBUG;
+
+      const lines: string[] = [];
+      const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+        lines.push(String(chunk));
+        return true;
+      });
+      const capture: Parameters<typeof fakePty>[0] = {};
+      setNodePtyLoaderForTests(async () => fakePty(capture));
+
+      try {
+        await withTty(async () => {
+          const pending = executeStreamingShellCommand('slow build', tmpdir(), { preferPty: true });
+          await vi.waitFor(() => expect(capture.exit).toBeDefined());
+          capture.data?.('compiling\r\n');
+          capture.exit?.({ exitCode: 0 });
+          return pending;
+        });
+      } finally {
+        stderrSpy.mockRestore();
+        if (previous === undefined) delete process.env.AUTOHAND_DEBUG;
+        else process.env.AUTOHAND_DEBUG = previous;
+      }
+      return lines;
+    }
+
+    it('records spawn, first output, and exit when debugging is enabled', async () => {
+      const lines = (await runWithDebug(true)).join('');
+
+      expect(lines).toMatch(/\[pty\] spawn\b/);
+      expect(lines).toContain('pid=4242');
+      expect(lines).toMatch(/\[pty\] first-output\b/);
+      expect(lines).toMatch(/\[pty\] exit\b/);
+      expect(lines).toMatch(/code=0/);
+    });
+
+    it('stays silent when debugging is disabled', async () => {
+      expect((await runWithDebug(false)).join('')).not.toContain('[pty]');
+    });
   });
 
   it('falls back to non-PTY execution when native PTY startup fails', async () => {
