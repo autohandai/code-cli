@@ -18,6 +18,7 @@ import { getHelpOrderedSlashCommands } from '../../src/ui/inputPrompt.js';
 import {
   clearComposerInput,
   createFailingOpenRouterFetchPreload,
+  createMockChangelogFetchPreload,
   createMockAuthServer,
   createMockOpenRouterFetchPreload,
   createMockOpenRouterSequenceServer,
@@ -1097,6 +1098,47 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(screen).toContain('/add-dir');
     expect(screen).toContain('Tab to accept');
 
+    await exitInteractive(session);
+  });
+
+  it('shows /changelog output and restores the composer', async () => {
+    const state = await createTempAutohandHome();
+    tempStates.push(state);
+    const changelogPreload = await createMockChangelogFetchPreload();
+    mockOpenRouterFetchPreloads.push(changelogPreload);
+    const session = await trackSession(launchBuiltAutohand([
+      '--path',
+      state.workspaceRoot,
+      '--config',
+      state.configPath,
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      env: {
+        NODE_OPTIONS: [
+          process.env.NODE_OPTIONS,
+          `--import=${changelogPreload.importSpecifier}`,
+        ].filter(Boolean).join(' '),
+      },
+      waitForDataTimeout: 15_000,
+    }));
+
+    await waitForComposer(session);
+    await session.type('/changelog');
+    await session.press('enter');
+    const screen = await session.text({
+      timeout: 10_000,
+      waitFor: (text) => (
+        text.includes('Autohand Changelog')
+        && text.includes('v9.8.7 — Tuistory release')
+        && text.includes('Visible changelog output')
+        && text.includes('❯')
+      ),
+      trimEnd: true,
+    });
+
+    expect(screen).toContain('Published Jul 27, 2026');
+    expect(screen).toContain('github.com/autohandai/code-cli/releases/tag/v9.8.7');
     await exitInteractive(session);
   });
 

@@ -367,6 +367,51 @@ globalThis.fetch = async (input, init) => {
   };
 }
 
+export async function createMockChangelogFetchPreload(): Promise<MockOpenRouterFetchPreload> {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'autohand-tuistory-changelog-'));
+  const preloadPath = path.join(tempRoot, 'mock-changelog-fetch.mjs');
+  const moduleSource = `
+const originalFetch = globalThis.fetch?.bind(globalThis);
+
+globalThis.fetch = async (input, init) => {
+  const url = typeof input === 'string'
+    ? input
+    : input instanceof URL
+      ? input.toString()
+      : input.url;
+
+  if (url === 'https://api.github.com/repos/autohandai/code-cli/releases?per_page=10') {
+    return new Response(JSON.stringify([{
+      tag_name: 'v9.8.7',
+      name: 'Tuistory release',
+      body: '- Visible changelog output',
+      published_at: '2026-07-27T00:00:00Z',
+      html_url: 'https://github.com/autohandai/code-cli/releases/tag/v9.8.7',
+      prerelease: false,
+    }]), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  if (!originalFetch) {
+    throw new Error('fetch is not available in this runtime');
+  }
+
+  return originalFetch(input, init);
+};
+`;
+
+  await writeFile(preloadPath, moduleSource);
+
+  return {
+    importSpecifier: pathToFileURL(preloadPath).href,
+    cleanup: async () => {
+      await rm(tempRoot, { recursive: true, force: true });
+    },
+  };
+}
+
 export async function createFailingOpenRouterFetchPreload(
   status = 503,
 ): Promise<MockOpenRouterFetchPreload> {
