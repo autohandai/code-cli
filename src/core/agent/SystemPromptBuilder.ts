@@ -418,7 +418,7 @@ export class SystemPromptBuilder {
     const allSkills = this.options.listSkills();
     if (allSkills.length > 0) {
       parts.push('', '## Available Skills');
-      parts.push('Skills are specialized instruction packages. Use /skills use <name> to activate one.');
+      parts.push('Skills are specialized instruction packages. Use the `skill` tool with command `activate` to activate a relevant learned or available skill.');
       for (const skill of allSkills) {
         const activeMarker = skill.isActive ? ' [ACTIVE]' : '';
         parts.push(`- **${skill.name}**${activeMarker}: ${skill.description}`);

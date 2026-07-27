@@ -47,6 +47,9 @@ function createContext() {
       },
     },
     workspaceRoot: '/tmp/workspace',
+    memoryManager: {
+      recordCapabilityUse: vi.fn().mockResolvedValue(undefined),
+    },
     onBeforeModal: vi.fn(),
     onAfterModal: vi.fn(),
     refreshFeatureGatedTools: vi.fn(),
@@ -79,6 +82,72 @@ describe('SlashCommandHandler', () => {
 
     expect(result).toBeNull();
     expect(ctx.promptModelSelection).toHaveBeenCalledTimes(1);
+    expect(ctx.memoryManager.recordCapabilityUse).toHaveBeenCalledWith({
+      kind: 'slash_command',
+      name: '/model',
+      source: 'core',
+      origin: 'user',
+      outcome: 'succeeded',
+    });
+  });
+
+  it('records extension slash-command outcomes without persisting arguments', async () => {
+    const ctx = createContext();
+    const extensionRuntime = {
+      getCommand: vi.fn().mockReturnValue({
+        command: '/deploy',
+        description: 'Deploy through the extension',
+        extensionId: 'acme.deploy',
+        execute: vi.fn().mockResolvedValue('deployed'),
+      }),
+      getCliOption: vi.fn(),
+    };
+    const handler = new SlashCommandHandler(
+      ctx as never,
+      [],
+      extensionRuntime as never,
+    );
+
+    await expect(handler.handle('/deploy', ['--token', 'secret-value'])).resolves.toBe('deployed');
+
+    expect(ctx.memoryManager.recordCapabilityUse).toHaveBeenCalledWith({
+      kind: 'slash_command',
+      name: '/deploy',
+      source: 'extension:acme.deploy',
+      origin: 'user',
+      outcome: 'succeeded',
+    });
+    expect(ctx.memoryManager.recordCapabilityUse).not.toHaveBeenCalledWith(
+      expect.objectContaining({ args: expect.anything() }),
+    );
+  });
+
+  it('records a failed extension slash command without changing its error response', async () => {
+    const ctx = createContext();
+    const extensionRuntime = {
+      getCommand: vi.fn().mockReturnValue({
+        command: '/deploy',
+        description: 'Deploy through the extension',
+        extensionId: 'acme.deploy',
+        execute: vi.fn().mockRejectedValue(new Error('provider unavailable')),
+      }),
+      getCliOption: vi.fn(),
+    };
+    const handler = new SlashCommandHandler(
+      ctx as never,
+      [],
+      extensionRuntime as never,
+    );
+
+    await expect(handler.handle('/deploy', ['--token', 'secret-value']))
+      .resolves.toBe('Extension command /deploy failed: provider unavailable');
+    expect(ctx.memoryManager.recordCapabilityUse).toHaveBeenCalledWith({
+      kind: 'slash_command',
+      name: '/deploy',
+      source: 'extension:acme.deploy',
+      origin: 'user',
+      outcome: 'failed',
+    });
   });
 
   it('calls init for /init', async () => {

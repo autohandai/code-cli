@@ -6,7 +6,7 @@
 import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { SkillsRegistry } from '../../src/skills/SkillsRegistry.js';
 import { buildSkillSuggestions } from '../../src/ui/ink/SkillMentionDropdown.js';
 
@@ -233,6 +233,51 @@ ${body}
       expect(activeSkills.length).toBe(1);
       expect(activeSkills[0].name).toBe('activatable-skill');
       expect(activeSkills[0].isActive).toBe(true);
+    });
+
+    it('reports skill activation to the project capability recorder', async () => {
+      const testDir = path.join(tempRoot, 'test-track-activated-skills');
+      await fs.ensureDir(testDir);
+      await createSkill(testDir, 'tracked-skill', 'A tracked skill', 'Tracked body');
+      const recordCapabilityUse = vi.fn();
+      const registry = new SkillsRegistry(testDir);
+      registry.setCapabilityUsageRecorder(recordCapabilityUse);
+      await registry.initialize();
+
+      expect(registry.activateSkill('tracked-skill')).toBe(true);
+
+      expect(recordCapabilityUse).toHaveBeenCalledWith({
+        kind: 'skill',
+        name: 'tracked-skill',
+        source: 'autohand-user',
+        origin: 'user',
+        outcome: 'succeeded',
+      });
+    });
+
+    it('flushes in-flight capability writes before shutdown', async () => {
+      const testDir = path.join(tempRoot, 'test-flush-activated-skills');
+      await fs.ensureDir(testDir);
+      await createSkill(testDir, 'durable-skill', 'A durable skill', 'Durable body');
+      let finishWrite: (() => void) | undefined;
+      const write = new Promise<void>((resolve) => {
+        finishWrite = resolve;
+      });
+      const registry = new SkillsRegistry(testDir);
+      registry.setCapabilityUsageRecorder(() => write);
+      await registry.initialize();
+      registry.activateSkill('durable-skill');
+      let flushed = false;
+
+      const flush = registry.flushCapabilityUsage().then(() => {
+        flushed = true;
+      });
+      await Promise.resolve();
+      expect(flushed).toBe(false);
+
+      finishWrite?.();
+      await flush;
+      expect(flushed).toBe(true);
     });
 
     it('returns false when trying to activate non-existent skill', async () => {

@@ -33,7 +33,19 @@ const MEMORY_OPERATIONS = new Set<MemoryEvent['operation']>([
   'create',
   'update',
   'delete',
+  'capability_used',
 ]);
+const CAPABILITY_EVENT_KEYS = new Set([
+  'version',
+  'eventId',
+  'operation',
+  'level',
+  'capability',
+  'origin',
+  'outcome',
+  'occurredAt',
+]);
+const CAPABILITY_IDENTITY_KEYS = new Set(['kind', 'name', 'source']);
 
 export class MemoryEventLogCorruptionError extends Error {
   constructor(
@@ -59,6 +71,21 @@ function isMemoryEntry(value: unknown): value is MemoryEntry {
     && (entry.source === undefined || typeof entry.source === 'string');
 }
 
+function isCapabilityText(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= 128
+    && value === value.trim()
+    && !/[\u0000-\u001f\u007f]/.test(value);
+}
+
+function hasOnlyKeys(
+  value: Record<string, unknown>,
+  allowedKeys: ReadonlySet<string>,
+): boolean {
+  return Object.keys(value).every((key) => allowedKeys.has(key));
+}
+
 function parseMemoryEvent(value: unknown, lineNumber: number): MemoryEvent {
   if (typeof value !== 'object' || value === null) {
     throw new MemoryEventLogCorruptionError('record must be an object', lineNumber);
@@ -77,13 +104,47 @@ function parseMemoryEvent(value: unknown, lineNumber: number): MemoryEvent {
   if (event.level !== 'user' && event.level !== 'project') {
     throw new MemoryEventLogCorruptionError('level is invalid', lineNumber);
   }
-  if (typeof event.memoryId !== 'string' || !isSafeMemoryId(event.memoryId)) {
-    throw new MemoryEventLogCorruptionError('memoryId is unsafe or invalid', lineNumber);
-  }
   if (typeof event.occurredAt !== 'string' || Number.isNaN(Date.parse(event.occurredAt))) {
     throw new MemoryEventLogCorruptionError('occurredAt must be an ISO timestamp', lineNumber);
   }
 
+  if (event.operation === 'capability_used') {
+    const capabilityEvent = value as Record<string, unknown>;
+    const capability = capabilityEvent.capability as Record<string, unknown> | undefined;
+    if (!hasOnlyKeys(capabilityEvent, CAPABILITY_EVENT_KEYS)
+      || (capability && !hasOnlyKeys(capability, CAPABILITY_IDENTITY_KEYS))) {
+      throw new MemoryEventLogCorruptionError(
+        'capability usage contains undeclared fields',
+        lineNumber,
+      );
+    }
+    if (event.level !== 'project') {
+      throw new MemoryEventLogCorruptionError('capability usage must use project level', lineNumber);
+    }
+    if (capabilityEvent.memoryId !== undefined || capabilityEvent.entry !== undefined) {
+      throw new MemoryEventLogCorruptionError(
+        'capability usage cannot contain memory entry fields',
+        lineNumber,
+      );
+    }
+    if (!capability
+      || (capability.kind !== 'skill' && capability.kind !== 'slash_command')
+      || !isCapabilityText(capability.name)
+      || !isCapabilityText(capability.source)) {
+      throw new MemoryEventLogCorruptionError('capability identity is invalid', lineNumber);
+    }
+    if (capabilityEvent.origin !== 'user' && capabilityEvent.origin !== 'agent') {
+      throw new MemoryEventLogCorruptionError('capability origin is invalid', lineNumber);
+    }
+    if (capabilityEvent.outcome !== 'succeeded' && capabilityEvent.outcome !== 'failed') {
+      throw new MemoryEventLogCorruptionError('capability outcome is invalid', lineNumber);
+    }
+    return value as MemoryEvent;
+  }
+
+  if (typeof event.memoryId !== 'string' || !isSafeMemoryId(event.memoryId)) {
+    throw new MemoryEventLogCorruptionError('memoryId is unsafe or invalid', lineNumber);
+  }
   if (event.operation === 'delete') {
     if (event.entry !== undefined) {
       throw new MemoryEventLogCorruptionError('delete events cannot contain an entry', lineNumber);
@@ -183,7 +244,8 @@ export class MemoryEventLog {
   async initialize(level: MemoryLevel, existingEntries: MemoryEntry[]): Promise<void> {
     await this.withLock(async () => {
       const existingEvents = await this.readAllLocked();
-      if (existingEvents.length > 0 || existingEntries.length === 0) {
+      const hasMemoryEvents = existingEvents.some((event) => event.operation !== 'capability_used');
+      if (hasMemoryEvents || existingEntries.length === 0) {
         return;
       }
 
@@ -246,6 +308,9 @@ export class MemoryEventLog {
     const entries = new Map<string, MemoryEntry>();
 
     for (const event of [...events].sort(compareMemoryEvents)) {
+      if (event.operation === 'capability_used') {
+        continue;
+      }
       if (event.operation === 'delete') {
         entries.delete(event.memoryId);
       } else if (event.operation === 'snapshot') {
@@ -270,6 +335,26 @@ export class MemoryEventLog {
     const occurredAt = new Date(
       Number.isNaN(previous) ? now : Math.max(now, previous + 1),
     ).toISOString();
+    if (input.operation === 'capability_used') {
+      if (!isCapabilityText(input.capability.name)
+        || !isCapabilityText(input.capability.source)) {
+        throw new Error('Capability name and source must be 1-128 printable characters');
+      }
+      return {
+        version: EVENT_LOG_VERSION,
+        eventId,
+        operation: 'capability_used',
+        level: 'project',
+        capability: {
+          kind: input.capability.kind,
+          name: input.capability.name,
+          source: input.capability.source,
+        },
+        origin: input.origin,
+        outcome: input.outcome,
+        occurredAt,
+      };
+    }
     if (input.operation === 'delete') {
       assertSafeMemoryId(input.memoryId);
       return {

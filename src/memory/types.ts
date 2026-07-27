@@ -33,24 +33,66 @@ export interface SimilarityMatch {
   score: number;
 }
 
-export type MemoryEventOperation = 'snapshot' | 'create' | 'update' | 'delete';
+export type CapabilityKind = 'skill' | 'slash_command';
+export type CapabilityUsageOrigin = 'user' | 'agent';
+export type CapabilityUsageOutcome = 'succeeded' | 'failed';
+
+export interface CapabilityIdentity {
+  kind: CapabilityKind;
+  name: string;
+  source: string;
+}
+
+export interface CapabilityUsageInput extends CapabilityIdentity {
+  origin: CapabilityUsageOrigin;
+  outcome: CapabilityUsageOutcome;
+}
+
+export interface LearnedProjectCapability extends CapabilityIdentity {
+  uses: number;
+  successfulUses: number;
+  failedUses: number;
+  userUses: number;
+  agentUses: number;
+  lastUsedAt: string;
+  score: number;
+}
+
+export type MemoryEventOperation =
+  | 'snapshot'
+  | 'create'
+  | 'update'
+  | 'delete'
+  | 'capability_used';
 
 interface MemoryEventBase {
   version: 1;
   eventId: string;
   operation: MemoryEventOperation;
-  level: MemoryLevel;
-  memoryId: string;
   occurredAt: string;
 }
 
+interface MemoryMutationEventBase extends MemoryEventBase {
+  level: MemoryLevel;
+  memoryId: string;
+}
+
 export type MemoryEvent =
-  | (MemoryEventBase & {
+  | (MemoryMutationEventBase & {
       operation: 'snapshot' | 'create' | 'update';
       entry: MemoryEntry;
     })
-  | (MemoryEventBase & {
+  | (MemoryMutationEventBase & {
       operation: 'delete';
+      entry?: never;
+    })
+  | (MemoryEventBase & {
+      operation: 'capability_used';
+      level: 'project';
+      capability: CapabilityIdentity;
+      origin: CapabilityUsageOrigin;
+      outcome: CapabilityUsageOutcome;
+      memoryId?: never;
       entry?: never;
     });
 
@@ -64,6 +106,13 @@ export type MemoryEventInput =
       operation: 'delete';
       level: MemoryLevel;
       memoryId: string;
+    }
+  | {
+      operation: 'capability_used';
+      level: 'project';
+      capability: CapabilityIdentity;
+      origin: CapabilityUsageOrigin;
+      outcome: CapabilityUsageOutcome;
     };
 
 export interface MemoryEventSnapshot {

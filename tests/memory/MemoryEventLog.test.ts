@@ -41,6 +41,82 @@ afterEach(async () => {
 });
 
 describe('MemoryEventLog', () => {
+  it('records privacy-safe capability usage without command arguments', async () => {
+    const { log, logPath } = await createLog();
+
+    await log.append({
+      operation: 'capability_used',
+      level: 'project',
+      capability: {
+        kind: 'slash_command',
+        name: '/deploy',
+        source: 'extension:acme.deploy',
+      },
+      origin: 'user',
+      outcome: 'succeeded',
+    });
+
+    const [event] = await log.readAll();
+    expect(event).toMatchObject({
+      operation: 'capability_used',
+      level: 'project',
+      capability: {
+        kind: 'slash_command',
+        name: '/deploy',
+        source: 'extension:acme.deploy',
+      },
+      origin: 'user',
+      outcome: 'succeeded',
+    });
+    expect(await fs.readFile(logPath, 'utf8')).not.toContain('arguments');
+    await expect(log.replay()).resolves.toEqual([]);
+  });
+
+  it('keeps legacy memory entries when capability usage predates bootstrap', async () => {
+    const { log } = await createLog();
+    await log.append({
+      operation: 'capability_used',
+      level: 'project',
+      capability: {
+        kind: 'skill',
+        name: 'tdd',
+        source: 'autohand-project',
+      },
+      origin: 'user',
+      outcome: 'succeeded',
+    });
+
+    await log.initialize('project', [entry('legacy')]);
+
+    await expect(log.replay()).resolves.toEqual([entry('legacy')]);
+    expect((await log.readAll()).map((event) => event.operation)).toEqual([
+      'capability_used',
+      'snapshot',
+    ]);
+  });
+
+  it('rejects synced capability events containing undeclared argument data', async () => {
+    const { log, logPath } = await createLog();
+    await fs.ensureDir(path.dirname(logPath));
+    await fs.writeFile(logPath, `${JSON.stringify({
+      version: 1,
+      eventId: 'unsafe-capability-event',
+      operation: 'capability_used',
+      level: 'project',
+      capability: {
+        kind: 'slash_command',
+        name: '/deploy',
+        source: 'extension:acme.deploy',
+      },
+      origin: 'user',
+      outcome: 'succeeded',
+      occurredAt: '2026-07-27T00:00:00.000Z',
+      args: ['--token', 'secret-value'],
+    })}\n`);
+
+    await expect(log.readAll()).rejects.toThrow(/undeclared fields/i);
+  });
+
   it('keeps prior records byte-for-byte while appending later events', async () => {
     const { log, logPath } = await createLog();
     const first = await log.append({

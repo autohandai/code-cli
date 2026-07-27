@@ -7,6 +7,8 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import type {
+  CapabilityUsageInput,
+  LearnedProjectCapability,
   MemoryEntry,
   MemoryIndex,
   MemoryLevel,
@@ -200,6 +202,86 @@ export class MemoryManager {
     return { project, user };
   }
 
+  async recordCapabilityUse(usage: CapabilityUsageInput): Promise<void> {
+    if (!this.projectMemoryDir) {
+      return;
+    }
+    await this.withMemoryMutationLock('project', async () => {
+      const eventLog = await this.initializeEventLog('project');
+      await eventLog.append({
+        operation: 'capability_used',
+        level: 'project',
+        capability: {
+          kind: usage.kind,
+          name: usage.name,
+          source: usage.source,
+        },
+        origin: usage.origin,
+        outcome: usage.outcome,
+      });
+    });
+    scheduleBackgroundSync();
+  }
+
+  async getLearnedProjectCapabilities(limit = 5): Promise<LearnedProjectCapability[]> {
+    if (!this.projectMemoryDir || !Number.isInteger(limit) || limit <= 0) {
+      return [];
+    }
+    const eventLog = await this.initializeEventLog('project');
+    const events = await eventLog.readAll();
+    const learned = new Map<string, LearnedProjectCapability>();
+    const now = Date.now();
+
+    for (const event of events) {
+      if (event.operation !== 'capability_used') {
+        continue;
+      }
+      const key = JSON.stringify([
+        event.capability.kind,
+        event.capability.name,
+        event.capability.source,
+      ]);
+      const existing = learned.get(key) ?? {
+        ...event.capability,
+        uses: 0,
+        successfulUses: 0,
+        failedUses: 0,
+        userUses: 0,
+        agentUses: 0,
+        lastUsedAt: event.occurredAt,
+        score: 0,
+      };
+      existing.uses += 1;
+      existing.successfulUses += event.outcome === 'succeeded' ? 1 : 0;
+      existing.failedUses += event.outcome === 'failed' ? 1 : 0;
+      existing.userUses += event.origin === 'user' ? 1 : 0;
+      existing.agentUses += event.origin === 'agent' ? 1 : 0;
+      if (event.occurredAt > existing.lastUsedAt) {
+        existing.lastUsedAt = event.occurredAt;
+      }
+      learned.set(key, existing);
+    }
+
+    for (const capability of learned.values()) {
+      const recency = this.calculateRecencyScore(capability.lastUsedAt, now);
+      capability.score = Math.max(0, (capability.successfulUses * 4)
+        + (Math.min(capability.userUses, capability.successfulUses) * 2)
+        + capability.agentUses
+        - (capability.failedUses * 2)
+        + recency);
+    }
+
+    return [...learned.values()]
+      .sort((left, right) =>
+        right.score - left.score
+        || right.lastUsedAt.localeCompare(left.lastUsedAt)
+        || left.kind.localeCompare(right.kind)
+        || left.name.localeCompare(right.name)
+        || left.source.localeCompare(right.source)
+      )
+      .slice(0, limit);
+  }
+
   async delete(id: string, level: MemoryLevel): Promise<void> {
     assertSafeMemoryId(id);
     await this.withMemoryMutationLock(level, () => this.deleteUnlocked(id, level));
@@ -305,6 +387,25 @@ export class MemoryManager {
 
     if (user.length > 0) {
       await this.appendContextLevel(parts, 'user', user, limit);
+    }
+
+    const capabilities = (await this.getLearnedProjectCapabilities(10))
+      .filter((capability) => capability.successfulUses > 0)
+      .slice(0, 5);
+    if (capabilities.length > 0) {
+      parts.push('## Learned Project Capabilities');
+      for (const capability of capabilities) {
+        const label = capability.kind === 'skill' ? 'Skill' : 'Slash command';
+        parts.push(
+          `- ${label} \`${capability.name}\` from \`${capability.source}\``
+          + ` — ${capability.uses} ${capability.uses === 1 ? 'use' : 'uses'}`
+          + ` (${capability.successfulUses} successful;`
+          + ` user ${capability.userUses}, agent ${capability.agentUses})`,
+        );
+      }
+      parts.push(
+        'Use learned skills when they match the task. Slash commands are user workflows: suggest relevant commands, but never execute them automatically.',
+      );
     }
 
     return parts.join('\n');

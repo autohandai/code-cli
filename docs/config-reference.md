@@ -1534,6 +1534,13 @@ uploaded again; one device never replaces another device's memory history with
 cloud-wins semantics. Compatibility JSON files remain syncable materialized
 views. Locks and `memory/derived/` summary caches never sync.
 
+The same canonical project log records privacy-safe skill and slash-command
+usage so future sessions can recognize frequently useful project workflows.
+These events contain capability name/source, user-or-agent origin, outcome, and
+timestamp only. Slash-command arguments, output, and skill bodies are not
+persisted. Learned slash commands can be suggested but are never automatically
+executed.
+
 For ordinary file conflicts (the same non-memory-log file modified on multiple
 devices), the **cloud version wins**. This ensures consistency when logging in
 on new devices.

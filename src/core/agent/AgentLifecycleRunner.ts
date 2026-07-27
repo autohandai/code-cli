@@ -309,6 +309,9 @@ export async function shutdownAgentRuntimeResources(host: AgentLifecycleHost): P
       if (host.flushTurnMemoryReflection) {
         cleanupTasks.push(callResourceCleanup(() => host.flushTurnMemoryReflection()));
       }
+      if (host.skillsRegistry?.flushCapabilityUsage) {
+        cleanupTasks.push(callResourceCleanup(() => host.skillsRegistry.flushCapabilityUsage()));
+      }
       const snapshotFlush = host.flushScheduledSessionSnapshot
         ? callResourceCleanup(() => host.flushScheduledSessionSnapshot())
         : Promise.resolve().then(() => {

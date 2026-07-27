@@ -63,6 +63,9 @@ Stages 0 through 3 are implemented:
 - `getContextMemories()` switches large memory sets to bounded outlines
 - `recall_memory` ranks content, tag, and recency matches
 - `inspect_memory` and `/memory outline|zoom|forget|rebuild|delete` expose the lifecycle without replacing existing flat-list behavior
+- skill activations and successful or failed slash-command dispatches append privacy-safe `capability_used` events to the project ledger
+- learned capability rankings combine frequency, successful use, user/agent origin, and recency and are injected into later project context
+- capability events retain only stable identity and outcome metadata; slash-command arguments and skill bodies are never stored
 
 The write order is event first, then materialized JSON and index. A crash can therefore leave a projection behind the log, but cannot create an unrecorded committed mutation. Replaying the log repairs projections. Derived summaries are always cache, never source of truth.
 
@@ -128,3 +131,22 @@ Specifically:
 - expose bounded outline/zoom views without making them mandatory for normal recall
 
 This gives the robustness and navigation benefits without creating a second memory source of truth.
+
+### Capability learning
+
+Project capability learning uses the same `.autohand/memory/events/LOG.jsonl`
+ledger as semantic memories. It does not create a telemetry sidecar or a second
+preference database.
+
+Each `capability_used` event contains:
+
+- capability kind (`skill` or `slash_command`)
+- stable capability name and source
+- whether the user or agent activated it
+- whether dispatch succeeded or failed
+- the canonical event timestamp
+
+Raw slash-command arguments, command output, skill instructions, and secrets
+are deliberately excluded. Derived rankings are rebuildable from the ledger.
+Relevant learned skills may guide future work; learned slash commands may be
+suggested to the user but are never executed automatically.

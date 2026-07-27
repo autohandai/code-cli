@@ -63,6 +63,8 @@ export class SlashCommandHandler {
       return null;
     }
 
+    let usageOutcome: 'succeeded' | 'failed' = 'succeeded';
+    try {
     if (runtimeCommand) {
       try {
         const result = await runtimeCommand.execute({
@@ -95,6 +97,7 @@ export class SlashCommandHandler {
         }
         return typeof result === 'string' ? result : null;
       } catch (error) {
+        usageOutcome = 'failed';
         const message = error instanceof Error ? error.message : String(error);
         return `Extension command ${runtimeCommand.command} failed: ${message}`;
       }
@@ -108,6 +111,7 @@ export class SlashCommandHandler {
       '/whatsnew',
     ]);
     if (this.ctx.isNonInteractive && INTERACTIVE_ONLY.has(command)) {
+      usageOutcome = 'failed';
       return `Command ${command} requires an interactive terminal. Use the dedicated RPC method or API instead.`;
     }
 
@@ -709,12 +713,27 @@ export class SlashCommandHandler {
           return squad({ workspaceRoot: this.ctx.workspaceRoot, config: this.ctx.config }, args);
         }
         default:
+          usageOutcome = 'failed';
           this.printUnsupported(command);
           return null;
       }
     } catch (error) {
+      usageOutcome = 'failed';
       console.error(chalk.red(`Error executing command ${command}:`), error);
       return null;
+    }
+    } finally {
+      try {
+        await this.ctx.memoryManager?.recordCapabilityUse({
+          kind: 'slash_command',
+          name: runtimeCommand?.command ?? meta.command,
+          source: runtimeCommand ? `extension:${runtimeCommand.extensionId}` : 'core',
+          origin: 'user',
+          outcome: usageOutcome,
+        });
+      } catch {
+        // Capability learning is best-effort and must not change command behavior.
+      }
     }
   }
 
