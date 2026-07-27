@@ -1036,7 +1036,8 @@ program
   .description('Generate shell completion scripts (bash, zsh, fish)')
   .action(async (shell: string) => {
     const { runCompletionCommand } = await import('./commands/completion.js');
-    await runCompletionCommand(shell);
+    const { createCompletionConfig } = await import('./completions/index.js');
+    await runCompletionCommand(shell, createCompletionConfig(program));
     process.exit(0);
   });
 
@@ -2585,7 +2586,14 @@ function isCliEntrypoint(): boolean {
 
 if (isCliEntrypoint()) {
   void prepareRuntimeExtensionsForCli(program, process.argv)
-    .then(() => program.parseAsync())
+    .then(async () => {
+      const {
+        createCompletionConfig,
+        setRuntimeCompletionConfig,
+      } = await import('./completions/index.js');
+      setRuntimeCompletionConfig(createCompletionConfig(program));
+      await program.parseAsync();
+    })
     .catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     console.error(chalk.red(message));

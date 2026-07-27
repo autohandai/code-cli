@@ -4,6 +4,7 @@ set -e
 REPO="autohandai/code-cli"
 BINARY_NAME="autohand"
 COMPAT_BINARY_NAME="autohand-code"
+AGENT_ALIAS_NAME="agent"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -176,6 +177,7 @@ EOF
 
     install_file "${_tmp_dir}/autohand" "$_dir/$BINARY_NAME"
     install_symlink "$BINARY_NAME" "$_dir/$COMPAT_BINARY_NAME"
+    install_symlink "$BINARY_NAME" "$_dir/$AGENT_ALIAS_NAME"
 
     rm -rf "$_tmp_dir"
 

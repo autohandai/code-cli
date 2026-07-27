@@ -49,7 +49,11 @@ curl -fsSL https://autohand.ai/install.sh | bash
 brew install autohandai/code/autohand-code
 ```
 
-The fully qualified command installs and trusts only the Autohand formula. Start the CLI with `autohand`; the previous `autohand-code` command remains available as an alias.
+The fully qualified command installs and trusts only the Autohand formula. Every
+supported installation exposes the same CLI as `autohand`, `autohand-code`, and
+`agent`; `autohand` remains the canonical name. The standalone Unix and Windows
+installers refresh all aliases in the selected installation directory, replacing
+an existing `agent` entry there.
 
 ### Manual Installation
 
@@ -69,6 +73,26 @@ bun add -g .
 - Bun ≥1.0 (`curl -fsSL https://bun.sh/install | bash`)
 - Git (for version control features)
 - ripgrep (optional, for faster search)
+
+### Shell Completion
+
+Completion scripts are generated from the current CLI command tree, including
+nested commands and options, and register all three executable names.
+
+```bash
+# Zsh: enable now, then add the same line to ~/.zshrc
+source <(autohand completion zsh)
+
+# Bash: enable now, then add the same line to ~/.bashrc
+source <(autohand completion bash)
+
+# Fish: install persistently
+autohand completion fish > ~/.config/fish/completions/autohand.fish
+```
+
+After loading the script, type an executable name followed by a partial command
+or option and press Tab, for example `agent --off<Tab>` or
+`autohand exp<Tab>`.
 
 ## Quick Start
 

@@ -10,6 +10,7 @@ import {
   detectShell,
   getInstallInstructions,
   installCompletion,
+  type CompletionConfig,
   type ShellType,
 } from '../completions/index.js';
 import type { SlashCommand } from '../core/slashCommands.js';
@@ -105,7 +106,10 @@ export async function execute(args?: string): Promise<void> {
 /**
  * CLI subcommand for completion (autohand completion <shell>)
  */
-export async function runCompletionCommand(shell?: string): Promise<void> {
+export async function runCompletionCommand(
+  shell?: string,
+  config?: CompletionConfig,
+): Promise<void> {
   if (!shell) {
     console.error('Usage: autohand completion <bash|zsh|fish>');
     process.exit(1);
@@ -119,5 +123,5 @@ export async function runCompletionCommand(shell?: string): Promise<void> {
   }
 
   // Print completion script to stdout
-  console.log(generateCompletion(shell as ShellType));
+  console.log(generateCompletion(shell as ShellType, config));
 }

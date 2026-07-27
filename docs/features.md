@@ -231,7 +231,7 @@ effect immediately — no restart required.
 ## Developer Tools
 - [x] Code formatting integration (prettier, black, rustfmt, gofmt, clang-format, shfmt)
 - [x] Code linting integration (eslint, pylint, ruff, clippy, golangci-lint, shellcheck)
-- [x] Shell completion scripts (bash, zsh, fish)
+- [x] Shell completion scripts generated from the live CLI command tree (bash, zsh, fish), including `autohand`, `autohand-code`, and `agent`
 - [x] Session export to markdown, JSON, and HTML
 
 ## Planned Features

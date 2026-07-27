@@ -61,6 +61,7 @@ export function renderHomebrewFormula({ version, checksums }) {
   def install
     bin.install "autohand"
     bin.install_symlink "autohand" => "autohand-code"
+    bin.install_symlink "autohand" => "agent"
   end
 
   test do
