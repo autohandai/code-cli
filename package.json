@@ -35,7 +35,7 @@
     "build": "tsup",
     "postinstall": "node scripts/ensure-node-pty-helper-permissions.mjs",
     "predev": "bun install --frozen-lockfile",
-    "dev": "env -i PATH=\"$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\" HOME=\"$HOME\" AUTOHAND_VERSION_SOURCE=git AUTOHAND_DEBUG=\"$AUTOHAND_DEBUG\" ${AUTOHAND_API_URL:+AUTOHAND_API_URL=\"$AUTOHAND_API_URL\"} ${AUTOHAND_AUTH_URL:+AUTOHAND_AUTH_URL=\"$AUTOHAND_AUTH_URL\"} bun src/index.ts",
+    "dev": "env -i PATH=\"$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\" HOME=\"$HOME\" AUTOHAND_VERSION_SOURCE=git AUTOHAND_DEBUG=\"$AUTOHAND_DEBUG\" ${AUTOHAND_HOME:+AUTOHAND_HOME=\"$AUTOHAND_HOME\"} ${AUTOHAND_CONFIG:+AUTOHAND_CONFIG=\"$AUTOHAND_CONFIG\"} ${AUTOHAND_API_URL:+AUTOHAND_API_URL=\"$AUTOHAND_API_URL\"} ${AUTOHAND_AUTH_URL:+AUTOHAND_AUTH_URL=\"$AUTOHAND_AUTH_URL\"} bun src/index.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "proof": "bun run proof:unit && bun run proof:build-tuistory",

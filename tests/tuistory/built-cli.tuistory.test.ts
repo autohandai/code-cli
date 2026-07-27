@@ -2174,11 +2174,13 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(screen.match(new RegExp(assistantMessage, 'g'))).toHaveLength(1);
   });
 
-  it('selects Ollama and applies the first listed model to the status line', async () => {
+  it('persists an Ollama model selection and restores it after restart', async () => {
     const selectedModel = 'tuistory-first:latest';
     const ollamaServer = await createMockOllamaServer([selectedModel, 'tuistory-second:latest']);
     mockServers.push(ollamaServer);
-    const session = await launchInteractive({
+    const authServer = await createMockAuthServer();
+    mockAuthServers.push(authServer);
+    const state = await createTempAutohandHome({
       config: {
         provider: 'openrouter',
         ollama: {
@@ -2187,6 +2189,19 @@ describe('interactive built CLI Tuistory tests', () => {
         },
       },
     });
+    tempStates.push(state);
+    const launchWithPersistedConfig = (): Promise<Session> => trackSession(
+      launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        env: {
+          AUTOHAND_API_URL: authServer.baseUrl,
+          AUTOHAND_AUTH_URL: authServer.baseUrl,
+        },
+        waitForDataTimeout: 15_000,
+      })
+    );
+    const session = await launchWithPersistedConfig();
 
     await waitForComposer(session);
     await session.type('/model');
@@ -2216,5 +2231,22 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(screen).toContain(`autohand (Ollama, ${selectedModel})`);
 
     await exitInteractive(session);
+
+    const savedConfig = await fs.readJson(state.configPath) as {
+      provider?: string;
+      ollama?: { model?: string };
+    };
+    expect(savedConfig.provider).toBe('ollama');
+    expect(savedConfig.ollama?.model).toBe(selectedModel);
+
+    const restartedSession = await launchWithPersistedConfig();
+    await waitForComposer(restartedSession);
+    const restartedScreen = await restartedSession.text({
+      timeout: 10_000,
+      waitFor: (text) => text.includes(`autohand (Ollama, ${selectedModel})`),
+      trimEnd: true,
+    });
+    expect(restartedScreen).toContain(`autohand (Ollama, ${selectedModel})`);
+    await exitInteractive(restartedSession);
   });
 });
