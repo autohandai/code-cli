@@ -5,6 +5,10 @@
  */
 
 export { MemoryManager } from './MemoryManager.js';
+export {
+  MemoryEventLog,
+  MemoryEventLogCorruptionError,
+} from './MemoryEventLog.js';
 export * from './types.js';
 export {
   extractAndSaveSessionMemories,
