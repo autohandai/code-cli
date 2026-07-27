@@ -47,7 +47,7 @@ describe('local install scripts', () => {
     };
     const devScript = packageJson.scripts?.dev ?? '';
 
-    expect(devScript).toBe('env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" AUTOHAND_VERSION_SOURCE=git AUTOHAND_DEBUG="$AUTOHAND_DEBUG" ${AUTOHAND_API_URL:+AUTOHAND_API_URL="$AUTOHAND_API_URL"} ${AUTOHAND_AUTH_URL:+AUTOHAND_AUTH_URL="$AUTOHAND_AUTH_URL"} bun src/index.ts');
+    expect(devScript).toBe('env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" AUTOHAND_VERSION_SOURCE=git AUTOHAND_DEBUG="$AUTOHAND_DEBUG" ${AUTOHAND_HOME:+AUTOHAND_HOME="$AUTOHAND_HOME"} ${AUTOHAND_CONFIG:+AUTOHAND_CONFIG="$AUTOHAND_CONFIG"} ${AUTOHAND_API_URL:+AUTOHAND_API_URL="$AUTOHAND_API_URL"} ${AUTOHAND_AUTH_URL:+AUTOHAND_AUTH_URL="$AUTOHAND_AUTH_URL"} bun src/index.ts');
   });
 
   it('preserves AUTOHAND_DEBUG through the sanitized dev environment', () => {
@@ -58,6 +58,26 @@ describe('local install scripts', () => {
 
     expect(devScript).toContain('env -i ');
     expect(devScript).toContain('AUTOHAND_DEBUG="$AUTOHAND_DEBUG"');
+  });
+
+  unixInstallScriptTest('preserves explicit Autohand config locations through the sanitized dev environment', () => {
+    const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    const devScript = packageJson.scripts?.dev ?? '';
+    const probeCommand = devScript.replace(/bun src\/index\.ts$/, '/usr/bin/env');
+    const output = execFileSync('/bin/sh', ['-c', probeCommand], {
+      encoding: 'utf8',
+      env: {
+        HOME: process.env.HOME || '/tmp',
+        PATH: process.env.PATH || '/usr/bin:/bin',
+        AUTOHAND_HOME: '/tmp/autohand-dev-home',
+        AUTOHAND_CONFIG: '/tmp/autohand-dev-config.json',
+      },
+    });
+
+    expect(output).toContain('AUTOHAND_HOME=/tmp/autohand-dev-home\n');
+    expect(output).toContain('AUTOHAND_CONFIG=/tmp/autohand-dev-config.json\n');
   });
 
   it('opts development runs into repository-tag version resolution', () => {

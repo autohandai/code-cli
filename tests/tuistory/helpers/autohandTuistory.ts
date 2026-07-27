@@ -692,6 +692,18 @@ export async function createMockAuthServer(
 ): Promise<MockAuthServer> {
   let pollCount = 0;
   const server = createServer((request, response) => {
+    if (request.url === '/api/auth/me' && request.method === 'GET') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({
+        user: {
+          id: 'tuistory-test-user',
+          email: 'tuistory@example.com',
+          name: 'Tuistory Test',
+        },
+      }));
+      return;
+    }
+
     if (request.url === '/api/auth/cli/initiate' && request.method === 'POST') {
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end(JSON.stringify({
