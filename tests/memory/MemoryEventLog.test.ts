@@ -196,4 +196,17 @@ describe('MemoryEventLog', () => {
       /duplicate eventId/i,
     );
   });
+
+  it('rejects duplicate event IDs within one canonical log', async () => {
+    const { log, logPath } = await createLog();
+    await log.append({
+      operation: 'create',
+      level: 'project',
+      entry: entry('one'),
+    });
+    const event = await fs.readFile(logPath, 'utf8');
+    await fs.appendFile(logPath, event);
+
+    await expect(log.readAll()).rejects.toThrow(/duplicate eventId/i);
+  });
 });

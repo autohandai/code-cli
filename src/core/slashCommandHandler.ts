@@ -293,7 +293,7 @@ export class SlashCommandHandler {
         }
         case '/memory': {
           const { memory } = await import('../commands/memory.js');
-          return memory({ memoryManager: this.ctx.memoryManager });
+          return memory({ memoryManager: this.ctx.memoryManager }, args);
         }
         case '/formatters': {
           const { execute } = await import('../commands/formatters.js');

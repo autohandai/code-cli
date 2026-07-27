@@ -21,7 +21,7 @@ Each command is a separate TypeScript file that exports:
 | `/help` | `help.ts` | Show available commands |
 | `/sessions` | `sessions.ts` | List saved sessions |
 | `/resume` | `resume.ts` | Resume a previous session |
-| `/memory` | `memory.ts` | Manage project/user memory |
+| `/memory` | `memory.ts` | List memory or inspect, zoom, forget derived summaries, rebuild projections, and delete entries |
 | `/feedback` | `feedback.ts` | Submit feedback |
 | `/agents` | `agents.ts` | Show active Autohand CLI instances |
 | `/agents definitions` | `agents.ts` | List configured sub-agents |

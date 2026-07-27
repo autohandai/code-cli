@@ -1349,6 +1349,16 @@ export type AgentAction =
   }
   | { type: 'save_memory'; fact: string; level?: 'user' | 'project' }
   | { type: 'recall_memory'; query?: string; level?: 'user' | 'project' }
+  | {
+    type: 'inspect_memory';
+    operation: 'outline' | 'zoom' | 'forget' | 'rebuild';
+    level?: 'user' | 'project';
+    snapshot_id?: string;
+    node_id?: string;
+    max_lines?: number;
+    max_chars?: number;
+  }
+  | { type: 'delete_memory'; id: string; level?: 'user' | 'project' }
   | { type: 'create_meta_tool'; name: string; description: string; parameters: Record<string, unknown>; handler: string; scope?: 'user' | 'project' }
   | { type: 'delegate_task'; agent_name: string; task: string }
   | { type: 'delegate_parallel'; tasks: Array<{ agent_name: string; task: string }> }

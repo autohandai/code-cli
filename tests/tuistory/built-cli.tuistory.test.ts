@@ -1194,6 +1194,42 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
+  it('inspects project memory through the hierarchical slash command flow', async () => {
+    const state = await createTempAutohandHome();
+    tempStates.push(state);
+    const memoryDir = path.join(state.workspaceRoot, '.autohand', 'memory');
+    await mkdir(memoryDir, { recursive: true });
+    await writeFile(
+      path.join(memoryDir, 'legacy-memory.json'),
+      JSON.stringify({
+        id: 'legacy-memory',
+        content: 'Use strict TypeScript for project code.',
+        createdAt: '2026-07-27T00:00:00.000Z',
+        updatedAt: '2026-07-27T00:00:00.000Z',
+        tags: ['typescript'],
+      }),
+    );
+    const session = await trackSession(
+      launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        waitForDataTimeout: 15_000,
+      }),
+    );
+
+    await waitForComposer(session);
+    await session.type('/memory outline project');
+    await session.press('enter');
+    await session.waitForText('Memory outline (project)', { timeout: 10_000 });
+    await session.waitForText('snapshot=', { timeout: 10_000 });
+    const output = session.readAll();
+
+    expect(output).toContain('Use strict TypeScript for project code.');
+    expect(output).toContain('/memory zoom project');
+
+    await exitInteractive(session);
+  });
+
   it('keeps a saved research report local when the publish prompt uses its default choice', async () => {
     const reportPath = '.autohand/research/publish-candidate.md';
     const state = await createTempAutohandHome({

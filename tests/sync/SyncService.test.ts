@@ -638,6 +638,174 @@ describe('SyncService', () => {
       ).toEqual(finalizedManifest);
     });
 
+    it('merges and republishes concurrent canonical memory histories', async () => {
+      const localMemoryDir = path.join(tempDir, 'memory');
+      const remoteMemoryDir = path.join(tempDir, 'remote-memory');
+      const localLog = new MemoryEventLog(localMemoryDir);
+      const remoteLog = new MemoryEventLog(remoteMemoryDir);
+      const memoryEntry = (id: string) => ({
+        id,
+        content: `Memory ${id}`,
+        createdAt: '2026-07-27T00:00:00.000Z',
+        updatedAt: '2026-07-27T00:00:00.000Z',
+      });
+      await localLog.append({
+        operation: 'create',
+        level: 'user',
+        entry: memoryEntry('local'),
+      });
+      await remoteLog.append({
+        operation: 'create',
+        level: 'user',
+        entry: memoryEntry('remote'),
+      });
+      const localPath = path.join(localMemoryDir, 'events', 'LOG.jsonl');
+      const localPrefix = await fs.readFile(localPath, 'utf8');
+      const remoteContent = await fs.readFile(
+        path.join(remoteMemoryDir, 'events', 'LOG.jsonl'),
+      );
+      const events: SyncEvent[] = [];
+      const remoteManifest: SyncManifest = {
+        version: 1,
+        userId: 'test-user',
+        lastModified: new Date().toISOString(),
+        files: [{
+          path: 'memory/events/LOG.jsonl',
+          hash: computeHash(remoteContent),
+          size: remoteContent.length,
+          modifiedAt: new Date().toISOString(),
+        }],
+        checksum: 'remote-checksum',
+      };
+      const service = new SyncService({
+        authToken: 'test-token',
+        userId: 'test-user',
+        config: { enabled: true, interval: 300000 },
+        apiClient: mockApiClient,
+        onEvent: (event) => events.push(event),
+      });
+      (service as unknown as { basePath: string }).basePath = tempDir;
+      (mockApiClient.getRemoteManifest as ReturnType<typeof vi.fn>).mockResolvedValue(remoteManifest);
+      (mockApiClient.initiateDownload as ReturnType<typeof vi.fn>).mockResolvedValue({
+        downloadUrls: {
+          'memory/events/LOG.jsonl': 'https://storage.example/memory-log',
+        },
+      });
+      (mockApiClient.downloadFile as ReturnType<typeof vi.fn>).mockResolvedValue(remoteContent);
+      (mockApiClient.initiateUpload as ReturnType<typeof vi.fn>).mockResolvedValue({
+        uploadUrls: {
+          'memory/events/LOG.jsonl': 'https://storage.example/merged-memory-log',
+        },
+      });
+      (mockApiClient.uploadFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+      (mockApiClient.completeUpload as ReturnType<typeof vi.fn>).mockResolvedValue({
+        success: true,
+      });
+
+      const result = await service.sync();
+
+      expect(result).toMatchObject({
+        success: true,
+        uploaded: 1,
+        downloaded: 1,
+        conflicts: 1,
+      });
+      const uploaded = (
+        mockApiClient.uploadFile as ReturnType<typeof vi.fn>
+      ).mock.calls[0]?.[1] as Buffer;
+      expect(uploaded.toString('utf8').startsWith(localPrefix)).toBe(true);
+      expect(new Set((await localLog.replay()).map((entry) => entry.id))).toEqual(
+        new Set(['local', 'remote']),
+      );
+      await expect(fs.readJson(path.join(localMemoryDir, 'local.json'))).resolves.toMatchObject({
+        id: 'local',
+      });
+      await expect(fs.readJson(path.join(localMemoryDir, 'remote.json'))).resolves.toMatchObject({
+        id: 'remote',
+      });
+      await expect(fs.readJson(path.join(localMemoryDir, 'index.json'))).resolves.toMatchObject({
+        entries: expect.arrayContaining([
+          expect.objectContaining({ id: 'local' }),
+          expect.objectContaining({ id: 'remote' }),
+        ]),
+      });
+      expect(events).toContainEqual({
+        type: 'conflict_resolved',
+        path: 'memory/events/LOG.jsonl',
+        strategy: 'merged',
+      });
+    });
+
+    it('does not re-upload a stale projection removed by a canonical delete event', async () => {
+      const memoryDir = path.join(tempDir, 'memory');
+      const eventLog = new MemoryEventLog(memoryDir);
+      const entry = {
+        id: 'deleted-memory',
+        content: 'Obsolete memory',
+        createdAt: '2026-07-27T00:00:00.000Z',
+        updatedAt: '2026-07-27T00:00:00.000Z',
+      };
+      await eventLog.append({ operation: 'create', level: 'user', entry });
+      const logPath = path.join(memoryDir, 'events', 'LOG.jsonl');
+      const remoteContent = `${(await fs.readFile(logPath, 'utf8')).split('\n')[0]}\n`;
+      await eventLog.append({
+        operation: 'delete',
+        level: 'user',
+        memoryId: entry.id,
+      });
+      const staleProjectionPath = path.join(memoryDir, `${entry.id}.json`);
+      await fs.writeJson(staleProjectionPath, entry);
+      const remoteManifest: SyncManifest = {
+        version: 1,
+        userId: 'test-user',
+        lastModified: new Date().toISOString(),
+        files: [{
+          path: 'memory/events/LOG.jsonl',
+          hash: computeHash(Buffer.from(remoteContent)),
+          size: Buffer.byteLength(remoteContent),
+          modifiedAt: new Date().toISOString(),
+        }],
+        checksum: 'remote-checksum',
+      };
+      const service = new SyncService({
+        authToken: 'test-token',
+        userId: 'test-user',
+        config: { enabled: true, interval: 300000 },
+        apiClient: mockApiClient,
+      });
+      (service as unknown as { basePath: string }).basePath = tempDir;
+      (mockApiClient.getRemoteManifest as ReturnType<typeof vi.fn>).mockResolvedValue(remoteManifest);
+      (mockApiClient.initiateDownload as ReturnType<typeof vi.fn>).mockResolvedValue({
+        downloadUrls: {
+          'memory/events/LOG.jsonl': 'https://storage.example/memory-log',
+        },
+      });
+      (mockApiClient.downloadFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Buffer.from(remoteContent),
+      );
+      (mockApiClient.initiateUpload as ReturnType<typeof vi.fn>).mockResolvedValue({
+        uploadUrls: {
+          'memory/events/LOG.jsonl': 'https://storage.example/merged-memory-log',
+        },
+      });
+      (mockApiClient.uploadFile as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+      (mockApiClient.completeUpload as ReturnType<typeof vi.fn>).mockResolvedValue({
+        success: true,
+      });
+
+      const result = await service.sync();
+
+      expect(result.success).toBe(true);
+      expect(mockApiClient.initiateUpload).toHaveBeenCalledWith(
+        'test-token',
+        expect.any(Object),
+        ['memory/events/LOG.jsonl'],
+        expect.any(AbortSignal),
+      );
+      await expect(fs.pathExists(staleProjectionPath)).resolves.toBe(false);
+      await expect(eventLog.replay()).resolves.toEqual([]);
+    });
+
     it('force downloads only requested memory paths', async () => {
       await fs.ensureDir(tempDir);
 

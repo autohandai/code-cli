@@ -104,4 +104,65 @@ describe('MemorySummaryTree', () => {
     expect(outline.nodes[0]).toMatchObject({ start: 0, end: 64, kind: 'summary' });
     expect(outline.text.length).toBeLessThanOrEqual(120);
   });
+
+  it('prunes old derived snapshots while keeping canonical memory untouched', async () => {
+    const tree = await createTree();
+    const canonical = entries(4);
+
+    for (let index = 0; index < 12; index += 1) {
+      await tree.wake('project', canonical, `snapshot-${index}`);
+    }
+
+    await expect(tree.zoom(
+      'project',
+      'snapshot-0',
+      'snapshot-0:0-4',
+    )).rejects.toThrow(/summary snapshot is unavailable/i);
+    await expect(tree.zoom(
+      'project',
+      'snapshot-11',
+      'snapshot-11:0-4',
+    )).resolves.toMatchObject({ snapshotId: 'snapshot-11' });
+    expect(canonical).toHaveLength(4);
+  });
+
+  it('surfaces corrupt derived state and allows forget to recover it', async () => {
+    const tree = await createTree();
+    const root = temporaryRoots.at(-1)!;
+    const canonical = entries(4);
+    await tree.wake('project', canonical, 'snapshot-corrupt');
+    const cachePath = path.join(
+      root,
+      'derived',
+      'summaries',
+      'project',
+      'snapshot-corrupt.json',
+    );
+    await fs.writeFile(cachePath, '{"version":');
+
+    await expect(tree.wake(
+      'project',
+      canonical,
+      'snapshot-corrupt',
+    )).rejects.toThrow(/forget the derived snapshot and rebuild/i);
+    await expect(tree.forget('project', 'snapshot-corrupt')).resolves.toBe(0);
+    await expect(tree.wake(
+      'project',
+      canonical,
+      'snapshot-corrupt',
+    )).resolves.toMatchObject({ snapshotId: 'snapshot-corrupt' });
+  });
+
+  it('rejects snapshot identifiers that could escape the derived cache', async () => {
+    const tree = await createTree();
+
+    await expect(tree.zoom(
+      'project',
+      '../../outside',
+      'node',
+    )).rejects.toThrow(/invalid memory snapshot identifier/i);
+    await expect(tree.forget('project', '../outside')).rejects.toThrow(
+      /invalid memory snapshot identifier/i,
+    );
+  });
 });
