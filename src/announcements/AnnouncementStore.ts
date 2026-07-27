@@ -3,10 +3,10 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import path from 'node:path';
 import fs from 'fs-extra';
 import { z } from 'zod';
 import { AUTOHAND_FILES } from '../constants.js';
+import { atomicWriteJson } from '../utils/atomicFile.js';
 import {
   ApiAnnouncementSchema,
   type ApiAnnouncement,
@@ -46,9 +46,14 @@ export class AnnouncementStore {
   }
 
   async replaceAnnouncements(announcements: ApiAnnouncement[]): Promise<void> {
+    // The server omits announcements it has recorded as dismissed, so an id that
+    // is no longer in the payload is settled and its local entry can go. One that
+    // is still being served means the dismiss POST never landed, so it has to stay
+    // or the announcement would reappear.
+    const served = new Set(announcements.map((announcement) => announcement.id));
     this.cache = {
       announcements: [...announcements],
-      dismissedIds: this.cache.dismissedIds,
+      dismissedIds: this.cache.dismissedIds.filter((id) => served.has(id)),
     };
     await this.persist();
   }
@@ -86,10 +91,12 @@ export class AnnouncementStore {
       announcements: [...this.cache.announcements],
       dismissedIds: [...this.cache.dismissedIds],
     };
+    // The write queue only serializes this process. Two autohand sessions share
+    // this file, so the commit itself has to be atomic or a torn write takes the
+    // cached payload and every local dismissal down with it.
     this.writeQueue = this.writeQueue.then(async () => {
       try {
-        await fs.ensureDir(path.dirname(this.cachePath));
-        await fs.writeJson(this.cachePath, snapshot, { spaces: 2 });
+        await atomicWriteJson(this.cachePath, snapshot);
       } catch {
         // Announcement cache failures must never affect CLI behavior.
       }

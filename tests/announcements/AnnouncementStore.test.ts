@@ -6,9 +6,16 @@
 import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AnnouncementStore } from '../../src/announcements/AnnouncementStore.js';
 import type { ApiAnnouncement } from '../../src/announcements/AnnouncementContent.js';
+
+// Wraps the real implementation so writes still happen on disk; the spy only
+// records that the durable path was taken.
+vi.mock('../../src/utils/atomicFile.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/utils/atomicFile.js')>();
+  return { ...actual, atomicWriteJson: vi.fn(actual.atomicWriteJson) };
+});
 
 const payload: ApiAnnouncement[] = [{
   id: 'announcement-1',
@@ -52,6 +59,35 @@ describe('AnnouncementStore', () => {
     const offline = new AnnouncementStore(cachePath);
 
     expect(offline.getAnnouncements()).toEqual(payload);
+  });
+
+  it('commits cache writes atomically so a torn write cannot destroy the cache', async () => {
+    // Two autohand processes in two terminals share this file, and the per-instance
+    // write queue only serializes within one process. A non-atomic write can leave
+    // truncated JSON, which load() then discards along with every local dismissal.
+    const { atomicWriteJson } = await import('../../src/utils/atomicFile.js');
+    const store = new AnnouncementStore(cachePath);
+
+    await store.replaceAnnouncements(payload);
+
+    expect(vi.mocked(atomicWriteJson)).toHaveBeenCalledWith(cachePath, {
+      announcements: payload,
+      dismissedIds: [],
+    });
+  });
+
+  it('forgets dismissals the server has already stopped returning', async () => {
+    const store = new AnnouncementStore(cachePath);
+    await store.replaceAnnouncements(payload);
+    await store.dismiss('announcement-1');
+    await store.dismiss('announcement-2');
+
+    // The server filters dismissals it has recorded, so an id missing from a fresh
+    // payload is settled and no longer needs a local entry. An id still present
+    // means the dismiss POST never landed, so it must survive.
+    await store.replaceAnnouncements(payload);
+
+    expect(store.getDismissedIds()).toEqual(['announcement-1']);
   });
 
   it('never throws when the cache directory is unwritable', async () => {

@@ -16,7 +16,10 @@ const NullableStringSchema = z.string().nullable();
 export const ApiAnnouncementStepSchema = z.object({
   id: z.string(),
   order: z.number().int(),
-  type: z.enum(['image', 'video']),
+  // Deliberately not an enum. The CLI renders text and ignores media entirely, so
+  // a step type it has never heard of is still perfectly renderable — and pinning
+  // this to image|video would make one future server-side type blank the feed.
+  type: z.string(),
   mediaUrl: NullableStringSchema,
   posterUrl: NullableStringSchema,
   title: NullableStringSchema,
@@ -34,7 +37,7 @@ export const ApiAnnouncementSchema = z.object({
 });
 
 const ApiAnnouncementResponseSchema = z.object({
-  announcements: z.array(ApiAnnouncementSchema),
+  announcements: z.array(z.unknown()),
 });
 
 export type ApiAnnouncementStep = z.infer<typeof ApiAnnouncementStepSchema>;
@@ -74,8 +77,18 @@ export function sanitizeAnnouncementText(
   options: SanitizeAnnouncementTextOptions,
 ): string {
   const withoutAnsi = stripAnsiCodes(value);
+  // C0/C1 controls first, then the invisible formatting characters. Bidi overrides
+  // and isolates (U+202A-202E, U+2066-2069) let server text render a URL differently
+  // from what it actually says - Trojan Source - and the zero-width characters hide
+  // word boundaries. Announcements cannot be turned off, so what the terminal draws
+  // has to be what the text says.
+  //
+  // This also strips U+200D, so a ZWJ emoji sequence degrades into its component
+  // glyphs. That is a deliberate trade: a cosmetic loss on rare compound emoji in
+  // exchange for no invisible character ever reaching stdout.
   const withoutControls = withoutAnsi
-    .replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/gu, '');
+    .replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/gu, '')
+    .replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/gu, '');
 
   const normalized = options.preserveParagraphs
     ? withoutControls
@@ -167,7 +180,23 @@ export function mapApiAnnouncement(announcement: ApiAnnouncement): CliAnnounceme
   };
 }
 
+/**
+ * Returns null only when the envelope itself is unusable. Individual malformed
+ * announcements are dropped rather than failing the batch — an all-or-nothing
+ * parse would let one bad row silently blank a feed that fails quietly by design.
+ */
 export function parseAnnouncementResponse(value: unknown): ApiAnnouncement[] | null {
   const parsed = ApiAnnouncementResponseSchema.safeParse(value);
-  return parsed.success ? parsed.data.announcements : null;
+  if (!parsed.success) {
+    return null;
+  }
+
+  const announcements: ApiAnnouncement[] = [];
+  for (const candidate of parsed.data.announcements) {
+    const announcement = ApiAnnouncementSchema.safeParse(candidate);
+    if (announcement.success) {
+      announcements.push(announcement.data);
+    }
+  }
+  return announcements;
 }

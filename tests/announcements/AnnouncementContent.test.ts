@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   mapApiAnnouncement,
+  parseAnnouncementResponse,
   sanitizeAnnouncementText,
   type ApiAnnouncement,
 } from '../../src/announcements/AnnouncementContent.js';
@@ -180,5 +181,96 @@ describe('AnnouncementContent', () => {
     expect(output).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/u);
     expect(output).not.toContain('[2J');
     expect(output).not.toContain('[H');
+  });
+
+  it.each([
+    ['right-to-left override', '‮'],
+    ['left-to-right override', '‭'],
+    ['right-to-left embedding', '‫'],
+    ['pop directional formatting', '‬'],
+    ['first-strong isolate', '⁨'],
+    ['pop directional isolate', '⁩'],
+    ['zero-width space', '​'],
+    ['zero-width joiner', '‍'],
+    ['byte order mark', '﻿'],
+  ])('strips the %s bidirectional payload', (_name, control) => {
+    // Trojan Source: a bidi override inside a CTA makes the visible URL read
+    // differently from the real one, in a channel the user cannot switch off.
+    const payload = `autohand.ai${control}moc.live`;
+    const mapped = mapApiAnnouncement(announcement({
+      title: payload,
+      steps: [{
+        id: 'step-1',
+        order: 0,
+        type: 'image',
+        mediaUrl: 'ignored',
+        posterUrl: null,
+        title: payload,
+        description: payload,
+        ctaLabel: payload,
+        ctaUrl: `https://${payload}`,
+      }],
+    }));
+    const output = [
+      mapped?.headline,
+      ...(mapped?.bodyLines ?? []),
+      mapped?.cta,
+    ].filter((value): value is string => typeof value === 'string').join('\n');
+
+    expect(output).not.toContain(control);
+  });
+});
+
+describe('parseAnnouncementResponse resilience', () => {
+  const valid = {
+    id: 'valid',
+    title: 'Valid',
+    description: null,
+    priority: 1,
+    steps: [],
+  };
+
+  it('keeps a step type the CLI does not recognize', () => {
+    // The CLI ignores media entirely, so an unknown step type must not discard
+    // text the server intends us to render.
+    const parsed = parseAnnouncementResponse({
+      announcements: [{
+        ...valid,
+        steps: [{
+          id: 'step-1',
+          order: 0,
+          type: 'text',
+          mediaUrl: null,
+          posterUrl: null,
+          title: 'Future step type',
+          description: 'Still renderable',
+          ctaLabel: null,
+          ctaUrl: null,
+        }],
+      }],
+    });
+
+    expect(parsed).toHaveLength(1);
+    expect(mapApiAnnouncement(parsed![0])?.bodyLines).toEqual([
+      'Future step type',
+      'Still renderable',
+    ]);
+  });
+
+  it('drops only the unusable announcements instead of the whole payload', () => {
+    const parsed = parseAnnouncementResponse({
+      announcements: [
+        valid,
+        { id: 'broken', title: 42, description: null, priority: 1, steps: [] },
+        { ...valid, id: 'second' },
+      ],
+    });
+
+    expect(parsed?.map((item) => item.id)).toEqual(['valid', 'second']);
+  });
+
+  it('still rejects a payload whose announcements field is not an array', () => {
+    expect(parseAnnouncementResponse({ announcements: 'nope' })).toBeNull();
+    expect(parseAnnouncementResponse({})).toBeNull();
   });
 });
