@@ -707,7 +707,7 @@ Az ügynök viselkedésének és iterációs korlátainak szabályozása.
 | `maxIterations` | szám | `100` | Maximális szerszámiterációk felhasználói kérésenként a leállítás előtt |
 | `enableRequestQueue` | logikai | `true` | Lehetővé teszi a felhasználók számára, hogy kéréseket írjanak be és sorba állítsanak, miközben az ügynök dolgozik |
 | `toolSelectionCache` | logikai | `true` | Gyorsítótárazza a körönkénti szerszámséma helyi kiválasztását az egyenértékű szerszámkiválasztási bemenethez |
-| `autoMemory` | logikai | `true` | Tartós felhasználói/projektmemóriák kibontása és mentése sikeres interaktív fordulatok után |
+| `autoMemory` | logikai | `true` | Tartós felhasználói-/projektmemóriák kinyerése és mentése a befejezett interaktív fordulók után, beleértve a hibákból és megszakításokból származó, bizonyítékokkal alátámasztott tanulságokat |
 | `idleLogoutEnabled` | logikai | `true` | Jelentkezzen ki a hitelesített interaktív munkamenetekből az üresjárati időtúllépés után |
 | `idleTimeoutMs` | szám | `3600000` | Az inaktivitás ezredmásodpercei a hitelesített munkamenet kijelentkeztetése előtt (60 perc) |
 | `debug` | logikai | `false` | Részletes hibakeresési kimenet engedélyezése (naplózza az ügynök belső állapotát az stderr-be) |

@@ -182,7 +182,7 @@ describe('InstructionRunner command mode UI', () => {
     expect(host.scheduleTurnMemoryReflection).not.toHaveBeenCalled();
   });
 
-  it('schedules automatic memory reflection after a successful interactive turn', async () => {
+  it('schedules automatic memory reflection with a successful interactive outcome', async () => {
     const host = createHost();
     host.runtime = {
       ...host.runtime,
@@ -192,7 +192,7 @@ describe('InstructionRunner command mode UI', () => {
 
     await new InstructionRunner(host).run('remember what changed');
 
-    expect(host.scheduleTurnMemoryReflection).toHaveBeenCalledWith(true);
+    expect(host.scheduleTurnMemoryReflection).toHaveBeenCalledWith({ status: 'succeeded' });
   });
 
   it('keeps the Ink renderer mounted while running quality checks after an implementation turn', async () => {
@@ -241,7 +241,55 @@ describe('InstructionRunner command mode UI', () => {
     expect(result).toBe(false);
     expect(host.stopUI).toHaveBeenCalledWith(true, 'Quality checks failed');
     expect(host.printCompletionSummary).toHaveBeenCalledWith(false, false);
-    expect(host.scheduleTurnMemoryReflection).toHaveBeenCalledWith(false);
+    expect(host.scheduleTurnMemoryReflection).toHaveBeenCalledWith({
+      status: 'failed',
+      category: 'quality',
+      reason: 'Quality checks failed',
+    });
+  });
+
+  it('schedules canceled turns without treating cancellation as failure', async () => {
+    const host = createHost();
+    host.runtime = {
+      ...host.runtime,
+      options: {},
+      isCommandMode: false,
+    };
+    host.initializeUI = vi.fn(async (_controller, onCancel) => {
+      onCancel?.();
+    });
+    host.runReactLoop = vi.fn(async (controller) => {
+      controller.abort();
+    });
+
+    await expect(new InstructionRunner(host).run('stop this work')).resolves.toBe(false);
+
+    expect(host.scheduleTurnMemoryReflection).toHaveBeenCalledWith({
+      status: 'canceled',
+      reason: 'user',
+    });
+  });
+
+  it('schedules loop-guard failures with their durable failure category', async () => {
+    const host = createHost();
+    host.runtime = {
+      ...host.runtime,
+      options: {},
+      isCommandMode: false,
+    };
+    const error = new Error('Repeated tool-call limit exceeded');
+    error.name = 'LoopAbortedError';
+    host.runReactLoop = vi.fn(async () => {
+      throw error;
+    });
+
+    await expect(new InstructionRunner(host).run('finish the task')).resolves.toBe(false);
+
+    expect(host.scheduleTurnMemoryReflection).toHaveBeenCalledWith({
+      status: 'failed',
+      category: 'loop-guard',
+      reason: 'Repeated tool-call limit exceeded',
+    });
   });
 
   it('marks a deep research turn incomplete when the report contract is unmet', async () => {
@@ -253,7 +301,12 @@ describe('InstructionRunner command mode UI', () => {
         reportPath: '.autohand/research/topic-hermes-and-dspy.md',
       });
       const host = createHost();
-      host.runtime = { ...host.runtime, workspaceRoot };
+      host.runtime = {
+        ...host.runtime,
+        workspaceRoot,
+        options: {},
+        isCommandMode: false,
+      };
       host.sessionManager = {
         getCurrentSession: () => ({
           getMessages: () => [],
@@ -267,6 +320,11 @@ describe('InstructionRunner command mode UI', () => {
       expect(result).toBe(false);
       expect(host.stopUI).toHaveBeenCalledWith(true, 'Deep research incomplete');
       expect(host.printCompletionSummary).toHaveBeenCalledWith(false, false);
+      expect(host.scheduleTurnMemoryReflection).toHaveBeenCalledWith({
+        status: 'failed',
+        category: 'deep-research',
+        reason: 'Deep research completion contract was not met',
+      });
     } finally {
       await fs.remove(workspaceRoot);
     }

@@ -767,7 +767,7 @@ Steuern Sie das Agentenverhalten und die Iterationslimits.
 | `maxIterations`      | number  | `100`   | Maximale Tool-Iterationen pro Benutzeranfrage, bevor gestoppt wird                       |
 | `enableRequestQueue` | boolean | `true`  | Benutzern erlauben, Nachrichten einzugeben und in die Warteschlange zu stellen, während der Agent arbeitet                  |
 | `toolSelectionCache` | boolean | `true`  | Lokale pro-Turn-Tool-Schema-Auswahl für gleichwertige Tool-Selection-Eingaben cachen |
-| `autoMemory`         | boolean | `true`  | Langlebige Benutzer-/Projekt-Memories nach erfolgreichen interaktiven Turns extrahieren und speichern |
+| `autoMemory`         | boolean | `true`  | Langlebige Benutzer-/Projekt-Memories nach abgeschlossenen interaktiven Turns extrahieren und speichern, einschließlich belegter Erkenntnisse aus Fehlern und Abbrüchen |
 | `idleLogoutEnabled`  | boolean | `true`  | Authentifizierte interaktive Sitzungen nach der Leerlaufzeit abmelden              |
 | `idleTimeoutMs`      | number  | `3600000` | Millisekunden Inaktivität vor der Abmeldung einer authentifizierten Sitzung (60 Minuten) |
 | `debug`              | boolean | `false` | Ausführliche Debug-Ausgabe aktivieren (protokolliert internen Agentenstatus nach stderr)              |

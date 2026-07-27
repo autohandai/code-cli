@@ -17,6 +17,7 @@ import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { GoalManager } from '../../goals/GoalManager.js';
 import type { SessionMessage, SessionTurnUsageInput } from '../../session/types.js';
 import type { MobileClaimedTurnContext } from '../../mobile/MobileRelay.js';
+import type { TurnMemoryReflectionOutcome } from '../../memory/extractSessionMemories.js';
 import {
   extractDeepResearchRunId,
   finalizeDeepResearchRun,
@@ -143,7 +144,7 @@ export interface AgentInstructionHost {
   recordTurnFailure?(message: string): void;
   emitOutput(event: AgentOutputEvent): void;
   printCompletionSummary(regionsStillActive: boolean, succeeded?: boolean): void;
-  scheduleTurnMemoryReflection(success: boolean): void;
+  scheduleTurnMemoryReflection(outcome: TurnMemoryReflectionOutcome): void;
   writeDebugLine?(message: string): void;
 }
 
@@ -295,6 +296,21 @@ export class InstructionRunner {
     host.activeAbortController = abortController;
     let canceledByUser = false;
     let success = true;
+    let reflectionSuperseded = false;
+    let failureOutcome: Extract<TurnMemoryReflectionOutcome, { status: 'failed' }> | null = null;
+    const recordReflectionFailure = (
+      category: Extract<TurnMemoryReflectionOutcome, { status: 'failed' }>['category'],
+      reason: string,
+    ): void => {
+      failureOutcome ??= { status: 'failed', category, reason };
+    };
+    const finalizeResearchForTurn = async (turnSucceeded: boolean): Promise<boolean> => {
+      const finalized = await finalizeResearch(turnSucceeded);
+      if (turnSucceeded && !finalized) {
+        recordReflectionFailure('deep-research', 'Deep research completion contract was not met');
+      }
+      return finalized;
+    };
 
     const queueEnabled = host.runtime.config.agent?.enableRequestQueue !== false;
     const isCommandMode = host.runtime.isCommandMode === true || Boolean(host.runtime.options?.prompt);
@@ -393,13 +409,14 @@ export class InstructionRunner {
           deepResearch.qualityPassed = await host.runQualityPipeline();
           if (!deepResearch.qualityPassed) {
             success = false;
+            recordReflectionFailure('quality', 'Quality checks failed');
             host.stopUI(true, 'Quality checks failed');
           }
         } finally {
           host.modalActive = false;
         }
       }
-      success = await finalizeResearch(success);
+      success = await finalizeResearchForTurn(success);
     } catch (error) {
       success = false;
       if (abortController.signal.aborted) {
@@ -413,6 +430,7 @@ export class InstructionRunner {
         await host.providerConfigManager.promptModelSelection();
         // After configuration, retry the instruction
         deepResearch.deferFinalization = true;
+        reflectionSuperseded = true;
         return host.runInstruction(instruction, options);
       }
 
@@ -420,10 +438,12 @@ export class InstructionRunner {
       // (fallback message already emitted to the user). Skip retries and
       // error UI so we don't double-print failure messages.
       if (error instanceof Error && error.name === 'LoopAbortedError') {
+        recordReflectionFailure('loop-guard', error.message);
         // Fall through to finally with success = false
       } else {
         // Session failure retry logic
         let err = error instanceof Error ? error : new Error(String(error));
+        const encounteredProviderFailure = err instanceof ApiError || host.isRetryableSessionError(err);
         const maxRetries = host.runtime.config.agent?.sessionRetryLimit ?? 3;
         const baseDelay = host.runtime.config.agent?.sessionRetryDelay ?? 1000;
 
@@ -467,7 +487,7 @@ export class InstructionRunner {
             // If we get here, retry succeeded - reset counter
             host.sessionRetryCount = 0;
             success = true;
-            success = await finalizeResearch(success);
+            success = await finalizeResearchForTurn(success);
             return success;
           } catch (retryError) {
             err = retryError instanceof Error ? retryError : new Error(String(retryError));
@@ -483,6 +503,10 @@ export class InstructionRunner {
         host.stopUI(true, 'Session failed');
         // Emit error for RPC mode
         const errorMessage = host.getDisplayErrorMessage(err);
+        recordReflectionFailure(
+          encounteredProviderFailure || err instanceof ApiError ? 'provider' : 'unexpected',
+          errorMessage,
+        );
         host.recordTurnFailure?.(errorMessage);
         host.emitOutput({ type: 'error', content: errorMessage });
         if (err instanceof Error) {
@@ -491,7 +515,7 @@ export class InstructionRunner {
           console.error(errorMessage);
         }
       }
-      success = await finalizeResearch(success);
+      success = await finalizeResearchForTurn(success);
     } finally {
       // IMPORTANT: Keep the console bridge active until AFTER terminal regions
       // are disabled. Otherwise, in-flight streaming output bypasses writeAbove
@@ -588,8 +612,20 @@ export class InstructionRunner {
         // Local usage capture is best-effort and must never mask the turn result.
       }
 
-      if (!host.runtime.isCommandMode && !host.runtime.options?.prompt) {
-        host.scheduleTurnMemoryReflection(success && !canceledByUser);
+      if (!reflectionSuperseded && !host.runtime.isCommandMode && !host.runtime.options?.prompt) {
+        const outcome: TurnMemoryReflectionOutcome = canceledByUser || abortController.signal.aborted
+          ? {
+              status: 'canceled',
+              reason: canceledByUser ? 'user' : 'external',
+            }
+          : success
+            ? { status: 'succeeded' }
+            : failureOutcome ?? {
+                status: 'failed',
+                category: 'unexpected',
+                reason: 'The turn ended without a successful result',
+              };
+        host.scheduleTurnMemoryReflection(outcome);
       }
 
       host.taskStartedAt = null;

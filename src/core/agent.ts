@@ -47,7 +47,11 @@ import { ErrorLogger } from './errorLogger.js';
 import { MemoryManager } from '../memory/MemoryManager.js';
 import { FeedbackManager } from '../feedback/FeedbackManager.js';
 import { TelemetryManager } from '../telemetry/TelemetryManager.js';
-import { extractAndSaveSessionMemories, type ExtractedMemory } from '../memory/extractSessionMemories.js';
+import {
+  extractAndSaveSessionMemories,
+  type ExtractedMemory,
+  type TurnMemoryReflectionOutcome,
+} from '../memory/extractSessionMemories.js';
 import { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import { CommunitySkillsClient } from '../skills/CommunitySkillsClient.js';
 import { McpClientManager } from '../mcp/McpClientManager.js';
@@ -282,6 +286,11 @@ function formatTurnMemoryUpdate(saved: ExtractedMemory[]): string {
   return lines.join('\n');
 }
 
+interface TurnMemoryReflectionRequest {
+  outcome: TurnMemoryReflectionOutcome;
+  conversationHistory: LLMMessage[];
+}
+
 export class AutohandAgent {
   private static readonly INTERACTIVE_SLASH_COMMANDS = new Set([
     '/browser', '/chrome', '/hooks', '/feedback', '/permissions', '/login', '/logout',
@@ -309,7 +318,7 @@ export class AutohandAgent {
   private toolOutputQueue: Promise<void> = Promise.resolve();
   private memoryManager!: MemoryManager;
   private turnMemoryReflectionInFlight: Promise<void> | null = null;
-  private turnMemoryReflectionQueued = false;
+  private turnMemoryReflectionQueue: TurnMemoryReflectionRequest[] = [];
   private turnMemoryReflectionAbortController: AbortController | null = null;
   private permissionManager!: PermissionManager;
   private hookManager!: HookManager;
@@ -697,16 +706,26 @@ export class AutohandAgent {
     return handleAgentMemoryStore(this.createProjectOperationsHost(), content);
   }
 
-  private scheduleTurnMemoryReflection(success: boolean): void {
+  private scheduleTurnMemoryReflection(outcome: TurnMemoryReflectionOutcome): void {
     if (this.runtimeResourceShutdownPromise) {
       return;
     }
-    if (!this.shouldRunTurnMemoryReflection(success)) {
+    if (!this.shouldRunTurnMemoryReflection()) {
       return;
     }
 
-    if (this.turnMemoryReflectionInFlight) {
-      this.turnMemoryReflectionQueued = true;
+    const conversationHistory = this.conversation.history().filter((message) =>
+      !(message.role === 'system'
+        && typeof message.content === 'string'
+        && message.content.includes('[Auto Memory Update]'))
+    );
+    this.turnMemoryReflectionQueue ??= [];
+    this.turnMemoryReflectionQueue.push({ outcome, conversationHistory });
+    this.startQueuedTurnMemoryReflection();
+  }
+
+  private startQueuedTurnMemoryReflection(): void {
+    if (this.turnMemoryReflectionInFlight || this.runtimeResourceShutdownPromise) {
       return;
     }
 
@@ -717,41 +736,41 @@ export class AutohandAgent {
       })
       .finally(() => {
         this.turnMemoryReflectionInFlight = null;
+        if (this.turnMemoryReflectionQueue.length > 0 && !this.runtimeResourceShutdownPromise) {
+          this.startQueuedTurnMemoryReflection();
+        }
       });
   }
 
-  private shouldRunTurnMemoryReflection(success: boolean): boolean {
-    if (!success) return false;
+  private shouldRunTurnMemoryReflection(): boolean {
     if (this.runtime.options?.bare) return false;
     if (this.runtime.isCommandMode || this.runtime.options?.prompt) return false;
     return this.runtime.config?.agent?.autoMemory !== false;
   }
 
   private async runQueuedTurnMemoryReflection(): Promise<void> {
-    do {
-      this.turnMemoryReflectionQueued = false;
-      await this.runTurnMemoryReflectionOnce();
-    } while (this.turnMemoryReflectionQueued);
+    let request = this.turnMemoryReflectionQueue.shift();
+    while (request) {
+      await this.runTurnMemoryReflectionOnce(request);
+      request = this.turnMemoryReflectionQueue.shift();
+    }
   }
 
-  private async runTurnMemoryReflectionOnce(): Promise<void> {
+  private async runTurnMemoryReflectionOnce(request: TurnMemoryReflectionRequest): Promise<void> {
     const abortController = new AbortController();
     this.turnMemoryReflectionAbortController = abortController;
 
     try {
-      const conversationHistory = this.conversation.history().filter((message) =>
-        !(message.role === 'system' && typeof message.content === 'string' && message.content.includes('[Auto Memory Update]'))
-      );
-
       const saved = await extractAndSaveSessionMemories({
         llm: this.llm,
         memoryManager: this.memoryManager,
-        conversationHistory,
+        conversationHistory: request.conversationHistory,
         workspaceRoot: this.runtime.workspaceRoot,
         signal: abortController.signal,
         options: {
           minUserMessages: 1,
           source: 'turn-reflection',
+          turnOutcome: request.outcome,
         },
       });
 

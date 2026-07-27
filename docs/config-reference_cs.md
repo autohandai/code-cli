@@ -725,7 +725,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | `maxIterations` | číslo | `100` | Maximální počet iterací nástroje na požadavek uživatele před zastavením |
 | `enableRequestQueue` | booleovský | `true` | Povolit uživatelům psát a řadit požadavky do fronty, zatímco agent pracuje |
 | `toolSelectionCache` | booleovský | `true` | Uložte do mezipaměti místní výběr schématu nástroje na otočení pro ekvivalentní vstup pro výběr nástroje |
-| `autoMemory` | booleovský | `true` | Extrahujte a uložte trvalé uživatelské/projektové vzpomínky po úspěšných interaktivních otočeních |
+| `autoMemory` | booleovský | `true` | Extrahujte a uložte trvalé uživatelské/projektové vzpomínky po dokončených interaktivních tazích, včetně podložených poučení ze selhání a zrušení |
 | `idleLogoutEnabled` | booleovský | `true` | Odhlaste ověřené interaktivní relace po vypršení časového limitu nečinnosti |
 | `idleTimeoutMs` | číslo | `3600000` | Milisekundy nečinnosti před odhlášením ověřené relace (60 minut) |
 | `debug` | booleovský | `false` | Povolit podrobný výstup ladění (protokoluje interní stav agenta do stderr) |
