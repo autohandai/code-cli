@@ -37,12 +37,14 @@ import {
   SYNC_CONSENT_REQUIRED,
   SYNC_INCLUDE_DEFAULT,
 } from './types.js';
+import { mergeMemoryEventLogContents } from '../memory/MemoryEventLog.js';
 
 const MANIFEST_VERSION = 1;
 const SYNC_STATE_FILE = '.sync-state.json';
 const SYNC_LOCK_FILE = '.sync-lock';
 const SESSION_INDEX_SYNC_PATH = 'sessions/index.json';
 const SESSION_INDEX_LOCK_PATH = 'sessions/index.json.lock';
+const MEMORY_EVENT_LOG_SYNC_PATH = 'memory/events/LOG.jsonl';
 const SESSION_INDEX_LOCK_OPTIONS = {
   staleMs: 5 * 60 * 1000,
   waitTimeoutMs: 10 * 1000,
@@ -324,7 +326,7 @@ export class SyncService {
         || actions.conflicts.length > 0
         || actions.localDeletes.length > 0;
 
-      // 4. Cloud wins on conflict - download remote changes first
+      // 4. Download remote changes first. Canonical memory history is merged.
       if (actions.downloads.length > 0 || actions.conflicts.length > 0) {
         const toDownload = [...actions.downloads, ...actions.conflicts];
         const conflictPaths = new Set(actions.conflicts.map((file) => file.path));
@@ -355,9 +357,20 @@ export class SyncService {
         );
       }
 
-      // 5. Upload local changes
-      if (actions.uploads.length > 0) {
-        await this.uploadFiles(actions.uploads, authoritativeManifest, enabledRoots, () => {
+      const uploads = [...actions.uploads];
+      for (const conflict of actions.conflicts) {
+        if (conflict.path !== MEMORY_EVENT_LOG_SYNC_PATH) {
+          continue;
+        }
+        const merged = authoritativeManifest.files.find((file) => file.path === conflict.path);
+        if (merged && merged.hash !== conflict.hash) {
+          uploads.push(merged);
+        }
+      }
+
+      // 5. Upload local changes, including a newly merged canonical memory log.
+      if (uploads.length > 0) {
+        await this.uploadFiles(uploads, authoritativeManifest, enabledRoots, () => {
           uploaded++;
         }, true, context);
         this.assertOperationActive(context);
@@ -621,6 +634,25 @@ export class SyncService {
                 : undefined,
             });
           }, SESSION_INDEX_LOCK_OPTIONS);
+        } else if (file.path === MEMORY_EVENT_LOG_SYNC_PATH) {
+          const lockPath = path.join(path.dirname(localPath), '.LOG.jsonl.lock');
+          await withFileLock(lockPath, async () => {
+            if (context) this.assertOperationActive(context);
+            localPath = await resolveSafeSyncPath(this.basePath, file.path, enabledRoots);
+            const localContent = await fs.readFile(localPath).catch((error: NodeJS.ErrnoException) => {
+              if (error.code === 'ENOENT') {
+                return Buffer.alloc(0);
+              }
+              throw error;
+            });
+            const merged = mergeMemoryEventLogContents(localContent, content);
+            if (context) this.assertOperationActive(context);
+            await atomicWriteFile(localPath, merged, {
+              beforeCommit: context
+                ? () => this.assertOperationActive(context)
+                : undefined,
+            });
+          }, SESSION_INDEX_LOCK_OPTIONS);
         } else {
           await fs.ensureDir(path.dirname(localPath));
           if (context) this.assertOperationActive(context);
@@ -649,7 +681,7 @@ export class SyncService {
             const event: SyncEvent = {
               type: 'conflict_resolved',
               path: file.path,
-              strategy: 'cloud_wins',
+              strategy: file.path === MEMORY_EVENT_LOG_SYNC_PATH ? 'merged' : 'cloud_wins',
             };
             if (context) this.emitOperationEvent(context, event);
             else this.emitEventSafely(event);
@@ -1013,7 +1045,9 @@ export class SyncService {
         // File exists locally but not remotely - upload it
         actions.uploads.push(localFile);
       } else if (localFile.hash !== remoteFile.hash) {
-        if (isRemoteNewer(localFile, remoteFile)) {
+        if (filePath === MEMORY_EVENT_LOG_SYNC_PATH) {
+          actions.conflicts.push(remoteFile);
+        } else if (isRemoteNewer(localFile, remoteFile)) {
           actions.conflicts.push(remoteFile);
         } else {
           actions.uploads.push(localFile);

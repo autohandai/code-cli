@@ -186,7 +186,7 @@ export type SyncEvent =
   | { type: 'sync_failed'; error: string }
   | { type: 'file_uploaded'; path: string; size: number }
   | { type: 'file_downloaded'; path: string; size: number }
-  | { type: 'conflict_resolved'; path: string; strategy: 'cloud_wins' }
+  | { type: 'conflict_resolved'; path: string; strategy: 'cloud_wins' | 'merged' }
   | { type: 'encryption_error'; path: string; error: string }
   | { type: 'auth_failure'; error?: string }
   | { type: 'download_error'; path: string; error: string }
