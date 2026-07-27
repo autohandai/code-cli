@@ -34,7 +34,7 @@ afterEach(async () => {
 describe('MemoryManager event log integration', () => {
   it('keeps transient memory lock directories out of sync manifests', () => {
     expect(SYNC_EXCLUDE_ALWAYS).toContain('memory/index.json.lock');
-    expect(SYNC_EXCLUDE_ALWAYS).toContain('memory/events/');
+    expect(SYNC_EXCLUDE_ALWAYS).not.toContain('memory/events/');
   });
 
   it('records create, update, and delete without changing public read behavior', async () => {
@@ -135,5 +135,45 @@ describe('MemoryManager event log integration', () => {
       entries: Array<{ id: string }>;
     };
     expect(index.entries.map((entry) => entry.id)).toEqual([first.id]);
+  });
+
+  it('stores the canonical project event log inside .autohand/memory', async () => {
+    const { manager, memoryDir } = await createManager();
+    await manager.store('Canonical location contract', 'project');
+
+    await expect(fs.pathExists(path.join(memoryDir, 'events', 'LOG.jsonl'))).resolves.toBe(true);
+  });
+
+  it('uses a snapshot-stable derived outline for bounded context injection', async () => {
+    const { manager } = await createManager();
+    await Promise.all(
+      Array.from({ length: 18 }, (_, index) =>
+        manager.store(`outlineitem${index} convention${index} decision${index}`, 'project')
+      ),
+    );
+
+    const outline = await manager.getMemoryOutline('project', {
+      maxLines: 8,
+      maxChars: 1_000,
+      recentRawCount: 3,
+    });
+    const context = await manager.getContextMemories(8);
+
+    expect(outline.nodes.length).toBeLessThanOrEqual(8);
+    expect(outline.text.length).toBeLessThanOrEqual(1_000);
+    expect(context).toContain('## Project Memory Outline');
+    expect(context).toContain(`snapshot=${outline.snapshotId}`);
+  });
+
+  it('ranks exact content and tag matches ahead of unrelated recent entries', async () => {
+    const { manager } = await createManager();
+    await manager.store('Use Vitest fake timers for scheduler tests', 'project', ['testing']);
+    await manager.store('Deploy documentation through the release pipeline', 'project', ['release']);
+    await manager.store('Keep terminal colors accessible', 'project', ['vitest']);
+
+    const recalled = await manager.recall('vitest testing', 'project');
+
+    expect(recalled[0]?.content).toBe('Use Vitest fake timers for scheduler tests');
+    expect(recalled.every((memory) => memory.level === 'project')).toBe(true);
   });
 });

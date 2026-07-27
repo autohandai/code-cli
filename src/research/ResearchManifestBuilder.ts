@@ -9,9 +9,21 @@ import path from 'node:path';
 import type { Code, Heading, Image, Link, Paragraph, PhrasingContent, Root } from 'mdast';
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
-import sharp from 'sharp';
+import type sharpDefault from 'sharp';
 import { unified } from 'unified';
 import { visit } from 'unist-util-visit';
+
+type SharpConstructor = typeof sharpDefault;
+
+let sharpConstructor: SharpConstructor | undefined;
+
+async function getSharp(): Promise<SharpConstructor> {
+  if (!sharpConstructor) {
+    const mod = await import('sharp');
+    sharpConstructor = mod.default;
+  }
+  return sharpConstructor;
+}
 
 export const RESEARCH_PUBLICATION_LIMITS = Object.freeze({
   titleCharacters: 180,
@@ -401,6 +413,7 @@ async function validateRasterBytes(
   logicalReference: string,
 ): Promise<void> {
   try {
+    const sharp = await getSharp();
     const metadata = await sharp(bytes, {
       animated: true,
       limitInputPixels: 40_000_000,

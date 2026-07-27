@@ -7,11 +7,13 @@ import fs from 'fs-extra';
 import { promises as nodeFs } from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { withFileLock } from '../utils/atomicFile.js';
 import type {
   MemoryEntry,
   MemoryEvent,
   MemoryEventInput,
+  MemoryEventSnapshot,
   MemoryLevel,
 } from './types.js';
 
@@ -92,6 +94,68 @@ function parseMemoryEvent(value: unknown, lineNumber: number): MemoryEvent {
   return event as MemoryEvent;
 }
 
+function compareMemoryEvents(left: MemoryEvent, right: MemoryEvent): number {
+  return left.occurredAt.localeCompare(right.occurredAt)
+    || left.eventId.localeCompare(right.eventId);
+}
+
+function parseEventLogContent(content: string | Buffer): MemoryEvent[] {
+  const text = typeof content === 'string' ? content : content.toString('utf8');
+  if (!text) {
+    return [];
+  }
+  if (!text.endsWith('\n')) {
+    throw new MemoryEventLogCorruptionError('record is missing its trailing newline', 1);
+  }
+  return text
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line, index) => {
+      try {
+        return parseMemoryEvent(JSON.parse(line), index + 1);
+      } catch (error) {
+        if (error instanceof MemoryEventLogCorruptionError) {
+          throw error;
+        }
+        throw new MemoryEventLogCorruptionError((error as Error).message, index + 1);
+      }
+    });
+}
+
+export function mergeMemoryEventLogContents(
+  localContent: string | Buffer,
+  remoteContent: string | Buffer,
+): string {
+  const localText = typeof localContent === 'string'
+    ? localContent
+    : localContent.toString('utf8');
+  const localEvents = parseEventLogContent(localText);
+  const remoteEvents = parseEventLogContent(remoteContent);
+  const eventsById = new Map(localEvents.map((event) => [event.eventId, event]));
+  const missing: MemoryEvent[] = [];
+
+  for (const event of remoteEvents) {
+    const existing = eventsById.get(event.eventId);
+    if (existing) {
+      if (!isDeepStrictEqual(existing, event)) {
+        throw new MemoryEventLogCorruptionError(
+          `duplicate eventId ${event.eventId} has conflicting content`,
+          1,
+        );
+      }
+      continue;
+    }
+    eventsById.set(event.eventId, event);
+    missing.push(event);
+  }
+
+  if (missing.length === 0) {
+    return localText;
+  }
+  const prefix = localText && !localText.endsWith('\n') ? `${localText}\n` : localText;
+  return `${prefix}${missing.map((event) => JSON.stringify(event)).join('\n')}\n`;
+}
+
 export class MemoryEventLog {
   private readonly eventsDirectory: string;
   private readonly logPath: string;
@@ -112,19 +176,25 @@ export class MemoryEventLog {
 
       const snapshots = [...existingEntries]
         .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
-        .map((entry): MemoryEvent => this.createEvent({
-          operation: 'snapshot',
-          level,
-          entry,
-        }));
+        .reduce<MemoryEvent[]>((events, entry) => {
+          events.push(this.createEvent(
+            {
+              operation: 'snapshot',
+              level,
+              entry,
+            },
+            events.at(-1)?.occurredAt,
+          ));
+          return events;
+        }, []);
       await this.appendEventsLocked(snapshots);
     });
   }
 
   async append(input: MemoryEventInput): Promise<MemoryEvent> {
     return this.withLock(async () => {
-      await this.readAllLocked();
-      const event = this.createEvent(input);
+      const existingEvents = await this.readAllLocked();
+      const event = this.createEvent(input, existingEvents.at(-1)?.occurredAt);
       await this.appendEventsLocked([event]);
       return event;
     });
@@ -136,11 +206,39 @@ export class MemoryEventLog {
 
   async replay(): Promise<MemoryEntry[]> {
     const events = await this.readAll();
+    return this.replayEvents(events);
+  }
+
+  async snapshot(eventCount?: number): Promise<MemoryEventSnapshot> {
+    const allEvents = await this.readAll();
+    const resolvedCount = eventCount ?? allEvents.length;
+    if (!Number.isInteger(resolvedCount) || resolvedCount < 0 || resolvedCount > allEvents.length) {
+      throw new Error(`Invalid memory event snapshot count: ${resolvedCount}`);
+    }
+    const events = allEvents.slice(0, resolvedCount);
+    const snapshotId = crypto
+      .createHash('sha256')
+      .update(events.map((event) => event.eventId).join('\n'))
+      .digest('hex')
+      .slice(0, 20);
+    return {
+      snapshotId,
+      eventCount: resolvedCount,
+      events,
+      entries: this.replayEvents(events),
+    };
+  }
+
+  private replayEvents(events: readonly MemoryEvent[]): MemoryEntry[] {
     const entries = new Map<string, MemoryEntry>();
 
-    for (const event of events) {
+    for (const event of [...events].sort(compareMemoryEvents)) {
       if (event.operation === 'delete') {
         entries.delete(event.memoryId);
+      } else if (event.operation === 'snapshot') {
+        if (!entries.has(event.memoryId)) {
+          entries.set(event.memoryId, event.entry);
+        }
       } else {
         entries.set(event.memoryId, event.entry);
       }
@@ -152,9 +250,13 @@ export class MemoryEventLog {
     );
   }
 
-  private createEvent(input: MemoryEventInput): MemoryEvent {
+  private createEvent(input: MemoryEventInput, previousOccurredAt?: string): MemoryEvent {
     const eventId = crypto.randomUUID();
-    const occurredAt = new Date().toISOString();
+    const now = Date.now();
+    const previous = previousOccurredAt ? Date.parse(previousOccurredAt) : Number.NaN;
+    const occurredAt = new Date(
+      Number.isNaN(previous) ? now : Math.max(now, previous + 1),
+    ).toISOString();
     if (input.operation === 'delete') {
       return {
         version: EVENT_LOG_VERSION,

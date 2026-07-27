@@ -1563,6 +1563,14 @@ Actions:
       properties: {
         format: { type: 'string', description: 'Image format', enum: ['png', 'jpeg'] },
         quality: { type: 'number', description: 'JPEG quality 0-100 (default: 80)' },
+        save: {
+          type: 'boolean',
+          description: 'Download the capture as a real PNG to Chrome\'s configured download folder.',
+        },
+        filename: {
+          type: 'string',
+          description: 'Optional .png filename for the downloaded capture.',
+        },
       },
     },
   },
@@ -1574,6 +1582,14 @@ Actions:
       properties: {
         format: { type: 'string', description: 'Image format', enum: ['png', 'jpeg'] },
         quality: { type: 'number', description: 'JPEG quality 0-100 (default: 80)' },
+        save: {
+          type: 'boolean',
+          description: 'Download the capture as a real PNG to Chrome\'s configured download folder.',
+        },
+        filename: {
+          type: 'string',
+          description: 'Optional .png filename for the downloaded capture.',
+        },
       },
     },
   },

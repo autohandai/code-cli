@@ -6,11 +6,20 @@
 import fs from 'fs-extra';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import type { MemoryEntry, MemoryIndex, MemoryLevel, SimilarityMatch } from './types.js';
+import type {
+  MemoryEntry,
+  MemoryIndex,
+  MemoryLevel,
+  MemoryOutline,
+  MemoryOutlineOptions,
+  RecalledMemory,
+  SimilarityMatch,
+} from './types.js';
 import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from '../constants.js';
 import { scheduleBackgroundSync } from '../sync/runtimeSyncService.js';
 import { atomicRemoveFile, atomicWriteJson, withFileLock } from '../utils/atomicFile.js';
 import { MemoryEventLog } from './MemoryEventLog.js';
+import { MemorySummaryTree } from './MemorySummaryTree.js';
 
 const SIMILARITY_THRESHOLD = 0.6;
 const MEMORY_INDEX_LOCK_OPTIONS = {
@@ -23,6 +32,7 @@ export class MemoryManager {
   private readonly userMemoryDir: string;
   private projectMemoryDir: string | null = null;
   private readonly eventLogs = new Map<MemoryLevel, MemoryEventLog>();
+  private readonly summaryTrees = new Map<MemoryLevel, MemorySummaryTree>();
 
   constructor(workspaceRoot?: string) {
     this.userMemoryDir = AUTOHAND_PATHS.memory;
@@ -34,12 +44,15 @@ export class MemoryManager {
   setWorkspace(workspaceRoot: string): void {
     this.projectMemoryDir = path.join(workspaceRoot, PROJECT_DIR_NAME, 'memory');
     this.eventLogs.delete('project');
+    this.summaryTrees.delete('project');
   }
 
   async initialize(): Promise<void> {
     await fs.ensureDir(this.userMemoryDir);
+    await this.initializeLevel('user');
     if (this.projectMemoryDir) {
       await fs.ensureDir(this.projectMemoryDir);
+      await this.initializeLevel('project');
     }
   }
 
@@ -232,16 +245,28 @@ export class MemoryManager {
     return results;
   }
 
-  async recall(query?: string, level?: MemoryLevel): Promise<Array<{ content: string; level: MemoryLevel }>> {
+  async recall(query?: string, level?: MemoryLevel): Promise<RecalledMemory[]> {
     const levels: MemoryLevel[] = level ? [level] : ['user', 'project'];
-    const results: Array<{ content: string; level: MemoryLevel }> = [];
+    const results: RecalledMemory[] = [];
+    const queryTokens = query ? this.tokenize(query) : new Set<string>();
+    const now = Date.now();
 
     for (const lvl of levels) {
       try {
         const entries = await this.list(lvl);
         for (const entry of entries) {
-          if (!query || entry.content.toLowerCase().includes(query.toLowerCase())) {
-            results.push({ content: entry.content, level: lvl });
+          const score = query
+            ? this.calculateRecallScore(entry, query, queryTokens, now)
+            : this.calculateRecencyScore(entry.updatedAt, now);
+          if (!query || score > 0) {
+            results.push({
+              id: entry.id,
+              content: entry.content,
+              level: lvl,
+              tags: entry.tags,
+              updatedAt: entry.updatedAt,
+              score,
+            });
           }
         }
       } catch {
@@ -249,7 +274,11 @@ export class MemoryManager {
       }
     }
 
-    return results;
+    return results.sort((left, right) =>
+      right.score - left.score
+      || new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+      || left.id.localeCompare(right.id)
+    );
   }
 
   /**
@@ -262,20 +291,48 @@ export class MemoryManager {
     const parts: string[] = [];
 
     if (project.length > 0) {
-      parts.push('## Project Memories');
-      for (const entry of project.slice(0, limit)) {
-        parts.push(`- ${entry.content}`);
-      }
+      await this.appendContextLevel(parts, 'project', project, limit);
     }
 
     if (user.length > 0) {
-      parts.push('## User Preferences');
-      for (const entry of user.slice(0, limit)) {
-        parts.push(`- ${entry.content}`);
-      }
+      await this.appendContextLevel(parts, 'user', user, limit);
     }
 
     return parts.join('\n');
+  }
+
+  async getMemoryOutline(
+    level: MemoryLevel,
+    options: MemoryOutlineOptions = {},
+  ): Promise<MemoryOutline> {
+    return this.withMemoryMutationLock(level, async () => {
+      const eventLog = await this.initializeEventLog(level);
+      const snapshot = await eventLog.snapshot(options.snapshotEventCount);
+      const entries = [...snapshot.entries].sort((left, right) =>
+        new Date(left.updatedAt).getTime() - new Date(right.updatedAt).getTime()
+        || left.id.localeCompare(right.id)
+      );
+      const outline = await this.getSummaryTree(level).wake(
+        level,
+        entries,
+        snapshot.snapshotId,
+        options,
+      );
+      return { ...outline, eventCount: snapshot.eventCount };
+    });
+  }
+
+  async zoomMemory(
+    level: MemoryLevel,
+    snapshotId: string,
+    nodeId: string,
+    options: MemoryOutlineOptions = {},
+  ): Promise<MemoryOutline> {
+    return this.getSummaryTree(level).zoom(level, snapshotId, nodeId, options);
+  }
+
+  async forgetMemorySummaries(level: MemoryLevel, snapshotId?: string): Promise<number> {
+    return this.getSummaryTree(level).forget(level, snapshotId);
   }
 
   async rebuildFromEventLog(level: MemoryLevel): Promise<{ restored: number; removed: number }> {
@@ -285,8 +342,16 @@ export class MemoryManager {
   private async rebuildFromEventLogUnlocked(
     level: MemoryLevel,
   ): Promise<{ restored: number; removed: number }> {
-    const dir = this.getMemoryDir(level);
     const eventLog = await this.initializeEventLog(level);
+    return this.rebuildProjectionUnlocked(level, eventLog, true);
+  }
+
+  private async rebuildProjectionUnlocked(
+    level: MemoryLevel,
+    eventLog: MemoryEventLog,
+    syncAfterRebuild: boolean,
+  ): Promise<{ restored: number; removed: number }> {
+    const dir = this.getMemoryDir(level);
     const replayed = await eventLog.replay();
     const replayedById = new Map(replayed.map((entry) => [entry.id, entry]));
     const files = await fs.readdir(dir);
@@ -317,7 +382,9 @@ export class MemoryManager {
       entries: replayed.map((entry) => this.toIndexEntry(entry)),
     };
     await atomicWriteJson(path.join(dir, 'index.json'), index);
-    scheduleBackgroundSync();
+    if (syncAfterRebuild) {
+      scheduleBackgroundSync();
+    }
     return { restored, removed };
   }
 
@@ -333,6 +400,38 @@ export class MemoryManager {
     const union = new Set([...wordsA, ...wordsB]);
 
     return intersection.size / union.size;
+  }
+
+  private calculateRecallScore(
+    entry: MemoryEntry,
+    query: string,
+    queryTokens: ReadonlySet<string>,
+    now: number,
+  ): number {
+    const content = entry.content.toLowerCase();
+    const normalizedQuery = query.toLowerCase().trim();
+    const contentTokens = this.tokenize(entry.content);
+    const tagTokens = new Set((entry.tags ?? []).flatMap((tag) => [...this.tokenize(tag)]));
+    let lexicalScore = normalizedQuery && content.includes(normalizedQuery) ? 12 : 0;
+
+    for (const token of queryTokens) {
+      if (contentTokens.has(token)) {
+        lexicalScore += 3;
+      }
+      if (tagTokens.has(token)) {
+        lexicalScore += 4;
+      }
+    }
+    if (lexicalScore === 0) {
+      return 0;
+    }
+    return lexicalScore + this.calculateRecencyScore(entry.updatedAt, now);
+  }
+
+  private calculateRecencyScore(updatedAt: string, now: number): number {
+    const ageMs = Math.max(0, now - new Date(updatedAt).getTime());
+    const ageDays = ageMs / 86_400_000;
+    return 1 / (1 + ageDays / 30);
   }
 
   private tokenize(text: string): Set<string> {
@@ -392,6 +491,22 @@ export class MemoryManager {
     return eventLog;
   }
 
+  private getSummaryTree(level: MemoryLevel): MemorySummaryTree {
+    let tree = this.summaryTrees.get(level);
+    if (!tree) {
+      tree = new MemorySummaryTree(this.getMemoryDir(level));
+      this.summaryTrees.set(level, tree);
+    }
+    return tree;
+  }
+
+  private async initializeLevel(level: MemoryLevel): Promise<void> {
+    await this.withMemoryMutationLock(level, async () => {
+      const eventLog = await this.initializeEventLog(level);
+      await this.rebuildProjectionUnlocked(level, eventLog, false);
+    });
+  }
+
   private async withMemoryMutationLock<T>(
     level: MemoryLevel,
     operation: () => Promise<T>,
@@ -404,6 +519,32 @@ export class MemoryManager {
     return await fs.pathExists(indexPath)
       ? await fs.readJson(indexPath) as MemoryIndex
       : { version: 1, entries: [] };
+  }
+
+  private async appendContextLevel(
+    parts: string[],
+    level: MemoryLevel,
+    entries: MemoryEntry[],
+    limit: number,
+  ): Promise<void> {
+    if (entries.length <= limit) {
+      parts.push(level === 'project' ? '## Project Memories' : '## User Preferences');
+      for (const entry of entries.slice(0, limit)) {
+        parts.push(`- ${entry.content}`);
+      }
+      return;
+    }
+
+    const outline = await this.getMemoryOutline(level, {
+      maxLines: Math.max(1, limit),
+      maxChars: 4_000,
+      recentRawCount: Math.min(3, Math.max(1, limit - 1)),
+    });
+    parts.push(
+      level === 'project' ? '## Project Memory Outline' : '## User Memory Outline',
+      `[snapshot=${outline.snapshotId} events=${outline.eventCount ?? 0} memories=${outline.totalEntries}]`,
+      outline.text,
+    );
   }
 
   private toIndexEntry(entry: MemoryEntry): MemoryIndex['entries'][number] {

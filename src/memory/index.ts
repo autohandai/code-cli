@@ -8,7 +8,12 @@ export { MemoryManager } from './MemoryManager.js';
 export {
   MemoryEventLog,
   MemoryEventLogCorruptionError,
+  mergeMemoryEventLogContents,
 } from './MemoryEventLog.js';
+export {
+  MemorySummaryCorruptionError,
+  MemorySummaryTree,
+} from './MemorySummaryTree.js';
 export * from './types.js';
 export {
   extractAndSaveSessionMemories,

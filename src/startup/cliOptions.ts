@@ -17,6 +17,7 @@ const SEARCH_PROVIDERS = [
 ] as const satisfies readonly SearchProvider[];
 
 export interface RootCliOptions extends CLIOptions {
+  dir?: string;
   mode?: string;
   acp?: boolean;
   y?: boolean;
@@ -42,6 +43,10 @@ export function normalizeInitialCliOptions(
   environment: NodeJS.ProcessEnv = process.env,
 ): InitialCliOptionsNormalization {
   const result: InitialCliOptionsNormalization = {};
+  if (options.path === undefined && options.dir !== undefined) {
+    options.path = options.dir;
+  }
+  delete options.dir;
   const legacyBrowserValue = options.chrome ?? (options.noChrome === true ? false : undefined);
   if (legacyBrowserValue !== undefined) {
     result.deprecatedBrowserOption = legacyBrowserValue ? '--chrome' : '--no-chrome';

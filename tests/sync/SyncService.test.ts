@@ -1734,6 +1734,31 @@ describe('SyncService - File filtering', () => {
     expect(status.fileCount).toBe(1);
   });
 
+  it('includes the canonical memory event log while excluding its locks and derived cache', async () => {
+    const memoryDir = path.join(tempDir, 'memory');
+    await fs.ensureDir(path.join(memoryDir, 'events'));
+    await fs.ensureDir(path.join(memoryDir, 'derived', 'summaries', 'user'));
+    await fs.writeFile(path.join(memoryDir, 'events', 'LOG.jsonl'), '{"version":1}\n');
+    await fs.writeFile(path.join(memoryDir, 'events', '.LOG.jsonl.lock'), 'lock');
+    await fs.writeJson(
+      path.join(memoryDir, 'derived', 'summaries', 'user', 'snapshot.json'),
+      { derived: true },
+    );
+
+    const service = new SyncService({
+      authToken: 'test-token',
+      userId: 'test-user',
+      config: { enabled: true, interval: 300000 },
+      apiClient: mockApiClient,
+    });
+    (service as unknown as { basePath: string }).basePath = tempDir;
+
+    const status = await service.getStatus();
+
+    expect(status.fileCount).toBe(1);
+    expect(status.totalSize).toBe(Buffer.byteLength('{"version":1}\n'));
+  });
+
   it('includes telemetry when consent is given', async () => {
     await fs.ensureDir(path.join(tempDir, 'telemetry'));
     await fs.writeJson(path.join(tempDir, 'telemetry', 'queue.json'), { events: [] });

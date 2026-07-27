@@ -215,6 +215,7 @@ program
   .option('--bare', 'Minimal mode: skip hooks, LSP, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and AGENTS.md auto-discovery', false)
   .option('--offline', 'Disable startup network operations, including model catalog refreshes', false)
   .option('--path <path>', 'Workspace path to operate in')
+  .option('--dir <path>', 'Alias for --path')
   .option('-y, --yes', 'Auto-confirm risky actions', false)
   .option('--y', 'Alias for --yes', false)
   .option('--dry-run', 'Preview actions without applying mutations', false)
@@ -2583,7 +2584,7 @@ async function prepareRuntimeExtensionsForCli(command: Command, argv: string[]):
   if (argv.includes('--bare')) {
     return;
   }
-  const workspaceRoot = path.resolve(argvOptionValue(argv, '--path') ?? process.cwd());
+  const workspaceRoot = path.resolve(argvOptionValue(argv, '--path') ?? argvOptionValue(argv, '--dir') ?? process.cwd());
   const [{ ExtensionRegistry }, runtimeModule, slashModule, { ProviderFactory }] = await Promise.all([
     import('./extensions/ExtensionRegistry.js'),
     import('./extensions/ExtensionRuntimeHost.js'),
