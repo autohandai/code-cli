@@ -19,6 +19,7 @@ import {
   type BackgroundProcessCompletion,
 } from '../actions/command.js';
 import { buildAutohandChildProcessEnv } from '../utils/childProcessEnv.js';
+import { writeAutohandDebugLine } from '../utils/debugLog.js';
 
 export type { BackgroundProcessCompletion } from '../actions/command.js';
 
@@ -349,6 +350,7 @@ interface PtyDisposable {
 }
 
 interface PtyProcess {
+  readonly pid?: number;
   onData(handler: (data: string) => void): PtyDisposable;
   onExit(handler: (event: { exitCode: number; signal?: number }) => void): PtyDisposable;
   kill(): void;
@@ -797,6 +799,21 @@ export function setNodePtyLoaderForTests(loader?: () => Promise<NodePtyModule | 
   nodePtyLoader = loader ?? defaultNodePtyLoader;
 }
 
+/**
+ * Whether this runtime can drive a node-pty PTY.
+ *
+ * node-pty's read loop does not work under Bun: the PTY delivers no data and
+ * never fires onExit, so an awaited command hangs forever with no output. The
+ * same command and environment exits in ~1.5s under Node. The CLI runs under Bun
+ * in development and RPC mode, so the PTY path must degrade to the non-PTY
+ * executor there rather than stranding the turn.
+ */
+export function supportsPtyExecution(
+  runtimeVersions: NodeJS.ProcessVersions = process.versions,
+): boolean {
+  return (runtimeVersions as { bun?: string }).bun === undefined;
+}
+
 function getPtyShellLaunch(command: string): { file: string; args: string[] } {
   if (process.platform === 'win32') {
     const comspec = process.env.ComSpec || 'cmd.exe';
@@ -848,7 +865,14 @@ export async function executeStreamingShellCommand(
     }
   }
   
-  const shouldUsePty = options.preferPty === true && process.stdin.isTTY && process.stdout.isTTY;
+  if (options.preferPty === true && !supportsPtyExecution()) {
+    writeAutohandDebugLine('[pty] unsupported runtime (bun), using non-PTY execution');
+  }
+
+  const shouldUsePty = options.preferPty === true
+    && process.stdin.isTTY
+    && process.stdout.isTTY
+    && supportsPtyExecution();
 
   if (!shouldUsePty) {
     return executeShellCommandAsync(trimmedCommand, cwd, DEFAULT_SHELL_TIMEOUT, options);
@@ -859,6 +883,7 @@ export async function executeStreamingShellCommand(
     throw new ShellCommandAbortedError();
   }
   if (!nodePty) {
+    writeAutohandDebugLine('[pty] unavailable, using non-PTY execution');
     return executeShellCommandAsync(trimmedCommand, cwd, DEFAULT_SHELL_TIMEOUT, options);
   }
 
@@ -872,13 +897,26 @@ export async function executeStreamingShellCommand(
       cwd: cwd ?? process.cwd(),
       env: buildAutohandChildProcessEnv(),
     });
-  } catch {
+  } catch (error) {
+    writeAutohandDebugLine(
+      `[pty] spawn failed, using non-PTY execution: ${error instanceof Error ? error.message : String(error)}`,
+    );
     return executeShellCommandAsync(trimmedCommand, cwd, DEFAULT_SHELL_TIMEOUT, options);
   }
+
+  // A PTY that never reports exit leaves no trace of how far it got. These lines
+  // are the difference between "it hung" and knowing whether the child ever
+  // emitted a byte, and which pid to inspect while it is still alive.
+  const ptyStartedAt = Date.now();
+  const sincePtyStart = (): number => Date.now() - ptyStartedAt;
+  writeAutohandDebugLine(
+    `[pty] spawn pid=${ptyProcess.pid ?? 'unknown'} shell=${file} cwd=${cwd ?? process.cwd()} cmd=${JSON.stringify(trimmedCommand)}`,
+  );
 
   return new Promise((resolve, reject) => {
     let output = '';
     let settled = false;
+    let sawOutput = false;
     function cleanup(): void {
       dataDisposable.dispose();
       exitDisposable.dispose();
@@ -893,15 +931,27 @@ export async function executeStreamingShellCommand(
     function handleAbort(): void {
       if (settled) return;
       settled = true;
+      writeAutohandDebugLine(
+        `[pty] abort pid=${ptyProcess.pid ?? 'unknown'} after=${sincePtyStart()}ms bytes=${output.length}`,
+      );
       ptyProcess.kill();
       cleanup();
       reject(new ShellCommandAbortedError(output.replace(/\r\n/g, '\n')));
     }
     const dataDisposable: PtyDisposable = ptyProcess.onData((data) => {
+      if (!sawOutput) {
+        sawOutput = true;
+        writeAutohandDebugLine(
+          `[pty] first-output pid=${ptyProcess.pid ?? 'unknown'} after=${sincePtyStart()}ms bytes=${data.length}`,
+        );
+      }
       output += data;
       options.onStdout?.(data);
     });
     const exitDisposable: PtyDisposable = ptyProcess.onExit((event) => {
+      writeAutohandDebugLine(
+        `[pty] exit pid=${ptyProcess.pid ?? 'unknown'} code=${event.exitCode} signal=${event.signal ?? 'none'} after=${sincePtyStart()}ms bytes=${output.length} sawOutput=${sawOutput}`,
+      );
       const normalized = output.replace(/\r\n/g, '\n');
       if (event.exitCode === 0) {
         finish({
