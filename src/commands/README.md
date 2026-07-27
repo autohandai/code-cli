@@ -32,6 +32,7 @@ Each command is a separate TypeScript file that exports:
 | `/usage` | `usage.ts` | Show project token activity by day, week, or month |
 | `/statusline` | `statusline.ts` | Configure composer status-line fields |
 | `/whatsnew` | `whatsnew.ts` | View and dismiss active CLI announcements |
+| `/changelog` | `changelog.ts` | View recent GitHub release notes |
 
 ## Adding a New Command
 

@@ -161,6 +161,10 @@ export class SlashCommandHandler {
             await this.ctx.onAfterModal?.();
           }
         }
+        case '/changelog': {
+          const { changelog } = await import('../commands/changelog.js');
+          return changelog();
+        }
         case '/agents': {
           const { handler } = await import('../commands/agents.js');
           await this.ctx.onBeforeModal?.();
