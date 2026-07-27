@@ -9,12 +9,20 @@ import crypto from 'node:crypto';
 import type { MemoryEntry, MemoryIndex, MemoryLevel, SimilarityMatch } from './types.js';
 import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from '../constants.js';
 import { scheduleBackgroundSync } from '../sync/runtimeSyncService.js';
+import { atomicRemoveFile, atomicWriteJson, withFileLock } from '../utils/atomicFile.js';
+import { MemoryEventLog } from './MemoryEventLog.js';
 
 const SIMILARITY_THRESHOLD = 0.6;
+const MEMORY_INDEX_LOCK_OPTIONS = {
+  staleMs: 30_000,
+  waitTimeoutMs: 5_000,
+  retryDelayMs: 10,
+} as const;
 
 export class MemoryManager {
   private readonly userMemoryDir: string;
   private projectMemoryDir: string | null = null;
+  private readonly eventLogs = new Map<MemoryLevel, MemoryEventLog>();
 
   constructor(workspaceRoot?: string) {
     this.userMemoryDir = AUTOHAND_PATHS.memory;
@@ -25,6 +33,7 @@ export class MemoryManager {
 
   setWorkspace(workspaceRoot: string): void {
     this.projectMemoryDir = path.join(workspaceRoot, PROJECT_DIR_NAME, 'memory');
+    this.eventLogs.delete('project');
   }
 
   async initialize(): Promise<void> {
@@ -45,6 +54,15 @@ export class MemoryManager {
   }
 
   async store(content: string, level: MemoryLevel, tags?: string[], source?: string): Promise<MemoryEntry> {
+    return this.withMemoryMutationLock(level, () => this.storeUnlocked(content, level, tags, source));
+  }
+
+  private async storeUnlocked(
+    content: string,
+    level: MemoryLevel,
+    tags?: string[],
+    source?: string,
+  ): Promise<MemoryEntry> {
     const dir = this.getMemoryDir(level);
     await fs.ensureDir(dir);
 
@@ -53,8 +71,9 @@ export class MemoryManager {
 
     if (similar && similar.score >= SIMILARITY_THRESHOLD) {
       // Update existing memory
-      return this.updateMemory(similar.entry.id, content, level, tags);
+      return this.updateMemoryUnlocked(similar.entry.id, content, level, tags);
     }
+    const eventLog = await this.initializeEventLog(level);
 
     // Create new memory
     const id = this.generateId();
@@ -69,7 +88,8 @@ export class MemoryManager {
     };
 
     const entryPath = path.join(dir, `${id}.json`);
-    await fs.writeJson(entryPath, entry, { spaces: 2 });
+    await eventLog.append({ operation: 'create', level, entry });
+    await atomicWriteJson(entryPath, entry);
     await this.updateIndex(level, entry);
     scheduleBackgroundSync();
 
@@ -77,6 +97,15 @@ export class MemoryManager {
   }
 
   async updateMemory(id: string, content: string, level: MemoryLevel, tags?: string[]): Promise<MemoryEntry> {
+    return this.withMemoryMutationLock(level, () => this.updateMemoryUnlocked(id, content, level, tags));
+  }
+
+  private async updateMemoryUnlocked(
+    id: string,
+    content: string,
+    level: MemoryLevel,
+    tags?: string[],
+  ): Promise<MemoryEntry> {
     const dir = this.getMemoryDir(level);
     const entryPath = path.join(dir, `${id}.json`);
 
@@ -85,6 +114,7 @@ export class MemoryManager {
     }
 
     const existing = await fs.readJson(entryPath) as MemoryEntry;
+    const eventLog = await this.initializeEventLog(level);
     const updated: MemoryEntry = {
       ...existing,
       content,
@@ -92,7 +122,8 @@ export class MemoryManager {
       tags: tags ?? existing.tags
     };
 
-    await fs.writeJson(entryPath, updated, { spaces: 2 });
+    await eventLog.append({ operation: 'update', level, entry: updated });
+    await atomicWriteJson(entryPath, updated);
     await this.updateIndex(level, updated);
     scheduleBackgroundSync();
 
@@ -149,11 +180,17 @@ export class MemoryManager {
   }
 
   async delete(id: string, level: MemoryLevel): Promise<void> {
+    await this.withMemoryMutationLock(level, () => this.deleteUnlocked(id, level));
+  }
+
+  private async deleteUnlocked(id: string, level: MemoryLevel): Promise<void> {
     const dir = this.getMemoryDir(level);
     const entryPath = path.join(dir, `${id}.json`);
 
     if (await fs.pathExists(entryPath)) {
-      await fs.remove(entryPath);
+      const eventLog = await this.initializeEventLog(level);
+      await eventLog.append({ operation: 'delete', level, memoryId: id });
+      await atomicRemoveFile(entryPath);
       await this.removeFromIndex(level, id);
       scheduleBackgroundSync();
     }
@@ -241,6 +278,49 @@ export class MemoryManager {
     return parts.join('\n');
   }
 
+  async rebuildFromEventLog(level: MemoryLevel): Promise<{ restored: number; removed: number }> {
+    return this.withMemoryMutationLock(level, () => this.rebuildFromEventLogUnlocked(level));
+  }
+
+  private async rebuildFromEventLogUnlocked(
+    level: MemoryLevel,
+  ): Promise<{ restored: number; removed: number }> {
+    const dir = this.getMemoryDir(level);
+    const eventLog = await this.initializeEventLog(level);
+    const replayed = await eventLog.replay();
+    const replayedById = new Map(replayed.map((entry) => [entry.id, entry]));
+    const files = await fs.readdir(dir);
+    let restored = 0;
+    let removed = 0;
+
+    for (const entry of replayed) {
+      const entryPath = path.join(dir, `${entry.id}.json`);
+      if (!(await fs.pathExists(entryPath))) {
+        restored += 1;
+      }
+      await atomicWriteJson(entryPath, entry);
+    }
+
+    for (const file of files) {
+      if (!file.endsWith('.json') || file === 'index.json') {
+        continue;
+      }
+      const id = file.slice(0, -'.json'.length);
+      if (!replayedById.has(id)) {
+        await atomicRemoveFile(path.join(dir, file));
+        removed += 1;
+      }
+    }
+
+    const index: MemoryIndex = {
+      version: 1,
+      entries: replayed.map((entry) => this.toIndexEntry(entry)),
+    };
+    await atomicWriteJson(path.join(dir, 'index.json'), index);
+    scheduleBackgroundSync();
+    return { restored, removed };
+  }
+
   private calculateSimilarity(a: string, b: string): number {
     const wordsA = this.tokenize(a);
     const wordsB = this.tokenize(b);
@@ -272,42 +352,67 @@ export class MemoryManager {
   private async updateIndex(level: MemoryLevel, entry: MemoryEntry): Promise<void> {
     const dir = this.getMemoryDir(level);
     const indexPath = path.join(dir, 'index.json');
+    await withFileLock(`${indexPath}.lock`, async () => {
+      const index = await this.readIndex(indexPath);
+      const existingIdx = index.entries.findIndex(e => e.id === entry.id);
+      const indexEntry = this.toIndexEntry(entry);
 
-    let index: MemoryIndex;
-    if (await fs.pathExists(indexPath)) {
-      index = await fs.readJson(indexPath) as MemoryIndex;
-    } else {
-      index = { version: 1, entries: [] };
-    }
+      if (existingIdx >= 0) {
+        index.entries[existingIdx] = indexEntry;
+      } else {
+        index.entries.push(indexEntry);
+      }
 
-    const existingIdx = index.entries.findIndex(e => e.id === entry.id);
-    const indexEntry = {
-      id: entry.id,
-      preview: entry.content.slice(0, 100),
-      createdAt: entry.createdAt,
-      updatedAt: entry.updatedAt,
-      tags: entry.tags
-    };
-
-    if (existingIdx >= 0) {
-      index.entries[existingIdx] = indexEntry;
-    } else {
-      index.entries.push(indexEntry);
-    }
-
-    await fs.writeJson(indexPath, index, { spaces: 2 });
+      await atomicWriteJson(indexPath, index);
+    }, MEMORY_INDEX_LOCK_OPTIONS);
   }
 
   private async removeFromIndex(level: MemoryLevel, id: string): Promise<void> {
     const dir = this.getMemoryDir(level);
     const indexPath = path.join(dir, 'index.json');
 
-    if (!(await fs.pathExists(indexPath))) {
-      return;
-    }
+    await withFileLock(`${indexPath}.lock`, async () => {
+      if (!(await fs.pathExists(indexPath))) {
+        return;
+      }
 
-    const index = await fs.readJson(indexPath) as MemoryIndex;
-    index.entries = index.entries.filter(e => e.id !== id);
-    await fs.writeJson(indexPath, index, { spaces: 2 });
+      const index = await this.readIndex(indexPath);
+      index.entries = index.entries.filter(e => e.id !== id);
+      await atomicWriteJson(indexPath, index);
+    }, MEMORY_INDEX_LOCK_OPTIONS);
+  }
+
+  private async initializeEventLog(level: MemoryLevel): Promise<MemoryEventLog> {
+    let eventLog = this.eventLogs.get(level);
+    if (!eventLog) {
+      eventLog = new MemoryEventLog(this.getMemoryDir(level));
+      this.eventLogs.set(level, eventLog);
+    }
+    await eventLog.initialize(level, await this.list(level));
+    return eventLog;
+  }
+
+  private async withMemoryMutationLock<T>(
+    level: MemoryLevel,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const lockPath = path.join(this.getMemoryDir(level), 'events', '.view.lock');
+    return withFileLock(lockPath, operation, MEMORY_INDEX_LOCK_OPTIONS);
+  }
+
+  private async readIndex(indexPath: string): Promise<MemoryIndex> {
+    return await fs.pathExists(indexPath)
+      ? await fs.readJson(indexPath) as MemoryIndex
+      : { version: 1, entries: [] };
+  }
+
+  private toIndexEntry(entry: MemoryEntry): MemoryIndex['entries'][number] {
+    return {
+      id: entry.id,
+      preview: entry.content.slice(0, 100),
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt,
+      tags: entry.tags,
+    };
   }
 }

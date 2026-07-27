@@ -49,6 +49,19 @@ That means any OptMem-inspired work should be additive:
 
 ## Staged Proposal That Preserves Current Compatibility
 
+### Implementation status
+
+Stages 0 and 1 are implemented:
+
+- each user/project memory directory keeps an append-only `events/LOG.jsonl`
+- the first mutation snapshots legacy JSON entries before recording new events
+- create, update, and delete events are serialized under cross-process locks
+- incomplete trailing records are truncated before the next append, while corrupt complete records fail explicitly
+- memory entry and index JSON files use atomic replacement, and the event log can rebuild that materialized view
+- event logs remain local audit/recovery artifacts and are excluded from settings sync; existing memory JSON remains the compatible synced representation
+
+The write order is event first, then materialized JSON and index. A crash can therefore leave the view behind the log, but cannot create an unrecorded committed memory mutation. Replaying the log repairs that view.
+
 ### Stage 0: Safety-first hardening
 
 - Keep the current `MemoryManager` API and `.autohand/memory/*.json` files unchanged.
