@@ -1551,8 +1551,10 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(output).toContain('✔ read_file (4)');
     expect(output.match(/✔ read_file/g) ?? []).toHaveLength(1);
     expect(output).toContain('alpha.txt, beta.txt (+2 more)');
-    expect(output).toContain('├ alpha.txt');
-    expect(output).toContain('└ delta.txt');
+    for (const file of files) {
+      expect(output).toMatch(new RegExp(`[├└] ${file} —`));
+    }
+    expect(output.match(/└ (?:alpha|beta|gamma|delta)\.txt —/g) ?? []).toHaveLength(1);
     await exitInteractive(session);
   }, 90_000);
 
