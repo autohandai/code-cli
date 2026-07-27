@@ -65,3 +65,47 @@ export type MemoryEventInput =
       level: MemoryLevel;
       memoryId: string;
     };
+
+export interface MemoryEventSnapshot {
+  snapshotId: string;
+  eventCount: number;
+  events: MemoryEvent[];
+  entries: MemoryEntry[];
+}
+
+export interface MemoryOutlineOptions {
+  maxLines?: number;
+  maxChars?: number;
+  recentRawCount?: number;
+  snapshotEventCount?: number;
+}
+
+export interface MemoryOutlineNode {
+  id: string;
+  snapshotId: string;
+  level: MemoryLevel;
+  kind: 'summary' | 'memory';
+  start: number;
+  end: number;
+  summary: string;
+  memoryId?: string;
+  tags?: string[];
+  children?: [string, string];
+}
+
+export interface MemoryOutline {
+  snapshotId: string;
+  eventCount?: number;
+  totalEntries: number;
+  nodes: MemoryOutlineNode[];
+  text: string;
+}
+
+export interface RecalledMemory {
+  id: string;
+  content: string;
+  level: MemoryLevel;
+  tags?: string[];
+  updatedAt: string;
+  score: number;
+}

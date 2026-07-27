@@ -36,14 +36,47 @@ describe('full-page browser screenshot tool', () => {
     expect(CHROME_AUTOMATION_SYSTEM_PROMPT).toContain('Do not scroll and stitch');
   });
 
+  it('offers an explicit PNG download contract when the user asks to save it', () => {
+    const definitions = DEFAULT_TOOL_DEFINITIONS.filter(
+      (tool) =>
+        tool.name === 'browser_screenshot' ||
+        tool.name === 'browser_take_full_page_screenshot',
+    );
+
+    expect(definitions).toHaveLength(2);
+    for (const definition of definitions) {
+      expect(definition.parameters.properties).toMatchObject({
+        save: {
+          type: 'boolean',
+        },
+        filename: {
+          type: 'string',
+        },
+      });
+    }
+    expect(CHROME_AUTOMATION_SYSTEM_PROMPT).toContain(
+      'set save=true so the extension writes a real PNG',
+    );
+  });
+
   it('forwards one dedicated invocation to the extension bridge', async () => {
-    const toolNames: string[] = [];
+    const invocations: Array<{
+      toolName: string;
+      input: Record<string, unknown>;
+    }> = [];
     setBrowserBridgeOutput({
       write(data) {
         const request = JSON.parse(data) as {
-          params: { requestId: string; toolName: string };
+          params: {
+            requestId: string;
+            toolName: string;
+            input: Record<string, unknown>;
+          };
         };
-        toolNames.push(request.params.toolName);
+        invocations.push({
+          toolName: request.params.toolName,
+          input: request.params.input,
+        });
         queueMicrotask(() => {
           resolveBrowserToolResponse(request.params.requestId, true, 'screenshot');
         });
@@ -66,9 +99,20 @@ describe('full-page browser screenshot tool', () => {
     const result = await executor.execute({
       type: 'browser_take_full_page_screenshot',
       format: 'png',
+      save: true,
+      filename: 'checkout.png',
     });
 
     expect(result).toBe('screenshot');
-    expect(toolNames).toEqual(['browser_take_full_page_screenshot']);
+    expect(invocations).toEqual([
+      {
+        toolName: 'browser_take_full_page_screenshot',
+        input: {
+          format: 'png',
+          save: true,
+          filename: 'checkout.png',
+        },
+      },
+    ]);
   });
 });

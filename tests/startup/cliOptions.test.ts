@@ -27,6 +27,19 @@ describe('CLI option normalization', () => {
     expect(options.autoMode).toBeUndefined();
   });
 
+  it('normalizes --dir to the canonical workspace path option', () => {
+    const alias: RootCliOptions = { dir: 'scratch' };
+    const canonical: RootCliOptions = { path: 'project', dir: 'scratch' };
+
+    normalizeInitialCliOptions(alias, {});
+    normalizeInitialCliOptions(canonical, {});
+
+    expect(alias.path).toBe('scratch');
+    expect(alias.dir).toBeUndefined();
+    expect(canonical.path).toBe('project');
+    expect(canonical.dir).toBeUndefined();
+  });
+
   it('preserves flag prompts over positional prompts and otherwise uses the positional prompt', () => {
     const explicit: RootCliOptions = { prompt: 'from flag' };
     const positional: RootCliOptions = {};

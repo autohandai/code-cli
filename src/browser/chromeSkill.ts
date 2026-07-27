@@ -45,6 +45,7 @@ When a selector or URL is known from the user's message, call the target tool di
 - Don't call browser_get_page_context before every action — only for page discovery
 - Don't browser_screenshot after every action — use it to verify results or when stuck
 - Use browser_take_full_page_screenshot when the user asks for the whole page. Do not scroll and stitch screenshots.
+- When the user asks to save or download a screenshot, set save=true so the extension writes a real PNG to Chrome's configured download folder. Pass filename when the user names the file.
 - For known selectors (e.g. "#submit", "button[type='submit']"), go straight to the action
 
 ## Safety

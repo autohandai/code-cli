@@ -97,7 +97,8 @@ When connected, the agent gains access to these browser tools:
 | `browser_get_element` | Get computed styles, rect, and attributes of an element |
 | `browser_find_element` | Find elements by selector, text content, or ARIA role |
 | `browser_wait_for_element` | Wait for an element to appear (5s timeout) |
-| `browser_screenshot` | Capture a screenshot of the current page |
+| `browser_screenshot` | Capture the current page; use `save: true` to download a PNG |
+| `browser_take_full_page_screenshot` | Capture the full page; use `save: true` to download a PNG |
 
 ### Debugging
 

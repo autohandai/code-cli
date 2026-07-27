@@ -143,7 +143,9 @@ export const SYNC_EXCLUDE_ALWAYS = [
   '.sync-state.json',
   'sessions/index.json.lock',
   'memory/index.json.lock',
-  'memory/events/',
+  'memory/events/.LOG.jsonl.lock',
+  'memory/events/.view.lock',
+  'memory/derived/',
   '.*.tmp',
   '.*.tombstone',
 ] as const;

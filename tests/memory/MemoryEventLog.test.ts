@@ -7,7 +7,11 @@ import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { MemoryEventLog, MemoryEventLogCorruptionError } from '../../src/memory/MemoryEventLog.js';
+import {
+  MemoryEventLog,
+  MemoryEventLogCorruptionError,
+  mergeMemoryEventLogContents,
+} from '../../src/memory/MemoryEventLog.js';
 import type { MemoryEntry } from '../../src/memory/types.js';
 
 const temporaryRoots: string[] = [];
@@ -132,5 +136,64 @@ describe('MemoryEventLog', () => {
       'create',
       'delete',
     ]);
+  });
+
+  it('returns immutable snapshots that do not shift after later appends', async () => {
+    const { log } = await createLog();
+    await log.append({
+      operation: 'create',
+      level: 'project',
+      entry: entry('one'),
+    });
+    const snapshot = await log.snapshot();
+
+    await log.append({
+      operation: 'create',
+      level: 'project',
+      entry: entry('two'),
+    });
+
+    await expect(log.snapshot(snapshot.eventCount)).resolves.toEqual(snapshot);
+    await expect(log.snapshot()).resolves.toMatchObject({ eventCount: 2 });
+  });
+
+  it('merges remote history by appending missing events without rewriting local bytes', async () => {
+    const local = await createLog();
+    const remote = await createLog();
+    await local.log.append({
+      operation: 'create',
+      level: 'user',
+      entry: entry('local'),
+    });
+    await remote.log.append({
+      operation: 'create',
+      level: 'user',
+      entry: entry('remote'),
+    });
+    const localBytes = await fs.readFile(local.logPath, 'utf8');
+    const remoteBytes = await fs.readFile(remote.logPath, 'utf8');
+
+    const merged = mergeMemoryEventLogContents(localBytes, remoteBytes);
+
+    expect(merged.startsWith(localBytes)).toBe(true);
+    await fs.writeFile(local.logPath, merged);
+    const replayed = await local.log.replay();
+    expect(new Set(replayed.map((memory) => memory.id))).toEqual(new Set(['local', 'remote']));
+  });
+
+  it('deduplicates already-synced events and rejects conflicting duplicate IDs', async () => {
+    const { log, logPath } = await createLog();
+    await log.append({
+      operation: 'create',
+      level: 'user',
+      entry: entry('one'),
+    });
+    const content = await fs.readFile(logPath, 'utf8');
+    expect(mergeMemoryEventLogContents(content, content)).toBe(content);
+
+    const conflicting = content.replace('"memory one"', '"changed content"');
+    expect(() => mergeMemoryEventLogContents(content, conflicting)).toThrow(
+      /duplicate eventId/i,
+    );
   });
 });
