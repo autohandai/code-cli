@@ -73,6 +73,7 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | `/feedback` | Send feedback |
 | `/help` | Display help |
 | `/about` | Show information about Autohand |
+| `/whatsnew` | View and dismiss active CLI announcements |
 | `/formatters` | List available code formatters |
 | `/lint` | List available code linters |
 | `/completion` | Generate shell completion scripts |

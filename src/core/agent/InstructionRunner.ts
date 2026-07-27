@@ -538,7 +538,7 @@ export class InstructionRunner {
       if (
         process.stdout.isTTY
         && !host.useInkRenderer
-        && host.runtime.options.commandOutputFormat === 'text'
+        && (host.runtime?.options?.commandOutputFormat ?? 'text') === 'text'
       ) {
         process.stdout.write('\n');
       }

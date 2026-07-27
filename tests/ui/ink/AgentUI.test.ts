@@ -92,6 +92,10 @@ describe('AgentUI TextBuffer integration helpers', () => {
       key: 'ctrl+c',
       command: '/runtime-dashboard',
     })).toBe(false);
+    expect(matchesExtensionKeybinding('x', createInkKey({ ctrl: true }), {
+      key: 'ctrl+x',
+      command: '/runtime-dashboard',
+    })).toBe(false);
   });
 
   it('inserts text at the cursor after arrow navigation', () => {

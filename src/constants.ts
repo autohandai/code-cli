@@ -95,6 +95,9 @@ export const AUTOHAND_FILES = {
 
   /** Last successful remote feature flag evaluation */
   featureFlagsCache: path.join(AUTOHAND_HOME, 'feature-flags.json'),
+
+  /** Last successful CLI announcements payload and local dismissals */
+  announcementsCache: path.join(AUTOHAND_HOME, 'announcements.json'),
 } as const;
 
 /**

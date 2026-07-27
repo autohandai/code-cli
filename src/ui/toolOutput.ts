@@ -85,8 +85,14 @@ export function formatToolOutputForDisplay(options: FileToolOutputOptions): Tool
       ? `${command} ${commandArgs.join(' ')}`
       : command;
     const outputLines = content ? content.split('\n').length : 0;
+    const backgroundPidLine = content.match(/(?:^|\n)(\[Background PID: \d+\])\s*$/)?.[1];
     const truncatedContent = charLimit > 0 && totalChars > charLimit
-      ? `${content.slice(0, charLimit)}\n... (${totalChars} chars)`
+      ? [
+          `${content.slice(0, charLimit)}\n... (${totalChars} chars)`,
+          backgroundPidLine && !content.slice(0, charLimit).includes(backgroundPidLine)
+            ? backgroundPidLine
+            : '',
+        ].filter(Boolean).join('\n')
       : content;
 
     return {

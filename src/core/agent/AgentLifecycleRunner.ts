@@ -272,6 +272,8 @@ export async function shutdownAgentRuntimeResources(host: AgentLifecycleHost): P
       callResourceCleanupSync(() => host.stopStatusUpdates?.());
       callResourceCleanupSync(host.persistentConsoleBridgeCleanup ?? undefined);
       host.persistentConsoleBridgeCleanup = null;
+      callResourceCleanupSync(host.announcementUnsubscribe ?? undefined);
+      host.announcementUnsubscribe = null;
 
       callResourceCleanupSync(() => host.repeatManager?.shutdown());
       host.persistentInputActiveTurn = false;
@@ -708,7 +710,7 @@ export async function runAgentCommandMode(
       if (succeeded) {
         if (
           host.runtime.config.ui?.terminalBell !== false
-          && host.runtime.options.commandOutputFormat === 'text'
+          && (host.runtime.options.commandOutputFormat ?? 'text') === 'text'
         ) {
           process.stdout.write('\x07');
         }

@@ -78,6 +78,8 @@ import { McpStartupCoordinator } from './McpStartupCoordinator.js';
 import { MentionResolver } from './MentionResolver.js';
 import { AutoReportManager } from '../../reporting/AutoReportManager.js';
 import { RemoteFeatureFlagManager } from '../../features/RemoteFeatureFlagManager.js';
+import { getAnnouncementManager } from '../../announcements/AnnouncementManager.js';
+import { syncAgentAnnouncementLine } from './AgentUIRuntime.js';
 import { getFeatureState } from '../../features/featureRegistry.js';
 import { isGoalFeatureEnabled } from '../../goals/feature.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
@@ -649,6 +651,14 @@ export function initializeAgentDependencies(
     host.featureFlagManager = new RemoteFeatureFlagManager(runtime.config);
     if (!runtime.options.bare) {
       host.featureFlagManager.refreshFeatureFlags().catch(() => {});
+    }
+    host.announcementManager = getAnnouncementManager(runtime.config);
+    host.announcementManager.setNetworkEnabled(!runtime.options.bare && !runtime.options.offline);
+    host.announcementUnsubscribe = host.announcementManager.subscribe(() => {
+      syncAgentAnnouncementLine(host);
+    });
+    if (!runtime.options.bare && !runtime.options.offline) {
+      host.announcementManager.refresh().catch(() => {});
     }
 
     // Initialize community skills client
@@ -1476,6 +1486,7 @@ export function initializeAgentDependencies(
         host.syncProviderModelStatusLine?.();
         host.persistentInput?.render?.();
       },
+      announcementManager: host.announcementManager,
       isInteractiveAutomodeEnabled: () => host.interactiveAutomodeEnabled,
       setInteractiveAutomodeEnabled: (enabled: boolean) => host.setInteractiveAutomodeEnabled(enabled),
       getInteractionMode: () => host.getInteractionMode(),

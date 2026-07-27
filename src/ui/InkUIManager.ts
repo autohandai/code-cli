@@ -19,6 +19,7 @@ export interface InkUIManagerOptions {
   onInstruction: (text: string) => void;
   onEscape: () => void;
   onCtrlC: () => void;
+  onDismissAnnouncement?: (id: string) => void;
   enableQueueInput?: boolean;
   onImageDetected?: (data: Buffer, mimeType: string, filename?: string) => number;
   filesProvider?: () => string[];

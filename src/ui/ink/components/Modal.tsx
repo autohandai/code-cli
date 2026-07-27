@@ -41,6 +41,8 @@ interface BaseModalProps {
   logo?: string;
   /** Callback invoked when user cancels (ESC) */
   onCancel?: () => void;
+  /** Optional override for the keyboard help rendered below the modal. */
+  hint?: string;
 }
 
 /**
@@ -298,7 +300,7 @@ export function cleanupModalRender(
 function Modal(props: ModalProps) {
   const { t } = useTranslation();
   const { theme } = useTheme();
-  const { title, logo, onCancel } = props;
+  const { title, logo, onCancel, hint } = props;
 
   // Determine mode (default to 'select' for backward compatibility)
   const mode = 'mode' in props ? props.mode : 'select';
@@ -696,6 +698,9 @@ function Modal(props: ModalProps) {
 
   // Render hint text
   const renderHint = () => {
+    if (hint) {
+      return hint;
+    }
     if (mode === 'input' || mode === 'password') {
       return t('ui.inputHint');
     }
@@ -753,6 +758,8 @@ export interface ShowModalOptions {
   logo?: string;
   /** When true, skips entering alternative screen buffer */
   skipAltScreen?: boolean;
+  /** Optional override for the keyboard help rendered below the modal. */
+  hint?: string;
 }
 
 /**
@@ -777,7 +784,18 @@ export interface ShowModalOptions {
 export async function showModal(
   options: ShowModalOptions
 ): Promise<ModalOption | null> {
-  const { title, logo, options: modalOptions, allowCustomInput, multiSelect, maxVisible, onToggle, skipAltScreen, initialIndex } = options;
+  const {
+    title,
+    logo,
+    options: modalOptions,
+    allowCustomInput,
+    multiSelect,
+    maxVisible,
+    onToggle,
+    skipAltScreen,
+    initialIndex,
+    hint,
+  } = options;
 
   // Non-interactive fallback
   if (!process.stdout.isTTY) {
@@ -855,6 +873,7 @@ export async function showModal(
             title={title}
             logo={logo}
             options={modalOptions}
+            hint={hint}
             allowCustomInput={allowCustomInput}
             initialIndex={initialIndex}
             multiSelect={multiSelect}

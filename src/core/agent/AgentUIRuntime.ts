@@ -17,6 +17,7 @@ import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { buildStatusLineExtension, getConfigStatusLineSettings } from './StatusLineSettings.js';
 import { resolveStatusLineGitLabel } from './AgentContextRuntime.js';
 import { extensionRuntimeHost } from '../../extensions/ExtensionRuntimeHost.js';
+import type { AnnouncementLineState } from '../../ui/ink/AgentUI.js';
 
 export interface AgentUIRuntimeHost {
   [key: string]: any;
@@ -161,6 +162,34 @@ export interface ShellCommandResult {
   error?: string;
 }
 
+export function getAgentAnnouncementLine(host: AgentUIRuntimeHost): AnnouncementLineState | undefined {
+  const announcement = host.announcementManager?.getTop?.();
+  if (!announcement) {
+    return undefined;
+  }
+  return {
+    id: announcement.id,
+    text: `◆ ${announcement.headline}${announcement.bodyLines[0] ? ` — ${announcement.bodyLines[0]}` : ''}`,
+    hint: '^X hide  /whatsnew',
+    visible: true,
+  };
+}
+
+export function syncAgentAnnouncementLine(host: AgentUIRuntimeHost): void {
+  if (!host.inkRenderer) {
+    return;
+  }
+  const activeAnnouncement = host.announcementManager?.getTop?.();
+  const announcement = getAgentAnnouncementLine(host);
+  host.inkRenderer.setAnnouncement?.(announcement);
+  if (announcement && activeAnnouncement && host.inkRenderer.isRunning?.()) {
+    void host.announcementManager?.markSeen?.(
+      announcement.id,
+      activeAnnouncement.lineLastStep,
+    );
+  }
+}
+
 export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
     if (host.ui) {
       return; // Already initialized
@@ -181,6 +210,9 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
         },
         onCtrlC: () => {
           handleAgentCtrlCExitRequest(host);
+        },
+        onDismissAnnouncement: (id: string) => {
+          void host.announcementManager?.dismiss?.(id);
         },
         enableQueueInput: true,
         onImageDetected: (data: Buffer, mimeType: string, filename?: string) =>
@@ -247,6 +279,7 @@ export async function initializeAgentUI(host: AgentUIRuntimeHost, abortControlle
         host.inkRenderer = host.ui?.getInkRenderer?.() ?? host.inkRenderer;
         host.ui?.setWorking(true, 'Gathering context...');
         host.runtime.inkRenderer = host.inkRenderer;
+        syncAgentAnnouncementLine(host);
         
         // Ensure fallback spinner is NOT initialized when Ink is active
         if (host.runtime?.spinner) {

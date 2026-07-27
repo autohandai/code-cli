@@ -16,6 +16,7 @@ import {
   AgentUI,
   createInitialUIState,
   type ActivityItem,
+  type AnnouncementLineState,
   type AgentUILineExtensions,
   type AgentUIState,
   type ContextTokenDisplay,
@@ -42,6 +43,7 @@ export interface InkRendererOptions {
   onInstruction: (text: string) => void;
   onEscape: () => void;
   onCtrlC: () => void;
+  onDismissAnnouncement?: (id: string) => void;
   enableQueueInput?: boolean;
   /** Called when a dragged/dropped image is detected in the input */
   onImageDetected?: (data: Buffer, mimeType: string, filename?: string) => number;
@@ -136,6 +138,7 @@ interface AgentUIWrapperProps {
   onInstruction: (text: string) => void;
   onEscape: () => void;
   onCtrlC: () => void;
+  onDismissAnnouncement?: (id: string) => void;
   onToggleLiveCommandExpanded: () => void;
   onInputChange: (input: string) => void;
   enableQueueInput?: boolean;
@@ -165,6 +168,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       onInstruction,
       onEscape,
       onCtrlC,
+      onDismissAnnouncement,
       onToggleLiveCommandExpanded,
       onInputChange,
       enableQueueInput,
@@ -209,6 +213,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         onInstruction={onInstruction}
         onEscape={onEscape}
         onCtrlC={onCtrlC}
+        onDismissAnnouncement={onDismissAnnouncement}
         onToggleLiveCommandExpanded={onToggleLiveCommandExpanded}
         onInputChange={handleInputChange}
         enableQueueInput={enableQueueInput}
@@ -383,6 +388,7 @@ export class InkRenderer {
             onInstruction={this.options.onInstruction}
             onEscape={this.options.onEscape}
             onCtrlC={this.options.onCtrlC}
+            onDismissAnnouncement={this.options.onDismissAnnouncement}
             onToggleLiveCommandExpanded={() => this.toggleActiveLiveCommandExpanded()}
             onInputChange={this.handleInputChange}
             enableQueueInput={this.options.enableQueueInput}
@@ -742,6 +748,7 @@ export class InkRenderer {
     const newState = {
       ...createInitialUIState(),
       interactionMode: this.options.getInteractionMode?.() ?? this.state.interactionMode,
+      announcement: this.state.announcement,
     };
     this.state = newState;
     if (this.wrapperRef.current) {
@@ -952,6 +959,10 @@ export class InkRenderer {
     this.updateState({ provider, model });
   }
 
+  setAnnouncement(announcement: AnnouncementLineState | undefined): void {
+    this.updateState({ announcement });
+  }
+
   /**
    * Replace todo-kind activity items while preserving active sub-agent rows.
    */
@@ -1154,6 +1165,7 @@ export class InkRenderer {
               onInstruction={this.options.onInstruction}
               onEscape={this.options.onEscape}
               onCtrlC={this.options.onCtrlC}
+              onDismissAnnouncement={this.options.onDismissAnnouncement}
               onToggleLiveCommandExpanded={() => this.toggleActiveLiveCommandExpanded()}
               onInputChange={this.handleInputChange}
               enableQueueInput={this.options.enableQueueInput}
@@ -1299,6 +1311,7 @@ export class InkRenderer {
     const newState = {
       ...createInitialUIState(),
       interactionMode: this.options.getInteractionMode?.() ?? this.state.interactionMode,
+      announcement: this.state.announcement,
     };
     this.state = newState;
 

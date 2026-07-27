@@ -31,6 +31,7 @@ import type {
 import type { ExtensionService } from '../extensions/ExtensionService.js';
 import type { PendingPostTurnAction } from './agent/PostTurnActionCoordinator.js';
 import type { InteractionMode } from './agent/InteractionModeController.js';
+import type { AnnouncementManagerContract } from '../announcements/AnnouncementManager.js';
 
 export interface SlashCommandContext {
     listWorkspaceFiles?: () => Promise<void>;
@@ -72,6 +73,8 @@ export interface SlashCommandContext {
     refreshFeatureGatedTools?: () => void;
     /** Refresh the active composer status/help line after display settings change. */
     refreshStatusLine?: () => void;
+    /** Process-scoped CLI announcement state and actions. */
+    announcementManager?: AnnouncementManagerContract;
     /** Skills registry for /skills commands */
     skillsRegistry?: SkillsRegistry;
     /** Meta-tools registry for /tools commands */

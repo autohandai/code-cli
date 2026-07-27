@@ -98,6 +98,19 @@ describe('formatToolOutputForDisplay', () => {
     expect(result.output).toContain('main');
   });
 
+  it('keeps a background PID visible when command output is truncated', () => {
+    const result = formatToolOutputForDisplay({
+      tool: 'shell',
+      content: `${'long command output '.repeat(20)}\n[Background PID: 4242]`,
+      charLimit: 80,
+      command: 'node server.js',
+    });
+
+    expect(result.truncated).toBe(true);
+    expect(result.output).toMatch(/\.\.\. \(\d+ chars\)/);
+    expect(result.output).toContain('[Background PID: 4242]');
+  });
+
   it('renders ask_followup_question answers without raw XML tags', () => {
     const result = formatToolOutputForDisplay({
       tool: 'ask_followup_question',
