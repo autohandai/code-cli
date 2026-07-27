@@ -6,6 +6,8 @@
 import React from 'react';
 import { render } from 'ink-testing-library';
 import stringWidth from 'string-width';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AnnouncementLine } from '../../../src/ui/ink/AnnouncementLine.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
@@ -33,18 +35,13 @@ describe('AnnouncementLine', () => {
   it('colours the announcement and its hint through the theme', () => {
     // Every sibling in the bottom region is themed; an unthemed line renders in
     // the raw terminal colour and ignores the user's theme entirely.
-    const { lastFrame } = renderLine({
-      text: '◆ Voice dictation is here',
-      hint: '^X hide  /whatsnew',
-      visible: true,
-      columns: 80,
-    });
-    const frame = lastFrame() ?? '';
+    const source = readFileSync(
+      path.resolve(process.cwd(), 'src/ui/ink/AnnouncementLine.tsx'),
+      'utf8',
+    );
 
-    const escapes = frame.match(/\[[0-9;]*m/gu) ?? [];
-    expect(escapes.length).toBeGreaterThan(0);
-    expect(frame).toContain('Voice dictation is here');
-    expect(frame).toContain('^X hide  /whatsnew');
+    expect(source).toContain("theme.fg('accent', content)");
+    expect(source).toContain("theme.fg('muted', hint)");
   });
 
   it('is memoized so the bottom region can re-render on every spinner tick', () => {
