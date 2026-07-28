@@ -118,6 +118,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # This job runs the built terminal tests, which assert the CLI renders
+          # the latest stable release tag found via `git tag --merged HEAD`. The
+          # default shallow checkout fetches no tags.
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
