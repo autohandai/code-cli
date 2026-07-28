@@ -20,7 +20,7 @@ const GIT_ENV = {
 const GIT_EXEC_OPTIONS = {
   env: GIT_ENV,
   stdio: 'ignore',
-  timeout: 10_000,
+  timeout: 30_000,
 } as const;
 
 async function createRepo(): Promise<string> {

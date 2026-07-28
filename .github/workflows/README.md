@@ -15,20 +15,24 @@ This directory contains automated CI/CD workflows for the Autohand CLI project.
    - Alpha bumps the patch from the latest stable tag and appends the short SHA
    - Stable releases use the current `package.json` version unless manually overridden
 
-2. **Builds binaries** for all platforms:
+2. **Runs fast tests and built terminal tests in separate parallel jobs**
+
+3. **Builds binaries** for all platforms:
    - macOS Apple Silicon (`autohand-macos-arm64`)
    - macOS Intel (`autohand-macos-x64`)
    - Linux x64 (`autohand-linux-x64`)
    - Linux ARM64 (`autohand-linux-arm64`)
    - Windows x64 (`autohand-windows-x64.exe`)
 
-3. **Generates release notes** from the correct previous release tag
+4. **Generates release notes** from the correct previous release tag
 
-4. **Creates GitHub Release** with binaries attached
+5. **Creates GitHub Release** with binaries attached
 
-5. **Updates the public Homebrew tap** from the verified release archives (stable releases only)
+6. **Updates the public Homebrew tap** from the verified release archives (stable releases only)
 
-6. **Publishes to npm** (stable releases only)
+7. **Publishes to npm**
+   - Alpha releases use the `alpha` dist-tag
+   - Stable releases use the `latest` dist-tag
 
 **Release Channels:**
 - **main push** → `v1.2.4-alpha.abc1234` (next patch from the latest stable tag plus short SHA)
@@ -42,9 +46,10 @@ This directory contains automated CI/CD workflows for the Autohand CLI project.
 
 **What it does:**
 1. Type checking
-2. Build verification
-3. Test execution
-4. Multi-platform build test
+2. Fast test execution
+3. Built terminal tests in a separate parallel job
+4. Build verification
+5. Multi-platform build test
 
 ### 🤖 Model catalog pull requests (`model-catalog-pr.yml`)
 

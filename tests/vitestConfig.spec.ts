@@ -48,9 +48,9 @@ describe('vitest config', () => {
     const config = await loadVitestConfig(false);
 
     expect(config.test?.pool).toBe('forks');
-    expect(config.test?.maxConcurrency).toBe(4);
+    expect(config.test?.maxConcurrency).toBe(2);
     expect(config.test?.minWorkers).toBe(2);
-    expect(config.test?.maxWorkers).toBe(4);
+    expect(config.test?.maxWorkers).toBe(2);
     expect(config.poolOptions?.forks?.singleFork).toBeUndefined();
   });
 

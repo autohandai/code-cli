@@ -14,6 +14,7 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import packageJson from '../../package.json' with { type: 'json' };
 import { SLASH_COMMANDS } from '../../src/core/slashCommands.js';
+import { hasTerminalProcessPid } from '../../src/testing/assertions/terminalOutput.js';
 import { getHelpOrderedSlashCommands } from '../../src/ui/inputPrompt.js';
 import {
   clearComposerInput,
@@ -1789,16 +1790,20 @@ describe('interactive built CLI Tuistory tests', () => {
     await waitForComposer(session);
     await session.type('/ps');
     await session.press('enter');
-    await session.waitForText(`pid ${pid}`, { timeout: 30_000 });
+    await session.text({
+      timeout: 30_000,
+      waitFor: (text) => hasTerminalProcessPid(text, pid),
+    });
     const psOutput = session.readAll();
-    expect(psOutput).toContain(`pid ${pid}`);
+    expect(hasTerminalProcessPid(psOutput, pid), psOutput).toBe(true);
     expect(psOutput).toMatch(/^1\s{2}/m);
 
     await waitForComposer(session);
     await session.type('/stop 1');
     await session.press('enter');
     await session.waitForText('Stopped', { timeout: 30_000 });
-    expect(session.readAll()).toContain(`pid ${pid}`);
+    const stopOutput = session.readAll();
+    expect(hasTerminalProcessPid(stopOutput, pid), stopOutput).toBe(true);
 
     const exitDeadline = Date.now() + 5_000;
     let processExited = false;
@@ -1901,7 +1906,10 @@ describe('interactive built CLI Tuistory tests', () => {
     // made this fail on loaded CI runners without testing anything extra.
     await session.type('/ps');
     await session.press('enter');
-    await session.waitForText(`pid ${pid}`, { timeout: 30_000 });
+    await session.text({
+      timeout: 30_000,
+      waitFor: (text) => hasTerminalProcessPid(text, pid),
+    });
     expect(session.readAll()).not.toContain('Background task started and slow command finished.');
 
     await session.type('/stop 1');
