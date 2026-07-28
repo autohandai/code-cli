@@ -17,6 +17,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The built terminal tests assert the CLI renders the latest stable
+          # release tag, which they find with `git tag --merged HEAD`. The
+          # default shallow checkout fetches no tags, so that suite passes
+          # locally and fails here.
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
