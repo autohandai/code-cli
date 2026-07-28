@@ -46,7 +46,7 @@ const DEFAULT_DEEPSEEK_URL = "https://api.deepseek.com";
 const DEFAULT_BEDROCK_REGION = "us-east-1";
 const DEFAULT_AUTOHAND_AI_URL = "https://api.autohand.ai/v1";
 const DEFAULT_AUTOHAND_AI_CONTEXT_WINDOW = 16_000;
-const DEFAULT_AUTOHAND_AI_MOA_CONTEXT_WINDOW = 256_000;
+const DEFAULT_AUTOHAND_AI_MOA_CONTEXT_WINDOW = 1_000_000;
 
 interface LegacyConfigShape {
   api_key?: string;

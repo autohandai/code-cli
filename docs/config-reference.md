@@ -237,7 +237,7 @@ Requires `features.autohand_inference: true` or `AUTOHAND_FEATURE_AUTOHAND_INFER
     "authMode": "account",
     "baseUrl": "https://api.autohand.ai/v1",
     "model": "moa",
-    "contextWindow": 256000,
+    "contextWindow": 1000000,
     "reasoningEffort": "high"
   }
 }
@@ -250,7 +250,7 @@ Requires `features.autohand_inference: true` or `AUTOHAND_FEATURE_AUTOHAND_INFER
 | `apiKey`         | string                     | SDK Cloud/API-key Cloud | -                   | Autohand AI API key                                       |
 | `baseUrl`        | string                     | No       | `https://api.autohand.ai/v1`  | OpenAI-compatible API endpoint                            |
 | `model`          | string                     | Yes      | `fantail`                     | `fantail`, `moa`, or a selected local MLX coding model    |
-| `contextWindow`  | number                     | No       | `16000` for Fantail, `256000` for Moa/Local | Model context window                      |
+| `contextWindow`  | number                     | No       | `16000` for Fantail, `1000000` for Moa, `256000` for Local | Model context window                      |
 | `reasoningEffort` | `"medium"`, `"high"`, or `"xhigh"` | Moa Cloud | `"high"` during setup | Moa thinking effort level |
 | `port`           | number                     | Local    | `8080`                        | Local MLX server port                                     |
 | `localModelPath` | string                     | No       | -                             | Downloaded local coding model path                        |
