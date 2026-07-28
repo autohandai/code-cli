@@ -1783,10 +1783,13 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(pidMatch, startedOutput).toBeTruthy();
     const pid = Number(pidMatch![1]);
 
+    // This test only checks that /ps lists the process and /stop kills it; it
+    // makes no claim about latency, so the waits are sized for a loaded runner
+    // rather than for timing.
     await waitForComposer(session);
     await session.type('/ps');
     await session.press('enter');
-    await session.waitForText(`pid ${pid}`, { timeout: 10_000 });
+    await session.waitForText(`pid ${pid}`, { timeout: 30_000 });
     const psOutput = session.readAll();
     expect(psOutput).toContain(`pid ${pid}`);
     expect(psOutput).toMatch(/^1\s{2}/m);
@@ -1794,7 +1797,7 @@ describe('interactive built CLI Tuistory tests', () => {
     await waitForComposer(session);
     await session.type('/stop 1');
     await session.press('enter');
-    await session.waitForText('Stopped', { timeout: 10_000 });
+    await session.waitForText('Stopped', { timeout: 30_000 });
     expect(session.readAll()).toContain(`pid ${pid}`);
 
     const exitDeadline = Date.now() + 5_000;
@@ -1890,18 +1893,20 @@ describe('interactive built CLI Tuistory tests', () => {
     const pid = Number(pidMatch![1]);
     expect(startedOutput).not.toContain('Background task started and slow command finished.');
 
-    // The slow foreground command is still running (turn still active).
-    // A queued /ps would only show up after it finishes (~4s) and the
-    // model's final response arrives; a short 3s timeout proves it ran
-    // immediately instead.
+    // The slow foreground command is still running (turn still active). The
+    // assertion after each wait is what proves /ps and /stop were not queued:
+    // a queued command could only render after the slow command finished, at
+    // which point the completion marker would already be on screen. Ordering
+    // carries the proof, so the wait itself is generous — a tight clock only
+    // made this fail on loaded CI runners without testing anything extra.
     await session.type('/ps');
     await session.press('enter');
-    await session.waitForText(`pid ${pid}`, { timeout: 3_000 });
+    await session.waitForText(`pid ${pid}`, { timeout: 30_000 });
     expect(session.readAll()).not.toContain('Background task started and slow command finished.');
 
     await session.type('/stop 1');
     await session.press('enter');
-    await session.waitForText('Stopped', { timeout: 3_000 });
+    await session.waitForText('Stopped', { timeout: 30_000 });
     expect(session.readAll()).not.toContain('Background task started and slow command finished.');
 
     const exitDeadline = Date.now() + 5_000;
