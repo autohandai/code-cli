@@ -294,7 +294,7 @@ describe("ProviderConfigManager openai auth mode", () => {
       accountToken: "account-session-token",
       baseUrl: "https://api.autohand.ai/v1",
       model: "moa",
-      contextWindow: 256000,
+      contextWindow: 1000000,
       reasoningEffort: "high",
     });
     expect(runtime.config.provider).toBe("autohandai");
@@ -355,7 +355,7 @@ describe("ProviderConfigManager openai auth mode", () => {
       baseUrl: "http://127.0.0.1:8080",
       port: 8080,
       model: localModel.id,
-      contextWindow: 256000,
+      contextWindow: 1000000,
       serverCommand: "mlx_lm.server --model mlx-community/Qwen2.5-Coder-7B-Instruct-4bit --port 8080",
     });
     expect(runtime.config.provider).toBe("autohandai");
@@ -399,7 +399,7 @@ describe("ProviderConfigManager openai auth mode", () => {
       baseUrl: "http://127.0.0.1:8081",
       port: 8081,
       model: localModel.id,
-      contextWindow: 256000,
+      contextWindow: 1000000,
       serverCommand: "mlx_lm.server --model mlx-community/Qwen2.5-Coder-14B-Instruct-4bit --port 8081",
     });
     expect(mockEnsureAutohandAILocalRuntime).toHaveBeenCalledWith(
