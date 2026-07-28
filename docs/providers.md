@@ -78,7 +78,7 @@ Cloud mode uses the OpenAI-compatible `/chat/completions` API and defaults to te
 | Model | Notes |
 | ----- | ----- |
 | `fantail` | Ultra-fast coding model, image input, tool calls, 16k input context |
-| `moa` | Thinking model, image input, medium/high/xhigh effort, 256k input context |
+| `moa` | Thinking model, image input, medium/high/xhigh effort, 1M input context |
 
 CLI Cloud can use your logged-in Autohand account automatically. SDK Cloud usage must pass an Autohand AI API key (`AUTOHAND_AI_API_KEY`) so SDK workloads are tied to Autohand's API-key systems instead of silently borrowing CLI account auth.
 
@@ -90,7 +90,7 @@ CLI Cloud can use your logged-in Autohand account automatically. SDK Cloud usage
     "authMode": "account",
     "baseUrl": "https://api.autohand.ai/v1",
     "model": "moa",
-    "contextWindow": 256000,
+    "contextWindow": 1000000,
     "reasoningEffort": "high"
   }
 }
