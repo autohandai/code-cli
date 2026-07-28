@@ -63,6 +63,17 @@ describe('CI workflow checkout', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('runs built terminal tests in dedicated jobs, separate from fast tests', () => {
+    for (const workflow of ['ci.yml', 'release.yml']) {
+      const workflowJobs = readWorkflowJobs().filter((job) => job.workflow === workflow);
+      const tuistoryJobs = workflowJobs.filter((job) => job.body.includes('test:tuistory'));
+
+      expect(tuistoryJobs.map((job) => job.name), workflow).toEqual(['tuistory']);
+      expect(tuistoryJobs[0]?.body, workflow).not.toContain('run: bun run test:ci');
+      expect(tuistoryJobs[0]?.body, workflow).not.toMatch(/run: bun run test\s*$/mu);
+    }
+  });
+
   it('keeps every checkout pinned to a major version', () => {
     for (const file of readdirSync(WORKFLOW_DIR).filter((name) => name.endsWith('.yml'))) {
       const contents = readFileSync(path.join(WORKFLOW_DIR, file), 'utf8');

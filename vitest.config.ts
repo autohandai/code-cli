@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
 const isCi = process.env.CI === 'true';
-const workerCount = isCi ? 1 : 4;
+const workerCount = isCi ? 1 : 2;
 const minWorkerCount = isCi ? 1 : 2;
 
 export default defineConfig({
