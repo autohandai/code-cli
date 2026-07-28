@@ -3,40 +3,72 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const WORKFLOW_PATH = path.resolve(import.meta.dirname, '../../.github/workflows/ci.yml');
+const WORKFLOW_DIR = path.resolve(import.meta.dirname, '../../.github/workflows');
 
-function readWorkflow(): string {
-  return readFileSync(WORKFLOW_PATH, 'utf8');
+interface WorkflowJob {
+  workflow: string;
+  name: string;
+  body: string;
+}
+
+/** Split every workflow into its top-level jobs, keyed by `<file>:<job>`. */
+function readWorkflowJobs(): WorkflowJob[] {
+  const jobs: WorkflowJob[] = [];
+
+  for (const file of readdirSync(WORKFLOW_DIR).filter((name) => name.endsWith('.yml'))) {
+    const contents = readFileSync(path.join(WORKFLOW_DIR, file), 'utf8');
+    const jobsIndex = contents.indexOf('\njobs:');
+    if (jobsIndex === -1) continue;
+
+    const body = contents.slice(jobsIndex);
+    // Job names sit at exactly two spaces of indentation under `jobs:`.
+    const headers = [...body.matchAll(/^ {2}([A-Za-z0-9_-]+):$/gmu)];
+    for (const [index, header] of headers.entries()) {
+      const start = header.index!;
+      const end = headers[index + 1]?.index ?? body.length;
+      jobs.push({ workflow: file, name: header[1]!, body: body.slice(start, end) });
+    }
+  }
+
+  return jobs;
+}
+
+function hasFullHistoryCheckout(job: WorkflowJob): boolean {
+  return /actions\/checkout@v\d+\s*\n\s*with:\s*\n(?:\s*#[^\n]*\n)*\s*fetch-depth:\s*0/u.test(job.body);
 }
 
 /**
  * Regression: the Tuistory suite asserts the CLI renders the latest stable
  * release tag, which it discovers with `git tag --merged HEAD`. actions/checkout
- * fetches no tags by default, so the job failed in CI while passing locally
- * against a full clone.
+ * fetches no tags by default, so those jobs failed in CI while passing locally
+ * against a full clone. This was originally fixed in ci.yml alone, and the
+ * release workflow kept failing because it runs the same suite from its own job.
  */
 describe('CI workflow checkout', () => {
-  it('fetches full history for the job that runs the built terminal tests', () => {
-    const workflow = readWorkflow();
-    const testJob = workflow.slice(
-      workflow.indexOf('  test:'),
-      workflow.indexOf('  build-test:'),
-    );
-
-    expect(testJob).toContain('bun run test:tuistory');
-    expect(testJob).toMatch(/actions\/checkout@v\d+\s*\n\s*with:\s*\n(?:\s*#[^\n]*\n)*\s*fetch-depth:\s*0/);
+  it('finds at least one job running the built terminal tests', () => {
+    const tuistoryJobs = readWorkflowJobs().filter((job) => job.body.includes('test:tuistory'));
+    expect(tuistoryJobs.length).toBeGreaterThan(0);
   });
 
-  it('keeps every checkout in the workflow pinned to a major version', () => {
-    const checkouts = readWorkflow().match(/actions\/checkout@v\d+/g) ?? [];
+  it('fetches full history in every job that runs the built terminal tests', () => {
+    const offenders = readWorkflowJobs()
+      .filter((job) => job.body.includes('test:tuistory'))
+      .filter((job) => !hasFullHistoryCheckout(job))
+      .map((job) => `${job.workflow}:${job.name}`);
 
-    expect(checkouts.length).toBeGreaterThan(0);
-    for (const checkout of checkouts) {
-      expect(checkout).toMatch(/actions\/checkout@v\d+$/);
+    expect(offenders).toEqual([]);
+  });
+
+  it('keeps every checkout pinned to a major version', () => {
+    for (const file of readdirSync(WORKFLOW_DIR).filter((name) => name.endsWith('.yml'))) {
+      const contents = readFileSync(path.join(WORKFLOW_DIR, file), 'utf8');
+      for (const checkout of contents.match(/actions\/checkout@[^\s]+/gu) ?? []) {
+        expect(checkout, `${file} pins ${checkout}`).toMatch(/actions\/checkout@v\d+$/u);
+      }
     }
   });
 });
