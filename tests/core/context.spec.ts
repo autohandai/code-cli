@@ -63,7 +63,7 @@ describe('context/tokenizer', () => {
       expect(getContextWindow('sakana/fugu-ultra')).toBe(1_000_000);
       expect(getContextWindow('glm-5.1')).toBe(200_000);
       expect(getContextWindow('fantail')).toBe(16_000);
-      expect(getContextWindow('autohandai/moa')).toBe(256_000);
+      expect(getContextWindow('autohandai/moa')).toBe(1_000_000);
       expect(getContextWindow('tencent/hy3-preview:free')).toBe(262_144);
       expect(getContextWindow('tencent/hy3-preview-20260421:free')).toBe(262_144);
     });

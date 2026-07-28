@@ -36,7 +36,7 @@ describe("AutohandAIProvider", () => {
     await expect(provider.listModels()).resolves.toEqual([...AUTOHAND_AI_CLOUD_MODELS]);
     expect(AUTOHAND_AI_CLOUD_MODELS).toEqual(["fantail", "moa"]);
     expect(AUTOHAND_AI_DEFAULT_CONTEXT_WINDOW).toBe(16_000);
-    expect(AUTOHAND_AI_MOA_CONTEXT_WINDOW).toBe(256_000);
+    expect(AUTOHAND_AI_MOA_CONTEXT_WINDOW).toBe(1_000_000);
   });
 
   it("uses the Autohand AI cloud chat completions endpoint with API key auth and temperature 0.1", async () => {

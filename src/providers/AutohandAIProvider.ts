@@ -18,7 +18,7 @@ import { AUTOHAND_AI_LOCAL_CODING_MODEL_FALLBACKS } from "./autohandAILocalSetup
 
 export const AUTOHAND_AI_DEFAULT_BASE_URL = "https://api.autohand.ai/v1";
 export const AUTOHAND_AI_FANTAIL_CONTEXT_WINDOW = 16_000;
-export const AUTOHAND_AI_MOA_CONTEXT_WINDOW = 256_000;
+export const AUTOHAND_AI_MOA_CONTEXT_WINDOW = 1_000_000;
 export const AUTOHAND_AI_DEFAULT_CONTEXT_WINDOW = AUTOHAND_AI_FANTAIL_CONTEXT_WINDOW;
 
 export interface AutohandAICloudModelDefinition {
