@@ -10,8 +10,9 @@ import { buildMultiLineRenderState } from '../inputPrompt.js';
 import { stripAnsiCodes } from '../displayUtils.js';
 import type { InputBorderStyle } from '../box.js';
 
-function drawInkRule(width: number): string {
-  return '─'.repeat(Math.max(0, width));
+function drawInkRule(width: number, edge: 'top' | 'bottom'): string {
+  const glyph = edge === 'top' ? '▔' : '▁';
+  return glyph.repeat(Math.max(0, width));
 }
 
 export interface InputLineProps {
@@ -69,7 +70,10 @@ function InputLineComponent({
       ? 'dim'
       : 'borderAccent';
 
-  const rule = useMemo(() => drawInkRule(width), [width]);
+  const rules = useMemo(() => ({
+    top: drawInkRule(width, 'top'),
+    bottom: drawInkRule(width, 'bottom'),
+  }), [width]);
 
   // Memoize display value processing
   const displayData = useMemo(() => {
@@ -121,9 +125,9 @@ function InputLineComponent({
   // Active state mirrors the open prompt style from readline mode.
   return (
     <Box ref={rootRef} flexDirection="column">
-      <Text>{theme.fgBg(borderToken, 'userMessageBg', rule)}</Text>
+      <Text>{theme.fgBg(borderToken, 'userMessageBg', rules.top)}</Text>
       {displayData.plainLines.map(renderContentLine)}
-      <Text>{theme.fgBg(borderToken, 'userMessageBg', rule)}</Text>
+      <Text>{theme.fgBg(borderToken, 'userMessageBg', rules.bottom)}</Text>
     </Box>
   );
 }

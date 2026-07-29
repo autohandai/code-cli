@@ -949,6 +949,54 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
+  it('keeps the themed composer background inside its accent rules', async () => {
+    const session = await launchInteractive({
+      config: {
+        ui: {
+          theme: 'dracula',
+          promptSuggestions: false,
+        },
+      },
+      env: {
+        FORCE_COLOR: '3',
+        NO_COLOR: undefined,
+      },
+    });
+
+    await waitForComposer(session);
+
+    const prompt = 'themed input field';
+    await typeLikeUser(session, prompt);
+    await session.text({
+      timeout: 5_000,
+      waitFor: (text) => composerLineIncludes(text, prompt),
+    });
+
+    const composerBackground = await session.text({
+      only: { background: '#44475a' },
+      trimEnd: true,
+    });
+    const composerAccent = await session.text({
+      only: { foreground: '#bd93f9' },
+      trimEnd: true,
+    });
+    const screen = await session.text({ trimEnd: true });
+    const screenLines = screen.split('\n');
+    const promptRow = screenLines.findIndex((line) => line.includes(prompt));
+
+    expect(composerBackground).toContain(`❯ ${prompt}`);
+    expect(linesContaining(composerBackground, '▔')).toHaveLength(1);
+    expect(linesContaining(composerBackground, '▁')).toHaveLength(1);
+    expect(linesContaining(composerAccent, '▁')).toHaveLength(1);
+    expect(linesContaining(composerAccent, '▔')).toHaveLength(1);
+    expect(promptRow).toBeGreaterThan(0);
+    expect(screenLines[promptRow - 1]).toContain('▔');
+    expect(screenLines[promptRow + 1]).toContain('▁');
+    expect(screenLines[promptRow + 2]).toContain('autohand (');
+
+    await exitInteractive(session);
+  });
+
   it('keeps only the real terminal cursor at the typed prompt position while composing', async () => {
     const session = await launchInteractive({
       config: {
