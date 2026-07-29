@@ -299,23 +299,6 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
-      - name: Configure Git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Update version in package.json (stable only)
-        if: needs.prepare.outputs.channel == 'release'
-        run: |
-          bun --version
-          VERSION="${{ needs.prepare.outputs.version }}"
-          echo "Updating to version: $VERSION"
-          npm version $VERSION --no-git-tag-version --allow-same-version
-          node scripts/sync-homebrew-version.cjs
-          git add package.json homebrew/autohand.rb
-          git commit -m "chore(release): v$VERSION [skip ci]" || echo "No changes to commit"
-          git push origin ${{ github.ref_name }} || echo "No changes to push"
-
       - name: Download all artifacts
         uses: actions/download-artifact@v8
         with:
@@ -391,6 +374,61 @@ jobs:
 
           ls -lh *.tar.gz *.tar.gz.sha256 *.zip *.zip.sha256 2>/dev/null || true
 
+      - name: Prepare Homebrew tap update (release only)
+        if: needs.prepare.outputs.channel == 'release'
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$TAP_GITHUB_TOKEN" ]; then
+            echo "::error::TAP_GITHUB_TOKEN is required for stable releases"
+            exit 1
+          fi
+
+          VERSION="${{ needs.prepare.outputs.version }}"
+          echo "Preparing Homebrew tap update for v${VERSION}..."
+
+          TAP_VISIBILITY=$(GH_TOKEN="$TAP_GITHUB_TOKEN" gh api repos/autohandai/homebrew-code --jq .visibility)
+          TAP_CAN_PUSH=$(GH_TOKEN="$TAP_GITHUB_TOKEN" gh api repos/autohandai/homebrew-code --jq '.permissions.push // false')
+          if [ "$TAP_VISIBILITY" != "public" ]; then
+            echo "::error::autohandai/homebrew-code must be public"
+            exit 1
+          fi
+          if [ "$TAP_CAN_PUSH" != "true" ]; then
+            echo "::error::TAP_GITHUB_TOKEN must have push access to autohandai/homebrew-code"
+            exit 1
+          fi
+
+          SHA_MACOS_ARM64=$(sha256sum "release-binaries/autohand-macos-arm64.tar.gz" | cut -d' ' -f1)
+          SHA_MACOS_X64=$(sha256sum "release-binaries/autohand-macos-x64.tar.gz" | cut -d' ' -f1)
+          SHA_LINUX_ARM64=$(sha256sum "release-binaries/autohand-linux-arm64.tar.gz" | cut -d' ' -f1)
+          SHA_LINUX_X64=$(sha256sum "release-binaries/autohand-linux-x64.tar.gz" | cut -d' ' -f1)
+
+          git clone https://github.com/autohandai/homebrew-code.git homebrew-tap
+
+          node .github/render-homebrew-formula.mjs \
+            --version "$VERSION" \
+            --macos-arm64-sha "$SHA_MACOS_ARM64" \
+            --macos-x64-sha "$SHA_MACOS_X64" \
+            --linux-arm64-sha "$SHA_LINUX_ARM64" \
+            --linux-x64-sha "$SHA_LINUX_X64" \
+            --output homebrew-tap/Formula/autohand-code.rb
+
+          ruby -c homebrew-tap/Formula/autohand-code.rb
+          git -C homebrew-tap diff --check
+          git -C homebrew-tap config user.name "github-actions[bot]"
+          git -C homebrew-tap config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C homebrew-tap add Formula/autohand-code.rb
+
+      - name: Build and verify npm package
+        run: |
+          bun install --frozen-lockfile
+          npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version --allow-same-version
+          bun run build
+          npm pack --dry-run
+          ls -lh dist/
+
       - name: Generate release notes
         run: |
           node .github/generate-release-notes.mjs \
@@ -415,61 +453,24 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update Homebrew tap (release only)
+      - name: Update Homebrew tap
         if: needs.prepare.outputs.channel == 'release'
         env:
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
         run: |
-          if [ -z "$TAP_GITHUB_TOKEN" ]; then
-            echo "::error::TAP_GITHUB_TOKEN is required for stable releases"
-            exit 1
-          fi
+          set -euo pipefail
 
           VERSION="${{ needs.prepare.outputs.version }}"
           echo "Updating Homebrew tap to v${VERSION}..."
-
-          TAP_VISIBILITY=$(GH_TOKEN="$TAP_GITHUB_TOKEN" gh api repos/autohandai/homebrew-code --jq .visibility)
-          if [ "$TAP_VISIBILITY" != "public" ]; then
-            echo "::error::autohandai/homebrew-code must be public"
-            exit 1
-          fi
-
-          SHA_MACOS_ARM64=$(sha256sum "release-binaries/autohand-macos-arm64.tar.gz" | cut -d' ' -f1)
-          SHA_MACOS_X64=$(sha256sum "release-binaries/autohand-macos-x64.tar.gz" | cut -d' ' -f1)
-          SHA_LINUX_ARM64=$(sha256sum "release-binaries/autohand-linux-arm64.tar.gz" | cut -d' ' -f1)
-          SHA_LINUX_X64=$(sha256sum "release-binaries/autohand-linux-x64.tar.gz" | cut -d' ' -f1)
-
-          git clone "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/autohandai/homebrew-code.git" homebrew-tap
-
-          node .github/render-homebrew-formula.mjs \
-            --version "$VERSION" \
-            --macos-arm64-sha "$SHA_MACOS_ARM64" \
-            --macos-x64-sha "$SHA_MACOS_X64" \
-            --linux-arm64-sha "$SHA_LINUX_ARM64" \
-            --linux-x64-sha "$SHA_LINUX_X64" \
-            --output homebrew-tap/Formula/autohand-code.rb
-
-          ruby -c homebrew-tap/Formula/autohand-code.rb
-          git -C homebrew-tap diff --check
-          git -C homebrew-tap config user.name "github-actions[bot]"
-          git -C homebrew-tap config user.email "github-actions[bot]@users.noreply.github.com"
-          git -C homebrew-tap add Formula/autohand-code.rb
 
           if git -C homebrew-tap diff --cached --quiet; then
             echo "Homebrew tap already matches v${VERSION}"
           else
             git -C homebrew-tap commit -m "Update autohand-code to v${VERSION}"
-            git -C homebrew-tap push
+            git -C homebrew-tap remote set-url origin "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/autohandai/homebrew-code.git"
+            git -C homebrew-tap push origin HEAD
             echo "Homebrew tap updated to v${VERSION}"
           fi
-
-      - name: Build and verify npm package
-        run: |
-          bun install --frozen-lockfile
-          npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version --allow-same-version
-          bun run build
-          npm pack --dry-run
-          ls -lh dist/
 
       - name: Publish to npm
         env:

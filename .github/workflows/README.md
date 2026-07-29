@@ -186,6 +186,11 @@ The provider dropdown is covered by a repository test so catalog/provider drift 
    - **Channel**: alpha/release
 3. Click "Run workflow"
 
+Before a stable GitHub Release becomes public, the workflow verifies that the
+Homebrew tap is public and writable, renders and syntax-checks its formula from
+the built archive checksums, and builds the npm package. The release workflow
+does not push version commits back to the protected source branch.
+
 ## Version Strategy
 
 ### Semantic Versioning (SemVer)
