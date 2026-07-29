@@ -8,6 +8,7 @@ import {
   startMobileRelay,
   stopMobileRelay,
   type MobileChangePreview,
+  type MobileClaimedTurnContext,
   type MobilePermissionModeChange,
 } from '../../src/mobile/MobileRelay.js';
 import type {
@@ -220,6 +221,357 @@ describe('MobileRelay event bridge', () => {
 
     expect(replacementClient.sendRelayHeartbeat).toHaveBeenCalledOnce();
     expect(replacementClient.claimWork).toHaveBeenCalledOnce();
+  });
+
+  it('automatically enqueues existing queue work for the active workspace', async () => {
+    vi.useFakeTimers();
+    const enqueueInstruction = vi.fn();
+    const claimWork = vi.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'old-queued-work',
+        repo: '/workspace',
+        branch: 'main',
+        prompt: 'Resume the queued task',
+        priority: 0,
+        status: 'running',
+        agentId: null,
+        deviceId: 'device-1',
+        deliveryMode: 'queue',
+        payload: {
+          deliveryMode: 'queue',
+        },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        updatedAt: '2026-07-21T02:35:00.000Z',
+        startedAt: '2026-07-21T02:35:00.000Z',
+      })
+      .mockResolvedValue(null);
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      claimWork,
+      publishMobileEvent: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const relay = startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction,
+      workspaceRoot: '/workspace',
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(claimWork).toHaveBeenNthCalledWith(1, 'token', 'device-1', {
+      deliveryMode: 'steer',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+    });
+    expect(claimWork).toHaveBeenNthCalledWith(2, 'token', 'device-1', {
+      deliveryMode: 'queue',
+      workspaceRoot: '/workspace',
+    });
+    expect(enqueueInstruction).toHaveBeenCalledWith('Resume the queued task', {
+      turn: expect.objectContaining({
+        workId: 'old-queued-work',
+        prompt: 'Resume the queued task',
+        startedAt: '2026-07-21T02:35:00.000Z',
+      }),
+      relay,
+    });
+
+    const context = enqueueInstruction.mock.calls[0]?.[1] as MobileClaimedTurnContext;
+    await context.relay.finishClaimedTurn(context.turn, { status: 'completed' });
+  });
+
+  it('waits for the active queue turn to finish before claiming another queue item', async () => {
+    vi.useFakeTimers();
+    const enqueueInstruction = vi.fn();
+    const queuedWork: ClaimedWorkItem[] = [
+      {
+        id: 'queued-work-1',
+        repo: '/workspace',
+        branch: 'main',
+        prompt: 'Run the first queued task',
+        priority: 0,
+        status: 'running',
+        agentId: null,
+        deviceId: 'device-1',
+        deliveryMode: 'queue',
+        payload: { deliveryMode: 'queue' },
+        createdAt: '2026-06-01T00:00:00.000Z',
+        updatedAt: '2026-07-21T02:35:00.000Z',
+      },
+      {
+        id: 'queued-work-2',
+        repo: '/workspace',
+        branch: 'main',
+        prompt: 'Run the second queued task',
+        priority: 0,
+        status: 'running',
+        agentId: null,
+        deviceId: 'device-1',
+        deliveryMode: 'queue',
+        payload: { deliveryMode: 'queue' },
+        createdAt: '2026-06-02T00:00:00.000Z',
+        updatedAt: '2026-07-21T02:35:00.000Z',
+      },
+    ];
+    const claimWork = vi.fn(async (
+      _token: string,
+      _deviceId: string,
+      scope?: Parameters<MobileHandoffClientLike['claimWork']>[2],
+    ): Promise<ClaimedWorkItem | null> => (
+      scope?.deliveryMode === 'queue'
+        ? queuedWork.shift() ?? null
+        : null
+    ));
+    const pollMobileActions = vi.fn().mockResolvedValue({
+      actions: [],
+      nextCursor: 0,
+    });
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      claimWork,
+      publishMobileEvent: vi.fn().mockResolvedValue(undefined),
+      pollMobileActions,
+    };
+
+    startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction,
+      workspaceRoot: '/workspace',
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    const firstContext = enqueueInstruction.mock.calls[0]?.[1] as MobileClaimedTurnContext;
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(claimWork.mock.calls.filter(([, , scope]) =>
+      scope?.deliveryMode === 'queue'
+    )).toHaveLength(1);
+    expect(claimWork.mock.calls.filter(([, , scope]) =>
+      scope?.deliveryMode === 'steer'
+    )).toHaveLength(3);
+    expect(pollMobileActions).toHaveBeenCalledTimes(3);
+    expect(enqueueInstruction).toHaveBeenCalledOnce();
+
+    await firstContext.relay.finishClaimedTurn(firstContext.turn, {
+      status: 'failed',
+      error: 'The first queued task failed.',
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(claimWork.mock.calls.filter(([, , scope]) =>
+      scope?.deliveryMode === 'queue'
+    )).toHaveLength(2);
+    expect(enqueueInstruction).toHaveBeenCalledTimes(2);
+    expect(enqueueInstruction).toHaveBeenLastCalledWith(
+      'Run the second queued task',
+      expect.any(Object),
+    );
+
+    const secondContext = enqueueInstruction.mock.calls[1]?.[1] as MobileClaimedTurnContext;
+    await secondContext.relay.finishClaimedTurn(secondContext.turn, { status: 'completed' });
+  });
+
+  it('keeps queue work serialized when the active relay is replaced', async () => {
+    vi.useFakeTimers();
+    const enqueueFromFirstRelay = vi.fn();
+    const firstClient: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      claimWork: vi.fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          id: 'queued-before-replacement',
+          repo: '/workspace',
+          branch: 'main',
+          prompt: 'Finish this before claiming more queue work',
+          priority: 0,
+          status: 'running',
+          agentId: null,
+          deviceId: 'device-1',
+          deliveryMode: 'queue',
+          payload: { deliveryMode: 'queue' },
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-07-21T02:35:00.000Z',
+        })
+        .mockResolvedValue(null),
+      publishMobileEvent: vi.fn().mockResolvedValue(undefined),
+    };
+
+    startMobileRelay({
+      client: firstClient,
+      token: 'first-token',
+      deviceId: 'device-1',
+      sessionId: 'first-session',
+      pairingId: 'first-pairing',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: enqueueFromFirstRelay,
+      workspaceRoot: '/workspace',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    const firstContext = enqueueFromFirstRelay.mock.calls[0]?.[1] as MobileClaimedTurnContext;
+
+    const enqueueFromReplacementRelay = vi.fn();
+    const replacementClaimWork = vi.fn(async (
+      _token: string,
+      _deviceId: string,
+      scope?: Parameters<MobileHandoffClientLike['claimWork']>[2],
+    ): Promise<ClaimedWorkItem | null> => (
+      scope?.deliveryMode === 'queue'
+        ? {
+          id: 'queued-after-replacement',
+          repo: '/workspace',
+          branch: 'main',
+          prompt: 'Run after the original queue turn finishes',
+          priority: 0,
+          status: 'running',
+          agentId: null,
+          deviceId: 'device-1',
+          deliveryMode: 'queue',
+          payload: { deliveryMode: 'queue' },
+          createdAt: '2026-06-02T00:00:00.000Z',
+          updatedAt: '2026-07-21T02:35:00.000Z',
+        }
+        : null
+    ));
+    const replacementClient: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      claimWork: replacementClaimWork,
+      publishMobileEvent: vi.fn().mockResolvedValue(undefined),
+    };
+
+    startMobileRelay({
+      client: replacementClient,
+      token: 'replacement-token',
+      deviceId: 'device-1',
+      sessionId: 'replacement-session',
+      pairingId: 'replacement-pairing',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: enqueueFromReplacementRelay,
+      workspaceRoot: '/workspace',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(replacementClaimWork).toHaveBeenCalledOnce();
+    expect(replacementClaimWork).toHaveBeenCalledWith(
+      'replacement-token',
+      'device-1',
+      {
+        deliveryMode: 'steer',
+        sessionId: 'replacement-session',
+        pairingId: 'replacement-pairing',
+      },
+    );
+    expect(enqueueFromReplacementRelay).not.toHaveBeenCalled();
+
+    await firstContext.relay.finishClaimedTurn(firstContext.turn, { status: 'completed' });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(replacementClaimWork).toHaveBeenLastCalledWith(
+      'replacement-token',
+      'device-1',
+      {
+        deliveryMode: 'queue',
+        workspaceRoot: '/workspace',
+      },
+    );
+    expect(enqueueFromReplacementRelay).toHaveBeenCalledOnce();
+
+    const replacementContext =
+      enqueueFromReplacementRelay.mock.calls[0]?.[1] as MobileClaimedTurnContext;
+    await replacementContext.relay.finishClaimedTurn(
+      replacementContext.turn,
+      { status: 'completed' },
+    );
+  });
+
+  it.each([
+    {
+      label: 'delivery mode',
+      overrides: { deliveryMode: 'steer' },
+    },
+    {
+      label: 'workspace',
+      overrides: { repo: '/different-workspace' },
+    },
+    {
+      label: 'assigned device',
+      overrides: { deviceId: 'different-device' },
+    },
+  ])('rejects queue work with a mismatched $label', async ({ overrides }) => {
+    vi.useFakeTimers();
+    const enqueueInstruction = vi.fn();
+    const onError = vi.fn();
+    const claimedQueueWork: ClaimedWorkItem = {
+      id: 'invalid-queue-work',
+      repo: '/workspace',
+      branch: 'main',
+      prompt: 'Must not run outside the exact queue scope',
+      priority: 0,
+      status: 'running',
+      agentId: null,
+      deviceId: 'device-1',
+      deliveryMode: 'queue',
+      payload: { deliveryMode: 'queue' },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-07-21T02:35:00.000Z',
+      ...overrides,
+    };
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      claimWork: vi.fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(claimedQueueWork)
+        .mockResolvedValue(null),
+    };
+
+    startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction,
+      workspaceRoot: '/workspace',
+      onError,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(enqueueInstruction).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'Claimed durable queue work did not match the active relay workspace and device.',
+    }));
   });
 
   it('publishes and persists the terminal result for the claimed live turn', async () => {

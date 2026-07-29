@@ -165,19 +165,38 @@ function decodeMobileImages(payload: Record<string, unknown> | null): MobileImag
   });
 }
 
-function claimedWorkMatchesRelayScope(
+function claimedWorkDeliveryMode(
+  work: { deliveryMode?: string | null; payload: Record<string, unknown> | null },
+): string | null {
+  return work.deliveryMode
+    ?? (typeof work.payload?.deliveryMode === 'string' ? work.payload.deliveryMode : null);
+}
+
+function claimedSteerWorkMatchesRelayScope(
   work: { deliveryMode?: string | null; payload: Record<string, unknown> | null },
   options: Pick<MobileRelayOptions, 'sessionId' | 'pairingId'>,
 ): boolean {
   const payload = work.payload;
-  const deliveryMode = work.deliveryMode
-    ?? (typeof payload?.deliveryMode === 'string' ? payload.deliveryMode : null);
   const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : null;
   const pairingId = typeof payload?.pairingId === 'string' ? payload.pairingId : null;
 
-  return deliveryMode === 'steer'
+  return claimedWorkDeliveryMode(work) === 'steer'
     && sessionId === options.sessionId
     && pairingId === options.pairingId;
+}
+
+function claimedQueueWorkMatchesRelayScope(
+  work: {
+    repo: string;
+    deviceId: string | null;
+    deliveryMode?: string | null;
+    payload: Record<string, unknown> | null;
+  },
+  options: Pick<MobileRelayOptions, 'deviceId' | 'workspaceRoot'>,
+): boolean {
+  return claimedWorkDeliveryMode(work) === 'queue'
+    && work.repo === options.workspaceRoot
+    && work.deviceId === options.deviceId;
 }
 
 interface ActiveMobileRelay {
@@ -201,6 +220,7 @@ interface ActiveMobileRelay {
 }
 
 let activeRelay: ActiveMobileRelay | null = null;
+let durableQueueWorkInFlightId: string | undefined;
 
 export function startMobileRelay(options: MobileRelayOptions): MobileRelayController {
   stopMobileRelay();
@@ -219,7 +239,15 @@ export function startMobileRelay(options: MobileRelayOptions): MobileRelayContro
     keepAwakeController,
   };
   const controller: MobileRelayController = {
-    finishClaimedTurn: (turn, outcome) => finishClaimedTurn(options, turn, outcome),
+    finishClaimedTurn: async (turn, outcome) => {
+      try {
+        await finishClaimedTurn(options, turn, outcome);
+      } finally {
+        if (durableQueueWorkInFlightId === turn.workId) {
+          durableQueueWorkInFlightId = undefined;
+        }
+      }
+    },
     requestPermission: (message, context) => requestPermission(options, relay, message, context),
     requestDirectoryAccess: (path, reason) => requestDirectoryAccess(options, relay, path, reason),
     publishEvent: (eventType, payload, requestId) => publishEvent(options, eventType, payload, requestId),
@@ -340,13 +368,14 @@ async function pollOnce(
       options.onError?.(error as Error);
     }
 
-    const work = await options.client.claimWork(options.token, options.deviceId, {
+    let claimedScope: 'steer' | 'queue' = 'steer';
+    let work = await options.client.claimWork(options.token, options.deviceId, {
       deliveryMode: 'steer',
       sessionId: options.sessionId,
       pairingId: options.pairingId,
     });
     if (activeRelay !== relay) {
-      if (work && claimedWorkMatchesRelayScope(work, options)) {
+      if (work && claimedSteerWorkMatchesRelayScope(work, options)) {
         await finishClaimedTurn(options, {
           workId: work.id,
           prompt: work.prompt,
@@ -359,9 +388,44 @@ async function pollOnce(
       }
       return;
     }
-    if (work && !claimedWorkMatchesRelayScope(work, options)) {
-      options.onError?.(new Error('Claimed work did not match the active mobile relay scope.'));
+
+    if (!work && options.workspaceRoot && !durableQueueWorkInFlightId) {
+      claimedScope = 'queue';
+      work = await options.client.claimWork(options.token, options.deviceId, {
+        deliveryMode: 'queue',
+        workspaceRoot: options.workspaceRoot,
+      });
+      if (activeRelay !== relay) {
+        if (work && claimedQueueWorkMatchesRelayScope(work, options)) {
+          await finishClaimedTurn(options, {
+            workId: work.id,
+            prompt: work.prompt,
+            startedAt: work.startedAt ?? new Date().toISOString(),
+            updateClaimedWork: true,
+          }, {
+            status: 'cancelled',
+            error: 'Mobile relay was replaced before the claimed turn could start.',
+          });
+        }
+        return;
+      }
+    }
+
+    const claimedWorkMatchesScope = work
+      ? claimedScope === 'steer'
+        ? claimedSteerWorkMatchesRelayScope(work, options)
+        : claimedQueueWorkMatchesRelayScope(work, options)
+      : true;
+    if (work && !claimedWorkMatchesScope) {
+      options.onError?.(new Error(
+        claimedScope === 'steer'
+          ? 'Claimed work did not match the active mobile relay scope.'
+          : 'Claimed durable queue work did not match the active relay workspace and device.',
+      ));
     } else if (work?.prompt) {
+      if (claimedScope === 'queue') {
+        durableQueueWorkInFlightId = work.id;
+      }
       const turn: MobileClaimedTurn = {
         workId: work.id,
         prompt: work.prompt,
@@ -386,12 +450,12 @@ async function pollOnce(
           rollbackPermissionModeChange(options, permissionModeApplication.change);
           options.onError?.(error as Error);
           if (activeRelay !== relay) {
-            await finishClaimedTurn(options, turn, {
+            await controller.finishClaimedTurn(turn, {
               status: 'cancelled',
               error: 'Mobile relay was replaced before the claimed turn could start.',
             });
           } else {
-            await finishClaimedTurn(options, turn, {
+            await controller.finishClaimedTurn(turn, {
               status: 'failed',
               error: 'Failed to acknowledge mobile permission mode change.',
             });
@@ -400,7 +464,7 @@ async function pollOnce(
         }
         if (activeRelay !== relay) {
           rollbackPermissionModeChange(options, permissionModeApplication.change);
-          await finishClaimedTurn(options, turn, {
+          await controller.finishClaimedTurn(turn, {
             status: 'cancelled',
             error: 'Mobile relay was replaced before the claimed turn could start.',
           });
@@ -408,7 +472,7 @@ async function pollOnce(
         }
         if (permissionModeApplication.status.status === 'failed') {
           rollbackPermissionModeChange(options, permissionModeApplication.change);
-          await finishClaimedTurn(options, turn, {
+          await controller.finishClaimedTurn(turn, {
             status: 'failed',
             error: permissionModeApplication.status.error ?? 'Failed to change permission mode.',
           });
@@ -423,7 +487,7 @@ async function pollOnce(
       });
       if (activeRelay !== relay) {
         rollbackPermissionModeChange(options, permissionModeApplication?.change);
-        await finishClaimedTurn(options, turn, {
+        await controller.finishClaimedTurn(turn, {
           status: 'cancelled',
           error: 'Mobile relay was replaced before the claimed turn could start.',
         });
@@ -440,7 +504,7 @@ async function pollOnce(
       } catch (error) {
         rollbackPermissionModeChange(options, permissionModeApplication?.change);
         options.onError?.(error as Error);
-        await finishClaimedTurn(options, turn, {
+        await controller.finishClaimedTurn(turn, {
           status: 'failed',
           error: error instanceof Error ? error.message : 'Failed to enqueue claimed mobile work.',
         });
