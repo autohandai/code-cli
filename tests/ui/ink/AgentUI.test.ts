@@ -45,7 +45,7 @@ function setStdoutColumns(stdout: { columns: number; rows?: number }, columns: n
 function getComposerTopRuleWidth(frame: string | undefined): number {
   const line = stripAnsi(frame ?? '')
     .split('\n')
-    .find((item) => /^─+$/.test(item));
+    .find((item) => /^▔+$/.test(item));
 
   if (!line) {
     throw new Error('composer top rule was not rendered');

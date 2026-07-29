@@ -12,7 +12,7 @@ import chalk from 'chalk';
 import { render } from 'ink-testing-library';
 import { InputLine, resolveInputLineCursorPosition } from '../../../src/ui/ink/InputLine.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
-import { initTheme } from '../../../src/ui/theme/index.js';
+import { initTheme, loadTheme, Theme } from '../../../src/ui/theme/index.js';
 
 function stripAnsi(value: string): string {
   return value.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
@@ -73,11 +73,12 @@ describe('InputLine', () => {
     expect(output.split('\n').length).toBeGreaterThanOrEqual(4);
   });
 
-  it('renders plain horizontal rules without leaking ANSI control brackets', () => {
+  it('renders edge-aligned rules without leaking ANSI control brackets', () => {
     const { lastFrame } = renderInputLine('');
     const output = stripAnsi(lastFrame());
 
-    expect(output).toContain('─');
+    expect(output).toContain('▁');
+    expect(output).toContain('▔');
     expect(output).not.toContain('┌');
     expect(output).not.toContain('┐');
     expect(output).not.toContain('└');
@@ -89,7 +90,7 @@ describe('InputLine', () => {
     const { lastFrame } = renderInputLine('');
     const output = stripAnsi(lastFrame());
 
-    expect(output.split('\n')[0]).toMatch(/^─/);
+    expect(output.split('\n')[0]).toMatch(/^▔/);
   });
 
   it('renders next-prompt suggestion separately from the static placeholder', () => {
@@ -166,14 +167,42 @@ describe('InputLine themed variants', () => {
     initTheme('dark');
   });
 
-  it('uses the theme ANSI formatter for composer border, text, and background', () => {
-    const source = readFileSync(
-      path.resolve(process.cwd(), 'src/ui/ink/InputLine.tsx'),
-      'utf8'
+  it('keeps the themed background inside the accent rules', () => {
+    const baseTheme = loadTheme('dark');
+    const theme = new Theme(
+      'composer-test',
+      {
+        ...baseTheme.colors,
+        borderAccent: '#123456',
+        userMessageBg: '#654321',
+      },
+      'truecolor'
     );
+    const { lastFrame } = render(
+      <ThemeProvider theme={theme}>
+        <InputLine
+          value="themed input field"
+          cursorOffset={18}
+          isActive
+          width={40}
+          enableHardwareCursor={false}
+        />
+      </ThemeProvider>
+    );
+    const rows = (lastFrame() ?? '').split('\n');
+    const [topRule, content, bottomRule] = rows;
+    const accentForeground = '\x1b[38;2;18;52;86m';
+    const inputBackground = '\x1b[48;2;101;67;33m';
 
-    expect(source).toContain("theme.fgBg(borderToken, 'userMessageBg', rule)");
-    expect(source).toContain("theme.fgBg('userMessageText', 'userMessageBg', line)");
+    expect(rows).toHaveLength(3);
+    expect(topRule).toContain(accentForeground);
+    expect(topRule).toContain(inputBackground);
+    expect(stripAnsi(topRule ?? '')).toBe('▔'.repeat(40));
+    expect(content).toContain(inputBackground);
+    expect(content).toContain('❯ themed input field');
+    expect(bottomRule).toContain(accentForeground);
+    expect(bottomRule).toContain(inputBackground);
+    expect(stripAnsi(bottomRule ?? '')).toBe('▁'.repeat(40));
   });
 
   it('uses Ink cursor APIs instead of raw composer cursor writes or glyphs', () => {
@@ -204,7 +233,8 @@ describe('InputLine themed variants', () => {
     );
     const output = stripAnsi(lastFrame());
 
-    expect(output).toContain('─');
+    expect(output).toContain('▁');
+    expect(output).toContain('▔');
     expect(output).toContain('test');
     expect(output).not.toContain('│');
   });
@@ -252,7 +282,8 @@ describe('InputLine themed variants', () => {
     );
     const output = stripAnsi(lastFrame());
 
-    expect(output).toContain('─');
+    expect(output).toContain('▁');
+    expect(output).toContain('▔');
     expect(output).toContain('test');
     expect(output).not.toContain('│');
   });
@@ -265,7 +296,8 @@ describe('InputLine themed variants', () => {
     );
     const output = stripAnsi(lastFrame());
 
-    expect(output).toContain('─');
+    expect(output).toContain('▁');
+    expect(output).toContain('▔');
     expect(output).toContain('!test');
     expect(output).not.toContain('│');
   });
@@ -278,7 +310,8 @@ describe('InputLine themed variants', () => {
     );
     const output = stripAnsi(lastFrame());
 
-    expect(output).toContain('─');
+    expect(output).toContain('▁');
+    expect(output).toContain('▔');
     expect(output).toContain('content');
     expect(output).not.toContain('│');
   });
@@ -381,7 +414,8 @@ describe('InputLine cursor positioning', () => {
       </ThemeProvider>
     );
     const output = stripAnsi(lastFrame());
-    expect(output).toContain('─');
+    expect(output).toContain('▁');
+    expect(output).toContain('▔');
     expect(output).not.toContain('┌');
     expect(output).not.toContain('└');
   });
