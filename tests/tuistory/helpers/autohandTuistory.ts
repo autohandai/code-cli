@@ -412,6 +412,84 @@ globalThis.fetch = async (input, init) => {
   };
 }
 
+export async function createMockMobilePairingFetchPreload(): Promise<MockOpenRouterFetchPreload> {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'autohand-tuistory-mobile-pairing-'));
+  const preloadPath = path.join(tempRoot, 'mock-mobile-pairing-fetch.mjs');
+  const pairingUrl = 'https://autohand.ai/code/go?pairing=019fabbc-2445-7c21-9356-18aa3816db03&token='
+    + 'tuistory-pairing-token-0123456789abcdef0123456789abcdef';
+  const moduleSource = `
+const pairingUrl = ${JSON.stringify(pairingUrl)};
+const originalFetch = globalThis.fetch?.bind(globalThis);
+
+globalThis.fetch = async (input, init) => {
+  const url = typeof input === 'string'
+    ? input
+    : input instanceof URL
+      ? input.toString()
+      : input.url;
+  const method = init?.method ?? (typeof input === 'object' && 'method' in input ? input.method : 'GET');
+
+  if (url.endsWith('/me') && method.toUpperCase() === 'GET') {
+    return new Response(JSON.stringify({
+      user: {
+        id: 'tuistory-test-user',
+        email: 'tuistory@example.com',
+        name: 'Tuistory Test',
+      },
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  if (url.endsWith('/v1/devices/register') && method.toUpperCase() === 'POST') {
+    return new Response('{}', {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  if (url.endsWith('/v1/mobile/pairings') && method.toUpperCase() === 'POST') {
+    return new Response(JSON.stringify({
+      success: true,
+      pairing: {
+        id: '019fabbc-2445-7c21-9356-18aa3816db03',
+        pairingUrl,
+        expiresAt: '2099-01-01T00:00:00.000Z',
+        pollIntervalMs: 2000,
+        session: {
+          id: 'tuistory-mobile-session',
+          deviceId: 'tuistory-mobile-device',
+          workspacePath: '/tmp/tuistory-workspace',
+          projectName: 'tuistory-workspace',
+          model: 'openai/gpt-4o-mini',
+          provider: 'openrouter',
+        },
+      },
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  if (!originalFetch) {
+    throw new Error('fetch is not available in this runtime');
+  }
+
+  return originalFetch(input, init);
+};
+`;
+
+  await writeFile(preloadPath, moduleSource);
+
+  return {
+    importSpecifier: pathToFileURL(preloadPath).href,
+    cleanup: async () => {
+      await rm(tempRoot, { recursive: true, force: true });
+    },
+  };
+}
+
 export async function createFailingOpenRouterFetchPreload(
   status = 503,
 ): Promise<MockOpenRouterFetchPreload> {

@@ -38,6 +38,7 @@ import {
   type WorkspaceChangeSet,
 } from '../../core/agent/WorkspaceChangeCapture.js';
 import type { InteractionMode } from '../../core/agent/InteractionModeController.js';
+import type { LineExtension, LineSegment } from './StatusLine.js';
 
 export interface InkRendererOptions {
   onInstruction: (text: string) => void;
@@ -123,6 +124,44 @@ function formatCompletedLiveOutput(
 
 function completionLabel(status?: TurnCompletionStatus): string {
   return status === 'failed' ? 'Failed' : 'Completed';
+}
+
+function stringArraysEqual(left: string[] = [], right: string[] = []): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function lineSegmentsEqual(left: LineSegment[] = [], right: LineSegment[] = []): boolean {
+  return left.length === right.length && left.every((segment, index) => {
+    const other = right[index];
+    return other !== undefined
+      && segment.id === other.id
+      && segment.text === other.text
+      && segment.color === other.color
+      && segment.visible === other.visible;
+  });
+}
+
+function lineExtensionsEqual(left?: LineExtension, right?: LineExtension): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return left.replaceDefault === right.replaceDefault
+    && left.separator === right.separator
+    && stringArraysEqual(left.hiddenDefaultSegmentIds, right.hiddenDefaultSegmentIds)
+    && lineSegmentsEqual(left.segments, right.segments);
+}
+
+function agentUILineExtensionsEqual(
+  left?: AgentUILineExtensions,
+  right?: AgentUILineExtensions,
+): boolean {
+  return left === right
+    || Boolean(left && right
+      && lineExtensionsEqual(left.status, right.status)
+      && lineExtensionsEqual(left.help, right.help));
 }
 
 /**
@@ -1006,6 +1045,9 @@ export class InkRenderer {
    * extension-provided line extensions.
    */
   setConfiguredLineExtensions(configuredLineExtensions: AgentUILineExtensions | undefined): void {
+    if (agentUILineExtensionsEqual(this.state.configuredLineExtensions, configuredLineExtensions)) {
+      return;
+    }
     this.updateState({ configuredLineExtensions });
   }
 

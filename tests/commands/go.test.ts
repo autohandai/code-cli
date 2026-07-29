@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import QRCode from 'qrcode';
 import stripAnsi from 'strip-ansi';
 import { formatScannableTerminalQRCode, go, handoffSession } from '../../src/commands/go.js';
 import { stopMobileRelay } from '../../src/mobile/MobileRelay.js';
@@ -67,6 +68,7 @@ describe('/go command', () => {
     mobileTerminalReporterConstructed.mockClear();
     mobileTerminalReport.mockClear();
     mobileTerminalFlush.mockClear();
+    vi.mocked(QRCode.toString).mockClear();
     validateAuthSession.mockReset();
     validateAuthSession.mockResolvedValue({
       authenticated: true,
@@ -143,6 +145,13 @@ describe('/go command', () => {
     const output = stripAnsi(result || '');
     expect(output).toContain('Autohand Code mobile handoff');
     expect(output).toContain('QR-CODE');
+    expect(QRCode.toString).toHaveBeenCalledWith(
+      'https://autohand.ai/code/go?pairing=pairing-1&token=secret',
+      expect.objectContaining({
+        type: 'terminal',
+        small: true,
+      })
+    );
     expect(output).toContain('autohand-code://go?pairing=pairing-1&token=secret');
     expect(output).toContain('https://autohand.ai/code/go?pairing=pairing-1&token=secret');
     expect(output).toContain('Mode: queue');

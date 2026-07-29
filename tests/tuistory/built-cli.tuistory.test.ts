@@ -12,6 +12,7 @@ import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
+import stripAnsi from 'strip-ansi';
 import packageJson from '../../package.json' with { type: 'json' };
 import { SLASH_COMMANDS } from '../../src/core/slashCommands.js';
 import { hasTerminalProcessPid } from '../../src/testing/assertions/terminalOutput.js';
@@ -21,6 +22,7 @@ import {
   createFailingOpenRouterFetchPreload,
   createMockChangelogFetchPreload,
   createMockAuthServer,
+  createMockMobilePairingFetchPreload,
   createMockOpenRouterFetchPreload,
   createMockOpenRouterSequenceServer,
   createMockSkillInstallFetchPreload,
@@ -813,6 +815,39 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
+  it('keeps the workspace path and git branch visible after status synchronization', async () => {
+    const state = await createTempAutohandHome();
+    tempStates.push(state);
+    const branch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+      cwd: state.workspaceRoot,
+      encoding: 'utf8',
+    }).trim();
+    const session = await trackSession(
+      launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        waitForDataTimeout: 15_000,
+      })
+    );
+
+    await session.text({
+      timeout: 15_000,
+      waitFor: (text) => text.split('\n').some((line) => (
+        line.includes('! terminal')
+        && line.includes('/workspace')
+        && line.includes(branch)
+      )),
+    });
+
+    for (const screen of await sampleImmediateScreens(session, 1_200)) {
+      const helpLine = screen.split('\n').find((line) => line.includes('! terminal'));
+      expect(helpLine, screen).toContain('/workspace');
+      expect(helpLine, screen).toContain(branch);
+    }
+
+    await exitInteractive(session);
+  }, 60_000);
+
   it('cycles Shift+Tab through plan, yolo, automode, and default', async () => {
     const session = await launchInteractive();
 
@@ -1190,6 +1225,61 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(screen).toContain('github.com/autohandai/code-cli/releases/tag/v9.8.7');
     await exitInteractive(session);
   });
+
+  it('renders a compact, high-contrast QR code for /go', async () => {
+    const state = await createTempAutohandHome();
+    tempStates.push(state);
+    const pairingPreload = await createMockMobilePairingFetchPreload();
+    mockOpenRouterFetchPreloads.push(pairingPreload);
+    const session = await trackSession(launchBuiltAutohand([
+      '--path',
+      state.workspaceRoot,
+      '--config',
+      state.configPath,
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      env: {
+        AUTOHAND_API_URL: 'https://api.tuistory.test',
+        NODE_OPTIONS: [
+          process.env.NODE_OPTIONS,
+          `--import=${pairingPreload.importSpecifier}`,
+        ].filter(Boolean).join(' '),
+      },
+      cols: 120,
+      rows: 60,
+      waitForDataTimeout: 15_000,
+    }));
+
+    await waitForComposer(session);
+    await session.type('/go --queue');
+    await session.press('enter');
+    const screen = stripAnsi(await session.text({
+      timeout: 15_000,
+      waitFor: (text) => (
+        text.includes('Autohand Code mobile handoff')
+        && text.includes('Scan or open:')
+        && text.includes('Mode: queue')
+        && text.includes('❯')
+      ),
+      trimEnd: true,
+    }));
+    const lines = screen.split('\n');
+    const instructionsIndex = lines.findIndex((line) => line.includes('Scan this with the iOS app'));
+    const linkIndex = lines.findIndex((line) => line.includes('Scan or open:'));
+    const qrLines = lines
+      .slice(instructionsIndex + 1, linkIndex)
+      .filter((line) => /[▀▄█]/u.test(line));
+
+    expect(instructionsIndex, screen).toBeGreaterThanOrEqual(0);
+    expect(linkIndex, screen).toBeGreaterThan(instructionsIndex);
+    expect(qrLines.length, screen).toBeGreaterThanOrEqual(20);
+    expect(qrLines.length, screen).toBeLessThanOrEqual(28);
+    expect(Math.max(...qrLines.map((line) => line.length)), screen).toBeLessThanOrEqual(55);
+    expect(session.getRawOutput()).toContain('\u001B[47m\u001B[30m');
+
+    await exitInteractive(session);
+  }, 60_000);
 
   it('uses /browser and keeps /chrome as a hidden compatibility alias', async () => {
     const session = await launchInteractive();

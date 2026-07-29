@@ -261,12 +261,12 @@ export async function go(ctx: GoContext, args: string[] = []): Promise<string | 
 
     const appUrl = nativeAppUrl(pairing.pairingUrl);
     const rawQr = await QRCode.toString(pairing.pairingUrl, {
-      type: 'utf8',
+      type: 'terminal',
       errorCorrectionLevel: 'M',
+      small: true,
     });
-    // qrcode's UTF-8 renderer assumes a light terminal. Pin both foreground
-    // and background so dark themes still display a standards-compliant
-    // dark-on-light code that AVFoundation can recognize reliably.
+    // Keep an explicit dark-on-light field around the compact terminal
+    // renderer so theme colors cannot reduce scanner contrast.
     const qr = formatScannableTerminalQRCode(rawQr);
 
     return [
