@@ -272,6 +272,12 @@ interface ActivePrompt {
   messageContent: string;
   toolCallsCount: number;
   cancelRequested: boolean;
+  stopConditionMet: boolean;
+  pendingStepDecision: {
+    stepId: string;
+    resolve: (stop: boolean) => void;
+    dispose: () => void;
+  } | null;
   finalized: boolean;
 }
 
@@ -665,6 +671,8 @@ export class RPCAdapter {
       messageContent: '',
       toolCallsCount: 0,
       cancelRequested: false,
+      stopConditionMet: false,
+      pendingStepDecision: null,
       finalized: false,
     };
     this.status = 'processing';
@@ -672,6 +680,45 @@ export class RPCAdapter {
     this.activePrompt = prompt;
 
     return prompt;
+  }
+
+  handleStepDecision(params: { stepId: string; stop: boolean }): { success: boolean } {
+    const prompt = this.activePrompt;
+    const pending = prompt?.pendingStepDecision;
+    if (!prompt || !pending || pending.stepId !== params.stepId) {
+      return { success: false };
+    }
+
+    prompt.pendingStepDecision = null;
+    prompt.stopConditionMet = params.stop;
+    pending.dispose();
+    pending.resolve(params.stop);
+    return { success: true };
+  }
+
+  private requestStepDecision(
+    prompt: ActivePrompt,
+    step: import('../../core/agent/ReactLoopRunner.js').AgentLoopStep,
+  ): Promise<boolean> {
+    const stepId = generateId('step');
+    return new Promise<boolean>((resolve) => {
+      const handleAbort = (): void => {
+        if (prompt.pendingStepDecision?.stepId !== stepId) return;
+        prompt.pendingStepDecision = null;
+        resolve(false);
+      };
+      prompt.abortController.signal.addEventListener('abort', handleAbort, { once: true });
+      prompt.pendingStepDecision = {
+        stepId,
+        resolve,
+        dispose: () => prompt.abortController.signal.removeEventListener('abort', handleAbort),
+      };
+      writeNotification(RPC_NOTIFICATIONS.STEP_END, {
+        stepId,
+        step,
+        timestamp: createTimestamp(),
+      });
+    });
   }
 
   private startPromptLifecycle(prompt: ActivePrompt): void {
@@ -934,6 +981,9 @@ export class RPCAdapter {
             }
             success = await this.agent.runInstruction(instruction, {
               signal: prompt.abortController.signal,
+              ...(params.stopWhen?.mode === 'host'
+                ? { onStepFinish: (step) => this.requestStepDecision(prompt, step) }
+                : {}),
             });
             if (!this.canContinuePrompt(prompt)) {
               success = false;
@@ -1060,11 +1110,23 @@ export class RPCAdapter {
         tokensUsed: snapshot?.tokensUsed,
         tokensUsageStatus: snapshot?.tokensUsageStatus,
         durationMs,
+        reason: prompt.abortController.signal.aborted
+          ? 'aborted'
+          : prompt.stopConditionMet
+            ? 'stop_condition'
+            : 'completed',
       });
     }
 
     if (this.activePrompt !== prompt) {
       return;
+    }
+
+    const pendingStepDecision = prompt.pendingStepDecision;
+    prompt.pendingStepDecision = null;
+    if (pendingStepDecision) {
+      pendingStepDecision.dispose();
+      pendingStepDecision.resolve(false);
     }
 
     this.stopKeepalive();

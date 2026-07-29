@@ -104,6 +104,7 @@ export type JsonRpcErrorCode = (typeof JSON_RPC_ERROR_CODES)[keyof typeof JSON_R
 export const RPC_METHODS = {
   // Client -> Server requests
   PROMPT: 'autohand.prompt',
+  STEP_DECISION: 'autohand.stepDecision',
   ABORT: 'autohand.abort',
   RESET: 'autohand.reset',
   GET_STATE: 'autohand.getState',
@@ -204,6 +205,7 @@ export const RPC_NOTIFICATIONS = {
   TOOL_START: 'autohand.toolStart',
   TOOL_UPDATE: 'autohand.toolUpdate',
   TOOL_END: 'autohand.toolEnd',
+  STEP_END: 'autohand.stepEnd',
   PERMISSION_REQUEST: 'autohand.permissionRequest',
   DIRECTORY_ACCESS_REQUEST: 'autohand.directoryAccessRequest',
   ERROR: 'autohand.error',
@@ -326,6 +328,17 @@ export interface PromptParams {
   images?: RpcImageAttachment[];
   /** Thinking/reasoning depth level */
   thinkingLevel?: 'none' | 'normal' | 'extended';
+  /** Ask the RPC host whether to stop after each completed tool step. */
+  stopWhen?: { mode: 'host' };
+}
+
+export interface StepDecisionParams {
+  stepId: string;
+  stop: boolean;
+}
+
+export interface StepDecisionResult {
+  success: boolean;
 }
 
 export interface AbortParams {
@@ -636,6 +649,7 @@ export interface TurnEndParams {
   tokensUsageStatus?: 'actual' | 'unavailable';
   durationMs?: number;
   contextPercent?: number;
+  reason?: 'completed' | 'aborted' | 'stop_condition';
 }
 
 export interface MessageStartParams {

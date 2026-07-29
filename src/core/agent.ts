@@ -98,7 +98,12 @@ import {
   syncDynamicRuntimeExtensions,
   type DynamicRuntimeExtensionHost,
 } from './agent/dynamicRuntimeExtensions.js';
-import { runAgentReactLoop, type AgentReactLoopHost } from './agent/ReactLoopRunner.js';
+import {
+  runAgentReactLoop,
+  type AgentReactLoopHost,
+  type ReactLoopControl,
+  type ReactLoopResult,
+} from './agent/ReactLoopRunner.js';
 import { initializeAgentDependencies, type AgentDependencyHost } from './agent/AgentDependencyComposer.js';
 import {
   InstructionRunner,
@@ -1050,8 +1055,11 @@ export class AutohandAgent {
     return flushScheduledAgentSessionSnapshot(this as unknown as AgentSessionAccountingHost);
   }
 
-  private async runReactLoop(abortController: AbortController): Promise<void> {
-    return runAgentReactLoop(this.createReactLoopHost(), abortController);
+  private async runReactLoop(
+    abortController: AbortController,
+    control?: ReactLoopControl,
+  ): Promise<ReactLoopResult> {
+    return runAgentReactLoop(this.createReactLoopHost(), abortController, control);
   }
 
   private createReactLoopHost(): AgentReactLoopHost {

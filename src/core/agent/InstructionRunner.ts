@@ -18,6 +18,11 @@ import { GoalManager } from '../../goals/GoalManager.js';
 import type { SessionMessage, SessionTurnUsageInput } from '../../session/types.js';
 import type { MobileClaimedTurnContext } from '../../mobile/MobileRelay.js';
 import type { TurnMemoryReflectionOutcome } from '../../memory/extractSessionMemories.js';
+import type {
+  AgentLoopStep,
+  ReactLoopControl,
+  ReactLoopResult,
+} from './ReactLoopRunner.js';
 import {
   extractDeepResearchRunId,
   finalizeDeepResearchRun,
@@ -126,7 +131,10 @@ export interface AgentInstructionHost {
   setUIStatus(status: string): void;
   saveUserMessage(instruction: string): Promise<void>;
   updateContextUsage(history: unknown[]): void;
-  runReactLoop(abortController: AbortController): Promise<void>;
+  runReactLoop(
+    abortController: AbortController,
+    control?: ReactLoopControl,
+  ): Promise<ReactLoopResult>;
   runQualityPipeline(): Promise<boolean>;
   cleanupUI(keepInkAlive?: boolean): void;
   runInstruction(instruction: string, options?: RunInstructionOptions): Promise<boolean>;
@@ -151,6 +159,7 @@ export interface AgentInstructionHost {
 export interface RunInstructionOptions {
   signal?: AbortSignal;
   mobileTurn?: MobileClaimedTurnContext;
+  onStepFinish?: (step: AgentLoopStep) => boolean | Promise<boolean>;
 }
 
 interface DeepResearchInstructionState {
@@ -386,11 +395,20 @@ export class InstructionRunner {
       await host.saveUserMessage(instruction);
 
       host.updateContextUsage(host.conversation.history());
-      await host.runReactLoop(abortController);
+      const loopResult = await host.runReactLoop(abortController, {
+        onStepFinish: options.onStepFinish,
+      });
 
       if (abortController.signal.aborted) {
         success = false;
         return false;
+      }
+
+      if (loopResult.status === 'stopped') {
+        deepResearch.deferFinalization = true;
+        reflectionSuperseded = true;
+        success = true;
+        return true;
       }
 
       if (host.lastIntent === 'implementation' && host.filesModifiedThisSession) {
@@ -479,9 +497,17 @@ export class InstructionRunner {
           // Retry the ReAct loop
           try {
             host.setUIStatus('Recovering session...');
-            await host.runReactLoop(abortController);
+            const retryResult = await host.runReactLoop(abortController, {
+              onStepFinish: options.onStepFinish,
+            });
             if (abortController.signal.aborted) {
               return false;
+            }
+            if (retryResult.status === 'stopped') {
+              deepResearch.deferFinalization = true;
+              reflectionSuperseded = true;
+              host.sessionRetryCount = 0;
+              return true;
             }
 
             // If we get here, retry succeeded - reset counter
