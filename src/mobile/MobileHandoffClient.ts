@@ -285,11 +285,16 @@ export interface ClaimedWorkItem {
   deliveryMode?: string | null;
 }
 
-export interface MobileWorkClaimScope {
-  deliveryMode: 'steer';
-  sessionId: string;
-  pairingId: string;
-}
+export type MobileWorkClaimScope =
+  | {
+    deliveryMode: 'steer';
+    sessionId: string;
+    pairingId: string;
+  }
+  | {
+    deliveryMode: 'queue';
+    workspaceRoot: string;
+  };
 
 export interface WorkClaimResponse {
   success: boolean;
