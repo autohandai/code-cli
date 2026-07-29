@@ -181,7 +181,8 @@ The provider dropdown is covered by a repository test so catalog/provider drift 
 1. Go to: Actions → Release → Run workflow
 2. Choose:
    - **Branch**: main or another release source branch
-   - **Version**: Leave empty for auto, or specify (e.g., `1.2.3`)
+   - **Version**: Leave empty for auto, or specify `1.2.3` or `v1.2.3`; the workflow
+     normalizes the optional leading `v` before creating tags, formulas, and packages
    - **Channel**: alpha/release
 3. Click "Run workflow"
 

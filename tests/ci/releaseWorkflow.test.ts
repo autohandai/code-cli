@@ -3,7 +3,9 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
@@ -17,20 +19,87 @@ interface WorkflowStep {
 
 interface ReleaseWorkflow {
   jobs: {
+    prepare: {
+      steps: WorkflowStep[];
+    };
     release: {
       steps: WorkflowStep[];
     };
   };
 }
 
+const REPOSITORY_ROOT = path.resolve(import.meta.dirname, '../..');
 const WORKFLOW_PATH = path.resolve(import.meta.dirname, '../../.github/workflows/release.yml');
 
+function loadReleaseWorkflow(): ReleaseWorkflow {
+  return parseYaml(readFileSync(WORKFLOW_PATH, 'utf8')) as ReleaseWorkflow;
+}
+
 function loadReleaseSteps(): WorkflowStep[] {
-  const workflow = parseYaml(readFileSync(WORKFLOW_PATH, 'utf8')) as ReleaseWorkflow;
-  return workflow.jobs.release.steps;
+  return loadReleaseWorkflow().jobs.release.steps;
+}
+
+function runVersionStep(manualVersion: string): string {
+  const versionStep = loadReleaseWorkflow().jobs.prepare.steps.find(
+    (step) => step.name === 'Get version',
+  );
+  const script = versionStep?.run
+    ?.replaceAll('${{ steps.determine.outputs.channel }}', 'release')
+    .replaceAll('${{ github.event.inputs.version }}', manualVersion)
+    .replaceAll('${{ github.event_name }}', 'workflow_dispatch');
+
+  if (!script) {
+    throw new Error('Release workflow must define the Get version step');
+  }
+
+  const outputDirectory = mkdtempSync(path.join(tmpdir(), 'autohand-release-version-'));
+  const outputPath = path.join(outputDirectory, 'github-output');
+
+  try {
+    execFileSync('bash', ['-euo', 'pipefail', '-c', script], {
+      cwd: REPOSITORY_ROOT,
+      env: {
+        ...process.env,
+        GITHUB_OUTPUT: outputPath,
+        GITHUB_SHA: '8595299fa7c2cb2f63715b03c48e39f26c6e2f7e',
+        MANUAL_VERSION: manualVersion,
+        RELEASE_CHANNEL: 'release',
+        RELEASE_EVENT_NAME: 'workflow_dispatch',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    return readFileSync(outputPath, 'utf8');
+  } finally {
+    rmSync(outputDirectory, { recursive: true, force: true });
+  }
 }
 
 describe('release workflow', () => {
+  it('normalizes a v-prefixed manual stable version before publishing', () => {
+    expect(runVersionStep('v0.9.3')).toContain('version=0.9.3\n');
+  });
+
+  it('rejects malformed stable versions without interpolating user input into the shell', () => {
+    const versionStep = loadReleaseWorkflow().jobs.prepare.steps.find(
+      (step) => step.name === 'Get version',
+    );
+
+    expect(versionStep?.env?.MANUAL_VERSION).toBe('${{ github.event.inputs.version }}');
+    expect(versionStep?.run).not.toContain('${{ github.event.inputs.version }}');
+    expect(() => runVersionStep('vv0.9.3')).toThrow();
+  });
+
+  it('documents the accepted manual stable version formats', () => {
+    const documentation = readFileSync(
+      path.join(REPOSITORY_ROOT, '.github/workflows/README.md'),
+      'utf8',
+    );
+
+    expect(documentation).toContain('`1.2.3` or `v1.2.3`');
+    expect(documentation).toContain('normalizes the optional leading `v`');
+  });
+
   it('builds, verifies, and publishes alpha packages with the alpha npm dist-tag', () => {
     const steps = loadReleaseSteps();
     const buildStep = steps.find((step) => step.name === 'Build and verify npm package');

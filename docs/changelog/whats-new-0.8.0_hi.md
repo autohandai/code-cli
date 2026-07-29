@@ -319,10 +319,7 @@ Autohand अब macOS पर Homebrew के माध्यम से उपल
 
 ```bash
 # सीधे इंस्टॉल करें
-brew install autohand
-
-# या ऑफ़िशियल tap के माध्यम से
-brew tap autohandai/tap && brew install autohand
+brew install autohandai/code/autohand-code
 ```
 
 ### विवरण
