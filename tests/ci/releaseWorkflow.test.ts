@@ -100,6 +100,41 @@ describe('release workflow', () => {
     expect(documentation).toContain('normalizes the optional leading `v`');
   });
 
+  it('preflights release artifacts before publishing and never hides source push failures', () => {
+    const steps = loadReleaseSteps();
+    const preflightIndex = steps.findIndex(
+      (step) => step.name === 'Prepare Homebrew tap update (release only)',
+    );
+    const packageBuildIndex = steps.findIndex(
+      (step) => step.name === 'Build and verify npm package',
+    );
+    const createReleaseIndex = steps.findIndex((step) => step.name === 'Create Release');
+    const updateTapIndex = steps.findIndex((step) => step.name === 'Update Homebrew tap');
+    const preflightStep = steps[preflightIndex];
+    const workflowScripts = steps
+      .map((step) => step.run ?? '')
+      .join('\n');
+
+    expect(preflightIndex).toBeGreaterThanOrEqual(0);
+    expect(packageBuildIndex).toBeGreaterThanOrEqual(0);
+    expect(createReleaseIndex).toBeGreaterThanOrEqual(0);
+    expect(updateTapIndex).toBeGreaterThan(createReleaseIndex);
+    expect(preflightIndex).toBeLessThan(createReleaseIndex);
+    expect(packageBuildIndex).toBeLessThan(createReleaseIndex);
+
+    expect(preflightStep?.if).toBe("needs.prepare.outputs.channel == 'release'");
+    expect(preflightStep?.env).toEqual({
+      TAP_GITHUB_TOKEN: '${{ secrets.TAP_GITHUB_TOKEN }}',
+    });
+    expect(preflightStep?.run).toContain('TAP_GITHUB_TOKEN is required for stable releases');
+    expect(preflightStep?.run).toContain('node .github/render-homebrew-formula.mjs');
+    expect(preflightStep?.run).toContain('ruby -c homebrew-tap/Formula/autohand-code.rb');
+    expect(preflightStep?.run).toContain('TAP_CAN_PUSH');
+
+    expect(workflowScripts).not.toContain('git push origin ${{ github.ref_name }}');
+    expect(workflowScripts).not.toContain('No changes to push');
+  });
+
   it('builds, verifies, and publishes alpha packages with the alpha npm dist-tag', () => {
     const steps = loadReleaseSteps();
     const buildStep = steps.find((step) => step.name === 'Build and verify npm package');
