@@ -147,6 +147,22 @@ export interface AgentReactLoopHost {
   writeDebugLine(message: string): void;
 }
 
+export interface AgentLoopStep {
+  stepNumber: number;
+  thought?: string;
+  toolCalls: ToolCallRequest[];
+  toolResults: ToolExecutionResult[];
+}
+
+export interface ReactLoopControl {
+  onStepFinish?: (step: AgentLoopStep) => boolean | Promise<boolean>;
+}
+
+export type ReactLoopResult =
+  | { status: 'completed' }
+  | { status: 'stopped'; stepNumber: number }
+  | { status: 'aborted' };
+
 function addUsageToTurn(existing: TurnUsage, provider: ProviderName | undefined, usage: LLMUsage): TurnUsage {
   if (existing.kind === 'actual') {
     return {
@@ -282,7 +298,11 @@ function getToolCallFilePath(call: ToolCallRequest | undefined): string | null {
 
 export { isDeferredFinalResponse, classifyResponseCompletion };
 
-export async function runAgentReactLoop(host: AgentReactLoopHost, abortController: AbortController): Promise<void> {
+export async function runAgentReactLoop(
+  host: AgentReactLoopHost,
+  abortController: AbortController,
+  control: ReactLoopControl = {},
+): Promise<ReactLoopResult> {
     host.consecutiveCancellations = 0;
 
     const debugMode = host.runtime.config.agent?.debug === true || isAutohandDebugEnabled();
@@ -488,7 +508,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
         if (abortController.signal.aborted) {
           host.stopStatusUpdates();
           host.runtime.spinner?.stop();
-          return;
+          return { status: 'aborted' };
         }
         if (debugMode) host.writeDebugLine(`[AGENT DEBUG] LLM returned: content length=${completion.content?.length ?? 0}, toolCalls=${completion.toolCalls?.length ?? 0}`);
       } catch (llmError) {
@@ -590,7 +610,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
             thought: payload.thought,
             usedThoughtAsResponse: false,
           });
-          return;
+          return { status: 'completed' };
         }
 
         if (turnOutcome.reason === 'empty_no_tool_response') {
@@ -735,6 +755,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
 
         // Collect all output lines for a single batch write
         const outputLines: string[] = [];
+        const stepResults: ToolExecutionResult[] = [];
 
         // Extract thought for display
         // Note: by this point, parseAssistantReactPayload has already extracted
@@ -760,6 +781,11 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
               tool_call_id: call.id
             });
             await host.saveToolMessage('smart_context_cropper', content, call.id);
+            stepResults.push({
+              tool: 'smart_context_cropper',
+              success: true,
+              output: content,
+            });
             host.updateContextUsage(host.conversation.history(), tools);
             outputLines.push(`${chalk.cyan('✂ smart_context_cropper')}`);
             outputLines.push(chalk.gray(content));
@@ -913,7 +939,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
           if (abortController.signal.aborted) {
             host.stopStatusUpdates();
             host.runtime.spinner?.stop();
-            return;
+            return { status: 'aborted' };
           }
 
           if (host.inkRenderer && displayToolOutput) {
@@ -954,6 +980,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
           if (results.some((result) => result.success && result.tool === 'create_meta_tool')) {
             allTools = await refreshRuntimeTools();
           }
+          stepResults.push(...results);
           host.updateContextUsage(host.conversation.history(), tools);
 
           // Mid-turn compaction: if tool outputs pushed us into critical territory,
@@ -1109,6 +1136,19 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
           );
         }
 
+        const stepNumber = iteration + 1;
+        const shouldStop = await control.onStepFinish?.({
+          stepNumber,
+          ...(payload.thought ? { thought: payload.thought } : {}),
+          toolCalls: payload.toolCalls,
+          toolResults: stepResults,
+        }) ?? false;
+        if (shouldStop) {
+          host.stopStatusUpdates();
+          host.runtime.spinner?.stop();
+          return { status: 'stopped', stepNumber };
+        }
+
         // Mark that the next iteration must include reflection on these tool results
         needsReflection = true;
 
@@ -1128,12 +1168,12 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
         thought: payload.thought,
         usedThoughtAsResponse: turnOutcome.usedThoughtAsResponse,
       });
-      return;
+      return { status: 'completed' };
     }
     if (abortController.signal.aborted) {
       host.stopStatusUpdates();
       host.runtime.spinner?.stop();
-      return;
+      return { status: 'aborted' };
     }
     host.stopStatusUpdates();
     host.runtime.spinner?.stop();
@@ -1158,7 +1198,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
         host.setComposerIdle();
         host.setComposerFinalResponse(summaryResponse);
         host.emitOutput({ type: 'message', content: summaryResponse });
-        return;
+        return { status: 'completed' };
       }
     } catch {
       // Summary call failed - fall through to static summary
@@ -1176,6 +1216,7 @@ export async function runAgentReactLoop(host: AgentReactLoopHost, abortControlle
     host.setComposerIdle();
     host.setComposerFinalResponse(fallbackMsg);
     host.emitOutput({ type: 'message', content: fallbackMsg });
+    return { status: 'completed' };
     } finally {
       await workspaceChangeCapture?.dispose().catch((error: unknown) => {
         host.writeDebugLine(`[DEBUG] Workspace change capture cleanup failed: ${error instanceof Error ? error.message : String(error)}`);

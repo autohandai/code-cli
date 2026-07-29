@@ -144,6 +144,62 @@ describe('ReactLoopRunner composer status', () => {
     }
   });
 
+  it('stops at a completed tool-step boundary before another model call', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const parser = new ReactionParser();
+    const llmComplete = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: 'tool-call',
+        created: 1,
+        content: JSON.stringify({
+          thought: 'Inspect the entrypoint.',
+          toolCalls: [{ tool: 'read_file', args: { path: 'src/index.ts' } }],
+        }),
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'answer-that-must-not-run',
+        created: 2,
+        content: '{"finalResponse":"This step must remain suspended."}',
+        raw: {},
+      });
+    const host = createReactLoopTestHost(llmComplete, parser);
+    host.toolManager.execute = vi.fn(async () => [{
+      tool: 'read_file',
+      success: true,
+      output: 'export const entrypoint = true;',
+    }]);
+    const onStepFinish = vi.fn(async () => true);
+
+    try {
+      const result = await runAgentReactLoop(host, new AbortController(), {
+        onStepFinish,
+      });
+
+      expect(result).toEqual({ status: 'stopped', stepNumber: 1 });
+      expect(onStepFinish).toHaveBeenCalledWith({
+        stepNumber: 1,
+        thought: 'Inspect the entrypoint.',
+        toolCalls: [expect.objectContaining({
+          tool: 'read_file',
+          args: { path: 'src/index.ts' },
+        })],
+        toolResults: [{
+          tool: 'read_file',
+          success: true,
+          output: 'export const entrypoint = true;',
+        }],
+      });
+      expect(llmComplete).toHaveBeenCalledTimes(1);
+      expect(host.conversation.addSystemNote).not.toHaveBeenCalledWith(
+        expect.stringContaining('used all available iterations'),
+      );
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it('does not account for or publish a completion returned after provider abort', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const parser = new ReactionParser();

@@ -1445,7 +1445,7 @@ describe('agent startup and active input UI', () => {
     };
     agent.saveUserMessage = vi.fn(async () => {});
     agent.updateContextUsage = vi.fn();
-    agent.runReactLoop = vi.fn(async () => {});
+    agent.runReactLoop = vi.fn(async () => ({ status: 'completed' as const }));
     agent.stopStatusUpdates = vi.fn();
     agent.cleanupUI = vi.fn();
     agent.clearExplorationLog = vi.fn();
@@ -1569,7 +1569,7 @@ describe('agent startup and active input UI', () => {
           true,
         ),
       )
-      .mockResolvedValueOnce(undefined);
+      .mockResolvedValueOnce({ status: 'completed' });
     agent.submitSessionFailureBugReport = vi.fn(async () => {});
     agent.sleep = vi.fn(async () => {});
     agent.injectContinuationMessage = vi.fn();

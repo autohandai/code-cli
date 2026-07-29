@@ -26,6 +26,7 @@ import type {
   JsonRpcRequest,
   JsonRpcResponse,
   PromptParams,
+  StepDecisionParams,
   GetMessagesParams,
   BrowserHandoffCreateParams,
   BrowserHandoffAttachParams,
@@ -529,6 +530,22 @@ async function handleSingleRequest(
         // Abort can be called as notification (no id) for instant response
         writeRpcDebugLine(`ABORT received hasRequestId=${id !== undefined}, isNotification=${!shouldRespond}`);
         result = adapter.handleAbort(id ?? null);
+        break;
+      }
+
+      case RPC_METHODS.STEP_DECISION: {
+        const stepDecision = params as StepDecisionParams | undefined;
+        if (!stepDecision?.stepId || typeof stepDecision.stop !== 'boolean') {
+          if (shouldRespond) {
+            return createErrorResponse(
+              id!,
+              JSON_RPC_ERROR_CODES.INVALID_PARAMS,
+              'stepDecision requires stepId and boolean stop parameters'
+            );
+          }
+          return null;
+        }
+        result = adapter.handleStepDecision(stepDecision);
         break;
       }
 

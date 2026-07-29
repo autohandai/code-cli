@@ -175,6 +175,45 @@ describe('RPC Adapter - P2 Handlers', () => {
   // -------------------------------------------------------------------------
 
   describe('prompt handling', () => {
+    it('waits at a requested step boundary and records the host stop decision', async () => {
+      mockAgent.runInstruction.mockImplementationOnce(async (_instruction, options) => {
+        const decision = options?.onStepFinish?.({
+          stepNumber: 1,
+          thought: 'Inspect the entrypoint.',
+          toolCalls: [{ id: 'tool-1', tool: 'read_file', args: { path: 'src/index.ts' } }],
+          toolResults: [{ tool: 'read_file', success: true, output: 'source' }],
+        });
+        await vi.waitFor(() => {
+          expect(writeNotification).toHaveBeenCalledWith(
+            'autohand.stepEnd',
+            expect.objectContaining({
+              stepId: 'step_test123',
+              step: expect.objectContaining({ stepNumber: 1 }),
+            }),
+          );
+        });
+        expect(adapter.handleStepDecision({ stepId: 'step_test123', stop: true })).toEqual({
+          success: true,
+        });
+        expect(await decision).toBe(true);
+        return true;
+      });
+
+      await expect(adapter.handlePrompt('req_stop', {
+        message: 'Inspect one step',
+        stopWhen: { mode: 'host' },
+      })).resolves.toEqual({ success: true });
+
+      expect(mockAgent.runInstruction).toHaveBeenCalledWith('Inspect one step', {
+        signal: expect.any(AbortSignal),
+        onStepFinish: expect.any(Function),
+      });
+      expect(writeNotification).toHaveBeenCalledWith(
+        'autohand.turnEnd',
+        expect.objectContaining({ reason: 'stop_condition' }),
+      );
+    });
+
     it('emits prompt lifecycle metadata without sensitive content in debug mode', async () => {
       process.env.AUTOHAND_DEBUG = '1';
       const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);

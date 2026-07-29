@@ -92,7 +92,7 @@ function createHost(): AgentInstructionHost {
     setUIStatus: vi.fn(),
     saveUserMessage: vi.fn(async () => {}),
     updateContextUsage: vi.fn(),
-    runReactLoop: vi.fn(async () => {}),
+    runReactLoop: vi.fn(async () => ({ status: 'completed' as const })),
     runQualityPipeline: vi.fn(async () => true),
     cleanupUI: vi.fn(),
     runInstruction: vi.fn(async () => true),
@@ -142,6 +142,7 @@ describe('InstructionRunner command mode UI', () => {
       await new Promise<void>((resolve) => {
         internalController.signal.addEventListener('abort', () => resolve(), { once: true });
       });
+      return { status: 'aborted' as const };
     });
 
     const run = new InstructionRunner(host).run('cancel this turn', {
@@ -212,6 +213,7 @@ describe('InstructionRunner command mode UI', () => {
     host.intentDetector.detect = vi.fn(() => ({ intent: 'implementation', confidence: 1, reasons: [] }));
     host.runReactLoop = vi.fn(async () => {
       host.filesModifiedThisSession = true;
+      return { status: 'completed' as const };
     });
 
     await new InstructionRunner(host).run('change the code');
@@ -233,6 +235,7 @@ describe('InstructionRunner command mode UI', () => {
     host.intentDetector.detect = vi.fn(() => ({ intent: 'implementation', confidence: 1, reasons: [] }));
     host.runReactLoop = vi.fn(async () => {
       host.filesModifiedThisSession = true;
+      return { status: 'completed' as const };
     });
     host.runQualityPipeline = vi.fn(async () => false);
 
@@ -260,6 +263,7 @@ describe('InstructionRunner command mode UI', () => {
     });
     host.runReactLoop = vi.fn(async (controller) => {
       controller.abort();
+      return { status: 'aborted' as const };
     });
 
     await expect(new InstructionRunner(host).run('stop this work')).resolves.toBe(false);
@@ -373,7 +377,7 @@ describe('InstructionRunner command mode UI', () => {
       .fn()
       .mockRejectedValueOnce(new Error('provider timeout'))
       .mockRejectedValueOnce(new Error('provider timeout'))
-      .mockResolvedValueOnce(undefined);
+      .mockResolvedValueOnce({ status: 'completed' });
     const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     try {
