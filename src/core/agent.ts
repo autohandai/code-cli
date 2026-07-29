@@ -5,6 +5,7 @@
  */
 import chalk from 'chalk';
 import { randomUUID } from 'node:crypto';
+import os from 'node:os';
 import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import { FileActionManager } from '../actions/filesystem.js';
 import { getProviderConfig } from '../config.js';
@@ -213,6 +214,8 @@ import {
   injectAgentSessionBootstrap,
   loadAgentInstructionFiles,
   resetAgentConversationContext,
+  resolveStatusLineGitLabel,
+  type StatusLineGitLabelHost,
   updateAgentContextUsage,
   type AgentContextRuntimeHost,
 } from './agent/AgentContextRuntime.js';
@@ -1266,6 +1269,9 @@ export class AutohandAgent {
     this.ui?.setProviderModel?.(providerLabel, model);
     this.inkRenderer?.setConfiguredLineExtensions?.(withPeerLineExtension(buildStatusLineExtension({
       settings: getConfigStatusLineSettings(this.runtime.config),
+      workspaceRoot: this.runtime.workspaceRoot,
+      homeDir: os.homedir(),
+      gitLabel: resolveStatusLineGitLabel(this as unknown as StatusLineGitLabelHost),
       sessionDiffStats: this.sessionDiffStatsTracker?.getStats(),
       sessionHasFileChanges: this.filesModifiedThisSession === true,
     }), this.peerAwareness.getPeers().length));

@@ -118,6 +118,33 @@ describe('InkRenderer flickering prevention', () => {
       // liveCommands should not change when only status is updated
       expect(state1.liveCommands).toBe(state2.liveCommands);
     });
+
+    it('should not redraw equivalent configured status-line fields', () => {
+      const renderer = new InkRenderer({
+        onInstruction: () => {},
+        onEscape: () => {},
+        onCtrlC: () => {},
+      });
+      const configuredLineExtensions = {
+        help: {
+          segments: [
+            { id: 'workspace-path', text: '~/Documents/autohand/demo/temp', color: 'success' as const },
+            { id: 'git-branch', text: 'main', color: 'muted' as const },
+            { id: 'session-lines-added', text: '+611 lines', color: 'success' as const },
+          ],
+        },
+      };
+
+      renderer.setConfiguredLineExtensions(configuredLineExtensions);
+      const stateAfterFirstUpdate = renderer.getState();
+      renderer.setConfiguredLineExtensions({
+        help: {
+          segments: configuredLineExtensions.help.segments.map((segment) => ({ ...segment })),
+        },
+      });
+
+      expect(renderer.getState()).toBe(stateAfterFirstUpdate);
+    });
   });
 
   describe('finishLiveCommand cleanup', () => {
