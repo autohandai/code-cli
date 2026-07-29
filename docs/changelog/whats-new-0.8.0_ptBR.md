@@ -319,10 +319,7 @@ O Autohand agora esta disponivel via Homebrew no macOS:
 
 ```bash
 # Instalar diretamente
-brew install autohand
-
-# Ou via o tap oficial
-brew tap autohandai/tap && brew install autohand
+brew install autohandai/code/autohand-code
 ```
 
 ### Detalhes

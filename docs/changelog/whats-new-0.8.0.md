@@ -483,10 +483,7 @@ Autohand is now available via Homebrew on macOS:
 
 ```bash
 # Install directly
-brew install autohand
-
-# Or via the official tap
-brew tap autohandai/tap && brew install autohand
+brew install autohandai/code/autohand-code
 ```
 
 ### Details

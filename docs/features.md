@@ -6,7 +6,7 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 
 ## Installation
 - [x] npm: `npm install -g autohand-cli`
-- [x] Homebrew: `brew install autohand`
+- [x] Homebrew: `brew install autohandai/code/autohand-code`
 - [x] Standalone binaries (macOS, Linux, Windows)
 
 ## Core Intelligence

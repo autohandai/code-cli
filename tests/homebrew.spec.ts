@@ -142,11 +142,28 @@ describe('Homebrew formula', () => {
   });
 
   it('documents the Homebrew 6 compatible direct installation command', () => {
-    const readme = readFileSync(join(ROOT, 'README.md'), 'utf-8');
+    const documentationPaths = [
+      'README.md',
+      'docs/features.md',
+      'docs/changelog/whats-new-0.8.0.md',
+      'docs/changelog/whats-new-0.8.0_es.md',
+      'docs/changelog/whats-new-0.8.0_hi.md',
+      'docs/changelog/whats-new-0.8.0_ja.md',
+      'docs/changelog/whats-new-0.8.0_ko.md',
+      'docs/changelog/whats-new-0.8.0_ptBR.md',
+      'docs/changelog/whats-new-0.8.0_zh.md',
+    ];
     const authSource = readFileSync(join(ROOT, 'src', 'auth', 'ensureAuth.ts'), 'utf-8');
     const installCommand = 'brew install autohandai/code/autohand-code';
 
-    expect(readme).toContain(installCommand);
+    for (const documentationPath of documentationPaths) {
+      const documentation = readFileSync(join(ROOT, documentationPath), 'utf-8');
+
+      expect(documentation, documentationPath).toContain(installCommand);
+      expect(documentation, documentationPath).not.toMatch(/brew tap autohandai\/(?:code|tap)/);
+      expect(documentation, documentationPath).not.toMatch(/brew install autohand(?=[\s`]|$)/);
+    }
+
     expect(authSource).toContain(installCommand);
     expect(authSource).not.toContain('brew tap autohandai/code && brew install autohand-code');
   });
