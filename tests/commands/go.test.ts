@@ -147,10 +147,11 @@ describe('/go command', () => {
     expect(output).toContain('QR-CODE');
     expect(QRCode.toString).toHaveBeenCalledWith(
       'https://autohand.ai/code/go?pairing=pairing-1&token=secret',
-      expect.objectContaining({
-        type: 'terminal',
-        small: true,
-      })
+      {
+        type: 'utf8',
+        errorCorrectionLevel: 'M',
+        margin: 4,
+      }
     );
     expect(output).toContain('autohand-code://go?pairing=pairing-1&token=secret');
     expect(output).toContain('https://autohand.ai/code/go?pairing=pairing-1&token=secret');

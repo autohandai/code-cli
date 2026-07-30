@@ -267,12 +267,12 @@ export async function go(ctx: GoContext, args: string[] = []): Promise<string | 
 
     const appUrl = nativeAppUrl(pairing.pairingUrl);
     const rawQr = await QRCode.toString(pairing.pairingUrl, {
-      type: 'terminal',
+      type: 'utf8',
       errorCorrectionLevel: 'M',
-      small: true,
+      margin: 4,
     });
-    // Keep an explicit dark-on-light field around the compact terminal
-    // renderer so theme colors cannot reduce scanner contrast.
+    // Preserve a full four-module quiet zone for camera reliability while
+    // pinning the field to dark-on-light across terminal themes.
     const qr = formatScannableTerminalQRCode(rawQr);
 
     return [

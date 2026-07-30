@@ -62,16 +62,22 @@ describe('post-turn research publication', () => {
   });
 
   it('carries a structured action alongside the reserved instruction', () => {
-    expect(unpackQueuedAgentInstruction({
-      text: 'Run the research',
-      postTurnAction: action,
-    })).toEqual({
+    const structuredInstruction = unpackQueuedAgentInstruction({
       text: 'Run the research',
       postTurnAction: action,
     });
-    expect(unpackQueuedAgentInstruction('ordinary request')).toEqual({
+    expect(structuredInstruction).toEqual({
+      text: 'Run the research',
+      postTurnAction: action,
+      sequence: expect.any(Number),
+    });
+
+    const ordinaryInstruction = unpackQueuedAgentInstruction('ordinary request');
+    expect(ordinaryInstruction).toEqual({
       text: 'ordinary request',
+      sequence: expect.any(Number),
     });
+    expect(ordinaryInstruction.sequence).toBeGreaterThan(structuredInstruction.sequence);
   });
 
   it('offers once only after a successful completed run with the matching reserved path', async () => {

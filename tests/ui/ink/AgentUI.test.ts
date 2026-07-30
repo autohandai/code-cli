@@ -19,6 +19,7 @@ import {
   handleInkTextBufferInput,
   isBareComposerTrigger,
   matchesExtensionKeybinding,
+  renderComposerHelpLineContent,
   resolveInkHiddenPastes,
   storeInkHiddenPaste,
 } from '../../../src/ui/ink/AgentUI.js';
@@ -1014,6 +1015,51 @@ describe('AgentUI paste placeholder resolution', () => {
 });
 
 describe('AgentUI layout stability', () => {
+  it('renders the Autohand product name in bold in the composer help line', async () => {
+    const state = {
+      ...createInitialUIState(),
+      provider: 'openrouter',
+      model: 'openai/gpt-4o-mini',
+    };
+    const { lastFrame } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+          })
+        )
+      )
+    );
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    const frame = lastFrame() ?? '';
+    expect(stripAnsi(frame)).toContain('autohand (OpenRouter, openai/gpt-4o-mini)');
+
+    const content = renderComposerHelpLineContent(
+      'autohand (OpenRouter, openai/gpt-4o-mini) · 100% context left',
+      'autohand (OpenRouter, openai/gpt-4o-mini)'
+    );
+    expect(React.isValidElement(content)).toBe(true);
+    const children = React.Children.toArray(
+      (content as React.ReactElement<{ children?: React.ReactNode }>).props.children
+    );
+    const productName = children[0] as React.ReactElement<{
+      bold?: boolean;
+      children?: React.ReactNode;
+    }>;
+    expect(productName.props.bold).toBe(true);
+    expect(productName.props.children).toBe('autohand');
+    expect(children[1]).toBe(' (OpenRouter, openai/gpt-4o-mini) · 100% context left');
+  });
+
   it('formats token-based context usage consistently with completed turn usage', () => {
     expect(
       getComposerHelpLine(

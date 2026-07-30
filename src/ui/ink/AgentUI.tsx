@@ -583,6 +583,20 @@ export function getComposerHelpLine(
   return formatLineSegments(defaultSegments, lineExtension);
 }
 
+export function renderComposerHelpLineContent(helpLine: string, providerDisplay: string) {
+  const productName = 'autohand';
+  if (!providerDisplay || !helpLine.startsWith(providerDisplay)) {
+    return helpLine;
+  }
+
+  return (
+    <>
+      <Text bold>{productName}</Text>
+      {helpLine.slice(productName.length)}
+    </>
+  );
+}
+
 function formatContextTokenDisplay(contextTokens: ContextTokenDisplay): string {
   if (!Number.isFinite(contextTokens.total) || contextTokens.total <= 0) {
     return '';
@@ -2417,11 +2431,18 @@ const HelpLineSection = memo(function HelpLineSection({
   const providerDisplay = provider
     ? `autohand (${t(`providers.${provider}`) ?? provider}${model ? `, ${model}` : ''})`
     : '';
+  const helpLine = getComposerHelpLine(
+    isWorking,
+    providerDisplay,
+    contextDisplay,
+    t('ui.commandHint'),
+    lineExtension
+  );
 
   return (
     <Box>
       <Text color={colors.dim}>
-        {getComposerHelpLine(isWorking, providerDisplay, contextDisplay, t('ui.commandHint'), lineExtension)}
+        {renderComposerHelpLineContent(helpLine, providerDisplay)}
       </Text>
     </Box>
   );
