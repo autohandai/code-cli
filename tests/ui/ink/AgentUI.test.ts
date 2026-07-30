@@ -1045,19 +1045,12 @@ describe('AgentUI layout stability', () => {
 
     const content = renderComposerHelpLineContent(
       'autohand (OpenRouter, openai/gpt-4o-mini) · 100% context left',
-      'autohand (OpenRouter, openai/gpt-4o-mini)'
+      'autohand (OpenRouter, openai/gpt-4o-mini)',
+      (text) => `\u001b[1m${text}\u001b[22m`,
     );
-    expect(React.isValidElement(content)).toBe(true);
-    const children = React.Children.toArray(
-      (content as React.ReactElement<{ children?: React.ReactNode }>).props.children
+    expect(content).toBe(
+      '\u001b[1mautohand\u001b[22m (OpenRouter, openai/gpt-4o-mini) · 100% context left'
     );
-    const productName = children[0] as React.ReactElement<{
-      bold?: boolean;
-      children?: React.ReactNode;
-    }>;
-    expect(productName.props.bold).toBe(true);
-    expect(productName.props.children).toBe('autohand');
-    expect(children[1]).toBe(' (OpenRouter, openai/gpt-4o-mini) · 100% context left');
   });
 
   it('formats token-based context usage consistently with completed turn usage', () => {

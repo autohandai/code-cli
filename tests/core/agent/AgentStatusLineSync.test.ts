@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
+import { homedir } from 'node:os';
 import { AutohandAgent } from '../../../src/core/agent.js';
 import type { AgentUILineExtensions } from '../../../src/ui/ink/AgentUI.js';
 
@@ -15,7 +16,7 @@ interface StatusLineSyncAgent {
 describe('AutohandAgent status-line synchronization', () => {
   it('preserves workspace, branch, and session-line fields while syncing the provider', () => {
     const setConfiguredLineExtensions = vi.fn<(extensions: AgentUILineExtensions | undefined) => void>();
-    const workspaceRoot = '/Users/igorcosta/Documents/autohand/demo/temp';
+    const workspaceRoot = `${homedir()}/Documents/autohand/demo/temp`;
     const agent = Object.assign(Object.create(AutohandAgent.prototype), {
       activeProvider: 'openrouter',
       runtime: {
