@@ -826,6 +826,12 @@ describe('interactive built CLI Tuistory tests', () => {
       launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
         autohandHome: state.autohandHome,
         cwd: state.workspaceRoot,
+        env: {
+          NO_COLOR: undefined,
+          FORCE_COLOR: '3',
+          COLORTERM: 'truecolor',
+          TERM: 'xterm-256color',
+        },
         waitForDataTimeout: 15_000,
       })
     );
@@ -844,6 +850,8 @@ describe('interactive built CLI Tuistory tests', () => {
       expect(helpLine, screen).toContain('/workspace');
       expect(helpLine, screen).toContain(branch);
     }
+
+    expect(session.getRawOutput()).toMatch(/\u001b\[1mautohand\u001b\[22m/u);
 
     await exitInteractive(session);
   }, 60_000);
@@ -1226,7 +1234,7 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
-  it('renders a compact, high-contrast QR code for /go', async () => {
+  it('renders a scan-grade, high-contrast QR code with a full quiet zone for /go', async () => {
     const state = await createTempAutohandHome();
     tempStates.push(state);
     const pairingPreload = await createMockMobilePairingFetchPreload();
@@ -1273,10 +1281,16 @@ describe('interactive built CLI Tuistory tests', () => {
 
     expect(instructionsIndex, screen).toBeGreaterThanOrEqual(0);
     expect(linkIndex, screen).toBeGreaterThan(instructionsIndex);
-    expect(qrLines.length, screen).toBeGreaterThanOrEqual(20);
-    expect(qrLines.length, screen).toBeLessThanOrEqual(28);
-    expect(Math.max(...qrLines.map((line) => line.length)), screen).toBeLessThanOrEqual(55);
-    expect(session.getRawOutput()).toContain('\u001B[47m\u001B[30m');
+    expect(qrLines.length, screen).toBeGreaterThanOrEqual(25);
+    expect(qrLines.length, screen).toBeLessThanOrEqual(32);
+    expect(Math.max(...qrLines.map((line) => line.length)), screen).toBeGreaterThanOrEqual(52);
+    expect(Math.max(...qrLines.map((line) => line.length)), screen).toBeLessThanOrEqual(60);
+    // Tuistory trims trailing screen whitespace, so the renderer option test
+    // covers the right margin while this proves the visible left quiet zone.
+    expect(qrLines.every((line) => line.startsWith('    ')), screen).toBe(true);
+    expect(session.getRawOutput()).toMatch(
+      /\u001B\[(?:30m\u001B\[47m|47m\u001B\[30m)/u
+    );
 
     await exitInteractive(session);
   }, 60_000);
