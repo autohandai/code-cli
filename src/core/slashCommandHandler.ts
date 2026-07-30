@@ -347,6 +347,8 @@ export class SlashCommandHandler {
             config: this.ctx.config,
             enqueueInstruction: this.ctx.enqueueInstruction,
             enqueueMobileInstruction: this.ctx.enqueueMobileInstruction,
+            dispatchMobileComposerCommand: this.ctx.dispatchMobileComposerCommand,
+            isMobileComposerCommandAvailable: this.ctx.isMobileComposerCommandAvailable,
             enqueueInstructionWithImages: this.ctx.enqueueInstructionWithImages,
             enqueueMobileInstructionWithImages: this.ctx.enqueueMobileInstructionWithImages,
             onMobileRelayReady: this.ctx.onMobileRelayReady,
@@ -366,6 +368,8 @@ export class SlashCommandHandler {
             config: this.ctx.config,
             enqueueInstruction: this.ctx.enqueueInstruction,
             enqueueMobileInstruction: this.ctx.enqueueMobileInstruction,
+            dispatchMobileComposerCommand: this.ctx.dispatchMobileComposerCommand,
+            isMobileComposerCommandAvailable: this.ctx.isMobileComposerCommandAvailable,
             enqueueInstructionWithImages: this.ctx.enqueueInstructionWithImages,
             enqueueMobileInstructionWithImages: this.ctx.enqueueMobileInstructionWithImages,
             onMobileRelayReady: this.ctx.onMobileRelayReady,
@@ -549,7 +553,11 @@ export class SlashCommandHandler {
         }
         case '/plan': {
           const { plan } = await import('../commands/plan.js');
-          return plan(this.ctx, args.join(' '));
+          const output: string[] = [];
+          const result = await plan(this.ctx, args.join(' '), {
+            output: (message) => output.push(message),
+          });
+          return result ?? (output.length > 0 ? output.join('\n') : null);
         }
         case '/ide': {
           const { ide } = await import('../commands/ide.js');

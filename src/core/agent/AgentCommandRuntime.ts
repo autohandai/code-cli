@@ -319,6 +319,19 @@ export async function executeAgentAskFollowupQuestion(host: AgentCommandRuntimeH
       return '<answer>Skipped (non-interactive mode)</answer>';
     }
 
+    if (host.followupQuestionCallback) {
+      try {
+        const mobileAnswer = await host.followupQuestionCallback(question, suggestedAnswers);
+        if (typeof mobileAnswer === 'string' && mobileAnswer.trim()) {
+          host.consecutiveCancellations = 0;
+          console.log(chalk.green(`\n✓ Answer: ${mobileAnswer}\n`));
+          return `<answer>${mobileAnswer}</answer>`;
+        }
+      } catch {
+        // A mobile transport failure falls through to the existing local prompt.
+      }
+    }
+
     host.notificationService.notify(
       { body: `Question: ${question.slice(0, 100)}`, reason: 'question' },
       host.getNotificationGuards()

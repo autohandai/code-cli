@@ -45,6 +45,7 @@ interface PersistedTerminalReport {
   sessionId: string;
   pairingId: string;
   workId: string;
+  agentSessionId?: string;
   status: Exclude<MobileSessionTurnStatus, 'running'>;
   startedAt?: string;
   completedAt: string;
@@ -56,6 +57,7 @@ interface PersistedTerminalReport {
 
 export interface MobileTerminalReportInput {
   workId: string;
+  agentSessionId?: string;
   status: Exclude<MobileSessionTurnStatus, 'running'>;
   startedAt?: string;
   completedAt: string;
@@ -135,6 +137,7 @@ function parsePersistedReport(value: unknown): PersistedTerminalReport | null {
     || typeof report.sessionId !== 'string'
     || typeof report.pairingId !== 'string'
     || typeof report.workId !== 'string'
+    || (report.agentSessionId !== undefined && typeof report.agentSessionId !== 'string')
     || !isTerminalStatus(report.status)
     || (report.startedAt !== undefined && typeof report.startedAt !== 'string')
     || typeof report.completedAt !== 'string'
@@ -222,6 +225,9 @@ export class MobileTerminalReporter implements MobileTerminalReporterLike {
     const createdAt = new Date(this.now()).toISOString();
     const id = stableHash(`${this.sessionId}\0${input.workId}`);
     const reportPath = path.join(this.scopeDirectory, `${id}.json`);
+    const agentSessionId = typeof input.agentSessionId === 'string' && input.agentSessionId.trim()
+      ? input.agentSessionId.trim()
+      : undefined;
     const report: PersistedTerminalReport = {
       version: REPORT_VERSION,
       id,
@@ -229,6 +235,7 @@ export class MobileTerminalReporter implements MobileTerminalReporterLike {
       sessionId: this.sessionId,
       pairingId: this.pairingId,
       workId: input.workId,
+      ...(agentSessionId ? { agentSessionId } : {}),
       status: input.status,
       ...(input.startedAt ? { startedAt: input.startedAt } : {}),
       completedAt: input.completedAt,
@@ -242,10 +249,15 @@ export class MobileTerminalReporter implements MobileTerminalReporterLike {
         status: input.status,
         completedAt: input.completedAt,
         ...(input.error ? { error: input.error } : {}),
-        payload: { deliveryState: input.status, executionState: input.status },
+        payload: {
+          ...(agentSessionId ? { agentSessionId } : {}),
+          deliveryState: input.status,
+          executionState: input.status,
+        },
       },
       event: {
         workId: input.workId,
+        ...(agentSessionId ? { agentSessionId } : {}),
         status: input.status,
         ...(input.prompt ? { prompt: input.prompt } : {}),
         ...(input.startedAt ? { startedAt: input.startedAt } : {}),
@@ -345,7 +357,11 @@ export class MobileTerminalReporter implements MobileTerminalReporterLike {
       const payload = live?.work ?? {
         status: report.status,
         completedAt: report.completedAt,
-        payload: { deliveryState: report.status, executionState: report.status },
+        payload: {
+          ...(report.agentSessionId ? { agentSessionId: report.agentSessionId } : {}),
+          deliveryState: report.status,
+          executionState: report.status,
+        },
       };
       await this.client.updateWork(this.token, report.deviceId, report.workId, payload);
       return;
@@ -354,6 +370,7 @@ export class MobileTerminalReporter implements MobileTerminalReporterLike {
     if (!this.client.publishMobileEvent) throw new Error('Mobile event transport unavailable');
     const payload = live?.event ?? {
       workId: report.workId,
+      ...(report.agentSessionId ? { agentSessionId: report.agentSessionId } : {}),
       status: report.status,
       ...(report.startedAt ? { startedAt: report.startedAt } : {}),
       completedAt: report.completedAt,

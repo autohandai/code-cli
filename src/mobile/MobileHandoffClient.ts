@@ -8,6 +8,9 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import { AUTOHAND_FILES } from '../constants.js';
 import type { LoadedConfig, ProviderName } from '../types.js';
+import type { MobileWorkspaceFileQueryResult } from '../core/agent/WorkspaceFileCollector.js';
+import type { MobileComposerCatalog } from './MobileComposerCatalog.js';
+import type { MobileComposerExecutableCommand } from './MobileCommandPolicy.js';
 import packageJson from '../../package.json' with { type: 'json' };
 
 const DEFAULT_API_BASE_URL = 'https://api.autohand.ai';
@@ -72,6 +75,10 @@ const MOBILE_PAIRING_STATUSES = new Set<MobilePairingStatus>([
 ]);
 
 export type MobileEventType =
+  | 'composer_catalog'
+  | 'composer_command_result'
+  | 'workspace_file_result'
+  | 'followup_question'
   | 'permission_request'
   | 'permission_mode_status'
   | 'directory_access_request'
@@ -112,9 +119,11 @@ export type MobilePermissionModeStatus =
   };
 
 export type MobileSessionTurnStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+export type MobileAgentContext = 'fresh' | 'continue' | 'resume';
 
 export interface MobileSessionTurnState {
   workId: string;
+  agentSessionId?: string;
   status: MobileSessionTurnStatus;
   prompt?: string;
   output?: string;
@@ -189,7 +198,30 @@ export interface MobileDeliveryStatusSnapshot {
   deployments: MobileDeploymentStatus[];
 }
 
+export interface MobileComposerCommandPayload {
+  catalogRevision: string;
+  command: MobileComposerExecutableCommand;
+  args: string[];
+}
+
+export interface MobileComposerCommandResult extends MobileComposerCommandPayload {
+  status: 'queued' | 'completed' | 'rejected' | 'failed';
+  message: string;
+}
+
+export interface MobileComposerCommandExecutionOutcome {
+  status: 'completed' | 'rejected' | 'failed';
+  message: string;
+}
+
 export interface MobileEventPayloadMap {
+  composer_catalog: MobileComposerCatalog;
+  composer_command_result: MobileComposerCommandResult;
+  workspace_file_result: MobileWorkspaceFileQueryResult;
+  followup_question: {
+    message: string;
+    options?: string[];
+  };
   permission_request: Record<string, unknown>;
   permission_mode_status: MobilePermissionModeStatus;
   directory_access_request: Record<string, unknown>;
@@ -207,16 +239,29 @@ interface MobileEventEnvelope {
   sessionId: string;
   deviceId: string;
   pairingId?: string;
-  requestId?: string;
 }
 
+export type MobileRequestScopedEventType =
+  | 'composer_command_result'
+  | 'followup_question'
+  | 'workspace_file_result';
+
 export type PublishMobileEventPayload<EventType extends MobileEventType = MobileEventType> =
-  MobileEventEnvelope & {
-    eventType: EventType;
-    payload: MobileEventPayloadMap[EventType];
-  };
+  EventType extends MobileEventType
+    ? MobileEventEnvelope & {
+      eventType: EventType;
+      payload: MobileEventPayloadMap[EventType];
+    } & (
+      EventType extends MobileRequestScopedEventType
+        ? { requestId: string }
+        : { requestId?: string }
+    )
+    : never;
 
 export type MobileActionType =
+  | 'composer_command_execute'
+  | 'workspace_file_query'
+  | 'followup_response'
   | 'permission_response'
   | 'set_permission_mode'
   | 'directory_access_response'
@@ -227,14 +272,38 @@ export type MobileActionType =
   | 'retry_turn'
   | 'set_model';
 
-export interface MobileAction {
+export interface MobileActionPayloadMap {
+  composer_command_execute: MobileComposerCommandPayload;
+  workspace_file_query: { query: string; limit: number };
+  followup_response: { answer: string };
+  permission_response: Record<string, unknown>;
+  set_permission_mode: Record<string, unknown>;
+  directory_access_response: Record<string, unknown>;
+  changes_decision: Record<string, unknown>;
+  session_control: Record<string, unknown>;
+  pull_request_merge: Record<string, unknown>;
+  keep_awake_control: Record<string, unknown>;
+  retry_turn: Record<string, unknown>;
+  set_model: Record<string, unknown>;
+}
+
+interface MobileActionEnvelope<ActionType extends MobileActionType> {
   id: string;
   sequence: number;
-  actionType: MobileActionType;
-  requestId: string | null;
-  payload: Record<string, unknown>;
+  actionType: ActionType;
+  requestId: ActionType extends
+    | 'composer_command_execute'
+    | 'followup_response'
+    | 'workspace_file_query'
+    ? string
+    : string | null;
+  payload: MobileActionPayloadMap[ActionType];
   createdAt: string;
 }
+
+export type MobileAction = {
+  [ActionType in MobileActionType]: MobileActionEnvelope<ActionType>;
+}[MobileActionType];
 
 export interface MobileActionPollResponse {
   actions: MobileAction[];
@@ -303,10 +372,11 @@ export interface WorkClaimResponse {
 }
 
 export interface MobileWorkUpdatePayload {
-  status: 'completed' | 'failed' | 'cancelled';
-  completedAt: string;
+  status?: 'completed' | 'failed' | 'cancelled';
+  completedAt?: string;
   error?: string;
   payload?: {
+    agentSessionId?: string;
     deliveryState?: 'completed' | 'failed' | 'cancelled';
     executionState?: 'completed' | 'failed' | 'cancelled';
   };
@@ -324,6 +394,16 @@ export class MobileHandoffRequestError extends Error {
   ) {
     super(`Mobile API request failed with status ${status}`);
     this.name = 'MobileHandoffRequestError';
+  }
+}
+
+export class MobileHandoffTransportError extends Error {
+  constructor(
+    public readonly kind: 'network' | 'timeout',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'MobileHandoffTransportError';
   }
 }
 
@@ -357,7 +437,8 @@ export interface MobileHandoffClientLike {
   ): Promise<ClaimedWorkItem>;
   publishMobileEvent?<EventType extends MobileEventType>(
     token: string,
-    payload: PublishMobileEventPayload<EventType>
+    payload: PublishMobileEventPayload<EventType>,
+    signal?: AbortSignal,
   ): Promise<void>;
   pollMobileActions?(
     token: string,
@@ -538,7 +619,8 @@ export class MobileHandoffClient implements MobileHandoffClientLike {
 
   async publishMobileEvent<EventType extends MobileEventType>(
     token: string,
-    payload: PublishMobileEventPayload<EventType>
+    payload: PublishMobileEventPayload<EventType>,
+    signal?: AbortSignal,
   ): Promise<void> {
     await this.request(`/v1/mobile/sessions/${encodeURIComponent(payload.sessionId)}/events`, token, {
       method: 'POST',
@@ -552,6 +634,7 @@ export class MobileHandoffClient implements MobileHandoffClientLike {
       headers: {
         'X-Device-ID': payload.deviceId,
       },
+      signal,
     });
   }
 
@@ -603,10 +686,14 @@ export class MobileHandoffClient implements MobileHandoffClientLike {
       body?: string;
       headers?: Record<string, string>;
       allowNotFound?: boolean;
+      signal?: AbortSignal;
     }
   ): Promise<T> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const signal = options.signal
+      ? AbortSignal.any([controller.signal, options.signal])
+      : controller.signal;
 
     try {
       const response = await fetch(`${this.baseUrl}${path}`, {
@@ -617,7 +704,7 @@ export class MobileHandoffClient implements MobileHandoffClientLike {
           ...options.headers,
         },
         body: options.body,
-        signal: controller.signal,
+        signal,
       });
 
       if (options.allowNotFound && response.status === 404) {
@@ -634,8 +721,17 @@ export class MobileHandoffClient implements MobileHandoffClientLike {
 
       return await response.json() as T;
     } catch (error) {
-      if ((error as Error).name === 'AbortError') {
-        throw new Error('Request timeout');
+      if (options.signal?.aborted) {
+        throw error;
+      }
+      if (controller.signal.aborted) {
+        throw new MobileHandoffTransportError('timeout', 'Request timeout');
+      }
+      if (error instanceof TypeError) {
+        throw new MobileHandoffTransportError(
+          'network',
+          error.message || 'Network request failed',
+        );
       }
       throw error;
     } finally {

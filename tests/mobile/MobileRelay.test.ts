@@ -11,16 +11,22 @@ import {
   type MobileClaimedTurnContext,
   type MobilePermissionModeChange,
 } from '../../src/mobile/MobileRelay.js';
-import type {
-  ClaimedWorkItem,
-  MobileAction,
-  MobileHandoffClientLike,
-  MobilePermissionMode,
-  PublishMobileEventPayload,
+import {
+  MobileHandoffRequestError,
+  MobileHandoffTransportError,
+  type MobileComposerCommandExecutionOutcome,
+  type MobileComposerCommandResult,
+  type ClaimedWorkItem,
+  type MobileAction,
+  type MobileHandoffClientLike,
+  type MobilePermissionMode,
+  type PublishMobileEventPayload,
 } from '../../src/mobile/MobileHandoffClient.js';
 import { KeepAwakeController } from '../../src/mobile/KeepAwakeController.js';
 import { EventEmitter } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
+import { SLASH_COMMANDS } from '../../src/core/slashCommands.js';
+import { buildMobileComposerCatalog } from '../../src/mobile/MobileComposerCatalog.js';
 
 function createPermissionModeChange(
   appliedMode: MobilePermissionMode,
@@ -30,6 +36,118 @@ function createPermissionModeChange(
     previousMode,
     appliedMode,
     rollbackIfCurrent: vi.fn().mockReturnValue(true),
+  };
+}
+
+interface ComposerResultHarnessOptions {
+  requestId: string;
+  onFinalAttempt: (
+    attempt: number,
+    result: MobileComposerCommandResult,
+    signal?: AbortSignal,
+  ) => void | Promise<void>;
+  onError?: (error: Error) => void;
+}
+
+async function startComposerResultHarness(options: ComposerResultHarnessOptions) {
+  const actions: MobileAction[] = [];
+  const published: PublishMobileEventPayload[] = [];
+  let completion:
+    | ((outcome: MobileComposerCommandExecutionOutcome) => void | Promise<void>)
+    | undefined;
+  let finalAttempts = 0;
+  const dispatchComposerCommand = vi.fn((_command, _args, callback) => {
+    completion = callback;
+  });
+  const publishMobileEvent = vi.fn(async (
+    _token,
+    payload: PublishMobileEventPayload,
+    signal?: AbortSignal,
+  ) => {
+    if (
+      payload.eventType === 'composer_command_result'
+      && payload.requestId === options.requestId
+      && payload.payload.status !== 'queued'
+    ) {
+      finalAttempts += 1;
+      await options.onFinalAttempt(finalAttempts, payload.payload, signal);
+    }
+    published.push(payload);
+  });
+  const client: MobileHandoffClientLike = {
+    getDeviceId: vi.fn().mockResolvedValue('device-1'),
+    registerDevice: vi.fn().mockResolvedValue(undefined),
+    createPairing: vi.fn(),
+    sendRelayHeartbeat: vi.fn().mockResolvedValue({
+      pairingClaimed: true,
+      pairingStatus: 'claimed',
+    }),
+    claimWork: vi.fn().mockResolvedValue(null),
+    publishMobileEvent,
+    pollMobileActions: vi.fn().mockImplementation(async (
+      _token,
+      _sessionId,
+      _deviceId,
+      after,
+    ) => ({
+      actions: actions.filter(({ sequence }) => sequence > after),
+      nextCursor: actions.at(-1)?.sequence ?? after,
+    })),
+  };
+
+  startMobileRelay({
+    client,
+    token: 'token',
+    deviceId: 'device-1',
+    sessionId: 'session-1',
+    pairingId: 'pairing-1',
+    mode: 'steer',
+    pollIntervalMs: 1_000,
+    enqueueInstruction: vi.fn(),
+    workspaceRoot: '/workspace',
+    dispatchComposerCommand,
+    onError: options.onError,
+    composerCatalogProvider: async () => buildMobileComposerCatalog(SLASH_COMMANDS, {
+      commandExecutionAvailable: () => true,
+    }),
+  });
+
+  await vi.advanceTimersByTimeAsync(0);
+  await vi.waitFor(() => expect(
+    published.some(({ eventType }) => eventType === 'composer_catalog')
+  ).toBe(true));
+  await vi.waitFor(() => expect(client.pollMobileActions).toHaveBeenCalled());
+  const catalog = published.find(
+    (event): event is Extract<PublishMobileEventPayload, { eventType: 'composer_catalog' }> =>
+      event.eventType === 'composer_catalog'
+  );
+  if (!catalog) throw new Error('Expected a composer catalog event');
+
+  actions.push({
+    id: options.requestId,
+    sequence: 1,
+    actionType: 'composer_command_execute',
+    requestId: options.requestId,
+    payload: {
+      catalogRevision: catalog.payload.revision,
+      command: '/plan',
+      args: ['status'],
+    },
+    createdAt: new Date().toISOString(),
+  });
+  await vi.advanceTimersByTimeAsync(2_000);
+  await vi.waitFor(() => expect(dispatchComposerCommand).toHaveBeenCalledOnce());
+
+  return {
+    client,
+    published,
+    publishMobileEvent,
+    dispatchComposerCommand,
+    completion: () => {
+      if (!completion) throw new Error('Expected the composer command completion callback');
+      return completion;
+    },
+    finalAttempts: () => finalAttempts,
   };
 }
 
@@ -139,6 +257,862 @@ describe('MobileRelay event bridge', () => {
     relay.setPairingClaimHandler(onPairingClaimed);
 
     expect(onPairingClaimed).toHaveBeenCalledOnce();
+  });
+
+  it('publishes the CLI composer catalog after pairing claim and on explicit refresh', async () => {
+    vi.useFakeTimers();
+    const published: PublishMobileEventPayload[] = [];
+    const composerCatalogProvider = vi.fn().mockResolvedValue({
+      schemaVersion: 1,
+      revision: 'sha256:0123456789abcdef',
+      commands: [{
+        command: '/automode',
+        description: 'Control automode.',
+        available: false,
+        subcommands: [],
+      }],
+    });
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({
+        pairingClaimed: true,
+        pairingStatus: 'claimed',
+      }),
+      claimWork: vi.fn().mockResolvedValue(null),
+      publishMobileEvent: vi.fn().mockImplementation(async (_token, payload) => {
+        published.push(payload);
+      }),
+    };
+
+    const relay = startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+      composerCatalogProvider,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(published.filter(({ eventType }) => eventType === 'composer_catalog')).toEqual([
+      expect.objectContaining({
+        requestId: undefined,
+        eventType: 'composer_catalog',
+        payload: expect.objectContaining({
+          schemaVersion: 1,
+          revision: 'sha256:0123456789abcdef',
+        }),
+      }),
+    ]);
+
+    await relay.refreshDeliveryStatus();
+
+    expect(composerCatalogProvider).toHaveBeenCalledTimes(2);
+    expect(published.filter(({ eventType }) => eventType === 'composer_catalog')).toHaveLength(2);
+  });
+
+  it('reflects live slash_goal availability and rechecks it before dispatch', async () => {
+    vi.useFakeTimers();
+    const published: PublishMobileEventPayload[] = [];
+    const actions: MobileAction[] = [];
+    const dispatchComposerCommand = vi.fn();
+    let goalEnabled = false;
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({
+        pairingClaimed: true,
+        pairingStatus: 'claimed',
+      }),
+      claimWork: vi.fn().mockResolvedValue(null),
+      publishMobileEvent: vi.fn().mockImplementation(async (_token, payload) => {
+        published.push(payload);
+      }),
+      pollMobileActions: vi.fn().mockImplementation(async (
+        _token,
+        _sessionId,
+        _deviceId,
+        after,
+      ) => ({
+        actions: actions.filter(({ sequence }) => sequence > after),
+        nextCursor: actions.at(-1)?.sequence ?? after,
+      })),
+    };
+
+    const relay = startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+      workspaceRoot: '/workspace',
+      dispatchComposerCommand,
+      isComposerCommandAvailable: (command) => command !== '/goal' || goalEnabled,
+      deliveryStatusProvider: vi.fn().mockResolvedValue({
+        pullRequest: null,
+        deployments: [],
+      }),
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.waitFor(() => expect(
+      published.some(({ eventType }) => eventType === 'composer_catalog')
+    ).toBe(true));
+    await vi.waitFor(() => expect(client.pollMobileActions).toHaveBeenCalled());
+    const disabledCatalog = published.find(({ eventType }) => eventType === 'composer_catalog');
+    if (!disabledCatalog || disabledCatalog.eventType !== 'composer_catalog') {
+      throw new Error('Expected a disabled composer catalog');
+    }
+    expect(disabledCatalog.payload.commands.find(({ command }) => command === '/goal'))
+      .toMatchObject({ available: false });
+    expect(disabledCatalog.payload.commands.find(({ command }) => command === '/plan'))
+      .toMatchObject({ available: true });
+
+    goalEnabled = true;
+    await relay.refreshDeliveryStatus();
+    const catalogEvents = published.filter(
+      (event): event is Extract<PublishMobileEventPayload, { eventType: 'composer_catalog' }> =>
+        event.eventType === 'composer_catalog'
+    );
+    const enabledCatalog = catalogEvents.at(-1);
+    expect(enabledCatalog?.payload.commands.find(({ command }) => command === '/goal'))
+      .toMatchObject({ available: true });
+    expect(enabledCatalog?.payload.revision).not.toBe(disabledCatalog.payload.revision);
+
+    goalEnabled = false;
+    actions.push({
+      id: 'composer-command-disabled-goal',
+      sequence: 1,
+      actionType: 'composer_command_execute',
+      requestId: 'composer-command-disabled-goal',
+      payload: {
+        catalogRevision: enabledCatalog?.payload.revision ?? '',
+        command: '/goal',
+        args: ['Ship', 'the', 'feature'],
+      },
+      createdAt: new Date().toISOString(),
+    });
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(dispatchComposerCommand).not.toHaveBeenCalled();
+    expect(published).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'composer_command_result',
+        requestId: 'composer-command-disabled-goal',
+        payload: expect.objectContaining({
+          command: '/goal',
+          status: 'rejected',
+          message: expect.stringContaining('not enabled'),
+        }),
+      }),
+    ]));
+  });
+
+  it('publishes sanitized correlated command results and ignores completion after disposal', async () => {
+    vi.useFakeTimers();
+    const published: PublishMobileEventPayload[] = [];
+    const actions: MobileAction[] = [];
+    let completeCommand:
+      | ((outcome: {
+        status: 'completed' | 'rejected' | 'failed';
+        message: string;
+      }) => void | Promise<void>)
+      | undefined;
+    let completeDisposedCommand:
+      | ((outcome: {
+        status: 'completed' | 'rejected' | 'failed';
+        message: string;
+      }) => void | Promise<void>)
+      | undefined;
+    let completedResultAttempts = 0;
+    const dispatchComposerCommand = vi.fn()
+      .mockImplementationOnce((_command, _args, completion) => {
+        completeCommand = completion;
+      })
+      .mockImplementationOnce(() => {
+        throw new Error('\u001B[31mCommand failed remotely.\u001B[0m\u0000');
+      })
+      .mockImplementationOnce((_command, _args, completion) => {
+        completeDisposedCommand = completion;
+      });
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({
+        pairingClaimed: true,
+        pairingStatus: 'claimed',
+      }),
+      claimWork: vi.fn().mockResolvedValue(null),
+      publishMobileEvent: vi.fn().mockImplementation(async (_token, payload) => {
+        if (
+          payload.eventType === 'composer_command_result'
+          && payload.requestId === 'composer-command-request-1'
+          && payload.payload.status === 'completed'
+        ) {
+          completedResultAttempts += 1;
+          if (completedResultAttempts === 1) {
+            throw new MobileHandoffTransportError(
+              'network',
+              'Transient composer result transport failure',
+            );
+          }
+        }
+        published.push(payload);
+      }),
+      pollMobileActions: vi.fn().mockImplementation(async (
+        _token,
+        _sessionId,
+        _deviceId,
+        after,
+      ) => ({
+        actions: actions.filter(({ sequence }) => sequence > after),
+        nextCursor: actions.at(-1)?.sequence ?? after,
+      })),
+    };
+
+    startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+      workspaceRoot: '/workspace',
+      dispatchComposerCommand,
+      composerCatalogProvider: async () => buildMobileComposerCatalog(SLASH_COMMANDS, {
+        commandExecutionAvailable: () => true,
+      }),
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.waitFor(() => expect(
+      published.some(({ eventType }) => eventType === 'composer_catalog')
+    ).toBe(true));
+    const catalogEvent = published.find(({ eventType }) => eventType === 'composer_catalog');
+    if (!catalogEvent || catalogEvent.eventType !== 'composer_catalog') {
+      throw new Error('Expected a composer catalog event');
+    }
+    const availableCommands = catalogEvent.payload.commands
+      .filter(({ available }) => available)
+      .map(({ command }) => command)
+      .sort();
+    expect(availableCommands).toEqual([
+      '/automode',
+      '/autoresearch',
+      '/deep-research',
+      '/goal',
+      '/plan',
+    ]);
+    expect(catalogEvent.payload.commands
+      .find(({ command }) => command === '/autoresearch')
+      ?.subcommands.find(({ name }) => name === 'clear')
+      ?.available).toBe(false);
+
+    actions.push({
+      id: 'composer-command-action-1',
+      sequence: 1,
+      actionType: 'composer_command_execute',
+      requestId: 'composer-command-request-1',
+      payload: {
+        catalogRevision: catalogEvent.payload.revision,
+        command: '/automode',
+        args: ['on'],
+      },
+      createdAt: new Date().toISOString(),
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(dispatchComposerCommand).toHaveBeenCalledWith(
+      '/automode',
+      ['on'],
+      expect.any(Function),
+    );
+    expect(published).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'composer_command_result',
+        requestId: 'composer-command-request-1',
+        payload: expect.objectContaining({
+          catalogRevision: catalogEvent.payload.revision,
+          command: '/automode',
+          args: ['on'],
+          status: 'queued',
+        }),
+      }),
+    ]));
+
+    const finalDelivery = completeCommand?.({
+      status: 'completed',
+      message: '\u001B[32mInteractive auto-mode enabled.\u001B[0m\u0007',
+    });
+    const duplicateDelivery = completeCommand?.({
+      status: 'failed',
+      message: 'A duplicate completion must not replace the first outcome.',
+    });
+    expect(duplicateDelivery).toBe(finalDelivery);
+    await vi.advanceTimersByTimeAsync(100);
+    await finalDelivery;
+    await vi.waitFor(() => expect(published).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'composer_command_result',
+        requestId: 'composer-command-request-1',
+        payload: expect.objectContaining({
+          command: '/automode',
+          args: ['on'],
+          status: 'completed',
+          message: 'Interactive auto-mode enabled.',
+        }),
+      }),
+    ])));
+    expect(completedResultAttempts).toBe(2);
+    expect(JSON.stringify(published)).not.toContain('\\u001b');
+    expect(JSON.stringify(published)).not.toContain('\\u0007');
+
+    actions.push({
+      id: 'composer-command-action-2',
+      sequence: 2,
+      actionType: 'composer_command_execute',
+      requestId: 'composer-command-request-2',
+      payload: {
+        catalogRevision: catalogEvent.payload.revision,
+        command: '/plan',
+        args: ['status'],
+      },
+      createdAt: new Date().toISOString(),
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(published).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'composer_command_result',
+        requestId: 'composer-command-request-2',
+        payload: expect.objectContaining({
+          command: '/plan',
+          args: ['status'],
+          status: 'failed',
+          message: 'Command failed remotely.',
+        }),
+      }),
+    ]));
+
+    actions.push({
+      id: 'composer-command-action-3',
+      sequence: 3,
+      actionType: 'composer_command_execute',
+      requestId: 'composer-command-request-3',
+      payload: {
+        catalogRevision: catalogEvent.payload.revision,
+        command: '/plan',
+        args: ['off'],
+      },
+      createdAt: new Date().toISOString(),
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(completeDisposedCommand).toBeDefined();
+    expect(published.filter(({ requestId }) =>
+      requestId === 'composer-command-request-3'
+    )).toHaveLength(1);
+
+    stopMobileRelay();
+    await completeDisposedCommand?.({
+      status: 'completed',
+      message: 'This result belongs to a disposed relay.',
+    });
+
+    expect(published.filter(({ requestId }) =>
+      requestId === 'composer-command-request-3'
+    )).toHaveLength(1);
+  });
+
+  it('cancels a terminal-result retry during disposal without reporting an error', async () => {
+    vi.useFakeTimers();
+    const onError = vi.fn();
+    const harness = await startComposerResultHarness({
+      requestId: 'composer-disposal-during-backoff',
+      onFinalAttempt: async () => {
+        throw new MobileHandoffTransportError('network', 'temporary network failure');
+      },
+      onError,
+    });
+
+    const delivery = harness.completion()({
+      status: 'completed',
+      message: 'Command completed before relay disposal.',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(harness.finalAttempts()).toBe(1);
+
+    stopMobileRelay();
+    await vi.advanceTimersByTimeAsync(100);
+    await delivery;
+
+    expect(harness.finalAttempts()).toBe(1);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('cancels an old relay terminal-result retry when the relay is replaced', async () => {
+    vi.useFakeTimers();
+    const onError = vi.fn();
+    const harness = await startComposerResultHarness({
+      requestId: 'composer-replacement-during-backoff',
+      onFinalAttempt: async () => {
+        throw new MobileHandoffTransportError('network', 'temporary network failure');
+      },
+      onError,
+    });
+    const delivery = harness.completion()({
+      status: 'completed',
+      message: 'This result belongs only to the old relay.',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(harness.finalAttempts()).toBe(1);
+
+    const replacementPublish = vi.fn().mockResolvedValue(undefined);
+    startMobileRelay({
+      client: {
+        getDeviceId: vi.fn().mockResolvedValue('device-2'),
+        registerDevice: vi.fn().mockResolvedValue(undefined),
+        createPairing: vi.fn(),
+        sendRelayHeartbeat: vi.fn().mockResolvedValue({
+          pairingClaimed: true,
+          pairingStatus: 'claimed',
+        }),
+        claimWork: vi.fn().mockResolvedValue(null),
+        publishMobileEvent: replacementPublish,
+        pollMobileActions: vi.fn().mockResolvedValue({ actions: [], nextCursor: 0 }),
+      },
+      token: 'replacement-token',
+      deviceId: 'device-2',
+      sessionId: 'session-2',
+      pairingId: 'pairing-2',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    await delivery;
+
+    expect(harness.finalAttempts()).toBe(1);
+    expect(onError).not.toHaveBeenCalled();
+    expect(replacementPublish.mock.calls.some(([, payload]) =>
+      payload.eventType === 'composer_command_result'
+      && payload.requestId === 'composer-replacement-during-backoff'
+    )).toBe(false);
+  });
+
+  it('aborts an in-flight terminal result when the relay is replaced', async () => {
+    vi.useFakeTimers();
+    const onError = vi.fn();
+    let inFlightSignal: AbortSignal | undefined;
+    const harness = await startComposerResultHarness({
+      requestId: 'composer-replacement-in-flight',
+      onFinalAttempt: async (_attempt, _result, signal) => {
+        inFlightSignal = signal;
+        await new Promise<void>((_resolve, reject) => {
+          if (signal?.aborted) {
+            reject(new Error('request aborted'));
+            return;
+          }
+          signal?.addEventListener(
+            'abort',
+            () => reject(new Error('request aborted')),
+            { once: true },
+          );
+        });
+      },
+      onError,
+    });
+    const delivery = harness.completion()({
+      status: 'completed',
+      message: 'This result belongs only to the old relay.',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(harness.finalAttempts()).toBe(1);
+    expect(inFlightSignal?.aborted).toBe(false);
+
+    const replacementPublish = vi.fn().mockResolvedValue(undefined);
+    startMobileRelay({
+      client: {
+        getDeviceId: vi.fn().mockResolvedValue('device-2'),
+        registerDevice: vi.fn().mockResolvedValue(undefined),
+        createPairing: vi.fn(),
+        sendRelayHeartbeat: vi.fn().mockResolvedValue({
+          pairingClaimed: true,
+          pairingStatus: 'claimed',
+        }),
+        claimWork: vi.fn().mockResolvedValue(null),
+        publishMobileEvent: replacementPublish,
+        pollMobileActions: vi.fn().mockResolvedValue({ actions: [], nextCursor: 0 }),
+      },
+      token: 'replacement-token',
+      deviceId: 'device-2',
+      sessionId: 'session-2',
+      pairingId: 'pairing-2',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+    });
+    await delivery;
+
+    expect(inFlightSignal?.aborted).toBe(true);
+    expect(harness.finalAttempts()).toBe(1);
+    expect(onError).not.toHaveBeenCalled();
+    expect(replacementPublish.mock.calls.some(([, payload]) =>
+      payload.eventType === 'composer_command_result'
+      && payload.requestId === 'composer-replacement-in-flight'
+    )).toBe(false);
+  });
+
+  it('exhausts transient terminal-result retries exactly once and coalesces duplicates', async () => {
+    vi.useFakeTimers();
+    const onError = vi.fn();
+    const transportError = new MobileHandoffTransportError(
+      'network',
+      'network remains unavailable',
+    );
+    const harness = await startComposerResultHarness({
+      requestId: 'composer-transient-exhaustion',
+      onFinalAttempt: async () => {
+        throw transportError;
+      },
+      onError,
+    });
+
+    const delivery = harness.completion()({
+      status: 'completed',
+      message: 'First immutable terminal outcome.',
+    });
+    const duplicate = harness.completion()({
+      status: 'failed',
+      message: 'Duplicate terminal outcome must be ignored.',
+    });
+    expect(duplicate).toBe(delivery);
+
+    await vi.advanceTimersByTimeAsync(300);
+    await delivery;
+    expect(harness.finalAttempts()).toBe(3);
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledWith(transportError);
+
+    const afterExhaustion = harness.completion()({
+      status: 'failed',
+      message: 'A late duplicate must not restart delivery.',
+    });
+    expect(afterExhaustion).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(harness.finalAttempts()).toBe(3);
+    expect(onError).toHaveBeenCalledOnce();
+  });
+
+  it('does not retry a permanent 4xx terminal-result failure', async () => {
+    vi.useFakeTimers();
+    const onError = vi.fn();
+    const permanentError = new MobileHandoffRequestError(400);
+    const harness = await startComposerResultHarness({
+      requestId: 'composer-permanent-4xx',
+      onFinalAttempt: async () => {
+        throw permanentError;
+      },
+      onError,
+    });
+
+    const delivery = harness.completion()({
+      status: 'rejected',
+      message: 'The command is permanently rejected.',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await delivery;
+
+    expect(harness.finalAttempts()).toBe(1);
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledWith(permanentError);
+  });
+
+  it('does not retry an unrelated command-delivery failure', async () => {
+    vi.useFakeTimers();
+    const onError = vi.fn();
+    const programmingError = new Error('Unexpected command result encoding state');
+    const harness = await startComposerResultHarness({
+      requestId: 'composer-programming-error',
+      onFinalAttempt: async () => {
+        throw programmingError;
+      },
+      onError,
+    });
+
+    const delivery = harness.completion()({
+      status: 'failed',
+      message: 'The command failed.',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await delivery;
+
+    expect(harness.finalAttempts()).toBe(1);
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledWith(programmingError);
+  });
+
+  it.each([
+    {
+      label: 'a network failure',
+      error: new MobileHandoffTransportError('network', 'fetch failed'),
+    },
+    {
+      label: 'a request timeout',
+      error: new MobileHandoffTransportError('timeout', 'Request timeout'),
+    },
+    { label: 'HTTP 408', error: new MobileHandoffRequestError(408) },
+    { label: 'HTTP 425', error: new MobileHandoffRequestError(425) },
+    { label: 'HTTP 429', error: new MobileHandoffRequestError(429) },
+    { label: 'HTTP 503', error: new MobileHandoffRequestError(503) },
+  ])('retries $label for a terminal composer result', async ({ error }) => {
+    vi.useFakeTimers();
+    const harness = await startComposerResultHarness({
+      requestId: `composer-transient-${error.name}-${String(
+        'status' in error ? error.status : error.kind
+      )}`,
+      onFinalAttempt: async (attempt) => {
+        if (attempt === 1) throw error;
+      },
+    });
+
+    const delivery = harness.completion()({
+      status: 'completed',
+      message: 'Command eventually delivered.',
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    await delivery;
+
+    expect(harness.finalAttempts()).toBe(2);
+  });
+
+  it('caps Retry-After before retrying a transient terminal-result failure', async () => {
+    vi.useFakeTimers();
+    const harness = await startComposerResultHarness({
+      requestId: 'composer-retry-after-cap',
+      onFinalAttempt: async (attempt) => {
+        if (attempt === 1) throw new MobileHandoffRequestError(429, 10_000);
+      },
+    });
+
+    const delivery = harness.completion()({
+      status: 'completed',
+      message: 'Command eventually delivered.',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(harness.finalAttempts()).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(harness.finalAttempts()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await delivery;
+
+    expect(harness.finalAttempts()).toBe(2);
+  });
+
+  it.each([
+    {
+      label: 'a destructive command',
+      revision: 'sha256:0123456789abcdef',
+      command: '/autoresearch',
+      args: ['clear', '--yes'],
+      message: 'clear',
+    },
+    {
+      label: 'a stale catalog revision',
+      revision: 'sha256:stale-revision',
+      command: '/automode',
+      args: ['on'],
+      message: 'catalog',
+    },
+  ])('publishes a correlated rejection for $label', async ({
+    revision,
+    command,
+    args,
+    message,
+  }) => {
+    vi.useFakeTimers();
+    const published: PublishMobileEventPayload[] = [];
+    const actions: MobileAction[] = [];
+    const dispatchComposerCommand = vi.fn();
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({
+        pairingClaimed: true,
+        pairingStatus: 'claimed',
+      }),
+      claimWork: vi.fn().mockResolvedValue(null),
+      publishMobileEvent: vi.fn().mockImplementation(async (_token, payload) => {
+        published.push(payload);
+      }),
+      pollMobileActions: vi.fn().mockImplementation(async () => ({
+        actions,
+        nextCursor: actions.at(-1)?.sequence ?? 0,
+      })),
+    };
+
+    startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+      workspaceRoot: '/workspace',
+      dispatchComposerCommand,
+      composerCatalogProvider: vi.fn().mockResolvedValue({
+        schemaVersion: 1,
+        revision: 'sha256:0123456789abcdef',
+        commands: [],
+      }),
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    actions.push({
+      id: `composer-command-action-${message}`,
+      sequence: 1,
+      actionType: 'composer_command_execute',
+      requestId: `composer-command-request-${message}`,
+      payload: { catalogRevision: revision, command, args },
+      createdAt: new Date().toISOString(),
+    } as MobileAction);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(dispatchComposerCommand).not.toHaveBeenCalled();
+    expect(published).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'composer_command_result',
+        requestId: `composer-command-request-${message}`,
+        payload: expect.objectContaining({
+          status: 'rejected',
+          message: expect.stringContaining(message),
+        }),
+      }),
+    ]));
+  });
+
+  it('answers workspace filename queries with a bounded result using the same request ID', async () => {
+    vi.useFakeTimers();
+    const published: PublishMobileEventPayload[] = [];
+    const queryWorkspaceFiles = vi.fn().mockResolvedValue({
+      query: 'relay',
+      files: [{ relativePath: 'src/mobile/MobileRelay.ts' }],
+      truncated: false,
+    });
+    const actions: MobileAction[] = [{
+      id: 'workspace-query-action-1',
+      sequence: 1,
+      actionType: 'workspace_file_query',
+      requestId: 'workspace-query-request-1',
+      payload: { query: 'relay', limit: 8 },
+      createdAt: new Date().toISOString(),
+    }];
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({
+        pairingClaimed: true,
+        pairingStatus: 'claimed',
+      }),
+      claimWork: vi.fn().mockResolvedValue(null),
+      publishMobileEvent: vi.fn().mockImplementation(async (_token, payload) => {
+        published.push(payload);
+      }),
+      pollMobileActions: vi.fn().mockResolvedValue({ actions, nextCursor: 1 }),
+    };
+
+    startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+      workspaceFileCollector: { queryWorkspaceFiles },
+      workspaceFileQueryTimeoutMs: 500,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(queryWorkspaceFiles).toHaveBeenCalledWith('relay', {
+      limit: 8,
+      timeoutMs: 500,
+    });
+    expect(published).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'workspace_file_result',
+        requestId: 'workspace-query-request-1',
+        payload: {
+          query: 'relay',
+          files: [{ relativePath: 'src/mobile/MobileRelay.ts' }],
+          truncated: false,
+        },
+      }),
+    ]));
+    expect(JSON.stringify(published)).not.toContain('content');
+  });
+
+  it('fails closed for a workspace filename query without request scope', async () => {
+    vi.useFakeTimers();
+    const published: PublishMobileEventPayload[] = [];
+    const queryWorkspaceFiles = vi.fn();
+    const actions = [{
+      id: 'workspace-query-action-unscoped',
+      sequence: 1,
+      actionType: 'workspace_file_query',
+      requestId: null,
+      payload: { query: 'relay', limit: 8 },
+      createdAt: new Date().toISOString(),
+    }] as unknown as MobileAction[];
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({
+        pairingClaimed: true,
+        pairingStatus: 'claimed',
+      }),
+      claimWork: vi.fn().mockResolvedValue(null),
+      publishMobileEvent: vi.fn().mockImplementation(async (_token, payload) => {
+        published.push(payload);
+      }),
+      pollMobileActions: vi.fn().mockResolvedValue({ actions, nextCursor: 1 }),
+    };
+
+    startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+      workspaceFileCollector: { queryWorkspaceFiles },
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(queryWorkspaceFiles).not.toHaveBeenCalled();
+    expect(published.some(({ eventType }) => eventType === 'workspace_file_result')).toBe(false);
   });
 
   it('stops the active relay when its pairing is revoked', async () => {
@@ -614,6 +1588,7 @@ describe('MobileRelay event bridge', () => {
             deliveryMode: 'steer',
             sessionId: 'session-1',
             pairingId: 'pairing-1',
+            agentContext: 'fresh',
           },
           createdAt: '2026-07-21T02:35:00.000Z',
           updatedAt: '2026-07-21T02:35:00.000Z',
@@ -646,6 +1621,7 @@ describe('MobileRelay event bridge', () => {
         workId: 'work-1',
         prompt: 'Run a harmless check',
         startedAt: '2026-07-21T02:35:00.000Z',
+        agentContext: 'fresh',
       }),
       relay,
     });
@@ -660,6 +1636,23 @@ describe('MobileRelay event bridge', () => {
     }));
 
     const turn = enqueueInstruction.mock.calls[0]?.[1].turn;
+    turn.agentSessionId = 'agent-session-fresh-1';
+    await relay.publishClaimedTurnSession(turn);
+    expect(updateWork).toHaveBeenCalledWith('token', 'device-1', 'work-1', {
+      payload: { agentSessionId: 'agent-session-fresh-1' },
+    });
+    expect(publishMobileEvent).toHaveBeenCalledWith('token', expect.objectContaining({
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      eventType: 'session_turn_state',
+      requestId: 'work-1',
+      payload: expect.objectContaining({
+        workId: 'work-1',
+        agentSessionId: 'agent-session-fresh-1',
+        status: 'running',
+      }),
+    }));
+
     await relay.finishClaimedTurn(turn, {
       status: 'failed',
       error: 'The configured model is unavailable.',
@@ -668,26 +1661,124 @@ describe('MobileRelay event bridge', () => {
     expect(updateWork).toHaveBeenCalledWith('token', 'device-1', 'work-1', expect.objectContaining({
       status: 'failed',
       error: 'The configured model is unavailable.',
-      payload: { deliveryState: 'failed', executionState: 'failed' },
+      payload: {
+        agentSessionId: 'agent-session-fresh-1',
+        deliveryState: 'failed',
+        executionState: 'failed',
+      },
     }));
     expect(publishMobileEvent).toHaveBeenLastCalledWith('token', expect.objectContaining({
       eventType: 'session_turn_state',
       requestId: 'work-1',
       payload: expect.objectContaining({
         workId: 'work-1',
+        agentSessionId: 'agent-session-fresh-1',
         status: 'failed',
         error: 'The configured model is unavailable.',
       }),
     }));
   });
 
+  it('claims resume work with a target agent session without changing relay identity', async () => {
+    vi.useFakeTimers();
+    const enqueueInstruction = vi.fn();
+    const publishMobileEvent = vi.fn().mockResolvedValue(undefined);
+    const updateWork = vi.fn().mockResolvedValue({});
+    const claimWork = vi.fn()
+      .mockResolvedValueOnce({
+        id: 'resume-work-1',
+        repo: '/workspace',
+        branch: 'main',
+        prompt: 'Continue the historical task',
+        priority: 0,
+        status: 'running',
+        agentId: null,
+        deviceId: 'device-1',
+        payload: {
+          deliveryMode: 'steer',
+          sessionId: 'relay-session-1',
+          pairingId: 'pairing-1',
+          agentContext: 'resume',
+          resumeSessionId: 'history-session-1',
+        },
+        createdAt: '2026-07-30T00:00:00.000Z',
+        updatedAt: '2026-07-30T00:00:01.000Z',
+        startedAt: '2026-07-30T00:00:01.000Z',
+      })
+      .mockResolvedValue(null);
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({
+        pairingClaimed: true,
+        pairingStatus: 'claimed',
+      }),
+      claimWork,
+      updateWork,
+      publishMobileEvent,
+    };
+
+    const relay = startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'relay-session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(enqueueInstruction).toHaveBeenCalledWith('Continue the historical task', {
+      turn: expect.objectContaining({
+        workId: 'resume-work-1',
+        agentContext: 'resume',
+        resumeSessionId: 'history-session-1',
+      }),
+      relay,
+    });
+
+    const turn = enqueueInstruction.mock.calls[0]?.[1].turn;
+    turn.agentSessionId = 'history-session-1';
+    await relay.publishClaimedTurnSession(turn);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(updateWork).toHaveBeenCalledWith('token', 'device-1', 'resume-work-1', {
+      payload: { agentSessionId: 'history-session-1' },
+    });
+    expect(publishMobileEvent).toHaveBeenCalledWith('token', expect.objectContaining({
+      sessionId: 'relay-session-1',
+      pairingId: 'pairing-1',
+      eventType: 'session_turn_state',
+      requestId: 'resume-work-1',
+      payload: expect.objectContaining({
+        agentSessionId: 'history-session-1',
+        status: 'running',
+      }),
+    }));
+    expect(claimWork.mock.calls
+      .filter(([, , scope]) => scope.deliveryMode === 'steer')
+      .every(([, , scope]) =>
+        scope.sessionId === 'relay-session-1' && scope.pairingId === 'pairing-1'
+      )).toBe(true);
+  });
+
   it('retries a transient terminal event failure before reporting the turn complete', async () => {
     vi.useFakeTimers();
     const enqueueInstruction = vi.fn();
-    const publishMobileEvent = vi.fn()
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error('temporary terminal event failure'))
-      .mockResolvedValueOnce(undefined);
+    let rejectedFirstTerminalEvent = false;
+    const publishMobileEvent = vi.fn(async (_token, payload) => {
+      if (
+        payload.eventType === 'session_turn_state'
+        && payload.payload.status === 'failed'
+        && !rejectedFirstTerminalEvent
+      ) {
+        rejectedFirstTerminalEvent = true;
+        throw new Error('temporary terminal event failure');
+      }
+    });
     const onError = vi.fn();
     const client: MobileHandoffClientLike = {
       getDeviceId: vi.fn().mockResolvedValue('device-1'),
@@ -837,7 +1928,9 @@ describe('MobileRelay event bridge', () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(enqueueInstruction).not.toHaveBeenCalled();
-    expect(publishMobileEvent).not.toHaveBeenCalled();
+    expect(publishMobileEvent.mock.calls.some(([, payload]) =>
+      payload.eventType === 'session_turn_state'
+    )).toBe(false);
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({
       message: 'Claimed work did not match the active mobile relay scope.',
     }));
@@ -1641,6 +2734,196 @@ describe('MobileRelay event bridge', () => {
     });
 
     await expect(response).resolves.toEqual({ decision: 'allow_once', alternative: undefined });
+  });
+
+  it('round-trips a typed follow-up response with the exact request ID', async () => {
+    let published: PublishMobileEventPayload<'followup_question'> | undefined;
+    const actions: MobileAction[] = [];
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      claimWork: vi.fn().mockResolvedValue(null),
+      publishMobileEvent: vi.fn().mockImplementation(async (_token, payload) => {
+        if (payload.eventType === 'followup_question') published = payload;
+      }),
+      pollMobileActions: vi.fn().mockImplementation(async () => ({
+        actions,
+        nextCursor: actions.at(-1)?.sequence ?? 0,
+      })),
+    };
+    const relay = startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+    });
+
+    const response = relay.requestFollowupQuestion(
+      'Which environment should I deploy?',
+      ['Staging', 'Production'],
+    );
+    await vi.waitFor(() => expect(published?.requestId).toBeTruthy(), { timeout: 2_000 });
+    expect(published).toMatchObject({
+      sessionId: 'session-1',
+      deviceId: 'device-1',
+      pairingId: 'pairing-1',
+      eventType: 'followup_question',
+      payload: {
+        message: 'Which environment should I deploy?',
+        options: ['Staging', 'Production'],
+      },
+    });
+    actions.push({
+      id: 'followup-action-wrong-request',
+      sequence: 1,
+      actionType: 'followup_response',
+      requestId: 'different-followup-request',
+      payload: { answer: 'Production' },
+      createdAt: new Date().toISOString(),
+    });
+    actions.push({
+      id: 'followup-action-1',
+      sequence: 2,
+      actionType: 'followup_response',
+      requestId: published!.requestId,
+      payload: { answer: 'Staging' },
+      createdAt: new Date().toISOString(),
+    });
+
+    await expect(response).resolves.toBe('Staging');
+  });
+
+  it('ignores a malformed follow-up answer and continues polling the cursor', async () => {
+    let published: PublishMobileEventPayload<'followup_question'> | undefined;
+    const actions: MobileAction[] = [];
+    const pollMobileActions = vi.fn().mockImplementation(async () => ({
+      actions,
+      nextCursor: actions.at(-1)?.sequence ?? 0,
+    }));
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true }),
+      claimWork: vi.fn().mockResolvedValue(null),
+      publishMobileEvent: vi.fn().mockImplementation(async (_token, payload) => {
+        if (payload.eventType === 'followup_question') published = payload;
+      }),
+      pollMobileActions,
+    };
+    const relay = startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+    });
+
+    const response = relay.requestFollowupQuestion('Which environment?');
+    await vi.waitFor(() => expect(published?.requestId).toBeTruthy(), { timeout: 2_000 });
+    actions.push({
+      id: 'malformed-followup-action',
+      sequence: 1,
+      actionType: 'followup_response',
+      requestId: published!.requestId,
+      payload: { answer: null },
+      createdAt: new Date().toISOString(),
+    } as unknown as MobileAction);
+    await vi.waitFor(
+      () => expect(pollMobileActions).toHaveBeenCalledWith(
+        'token',
+        'session-1',
+        'device-1',
+        1,
+        'pairing-1',
+      ),
+      { timeout: 3_000 },
+    );
+    actions.push({
+      id: 'valid-followup-action',
+      sequence: 2,
+      actionType: 'followup_response',
+      requestId: published!.requestId,
+      payload: { answer: 'Staging' },
+      createdAt: new Date().toISOString(),
+    });
+
+    await expect(response).resolves.toBe('Staging');
+  });
+
+  it('clears a pending follow-up wait when the relay disconnects', async () => {
+    vi.useFakeTimers();
+    const sendRelayHeartbeat = vi.fn()
+      .mockResolvedValueOnce({ pairingClaimed: true, pairingStatus: 'claimed' })
+      .mockResolvedValueOnce({ pairingClaimed: false, pairingStatus: 'revoked' });
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat,
+      claimWork: vi.fn().mockResolvedValue(null),
+      publishMobileEvent: vi.fn().mockResolvedValue(undefined),
+      pollMobileActions: vi.fn().mockResolvedValue({ actions: [], nextCursor: 0 }),
+    };
+    const relay = startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    const response = relay.requestFollowupQuestion('Should I continue?');
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(response).resolves.toBeUndefined();
+    expect(sendRelayHeartbeat).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears a pending follow-up wait when the response times out', async () => {
+    vi.useFakeTimers();
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({
+        pairingClaimed: true,
+        pairingStatus: 'claimed',
+      }),
+      claimWork: vi.fn().mockResolvedValue(null),
+      publishMobileEvent: vi.fn().mockResolvedValue(undefined),
+      pollMobileActions: vi.fn().mockResolvedValue({ actions: [], nextCursor: 0 }),
+    };
+    const relay = startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      responseTimeoutMs: 5_000,
+      enqueueInstruction: vi.fn(),
+    });
+
+    const response = relay.requestFollowupQuestion('Should I continue?');
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    await expect(response).resolves.toBeUndefined();
   });
 
   it('returns the approved directory path for a directory action', async () => {

@@ -135,6 +135,8 @@ import {
   installAgentExitSignalHandlers,
   logAgentQueuedProcessingMessage,
   performAgentBackgroundInit,
+  prepareMobileAgentSession,
+  resetFreshAgentSessionState,
   requestAgentExit,
   removeAgentExitSignalHandlers,
   restoreAgentSessionState,
@@ -143,6 +145,9 @@ import {
   runAgentInteractive,
   runAgentInteractiveLoop,
   shutdownAgentRuntimeResources,
+  type FreshAgentSessionHost,
+  type FreshAgentSessionRecord,
+  type FreshAgentSessionStateHost,
 } from './agent/AgentLifecycleRunner.js';
 import { promptForAgentInstruction, type AgentPromptInstructionHost } from './agent/PromptInstructionReader.js';
 import {
@@ -254,6 +259,7 @@ import {
   saveAgentUserMessage,
   setAgentOutputListener,
   setAgentStatusListener,
+  syncAgentSessionSnapshot,
   type AgentShutdownOptions,
   type AgentSessionAccountingHost,
 } from './agent/AgentSessionAccounting.js';
@@ -321,6 +327,10 @@ export class AutohandAgent {
   private statusListener?: (snapshot: AgentStatusSnapshot) => void;
   private outputListener?: (event: AgentOutputEvent) => void;
   private confirmationCallback?: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<PermissionPromptResponse>;
+  private followupQuestionCallback?: (
+    question: string,
+    suggestedAnswers?: string[],
+  ) => Promise<string | undefined>;
   private mobileRelayController?: MobileRelayController;
   private mobileTurnFailureMessage: string | null = null;
   private conversation!: ConversationManager;
@@ -768,6 +778,11 @@ export class AutohandAgent {
       });
   }
 
+  private cancelPendingTurnMemoryReflections(): void {
+    this.turnMemoryReflectionQueue = [];
+    this.turnMemoryReflectionAbortController?.abort();
+  }
+
   private shouldRunTurnMemoryReflection(): boolean {
     if (this.runtime.options?.bare) return false;
     if (this.runtime.isCommandMode || this.runtime.options?.prompt) return false;
@@ -912,6 +927,53 @@ export class AutohandAgent {
     }
   }
 
+  private createFreshAgentSessionHost(): FreshAgentSessionHost {
+    const agent = this;
+    return {
+      runtime: {
+        workspaceRoot: agent.runtime.workspaceRoot,
+        options: agent.runtime.options,
+        config: agent.runtime.config,
+      },
+      activeProvider: agent.activeProvider,
+      get sessionStartedAt() {
+        return agent.sessionStartedAt;
+      },
+      set sessionStartedAt(value: number) {
+        agent.sessionStartedAt = value;
+      },
+      sessionManager: agent.sessionManager,
+      hookManager: agent.hookManager,
+      telemetryManager: agent.telemetryManager,
+      feedbackManager: agent.feedbackManager,
+      imageManager: agent.imageManager,
+      stopActiveAgentHeartbeat: () => agent.stopActiveAgentHeartbeat(),
+      startActiveAgentHeartbeat: () => agent.startActiveAgentHeartbeat(),
+      flushScheduledSessionSnapshot: () => agent.flushScheduledSessionSnapshot(),
+      cancelPendingTurnMemoryReflections: () => agent.cancelPendingTurnMemoryReflections(),
+      syncFreshAgentSessionSnapshot: (
+        session: FreshAgentSessionRecord,
+        endedAt: number,
+      ) => syncAgentSessionSnapshot(
+        agent as unknown as AgentSessionAccountingHost,
+        {
+          force: true,
+          session,
+          endTimeMs: endedAt,
+        },
+      ),
+      resetConversationContext: () => agent.resetConversationContext(),
+      resetAgentStateForFreshSession: (startedAt: number) => {
+        resetFreshAgentSessionState(
+          agent as unknown as FreshAgentSessionStateHost,
+          startedAt,
+        );
+      },
+      injectSessionBootstrap: () => agent.injectSessionBootstrap(),
+      restoreSessionState: (sessionId: string) => agent.restoreSessionState(sessionId),
+    };
+  }
+
   private async runInstructionWithPeerActivity(
     instruction: string,
     options?: RunInstructionOptions,
@@ -927,13 +989,26 @@ export class AutohandAgent {
     this.mobileTurnFailureMessage = null;
     let turnOutcome: MobileClaimedTurnOutcome | undefined;
     const batchId = `mobile-batch-${randomUUID()}`;
-    this.files.enterPreviewMode(batchId);
+    const previousFollowupQuestionCallback = this.followupQuestionCallback;
+    const mobileFollowupQuestionCallback = (question: string, suggestedAnswers?: string[]) =>
+      relay.requestFollowupQuestion(question, suggestedAnswers);
+    let previewActive = false;
     try {
-      const succeeded = await this.instructionRunner.run(instruction, options);
+      this.files.enterPreviewMode(batchId);
+      previewActive = true;
+      this.followupQuestionCallback = mobileFollowupQuestionCallback;
+      const preparedSession = await prepareMobileAgentSession(
+        this.createFreshAgentSessionHost(),
+        mobileTurn,
+        instruction,
+      );
+      await relay.publishClaimedTurnSession(claimedTurn);
+      const succeeded = await this.instructionRunner.run(preparedSession.instruction, options);
       const changes = this.files.getPendingChanges();
       if (!succeeded || changes.length === 0) {
         this.files.clearPendingChanges();
         this.files.exitPreviewMode();
+        previewActive = false;
         turnOutcome = succeeded
           ? {
               status: 'completed',
@@ -954,6 +1029,7 @@ export class AutohandAgent {
         : await this.files.applyPendingChanges(decision.selectedChangeIds);
       this.files.clearPendingChanges();
       this.files.exitPreviewMode();
+      previewActive = false;
       const changesSucceeded = result.errors.length === 0;
       turnOutcome = changesSucceeded
         ? {
@@ -968,14 +1044,20 @@ export class AutohandAgent {
           };
       return succeeded && changesSucceeded;
     } catch (error) {
-      this.files.clearPendingChanges();
-      this.files.exitPreviewMode();
+      if (previewActive) {
+        this.files.clearPendingChanges();
+        this.files.exitPreviewMode();
+        previewActive = false;
+      }
       turnOutcome = {
         status: 'failed',
         error: this.mobileTurnFailureMessage ?? this.getDisplayErrorMessage(error),
       };
       throw error;
     } finally {
+      if (this.followupQuestionCallback === mobileFollowupQuestionCallback) {
+        this.followupQuestionCallback = previousFollowupQuestionCallback;
+      }
       await relay.finishClaimedTurn(
         claimedTurn,
         turnOutcome ?? {
@@ -984,11 +1066,13 @@ export class AutohandAgent {
         }
       );
       void relay.refreshDeliveryStatus();
-      const latestAssistant = [...this.conversation.history()]
-        .reverse()
-        .find((message) => message.role === 'assistant' && typeof message.content === 'string');
-      if (typeof latestAssistant?.content === 'string') {
-        await relay.publishArtifactsFromText(latestAssistant.content);
+      if (turnOutcome?.status === 'completed') {
+        const latestAssistant = [...this.conversation.history()]
+          .reverse()
+          .find((message) => message.role === 'assistant' && typeof message.content === 'string');
+        if (typeof latestAssistant?.content === 'string') {
+          await relay.publishArtifactsFromText(latestAssistant.content);
+        }
       }
     }
   }

@@ -385,6 +385,26 @@ text/JSON artifacts inside the active workspace can be uploaded to the
 authenticated mobile session. Real-path confinement prevents symlink escapes,
 and uploads are capped at 12 files and 15 MB per file.
 
+### Mobile composer and historical sessions
+
+The paired app builds its composer command suggestions from the CLI's live
+catalog, so canonical command names, descriptions, and availability come from
+the current session instead of a hard-coded phone list. Only commands marked
+available can run. Availability updates with the session: `/goal` is runnable
+only when goals are enabled, while `/plan status` returns the current plan-mode
+details to the phone.
+
+Phone commands and prompts share the same ordered work stream as prompts typed
+in the terminal composer. Autohand runs them one at a time in submission order,
+including when the phone and terminal both submit while another turn is active.
+
+When a mobile task explicitly resumes history, it must name an exact session
+that is stored locally for the current workspace. Autohand restores that
+session before running the prompt; a missing or different-workspace target
+fails the task instead of silently starting fresh or continuing another
+session. The phone remains paired to the existing live CLI connection while
+the resumed session is identified in task progress and results.
+
 ## Tool System
 
 Autohand Code CLI includes 40+ tools for autonomous coding:

@@ -4,7 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { readDeepResearchRun } from '../../deepResearch/session.js';
+import type { MobileComposerCommandExecutionOutcome } from '../../mobile/MobileHandoffClient.js';
+import type { MobileComposerExecutableCommand } from '../../mobile/MobileCommandPolicy.js';
 import type { MobileClaimedTurnContext } from '../../mobile/MobileRelay.js';
+import { nextQueuedWorkSequence } from '../../utils/queuedWorkSequence.js';
 
 export interface PublishResearchPostTurnAction {
   kind: 'publish-research';
@@ -14,13 +17,31 @@ export interface PublishResearchPostTurnAction {
 
 export type PendingPostTurnAction = PublishResearchPostTurnAction;
 
+export interface QueuedMobileComposerCommand {
+  command: MobileComposerExecutableCommand;
+  args: string[];
+  completion: (outcome: MobileComposerCommandExecutionOutcome) => void | Promise<void>;
+}
+
 export interface QueuedAgentInstruction {
-  text: string;
+  sequence?: number;
+  text?: string;
   postTurnAction?: PendingPostTurnAction;
   mobileTurn?: MobileClaimedTurnContext;
+  mobileCommand?: QueuedMobileComposerCommand;
 }
 
 export type PendingAgentInstruction = string | QueuedAgentInstruction;
+export type SequencedQueuedAgentInstruction = QueuedAgentInstruction & { sequence: number };
+
+export function createQueuedAgentInstruction(
+  instruction: Omit<QueuedAgentInstruction, 'sequence'>,
+): SequencedQueuedAgentInstruction {
+  return {
+    ...instruction,
+    sequence: nextQueuedWorkSequence(),
+  };
+}
 
 export interface PostTurnEnvironment {
   stdinIsTTY: boolean;
@@ -51,8 +72,13 @@ export interface PostTurnActionHost {
 
 export function unpackQueuedAgentInstruction(
   value: PendingAgentInstruction,
-): QueuedAgentInstruction {
-  return typeof value === 'string' ? { text: value } : value;
+): SequencedQueuedAgentInstruction {
+  if (typeof value === 'string') {
+    return createQueuedAgentInstruction({ text: value });
+  }
+  return typeof value.sequence === 'number'
+    ? value as SequencedQueuedAgentInstruction
+    : createQueuedAgentInstruction(value);
 }
 
 export async function executePendingPostTurnAction(

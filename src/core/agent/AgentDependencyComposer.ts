@@ -82,7 +82,7 @@ import { RemoteFeatureFlagManager } from '../../features/RemoteFeatureFlagManage
 import { getAnnouncementManager } from '../../announcements/AnnouncementManager.js';
 import { syncAgentAnnouncementLine } from './AgentUIRuntime.js';
 import { getFeatureState } from '../../features/featureRegistry.js';
-import { isGoalFeatureEnabled } from '../../goals/feature.js';
+import { isGoalFeatureEnabled, resolveGoalFeatureEnabled } from '../../goals/feature.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { SuggestionEngine } from '../SuggestionEngine.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
@@ -91,10 +91,18 @@ import { extensionRuntimeHost } from '../../extensions/ExtensionRuntimeHost.js';
 import { ExtensionService } from '../../extensions/ExtensionService.js';
 import type {
   MobileClaimedTurnContext,
+  MobileComposerCommandAvailability,
+  MobileComposerCommandCompletion,
+  MobileComposerCommandDispatcher,
   MobilePermissionModeChange,
   MobileRelayController,
 } from '../../mobile/MobileRelay.js';
-import type { PendingPostTurnAction } from './PostTurnActionCoordinator.js';
+import type { MobileAgentSessionExecutionContext } from './AgentLifecycleRunner.js';
+import {
+  createQueuedAgentInstruction,
+  type PendingPostTurnAction,
+  type QueuedMobileComposerCommand,
+} from './PostTurnActionCoordinator.js';
 
 export interface AgentDependencyHost {
   [key: string]: any;
@@ -108,7 +116,7 @@ export function enqueueInteractiveInstruction(
   if (host.inkRenderer) {
     host.inkRenderer.addQueuedInstruction(instruction);
   } else {
-    host.pendingInkInstructions.push(instruction);
+    host.pendingInkInstructions.push(createQueuedAgentInstruction({ text: instruction }));
   }
 
   const resolver = host.inkInstructionResolver;
@@ -124,13 +132,50 @@ export function enqueueClaimedMobileInstruction(
   instruction: string,
   mobileTurn: MobileClaimedTurnContext,
 ): void {
-  host.pendingInkInstructions.push({ text: instruction, mobileTurn });
+  host.pendingInkInstructions.push(createQueuedAgentInstruction({ text: instruction, mobileTurn }));
 
   const resolver = host.inkInstructionResolver;
   if (resolver) {
     host.inkInstructionResolver = null;
     resolver();
   }
+}
+
+/** Queue a structured mobile command at the same serialized boundary as interactive work. */
+export function enqueueMobileComposerCommand(
+  host: AgentDependencyHost,
+  command: QueuedMobileComposerCommand['command'],
+  args: readonly string[],
+  completion: MobileComposerCommandCompletion,
+): void {
+  host.pendingInkInstructions.push(createQueuedAgentInstruction({
+    mobileCommand: {
+      command,
+      args: [...args],
+      completion,
+    },
+  }));
+
+  const resolver = host.inkInstructionResolver;
+  if (resolver) {
+    host.inkInstructionResolver = null;
+    resolver();
+  }
+}
+
+/**
+ * Keep decoded mobile images request-scoped until the claimed turn reaches the
+ * serialized execution boundary. A fresh turn can then clear prior-session
+ * images before hydrating only its own attachments.
+ */
+export function enqueueClaimedMobileInstructionWithImages(
+  host: AgentDependencyHost,
+  instruction: string,
+  images: MobileImageAttachment[],
+  mobileTurn: MobileClaimedTurnContext,
+): void {
+  (mobileTurn as MobileAgentSessionExecutionContext).pendingImages = images;
+  enqueueClaimedMobileInstruction(host, instruction, mobileTurn);
 }
 
 export function configureMobileRelayController(
@@ -468,7 +513,7 @@ export function initializeAgentDependencies(
       // If the agent is busy processing an instruction, queue for later.
       // The main loop will pick it up when the current turn finishes.
       if (host.isInstructionActive) {
-        host.pendingInkInstructions.push(job.prompt);
+        host.pendingInkInstructions.push(createQueuedAgentInstruction({ text: job.prompt }));
         return;
       }
 
@@ -1425,6 +1470,21 @@ export function initializeAgentDependencies(
     const sessionMgr = host.sessionManager;
     const filesMgr = host.files;
     const runtimeRef = host.runtime;
+    let mobileRelayController: MobileRelayController | undefined;
+    const isRuntimeFeatureEnabled = (key: string, localDefault?: boolean): boolean => {
+      const configDefault = getFeatureState(runtime.config, key)?.enabled ?? false;
+      return host.featureFlagManager?.isFeatureEnabled?.(key, localDefault ?? configDefault)
+        ?? localDefault
+        ?? configDefault;
+    };
+    const isMobileComposerCommandAvailable: MobileComposerCommandAvailability = (command) =>
+      command !== '/goal'
+      || resolveGoalFeatureEnabled(runtime.config, isRuntimeFeatureEnabled);
+    const dispatchMobileComposerCommand: MobileComposerCommandDispatcher = (
+      command,
+      args,
+      completion,
+    ) => enqueueMobileComposerCommand(host, command, args, completion);
     const slashContext = {
       promptModelSelection: () => host.providerConfigManager.promptModelSelection(),
       createAgentsFile: () => host.createAgentsFile(),
@@ -1470,12 +1530,7 @@ export function initializeAgentDependencies(
       },
       getTokenUsageStatus: () => host.sessionTokenUsageUnavailable ? 'unavailable' as const : 'actual' as const,
       getContextWindow: () => host.contextWindow,
-      isFeatureEnabled: (key: string, localDefault?: boolean) => {
-        const configDefault = getFeatureState(runtime.config, key)?.enabled ?? false;
-        return host.featureFlagManager?.isFeatureEnabled?.(key, localDefault ?? configDefault)
-          ?? localDefault
-          ?? configDefault;
-      },
+      isFeatureEnabled: isRuntimeFeatureEnabled,
       trackFeatureActivation: (key: string, metadata?: Record<string, unknown>) => {
         void host.featureFlagManager?.trackFeatureActivation?.(key, metadata);
       },
@@ -1488,6 +1543,7 @@ export function initializeAgentDependencies(
             host.toolManager.unregister(definition.name);
           }
         }
+        void mobileRelayController?.refreshDeliveryStatus();
       },
       refreshStatusLine: () => {
         const statusLine = host.formatStatusLine();
@@ -1569,9 +1625,10 @@ export function initializeAgentDependencies(
       repeatManager: host.repeatManager,
       // Queue an instruction to be sent to the LLM silently (e.g. /review)
       queueInstruction: (instruction: string, postTurnAction?: PendingPostTurnAction) => {
-        host.pendingInkInstructions.push(
-          postTurnAction ? { text: instruction, postTurnAction } : instruction,
-        );
+        host.pendingInkInstructions.push(createQueuedAgentInstruction({
+          text: instruction,
+          ...(postTurnAction ? { postTurnAction } : {}),
+        }));
       },
       requestResearchPublication: (reportPath: string) =>
         host.requestResearchPublication(reportPath),
@@ -1582,6 +1639,8 @@ export function initializeAgentDependencies(
       enqueueMobileInstruction: (instruction: string, mobileTurn: MobileClaimedTurnContext) => {
         enqueueClaimedMobileInstruction(host, instruction, mobileTurn);
       },
+      dispatchMobileComposerCommand,
+      isMobileComposerCommandAvailable,
       enqueueInstructionWithImages: (instruction: string, images: MobileImageAttachment[]) => {
         const placeholders = images.map((image) => {
           const data = Buffer.from(image.data, 'base64');
@@ -1599,18 +1658,10 @@ export function initializeAgentDependencies(
         images: MobileImageAttachment[],
         mobileTurn: MobileClaimedTurnContext,
       ) => {
-        const placeholders = images.map((image) => {
-          const data = Buffer.from(image.data, 'base64');
-          const id = host.imageManager.add(data, image.mimeType as ImageMimeType, image.filename);
-          return host.imageManager.formatPlaceholder(id);
-        });
-        const instructionWithImages = placeholders.length > 0
-          ? `${instruction}\n\n${placeholders.join('\n')}`
-          : instruction;
-
-        enqueueClaimedMobileInstruction(host, instructionWithImages, mobileTurn);
+        enqueueClaimedMobileInstructionWithImages(host, instruction, images, mobileTurn);
       },
       onMobileRelayReady: (relay: MobileRelayController) => {
+        mobileRelayController = relay;
         configureMobileRelayController(host, relay);
       },
       onMobileConnected: (message: string) => {

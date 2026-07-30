@@ -154,6 +154,21 @@ describe('PersistentInput TextBuffer integration', () => {
     expect(queueFullEvents).toEqual([1]);
   });
 
+  it('peeks without mutation and assigns strict enqueue order', async () => {
+    const { PersistentInput } = await import('../../src/ui/persistentInput.js');
+    const input = new PersistentInput({ silentMode: true });
+
+    input.enqueue('first');
+    input.enqueue('second');
+
+    const first = input.peek();
+    expect(first?.text).toBe('first');
+    expect(input.getQueueLength()).toBe(2);
+    expect(input.peek()).toBe(first);
+    expect(input.dequeue()?.sequence).toBe(first?.sequence);
+    expect(input.peek()?.sequence).toBeGreaterThan(first?.sequence ?? 0);
+  });
+
   it('backspace deletes one character at a time', async () => {
     const { PersistentInput } = await import('../../src/ui/persistentInput.js');
     const input = new PersistentInput({ silentMode: true });

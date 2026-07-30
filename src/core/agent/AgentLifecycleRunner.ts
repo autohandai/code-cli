@@ -5,10 +5,23 @@
  */
 import chalk from 'chalk';
 import { execFile } from 'node:child_process';
+import path from 'node:path';
 import { promisify } from 'node:util';
 import { getProviderConfig } from '../../config.js';
-import type { LLMToolCall, ProviderSettings } from '../../types.js';
+import type {
+  AgentRuntime,
+  LLMToolCall,
+  LoadedConfig,
+  ProviderName,
+  ProviderSettings,
+  TurnUsage,
+} from '../../types.js';
 import type { ProviderModelMetadata } from '../../telemetry/types.js';
+import type {
+  SessionMessage,
+  SessionMetadata,
+  SessionUsageMetadata,
+} from '../../session/types.js';
 import { renderTerminalMarkdown } from '../immediateCommandRouter.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { isShellCommand, parseShellCommand } from '../../ui/shellCommand.js';
@@ -18,13 +31,20 @@ import { buildSessionChatLog } from '../../session/chatLog.js';
 import { formatExitCleanup, formatForceExit } from '../../ui/theme/startup.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { BARE_SLASH_COMMANDS_DISABLED_MESSAGE } from '../../runtime/bareMode.js';
+import type { ImageManager } from '../ImageManager.js';
+import { SessionDiffStatsTracker } from '../SessionDiffStatsTracker.js';
 import { shouldForceAgentIdleLogout } from './AgentSessionAccounting.js';
 import { consumeAgentInkSubmittedInstructionEcho } from './AgentUIRuntime.js';
 import {
+  createQueuedAgentInstruction,
   unpackQueuedAgentInstruction,
   type PendingPostTurnAction,
+  type SequencedQueuedAgentInstruction,
+  type QueuedMobileComposerCommand,
 } from './PostTurnActionCoordinator.js';
 import type { MobileClaimedTurnContext } from '../../mobile/MobileRelay.js';
+import type { MobileImageAttachment } from '../../mobile/MobileHandoffClient.js';
+import { validateMobileCommandInvocationForWorkspace } from '../../mobile/MobileCommandPolicy.js';
 
 const execFileAsync = promisify(execFile);
 const RUNTIME_RESOURCE_SHUTDOWN_TIMEOUT_MS = 2_500;
@@ -39,6 +59,13 @@ export interface RunAgentCommandModeOptions {
   signal?: AbortSignal;
   keepAlive?: boolean;
 }
+
+type ProviderSettingsHost = {
+  runtime?: {
+    config?: LoadedConfig;
+  };
+  activeProvider?: ProviderName;
+};
 
 function buildProviderTelemetryMetadata(
   providerSettings: ProviderSettings | null,
@@ -63,14 +90,337 @@ function buildProviderTelemetryMetadata(
   };
 }
 
-function getHostProviderSettings(host: AgentLifecycleHost): ProviderSettings | null {
-  if (!host.runtime?.config) {
+function getHostProviderSettings(host: ProviderSettingsHost): ProviderSettings | null {
+  if (!host.runtime?.config || !host.activeProvider) {
     return null;
   }
   return getProviderConfig(host.runtime.config, host.activeProvider);
 }
 
-async function startHostActiveAgentHeartbeat(host: AgentLifecycleHost): Promise<void> {
+export interface FreshAgentSessionStateHost {
+  runtime: Pick<AgentRuntime, 'workspaceRoot'>;
+  taskStartedAt: number | null;
+  totalTokensUsed: number;
+  currentTurnActualUsage: TurnUsage;
+  currentTurnHadUnavailableUsage: boolean;
+  lastTurnActualUsage: TurnUsage;
+  sessionActualTokensUsed: number;
+  sessionTokenUsageUnavailable: boolean;
+  sessionTokensUsed: number;
+  sessionPromptTokens: number;
+  sessionCompletionTokens: number;
+  lastContextTokens: number;
+  filesModifiedThisSession: boolean;
+  fileModCount: number;
+  modifiedFilePaths?: Set<string>;
+  executedActionNames: string[];
+  searchQueries: string[];
+  sessionRetryCount: number;
+  consecutiveCancellations: number;
+  restoredChatMessages: unknown[];
+  lastAssistantResponseForNotification: string;
+  lastActivityAt: number;
+  imageManager?: Pick<ImageManager, 'clear'>;
+  sessionDiffStatsTracker?: SessionDiffStatsTracker;
+}
+
+export function resetFreshAgentSessionState(
+  host: FreshAgentSessionStateHost,
+  startedAt: number,
+): void {
+  host.taskStartedAt = null;
+  host.totalTokensUsed = 0;
+  host.currentTurnActualUsage = { kind: 'unavailable', reason: 'not_reported' };
+  host.currentTurnHadUnavailableUsage = false;
+  host.lastTurnActualUsage = { kind: 'unavailable', reason: 'not_reported' };
+  host.sessionActualTokensUsed = 0;
+  host.sessionTokenUsageUnavailable = false;
+  host.sessionTokensUsed = 0;
+  host.sessionPromptTokens = 0;
+  host.sessionCompletionTokens = 0;
+  host.lastContextTokens = 0;
+  host.filesModifiedThisSession = false;
+  host.fileModCount = 0;
+  host.modifiedFilePaths?.clear();
+  host.executedActionNames = [];
+  host.searchQueries = [];
+  host.sessionRetryCount = 0;
+  host.consecutiveCancellations = 0;
+  host.restoredChatMessages = [];
+  host.lastAssistantResponseForNotification = '';
+  host.lastActivityAt = startedAt;
+  host.imageManager?.clear();
+  if (host.sessionDiffStatsTracker) {
+    host.sessionDiffStatsTracker = new SessionDiffStatsTracker(host.runtime.workspaceRoot);
+  }
+}
+
+/**
+ * Rotate only the agent conversation/session identity while leaving the
+ * interactive process and its mobile relay transport alive.
+ */
+export interface AgentSessionIdentity {
+  agentSessionId: string;
+}
+
+export interface FreshAgentSessionRecord {
+  getMessages(): SessionMessage[];
+  metadata: {
+    sessionId: string;
+    model?: string;
+    projectName?: string;
+    status?: string;
+    summary?: string;
+    client?: string;
+    clientVersion?: string;
+    usage?: SessionUsageMetadata;
+  };
+}
+
+export interface FreshAgentSessionHost {
+  runtime: {
+    workspaceRoot: string;
+    options: Pick<AgentRuntime['options'], 'bare' | 'model'>;
+    config: LoadedConfig;
+  };
+  activeProvider: ProviderName;
+  sessionStartedAt: number;
+  sessionManager: {
+    getCurrentSession(): FreshAgentSessionRecord | null;
+    closeSession(summary: string): Promise<void>;
+    createSession(workspaceRoot: string, model: string): Promise<FreshAgentSessionRecord>;
+    listSessions?(): Promise<SessionMetadata[]>;
+  };
+  hookManager: {
+    executeHooks(
+      event: 'session-end' | 'session-start',
+      context: Record<string, unknown>,
+    ): Promise<unknown>;
+  };
+  telemetryManager: {
+    endSession(status: 'completed'): Promise<unknown>;
+    startSession(
+      sessionId: string,
+      model: string,
+      provider: ProviderName,
+      startedAt: number,
+      metadata: ProviderModelMetadata,
+    ): Promise<unknown>;
+  };
+  feedbackManager: {
+    startSession(): void;
+  };
+  imageManager: Pick<ImageManager, 'add' | 'formatPlaceholder'>;
+  stopActiveAgentHeartbeat?(): Promise<void>;
+  startActiveAgentHeartbeat?(): Promise<void>;
+  flushScheduledSessionSnapshot(): Promise<void>;
+  cancelPendingTurnMemoryReflections(): void;
+  syncFreshAgentSessionSnapshot(
+    session: FreshAgentSessionRecord,
+    endedAt: number,
+  ): Promise<void>;
+  resetConversationContext(): Promise<void>;
+  resetAgentStateForFreshSession(startedAt: number): void;
+  injectSessionBootstrap(): Promise<void>;
+  restoreSessionState?(sessionId: string): Promise<FreshAgentSessionRecord>;
+}
+
+export async function startFreshAgentSession(
+  host: FreshAgentSessionHost,
+): Promise<AgentSessionIdentity> {
+  const previousSession = host.sessionManager.getCurrentSession();
+
+  host.cancelPendingTurnMemoryReflections();
+  await host.stopActiveAgentHeartbeat?.();
+  await host.flushScheduledSessionSnapshot?.();
+
+  if (previousSession) {
+    await host.sessionManager.closeSession('Session ended - new mobile task started');
+    const endedAt = Date.now();
+    if (host.runtime?.options?.bare !== true) {
+      await Promise.allSettled([
+        host.hookManager.executeHooks('session-end', {
+          sessionId: previousSession.metadata.sessionId,
+          sessionEndReason: 'clear',
+          duration: Math.max(0, endedAt - host.sessionStartedAt),
+        }),
+        host.syncFreshAgentSessionSnapshot(previousSession, endedAt),
+        host.telemetryManager.endSession('completed'),
+      ]);
+    }
+  }
+
+  const startedAt = Date.now();
+  await host.resetConversationContext();
+  host.resetAgentStateForFreshSession(startedAt);
+
+  const providerSettings = getHostProviderSettings(host);
+  const model = host.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
+  const session = await host.sessionManager.createSession(host.runtime.workspaceRoot, model);
+  const sessionId = session.metadata.sessionId;
+  host.sessionStartedAt = startedAt;
+
+  if (host.runtime?.options?.bare !== true) {
+    host.feedbackManager.startSession();
+  }
+  await startHostActiveAgentHeartbeat(host);
+  if (host.runtime?.options?.bare !== true) {
+    await host.injectSessionBootstrap();
+    await host.telemetryManager.startSession(
+      sessionId,
+      model,
+      host.activeProvider,
+      host.sessionStartedAt,
+      buildProviderTelemetryMetadata(providerSettings),
+    );
+    await host.hookManager.executeHooks('session-start', {
+      sessionId,
+      sessionType: 'clear',
+    });
+  }
+
+  return { agentSessionId: sessionId };
+}
+
+export type MobileAgentContext = 'fresh' | 'continue' | 'resume';
+
+type AgentContextClaimedTurn = MobileClaimedTurnContext['turn'] & {
+  agentContext?: MobileAgentContext;
+  resumeSessionId?: string;
+  agentSessionId?: string;
+};
+
+export interface MobileAgentSessionExecutionContext extends MobileClaimedTurnContext {
+  pendingImages?: readonly MobileImageAttachment[];
+}
+
+export interface PreparedMobileAgentSession extends AgentSessionIdentity {
+  instruction: string;
+}
+
+function readMobileAgentContext(turn: AgentContextClaimedTurn): MobileAgentContext {
+  if (turn.agentContext === undefined) {
+    return 'continue';
+  }
+  if (
+    turn.agentContext === 'fresh'
+    || turn.agentContext === 'continue'
+    || turn.agentContext === 'resume'
+  ) {
+    return turn.agentContext;
+  }
+  throw new Error(`Unsupported mobile agent context: ${String(turn.agentContext)}`);
+}
+
+const CANONICAL_RESUME_SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+
+function readCanonicalResumeSessionId(turn: AgentContextClaimedTurn): string {
+  const resumeSessionId = turn.resumeSessionId;
+  if (
+    typeof resumeSessionId !== 'string'
+    || resumeSessionId.length < 1
+    || resumeSessionId.length > 200
+    || !CANONICAL_RESUME_SESSION_ID.test(resumeSessionId)
+  ) {
+    throw new Error('Resume mobile work requires a canonical resume session ID');
+  }
+  return resumeSessionId;
+}
+
+async function restoreHistoricalMobileAgentSession(
+  host: FreshAgentSessionHost,
+  turn: AgentContextClaimedTurn,
+): Promise<AgentSessionIdentity> {
+  const resumeSessionId = readCanonicalResumeSessionId(turn);
+  if (!host.sessionManager.listSessions || !host.restoreSessionState) {
+    throw new Error('Historical mobile session restore is unavailable');
+  }
+
+  const target = (await host.sessionManager.listSessions())
+    .find((session) => session.sessionId === resumeSessionId);
+  if (!target) {
+    throw new Error(`Resume agent session not found locally: ${resumeSessionId}`);
+  }
+  if (path.resolve(target.projectPath) !== path.resolve(host.runtime.workspaceRoot)) {
+    throw new Error(
+      `Resume agent session ${resumeSessionId} belongs to a different workspace`,
+    );
+  }
+
+  const restored = await host.restoreSessionState(resumeSessionId);
+  if (restored.metadata.sessionId !== resumeSessionId) {
+    throw new Error(`Restored agent session identity did not match ${resumeSessionId}`);
+  }
+  return { agentSessionId: resumeSessionId };
+}
+
+function hydratePendingMobileImages(
+  host: FreshAgentSessionHost,
+  mobileTurn: MobileAgentSessionExecutionContext,
+  instruction: string,
+): string {
+  const images = mobileTurn.pendingImages;
+  if (!images?.length) {
+    return instruction;
+  }
+
+  const placeholders = images.map((image) => {
+    const data = Buffer.from(image.data, 'base64');
+    const id = host.imageManager.add(data, image.mimeType, image.filename);
+    return host.imageManager.formatPlaceholder(id);
+  });
+  mobileTurn.pendingImages = undefined;
+  return `${instruction}\n\n${placeholders.join('\n')}`;
+}
+
+/**
+ * Resolve the agent-side session identity for a claimed mobile turn.
+ *
+ * The relay session remains owned by MobileRelay; only `agentSessionId` is
+ * written back to the turn for running and terminal event payloads.
+ */
+export async function prepareMobileAgentSession(
+  host: FreshAgentSessionHost,
+  mobileTurn: MobileAgentSessionExecutionContext,
+  instruction: string,
+): Promise<PreparedMobileAgentSession> {
+  const turn = mobileTurn.turn as AgentContextClaimedTurn;
+  const agentContext = readMobileAgentContext(turn);
+  turn.agentSessionId = undefined;
+  let agentSessionId: string | undefined;
+  if (agentContext === 'fresh') {
+    try {
+      ({ agentSessionId } = await startFreshAgentSession(host));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to start a fresh agent session: ${message}`);
+    }
+  } else if (agentContext === 'resume') {
+    try {
+      ({ agentSessionId } = await restoreHistoricalMobileAgentSession(host, turn));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to resume agent session: ${message}`);
+    }
+  } else {
+    agentSessionId = host.sessionManager.getCurrentSession()?.metadata.sessionId;
+  }
+
+  if (!agentSessionId) {
+    throw new Error('No active agent session is available for this mobile turn');
+  }
+
+  turn.agentContext = agentContext;
+  turn.agentSessionId = agentSessionId;
+  return {
+    agentSessionId,
+    instruction: hydratePendingMobileImages(host, mobileTurn, instruction),
+  };
+}
+
+async function startHostActiveAgentHeartbeat(
+  host: { startActiveAgentHeartbeat?(): Promise<void> },
+): Promise<void> {
   try {
     await host.startActiveAgentHeartbeat?.();
   } catch {
@@ -105,7 +455,7 @@ export async function runAgentInteractive(host: AgentLifecycleHost, initialInstr
 
     // Queue piped text so the first loop iteration processes it before prompting.
     if (initialInstruction) {
-      host.pendingInkInstructions.push(initialInstruction);
+      host.pendingInkInstructions.push(createQueuedAgentInstruction({ text: initialInstruction }));
     }
 
     host.mcpStartupCoordinator.prepareForInteractiveStartup();
@@ -907,6 +1257,117 @@ export function logAgentQueuedProcessingMessage(host: AgentLifecycleHost, instru
     void remaining;
   }
 
+function pendingQueuedWorkHead(
+  host: AgentLifecycleHost,
+): SequencedQueuedAgentInstruction | undefined {
+  const value = host.pendingInkInstructions[0];
+  if (value === undefined) return undefined;
+  const queued = unpackQueuedAgentInstruction(value);
+  if (queued !== value) host.pendingInkInstructions[0] = queued;
+  return queued;
+}
+
+function totalQueuedWorkCount(host: AgentLifecycleHost): number {
+  return host.pendingInkInstructions.length
+    + (host.inkRenderer?.getQueueCount?.() ?? 0)
+    + (host.persistentInput?.getQueueLength?.() ?? 0);
+}
+
+function dequeueOldestQueuedWork(
+  host: AgentLifecycleHost,
+): { queued: SequencedQueuedAgentInstruction; remaining: number } | undefined {
+  const pending = pendingQueuedWorkHead(host);
+  const ink = host.inkRenderer?.peekQueuedInstruction?.();
+  const persistent = host.persistentInput?.peek?.();
+  const heads = [
+    pending ? { source: 'pending' as const, sequence: pending.sequence } : undefined,
+    ink ? { source: 'ink' as const, sequence: ink.sequence } : undefined,
+    persistent ? { source: 'persistent' as const, sequence: persistent.sequence } : undefined,
+  ].filter((head): head is NonNullable<typeof head> => head !== undefined);
+  heads.sort((left, right) => left.sequence - right.sequence);
+
+  const oldest = heads[0];
+  let queued: SequencedQueuedAgentInstruction | undefined;
+  if (oldest?.source === 'pending') {
+    const value = host.pendingInkInstructions.shift();
+    if (value !== undefined) queued = unpackQueuedAgentInstruction(value);
+  } else if (oldest?.source === 'ink') {
+    const value = host.inkRenderer.dequeueQueuedInstruction();
+    if (value) queued = { ...value };
+  } else if (oldest?.source === 'persistent') {
+    const value = host.persistentInput.dequeue();
+    if (value) queued = { text: value.text, sequence: value.sequence };
+  } else if (pending) {
+    // Compatibility for test/custom renderers that predate sequenced queue heads.
+    const value = host.pendingInkInstructions.shift();
+    if (value !== undefined) queued = unpackQueuedAgentInstruction(value);
+  } else if (host.inkRenderer?.hasQueuedInstructions?.()) {
+    const text = host.inkRenderer.dequeueInstruction();
+    if (text) queued = createQueuedAgentInstruction({ text });
+  } else if (host.persistentInput?.hasQueued?.()) {
+    const value = host.persistentInput.dequeue();
+    if (value) {
+      queued = typeof value.sequence === 'number'
+        ? { text: value.text, sequence: value.sequence }
+        : createQueuedAgentInstruction({ text: value.text });
+    }
+  }
+
+  return queued
+    ? { queued, remaining: totalQueuedWorkCount(host) }
+    : undefined;
+}
+
+async function completeQueuedMobileComposerCommand(
+  mobileCommand: QueuedMobileComposerCommand,
+  outcome: Parameters<QueuedMobileComposerCommand['completion']>[0],
+): Promise<void> {
+  try {
+    await mobileCommand.completion(outcome);
+  } catch {
+    // The relay completion callback is best-effort and must not break the CLI loop.
+  }
+}
+
+async function executeQueuedMobileComposerCommand(
+  host: AgentLifecycleHost,
+  mobileCommand: QueuedMobileComposerCommand,
+): Promise<void> {
+  try {
+    await host.ensureInitComplete();
+    host.flushMcpStartupSummaryIfPending();
+
+    const decision = await validateMobileCommandInvocationForWorkspace(
+      mobileCommand.command,
+      mobileCommand.args,
+      host.runtime.workspaceRoot,
+    );
+    if (!decision.allowed) {
+      await completeQueuedMobileComposerCommand(mobileCommand, {
+        status: 'rejected',
+        message: decision.reason,
+      });
+      return;
+    }
+
+    const handled = await host.handleSlashCommand(
+      mobileCommand.command,
+      [...mobileCommand.args],
+    );
+    await completeQueuedMobileComposerCommand(mobileCommand, {
+      status: 'completed',
+      message: typeof handled === 'string' && handled.trim()
+        ? handled
+        : `Command ${mobileCommand.command} completed.`,
+    });
+  } catch (error) {
+    await completeQueuedMobileComposerCommand(mobileCommand, {
+      status: 'failed',
+      message: error instanceof Error ? error.message : 'Command execution failed.',
+    });
+  }
+}
+
 export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise<void> {
     // Initialize Ink UI early so the composer is ready before the first idle check.
     // This ensures consistent UI from startup instead of falling back to readline
@@ -933,6 +1394,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         let instruction: string | null = null;
         let postTurnAction: PendingPostTurnAction | undefined;
         let mobileTurn: MobileClaimedTurnContext | undefined;
+        let mobileCommand: QueuedMobileComposerCommand | undefined;
 
         // Check shouldExit again before processing any queued items
         if (host.shouldExit) {
@@ -940,48 +1402,22 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
           return;
         }
 
-        if (host.pendingInkInstructions.length > 0) {
-          const pending = host.pendingInkInstructions.shift();
-          if (pending) {
-            const queued = unpackQueuedAgentInstruction(pending);
-            instruction = queued.text;
-            postTurnAction = queued.postTurnAction;
-            mobileTurn = queued.mobileTurn;
-          }
+        const nextQueuedWork = dequeueOldestQueuedWork(host);
+        if (nextQueuedWork) {
+          instruction = nextQueuedWork.queued.text ?? null;
+          postTurnAction = nextQueuedWork.queued.postTurnAction;
+          mobileTurn = nextQueuedWork.queued.mobileTurn;
+          mobileCommand = nextQueuedWork.queued.mobileCommand;
           if (instruction) {
             if (host.runtime.spinner?.isSpinning) {
               host.runtime.spinner.stop();
               host.lastRenderedStatus = '';
             }
-            const remaining = host.pendingInkInstructions.length;
-            host.logQueuedProcessingMessage(instruction, remaining);
-          }
-        } else if (host.inkRenderer?.hasQueuedInstructions()) {
-          instruction = host.inkRenderer.dequeueInstruction() ?? null;
-          if (instruction) {
-            if (host.runtime.spinner?.isSpinning) {
-              host.runtime.spinner.stop();
-              host.lastRenderedStatus = '';
-            }
-            const remaining = host.inkRenderer.getQueueCount();
-            host.logQueuedProcessingMessage(instruction, remaining);
-          }
-        } else if (host.persistentInput.hasQueued()) {
-          const queued = host.persistentInput.dequeue();
-          if (queued) {
-            instruction = queued.text;
-            if (host.runtime.spinner?.isSpinning) {
-              host.runtime.spinner.stop();
-              host.lastRenderedStatus = '';
-            }
-            const remaining = host.persistentInput.hasQueued()
-              ? host.persistentInput.getQueueLength()
-              : 0;
-            host.logQueuedProcessingMessage(instruction, remaining);
+            host.logQueuedProcessingMessage(instruction, nextQueuedWork.remaining);
           }
         }
 
-        if (!instruction) {
+        if (!instruction && !mobileCommand) {
           if (host.persistentInputActiveTurn) {
             host.promptSeedInput = host.persistentInput.getCurrentInput();
             host.persistentInput.stop();
@@ -1010,25 +1446,25 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
             });
             writeAutohandDebugLine('[DEBUG] Resolver resolved', host.writeDebugLine?.bind(host));
 
-            // The instruction is now queued — dequeue it.
-            if (host.inkRenderer?.hasQueuedInstructions()) {
-              instruction = host.inkRenderer.dequeueInstruction() ?? null;
-              writeAutohandDebugLine(`[DEBUG] Dequeued instruction: ${instruction}`, host.writeDebugLine?.bind(host));
-            }
-            // If we still don't have an instruction (race condition), loop
-            // around and try again.
-            if (!instruction) {
-              writeAutohandDebugLine('[DEBUG] No instruction after resolver, continuing', host.writeDebugLine?.bind(host));
-              continue;
-            }
+            // Restart through the sequenced head arbiter. This prevents a
+            // submission from another source after wakeup from overtaking the
+            // item that originally resolved the wait.
+            continue;
           } else {
             // Ink is not running — drain any stale queued instructions and
             // fall back to readline.
             writeAutohandDebugLine('[DEBUG] Ink not running, falling back to readline', host.writeDebugLine?.bind(host));
             if (host.inkRenderer) {
               while (host.inkRenderer.hasQueuedInstructions()) {
-                const qi = host.inkRenderer.dequeueInstruction();
-                if (qi) host.pendingInkInstructions.push(qi);
+                const qi = host.inkRenderer.dequeueQueuedInstruction?.();
+                if (qi) {
+                  host.pendingInkInstructions.push(qi);
+                  continue;
+                }
+                const text = host.inkRenderer.dequeueInstruction();
+                if (text) {
+                  host.pendingInkInstructions.push(createQueuedAgentInstruction({ text }));
+                }
               }
               writeAutohandDebugLine('[DEBUG] Stopping inkRenderer in fallback path', host.writeDebugLine?.bind(host));
               host.inkRenderer.stop();
@@ -1040,6 +1476,15 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
             instruction = await host.promptForInstruction();
             writeAutohandDebugLine(`[DEBUG] promptForInstruction returned: ${instruction}`, host.writeDebugLine?.bind(host));
           }
+        }
+
+        if (!instruction && !mobileCommand) {
+          continue;
+        }
+
+        if (mobileCommand) {
+          await executeQueuedMobileComposerCommand(host, mobileCommand);
+          continue;
         }
 
         if (!instruction) {

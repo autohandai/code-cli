@@ -21,6 +21,8 @@ interface InkRendererInterface {
   setThinking(thought: string | null): void;
   addUserMessage(message: string): void;
   addQueuedInstruction(instruction: string): void;
+  peekQueuedInstruction(): Readonly<{ text: string; sequence: number }> | undefined;
+  dequeueQueuedInstruction(): { text: string; sequence: number } | undefined;
   dequeueInstruction(): string | undefined;
   hasQueuedInstructions(): boolean;
   getQueueCount(): number;

@@ -25,6 +25,8 @@ import type {
 } from '../mobile/MobileHandoffClient.js';
 import type {
   MobileClaimedTurnContext,
+  MobileComposerCommandAvailability,
+  MobileComposerCommandDispatcher,
   MobilePermissionModeChange,
   MobileRelayController,
 } from '../mobile/MobileRelay.js';
@@ -127,6 +129,10 @@ export interface SlashCommandContext {
     enqueueInstruction?: (instruction: string) => void;
     /** Queue an instruction received from the mobile relay. */
     enqueueMobileInstruction?: (instruction: string, turn: MobileClaimedTurnContext) => void;
+    /** Queue a typed mobile composer command at the serialized CLI lifecycle boundary. */
+    dispatchMobileComposerCommand?: MobileComposerCommandDispatcher;
+    /** Report whether an allowlisted mobile command is enabled in the live CLI runtime. */
+    isMobileComposerCommandAvailable?: MobileComposerCommandAvailability;
     /** Queue a visible mobile instruction and hydrate its image attachments */
     enqueueInstructionWithImages?: (instruction: string, images: MobileImageAttachment[]) => void;
     /** Queue a mobile instruction and hydrate its image attachments. */
