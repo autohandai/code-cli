@@ -583,18 +583,17 @@ export function getComposerHelpLine(
   return formatLineSegments(defaultSegments, lineExtension);
 }
 
-export function renderComposerHelpLineContent(helpLine: string, providerDisplay: string) {
+export function renderComposerHelpLineContent(
+  helpLine: string,
+  providerDisplay: string,
+  formatProductName: (productName: string) => string,
+): string {
   const productName = 'autohand';
   if (!providerDisplay || !helpLine.startsWith(providerDisplay)) {
     return helpLine;
   }
 
-  return (
-    <>
-      <Text bold>{productName}</Text>
-      {helpLine.slice(productName.length)}
-    </>
-  );
+  return `${formatProductName(productName)}${helpLine.slice(productName.length)}`;
 }
 
 function formatContextTokenDisplay(contextTokens: ContextTokenDisplay): string {
@@ -2417,7 +2416,7 @@ const HelpLineSection = memo(function HelpLineSection({
   model,
   lineExtension,
 }: HelpLineSectionProps) {
-  const { colors } = useTheme();
+  const { colors, theme } = useTheme();
   const { t } = useTranslation();
 
   // Format context usage.
@@ -2442,7 +2441,7 @@ const HelpLineSection = memo(function HelpLineSection({
   return (
     <Box>
       <Text color={colors.dim}>
-        {renderComposerHelpLineContent(helpLine, providerDisplay)}
+        {renderComposerHelpLineContent(helpLine, providerDisplay, (text) => theme.bold(text))}
       </Text>
     </Box>
   );

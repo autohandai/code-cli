@@ -404,17 +404,19 @@ describe('MobileRelay event bridge', () => {
     await vi.advanceTimersByTimeAsync(2_000);
 
     expect(dispatchComposerCommand).not.toHaveBeenCalled();
-    expect(published).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        eventType: 'composer_command_result',
-        requestId: 'composer-command-disabled-goal',
-        payload: expect.objectContaining({
-          command: '/goal',
-          status: 'rejected',
-          message: expect.stringContaining('not enabled'),
+    await vi.waitFor(() => {
+      expect(published).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          eventType: 'composer_command_result',
+          requestId: 'composer-command-disabled-goal',
+          payload: expect.objectContaining({
+            command: '/goal',
+            status: 'rejected',
+            message: expect.stringContaining('not enabled'),
+          }),
         }),
-      }),
-    ]));
+      ]));
+    });
   });
 
   it('publishes sanitized correlated command results and ignores completion after disposal', async () => {
