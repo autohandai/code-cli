@@ -65,6 +65,7 @@ const DEFAULT_COMMANDS: SlashCommand[] = [
   { command: '/init', description: 'init agents', implemented: true },
   { command: '/about', description: 'about', implemented: true },
   { command: '/ide', description: 'connect ide', implemented: true },
+  { command: '/plan', description: 'plan mode', implemented: true },
   { command: '/squad', description: 'open squad', implemented: true },
   { command: '/usage', description: 'show usage', implemented: true },
 ];
@@ -89,6 +90,20 @@ describe('SlashCommandHandler', () => {
       origin: 'user',
       outcome: 'succeeded',
     });
+  });
+
+  it('returns the real /plan status text to non-console callers', async () => {
+    const ctx = {
+      ...createContext(),
+      getInteractionMode: () => 'plan' as const,
+    };
+    const handler = new SlashCommandHandler(ctx, DEFAULT_COMMANDS);
+
+    const result = await handler.handle('/plan', ['status']);
+
+    expect(result).toContain('Plan Mode Status');
+    expect(result).toContain('Status:    ENABLED');
+    expect(result).toContain('No plan created yet.');
   });
 
   it('records extension slash-command outcomes without persisting arguments', async () => {

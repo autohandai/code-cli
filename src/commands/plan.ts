@@ -15,6 +15,11 @@ export const metadata = {
   command: '/plan',
   description: 'plan and break down a complex task',
   implemented: true,
+  subcommands: [
+    { name: 'on', description: 'Enable plan mode' },
+    { name: 'off', description: 'Disable plan mode' },
+    { name: 'status', description: 'Show current plan mode status' },
+  ],
 };
 
 // Singleton PlanModeManager instance
@@ -93,7 +98,7 @@ export async function plan(ctx: SlashCommandContext, args?: string, opts?: PlanO
       return null;
 
     case 'status':
-      return showPlanStatus(manager, out);
+      return showPlanStatus(manager, isEnabled(), out);
 
     case '':
     case undefined:
@@ -126,8 +131,11 @@ Keyboard shortcut:
 /**
  * Show current plan mode status
  */
-function showPlanStatus(manager: PlanModeManager, out: (message: string) => void = console.log): string | null {
-  const enabled = manager.isEnabled();
+function showPlanStatus(
+  manager: PlanModeManager,
+  enabled: boolean,
+  out: (message: string) => void = console.log
+): string | null {
   const phase = manager.getPhase();
   const plan = manager.getPlan();
   const indicator = manager.getPromptIndicator();

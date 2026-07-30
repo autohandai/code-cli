@@ -24,10 +24,12 @@ import { safeSetRawMode } from './rawMode.js';
 import { getPrimaryShellCommandSuggestion, isImmediateCommand } from './shellCommand.js';
 import { getPlanModeManager } from '../commands/plan.js';
 import type { InteractionMode } from '../core/agent/InteractionModeController.js';
+import { nextQueuedWorkSequence } from '../utils/queuedWorkSequence.js';
 
 export interface QueuedMessage {
   text: string;
   timestamp: number;
+  sequence: number;
 }
 
 export interface PersistentInputOptions {
@@ -401,6 +403,11 @@ export class PersistentInput extends EventEmitter {
     return this.queue.length;
   }
 
+  /** Inspect the oldest queued message without mutating the fallback composer queue. */
+  peek(): Readonly<QueuedMessage> | undefined {
+    return this.queue[0];
+  }
+
   /**
    * Get the next queued message
    */
@@ -748,7 +755,8 @@ export class PersistentInput extends EventEmitter {
 
     this.queue.push({
       text,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      sequence: nextQueuedWorkSequence(),
     });
 
     // Queue changed: keep queue-browser selection stable and in range.

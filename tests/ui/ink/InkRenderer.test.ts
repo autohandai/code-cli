@@ -18,9 +18,17 @@ describe('InkRenderer live command blocks', () => {
     renderer.addQueuedInstruction('first');
     renderer.addQueuedInstruction('second');
     renderer.addQueuedInstruction('third');
+    const originalSequence = renderer.dequeueQueuedInstruction()?.sequence;
+    renderer.addQueuedInstruction('first');
 
-    expect(renderer.replaceQueuedInstruction(1, 'updated second')).toBe(true);
-    expect(renderer.getState().queuedInstructions).toEqual(['first', 'updated second', 'third']);
+    const sequenceBeforeReplacement = renderer.peekQueuedInstruction()?.sequence;
+    expect(sequenceBeforeReplacement).toBeGreaterThan(originalSequence ?? 0);
+    expect(renderer.replaceQueuedInstruction(0, 'updated second')).toBe(true);
+    expect(renderer.peekQueuedInstruction()).toEqual({
+      text: 'updated second',
+      sequence: sequenceBeforeReplacement,
+    });
+    expect(renderer.getState().queuedInstructions).toEqual(['updated second', 'third', 'first']);
   });
 
   it('removes a queued instruction and preserves FIFO order for the rest', () => {

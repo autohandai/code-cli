@@ -33,6 +33,8 @@ import {
 import {
   startMobileRelay,
   type MobileClaimedTurnContext,
+  type MobileComposerCommandAvailability,
+  type MobileComposerCommandDispatcher,
   type MobilePermissionModeChange,
   type MobileRelayController,
 } from '../mobile/MobileRelay.js';
@@ -60,6 +62,8 @@ interface GoContext {
   client?: MobileHandoffClientLike;
   enqueueInstruction?: (instruction: string) => void;
   enqueueMobileInstruction?: (instruction: string, turn: MobileClaimedTurnContext) => void;
+  dispatchMobileComposerCommand?: MobileComposerCommandDispatcher;
+  isMobileComposerCommandAvailable?: MobileComposerCommandAvailability;
   enqueueInstructionWithImages?: (instruction: string, images: MobileImageAttachment[]) => void;
   enqueueMobileInstructionWithImages?: (
     instruction: string,
@@ -250,6 +254,8 @@ export async function go(ctx: GoContext, args: string[] = []): Promise<string | 
         keepAwakeByDefault: true,
         enqueueInstruction: ctx.enqueueMobileInstruction ?? ctx.enqueueInstruction,
         enqueueInstructionWithImages: ctx.enqueueMobileInstructionWithImages ?? ctx.enqueueInstructionWithImages,
+        dispatchComposerCommand: ctx.dispatchMobileComposerCommand,
+        isComposerCommandAvailable: ctx.isMobileComposerCommandAvailable,
         onMobileConnected: ctx.onMobileConnected,
         onMobileDisconnected: ctx.onMobileDisconnected,
         applyPermissionMode: ctx.applyPermissionMode,

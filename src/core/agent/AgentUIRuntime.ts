@@ -24,6 +24,7 @@ import {
   mergeLineExtensions,
   type LineExtension,
 } from '../../ui/ink/StatusLine.js';
+import { createQueuedAgentInstruction } from './PostTurnActionCoordinator.js';
 
 export interface AgentUIRuntimeHost {
   [key: string]: any;
@@ -418,9 +419,14 @@ export function cleanupAgentUI(host: AgentUIRuntimeHost, keepInkAlive = false): 
       } else {
         // Preserve queued instructions before stopping
         while (host.inkRenderer.hasQueuedInstructions()) {
+          const queued = host.inkRenderer.dequeueQueuedInstruction?.();
+          if (queued) {
+            host.pendingInkInstructions.push(queued);
+            continue;
+          }
           const instruction = host.inkRenderer.dequeueInstruction();
           if (instruction) {
-            host.pendingInkInstructions.push(instruction);
+            host.pendingInkInstructions.push(createQueuedAgentInstruction({ text: instruction }));
           }
         }
         writeAutohandDebugLine('[DEBUG] cleanupUI: stopping inkRenderer', host.writeDebugLine?.bind(host));

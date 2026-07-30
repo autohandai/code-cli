@@ -9,6 +9,7 @@ import {
   configureMobileRelayController,
   enqueueClaimedMobileInstruction,
   enqueueInteractiveInstruction,
+  enqueueMobileComposerCommand,
 } from '../../src/core/agent/AgentDependencyComposer.js';
 import type {
   MobileModelChangeHandler,
@@ -52,10 +53,13 @@ describe('enqueueInteractiveInstruction', () => {
     enqueueClaimedMobileInstruction(host, 'mobile prompt', mobileTurn);
 
     expect(addQueuedInstruction).not.toHaveBeenCalled();
-    expect(host.pendingInkInstructions).toEqual([{
-      text: 'mobile prompt',
-      mobileTurn,
-    }]);
+    expect(host.pendingInkInstructions).toEqual([
+      expect.objectContaining({
+        text: 'mobile prompt',
+        mobileTurn,
+        sequence: expect.any(Number),
+      }),
+    ]);
     expect(resolver).toHaveBeenCalledOnce();
     expect(host.inkInstructionResolver).toBeNull();
   });
@@ -74,6 +78,33 @@ describe('enqueueInteractiveInstruction', () => {
     expect(host.inkInstructionResolver).toBeNull();
   });
 
+  it('keeps typed mobile commands FIFO and wakes the serialized lifecycle loop', () => {
+    const resolver = vi.fn();
+    const completion = vi.fn();
+    const args = ['writer', 'rough goal'];
+    const host = {
+      inkInstructionResolver: resolver,
+      pendingInkInstructions: ['already queued'] as unknown[],
+    };
+
+    enqueueMobileComposerCommand(host, '/goal', args, completion);
+    args[1] = 'mutated after enqueue';
+
+    expect(host.pendingInkInstructions).toEqual([
+      'already queued',
+      expect.objectContaining({
+        sequence: expect.any(Number),
+        mobileCommand: {
+          command: '/goal',
+          args: ['writer', 'rough goal'],
+          completion,
+        },
+      }),
+    ]);
+    expect(resolver).toHaveBeenCalledOnce();
+    expect(host.inkInstructionResolver).toBeNull();
+  });
+
   it('falls back to the pending queue when Ink is unavailable', () => {
     const host = {
       inkRenderer: null,
@@ -83,7 +114,12 @@ describe('enqueueInteractiveInstruction', () => {
 
     enqueueInteractiveInstruction(host, 'pending prompt');
 
-    expect(host.pendingInkInstructions).toEqual(['pending prompt']);
+    expect(host.pendingInkInstructions).toEqual([
+      expect.objectContaining({
+        text: 'pending prompt',
+        sequence: expect.any(Number),
+      }),
+    ]);
   });
 });
 

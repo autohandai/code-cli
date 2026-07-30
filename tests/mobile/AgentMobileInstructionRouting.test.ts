@@ -8,6 +8,12 @@ import {
   runAgentInteractiveLoop,
   type AgentLifecycleHost,
 } from '../../src/core/agent/AgentLifecycleRunner.js';
+import {
+  enqueueInteractiveInstruction,
+  enqueueMobileComposerCommand,
+} from '../../src/core/agent/AgentDependencyComposer.js';
+import { InkRenderer } from '../../src/ui/ink/InkRenderer.js';
+import { PersistentInput } from '../../src/ui/persistentInput.js';
 
 const mobileTurn = {
   turn: {
@@ -69,6 +75,7 @@ function createInteractiveHost(pendingInkInstructions: unknown[]): AgentLifecycl
       notify: vi.fn(async () => {}),
     },
     closeSession: vi.fn(async () => {}),
+    setComposerIdle: vi.fn(),
     lastErrorMessage: null,
     consecutiveErrorCount: 0,
   } as unknown as AgentLifecycleHost;
@@ -77,6 +84,167 @@ function createInteractiveHost(pendingInkInstructions: unknown[]): AgentLifecycl
 }
 
 describe('mobile instruction routing', () => {
+  it('executes a typed mobile command through the canonical slash handler only', async () => {
+    const completion = vi.fn();
+    const host = createInteractiveHost([{
+      mobileCommand: {
+        command: '/plan',
+        args: ['status'],
+        completion: (outcome: unknown) => {
+          completion(outcome);
+          host.shouldExit = true;
+        },
+      },
+    }]);
+    host.handleSlashCommand = vi.fn(async () => 'Plan mode is enabled.');
+    host.runSlashCommandWithInput = vi.fn(async () => null);
+
+    await runAgentInteractiveLoop(host);
+
+    expect(host.ensureInitComplete).toHaveBeenCalledOnce();
+    expect(host.handleSlashCommand).toHaveBeenCalledWith('/plan', ['status']);
+    expect(host.runSlashCommandWithInput).not.toHaveBeenCalled();
+    expect(host.runInstruction).not.toHaveBeenCalled();
+    expect(completion).toHaveBeenCalledWith({
+      status: 'completed',
+      message: 'Plan mode is enabled.',
+    });
+  });
+
+  it('keeps a typed command FIFO and runs its hidden follow-up instruction next', async () => {
+    const order: string[] = [];
+    const completion = vi.fn(() => order.push('command:completed'));
+    const host = createInteractiveHost([
+      'busy turn',
+      {
+        mobileCommand: {
+          command: '/deep-research',
+          args: ['status'],
+          completion,
+        },
+      },
+    ]);
+    host.runSlashCommandWithInput = vi.fn(async () => null);
+    host.runInstruction = vi.fn(async (instruction: string) => {
+      order.push(`instruction:${instruction}`);
+      if (instruction === 'hidden research follow-up') host.shouldExit = true;
+      return true;
+    });
+    host.handleSlashCommand = vi.fn(async (command: string) => {
+      order.push(`command:${command}`);
+      enqueueInteractiveInstruction(host, 'hidden research follow-up');
+      return null;
+    });
+
+    await runAgentInteractiveLoop(host);
+
+    expect(order).toEqual([
+      'instruction:busy turn',
+      'command:/deep-research',
+      'command:completed',
+      'instruction:hidden research follow-up',
+    ]);
+    expect(host.handleSlashCommand).toHaveBeenCalledWith('/deep-research', ['status']);
+    expect(host.runSlashCommandWithInput).not.toHaveBeenCalled();
+  });
+
+  it('runs an older real Ink prompt before a later mobile command', async () => {
+    const order: string[] = [];
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+    renderer.addQueuedInstruction('older Ink prompt');
+    const host = createInteractiveHost([]);
+    host.inkRenderer = renderer;
+    host.runInstruction = vi.fn(async (instruction: string) => {
+      order.push(`instruction:${instruction}`);
+      return true;
+    });
+    host.handleSlashCommand = vi.fn(async (command: string) => {
+      order.push(`command:${command}`);
+      return 'Plan mode is disabled.';
+    });
+    enqueueMobileComposerCommand(host, '/plan', ['status'], () => {
+      order.push('command:completed');
+      host.shouldExit = true;
+    });
+
+    await runAgentInteractiveLoop(host);
+
+    expect(order).toEqual([
+      'instruction:older Ink prompt',
+      'command:/plan',
+      'command:completed',
+    ]);
+  });
+
+  it('does not let a later Ink prompt overtake the mobile command that woke the idle loop', async () => {
+    const order: string[] = [];
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+    vi.spyOn(renderer, 'isRunning').mockReturnValue(true);
+    const host = createInteractiveHost([]);
+    host.inkRenderer = renderer;
+    host.handleSlashCommand = vi.fn(async (command: string) => {
+      order.push(`command:${command}`);
+      return 'Plan mode is disabled.';
+    });
+    host.runInstruction = vi.fn(async (instruction: string) => {
+      order.push(`instruction:${instruction}`);
+      host.shouldExit = true;
+      return true;
+    });
+
+    const loop = runAgentInteractiveLoop(host);
+    await vi.waitFor(() => expect(host.inkInstructionResolver).toEqual(expect.any(Function)));
+
+    enqueueMobileComposerCommand(host, '/plan', ['status'], () => {
+      order.push('command:completed');
+    });
+    renderer.addQueuedInstruction('later Ink prompt');
+
+    await loop;
+
+    expect(order).toEqual([
+      'command:/plan',
+      'command:completed',
+      'instruction:later Ink prompt',
+    ]);
+  });
+
+  it('runs an older real persistent-input prompt before a later mobile command', async () => {
+    const order: string[] = [];
+    const persistentInput = new PersistentInput({ silentMode: true });
+    persistentInput.enqueue('older persistent prompt');
+    const host = createInteractiveHost([]);
+    host.persistentInput = persistentInput;
+    host.runInstruction = vi.fn(async (instruction: string) => {
+      order.push(`instruction:${instruction}`);
+      return true;
+    });
+    host.handleSlashCommand = vi.fn(async (command: string) => {
+      order.push(`command:${command}`);
+      return 'Plan mode is disabled.';
+    });
+    enqueueMobileComposerCommand(host, '/plan', ['status'], () => {
+      order.push('command:completed');
+      host.shouldExit = true;
+    });
+
+    await runAgentInteractiveLoop(host);
+
+    expect(order).toEqual([
+      'instruction:older persistent prompt',
+      'command:/plan',
+      'command:completed',
+    ]);
+  });
+
   it('preserves the claimed turn when a local prompt runs first', async () => {
     const host = createInteractiveHost([
       'local prompt',

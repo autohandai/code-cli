@@ -88,6 +88,7 @@ describe('MobileTerminalReporter', () => {
 
     await firstReporter.report({
       workId: 'work-1',
+      agentSessionId: 'agent-session-fresh-1',
       status: 'failed',
       startedAt: '2026-07-23T01:00:00.000Z',
       completedAt: '2026-07-23T01:01:00.000Z',
@@ -102,6 +103,7 @@ describe('MobileTerminalReporter', () => {
     expect(reportPath).not.toContain('account-sensitive');
     const persisted = await fs.readFile(reportPath!, 'utf8');
     expect(persisted).toContain('work-1');
+    expect(persisted).toContain('agent-session-fresh-1');
     expect(persisted).not.toMatch(/auth-token-sensitive|account-sensitive|prompt-sensitive|output-sensitive|terminal-error-sensitive|raw-error-sensitive/);
     expect((await fs.stat(reportPath!)).mode & 0o777).toBe(0o600);
     expect((await fs.stat(path.dirname(reportPath!))).mode & 0o777).toBe(0o700);
@@ -127,7 +129,11 @@ describe('MobileTerminalReporter', () => {
     expect(recoveredClient.updateWork).toHaveBeenCalledWith('fresh-auth-token-sensitive', 'device-1', 'work-1', {
       status: 'failed',
       completedAt: '2026-07-23T01:01:00.000Z',
-      payload: { deliveryState: 'failed', executionState: 'failed' },
+      payload: {
+        agentSessionId: 'agent-session-fresh-1',
+        deliveryState: 'failed',
+        executionState: 'failed',
+      },
     });
     expect(recoveredClient.publishMobileEvent).toHaveBeenCalledWith('fresh-auth-token-sensitive', {
       sessionId: 'session-1',
@@ -137,6 +143,7 @@ describe('MobileTerminalReporter', () => {
       eventType: 'session_turn_state',
       payload: {
         workId: 'work-1',
+        agentSessionId: 'agent-session-fresh-1',
         status: 'failed',
         startedAt: '2026-07-23T01:00:00.000Z',
         completedAt: '2026-07-23T01:01:00.000Z',

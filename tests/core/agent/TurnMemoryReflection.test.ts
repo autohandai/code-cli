@@ -206,4 +206,41 @@ describe('turn memory reflection', () => {
     expect(secondRequest.messages[0].content).toContain('Turn outcome: failed');
     expect(secondRequest.messages).toContainEqual({ role: 'user', content: 'second turn' });
   });
+
+  it('cancels in-flight and queued reflections before a fresh session reset', async () => {
+    const { agent, llm, memoryManager, conversation } = createAgentHarness();
+    let releaseResponse: (() => void) | undefined;
+    llm.complete.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => {
+        releaseResponse = resolve;
+      });
+      return {
+        id: 'resp-held',
+        created: Date.now(),
+        content: JSON.stringify([
+          {
+            content: 'This old-session memory must not enter the fresh conversation.',
+            level: 'user',
+            tags: ['stale'],
+          },
+        ]),
+        raw: {},
+      };
+    });
+
+    agent.scheduleTurnMemoryReflection({ status: 'succeeded' });
+    agent.scheduleTurnMemoryReflection({ status: 'succeeded' });
+    const reflection = agent.turnMemoryReflectionInFlight as Promise<void>;
+    expect(agent.turnMemoryReflectionQueue).toHaveLength(1);
+
+    agent.cancelPendingTurnMemoryReflections();
+    expect(agent.turnMemoryReflectionQueue).toEqual([]);
+
+    releaseResponse?.();
+    await reflection;
+
+    expect(memoryManager.store).not.toHaveBeenCalled();
+    expect(conversation.addSystemNote).not.toHaveBeenCalled();
+    expect(llm.complete).toHaveBeenCalledOnce();
+  });
 });

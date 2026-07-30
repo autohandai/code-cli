@@ -40,6 +40,14 @@ describe('/plan command', () => {
     it('has a description', () => {
       expect(metadata.description).toBeTruthy();
     });
+
+    it('advertises only the supported mobile-safe subcommands', () => {
+      expect(metadata.subcommands).toEqual([
+        { name: 'on', description: 'Enable plan mode' },
+        { name: 'off', description: 'Disable plan mode' },
+        { name: 'status', description: 'Show current plan mode status' },
+      ]);
+    });
   });
 
   describe('toggle behavior', () => {
@@ -130,6 +138,17 @@ describe('/plan command', () => {
 
       expect(console.log).toHaveBeenCalled();
       expect(result).toBeNull();
+    });
+
+    it('reports the canonical interaction mode when the context provides it', async () => {
+      const output: string[] = [];
+      const ctx = {
+        getInteractionMode: () => 'plan' as const,
+      } as unknown as SlashCommandContext;
+
+      await plan(ctx, 'status', { output: (message) => output.push(stripAnsi(message)) });
+
+      expect(output).toContain('Status:    ENABLED');
     });
   });
 

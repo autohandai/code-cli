@@ -39,6 +39,10 @@ import {
 } from '../../core/agent/WorkspaceChangeCapture.js';
 import type { InteractionMode } from '../../core/agent/InteractionModeController.js';
 import type { LineExtension, LineSegment } from './StatusLine.js';
+import {
+  createSequencedQueuedWork,
+  type SequencedQueuedWork,
+} from '../../utils/queuedWorkSequence.js';
 
 export interface InkRendererOptions {
   onInstruction: (text: string) => void;
@@ -364,6 +368,7 @@ export class InkRenderer {
   private unpatchedStdout: (() => void) | null = null;
 
   private lastQueuedInstruction: { text: string; at: number } | null = null;
+  private queuedInstructionEntries: SequencedQueuedWork[] = [];
 
   constructor(options: InkRendererOptions) {
     this.options = options;
@@ -789,6 +794,7 @@ export class InkRenderer {
       interactionMode: this.options.getInteractionMode?.() ?? this.state.interactionMode,
       announcement: this.state.announcement,
     };
+    this.queuedInstructionEntries = [];
     this.state = newState;
     if (this.wrapperRef.current) {
       this.wrapperRef.current.updateState(newState);
@@ -1252,6 +1258,7 @@ export class InkRenderer {
     }
 
     this.lastQueuedInstruction = { text: instruction, at: now };
+    this.queuedInstructionEntries.push(createSequencedQueuedWork(instruction));
     this.updateState({
       queuedInstructions: [...this.state.queuedInstructions, instruction]
     });
@@ -1273,6 +1280,13 @@ export class InkRenderer {
 
     const queuedInstructions = [...this.state.queuedInstructions];
     queuedInstructions[index] = instruction;
+    const queuedEntry = this.queuedInstructionEntries[index];
+    if (queuedEntry) {
+      this.queuedInstructionEntries[index] = {
+        ...queuedEntry,
+        text: instruction,
+      };
+    }
     this.updateState({ queuedInstructions });
     return true;
   }
@@ -1286,6 +1300,7 @@ export class InkRenderer {
     }
 
     const queuedInstructions = this.state.queuedInstructions.filter((_, idx) => idx !== index);
+    this.queuedInstructionEntries = this.queuedInstructionEntries.filter((_, idx) => idx !== index);
     this.updateState({ queuedInstructions });
     return true;
   }
@@ -1294,10 +1309,19 @@ export class InkRenderer {
    * Remove and return the next queued instruction
    */
   dequeueInstruction(): string | undefined {
-    const [next, ...rest] = this.state.queuedInstructions;
-    if (next) {
-      this.updateState({ queuedInstructions: rest });
-    }
+    return this.dequeueQueuedInstruction()?.text;
+  }
+
+  /** Inspect the oldest queued instruction without mutating the editable UI queue. */
+  peekQueuedInstruction(): Readonly<SequencedQueuedWork> | undefined {
+    return this.queuedInstructionEntries[0];
+  }
+
+  /** Remove the oldest queued instruction while retaining its global FIFO ordinal. */
+  dequeueQueuedInstruction(): SequencedQueuedWork | undefined {
+    const next = this.queuedInstructionEntries.shift();
+    if (!next) return undefined;
+    this.updateState({ queuedInstructions: this.state.queuedInstructions.slice(1) });
     return next;
   }
 
@@ -1319,6 +1343,7 @@ export class InkRenderer {
    * Clear all queued instructions
    */
   clearQueue(): void {
+    this.queuedInstructionEntries = [];
     this.updateState({ queuedInstructions: [] });
   }
 
@@ -1355,6 +1380,7 @@ export class InkRenderer {
       interactionMode: this.options.getInteractionMode?.() ?? this.state.interactionMode,
       announcement: this.state.announcement,
     };
+    this.queuedInstructionEntries = [];
     this.state = newState;
 
     // Use React state update if wrapper is mounted

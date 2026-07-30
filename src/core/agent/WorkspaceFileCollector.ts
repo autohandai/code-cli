@@ -18,6 +18,105 @@ import type { GitIgnoreParser } from '../../utils/gitIgnore.js';
  */
 
 const WORKSPACE_FILES_CACHE_TTL = 30000; // 30 seconds
+const MAX_MOBILE_QUERY_RESULTS = 20;
+const MAX_MOBILE_QUERY_CANDIDATES = 50_000;
+const MAX_MOBILE_QUERY_TIMEOUT_MS = 2_000;
+const DEFAULT_MOBILE_QUERY_TIMEOUT_MS = 750;
+const SECRET_WORKSPACE_COMPONENTS = new Set([
+  '.aws',
+  '.azure',
+  '.git',
+  '.gnupg',
+  '.netrc',
+  '.npmrc',
+  '.pypirc',
+  '.secrets',
+  '.ssh',
+  'credentials',
+  'id_dsa',
+  'id_ed25519',
+  'id_ecdsa',
+  'id_rsa',
+  'secrets',
+]);
+const SECRET_WORKSPACE_EXTENSIONS = ['.key', '.p12', '.pfx', '.pem'];
+
+export interface MobileWorkspaceFileDescriptor {
+  relativePath: string;
+}
+
+export interface MobileWorkspaceFileQueryResult {
+  query: string;
+  files: MobileWorkspaceFileDescriptor[];
+  truncated: boolean;
+}
+
+export interface MobileWorkspaceFileQueryOptions {
+  limit?: number;
+  timeoutMs?: number;
+}
+
+export function isSafeMobileWorkspaceRelativePath(value: string): boolean {
+  if (
+    value.length === 0
+    || value.length > 1_000
+    || value !== value.trim()
+    || value.startsWith('/')
+    || value.startsWith('~')
+    || value.includes('\\')
+    || value.includes('\0')
+    || /[\r\n]/.test(value)
+    || /^[A-Za-z]:/.test(value)
+  ) {
+    return false;
+  }
+
+  const components = value.split('/');
+  if (
+    components.some((component) => !component || component === '.' || component === '..')
+  ) {
+    return false;
+  }
+
+  return !components.some((component) => {
+    const normalized = component.toLowerCase();
+    return normalized === '.env'
+      || normalized.startsWith('.env.')
+      || normalized === 'credentials'
+      || normalized.startsWith('credentials.')
+      || normalized === 'secrets'
+      || normalized.startsWith('secrets.')
+      || SECRET_WORKSPACE_COMPONENTS.has(normalized)
+      || SECRET_WORKSPACE_EXTENSIONS.some((extension) => normalized.endsWith(extension));
+  });
+}
+
+function mobileFileRank(relativePath: string, query: string): number | null {
+  if (!query) return 0;
+  const normalizedPath = relativePath.toLowerCase();
+  const normalizedFilename = path.posix.basename(normalizedPath);
+  if (normalizedFilename === query) return 0;
+  if (normalizedFilename.startsWith(query)) return 1;
+  if (normalizedFilename.includes(query)) return 2;
+  if (normalizedPath.startsWith(query)) return 3;
+  if (normalizedPath.includes(query)) return 4;
+  return null;
+}
+
+function mobileFileBefore(
+  left: { relativePath: string; rank: number },
+  right: { relativePath: string; rank: number },
+): number {
+  if (left.rank !== right.rank) return left.rank - right.rank;
+  const leftFilename = path.posix.basename(left.relativePath);
+  const rightFilename = path.posix.basename(right.relativePath);
+  if (leftFilename.length !== rightFilename.length) {
+    return leftFilename.length - rightFilename.length;
+  }
+  if (left.relativePath < right.relativePath) return -1;
+  if (left.relativePath > right.relativePath) return 1;
+  return 0;
+}
 
 export class WorkspaceFileCollector {
   private workspaceFiles: string[] = [];
@@ -58,10 +157,14 @@ export class WorkspaceFileCollector {
    * Collect all workspace files, using cache if fresh
    * Falls back to filesystem walk if git ls-files fails
    */
-  async collectWorkspaceFiles(): Promise<string[]> {
+  async collectWorkspaceFiles(forceRefresh = false): Promise<string[]> {
     // Use cached files if still fresh (avoid blocking git ls-files on every turn)
     const now = Date.now();
-    if (this.workspaceFiles.length > 0 && (now - this.workspaceFilesCachedAt) < WORKSPACE_FILES_CACHE_TTL) {
+    if (
+      !forceRefresh
+      && this.workspaceFiles.length > 0
+      && (now - this.workspaceFilesCachedAt) < WORKSPACE_FILES_CACHE_TTL
+    ) {
       return this.workspaceFiles;
     }
 
@@ -84,6 +187,101 @@ export class WorkspaceFileCollector {
     } catch {
       // Return cached files if available, otherwise empty array
       return this.workspaceFiles.length > 0 ? this.workspaceFiles : [];
+    }
+  }
+
+  async queryWorkspaceFiles(
+    query: string,
+    options: MobileWorkspaceFileQueryOptions = {},
+  ): Promise<MobileWorkspaceFileQueryResult> {
+    const limit = Math.min(
+      Math.max(Math.trunc(options.limit ?? 8), 1),
+      MAX_MOBILE_QUERY_RESULTS,
+    );
+    const timeoutMs = Math.min(
+      Math.max(Math.trunc(options.timeoutMs ?? DEFAULT_MOBILE_QUERY_TIMEOUT_MS), 1),
+      MAX_MOBILE_QUERY_TIMEOUT_MS,
+    );
+    if (
+      query.length > 200
+      || query.includes('\0')
+      || /[\r\n]/.test(query)
+    ) {
+      return { query, files: [], truncated: false };
+    }
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<MobileWorkspaceFileQueryResult>((resolve) => {
+      timer = setTimeout(() => {
+        resolve({ query, files: [], truncated: true });
+      }, timeoutMs);
+      timer.unref?.();
+    });
+
+    try {
+      return await Promise.race([
+        this.performMobileWorkspaceFileQuery(query, limit),
+        timeout,
+      ]);
+    } catch {
+      return { query, files: [], truncated: true };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  private async performMobileWorkspaceFileQuery(
+    query: string,
+    limit: number,
+  ): Promise<MobileWorkspaceFileQueryResult> {
+    const collectedFiles = await this.collectWorkspaceFiles(true);
+    const candidateLimitReached = collectedFiles.length > MAX_MOBILE_QUERY_CANDIDATES;
+    const normalizedQuery = query.trim().toLowerCase();
+    const ranked = collectedFiles
+      .slice(0, MAX_MOBILE_QUERY_CANDIDATES)
+      .map((file) => file.split(path.sep).join('/'))
+      .filter(isSafeMobileWorkspaceRelativePath)
+      .flatMap((relativePath) => {
+        const rank = mobileFileRank(relativePath, normalizedQuery);
+        return rank === null ? [] : [{ relativePath, rank }];
+      })
+      .sort(mobileFileBefore);
+
+    const workspaceRealPath = await fs.realpath(this.workspaceRoot);
+    const files: MobileWorkspaceFileDescriptor[] = [];
+    let truncated = candidateLimitReached;
+    for (const candidate of ranked) {
+      if (!await this.isContainedWorkspaceFile(workspaceRealPath, candidate.relativePath)) {
+        continue;
+      }
+      if (files.length >= limit) {
+        truncated = true;
+        break;
+      }
+      files.push({ relativePath: candidate.relativePath });
+    }
+
+    return { query, files, truncated };
+  }
+
+  private async isContainedWorkspaceFile(
+    workspaceRealPath: string,
+    relativePath: string,
+  ): Promise<boolean> {
+    try {
+      const candidateRealPath = await fs.realpath(path.resolve(this.workspaceRoot, relativePath));
+      const relativeRealPath = path.relative(workspaceRealPath, candidateRealPath);
+      if (
+        relativeRealPath === ''
+        || relativeRealPath === '..'
+        || relativeRealPath.startsWith(`..${path.sep}`)
+        || path.isAbsolute(relativeRealPath)
+      ) {
+        return false;
+      }
+      return (await fs.stat(candidateRealPath)).isFile();
+    } catch {
+      return false;
     }
   }
 
@@ -144,7 +342,10 @@ export class WorkspaceFileCollector {
         continue;
       }
       try {
-        const stats = await fs.stat(full);
+        const stats = await fs.lstat(full);
+        if (stats.isSymbolicLink()) {
+          continue;
+        }
         if (stats.isDirectory()) {
           await this.walkWorkspace(full, acc);
         } else if (stats.isFile()) {
