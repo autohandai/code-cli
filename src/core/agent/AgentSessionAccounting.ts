@@ -18,6 +18,7 @@ import { formatResumeHint, formatSessionEnding, formatSessionSaved } from '../..
 import type { ReactionParser } from './ReactionParser.js';
 import type { SessionUsageMetadata } from '../../session/types.js';
 import type { SessionSyncData } from '../../telemetry/types.js';
+import type { SessionDiffStats, SessionDiffStatsTracker } from '../SessionDiffStatsTracker.js';
 
 export interface AgentSessionAccountingHost {
   activeProvider: ProviderName;
@@ -61,6 +62,7 @@ export interface AgentSessionAccountingHost {
     closeSession(summary: string): Promise<void>;
   };
   sessionStartedAt: number;
+  sessionDiffStatsTracker?: Pick<SessionDiffStatsTracker, 'refresh' | 'getStats'>;
   sessionSyncInFlight?: boolean;
   sessionSyncPromise?: Promise<void>;
   sessionSyncTimer?: ReturnType<typeof setTimeout>;
@@ -181,7 +183,7 @@ function buildSessionSyncMetadata(
   host: AgentSessionAccountingHost,
   endTimeMs: number,
   session: SyncableSession,
-  options: { final?: boolean } = {}
+  options: { final?: boolean; diffStats?: SessionDiffStats } = {}
 ) {
   const sessionDuration = Math.max(0, endTimeMs - host.sessionStartedAt);
   const metadata = {
@@ -195,10 +197,25 @@ function buildSessionSyncMetadata(
     startTime: new Date(host.sessionStartedAt).toISOString(),
     durationSeconds: Math.round(sessionDuration / 1000),
     totalTokens: sessionTotalTokens(host, session),
+    ...(options.diffStats ? {
+      additions: options.diffStats.added,
+      deletions: options.diffStats.removed,
+    } : {}),
   };
   return options.final
     ? { ...metadata, endTime: new Date(endTimeMs).toISOString() }
     : metadata;
+}
+
+async function readSessionDiffStats(
+  tracker: AgentSessionAccountingHost['sessionDiffStatsTracker'],
+): Promise<SessionDiffStats | undefined> {
+  if (!tracker) return undefined;
+  try {
+    return await tracker.refresh();
+  } catch {
+    return tracker.getStats();
+  }
 }
 
 export function syncAgentSessionSnapshot(
@@ -214,11 +231,15 @@ export function syncAgentSessionSnapshot(
     if (!session) return;
 
     const endTimeMs = options.endTimeMs ?? Date.now();
+    const diffStats = await readSessionDiffStats(host.sessionDiffStatsTracker);
     host.sessionSyncInFlight = true;
     try {
       await host.telemetryManager.syncSession({
         messages: toSyncMessages(session.getMessages()),
-        metadata: buildSessionSyncMetadata(host, endTimeMs, session, { final: options.force }),
+        metadata: buildSessionSyncMetadata(host, endTimeMs, session, {
+          final: options.force,
+          diffStats,
+        }),
       });
     } finally {
       host.sessionSyncInFlight = false;

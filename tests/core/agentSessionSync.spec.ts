@@ -43,6 +43,10 @@ function createHost() {
       })),
     },
     sessionStartedAt: startedAt,
+    sessionDiffStatsTracker: {
+      refresh: vi.fn(async () => ({ added: 24, removed: 7 })),
+      getStats: vi.fn(() => ({ added: 24, removed: 7 })),
+    },
     telemetryManager: { syncSession },
     totalTokensUsed: 42,
   } as any;
@@ -91,6 +95,8 @@ describe('agent near-real-time session sync', () => {
         summary: 'Ship usage metrics',
         client: 'terminal',
         clientVersion: '0.8.2',
+        additions: 24,
+        deletions: 7,
         usage: expect.objectContaining({
           promptTokens: 18,
           completionTokens: 24,
@@ -151,8 +157,7 @@ describe('agent near-real-time session sync', () => {
       .mockResolvedValueOnce(undefined);
 
     await saveAgentUserMessage(host, 'first');
-    vi.advanceTimersByTime(5000);
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(5000);
     expect(syncSession).toHaveBeenCalledTimes(1);
 
     await saveAgentUserMessage(host, 'newer state');
