@@ -583,19 +583,6 @@ export function getComposerHelpLine(
   return formatLineSegments(defaultSegments, lineExtension);
 }
 
-export function renderComposerHelpLineContent(
-  helpLine: string,
-  providerDisplay: string,
-  formatProductName: (productName: string) => string,
-): string {
-  const productName = 'autohand';
-  if (!providerDisplay || !helpLine.startsWith(providerDisplay)) {
-    return helpLine;
-  }
-
-  return `${formatProductName(productName)}${helpLine.slice(productName.length)}`;
-}
-
 function formatContextTokenDisplay(contextTokens: ContextTokenDisplay): string {
   if (!Number.isFinite(contextTokens.total) || contextTokens.total <= 0) {
     return '';
@@ -2335,8 +2322,7 @@ const StatusSection = memo(function StatusSection({
 });
 
 /**
- * Input line wrapper - only re-renders when input props change
- * Separated from help line to prevent resize flicker
+ * Re-render with the footer so Ink receives fresh cursor intent for every repaint.
  */
 interface InputLineWrapperProps {
   isWorking: boolean;
@@ -2353,7 +2339,7 @@ interface InputLineWrapperProps {
   enableHardwareCursor?: boolean;
 }
 
-const InputLineWrapper = memo(function InputLineWrapper({
+function InputLineWrapper({
   isWorking,
   enableQueueInput,
   input,
@@ -2382,18 +2368,7 @@ const InputLineWrapper = memo(function InputLineWrapper({
       enableHardwareCursor={enableHardwareCursor}
     />
   );
-}, (prev, next) => {
-  return prev.isWorking === next.isWorking &&
-         prev.enableQueueInput === next.enableQueueInput &&
-         prev.input === next.input &&
-         prev.cursorOffset === next.cursorOffset &&
-         prev.inputWidth === next.inputWidth &&
-         prev.borderStyle === next.borderStyle &&
-         prev.placeholderText === next.placeholderText &&
-         prev.nextPromptSuggestion === next.nextPromptSuggestion &&
-         prev.inlineGhostSuffix === next.inlineGhostSuffix &&
-         prev.enableHardwareCursor === next.enableHardwareCursor;
-});
+}
 
 /**
  * Help line section - shows context info and command hints
@@ -2416,7 +2391,7 @@ const HelpLineSection = memo(function HelpLineSection({
   model,
   lineExtension,
 }: HelpLineSectionProps) {
-  const { colors, theme } = useTheme();
+  const { colors } = useTheme();
   const { t } = useTranslation();
 
   // Format context usage.
@@ -2430,18 +2405,10 @@ const HelpLineSection = memo(function HelpLineSection({
   const providerDisplay = provider
     ? `autohand (${t(`providers.${provider}`) ?? provider}${model ? `, ${model}` : ''})`
     : '';
-  const helpLine = getComposerHelpLine(
-    isWorking,
-    providerDisplay,
-    contextDisplay,
-    t('ui.commandHint'),
-    lineExtension
-  );
-
   return (
     <Box>
       <Text color={colors.dim}>
-        {renderComposerHelpLineContent(helpLine, providerDisplay, (text) => theme.bold(text))}
+        {getComposerHelpLine(isWorking, providerDisplay, contextDisplay, t('ui.commandHint'), lineExtension)}
       </Text>
     </Box>
   );

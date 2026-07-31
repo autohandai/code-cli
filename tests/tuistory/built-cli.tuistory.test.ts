@@ -851,8 +851,6 @@ describe('interactive built CLI Tuistory tests', () => {
       expect(helpLine, screen).toContain(branch);
     }
 
-    expect(session.getRawOutput()).toMatch(/\u001b\[1mautohand\u001b\[22m/u);
-
     await exitInteractive(session);
   }, 60_000);
 
