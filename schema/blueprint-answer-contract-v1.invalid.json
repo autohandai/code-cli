@@ -1,0 +1,17 @@
+{
+  "contractVersion": 2,
+  "policyHash": "not-a-sha256",
+  "artifacts": [
+    {
+      "id": "question",
+      "class": "unclassified_prompt",
+      "content": "Invent a successful outcome."
+    }
+  ],
+  "outputSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {},
+    "required": []
+  }
+}

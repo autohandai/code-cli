@@ -106,14 +106,19 @@ export const AUTOHAND_FILES = {
  */
 export const PROJECT_DIR_NAME = '.autohand';
 
-const getAuthBaseUrl = () => {
+const getAuthSiteBaseUrl = () => {
   const configured = process['env']['AUTOHAND_AUTH_URL']?.trim();
   return (configured || 'https://autohand.ai').replace(/\/+$/, '');
 };
 
+const getAuthApiBaseUrl = () => {
+  const configured = process['env']['AUTOHAND_AUTH_API_URL']?.trim();
+  return (configured || 'https://api.autohand.ai/v1/auth').replace(/\/+$/, '');
+};
+
 export const AUTH_CONFIG = {
-  get apiBaseUrl() { return `${getAuthBaseUrl()}/api/auth`; },
-  get authorizationUrl() { return `${getAuthBaseUrl()}/cli-auth`; },
+  get apiBaseUrl() { return getAuthApiBaseUrl(); },
+  get authorizationUrl() { return `${getAuthSiteBaseUrl()}/signin`; },
   pollInterval: 2000,
   authTimeout: 5 * 60 * 1000,
   sessionExpiryDays: 30,
@@ -128,7 +133,7 @@ export const SYNC_CONFIG = {
   /** Default sync interval in ms (5 minutes) */
   defaultInterval: 5 * 60 * 1000,
   /** API endpoint for sync operations */
-  get apiBaseUrl() { return `${getAuthBaseUrl()}/api`; },
+  get apiBaseUrl() { return `${getAuthSiteBaseUrl()}/api`; },
   /** Maximum file size to sync (10MB) */
   maxFileSize: 10 * 1024 * 1024,
   /** Maximum total sync size (100MB) */

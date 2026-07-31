@@ -199,6 +199,11 @@ export const CONTEXT_POLICIES: Record<ClientContext, ToolPolicy> = {
     allowedCategories: ['read', 'write', 'create', 'delete', 'git_read', 'git_write', 'shell', 'meta']
   },
 
+  // VS Code: coding-agent surface; permission decisions remain externally mediated.
+  vscode: {
+    allowedCategories: ['read', 'write', 'create', 'delete', 'git_read', 'git_write', 'shell', 'meta']
+  },
+
   // Slack: Chat-based, no file exploration or shell access
   // Focuses on answering questions and simple operations
   slack: {
@@ -275,6 +280,13 @@ export const CONTEXT_POLICIES: Record<ClientContext, ToolPolicy> = {
       'list_tree',
       'ask_followup_question'
     ]
+  },
+
+  // Blueprint answer-only mode constructs no ToolManager. This explicit
+  // deny-all policy is defense in depth for any future shared runtime code.
+  blueprint: {
+    allowedCategories: [],
+    allowedTools: [],
   }
 };
 

@@ -408,6 +408,7 @@ describe('JSON-RPC 2.0 Protocol', () => {
       expect(stream.listenerCount('data')).toBe(baseline.data);
       expect(stream.listenerCount('end')).toBe(baseline.end);
       expect(stream.listenerCount('close')).toBe(baseline.close);
+      expect(stream.isPaused()).toBe(true);
     });
   });
 });

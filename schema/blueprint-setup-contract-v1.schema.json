@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autohand.ai/schema/blueprint-setup-contract-v1.schema.json",
+  "title": "Blueprint Autohand device-authorization RPC contract",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/beginParams"
+    },
+    {
+      "$ref": "#/$defs/beginResult"
+    },
+    {
+      "$ref": "#/$defs/sessionParams"
+    },
+    {
+      "$ref": "#/$defs/statusResult"
+    }
+  ],
+  "$defs": {
+    "beginParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "trafficClass"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": 1
+        },
+        "trafficClass": {
+          "const": "autohand_device_authorization"
+        }
+      }
+    },
+    "beginResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "sessionId",
+        "userCode",
+        "verificationUriComplete",
+        "expiresAtUnixMs",
+        "pollAfterMs"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": 1
+        },
+        "sessionId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "userCode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "verificationUriComplete": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048
+        },
+        "expiresAtUnixMs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "pollAfterMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 30000
+        }
+      }
+    },
+    "sessionParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "sessionId"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": 1
+        },
+        "sessionId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        }
+      }
+    },
+    "statusResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contractVersion",
+            "status",
+            "pollAfterMs"
+          ],
+          "properties": {
+            "contractVersion": {
+              "const": 1
+            },
+            "status": {
+              "const": "pending"
+            },
+            "pollAfterMs": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 30000
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contractVersion",
+            "status"
+          ],
+          "properties": {
+            "contractVersion": {
+              "const": 1
+            },
+            "status": {
+              "enum": [
+                "authorized",
+                "expired",
+                "cancelled"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contractVersion",
+            "status",
+            "problem"
+          ],
+          "properties": {
+            "contractVersion": {
+              "const": 1
+            },
+            "status": {
+              "const": "failed"
+            },
+            "problem": {
+              "$ref": "#/$defs/loginProblem"
+            }
+          }
+        }
+      ]
+    },
+    "loginProblem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "adapter_unavailable",
+            "network_denied",
+            "initiation_failed",
+            "invalid_challenge",
+            "rate_limited",
+            "poll_failed",
+            "cancel_failed",
+            "cleanup_failed",
+            "credential_persistence_failed",
+            "protocol_mismatch"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

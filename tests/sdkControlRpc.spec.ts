@@ -24,15 +24,15 @@ describe('SDK Control RPC Methods', () => {
   });
 
   describe('setPermissionMode', () => {
-    it('should set permission mode', async () => {
+    it('does not report a permission change without a live runtime manager', async () => {
       const params: SetPermissionModeParams = {
         mode: 'bypassPermissions',
       };
 
       const result = await adapter.handleSetPermissionMode(params);
 
-      expect(result.success).toBe(true);
-      expect(result.currentMode).toBe('bypassPermissions');
+      expect(result.success).toBe(false);
+      expect(result.currentMode).toBe('default');
       expect(result.previousMode).toBe('default');
     });
   });

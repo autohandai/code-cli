@@ -2394,7 +2394,7 @@ export class SetupWizard {
   }
 
   private getDefaultBaseUrl(provider: ProviderName): string {
-    const urls: Record<ProviderName, string> = {
+    const urls: Record<string, string> = {
       openrouter: 'https://openrouter.ai/api/v1',
       autohandai: this.state.autohandAIPlan === 'local' ? 'http://localhost:8080' : AUTOHAND_AI_DEFAULT_BASE_URL,
       openai: 'https://api.openai.com/v1',

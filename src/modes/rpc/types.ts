@@ -21,6 +21,94 @@ import type {
 import type { DecisionRecord, EvaluationRecord } from '../../autoresearch/ledger.js';
 
 // ============================================================================
+// Blueprint answer-only contract
+// ============================================================================
+
+export type RpcClientContext = 'vscode' | 'chrome' | 'blueprint';
+
+export type BlueprintArtifactClass =
+  | 'code'
+  | 'source_snippet'
+  | 'symbol'
+  | 'repository_path'
+  | 'comment'
+  | 'diff'
+  | 'lineage'
+  | 'rationale'
+  | 'design_record'
+  | 'document_chunk'
+  | 'media_chunk'
+  | 'binary_media'
+  | 'credential';
+
+export type InferenceDestination =
+  | { kind: 'in_process'; provider?: string }
+  | { kind: 'local_subprocess'; provider: string }
+  | { kind: 'local_service'; provider: string; origin: string }
+  | { kind: 'hosted'; provider: string; origin?: string }
+  | { kind: 'opaque' };
+
+export type AuthenticationState =
+  | 'not_required'
+  | 'configured'
+  | 'missing'
+  | 'unknown';
+
+export interface BlueprintCliIdentity {
+  invocationPath: string;
+  resolvedPath: string;
+  symlinkChain: Array<{ path: string; target: string }>;
+  package: {
+    name: string;
+    version: string;
+    commit?: string;
+  };
+  artifacts: Array<{
+    path: string;
+    size: number;
+    sha256: string;
+  }>;
+  identityHash: string;
+}
+
+export interface RuntimeFacts {
+  cliVersion: string;
+  answerContractVersion: 1;
+  cliIdentity: BlueprintCliIdentity;
+  providerId: string;
+  model?: string;
+  authentication: AuthenticationState;
+  clientContext: RpcClientContext;
+  answerOnly: boolean;
+  permissionMode: 'restricted';
+  toolsEnabled: false;
+  hooksEnabled: false;
+  mcpEnabled: false;
+  memoryEnabled: false;
+  sessionPersistenceEnabled: false;
+  inferenceDestination: InferenceDestination;
+}
+
+export interface BlueprintAnswerEnvelope {
+  contractVersion: 1;
+  policyHash: string;
+  artifacts: Array<{
+    id: string;
+    class: BlueprintArtifactClass;
+    content: string;
+  }>;
+  outputSchema: Record<string, unknown>;
+}
+
+export interface BlueprintAnswerResult {
+  contractVersion: 1;
+  result: unknown;
+  providerId: string;
+  model?: string;
+  inferenceDestination: InferenceDestination;
+}
+
+// ============================================================================
 // JSON-RPC 2.0 Base Types
 // ============================================================================
 
@@ -90,6 +178,13 @@ export const JSON_RPC_ERROR_CODES = {
   TIMEOUT: -32002,
   AGENT_BUSY: -32003,
   ABORTED: -32004,
+  INITIALIZATION_FAILED: -32010,
+  AUTHENTICATION_REQUIRED: -32011,
+  ANSWER_CONTRACT_INVALID: -32012,
+  OUTPUT_LIMIT_EXCEEDED: -32013,
+  PROFILE_VIOLATION: -32014,
+  INFERENCE_DESTINATION_BLOCKED: -32015,
+  OUTPUT_INVALID: -32016,
 } as const;
 
 export type JsonRpcErrorCode = (typeof JSON_RPC_ERROR_CODES)[keyof typeof JSON_RPC_ERROR_CODES];
@@ -103,6 +198,11 @@ export type JsonRpcErrorCode = (typeof JSON_RPC_ERROR_CODES)[keyof typeof JSON_R
  */
 export const RPC_METHODS = {
   // Client -> Server requests
+  RUNTIME_INSPECT: 'autohand.runtimeInspect',
+  ANSWER: 'autohand.answer',
+  LOGIN_BEGIN: 'autohand.login.begin',
+  LOGIN_POLL: 'autohand.login.poll',
+  LOGIN_CANCEL: 'autohand.login.cancel',
   PROMPT: 'autohand.prompt',
   STEP_DECISION: 'autohand.stepDecision',
   ABORT: 'autohand.abort',
@@ -1552,7 +1652,7 @@ export interface McpToolsChangedNotificationParams {
  * Params for setPermissionMode
  */
 export interface SetPermissionModeParams {
-  mode: 'default' | 'bypassPermissions' | 'interactive' | 'unrestricted';
+  mode: 'default' | 'bypassPermissions' | 'interactive' | 'unrestricted' | 'restricted';
 }
 
 /**

@@ -7,6 +7,35 @@
 /**
  * OpenRouter model capability information
  */
+export const BLUEPRINT_LOCAL_CONTEXT_TOKENS = 32_768;
+export const BLUEPRINT_LOCAL_MAX_OUTPUT_TOKENS = 4_096;
+
+export interface BlueprintLocalModelCapability {
+  provider: 'blueprint-local';
+  inferenceDestination: 'in_process';
+  contextTokens: number;
+  maxOutputTokens: number;
+  structuredJsonGrammar: true;
+  imageInput: false;
+  toolCalling: false;
+}
+
+/**
+ * Static, offline capability contract for the reviewed native provider.
+ * It never probes a registry or model service.
+ */
+export function getBlueprintLocalModelCapability(): BlueprintLocalModelCapability {
+  return {
+    provider: 'blueprint-local',
+    inferenceDestination: 'in_process',
+    contextTokens: BLUEPRINT_LOCAL_CONTEXT_TOKENS,
+    maxOutputTokens: BLUEPRINT_LOCAL_MAX_OUTPUT_TOKENS,
+    structuredJsonGrammar: true,
+    imageInput: false,
+    toolCalling: false,
+  };
+}
+
 export interface OpenRouterModelCapability {
   id: string;
   canonical_slug?: string;

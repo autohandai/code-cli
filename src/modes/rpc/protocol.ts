@@ -261,6 +261,7 @@ export class LineReader {
     this.stream.removeListener('data', this.onData);
     this.stream.removeListener('end', this.onEnd);
     this.stream.removeListener('close', this.onClose);
+    this.stream.pause?.();
     this.closePendingReads();
   }
 

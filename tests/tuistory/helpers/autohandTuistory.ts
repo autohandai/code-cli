@@ -769,6 +769,13 @@ export async function createMockAuthServer(
   options: MockAuthServerOptions = {},
 ): Promise<MockAuthServer> {
   let pollCount = 0;
+  const deviceCode = 'D'.repeat(43);
+  const continuation = [
+    'v1',
+    'current',
+    'eyJhdWQiOiJhdXRvaGFuZC1zaXRlLWNsaS1hdXRoLXYxIn0',
+    'S'.repeat(43),
+  ].join('.');
   const server = createServer((request, response) => {
     if (request.url === '/api/auth/me' && request.method === 'GET') {
       response.writeHead(200, { 'content-type': 'application/json' });
@@ -782,20 +789,23 @@ export async function createMockAuthServer(
       return;
     }
 
-    if (request.url === '/api/auth/cli/initiate' && request.method === 'POST') {
-      response.writeHead(200, { 'content-type': 'application/json' });
+    if (request.url === '/v1/auth/cli/initiate' && request.method === 'POST') {
+      response.writeHead(201, { 'content-type': 'application/json' });
       response.end(JSON.stringify({
-        deviceCode: 'tuistory-device-code',
-        userCode: 'TUI-123',
-        verificationUri: 'https://auth.example.test/device',
-        verificationUriComplete: 'https://auth.example.test/device?code=TUI-123',
+        success: true,
+        schemaVersion: 1,
+        deviceCode,
+        userCode: 'TEST-CAFE',
+        verificationUri: 'https://autohand.ai/signin',
+        verificationUriComplete:
+          `https://autohand.ai/signin?continue=${continuation}&user_code=TEST-CAFE`,
         expiresIn: 300,
         interval: 1,
       }));
       return;
     }
 
-    if (request.url === '/api/auth/cli/poll' && request.method === 'POST') {
+    if (request.url === '/v1/auth/cli/poll' && request.method === 'POST') {
       pollCount += 1;
       response.writeHead(200, { 'content-type': 'application/json' });
       if (
@@ -804,8 +814,9 @@ export async function createMockAuthServer(
       ) {
         response.end(JSON.stringify({
           success: true,
+          schemaVersion: 1,
           status: 'authorized',
-          token: 'tuistory-authorized-token',
+          token: `ahc_${'C'.repeat(43)}`,
           user: {
             id: 'tuistory-authorized-user',
             email: 'authorized@example.test',
@@ -814,7 +825,12 @@ export async function createMockAuthServer(
         }));
         return;
       }
-      response.end(JSON.stringify({ success: true, status: 'pending' }));
+      response.end(JSON.stringify({
+        success: true,
+        schemaVersion: 1,
+        status: 'pending',
+        interval: 1,
+      }));
       return;
     }
 

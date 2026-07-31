@@ -78,7 +78,8 @@ export AUTOHAND_HOME=/custom/path  # Changes ~/.autohand to /custom/path
 | `AUTOHAND_CONFIG`                      | Custom config file path                          | `/path/to/config.toml`           |
 | `AUTOHAND_MODELS_CATALOG`              | Custom provider model catalog path               | `/path/to/models.json`           |
 | `AUTOHAND_API_URL`                     | API endpoint (overrides config)                  | `https://api.autohand.ai`        |
-| `AUTOHAND_AUTH_URL`                    | Sign-in and account-sync origin (independent of `AUTOHAND_API_URL`) | `https://autohand.ai` |
+| `AUTOHAND_AUTH_URL`                    | Sign-in and account-sync website origin (independent of `AUTOHAND_API_URL`) | `https://autohand.ai` |
+| `AUTOHAND_AUTH_API_URL`                | Canonical CLI device-auth API base; normally leave unset | `https://api.autohand.ai/v1/auth` |
 | `AUTOHAND_SECRET`                      | Company/team secret key                          | `sk-xxx`                         |
 | `AUTOHAND_PERMISSION_CALLBACK_URL`     | URL for permission callback (experimental)       | `http://localhost:3000/callback` |
 | `AUTOHAND_PERMISSION_CALLBACK_TIMEOUT` | Timeout for permission callback in ms            | `5000`                           |
@@ -2141,6 +2142,9 @@ These flags override config file settings:
 | `--dry-run`                   | Preview without executing                                                                      |
 | `-d, --debug`                 | Enable verbose debug output                                                                    |
 | `--bare`                      | Minimal explicit mode; also sets `AUTOHAND_CODE_SIMPLE=1` and disables slash commands          |
+| `--answer-only`               | Classified Blueprint answer RPC profile; requires RPC, restricted, and Blueprint context       |
+| `--setup-only`                | Scoped Autohand device-auth RPC profile; mutually exclusive with `--answer-only`                |
+| `--client-context <context>`  | Typed RPC client context: `vscode`, `chrome`, or `blueprint`                                    |
 
 ### Permissions & Safety
 

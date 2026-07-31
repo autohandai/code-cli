@@ -811,6 +811,34 @@ describe('RPC Adapter - P2 Handlers', () => {
     });
   });
 
+  describe('handleSetPermissionMode()', () => {
+    it('updates and verifies the live permission manager before reporting success', async () => {
+      let liveMode = 'interactive';
+      mockPermissionManager.getMode.mockImplementation(() => liveMode);
+      mockPermissionManager.setMode.mockImplementation((mode: string) => {
+        liveMode = mode;
+      });
+
+      const result = await adapter.handleSetPermissionMode({ mode: 'restricted' });
+
+      expect(mockPermissionManager.setMode).toHaveBeenCalledWith('restricted');
+      expect(result).toEqual({
+        success: true,
+        currentMode: 'restricted',
+        previousMode: 'interactive',
+      });
+    });
+
+    it('does not report success when no live permission manager exists', async () => {
+      mockAgent.getPermissionManager.mockReturnValue(undefined);
+
+      const result = await adapter.handleSetPermissionMode({ mode: 'restricted' });
+
+      expect(result.success).toBe(false);
+      expect(result.currentMode).not.toBe('restricted');
+    });
+  });
+
   // -------------------------------------------------------------------------
   // handleMcpListServers()
   // -------------------------------------------------------------------------

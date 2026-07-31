@@ -1,0 +1,38 @@
+{
+  "contractVersion": 1,
+  "policyHash": "3b8f9ffb1c1962b70c60a86d3ebfe3c2422e677865057c1b8bc31e813c1db2ed",
+  "artifacts": [
+    {
+      "id": "question",
+      "class": "comment",
+      "content": "Which function owns authentication?"
+    },
+    {
+      "id": "evidence-1",
+      "class": "source_snippet",
+      "content": "export async function ensureAuthenticated() { /* evidence omitted */ }"
+    }
+  ],
+  "outputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "answer": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      },
+      "citations": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 32
+      }
+    },
+    "required": [
+      "answer",
+      "citations"
+    ]
+  }
+}
