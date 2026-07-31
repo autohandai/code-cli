@@ -51,6 +51,14 @@ function isOptionalFiniteNumber(value: unknown): boolean {
   return value === undefined || (typeof value === 'number' && Number.isFinite(value));
 }
 
+function isOptionalNonnegativeInteger(value: unknown): boolean {
+  return value === undefined || (
+    typeof value === 'number'
+    && Number.isSafeInteger(value)
+    && value >= 0
+  );
+}
+
 function isOptionalSessionUsageMetadata(value: unknown): boolean {
   if (value === undefined) return true;
   if (!isRecord(value)) return false;
@@ -148,6 +156,8 @@ function isSessionSyncQueueEntry(value: unknown): value is SessionSyncQueueEntry
     && isOptionalString(value.metadata.projectName)
     && isOptionalString(value.metadata.status)
     && isOptionalString(value.metadata.summary)
+    && isOptionalNonnegativeInteger(value.metadata.additions)
+    && isOptionalNonnegativeInteger(value.metadata.deletions)
     && isOptionalString(value.metadata.client)
     && isOptionalString(value.metadata.clientVersion)
     && isOptionalSessionUsageMetadata(value.metadata.usage);

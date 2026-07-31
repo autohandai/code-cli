@@ -194,6 +194,16 @@ describe('TelemetryClient session sync', () => {
           },
         }]),
       ],
+      [
+        'invalid diff metadata',
+        JSON.stringify([{
+          ...sessionSnapshot('invalid-diff'),
+          metadata: {
+            additions: 'many',
+            deletions: 2,
+          },
+        }]),
+      ],
     ])('fails closed and backs up a session queue containing %s', async (_label, queueContent) => {
       const queuePath = `${tempRoot}/telemetry/session-sync-queue.json`;
       await fs.outputFile(queuePath, queueContent);

@@ -116,6 +116,8 @@ export interface SessionSyncData {
   projectName?: string;
   status?: string;
   summary?: string;
+  additions?: number;
+  deletions?: number;
   client?: string;
   clientVersion?: string;
   usage?: SessionUsageMetadata;
