@@ -7,7 +7,15 @@ const requestsStructuredCommandOutput = process.argv.some((arg) => (
   || arg === '--output-format'
   || arg.startsWith('--output-format=')
 ));
-if (process.stdout.isTTY && !requestsStructuredCommandOutput) {
+const requestsProtocolOutput = process.argv.some((arg, index, argv) => (
+  arg === '--answer-only'
+  || arg === '--setup-only'
+  || arg === '--acp'
+  || arg === '--mode=rpc'
+  || arg === '--mode=acp'
+  || (arg === '--mode' && (argv[index + 1] === 'rpc' || argv[index + 1] === 'acp'))
+));
+if (process.stdout.isTTY && !requestsStructuredCommandOutput && !requestsProtocolOutput) {
   process.stdout.write('\x1b]0;Autohand Code\x07');
 }
 // Set environment variable for detection by Expect and other tools
@@ -88,6 +96,10 @@ import {
   renderLaunchAnnouncement,
   type AnnouncementManager,
 } from './announcements/index.js';
+
+if (process.argv.includes('--answer-only') || process.argv.includes('--setup-only')) {
+  process.env.AUTOHAND_DISABLE_AUTO_REPORT = '1';
+}
 
 async function refreshModelCatalogBeforeAgentStart(options: {
   bare?: boolean;
@@ -229,6 +241,9 @@ program
   .option('-c, --auto-commit', 'Auto-commit with LLM-generated message (runs lint & test first)', false)
   .option('--unrestricted', 'Run without any approval prompts (use with caution)', false)
   .option('--restricted', 'Deny all dangerous operations automatically', false)
+  .option('--answer-only', 'Run the classified, tool-free Blueprint answer RPC profile', false)
+  .option('--setup-only', 'Run only the scoped Autohand device-authorization RPC profile', false)
+  .option('--client-context <context>', 'RPC client context (vscode, chrome, or blueprint)')
   .option('--no-idle-logout', 'Disable authenticated idle logout for long-running agent sessions')
   .option('--goal [input]', 'Run /goal non-interactively (status when omitted, otherwise same arguments as /goal)')
   .option('--auto-skill', 'Auto-generate skills based on project analysis', false)
@@ -281,6 +296,8 @@ program
     // Clear screen immediately for Cursor-like behavior (before any output)
     if (
       process.stdout.isTTY
+      && opts.mode !== 'rpc'
+      && opts.mode !== 'acp'
       && process.env.AUTOHAND_NO_BANNER !== '1'
       && opts.outputFormat === undefined
       && opts.json === undefined
@@ -299,6 +316,25 @@ program
       process.exit(1);
     }
     opts.commandOutputFormat = commandOutputResolution.format;
+    normalizePromptAndProtocolOptions(positionalPrompt, opts);
+
+    const restrictedProtocolMode = resolveProtocolLaunchMode(opts);
+    if (opts.answerOnly || opts.setupOnly || (
+      restrictedProtocolMode === 'rpc' && opts.clientContext === 'blueprint'
+    )) {
+      if (restrictedProtocolMode !== 'rpc') {
+        console.error(
+          chalk.red(
+            'Error: --answer-only and --setup-only require --mode rpc --restricted --client-context blueprint.',
+          ),
+        );
+        process.exitCode = 1;
+        return;
+      }
+      const { runRpcMode } = await import('./modes/rpc/index.js');
+      process.exitCode = await runRpcMode(opts);
+      return;
+    }
 
     const { extensionRuntimeHost } = await import('./extensions/ExtensionRuntimeHost.js');
     extensionRuntimeHost.setCliOptions(opts as unknown as Record<string, unknown>);
@@ -316,8 +352,6 @@ program
         process.exit(1);
       }
     }
-
-    normalizePromptAndProtocolOptions(positionalPrompt, opts);
 
     if (
       isStructuredCommandOutput(opts.commandOutputFormat)
@@ -450,6 +484,15 @@ program
     // interactive auth/login UI. They perform their own non-interactive config,
     // workspace, and auth checks after stdout/stderr are prepared for the mode.
     const protocolLaunchMode = resolveProtocolLaunchMode(opts);
+    if ((opts.answerOnly || opts.setupOnly) && protocolLaunchMode !== 'rpc') {
+      console.error(
+        chalk.red(
+          'Error: --answer-only and --setup-only require --mode rpc --restricted --client-context blueprint.',
+        ),
+      );
+      process.exitCode = 1;
+      return;
+    }
     if (protocolLaunchMode === 'rpc') {
       const { runRpcMode } = await import('./modes/rpc/index.js');
       process.exitCode = await runRpcMode(opts);

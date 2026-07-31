@@ -9,6 +9,182 @@ Communication uses newline-delimited JSON over stdio:
 - **stdout**: Autohand sends responses and notifications to client
 - **stderr**: Debug logs (not part of protocol)
 
+## Blueprint restricted profiles
+
+Blueprint integrations use dedicated RPC profiles. They are not aliases for
+the general agent or `--bare`.
+
+### Answer-only launch
+
+```bash
+autohand \
+  --mode rpc \
+  --answer-only \
+  --restricted \
+  --client-context blueprint
+```
+
+All four values are required. The process constructs no agent, tool manager,
+browser bridge, hooks, MCP client, memory manager, telemetry/background
+worker, or persisted agent session. It accepts only
+`autohand.runtimeInspect` and `autohand.answer`. Any other method, including a
+permission response or normal prompt, is a terminal `profile_violation`.
+Batch requests and id-less calls are disabled.
+
+`autohand.runtimeInspect` accepts no parameters and is passive. It returns:
+
+```typescript
+{
+  cliVersion: string;
+  answerContractVersion: 1;
+  cliIdentity: {
+    invocationPath: string;
+    resolvedPath: string;
+    symlinkChain: Array<{ path: string; target: string }>;
+    package: { name: string; version: string; commit?: string };
+    artifacts: Array<{ path: string; size: number; sha256: string }>;
+    identityHash: string;
+  };
+  providerId: string;
+  model?: string;
+  authentication: 'not_required' | 'configured' | 'missing' | 'unknown';
+  clientContext: 'blueprint';
+  answerOnly: true;
+  permissionMode: 'restricted';
+  toolsEnabled: false;
+  hooksEnabled: false;
+  mcpEnabled: false;
+  memoryEnabled: false;
+  sessionPersistenceEnabled: false;
+  inferenceDestination:
+    | { kind: 'in_process'; provider?: string }
+    | { kind: 'local_subprocess'; provider: string }
+    | { kind: 'local_service'; provider: string; origin: string }
+    | { kind: 'hosted'; provider: string; origin?: string }
+    | { kind: 'opaque' };
+}
+```
+
+Inspection reads resolved local configuration and hashes executed artifacts.
+It does not construct a provider, list models, probe authentication, consume
+tokens, or make a network request. Endpoint provenance contains only a
+normalized origin; credentials, paths, and query strings are never returned.
+Custom and unknown extension providers are `opaque`.
+
+`autohand.answer` takes the classified envelope itself as params:
+
+```typescript
+{
+  contractVersion: 1;
+  policyHash: string; // 64 lowercase hex characters
+  artifacts: Array<{
+    id: string;
+    class:
+      | 'code' | 'source_snippet' | 'symbol' | 'repository_path'
+      | 'comment' | 'diff' | 'lineage' | 'rationale'
+      | 'design_record' | 'document_chunk' | 'media_chunk'
+      | 'binary_media' | 'credential';
+    content: string;
+  }>;
+  outputSchema: {
+    type: 'object';
+    additionalProperties: false;
+    properties: Record<string, unknown>;
+    required: string[];
+  };
+}
+```
+
+The serialized envelope is limited to 8 KiB and 64 artifacts. Generated
+output is limited to 64 KiB, must be one complete JSON value, and must match
+`outputSchema` without dropped or extra fields. The success result is:
+
+```typescript
+{
+  contractVersion: 1;
+  result: unknown;
+  providerId: string;
+  model?: string;
+  inferenceDestination: InferenceDestination;
+}
+```
+
+Under the current evidence policy, `hosted`, `local_service`, and `opaque`
+destinations are blocked before provider construction. The existing Ollama,
+llama.cpp, MLX, and Autohand Local providers are loopback
+`local_service` transports, not `local_subprocess` transports. A missing
+eligible provider is an explicit blocked/setup outcome; it never produces
+canned answer text.
+
+The canonical schema and byte-identical vectors are:
+
+- `schema/blueprint-answer-contract-v1.schema.json`
+- `schema/blueprint-answer-contract-v1.valid.json`
+- `schema/blueprint-answer-contract-v1.invalid.json`
+
+### Setup-only launch
+
+```bash
+autohand \
+  --mode rpc \
+  --setup-only \
+  --restricted \
+  --client-context blueprint
+```
+
+`--setup-only` and `--answer-only` are mutually exclusive. Setup-only accepts
+only the following scoped device-authorization calls:
+
+- `autohand.login.begin` with
+  `{ "contractVersion": 1, "trafficClass": "autohand_device_authorization" }`;
+- `autohand.login.poll` with `{ "contractVersion": 1, "sessionId": "..." }`;
+- `autohand.login.cancel` with the same session params.
+
+Begin returns only `contractVersion`, an opaque 128-bit `sessionId`,
+`userCode`, the API-supplied allowlisted `verificationUriComplete`,
+`expiresAtUnixMs`, and `pollAfterMs`. The API device code remains in the CLI
+process. Poll returns a closed `pending`, `authorized`, `expired`,
+`cancelled`, or `failed` status. A failed status carries the typed safe
+`problem: { code, message, retryable }`; it never contains a token, device
+code, raw API body, or credential. `authorized` is returned only after the
+existing Autohand config owner persists the credential successfully.
+
+The CLI calls the canonical API routes below. The browser challenge must be
+the API-returned `https://autohand.ai/signin` URL with only signed `continue`
+and `user_code` parameters.
+
+```text
+POST https://api.autohand.ai/v1/auth/cli/initiate
+POST https://api.autohand.ai/v1/auth/cli/poll
+POST https://api.autohand.ai/v1/auth/cli/cancel
+```
+
+Canonical setup schema and vectors:
+
+- `schema/blueprint-setup-contract-v1.schema.json`
+- `schema/blueprint-setup-contract-v1.valid.json`
+- `schema/blueprint-setup-contract-v1.invalid.json`
+
+### Typed restricted-profile errors
+
+Startup errors have JSON-RPC id `null` and structured data:
+
+```typescript
+{
+  kind: 'initialization_failed' | 'authentication_required' | 'profile_violation';
+  stage: 'startup';
+  retryable: boolean;
+  providerId?: string;
+}
+```
+
+The dedicated error codes are `-32010` initialization, `-32011`
+authentication, `-32012` answer contract, `-32013` output limit, `-32014`
+profile violation, `-32015` blocked inference destination, and `-32016`
+invalid structured output. Locally observed `authentication: "configured"`
+does not guarantee a later provider request will authenticate; run-time auth
+failure remains a separate typed error.
+
 ## Protocol Basics
 
 All messages follow JSON-RPC 2.0 specification.

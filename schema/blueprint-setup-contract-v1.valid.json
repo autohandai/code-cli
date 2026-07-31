@@ -1,0 +1,48 @@
+{
+  "begin": {
+    "params": {
+      "contractVersion": 1,
+      "trafficClass": "autohand_device_authorization"
+    },
+    "result": {
+      "contractVersion": 1,
+      "sessionId": "0123456789abcdef0123456789abcdef",
+      "userCode": "ABCD-EFGH",
+      "verificationUriComplete": "https://autohand.ai/signin?continue=signed-opaque&user_code=ABCD-EFGH",
+      "expiresAtUnixMs": 1785300000000,
+      "pollAfterMs": 2000
+    }
+  },
+  "poll": {
+    "params": {
+      "contractVersion": 1,
+      "sessionId": "0123456789abcdef0123456789abcdef"
+    },
+    "result": {
+      "contractVersion": 1,
+      "status": "pending",
+      "pollAfterMs": 2000
+    }
+  },
+  "cancel": {
+    "params": {
+      "contractVersion": 1,
+      "sessionId": "0123456789abcdef0123456789abcdef"
+    },
+    "result": {
+      "contractVersion": 1,
+      "status": "cancelled"
+    }
+  },
+  "failed": {
+    "result": {
+      "contractVersion": 1,
+      "status": "failed",
+      "problem": {
+        "code": "credential_persistence_failed",
+        "message": "Autohand credentials could not be saved.",
+        "retryable": true
+      }
+    }
+  }
+}

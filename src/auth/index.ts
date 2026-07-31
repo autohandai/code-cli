@@ -11,6 +11,7 @@ export type {
   AuthUser,
   DeviceAuthInitResponse,
   DeviceAuthPollResponse,
+  DeviceAuthCancelResponse,
   SessionValidationResponse,
   LogoutResponse,
 } from './types.js';

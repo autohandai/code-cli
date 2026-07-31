@@ -78,8 +78,8 @@ describe('CLI runtime resource boundaries', () => {
     expect(rpcSource).toContain('reader?.dispose()');
 
     const adapterShutdown = rpcSource.indexOf('await adapter?.shutdown');
-    const flushOutput = rpcSource.indexOf('await flushRpcOutput()');
-    const removeStdoutGuard = rpcSource.indexOf("process.stdout.off('error'");
+    const flushOutput = rpcSource.indexOf('await flushRpcOutput()', adapterShutdown);
+    const removeStdoutGuard = rpcSource.indexOf("process.stdout.off('error'", flushOutput);
     expect(adapterShutdown).toBeGreaterThan(0);
     expect(flushOutput).toBeGreaterThan(adapterShutdown);
     expect(removeStdoutGuard).toBeGreaterThan(flushOutput);

@@ -1,0 +1,23 @@
+{
+  "begin": {
+    "params": {
+      "contractVersion": 1,
+      "trafficClass": "workspace_evidence"
+    },
+    "result": {
+      "contractVersion": 1,
+      "sessionId": "public-device-code",
+      "userCode": "ABCD-EFGH",
+      "verificationUri": "http://evil.example/signin",
+      "deviceCode": "must-remain-private"
+    }
+  },
+  "failed": {
+    "result": {
+      "contractVersion": 1,
+      "status": "failed",
+      "pollAfterMs": 2000,
+      "problem": "free strings are not a typed safe problem"
+    }
+  }
+}

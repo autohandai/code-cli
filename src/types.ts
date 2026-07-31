@@ -35,9 +35,14 @@ type Primitive = string | number | boolean | null;
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
 export type BuiltInProviderName = 'autohandai' | 'openrouter' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure' | 'zai' | 'sakana' | 'vertexai' | 'xai' | 'cerebras' | 'nvidia' | 'deepseek' | 'bedrock';
+export type BlueprintLocalProviderName = 'blueprint-local';
 export type CustomProviderId = `custom:${string}`;
 export type ExtensionProviderId = `extension:${string}`;
-export type ProviderName = BuiltInProviderName | CustomProviderId | ExtensionProviderId;
+export type ProviderName =
+  | BuiltInProviderName
+  | BlueprintLocalProviderName
+  | CustomProviderId
+  | ExtensionProviderId;
 
 export type AzureAuthMethod = 'api-key' | 'entra-id' | 'managed-identity';
 export type OpenAIAuthMode = 'api-key' | 'chatgpt';
@@ -56,6 +61,19 @@ export interface ProviderSettings {
   contextWindow?: number;
   /** Reasoning effort level for reasoning-capable models (e.g., OpenAI) */
   reasoningEffort?: ReasoningEffort;
+}
+
+/**
+ * Answer-only in-process inference settings for Blueprint.
+ *
+ * This closed shape deliberately has no endpoint, executable, argument, or
+ * downloader fields. The model bytes remain user-supplied and are identified
+ * by an exact SHA-256 before every load.
+ */
+export interface BlueprintLocalSettings {
+  model: string;
+  modelPath: string;
+  modelSha256: string;
 }
 
 export interface ExtensionProviderSettings extends ProviderSettings {
@@ -783,6 +801,8 @@ export interface ChromeConfigSettings {
 
 export interface AutohandConfig {
   provider?: ProviderName;
+  /** In-process GGUF inference available only to Blueprint answer-only RPC. */
+  blueprintLocal?: BlueprintLocalSettings;
   autohandai?: AutohandAISettings;
   openrouter?: OpenRouterSettings;
   ollama?: ProviderSettings;
@@ -872,7 +892,14 @@ export interface LoadedConfig extends AutohandConfig {
 }
 
 /** Client context determines which tools are available */
-export type ClientContext = 'cli' | 'chrome' | 'slack' | 'api' | 'restricted';
+export type ClientContext =
+  | 'cli'
+  | 'vscode'
+  | 'chrome'
+  | 'slack'
+  | 'api'
+  | 'restricted'
+  | 'blueprint';
 
 /**
  * A custom agent injected for the lifetime of a single session via
@@ -911,6 +938,10 @@ export interface CLIOptions {
   unrestricted?: boolean;
   /** Run in restricted mode - deny all dangerous operations */
   restricted?: boolean;
+  /** Run the classified, tool-free Blueprint answer RPC profile. */
+  answerOnly?: boolean;
+  /** Run only the scoped Autohand device-authorization RPC profile. */
+  setupOnly?: boolean;
   /** Disable authenticated idle logout for this process when false */
   idleLogout?: boolean;
   /** Non-interactive /goal command input. Empty value prints goal status. */
@@ -1140,6 +1171,11 @@ export interface LLMRequest {
   toolChoice?: ToolChoice;
   model?: string;
   signal?: AbortSignal;
+  /**
+   * Strict output grammar supplied by a trusted caller.
+   * Providers that do not support constrained generation may ignore it.
+   */
+  outputSchema?: Record<string, unknown>;
   /** Thinking/reasoning depth level (default: 'normal') */
   thinkingLevel?: ThinkingLevel;
   /** Chat template kwargs for NVIDIA reasoning models (DeepSeek, Z.ai GLM) */

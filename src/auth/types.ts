@@ -17,6 +17,7 @@ export interface AuthUser {
 /** Device authorization initiation response */
 export interface DeviceAuthInitResponse {
   success: boolean;
+  schemaVersion?: 1;
   deviceCode?: string;
   userCode?: string;
   verificationUri?: string;
@@ -29,9 +30,19 @@ export interface DeviceAuthInitResponse {
 /** Device authorization poll response */
 export interface DeviceAuthPollResponse {
   success: boolean;
+  schemaVersion?: 1;
   status: 'pending' | 'authorized' | 'expired' | 'cancelled';
+  interval?: number;
   token?: string;
   user?: AuthUser;
+  error?: string;
+}
+
+/** Device authorization cancellation response */
+export interface DeviceAuthCancelResponse {
+  success: boolean;
+  schemaVersion?: 1;
+  status?: 'cancelled';
   error?: string;
 }
 

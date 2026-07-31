@@ -29,6 +29,10 @@ import type { AutohandConfig, ExtensionProviderId, ProviderName } from '../types
 import { getCustomProviderConfig, isCustomProviderName, toCustomProviderName } from './customProviders.js';
 import { extensionRuntimeHost } from '../extensions/ExtensionRuntimeHost.js';
 import { isAutohandInferenceEnabled } from '../featureFlags.js';
+import {
+    BlueprintLocalProvider,
+    BLUEPRINT_LOCAL_PROVIDER_ID,
+} from './BlueprintLocalProvider.js';
 
 /**
  * Custom error class for unconfigured provider
@@ -76,6 +80,11 @@ export class ProviderFactory {
      */
     static create(config: AutohandConfig): LLMProvider {
         const providerName = config.provider || 'openrouter';
+        if (providerName === BLUEPRINT_LOCAL_PROVIDER_ID) {
+            // This provider is intentionally unreachable from the interactive
+            // agent factory. Only the restricted answer-only RPC may create it.
+            return new UnconfiguredProvider(providerName);
+        }
         const extensionProvider = extensionRuntimeHost.getProvider(providerName);
         if (extensionProvider) {
             const extensionConfig = config.extensionProviders?.[providerName as ExtensionProviderId];
@@ -204,6 +213,20 @@ export class ProviderFactory {
                 }
                 return new OpenRouterProvider(config.openrouter);
         }
+    }
+
+    /**
+     * Create the provider for the reviewed Blueprint answer-only profile.
+     * The local native provider has no route through the normal agent runtime.
+     */
+    static createBlueprintAnswerProvider(config: AutohandConfig): LLMProvider {
+        if (config.provider !== BLUEPRINT_LOCAL_PROVIDER_ID) {
+            return ProviderFactory.create(config);
+        }
+        if (!config.blueprintLocal) {
+            return new UnconfiguredProvider(BLUEPRINT_LOCAL_PROVIDER_ID);
+        }
+        return new BlueprintLocalProvider(config.blueprintLocal);
     }
 
     /**

@@ -26,6 +26,7 @@ import type {
   LLMToolCall,
   McpServerConfigEntry,
   LoadedConfig,
+  PermissionMode,
 } from '../../types.js';
 import { isAutohandInferenceEnabled } from '../../featureFlags.js';
 import type {
@@ -3965,19 +3966,47 @@ export class RPCAdapter {
   async handleSetPermissionMode(
     params: SetPermissionModeParams
   ): Promise<SetPermissionModeResult> {
+    const requestedMode: PermissionMode = params.mode === 'default'
+      ? 'interactive'
+      : params.mode === 'bypassPermissions'
+        ? 'unrestricted'
+        : params.mode;
     try {
-      const previousMode = this.config?.permissionMode || 'default';
-      this.config!.permissionMode = params.mode;
+      const permissionManager = this.agent?.getPermissionManager?.();
+      if (!permissionManager) {
+        return {
+          success: false,
+          currentMode: this.config.permissionMode || 'default',
+          previousMode: this.config.permissionMode || 'default',
+        };
+      }
+
+      const previousMode = permissionManager.getMode();
+      permissionManager.setMode(requestedMode);
+      const currentMode = permissionManager.getMode();
+      if (currentMode !== requestedMode) {
+        return {
+          success: false,
+          currentMode,
+          previousMode,
+        };
+      }
+
+      this.config.permissionMode = currentMode;
+      this.config.permissions = {
+        ...this.config.permissions,
+        mode: currentMode,
+      };
       return {
         success: true,
-        currentMode: params.mode,
+        currentMode,
         previousMode,
       };
     } catch {
       return {
         success: false,
-        currentMode: this.config?.permissionMode || 'default',
-        previousMode: this.config?.permissionMode || 'default',
+        currentMode: this.config.permissionMode || 'default',
+        previousMode: this.config.permissionMode || 'default',
       };
     }
   }

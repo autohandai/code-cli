@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autohand.ai/schema/blueprint-answer-contract-v1.schema.json",
+  "title": "Blueprint classified answer envelope",
+  "description": "Canonical cross-process input contract for Autohand Blueprint answer-only RPC version 1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "policyHash",
+    "artifacts",
+    "outputSchema"
+  ],
+  "properties": {
+    "contractVersion": {
+      "const": 1
+    },
+    "policyHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "class",
+          "content"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "class": {
+            "enum": [
+              "code",
+              "source_snippet",
+              "symbol",
+              "repository_path",
+              "comment",
+              "diff",
+              "lineage",
+              "rationale",
+              "design_record",
+              "document_chunk",
+              "media_chunk",
+              "binary_media",
+              "credential"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          }
+        }
+      }
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "type",
+        "additionalProperties",
+        "properties",
+        "required"
+      ],
+      "properties": {
+        "type": {
+          "const": "object"
+        },
+        "additionalProperties": {
+          "const": false
+        },
+        "properties": {
+          "type": "object"
+        },
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

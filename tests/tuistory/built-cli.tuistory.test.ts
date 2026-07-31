@@ -916,6 +916,7 @@ describe('interactive built CLI Tuistory tests', () => {
         env: {
           AUTOHAND_API_URL: authServer.baseUrl,
           AUTOHAND_AUTH_URL: authServer.baseUrl,
+          AUTOHAND_AUTH_API_URL: `${authServer.baseUrl}/v1/auth`,
           PATH: `${fakeBinDir}:${process.env.PATH ?? ''}`,
         },
         waitForDataTimeout: 15_000,
@@ -924,7 +925,7 @@ describe('interactive built CLI Tuistory tests', () => {
 
     await session.waitForText('Sign in to continue.', { timeout: 10_000 });
     await session.press('enter');
-    await session.waitForText('TUI-123', { timeout: 10_000 });
+    await session.waitForText('TEST-CAFE', { timeout: 10_000 });
     await session.waitForText('Waiting for authorization', { timeout: 10_000 });
   });
 
@@ -958,6 +959,7 @@ describe('interactive built CLI Tuistory tests', () => {
         env: {
           AUTOHAND_API_URL: authServer.baseUrl,
           AUTOHAND_AUTH_URL: authServer.baseUrl,
+          AUTOHAND_AUTH_API_URL: `${authServer.baseUrl}/v1/auth`,
           NODE_OPTIONS: [
             process.env.NODE_OPTIONS,
             `--import ${stalledSyncPreload.importSpecifier}`,

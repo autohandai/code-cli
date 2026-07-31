@@ -61,3 +61,55 @@ describe('AuthClient.validateSession network error handling', () => {
     expect(result.user).toEqual({ id: 'u1', email: 'a@b.com', name: 'A' });
   });
 });
+
+describe('AuthClient device authorization cancellation', () => {
+  const deviceCode = 'D'.repeat(43);
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('cancels the private device transaction through the canonical API route', async () => {
+    const client = new AuthClient({
+      baseUrl: 'https://api.autohand.ai/v1/auth',
+      timeout: 5000,
+    });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        success: true,
+        schemaVersion: 1,
+        status: 'cancelled',
+      }), { status: 200 }),
+    );
+
+    await expect(client.cancelDeviceAuth(deviceCode)).resolves.toEqual({
+      success: true,
+      schemaVersion: 1,
+      status: 'cancelled',
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.autohand.ai/v1/auth/cli/cancel',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceCode, schemaVersion: 1 }),
+      }),
+    );
+  });
+
+  it('does not claim cancellation when the API rejects it', async () => {
+    const client = new AuthClient({
+      baseUrl: 'https://api.autohand.ai/v1/auth',
+      timeout: 5000,
+    });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ error: 'transaction not found' }), { status: 404 }),
+    );
+
+    await expect(client.cancelDeviceAuth(deviceCode)).resolves.toEqual({
+      success: false,
+      error: 'transaction not found',
+    });
+  });
+});

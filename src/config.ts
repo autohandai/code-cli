@@ -71,6 +71,10 @@ function normalizeProviderName(provider: unknown): ProviderName | undefined {
     return "vertexai";
   }
 
+  if (provider === "blueprint-local") {
+    return provider;
+  }
+
   if (isCustomProviderName(provider)) {
     return provider;
   }
@@ -107,6 +111,48 @@ function normalizeProviderName(provider: unknown): ProviderName | undefined {
 
 export function getDefaultConfigPath(): string {
   return DEFAULT_CONFIG_PATH;
+}
+
+export interface LoadConfigOptions {
+  /**
+   * Persist the safe default config when no file exists. Answer-only
+   * inspection sets this to false so startup remains read-only.
+   */
+  createIfMissing?: boolean;
+  /** Initialize terminal theme state after loading. */
+  initializeTheme?: boolean;
+}
+
+function createDefaultConfig(): AutohandConfig {
+  return {
+    provider: "openrouter",
+    openrouter: {
+      apiKey: "",
+      baseUrl: "https://openrouter.ai/api/v1",
+      model: getProviderDefaultModel("openrouter", "openrouter/auto"),
+    },
+    workspace: {
+      defaultRoot: process.cwd(),
+      allowDangerousOps: false,
+    },
+    ui: {
+      theme: "dark",
+      autoConfirm: false,
+      silentToolOutput: false,
+      completionReportEnabled: true,
+      activityVerbsEnabled: true,
+      promptSuggestions: true,
+    },
+    telemetry: {
+      enabled: false,
+    },
+    autoReport: {
+      enabled: true,
+    },
+    agent: {
+      toolSelectionCache: true,
+    },
+  };
 }
 
 /**
@@ -396,8 +442,14 @@ async function parseConfigFile(
   return JSON.parse(content) as AutohandConfig | LegacyConfigShape;
 }
 
-export async function loadConfig(customPath?: string, workspaceRoot?: string): Promise<LoadedConfig> {
+export async function loadConfig(
+  customPath?: string,
+  workspaceRoot?: string,
+  options: LoadConfigOptions = {},
+): Promise<LoadedConfig> {
   const configPath = await detectConfigPath(customPath);
+  const createIfMissing = options.createIfMissing ?? true;
+  const initializeTheme = options.initializeTheme ?? true;
 
   // Check for duplicate config files in the same directory.
   const configDir = path.dirname(configPath);
@@ -410,60 +462,37 @@ export async function loadConfig(customPath?: string, workspaceRoot?: string): P
     );
   }
 
-  await fs.ensureDir(path.dirname(configPath));
-
-  let isNewConfig = false;
-
-  if (!(await fs.pathExists(configPath))) {
-    const defaultConfig: AutohandConfig = {
-      provider: "openrouter",
-      openrouter: {
-        apiKey: "",
-        baseUrl: "https://openrouter.ai/api/v1",
-        model: getProviderDefaultModel("openrouter", "openrouter/auto"),
-      },
-      workspace: {
-        defaultRoot: process.cwd(),
-        allowDangerousOps: false,
-      },
-      ui: {
-        theme: "dark",
-        autoConfirm: false,
-        silentToolOutput: false,
-        completionReportEnabled: true,
-        activityVerbsEnabled: true,
-        promptSuggestions: true,
-      },
-      telemetry: {
-        enabled: false,
-      },
-      autoReport: {
-        enabled: true,
-      },
-      agent: {
-        toolSelectionCache: true,
-      },
-    };
-
-    // Create config silently with safe defaults
-    await fs.writeJson(configPath, defaultConfig, { spaces: 2 });
-    isNewConfig = true;
+  if (createIfMissing) {
+    await fs.ensureDir(path.dirname(configPath));
   }
 
+  let isNewConfig = false;
   let parsed: AutohandConfig | LegacyConfigShape;
-  try {
-    parsed = await parseConfigFile(configPath);
-  } catch (error) {
-    const originalMessage = (error as Error).message;
-    // If the error already contains a recovery suggestion (e.g. from null-YAML guard),
-    // surface it directly so the path context is still prepended.
-    const alreadyHasSuggestion = originalMessage.includes("autohand --setup");
-    const suggestion = alreadyHasSuggestion
-      ? ""
-      : ` You can fix this by editing ${configPath}, or delete it and run 'autohand --setup' to recreate.`;
-    throw new Error(
-      `Failed to parse config at ${configPath}: ${originalMessage}${suggestion}`,
-    );
+
+  if (!(await fs.pathExists(configPath))) {
+    const defaultConfig = createDefaultConfig();
+
+    if (createIfMissing) {
+      // Create config silently with safe defaults.
+      await fs.writeJson(configPath, defaultConfig, { spaces: 2 });
+    }
+    isNewConfig = true;
+    parsed = defaultConfig;
+  } else {
+    try {
+      parsed = await parseConfigFile(configPath);
+    } catch (error) {
+      const originalMessage = (error as Error).message;
+      // If the error already contains a recovery suggestion (e.g. from null-YAML guard),
+      // surface it directly so the path context is still prepended.
+      const alreadyHasSuggestion = originalMessage.includes("autohand --setup");
+      const suggestion = alreadyHasSuggestion
+        ? ""
+        : ` You can fix this by editing ${configPath}, or delete it and run 'autohand --setup' to recreate.`;
+      throw new Error(
+        `Failed to parse config at ${configPath}: ${originalMessage}${suggestion}`,
+      );
+    }
   }
   const normalized = normalizeConfig(parsed);
 
@@ -479,13 +508,17 @@ export async function loadConfig(customPath?: string, workspaceRoot?: string): P
   // Merge environment variables for API settings
   const withEnv = mergeEnvVariables(withWorkspace);
 
-  configureThemeSources({ inlineThemes: withEnv.ui?.customThemes });
+  if (initializeTheme) {
+    configureThemeSources({ inlineThemes: withEnv.ui?.customThemes });
+  }
 
   validateConfig(withEnv, configPath);
 
-  // Initialize theme from config
-  const themeName = withEnv.ui?.theme || "dark";
-  autoInitTheme(themeName);
+  if (initializeTheme) {
+    // Initialize theme from config.
+    const themeName = withEnv.ui?.theme || "dark";
+    autoInitTheme(themeName);
+  }
 
   return { ...withEnv, configPath, isNewConfig };
 }
@@ -534,6 +567,11 @@ function mergeWorkspaceSettings(
           },
         };
       }
+    } else if (provider === "blueprint-local" && merged.blueprintLocal) {
+      merged.blueprintLocal = {
+        ...merged.blueprintLocal,
+        model: workspaceSettings.model,
+      };
     } else if (provider && merged[provider as BuiltInProviderName]) {
       (merged[provider as BuiltInProviderName] as ProviderSettings).model = workspaceSettings.model;
     }
@@ -724,6 +762,7 @@ function isModernConfig(
 ): config is AutohandConfig {
   return (
     typeof (config as AutohandConfig).openrouter === "object" ||
+    typeof (config as AutohandConfig).blueprintLocal === "object" ||
     typeof (config as AutohandConfig).autohandai === "object" ||
     typeof (config as AutohandConfig).ollama === "object" ||
     typeof (config as AutohandConfig).llamacpp === "object" ||
@@ -749,6 +788,40 @@ function isLegacyConfig(
 }
 
 function validateConfig(config: AutohandConfig, configPath: string): void {
+  if (config.blueprintLocal !== undefined) {
+    if (!isPlainObject(config.blueprintLocal)) {
+      throw new Error(`blueprintLocal must be an object in ${configPath}`);
+    }
+    const allowedKeys = new Set(["model", "modelPath", "modelSha256"]);
+    const unsupportedKey = Object.keys(config.blueprintLocal)
+      .find((key) => !allowedKeys.has(key));
+    if (unsupportedKey) {
+      throw new Error(
+        `blueprintLocal.${unsupportedKey} is not supported in ${configPath}`,
+      );
+    }
+    if (
+      typeof config.blueprintLocal.model !== "string" ||
+      config.blueprintLocal.model.trim() === ""
+    ) {
+      throw new Error(`blueprintLocal.model must be a non-empty string in ${configPath}`);
+    }
+    if (
+      typeof config.blueprintLocal.modelPath !== "string" ||
+      config.blueprintLocal.modelPath.trim() === ""
+    ) {
+      throw new Error(`blueprintLocal.modelPath must be a non-empty string in ${configPath}`);
+    }
+    if (
+      typeof config.blueprintLocal.modelSha256 !== "string" ||
+      !/^[a-f0-9]{64}$/u.test(config.blueprintLocal.modelSha256)
+    ) {
+      throw new Error(
+        `blueprintLocal.modelSha256 must be a lowercase SHA-256 in ${configPath}`,
+      );
+    }
+  }
+
   if (config.workspace) {
     if (
       config.workspace.defaultRoot &&
@@ -963,6 +1036,9 @@ export function getProviderConfig(
   provider?: ProviderName,
 ): ProviderSettings | null {
   const chosen = provider ?? config.provider ?? "openrouter";
+  if (chosen === "blueprint-local") {
+    return null;
+  }
   if (typeof chosen === "string" && chosen.startsWith("extension:")) {
     const entry = config.extensionProviders?.[chosen as ExtensionProviderId];
     if (!entry?.model?.trim()) {
@@ -1184,6 +1260,7 @@ function normalizeBedrockProviderConfig(
 export async function saveConfig(config: LoadedConfig): Promise<void> {
   const { configPath, ...data } = config;
   delete (data as Partial<LoadedConfig>).isNewConfig;
+  await fs.ensureDir(path.dirname(configPath));
 
   if (isYamlFile(configPath)) {
     const yamlContent = YAML.stringify(data, { indent: 2 });

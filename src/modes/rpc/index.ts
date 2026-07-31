@@ -10,7 +10,7 @@ import { AutohandAgent } from '../../core/agent.js';
 import { ConversationManager } from '../../core/conversationManager.js';
 import { FileActionManager } from '../../actions/filesystem.js';
 import { ProviderFactory } from '../../providers/ProviderFactory.js';
-import { loadConfig } from '../../config.js';
+import { loadConfig, saveConfig } from '../../config.js';
 import { checkAuthenticated } from '../../auth/index.js';
 import { prepareBareModeConfig } from '../../runtime/bareMode.js';
 import { checkWorkspaceSafety } from '../../startup/workspaceSafety.js';
@@ -68,6 +68,7 @@ import { RPCAdapter } from './adapter.js';
 import {
   LineReader,
   parseRequest,
+  writeResponse,
   writeErrorResponse,
   writeBatchResponse,
   writeInternalError,
@@ -76,6 +77,21 @@ import { getPlanModeManager } from '../../commands/plan.js';
 import { getRpcErrorMetadata, writeRpcDebugLine } from './logging.js';
 import { shutdownBrowserToolBridge } from '../../browser/browserToolBridge.js';
 import { configureSearchFromSettings } from '../../actions/web.js';
+import {
+  applyAnswerOnlyRuntimeConfig,
+  BlueprintAnswerError,
+  createAnswerOnlyRuntimeProfile,
+  inspectBlueprintRuntime,
+} from './blueprintAnswer.js';
+import { handleBlueprintRpcRequest } from './blueprintRpc.js';
+import { AuthClient } from '../../auth/AuthClient.js';
+import { AUTH_CONFIG } from '../../constants.js';
+import {
+  BlueprintSetupError,
+  BlueprintSetupSessionManager,
+  createSetupOnlyRuntimeProfile,
+} from './blueprintSetup.js';
+import { handleBlueprintSetupRpcRequest } from './blueprintSetupRpc.js';
 
 // Store original console methods
 const originalConsole = {
@@ -151,6 +167,287 @@ function awaitRpcLifecycleStep<T>(task: Promise<T>, signal: AbortSignal): Promis
 
 type RpcShutdownReason = 'disconnected' | 'error';
 
+function writeBlueprintResponse(response: JsonRpcResponse): void {
+  if (response.error) {
+    writeErrorResponse(
+      response.id,
+      response.error.code,
+      response.error.message,
+      response.error.data,
+    );
+    return;
+  }
+  writeResponse(response.id, response.result);
+}
+
+function writeBlueprintStartupError(error: unknown): void {
+  if (error instanceof BlueprintAnswerError) {
+    const code = error.kind === 'profile_violation'
+      ? JSON_RPC_ERROR_CODES.PROFILE_VIOLATION
+      : JSON_RPC_ERROR_CODES.INITIALIZATION_FAILED;
+    writeErrorResponse(null, code, error.message, {
+      kind: error.kind,
+      stage: 'startup',
+      retryable: error.retryable,
+    });
+    return;
+  }
+  writeErrorResponse(
+    null,
+    JSON_RPC_ERROR_CODES.INITIALIZATION_FAILED,
+    'Blueprint answer-only initialization failed.',
+    {
+      kind: 'initialization_failed',
+      stage: 'startup',
+      retryable: false,
+    },
+  );
+}
+
+async function runBlueprintAnswerOnlyRpcMode(options: CLIOptions): Promise<0 | 1> {
+  suppressConsole();
+  let reader: LineReader | null = null;
+  let exitCode: 0 | 1 = 0;
+  let terminationRequested = false;
+  const terminationController = new AbortController();
+  const handleStdoutError = (error: Error): void => {
+    writeRpcDebugLine(`answer-only stdout error: ${getRpcErrorMetadata(error)}`);
+  };
+  const handleStdinError = (error: Error): void => {
+    writeRpcDebugLine(`answer-only stdin error: ${getRpcErrorMetadata(error)}`);
+  };
+  const handleTermination = (): void => {
+    terminationRequested = true;
+    terminationController.abort();
+    reader?.dispose();
+  };
+
+  process.stdout.on('error', handleStdoutError);
+  process.stdin.on('error', handleStdinError);
+  process.on('SIGINT', handleTermination);
+  process.on('SIGTERM', handleTermination);
+
+  try {
+    const profile = createAnswerOnlyRuntimeProfile(options);
+    const loadedConfig = await loadConfig(options.config, process.cwd(), {
+      createIfMissing: false,
+      initializeTheme: false,
+    });
+    const config = applyAnswerOnlyRuntimeConfig(loadedConfig);
+    const runtimeFacts = await inspectBlueprintRuntime({
+      config,
+      profile,
+      ...(options.model ? { modelOverride: options.model } : {}),
+    });
+    reader = new LineReader(process.stdin);
+
+    while (!terminationRequested) {
+      let line: string;
+      try {
+        line = await awaitRpcLifecycleStep(
+          reader.readLine(),
+          terminationController.signal,
+        );
+      } catch (error) {
+        if (terminationRequested
+            || (error instanceof Error && (error.name === 'AbortError'
+              || error.message === 'Stream closed'))) {
+          break;
+        }
+        throw error;
+      }
+
+      const parsed = parseRequest(line);
+      if (parsed.type === 'error') {
+        writeErrorResponse(null, parsed.code, parsed.message);
+        continue;
+      }
+      if (parsed.type === 'batch') {
+        writeErrorResponse(
+          null,
+          JSON_RPC_ERROR_CODES.INVALID_REQUEST,
+          'Batch requests are disabled in Blueprint answer-only mode.',
+          {
+            kind: 'batch_disabled',
+            stage: 'request',
+            retryable: false,
+          },
+        );
+        continue;
+      }
+
+      const outcome = await awaitRpcLifecycleStep(
+        handleBlueprintRpcRequest(parsed.request, {
+          config,
+          profile,
+          runtimeFacts,
+          providerFactory: () => {
+            const provider = ProviderFactory.createBlueprintAnswerProvider(config);
+            if (runtimeFacts.model) provider.setModel(runtimeFacts.model);
+            return provider;
+          },
+        }),
+        terminationController.signal,
+      );
+      if (outcome.response) writeBlueprintResponse(outcome.response);
+      if (outcome.terminal) {
+        exitCode = 1;
+        break;
+      }
+    }
+  } catch (error) {
+    if (!terminationRequested) {
+      writeBlueprintStartupError(error);
+      exitCode = 1;
+    }
+  } finally {
+    reader?.dispose();
+    process.stdout.off('error', handleStdoutError);
+    process.stdin.off('error', handleStdinError);
+    process.off('SIGINT', handleTermination);
+    process.off('SIGTERM', handleTermination);
+    await flushRpcOutput();
+    restoreConsole();
+  }
+  return exitCode;
+}
+
+async function runBlueprintSetupOnlyRpcMode(options: CLIOptions): Promise<0 | 1> {
+  suppressConsole();
+  let reader: LineReader | null = null;
+  let sessions: BlueprintSetupSessionManager | null = null;
+  let exitCode: 0 | 1 = 0;
+  let terminationRequested = false;
+  const terminationController = new AbortController();
+  const handleStdoutError = (error: Error): void => {
+    writeRpcDebugLine(`setup-only stdout error: ${getRpcErrorMetadata(error)}`);
+  };
+  const handleStdinError = (error: Error): void => {
+    writeRpcDebugLine(`setup-only stdin error: ${getRpcErrorMetadata(error)}`);
+  };
+  const handleTermination = (): void => {
+    terminationRequested = true;
+    terminationController.abort();
+    reader?.dispose();
+  };
+
+  process.stdout.on('error', handleStdoutError);
+  process.stdin.on('error', handleStdinError);
+  process.on('SIGINT', handleTermination);
+  process.on('SIGTERM', handleTermination);
+
+  try {
+    createSetupOnlyRuntimeProfile(options);
+    const config = await loadConfig(options.config, process.cwd(), {
+      createIfMissing: false,
+      initializeTheme: false,
+    });
+    const authClient = new AuthClient({ timeout: 10_000 });
+    sessions = new BlueprintSetupSessionManager({
+      authClient,
+      persistCredentials: async (token, user) => {
+        const expiresAt = new Date(
+          Date.now() + AUTH_CONFIG.sessionExpiryDays * 24 * 60 * 60 * 1000,
+        ).toISOString();
+        const updatedConfig: LoadedConfig = {
+          ...config,
+          auth: { token, user, expiresAt },
+        };
+        await saveConfig(updatedConfig);
+        config.auth = updatedConfig.auth;
+      },
+    });
+    reader = new LineReader(process.stdin);
+
+    while (!terminationRequested) {
+      let line: string;
+      try {
+        line = await awaitRpcLifecycleStep(
+          reader.readLine(),
+          terminationController.signal,
+        );
+      } catch (error) {
+        if (terminationRequested
+            || (error instanceof Error && (error.name === 'AbortError'
+              || error.message === 'Stream closed'))) {
+          break;
+        }
+        throw error;
+      }
+
+      const parsed = parseRequest(line);
+      if (parsed.type === 'error') {
+        writeErrorResponse(null, parsed.code, parsed.message);
+        continue;
+      }
+      if (parsed.type === 'batch') {
+        writeErrorResponse(
+          null,
+          JSON_RPC_ERROR_CODES.INVALID_REQUEST,
+          'Batch requests are disabled in Blueprint setup-only mode.',
+          {
+            kind: 'batch_disabled',
+            stage: 'request',
+            retryable: false,
+          },
+        );
+        continue;
+      }
+
+      const outcome = await awaitRpcLifecycleStep(
+        handleBlueprintSetupRpcRequest(parsed.request, sessions),
+        terminationController.signal,
+      );
+      writeBlueprintResponse(outcome.response);
+      if (outcome.terminal) {
+        exitCode = 1;
+        break;
+      }
+    }
+  } catch (error) {
+    if (!terminationRequested) {
+      if (error instanceof BlueprintSetupError) {
+        writeErrorResponse(
+          null,
+          error.kind === 'profile_violation'
+            ? JSON_RPC_ERROR_CODES.PROFILE_VIOLATION
+            : JSON_RPC_ERROR_CODES.INITIALIZATION_FAILED,
+          error.message,
+          {
+            kind: error.kind === 'profile_violation'
+              ? 'profile_violation'
+              : 'initialization_failed',
+            stage: 'startup',
+            retryable: false,
+          },
+        );
+      } else {
+        writeErrorResponse(
+          null,
+          JSON_RPC_ERROR_CODES.INITIALIZATION_FAILED,
+          'Blueprint setup-only initialization failed.',
+          {
+            kind: 'initialization_failed',
+            stage: 'startup',
+            retryable: false,
+          },
+        );
+      }
+      exitCode = 1;
+    }
+  } finally {
+    reader?.dispose();
+    await sessions?.shutdown().catch(() => {});
+    process.stdout.off('error', handleStdoutError);
+    process.stdin.off('error', handleStdinError);
+    process.off('SIGINT', handleTermination);
+    process.off('SIGTERM', handleTermination);
+    await flushRpcOutput();
+    restoreConsole();
+  }
+  return exitCode;
+}
+
 export async function shutdownRpcRuntime(
   adapter: Pick<RPCAdapter, 'shutdown'> | null,
   agent: Partial<Pick<AutohandAgent, 'shutdown' | 'shutdownRuntimeResources'>> | null,
@@ -177,6 +474,13 @@ export async function shutdownRpcRuntime(
  * Run the CLI in JSON-RPC 2.0 mode
  */
 export async function runRpcMode(options: CLIOptions): Promise<0 | 1> {
+  if (options.setupOnly === true) {
+    return runBlueprintSetupOnlyRpcMode(options);
+  }
+  if (options.answerOnly === true || options.clientContext === 'blueprint') {
+    return runBlueprintAnswerOnlyRpcMode(options);
+  }
+
   // Suppress console output - all communication via JSON-RPC
   suppressConsole();
 
@@ -270,8 +574,14 @@ export async function runRpcMode(options: CLIOptions): Promise<0 | 1> {
     if (!isAuthed) {
       writeErrorResponse(
         null,
-        JSON_RPC_ERROR_CODES.INTERNAL_ERROR,
-        'Authentication required. Run `autohand login` first.'
+        JSON_RPC_ERROR_CODES.AUTHENTICATION_REQUIRED,
+        'Authentication required. Run `autohand login` first.',
+        {
+          kind: 'authentication_required',
+          stage: 'startup',
+          retryable: true,
+          providerId: config.provider ?? 'openrouter',
+        },
       );
       return 1;
     }
@@ -313,14 +623,15 @@ export async function runRpcMode(options: CLIOptions): Promise<0 | 1> {
       }
     }
 
-    // Create runtime - permission mode is handled via RPC, not auto-approve
-    // clientContext 'chrome' restricts tools to browser_* + basic file ops
+    // Create runtime - permission mode is handled via RPC, not auto-approve.
+    // Preserve the caller's typed context instead of assuming every RPC
+    // transport is the Chrome extension.
     const runtime: AgentRuntime = {
       config,
       workspaceRoot,
       options: {
         ...options,
-        clientContext: 'chrome',
+        clientContext: options.clientContext ?? 'chrome',
         // Do NOT set yes: true - permissions are handled via RPC
       },
       additionalDirs: additionalDirs.length > 0 ? additionalDirs : undefined,
@@ -433,8 +744,16 @@ export async function runRpcMode(options: CLIOptions): Promise<0 | 1> {
       ? 0
       : 1;
     if (!terminatedDuringLifecycle) {
-      const message = error instanceof Error ? error.message : String(error);
-      writeErrorResponse(null, JSON_RPC_ERROR_CODES.INTERNAL_ERROR, `Initialization error: ${message}`);
+      writeErrorResponse(
+        null,
+        JSON_RPC_ERROR_CODES.INITIALIZATION_FAILED,
+        'RPC initialization failed.',
+        {
+          kind: 'initialization_failed',
+          stage: 'startup',
+          retryable: false,
+        },
+      );
     }
   } finally {
     reader?.dispose();
