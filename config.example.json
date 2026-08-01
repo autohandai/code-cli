@@ -11,5 +11,8 @@
     "theme": "dark",
     "autoConfirm": false,
     "readFileCharLimit": 300
+  },
+  "features": {
+    "promptCaching": false
   }
 }

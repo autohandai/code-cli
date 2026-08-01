@@ -64,6 +64,10 @@ interface OpenAIResponsesUsage {
     input_tokens?: number;
     output_tokens?: number;
     total_tokens?: number;
+    input_tokens_details?: {
+        cached_tokens?: number;
+        cache_write_tokens?: number;
+    };
 }
 
 interface OpenAIResponsesOutputText {
@@ -138,6 +142,18 @@ const VALID_REASONING_EFFORTS = new Set<string>(['none', 'low', 'medium', 'high'
 const OPENAI_API_BASE_URL = 'https://api.openai.com/v1';
 const OPENAI_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex';
 const DEFAULT_CODEX_INSTRUCTIONS = 'You are Autohand, a coding assistant. Follow the repository instructions and help the user complete software tasks.';
+
+function isPromptCacheKeyRejection(error: ApiError): boolean {
+    if (error.code !== 'invalid_request' || error.httpStatus !== 400) return false;
+    const detail = error.rawDetail?.toLowerCase() ?? '';
+    const field = "['\"]?prompt_cache_key['\"]?";
+    const rejection = '(?:unknown|unsupported|not supported|unrecognized|unexpected)';
+    return [
+        new RegExp(`\\b${rejection}\\s+(?:parameter|field)\\s*:?\\s*${field}\\b`),
+        new RegExp(`\\b${field}\\b[^.\\n]{0,80}\\b(?:is\\s+)?${rejection}\\b`),
+        new RegExp(`\\bextra inputs are not permitted\\b[^.\\n]{0,80}\\b${field}\\b`),
+    ].some((pattern) => pattern.test(detail));
+}
 
 const OPENAI_API_KEY_FRIENDLY_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
     auth_failed:
@@ -330,7 +346,7 @@ export class OpenAIProvider implements LLMProvider {
             }));
         }
 
-        const usage = normalizeLLMUsage(data.usage);
+        const usage = normalizeLLMUsage(data.usage, 'openai-chat');
 
         return {
             id: data.id,
@@ -356,6 +372,7 @@ export class OpenAIProvider implements LLMProvider {
             tool_choice: 'auto',
             parallel_tool_calls: true,
             input: this.toResponsesInputItems(request.messages),
+            ...(request.promptCache ? { prompt_cache_key: request.promptCache.key } : {}),
         };
 
         if (this.reasoningEffort && VALID_REASONING_EFFORTS.has(this.reasoningEffort)) {
@@ -387,45 +404,56 @@ export class OpenAIProvider implements LLMProvider {
         }
 
         const headers = await this.buildAuthHeaders();
-        let response: Response;
+        const sendRequest = async (requestBody: Record<string, unknown>): Promise<Response> => {
+            try {
+                return await fetch(`${this.baseUrl}/responses`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...headers,
+                    },
+                    body: JSON.stringify(requestBody),
+                    signal: request.signal,
+                });
+            } catch (error) {
+                const err = error as Error;
+                if (err.name === 'AbortError' && request.signal?.aborted) {
+                    throw new ApiError('Request cancelled.', 'cancelled', 0, false);
+                }
 
-        try {
-            response = await fetch(`${this.baseUrl}/responses`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...headers,
-                },
-                body: JSON.stringify(body),
-                signal: request.signal,
-            });
-        } catch (error) {
-            const err = error as Error;
-            if (err.name === 'AbortError' && request.signal?.aborted) {
-                throw new ApiError('Request cancelled.', 'cancelled', 0, false);
-            }
+                if (err.name === 'AbortError') {
+                    throw new ApiError(
+                        'The request timed out. The ChatGPT Codex service may be experiencing high load.',
+                        'timeout', 0, true,
+                    );
+                }
 
-            if (err.name === 'AbortError') {
                 throw new ApiError(
-                    'The request timed out. The ChatGPT Codex service may be experiencing high load.',
-                    'timeout', 0, true,
+                    `Unable to connect to ${this.baseUrl}. Please check the URL and your internet connection.`,
+                    'network_error', 0, true,
                 );
             }
+        };
 
-            throw new ApiError(
-                `Unable to connect to ${this.baseUrl}. Please check the URL and your internet connection.`,
-                'network_error', 0, true,
-            );
-        }
-
+        let response = await sendRequest(body);
         if (!response.ok) {
-            throw await this.buildApiError(response);
+            const error = await this.buildApiError(response);
+            if (!request.promptCache || !isPromptCacheKeyRejection(error)) {
+                throw error;
+            }
+
+            const fallbackBody = { ...body };
+            delete fallbackBody.prompt_cache_key;
+            response = await sendRequest(fallbackBody);
+            if (!response.ok) {
+                throw await this.buildApiError(response);
+            }
         }
 
         const data = await this.parseCodexStream(response);
         const toolCalls = this.extractResponsesToolCalls(data.output);
         const content = this.extractResponsesContent(data);
-        const usage = normalizeLLMUsage(data.usage);
+        const usage = normalizeLLMUsage(data.usage, 'openai-responses');
 
         return {
             id: data.id,

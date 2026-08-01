@@ -377,6 +377,8 @@ export interface FeatureFlagSettings {
   slashGoal?: boolean;
   /** Show real-time token usage (tokens up/down + context window occupancy) in the status line. */
   tokenUsageStatus?: boolean;
+  /** Enable experimental provider-native prompt cache affinity. */
+  promptCaching?: boolean;
   /** Enable the experimental /fork session branching surface. */
   experimentalFork?: boolean;
   /** Enable the experimental /clone session duplication surface. */
@@ -1162,6 +1164,14 @@ export type ToolChoice =
 /** Thinking/reasoning depth level for LLM requests */
 export type ThinkingLevel = 'none' | 'normal' | 'extended';
 
+/**
+ * Provider-agnostic prompt cache affinity for a single logical agent session.
+ * Providers that do not support cache affinity ignore this directive.
+ */
+export interface PromptCacheDirective {
+  key: string;
+}
+
 export interface LLMRequest {
   messages: LLMMessage[];
   temperature?: number;
@@ -1180,6 +1190,8 @@ export interface LLMRequest {
   outputSchema?: Record<string, unknown>;
   /** Thinking/reasoning depth level (default: 'normal') */
   thinkingLevel?: ThinkingLevel;
+  /** Optional provider-native prompt cache affinity. */
+  promptCache?: PromptCacheDirective;
   /** Chat template kwargs for NVIDIA reasoning models (DeepSeek, Z.ai GLM) */
   chatTemplateKwargs?: NvidiaChatTemplateKwargs;
 }
@@ -1189,6 +1201,10 @@ export interface LLMUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  /** Input tokens read from a provider prompt cache, when explicitly reported. */
+  cacheReadTokens?: number;
+  /** Input tokens written to a provider prompt cache, when explicitly reported. */
+  cacheWriteTokens?: number;
 }
 
 export type TokenUsageStatus = 'actual' | 'unavailable';

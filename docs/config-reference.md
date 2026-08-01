@@ -2271,6 +2271,8 @@ Remote feature flags are fetched from `/v1/feature-flags/evaluate`, cached at `~
 
 `token_usage_status` is an experimental feature switch (config path `features.tokenUsageStatus`, default off) that shows real-time token usage in the working status line — cumulative tokens up (`↑`) and down (`↓`) plus context-window occupancy, e.g. `↑15.7k ↓3.2k · context: 6.0% (15.7k/262.1k)`. The context window is resolved per model across all providers. Enable it with `autohand experiments enable token_usage_status`.
 
+`prompt_caching` is an experimental feature switch (config path `features.promptCaching`, default off) that sends an opaque session-affinity hint on eligible provider requests. The initial candidate is the ChatGPT OAuth Responses transport; standard OpenAI Chat Completions and other providers remain unchanged. Enable it with `autohand experiments enable prompt_caching`. The OAuth transport remains unverified until a current two-turn live probe confirms accepted controls and provider-reported cache usage, so an independent remote kill switch and exact-field fallback remain active.
+
 ---
 
 ## Slash Commands

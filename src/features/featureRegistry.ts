@@ -166,6 +166,14 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     defaultEnabled: false,
   },
   {
+    id: 'prompt_caching',
+    label: 'Prompt caching',
+    description: 'Attach verified provider-native cache affinity to eligible agent requests.',
+    stage: 'experimental',
+    configPath: 'features.promptCaching',
+    defaultEnabled: false,
+  },
+  {
     id: 'experimental_fork',
     label: 'Experimental fork',
     description: 'Enable branching a new session from the active session or an earlier user message.',

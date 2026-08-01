@@ -120,6 +120,14 @@ The `/settings` command opens an interactive settings editor directly in the ter
 - [x] `cli_usage_v2` is enabled by default and powers `/usage`, `/usage weekly`, and `/usage monthly`
 - [x] `experimental_browser_tools_v2` is disabled by default and requires a CLI restart; after an extension capability handshake it adds snapshot refs, typed waits, verified actions, and dedicated form tools
 
+### Experimental: provider prompt caching
+
+The `prompt_caching` switch (default off) adds a stable, opaque session-affinity hint to eligible provider requests so the provider can reuse unchanged prompt prefixes. It does not cache assistant responses locally and cannot move a provider's KV cache to another provider.
+
+The initial candidate path is the ChatGPT OAuth Responses transport. Standard OpenAI Chat Completions and other providers are unchanged. Because the OAuth path targets a private backend, it remains experimental until current two-turn live evidence confirms that the field is accepted and cache usage is reported. An independent remote kill switch and a one-time exact-field fallback protect the request path.
+
+Enable it with `/experiments enable prompt_caching`, or set `features.promptCaching: true` in `~/.autohand/config.json`. The raw session ID is not sent to the provider. Cache read/write counts are retained only when the provider explicitly reports valid metrics; Autohand does not infer hits or savings.
+
 ### Experimental: real-time token usage status
 
 The experimental `token_usage_status` switch (default off) replaces the plain

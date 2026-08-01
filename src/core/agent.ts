@@ -10,6 +10,7 @@ import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import { FileActionManager } from '../actions/filesystem.js';
 import { getProviderConfig } from '../config.js';
 import { isAwsBedrockProviderEnabled } from '../features/featureRegistry.js';
+import type { RemoteFeatureFlagManager } from '../features/RemoteFeatureFlagManager.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import { safeEmitKeypressEvents } from '../ui/inputPrompt.js';
 
@@ -91,6 +92,9 @@ import { ProviderConfigManager } from './agent/ProviderConfigManager.js';
 import { ReactionParser } from './agent/ReactionParser.js';
 import { ShellSuggestionProvider } from './agent/ShellSuggestionProvider.js';
 import { SimpleChatHandler, type SimpleChatAgent } from './agent/SimpleChatHandler.js';
+import {
+  isPromptCachingEnabled as resolvePromptCachingEnabled,
+} from './agent/PromptCache.js';
 import { McpStartupCoordinator } from './agent/McpStartupCoordinator.js';
 import { MentionResolver } from './agent/MentionResolver.js';
 import { SystemPromptBuilder } from './agent/SystemPromptBuilder.js';
@@ -354,6 +358,7 @@ export class AutohandAgent {
   private delegator!: AgentDelegator;
   private feedbackManager!: FeedbackManager;
   private telemetryManager!: TelemetryManager;
+  private featureFlagManager?: RemoteFeatureFlagManager;
   private skillsRegistry!: SkillsRegistry;
   private communityClient!: CommunitySkillsClient;
   private mcpManager!: McpClientManager;
@@ -935,6 +940,10 @@ export class AutohandAgent {
     return this.simpleChatHandler;
   }
 
+  private isPromptCachingEnabled(): boolean {
+    return resolvePromptCachingEnabled(this.runtime.config, this.featureFlagManager);
+  }
+
   /**
    * Handle simple chat without spinner/tools (fast path)
    */
@@ -1223,6 +1232,7 @@ export class AutohandAgent {
       getReactionParser: () => agent.getReactionParser(),
       handleSmartContextCrop: (call) => agent.handleSmartContextCrop(call),
       isContextOverflowError: (errorOrMessage) => agent.isContextOverflowError(errorOrMessage),
+      isPromptCachingEnabled: () => agent.isPromptCachingEnabled(),
       saveAssistantMessage: (content, toolCalls) => agent.saveAssistantMessage(content, toolCalls),
       saveToolMessage: (name, content, toolCallId) => agent.saveToolMessage(name, content, toolCallId),
       setComposerFinalResponse: (response) => agent.setComposerFinalResponse(response),
