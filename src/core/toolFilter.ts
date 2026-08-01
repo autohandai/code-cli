@@ -7,6 +7,7 @@
  */
 import type { ToolDefinition } from './toolManager.js';
 import type { ClientContext } from '../types.js';
+import { BROWSER_V2_TOOL_NAMES } from '../browser/browserCapabilities.js';
 
 // Re-export for convenience
 export type { ClientContext } from '../types.js';
@@ -188,6 +189,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   browser_get_tabs: 'browser',
   browser_get_tab_groups: 'browser',
   browser_execute_js: 'browser',
+  ...Object.fromEntries(BROWSER_V2_TOOL_NAMES.map((tool) => [tool, 'browser' as const])),
 };
 
 /**
@@ -253,7 +255,8 @@ export const CONTEXT_POLICIES: Record<ClientContext, ToolPolicy> = {
       'browser_scroll', 'browser_find_element', 'browser_press_key',
       'browser_get_page_context', 'browser_get_element', 'browser_wait_for_element',
       'browser_read_console', 'browser_read_network', 'browser_get_tabs',
-      'browser_get_tab_groups', 'browser_execute_js',
+      'browser_get_tab_groups',
+      ...BROWSER_V2_TOOL_NAMES,
       // Basic file ops — restricted scope
       'read_file', 'write_file', 'fff_grep', 'fff_find', 'search', 'list_tree',
       // Web
@@ -546,6 +549,7 @@ const RELEVANCE_CATEGORIES: Record<string, RelevanceCategory> = {
   browser_get_tabs: 'browser',
   browser_get_tab_groups: 'browser',
   browser_execute_js: 'browser',
+  ...Object.fromEntries(BROWSER_V2_TOOL_NAMES.map((tool) => [tool, 'browser' as const])),
 
   // Meta
   save_memory: 'meta',

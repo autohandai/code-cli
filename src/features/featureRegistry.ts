@@ -190,6 +190,15 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     defaultEnabled: false,
   },
   {
+    id: 'experimental_browser_tools_v2',
+    label: 'Browser tools v2',
+    description: 'Enable negotiated snapshot refs, deterministic waits, and dedicated form automation in Chrome.',
+    stage: 'experimental',
+    configPath: 'features.experimentalBrowserToolsV2',
+    defaultEnabled: false,
+    requiresRestart: true,
+  },
+  {
     id: 'chrome_integration',
     label: 'Chrome integration',
     description: 'Start the browser bridge by default for Chrome extension handoff.',

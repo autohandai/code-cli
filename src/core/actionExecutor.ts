@@ -2973,7 +2973,32 @@ export class ActionExecutor {
       case 'browser_read_console':
       case 'browser_get_tabs':
       case 'browser_get_tab_groups':
-      case 'browser_execute_js': {
+      case 'browser_execute_js':
+      case 'browser_snapshot':
+      case 'browser_wait_for':
+      case 'browser_get_runtime_state':
+      case 'browser_handle_dialog':
+      case 'browser_wait_for_download':
+      case 'browser_inspect_form':
+      case 'browser_fill_form':
+      case 'browser_validate_form':
+      case 'browser_submit_form':
+      case 'browser_reset_form':
+      case 'browser_go_back':
+      case 'browser_go_forward':
+      case 'browser_reload':
+      case 'browser_open_tab':
+      case 'browser_close_tab':
+      case 'browser_switch_tab':
+      case 'browser_group_tabs':
+      case 'browser_hover':
+      case 'browser_drag':
+      case 'browser_select_option':
+      case 'browser_upload_file':
+      case 'browser_read_page_interactive':
+      case 'browser_read_page_all':
+      case 'browser_get_selected_text':
+      case 'browser_extract_links': {
         return this.executeBrowserTool(action);
       }
       case 'init_experiment': {
@@ -3008,8 +3033,14 @@ export class ActionExecutor {
   private async executeBrowserTool(action: AgentAction): Promise<string> {
     const { type, ...params } = action as Record<string, unknown>;
     const toolName = type as string;
-    const { invokeBrowserTool } = await import('../browser/browserToolBridge.js');
-    return invokeBrowserTool(toolName, params as Record<string, unknown>);
+    const [{ invokeBrowserTool }, { prepareBrowserFileInputs }] = await Promise.all([
+      import('../browser/browserToolBridge.js'),
+      import('../browser/browserFileInputs.js'),
+    ]);
+    return invokeBrowserTool(
+      toolName,
+      await prepareBrowserFileInputs(toolName, params, this.runtime.workspaceRoot),
+    );
   }
 
 

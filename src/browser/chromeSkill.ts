@@ -60,6 +60,21 @@ When a selector or URL is known from the user's message, call the target tool di
 In [MODE:ask-before-acting], call \`plan\` tool first with structured PLAN_JSON steps, then wait for approval. In [MODE:yolo], execute directly. [MODE:automode] is managed by the autonomous loop.
 `.trim();
 
+export const CHROME_AUTOMATION_V2_SYSTEM_PROMPT = `
+# Reliable Browser Automation V2
+
+The CLI and Chrome extension negotiated browser protocol v2.
+
+- Start discovery with browser_snapshot. Prefer its opaque refs over selectors.
+- Refs are tab-, frame-, and document-scoped. If a ref is stale or ambiguous, take a fresh snapshot; do not retry the old ref.
+- Use browser_wait_for with a typed condition instead of sleeps, polling, or blind action retries.
+- For forms: browser_inspect_form, browser_fill_form, browser_validate_form, then browser_submit_form only when submission is intended.
+- browser_fill_form never submits. browser_submit_form validates first and runs once; do not retry an ambiguous submission.
+- Passwords, OTPs, payment fields, API keys, and secret-like values are redacted. Upload results expose basenames only.
+- Submit, reset, upload, and dialog handling require approval in interactive mode. YOLO and Automode retain their existing approval behavior.
+- browser_execute_js, arbitrary browser sleeps, blind retries, and unrestricted browser fetch are outside the Chrome policy.
+`.trim();
+
 export const CHROME_TOOL_POLICY = {
   allowed: [
     "browser_screenshot",
@@ -77,6 +92,31 @@ export const CHROME_TOOL_POLICY = {
     "browser_read_network",
     "browser_get_tabs",
     "browser_get_tab_groups",
+    "browser_snapshot",
+    "browser_wait_for",
+    "browser_get_runtime_state",
+    "browser_handle_dialog",
+    "browser_wait_for_download",
+    "browser_inspect_form",
+    "browser_fill_form",
+    "browser_validate_form",
+    "browser_submit_form",
+    "browser_reset_form",
+    "browser_go_back",
+    "browser_go_forward",
+    "browser_reload",
+    "browser_open_tab",
+    "browser_close_tab",
+    "browser_switch_tab",
+    "browser_group_tabs",
+    "browser_hover",
+    "browser_drag",
+    "browser_select_option",
+    "browser_upload_file",
+    "browser_read_page_interactive",
+    "browser_read_page_all",
+    "browser_get_selected_text",
+    "browser_extract_links",
     "read_file",
     "write_file",
     "fff_grep",

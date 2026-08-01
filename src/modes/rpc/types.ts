@@ -212,6 +212,7 @@ export const RPC_METHODS = {
   BROWSER_HANDOFF_CREATE: 'autohand.browserHandoff.create',
   BROWSER_HANDOFF_ATTACH: 'autohand.browserHandoff.attach',
   BROWSER_HANDOFF_ATTACH_LATEST: 'autohand.browserHandoff.attachLatest',
+  BROWSER_CAPABILITIES_SET: 'autohand.browserCapabilities.set',
   PERMISSION_RESPONSE: 'autohand.permissionResponse',
   PERMISSION_ACKNOWLEDGED: 'autohand.permissionAcknowledged',
   DIRECTORY_ACCESS_RESPONSE: 'autohand.directoryAccessResponse',
@@ -484,6 +485,18 @@ export interface BrowserHandoffAttachResult {
 
 export interface BrowserHandoffAttachLatestParams {
   // No params needed
+}
+
+export interface BrowserCapabilitiesSetParams {
+  protocolVersion: number;
+  extensionVersion: string;
+  tools: string[];
+}
+
+export interface BrowserCapabilitiesSetResult {
+  enabled: boolean;
+  protocolVersion: 1 | 2;
+  tools: string[];
 }
 
 export interface PermissionResponseParams {
