@@ -1940,6 +1940,338 @@ Actions:
   },
 ];
 
+const BROWSER_TARGET_PROPERTIES: Record<string, ToolParameter> = {
+  target: {
+    type: 'object',
+    description: 'Stable browser target. Prefer a snapshot ref; selectors and semantic role/name locators are compatibility alternatives.',
+    properties: {
+      kind: { type: 'string', description: 'Target kind', enum: ['ref', 'selector', 'role'] },
+      ref: { type: 'string', description: 'Opaque ref returned by browser_snapshot' },
+      selector: { type: 'string', description: 'CSS selector' },
+      role: { type: 'string', description: 'ARIA or implicit semantic role' },
+      name: { type: 'string', description: 'Accessible name for a role locator' },
+      exact: { type: 'boolean', description: 'Require an exact accessible-name match' },
+    },
+    required: ['kind'],
+  },
+  selector: {
+    type: 'string',
+    description: 'Legacy CSS selector compatibility input. Prefer target.kind=ref.',
+  },
+  ref: {
+    type: 'string',
+    description: 'Legacy shorthand for an opaque browser_snapshot ref.',
+  },
+  role: {
+    type: 'string',
+    description: 'Legacy shorthand for a semantic role locator.',
+  },
+  name: {
+    type: 'string',
+    description: 'Accessible name used with the role shorthand.',
+  },
+  exact: {
+    type: 'boolean',
+    description: 'Require an exact accessible-name match.',
+  },
+};
+
+const BROWSER_WAIT_CONDITION_PARAMETER: ToolParameter = {
+  type: 'object',
+  description: 'Typed wait condition. Element/text/value waits accept target, URL waits accept url, and network_idle accepts idleMs.',
+  properties: {
+    kind: {
+      type: 'string',
+      description: 'Wait condition kind',
+      enum: ['element', 'text', 'value', 'url', 'load', 'network_idle'],
+    },
+    ...BROWSER_TARGET_PROPERTIES,
+    state: {
+      type: 'string',
+      description: 'Required element state',
+      enum: ['attached', 'visible', 'hidden', 'enabled'],
+    },
+    text: { type: 'string', description: 'Text to wait for' },
+    value: { type: 'string', description: 'Element value to wait for' },
+    url: { type: 'string', description: 'URL or URL fragment to wait for' },
+    match: {
+      type: 'string',
+      description: 'String matching mode',
+      enum: ['contains', 'equals'],
+    },
+    idleMs: {
+      type: 'number',
+      description: 'Required quiet network window in milliseconds (default 500, maximum 2000)',
+    },
+  },
+  required: ['kind'],
+};
+
+export const BROWSER_V2_TOOL_DEFINITIONS: ToolDefinition[] = [
+  {
+    name: 'browser_snapshot',
+    description: 'Capture interactive page structure across frames and open shadow DOM. Returns short-lived opaque refs, form metadata, visibility, enabled state, and redacted values.',
+    parameters: {
+      type: 'object',
+      properties: {
+        maxElements: { type: 'number', description: 'Maximum interactive elements per frame (default 200, maximum 500)' },
+      },
+    },
+  },
+  {
+    name: 'browser_wait_for',
+    description: 'Wait deterministically for an element, text, value, URL, page load, or network-idle condition. Defaults to 10 seconds and is capped at 25 seconds.',
+    parameters: {
+      type: 'object',
+      properties: {
+        condition: BROWSER_WAIT_CONDITION_PARAMETER,
+        timeout: { type: 'number', description: 'Timeout in milliseconds (default 10000, maximum 25000)' },
+      },
+      required: ['condition'],
+    },
+  },
+  {
+    name: 'browser_get_runtime_state',
+    description: 'Inspect the active tab/scope, document, URL, load state, content-script readiness, debugger lease, navigation, frames, and dialog state.',
+  },
+  {
+    name: 'browser_handle_dialog',
+    description: 'Inspect, accept, or dismiss the current JavaScript dialog. Acceptance and dismissal are never retried.',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', description: 'Dialog operation', enum: ['inspect', 'accept', 'dismiss'] },
+        promptText: { type: 'string', description: 'Optional prompt value when accepting a prompt dialog' },
+      },
+      required: ['action'],
+    },
+    requiresApproval: true,
+    approvalMessage: 'Allow the agent to inspect or handle the current browser dialog?',
+  },
+  {
+    name: 'browser_wait_for_download',
+    description: 'Wait for a matching Chrome download to complete or be interrupted, returning basename-only evidence.',
+    parameters: {
+      type: 'object',
+      properties: {
+        downloadId: { type: 'number', description: 'Optional Chrome download id' },
+        filenamePattern: { type: 'string', description: 'Optional basename substring' },
+        timeout: { type: 'number', description: 'Timeout in milliseconds (default 10000, maximum 25000)' },
+      },
+    },
+  },
+  {
+    name: 'browser_inspect_form',
+    description: 'Inspect one form and return ref-addressable controls, labels, types, requirements, native options, and redacted values.',
+    parameters: { type: 'object', properties: { ...BROWSER_TARGET_PROPERTIES } },
+  },
+  {
+    name: 'browser_fill_form',
+    description: 'Resolve and fill form fields sequentially. Returns per-field outcomes and never submits the form.',
+    parameters: {
+      type: 'object',
+      properties: {
+        ...BROWSER_TARGET_PROPERTIES,
+        assignments: {
+          type: 'array',
+          description: 'Sequential text, checked, option, or files assignments',
+          items: {
+            type: 'object',
+            description: 'Discriminated form assignment',
+            properties: {
+              kind: { type: 'string', description: 'Assignment kind', enum: ['text', 'checked', 'option', 'files'] },
+              ...BROWSER_TARGET_PROPERTIES,
+              text: { type: 'string', description: 'Text value' },
+              clear: { type: 'boolean', description: 'Replace the current text when true' },
+              checked: { type: 'boolean', description: 'Checkbox or radio checked state' },
+              value: { type: 'string', description: 'Native option value' },
+              label: { type: 'string', description: 'Native option label' },
+              index: { type: 'number', description: 'Native option index' },
+              paths: {
+                type: 'array',
+                description: 'Absolute local paths resolved by the CLI',
+                items: { type: 'string', description: 'Absolute local file path' },
+              },
+            },
+            required: ['kind'],
+          },
+        },
+      },
+      required: ['assignments'],
+    },
+  },
+  {
+    name: 'browser_validate_form',
+    description: 'Validate a form with checkValidity and ValidityState without opening native validation UI.',
+    parameters: { type: 'object', properties: { ...BROWSER_TARGET_PROPERTIES } },
+  },
+  {
+    name: 'browser_submit_form',
+    description: 'Validate first, then submit exactly once with requestSubmit. Invalid forms remain blocked; an optional typed post-submit wait can collect evidence.',
+    parameters: {
+      type: 'object',
+      properties: {
+        ...BROWSER_TARGET_PROPERTIES,
+        submitter: BROWSER_TARGET_PROPERTIES.target,
+        wait: BROWSER_WAIT_CONDITION_PARAMETER,
+        timeout: { type: 'number', description: 'Post-submit wait timeout in milliseconds' },
+      },
+    },
+    requiresApproval: true,
+    approvalMessage: 'Allow the agent to submit this browser form?',
+  },
+  {
+    name: 'browser_reset_form',
+    description: 'Reset one browser form to its initial values.',
+    parameters: { type: 'object', properties: { ...BROWSER_TARGET_PROPERTIES } },
+    requiresApproval: true,
+    approvalMessage: 'Allow the agent to reset this browser form?',
+  },
+  {
+    name: 'browser_click',
+    description: 'Click one ref, CSS selector, or semantic role/name target and return verification evidence.',
+    parameters: { type: 'object', properties: { ...BROWSER_TARGET_PROPERTIES } },
+  },
+  {
+    name: 'browser_type',
+    description: 'Type into one ref, CSS selector, or semantic role/name target and verify the resulting value without disclosing secrets.',
+    parameters: {
+      type: 'object',
+      properties: {
+        ...BROWSER_TARGET_PROPERTIES,
+        text: { type: 'string', description: 'Text to type' },
+        clear: { type: 'boolean', description: 'Replace the existing value (default true)' },
+      },
+      required: ['text'],
+    },
+  },
+  {
+    name: 'browser_hover',
+    description: 'Hover one ref, CSS selector, or semantic role/name target.',
+    parameters: { type: 'object', properties: { ...BROWSER_TARGET_PROPERTIES } },
+  },
+  {
+    name: 'browser_drag',
+    description: 'Drag one stable target to another without automatic retries.',
+    parameters: {
+      type: 'object',
+      properties: {
+        source: BROWSER_TARGET_PROPERTIES.target,
+        destination: BROWSER_TARGET_PROPERTIES.target,
+      },
+      required: ['source', 'destination'],
+    },
+  },
+  {
+    name: 'browser_select_option',
+    description: 'Select a native option by value, label, or index and verify the resulting selection.',
+    parameters: {
+      type: 'object',
+      properties: {
+        ...BROWSER_TARGET_PROPERTIES,
+        value: { type: 'string', description: 'Option value' },
+        label: { type: 'string', description: 'Visible option label' },
+        index: { type: 'number', description: 'Zero-based option index' },
+      },
+    },
+  },
+  {
+    name: 'browser_upload_file',
+    description: 'Upload absolute local paths through Chrome DevTools. Results expose basenames only.',
+    parameters: {
+      type: 'object',
+      properties: {
+        ...BROWSER_TARGET_PROPERTIES,
+        paths: {
+          type: 'array',
+          description: 'Absolute local paths resolved by the CLI',
+          items: { type: 'string', description: 'Absolute local file path' },
+        },
+      },
+      required: ['paths'],
+    },
+    requiresApproval: true,
+    approvalMessage: 'Allow the agent to upload these local files to the current page?',
+  },
+  ...([
+    ['browser_go_back', 'Navigate the scoped browser tab backward.'],
+    ['browser_go_forward', 'Navigate the scoped browser tab forward.'],
+    ['browser_reload', 'Reload the scoped browser tab.'],
+    ['browser_get_selected_text', 'Read the current page selection.'],
+    ['browser_extract_links', 'Extract links from the current page.'],
+  ] as const).map(([name, description]) => ({ name, description })),
+  {
+    name: 'browser_open_tab',
+    description: 'Open a browser tab and make it the scoped target when active.',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'URL to open' },
+        active: { type: 'boolean', description: 'Whether the new tab is active' },
+        windowId: { type: 'number', description: 'Optional Chrome window id' },
+      },
+      required: ['url'],
+    },
+  },
+  {
+    name: 'browser_close_tab',
+    description: 'Close a specific tab or the scoped browser tab.',
+    parameters: {
+      type: 'object',
+      properties: {
+        tabId: { type: 'number', description: 'Optional Chrome tab id' },
+      },
+    },
+  },
+  {
+    name: 'browser_switch_tab',
+    description: 'Switch the scoped browser target by id, URL pattern, or title pattern.',
+    parameters: {
+      type: 'object',
+      properties: {
+        tabId: { type: 'number', description: 'Chrome tab id' },
+        urlPattern: { type: 'string', description: 'URL substring' },
+        titlePattern: { type: 'string', description: 'Title substring' },
+        active: { type: 'boolean', description: 'Activate the matched tab' },
+      },
+    },
+  },
+  {
+    name: 'browser_group_tabs',
+    description: 'Create or update a Chrome tab group.',
+    parameters: {
+      type: 'object',
+      properties: {
+        tabIds: {
+          type: 'array',
+          description: 'Chrome tab ids',
+          items: { type: 'number', description: 'Chrome tab id' },
+        },
+        title: { type: 'string', description: 'Group title' },
+        color: {
+          type: 'string',
+          description: 'Chrome tab-group color',
+          enum: ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'],
+        },
+        collapsed: { type: 'boolean', description: 'Collapse the group' },
+      },
+    },
+  },
+  ...([
+    ['browser_read_page_interactive', 'Read only interactive page structure.'],
+    ['browser_read_page_all', 'Read interactive structure plus bounded page text.'],
+  ] as const).map(([name, description]) => ({
+    name,
+    description,
+    parameters: {
+      type: 'object' as const,
+      properties: {
+        max_chars: { type: 'number', description: 'Maximum returned page-text characters' },
+      },
+    },
+  })),
+];
+
 /**
  * Standalone plan tool definition — only registered when plan mode is enabled.
  * Exported so agent.ts can dynamically inject/remove it.

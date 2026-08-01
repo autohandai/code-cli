@@ -62,11 +62,13 @@ const mockAgent = {
   runCommandMode: vi.fn().mockResolvedValue(true),
   cancelCurrentInstruction: vi.fn(),
   shutdownRuntimeResources: vi.fn().mockResolvedValue(undefined),
+  configureBrowserV2Tools: vi.fn<(tools: readonly string[]) => string[]>((tools) => [...tools]),
 };
 
 const mockConversation = {
   history: vi.fn().mockReturnValue([]),
   reset: vi.fn(),
+  addSystemNote: vi.fn(),
 };
 
 // Mock protocol.js to suppress stdout writes
@@ -109,6 +111,7 @@ describe('RPC Adapter - P2 Handlers', () => {
     mockAgent.getAndResetExecutedActions.mockReturnValue([]);
     mockAgent.runCommandMode.mockResolvedValue(true);
     mockAgent.shutdownRuntimeResources.mockResolvedValue(undefined);
+    mockAgent.configureBrowserV2Tools.mockImplementation((tools) => [...tools]);
     mockAgent.getImageManager.mockReturnValue({ clear: vi.fn() });
     mockAgent.getStatusSnapshot.mockReturnValue({ tokensUsed: 0, contextPercent: 0, model: 'test' });
     mockPermissionManager.getMode.mockReturnValue('interactive');
@@ -167,6 +170,97 @@ describe('RPC Adapter - P2 Handlers', () => {
         toolId: 'tool_missing_status',
         success: false,
       }));
+    });
+
+    it('redacts browser values before publishing tool transcripts', () => {
+      const outputListener = mockAgent.setOutputListener.mock.calls[0]?.[0];
+
+      outputListener({
+        type: 'tool_start',
+        toolId: 'tool_browser_secret',
+        toolName: 'browser_type',
+        toolArgs: {
+          target: { kind: 'ref', ref: 'br_password' },
+          text: 'never-publish-this',
+        },
+      });
+
+      expect(writeNotification).toHaveBeenCalledWith(
+        'autohand.toolStart',
+        expect.objectContaining({
+          toolId: 'tool_browser_secret',
+          args: {
+            target: { kind: 'ref', ref: 'br_password' },
+            text: '[REDACTED]',
+          },
+        }),
+      );
+    });
+  });
+
+  describe('browser capability negotiation', () => {
+    const capabilities = {
+      protocolVersion: 2,
+      extensionVersion: '0.1.0',
+      tools: ['browser_snapshot', 'browser_fill_form'],
+    };
+
+    it('keeps legacy tools when the experiment is disabled', () => {
+      expect(adapter.handleBrowserCapabilitiesSet('cap_legacy', capabilities)).toEqual({
+        enabled: false,
+        protocolVersion: 1,
+        tools: [],
+      });
+      expect(mockAgent.configureBrowserV2Tools).toHaveBeenCalledWith([]);
+      expect(mockConversation.addSystemNote).not.toHaveBeenCalled();
+    });
+
+    it('registers only negotiated tools and injects guidance once', () => {
+      adapter.initialize(
+        mockAgent as any,
+        mockConversation as any,
+        'test-model',
+        '/test/workspace',
+        {
+          configPath: '/test/config.json',
+          features: { experimentalBrowserToolsV2: true },
+        } as any,
+      );
+
+      expect(adapter.handleBrowserCapabilitiesSet('cap_v2', capabilities)).toEqual({
+        enabled: true,
+        protocolVersion: 2,
+        tools: ['browser_snapshot', 'browser_fill_form'],
+      });
+      expect(adapter.handleBrowserCapabilitiesSet('cap_v2_again', capabilities)).toEqual({
+        enabled: true,
+        protocolVersion: 2,
+        tools: ['browser_snapshot', 'browser_fill_form'],
+      });
+      expect(mockConversation.addSystemNote).toHaveBeenCalledTimes(1);
+    });
+
+    it('removes negotiated tools after a malformed downgrade', () => {
+      adapter.initialize(
+        mockAgent as any,
+        mockConversation as any,
+        'test-model',
+        '/test/workspace',
+        {
+          configPath: '/test/config.json',
+          features: { experimentalBrowserToolsV2: true },
+        } as any,
+      );
+      adapter.handleBrowserCapabilitiesSet('cap_v2', capabilities);
+
+      expect(
+        adapter.handleBrowserCapabilitiesSet('cap_downgrade', {
+          protocolVersion: 1,
+          extensionVersion: 'old',
+          tools: [],
+        }),
+      ).toEqual({ enabled: false, protocolVersion: 1, tools: [] });
+      expect(mockAgent.configureBrowserV2Tools).toHaveBeenLastCalledWith([]);
     });
   });
 

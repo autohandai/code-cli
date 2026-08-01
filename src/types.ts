@@ -383,6 +383,8 @@ export interface FeatureFlagSettings {
   experimentalClone?: boolean;
   /** Enable the experimental /handoff session surface. */
   experimentalHandoff?: boolean;
+  /** Enable negotiated browser automation protocol v2 tools. */
+  experimentalBrowserToolsV2?: boolean;
 }
 
 export type PermissionMode = 'interactive' | 'unrestricted' | 'restricted' | 'external';
@@ -1234,6 +1236,34 @@ export interface ToolRegistryEntry {
   extensionVersion?: string;
 }
 
+export type BrowserTarget =
+  | { kind: 'ref'; ref: string }
+  | { kind: 'selector'; selector: string }
+  | { kind: 'role'; role: string; name?: string; exact?: boolean };
+
+export type BrowserTargetInput = {
+  target?: BrowserTarget;
+  selector?: string;
+  ref?: string;
+  role?: string;
+  name?: string;
+  exact?: boolean;
+};
+
+export type BrowserWaitCondition =
+  | ({ kind: 'element'; state?: 'attached' | 'visible' | 'hidden' | 'enabled' } & BrowserTargetInput)
+  | ({ kind: 'text'; text: string; match?: 'contains' | 'equals' } & BrowserTargetInput)
+  | ({ kind: 'value'; value: string; match?: 'contains' | 'equals' } & BrowserTargetInput)
+  | { kind: 'url'; url: string; match?: 'contains' | 'equals' }
+  | { kind: 'load' }
+  | { kind: 'network_idle'; idleMs?: number };
+
+export type BrowserFormAssignment =
+  | ({ kind: 'text'; text: string; clear?: boolean } & BrowserTargetInput)
+  | ({ kind: 'checked'; checked: boolean } & BrowserTargetInput)
+  | ({ kind: 'option'; value?: string; label?: string; index?: number } & BrowserTargetInput)
+  | ({ kind: 'files'; paths: string[] } & BrowserTargetInput);
+
 export type AgentAction =
   | { type: 'read_file'; path: string; offset?: number; limit?: number }
   | { type: 'write_file'; path: string; contents?: string; content?: string }
@@ -1471,8 +1501,8 @@ export type AgentAction =
   // Browser tools (available when Chrome extension is connected via /browser)
   | { type: 'browser_screenshot'; format?: 'png' | 'jpeg'; quality?: number; save?: boolean; filename?: string }
   | { type: 'browser_take_full_page_screenshot'; format?: 'png' | 'jpeg'; quality?: number; save?: boolean; filename?: string }
-  | { type: 'browser_click'; selector: string }
-  | { type: 'browser_type'; selector: string; text: string; clear?: boolean }
+  | ({ type: 'browser_click' } & BrowserTargetInput)
+  | ({ type: 'browser_type'; text: string; clear?: boolean } & BrowserTargetInput)
   | { type: 'browser_navigate'; url: string }
   | { type: 'browser_scroll'; direction?: 'up' | 'down' | 'left' | 'right'; amount?: number; selector?: string }
   | { type: 'browser_find_element'; selector?: string; text?: string; role?: string }
@@ -1485,6 +1515,31 @@ export type AgentAction =
   | { type: 'browser_get_tabs' }
   | { type: 'browser_get_tab_groups' }
   | { type: 'browser_execute_js'; code: string }
+  | { type: 'browser_snapshot'; maxElements?: number }
+  | { type: 'browser_wait_for'; condition: BrowserWaitCondition; timeout?: number }
+  | { type: 'browser_get_runtime_state' }
+  | { type: 'browser_handle_dialog'; action: 'inspect' | 'accept' | 'dismiss'; promptText?: string }
+  | { type: 'browser_wait_for_download'; downloadId?: number; filenamePattern?: string; timeout?: number }
+  | ({ type: 'browser_inspect_form' } & BrowserTargetInput)
+  | ({ type: 'browser_fill_form'; assignments: BrowserFormAssignment[] } & BrowserTargetInput)
+  | ({ type: 'browser_validate_form' } & BrowserTargetInput)
+  | ({ type: 'browser_submit_form'; submitter?: BrowserTarget; wait?: BrowserWaitCondition; timeout?: number } & BrowserTargetInput)
+  | ({ type: 'browser_reset_form' } & BrowserTargetInput)
+  | { type: 'browser_go_back' }
+  | { type: 'browser_go_forward' }
+  | { type: 'browser_reload' }
+  | { type: 'browser_open_tab'; url: string; active?: boolean; windowId?: number }
+  | { type: 'browser_close_tab'; tabId?: number }
+  | { type: 'browser_switch_tab'; tabId?: number; urlPattern?: string; titlePattern?: string; active?: boolean }
+  | { type: 'browser_group_tabs'; tabIds?: number[]; title?: string; color?: string; collapsed?: boolean }
+  | ({ type: 'browser_hover' } & BrowserTargetInput)
+  | ({ type: 'browser_drag'; source: BrowserTarget; destination: BrowserTarget })
+  | ({ type: 'browser_select_option'; value?: string; label?: string; index?: number } & BrowserTargetInput)
+  | ({ type: 'browser_upload_file'; paths: string[] } & BrowserTargetInput)
+  | { type: 'browser_read_page_interactive'; max_chars?: number }
+  | { type: 'browser_read_page_all'; max_chars?: number }
+  | { type: 'browser_get_selected_text' }
+  | { type: 'browser_extract_links' }
   | { type: 'request_directory_access'; path: string; reason?: string }
   | { type: 'code_review'; path?: string; scope?: 'full' | 'diff' | 'file'; instructions?: string }
   | {

@@ -20,7 +20,11 @@ import type { UIManager } from '../ui/UIManager.js';
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
 import { ConversationManager } from './conversationManager.js';
 import { ContextOrchestrator } from './context/orchestrator.js';
-import { ToolManager } from './toolManager.js';
+import {
+  BROWSER_V2_TOOL_DEFINITIONS,
+  DEFAULT_TOOL_DEFINITIONS,
+  ToolManager,
+} from './toolManager.js';
 import { ActionExecutor } from './actionExecutor.js';
 import { SlashCommandHandler } from './slashCommandHandler.js';
 import { SessionManager } from '../session/SessionManager.js';
@@ -526,6 +530,28 @@ export class AutohandAgent {
     }));
 
     this.toolManager.replaceMcpTools(toolDefs);
+  }
+
+  configureBrowserV2Tools(toolNames: readonly string[]): string[] {
+    const allowed = new Set(toolNames);
+    const legacyDefinitions = new Map(
+      DEFAULT_TOOL_DEFINITIONS.map((definition) => [definition.name, definition]),
+    );
+    for (const definition of BROWSER_V2_TOOL_DEFINITIONS) {
+      const legacy = legacyDefinitions.get(definition.name);
+      if (legacy) {
+        this.toolManager.register(legacy);
+      } else {
+        this.toolManager.unregister(definition.name);
+      }
+    }
+    const definitions = BROWSER_V2_TOOL_DEFINITIONS.filter((definition) =>
+      allowed.has(definition.name)
+    );
+    for (const definition of definitions) {
+      this.toolManager.register(definition);
+    }
+    return definitions.map((definition) => definition.name);
   }
 
   // Context compaction toggle methods for /cc command

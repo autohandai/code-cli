@@ -125,6 +125,52 @@ When connected, the agent gains access to these browser tools:
   → agent calls browser_screenshot
 ```
 
+## Experimental reliable browser tools V2
+
+Browser tools V2 are opt-in and disabled by default. Enable the experiment, then
+restart the CLI:
+
+```bash
+autohand experiments enable experimental_browser_tools_v2
+```
+
+The equivalent config is:
+
+```json
+{
+  "features": {
+    "experimentalBrowserToolsV2": true
+  }
+}
+```
+
+V2 is exposed only after the restarted CLI and extension negotiate protocol
+version 2 through `autohand.browserCapabilities.set`. A new CLI paired with an
+older extension, or an older CLI paired with a new extension, continues to use
+the legacy browser tools.
+
+Use this flow for reliable targeting:
+
+1. Call `browser_snapshot` and select the opaque `ref` for the intended element.
+2. Act with that ref, or use a CSS selector or role/name locator only as a compatibility fallback.
+3. Use `browser_wait_for` with an element, text, value, URL, load, or network-idle condition. Waits default to 10 seconds and are capped at 25 seconds.
+4. If a ref is reported as stale or ambiguous, take a new snapshot. Refs are scoped to one tab, frame, document, and browser session; never retry an old ref after navigation.
+
+For forms, use `browser_inspect_form` → `browser_fill_form` →
+`browser_validate_form` → `browser_submit_form`. Filling is sequential and never
+submits. Submission validates first, calls `requestSubmit` once, and can accept a
+typed post-submit wait. Do not retry a submission whose outcome is ambiguous.
+`browser_reset_form`, file upload, form submission, and dialog handling retain
+the normal interactive approval flow; YOLO and Automode keep their existing
+approval behavior.
+
+Passwords, one-time codes, payment fields, API keys, and secret-like values are
+redacted from browser results and tool events. Upload paths are resolved locally
+by the CLI and results expose basenames only. V2 does not add credential
+storage, payment autofill, CAPTCHA bypass, arbitrary JavaScript execution,
+arbitrary sleeps, blind retries, or unrestricted browser URL fetching to the
+default Chrome policy.
+
 ## Configuration
 
 Add to `~/.autohand/config.json`:
@@ -169,7 +215,9 @@ The connection can be closed from either side:
 ```
 
 **From extension:**
-Click the disconnect button in the side panel, or close the panel.
+Click the disconnect button in the side panel. Closing the panel only detaches
+the UI; the background bridge keeps an in-flight browser tool connected until
+it finishes or the CLI/browser session ends.
 
 ### Reconnecting
 

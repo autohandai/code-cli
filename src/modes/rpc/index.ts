@@ -28,6 +28,7 @@ import type {
   PromptParams,
   StepDecisionParams,
   GetMessagesParams,
+  BrowserCapabilitiesSetParams,
   BrowserHandoffCreateParams,
   BrowserHandoffAttachParams,
   BrowserHandoffAttachLatestParams,
@@ -881,6 +882,16 @@ async function handleSingleRequest(
       case RPC_METHODS.GET_MESSAGES: {
         const messagesParams = params as GetMessagesParams | undefined;
         result = adapter.handleGetMessages(id!, messagesParams?.limit);
+        break;
+      }
+
+      case RPC_METHODS.BROWSER_CAPABILITIES_SET: {
+        const capabilitiesParams = params as BrowserCapabilitiesSetParams | undefined;
+        result = adapter.handleBrowserCapabilitiesSet(id!, capabilitiesParams ?? {
+          protocolVersion: 0,
+          extensionVersion: '',
+          tools: [],
+        });
         break;
       }
 

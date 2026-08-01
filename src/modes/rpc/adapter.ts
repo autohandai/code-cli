@@ -40,6 +40,8 @@ import type {
   ResetResult,
   GetStateResult,
   GetMessagesResult,
+  BrowserCapabilitiesSetParams,
+  BrowserCapabilitiesSetResult,
   PermissionResponseResult,
   GetSkillsRegistryParams,
   GetSkillsRegistryResult,
@@ -137,6 +139,9 @@ import { writeNotification, createTimestamp, generateId } from './protocol.js';
 import { ImageManager, type ImageMimeType } from '../../core/ImageManager.js';
 import { modelSupportsImages } from '../../providers/modelCapabilities.js';
 import { attachBrowserHandoff, attachLatestBrowserHandoff, createBrowserHandoff } from '../../browser/chrome.js';
+import { negotiateBrowserCapabilities } from '../../browser/browserCapabilities.js';
+import { redactBrowserToolArguments } from '../../browser/browserRedaction.js';
+import { CHROME_AUTOMATION_V2_SYSTEM_PROMPT } from '../../browser/chromeSkill.js';
 import { GoalManager } from '../../goals/GoalManager.js';
 import type { GoalStatus } from '../../goals/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, isGoalFeatureEnabled } from '../../goals/feature.js';
@@ -341,6 +346,7 @@ export class RPCAdapter {
   private readonly KEEPALIVE_MS = 15_000;
   private yoloRevertTimer: ReturnType<typeof setTimeout> | null = null;
   private yoloRevertGeneration = 0;
+  private browserV2PromptInjected = false;
   private shutdownPromise: Promise<void> | null = null;
   private hookLifecycleUnsubscribe: (() => void) | null = null;
   private hookSessionErrorPrompt: symbol | null = null;
@@ -386,6 +392,7 @@ export class RPCAdapter {
     this.workspace = workspace;
     this.sessionStartedAt = Date.now();
     this.config = config ? { ...config } : { configPath: '' };
+    this.browserV2PromptInjected = false;
     this.sessionId = generateId('session');
     this.mcpServerConfigs = mcpServerConfigs ?? [];
 
@@ -1249,6 +1256,25 @@ export class RPCAdapter {
     return { messages };
   }
 
+  handleBrowserCapabilitiesSet(
+    _requestId: JsonRpcId,
+    params: BrowserCapabilitiesSetParams,
+  ): BrowserCapabilitiesSetResult {
+    const negotiation = negotiateBrowserCapabilities(
+      params,
+      this.config.features?.experimentalBrowserToolsV2 === true,
+    );
+    if (!this.agent) return negotiation;
+
+    const tools = this.agent.configureBrowserV2Tools(negotiation.tools);
+    if (!negotiation.enabled) return { ...negotiation, tools };
+    if (!this.browserV2PromptInjected && this.conversation) {
+      this.conversation.addSystemNote(CHROME_AUTOMATION_V2_SYSTEM_PROMPT);
+      this.browserV2PromptInjected = true;
+    }
+    return { ...negotiation, tools };
+  }
+
   async handleBrowserHandoffCreate(
     _requestId: JsonRpcId,
     params?: { extensionId?: string; installUrl?: string }
@@ -1569,7 +1595,7 @@ export class RPCAdapter {
     writeNotification(RPC_NOTIFICATIONS.TOOL_START, {
       toolId,
       toolName,
-      args,
+      args: redactBrowserToolArguments(toolName, args),
       timestamp: createTimestamp(),
     });
 
@@ -1805,7 +1831,7 @@ export class RPCAdapter {
     const params = {
       toolId,
       toolName,
-      args,
+      args: redactBrowserToolArguments(toolName, args),
       timestamp: createTimestamp(),
     } satisfies HookPreToolNotificationParams;
     writeNotification(RPC_NOTIFICATIONS.HOOK_PRE_TOOL, params);
@@ -2646,7 +2672,7 @@ export class RPCAdapter {
         toolCalls: (msg.toolCalls ?? []).map(tc => ({
           id: tc.callId ?? '',
           name: tc.name ?? '',
-          args: tc.arguments ?? {},
+          args: redactBrowserToolArguments(tc.name ?? '', tc.arguments ?? {}),
         })),
       }));
 
@@ -3147,7 +3173,7 @@ export class RPCAdapter {
           writeNotification(RPC_NOTIFICATIONS.TOOL_START, {
             toolId: event.toolId ?? generateId('tool'),
             toolName: event.toolName,
-            args: event.toolArgs ?? {},
+            args: redactBrowserToolArguments(event.toolName, event.toolArgs ?? {}),
             timestamp: createTimestamp(),
           });
         }
@@ -3261,7 +3287,7 @@ export class RPCAdapter {
         return {
           id: tc.id,
           name: tc.function?.name ?? 'unknown',
-          args,
+          args: redactBrowserToolArguments(tc.function?.name ?? '', args),
         };
       });
     }

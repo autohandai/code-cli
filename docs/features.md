@@ -118,6 +118,7 @@ The `/settings` command opens an interactive settings editor directly in the ter
 - [x] `/experiments` is the interactive TUI surface for experiment changes
 - [x] Remote feature flags are cached in `~/.autohand/feature-flags.json` and refreshed after their API TTL expires
 - [x] `cli_usage_v2` is enabled by default and powers `/usage`, `/usage weekly`, and `/usage monthly`
+- [x] `experimental_browser_tools_v2` is disabled by default and requires a CLI restart; after an extension capability handshake it adds snapshot refs, typed waits, verified actions, and dedicated form tools
 
 ### Experimental: real-time token usage status
 
