@@ -51,6 +51,19 @@ describe('feature registry', () => {
     expect(getFeatureState(config, 'experimental_handoff')?.enabled).toBe(false);
   });
 
+  it('keeps prompt caching experimental and disabled until explicitly enabled', () => {
+    const config = makeConfig({ features: {} });
+
+    expect(getFeatureState(config, 'prompt_caching')).toEqual(expect.objectContaining({
+      stage: 'experimental',
+      configPath: 'features.promptCaching',
+      enabled: false,
+    }));
+
+    (config.features as unknown as Record<string, unknown>).promptCaching = true;
+    expect(getFeatureState(config, 'prompt_caching')?.enabled).toBe(true);
+  });
+
   it('updates nested config paths without disturbing adjacent settings', () => {
     const config = makeConfig({
       ui: {

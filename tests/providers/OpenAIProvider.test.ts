@@ -71,6 +71,32 @@ describe('OpenAIProvider', () => {
     });
   });
 
+  it('does not send Responses cache affinity through Chat Completions', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        id: 'resp-chat-cache-affinity',
+        created: 1234567890,
+        choices: [{
+          message: { role: 'assistant', content: 'OK' },
+          finish_reason: 'stop',
+        }],
+        usage: {
+          prompt_tokens: 1,
+          completion_tokens: 1,
+          total_tokens: 2,
+        },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    );
+
+    await provider.complete({
+      messages: [{ role: 'user', content: 'hi' }],
+      promptCache: { key: 'ahpc_opaque' },
+    });
+
+    const sentBody = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    expect(sentBody.prompt_cache_key).toBeUndefined();
+  });
+
   describe('error handling', () => {
     it('throws ApiError with classifyApiError for non-ok responses', async () => {
       vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(
@@ -409,6 +435,114 @@ describe('OpenAIProvider', () => {
       // These params are NOT supported by the ChatGPT Codex backend
       expect(sentBody.max_output_tokens).toBeUndefined();
       expect(sentBody.temperature).toBeUndefined();
+    });
+
+    it('forwards session cache affinity through the Responses API', async () => {
+      const chatgptProvider = new OpenAIProvider({
+        authMode: 'chatgpt',
+        model: 'gpt-5.4',
+        chatgptAuth: {
+          accessToken: 'chatgpt-access-token',
+          accountId: 'chatgpt-account-123',
+        },
+      });
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        sseResponse({
+          id: 'resp-cache-key',
+          created_at: 1234567890,
+          output_text: 'OK',
+          output: [],
+          usage: {
+            input_tokens: 40,
+            output_tokens: 5,
+            total_tokens: 45,
+            input_tokens_details: {
+              cached_tokens: 30,
+              cache_write_tokens: 10,
+            },
+          },
+        }),
+      );
+
+      const completion = await chatgptProvider.complete({
+        messages: [{ role: 'user', content: 'hi' }],
+        promptCache: { key: 'autohand-session-opaque-session-id' },
+      });
+
+      const sentBody = JSON.parse(fetchSpy.mock.calls[0]?.[1]?.body as string);
+      expect(sentBody.prompt_cache_key).toBe('autohand-session-opaque-session-id');
+      expect(completion.usage).toEqual({
+        promptTokens: 40,
+        completionTokens: 5,
+        totalTokens: 45,
+        cacheReadTokens: 30,
+        cacheWriteTokens: 10,
+      });
+    });
+
+    it('retries once without cache affinity when the backend rejects that exact field', async () => {
+      const chatgptProvider = new OpenAIProvider({
+        authMode: 'chatgpt',
+        model: 'gpt-5.4',
+        chatgptAuth: {
+          accessToken: 'chatgpt-access-token',
+          accountId: 'chatgpt-account-123',
+        },
+      });
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          error: {
+            message: "Unknown parameter: 'prompt_cache_key'",
+            param: 'prompt_cache_key',
+            code: 'unknown_parameter',
+          },
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+        .mockResolvedValueOnce(
+          sseResponse({ id: 'resp-cache-fallback', created_at: 1234567890, output_text: 'OK', output: [] }),
+        );
+
+      await expect(chatgptProvider.complete({
+        messages: [{ role: 'user', content: 'hi' }],
+        promptCache: { key: 'ahpc_opaque' },
+      })).resolves.toMatchObject({ id: 'resp-cache-fallback', content: 'OK' });
+
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      const firstBody = JSON.parse(fetchSpy.mock.calls[0]?.[1]?.body as string);
+      const fallbackBody = JSON.parse(fetchSpy.mock.calls[1]?.[1]?.body as string);
+      expect(firstBody.prompt_cache_key).toBe('ahpc_opaque');
+      expect(fallbackBody.prompt_cache_key).toBeUndefined();
+    });
+
+    it('does not retry generic invalid requests that merely mention the cache field', async () => {
+      const chatgptProvider = new OpenAIProvider({
+        authMode: 'chatgpt',
+        model: 'gpt-5.4',
+        chatgptAuth: {
+          accessToken: 'chatgpt-access-token',
+          accountId: 'chatgpt-account-123',
+        },
+      });
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          error: {
+            message: 'Unknown parameter: messages; prompt_cache_key was also present in the request.',
+            param: 'messages',
+            code: 'invalid_request',
+          },
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+
+      await expect(chatgptProvider.complete({
+        messages: [{ role: 'user', content: 'hi' }],
+        promptCache: { key: 'ahpc_opaque' },
+      })).rejects.toMatchObject({ code: 'invalid_request' });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
     });
 
     it('uses system messages as codex instructions instead of input messages', async () => {

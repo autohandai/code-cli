@@ -58,6 +58,7 @@ import {
   type WorkspaceChangeSet,
 } from './WorkspaceChangeCapture.js';
 import { stripAnsiCodes } from '../../ui/displayUtils.js';
+import { getSessionPromptCacheDirective as deriveSessionPromptCacheDirective } from './PromptCache.js';
 
 class LoopAbortedError extends Error {
   constructor(message: string) {
@@ -136,6 +137,7 @@ export interface AgentReactLoopHost {
   getReactionParser(): { parseAssistantResponse(completion: LLMResponse): AssistantReactPayload };
   handleSmartContextCrop(call: ToolCallRequest): Promise<string>;
   isContextOverflowError(errorOrMessage: Error | string): boolean;
+  isPromptCachingEnabled?(): boolean;
   saveAssistantMessage(content: string, toolCalls?: ToolCallRequest[]): Promise<void>;
   saveToolMessage(name: AgentAction['type'], content: string, toolCallId?: string): Promise<void>;
   setComposerFinalResponse(response: string): void;
@@ -162,6 +164,12 @@ export type ReactLoopResult =
   | { status: 'completed' }
   | { status: 'stopped'; stepNumber: number }
   | { status: 'aborted' };
+
+function getSessionPromptCacheDirective(host: AgentReactLoopHost) {
+  if (host.isPromptCachingEnabled?.() !== true) return undefined;
+  const sessionId = host.sessionManager.getCurrentSession()?.metadata.sessionId;
+  return deriveSessionPromptCacheDirective(sessionId);
+}
 
 function addUsageToTurn(existing: TurnUsage, provider: ProviderName | undefined, usage: LLMUsage): TurnUsage {
   if (existing.kind === 'actual') {
@@ -504,6 +512,7 @@ export async function runAgentReactLoop(
           toolChoice: requestTools ? 'auto' : undefined,
           maxTokens: 16000,  // Allow large outputs for file generation
           thinkingLevel,
+          promptCache: getSessionPromptCacheDirective(host),
         });
         if (abortController.signal.aborted) {
           host.stopStatusUpdates();

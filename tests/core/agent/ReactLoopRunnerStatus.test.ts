@@ -17,6 +17,68 @@ import type { ToolCallRequest } from '../../../src/types.js';
 import { ReactionParser } from '../../../src/core/agent/ReactionParser.js';
 
 describe('ReactLoopRunner composer status', () => {
+  it('omits prompt cache affinity while the experimental gate is disabled', async () => {
+    const parser = new ReactionParser();
+    const llmComplete = vi.fn().mockResolvedValue({
+      id: 'final-response',
+      created: 1,
+      content: '{"finalResponse":"Done."}',
+      raw: {},
+    });
+    const host = createReactLoopTestHost(llmComplete, parser);
+    host.sessionManager.getCurrentSession = vi.fn(() => ({
+      metadata: { sessionId: 'session-123' },
+    }));
+
+    await runAgentReactLoop(host, new AbortController());
+
+    expect(llmComplete.mock.calls[0]?.[0]?.promptCache).toBeUndefined();
+  });
+
+  it('uses a stable opaque session cache key even when the active provider changes', async () => {
+    const parser = new ReactionParser();
+    const llmComplete = vi.fn().mockResolvedValue({
+      id: 'final-response',
+      created: 1,
+      content: '{"finalResponse":"Done."}',
+      raw: {},
+    });
+    const host = createReactLoopTestHost(llmComplete, parser);
+    host.sessionManager.getCurrentSession = vi.fn(() => ({
+      metadata: { sessionId: 'session-123' },
+    }));
+    host.isPromptCachingEnabled = () => true;
+
+    host.activeProvider = 'openai';
+    await runAgentReactLoop(host, new AbortController());
+    host.activeProvider = 'anthropic';
+    await runAgentReactLoop(host, new AbortController());
+
+    expect(llmComplete).toHaveBeenCalledTimes(2);
+    expect(llmComplete.mock.calls[0]?.[0]?.promptCache).toEqual({
+      key: 'ahpc_DzK47b3oj6VjrqBwQcBE1QfMuE8dOKcQsbV0KLKX-S8',
+    });
+    expect(llmComplete.mock.calls[1]?.[0]?.promptCache).toEqual({
+      key: 'ahpc_DzK47b3oj6VjrqBwQcBE1QfMuE8dOKcQsbV0KLKX-S8',
+    });
+    expect(llmComplete.mock.calls[0]?.[0]?.promptCache?.key).not.toContain('session-123');
+  });
+
+  it('omits prompt cache affinity when no session is active', async () => {
+    const parser = new ReactionParser();
+    const llmComplete = vi.fn().mockResolvedValue({
+      id: 'final-response',
+      created: 1,
+      content: '{"finalResponse":"Done."}',
+      raw: {},
+    });
+    const host = createReactLoopTestHost(llmComplete, parser);
+
+    await runAgentReactLoop(host, new AbortController());
+
+    expect(llmComplete.mock.calls[0]?.[0]?.promptCache).toBeUndefined();
+  });
+
   it('keeps the react loop behind an explicit typed host adapter', () => {
     const loopSource = readFileSync('src/core/agent/ReactLoopRunner.ts', 'utf-8');
     const agentSource = readFileSync('src/core/agent.ts', 'utf-8');
@@ -195,6 +257,51 @@ describe('ReactLoopRunner composer status', () => {
       expect(host.conversation.addSystemNote).not.toHaveBeenCalledWith(
         expect.stringContaining('used all available iterations'),
       );
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('does not attach the agent cache namespace to the exhaustion summary request', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const parser = new ReactionParser();
+    const llmComplete = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: 'tool-call',
+        created: 1,
+        content: JSON.stringify({
+          thought: 'Inspect the entrypoint.',
+          toolCalls: [{ tool: 'read_file', args: { path: 'src/index.ts' } }],
+        }),
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'exhaustion-summary',
+        created: 2,
+        content: 'Inspected the entrypoint; implementation remains.',
+        raw: {},
+      });
+    const host = createReactLoopTestHost(llmComplete, parser);
+    host.runtime.config.agent = { maxIterations: 1, debug: false };
+    host.sessionManager.getCurrentSession = vi.fn(() => ({
+      metadata: { sessionId: 'session-123' },
+    }));
+    host.isPromptCachingEnabled = () => true;
+    host.toolManager.execute = vi.fn(async () => [{
+      tool: 'read_file',
+      success: true,
+      output: 'export const entrypoint = true;',
+    }]);
+
+    try {
+      await runAgentReactLoop(host, new AbortController());
+
+      expect(llmComplete).toHaveBeenCalledTimes(2);
+      expect(llmComplete.mock.calls[0]?.[0]?.promptCache).toEqual({
+        key: 'ahpc_DzK47b3oj6VjrqBwQcBE1QfMuE8dOKcQsbV0KLKX-S8',
+      });
+      expect(llmComplete.mock.calls[1]?.[0]?.promptCache).toBeUndefined();
     } finally {
       logSpy.mockRestore();
     }

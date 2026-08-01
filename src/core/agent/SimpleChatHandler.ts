@@ -6,6 +6,7 @@
 import chalk from 'chalk';
 import type { LLMMessage, TurnUsage } from '../../types.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
+import { getSessionPromptCacheDirective } from './PromptCache.js';
 import type { ReactionParser } from './ReactionParser.js';
 
 interface SimpleChatConversation {
@@ -26,6 +27,10 @@ export interface SimpleChatAgent {
   getReactionParser(): ReactionParser;
   cleanupModelResponse(content: string): string;
   updateContextUsage(messages: LLMMessage[]): void;
+  isPromptCachingEnabled?(): boolean;
+  getSessionManager(): {
+    getCurrentSession(): { metadata: { sessionId: string } } | null;
+  };
 }
 
 export function isSimpleChatInstruction(instruction: string): boolean {
@@ -68,11 +73,16 @@ export class SimpleChatHandler {
       this.agent.conversation.addMessage({ role: 'user', content: instruction });
       await this.agent.saveUserMessage(instruction);
 
+      const sessionId = this.agent.getSessionManager().getCurrentSession()?.metadata.sessionId;
+      const promptCache = this.agent.isPromptCachingEnabled?.() === true
+        ? getSessionPromptCacheDirective(sessionId)
+        : undefined;
       const completion = await this.agent.llm.complete({
         messages: this.agent.conversation.history(),
         tools: [],
         maxTokens: 1000,
         temperature: 0.7,
+        ...(promptCache ? { promptCache } : {}),
       });
 
       const payload = this.agent.getReactionParser().parseAssistantResponse(completion);
