@@ -627,6 +627,12 @@ const toolSelectionCache = new Map<string, string[]>();
 export interface ToolRelevanceOptions {
   /** Local cache for equivalent tool-selection inputs. Default: true. */
   cache?: boolean;
+  /**
+   * Categories that are always relevant for this client, regardless of what the
+   * conversation mentions. The Chrome side panel needs browser_* tools on its
+   * very first turn, before the user has said anything browser-shaped.
+   */
+  baselineCategories?: readonly RelevanceCategory[];
 }
 
 const CATALOG_LABELS: Record<RelevanceCategory, string> = {
@@ -655,7 +661,13 @@ function extractRecentToolArguments(message: LLMMessage): string {
 }
 
 function getRecentSelectionText(messages: LLMMessage[]): string {
+  // System messages are excluded deliberately. The base system prompt describes
+  // every capability the agent has, so it mentions the trigger keyword of every
+  // category ('page', 'tool', 'package', 'issue', ...). Scanning it marks all
+  // categories relevant on every turn, which silently disables this filter.
+  // Relevance must follow the conversation, not the static instructions.
   return messages
+    .filter((message) => message.role !== 'system')
     .slice(-8)
     .map((message) => `${message.content ?? ''} ${extractRecentToolArguments(message)}`)
     .join(' ')
@@ -763,13 +775,20 @@ export function filterToolsByRelevance(
   options: ToolRelevanceOptions = {},
 ): FunctionDefinition[] {
   const cacheEnabled = options.cache !== false;
-  const cacheKey = cacheEnabled ? stableToolCacheKey(tools, messages) : '';
+  const baselineCategories = options.baselineCategories ?? [];
+  // Baseline categories change the selection, so they must key the cache too.
+  const cacheKey = cacheEnabled
+    ? `${[...baselineCategories].sort().join(',')}\n${stableToolCacheKey(tools, messages)}`
+    : '';
   const cachedNames = cacheEnabled ? toolSelectionCache.get(cacheKey) : undefined;
   if (cachedNames) {
     return restoreCachedSelection(tools, cachedNames);
   }
 
   const relevantCategories = detectRelevantCategories(messages);
+  for (const category of baselineCategories) {
+    relevantCategories.add(category);
+  }
   const recentText = getRecentSelectionText(messages);
 
   const selected = tools.filter(tool => {
