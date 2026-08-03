@@ -1774,11 +1774,25 @@ describe('agent startup and active input UI', () => {
     }
   });
 
-  it('classifies joke prompts as simple chat', () => {
+  it('classifies whole-message pleasantries as simple chat', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
-    expect((agent as any).isSimpleChat('tell me a joke')).toBe(true);
-    expect((agent as any).isSimpleChat('say something funny')).toBe(true);
-    expect((agent as any).isSimpleChat('hello there')).toBe(true);
+    expect((agent as any).isSimpleChat('hello')).toBe(true);
+    expect((agent as any).isSimpleChat('hey!')).toBe(true);
+    expect((agent as any).isSimpleChat('good morning')).toBe(true);
+    expect((agent as any).isSimpleChat('thanks')).toBe(true);
+    expect((agent as any).isSimpleChat('bye')).toBe(true);
+    expect((agent as any).isSimpleChat('how are you?')).toBe(true);
+  });
+
+  it('does not fast-path requests that merely open with a pleasantry', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    // The fast path is anchored: the whole message must be the pleasantry, so
+    // a greeting followed by an actual request still goes through the full
+    // ReAct loop rather than being answered without tools.
+    expect((agent as any).isSimpleChat('hello there')).toBe(false);
+    expect((agent as any).isSimpleChat('tell me a joke')).toBe(false);
+    expect((agent as any).isSimpleChat('say something funny')).toBe(false);
+    expect((agent as any).isSimpleChat('hi, can you read config.ts')).toBe(false);
   });
 
   it('does not classify time-sensitive requests as simple chat', () => {
