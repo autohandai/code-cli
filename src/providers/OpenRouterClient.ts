@@ -126,6 +126,36 @@ function withOpenRouterMessage(error: ApiError): ApiError {
   );
 }
 
+/**
+ * OpenRouter normalizes upstream provider failures into a canonical
+ * `error.metadata.error_type` (see openrouter.ai/docs/api-reference/errors).
+ * For these, the top-level `error.message` is often an uninformative
+ * wrapper like "Provider returned error" carrying no signal for the shared
+ * status-driven classifier, which then falls back to whatever the bare
+ * HTTP status implies — typically a non-retryable 400 "malformed request".
+ * OpenRouter documents these specific error types as transient upstream
+ * failures instead, so map the ones they classify as retryable directly
+ * rather than losing that signal.
+ */
+const OPENROUTER_TRANSIENT_ERROR_TYPES: Partial<Record<string, { code: ApiErrorCode; message: string }>> = {
+  provider_unavailable: {
+    code: 'server_error',
+    message: 'The upstream model provider returned an invalid or empty response. Please try again.',
+  },
+  provider_overloaded: {
+    code: 'server_error',
+    message: 'The upstream model provider is temporarily overloaded. Please try again.',
+  },
+  timeout: {
+    code: 'timeout',
+    message: 'The upstream model provider did not respond in time. Please try again.',
+  },
+  server: {
+    code: 'server_error',
+    message: 'The upstream model provider encountered an internal error. Please try again.',
+  },
+};
+
 export class OpenRouterClient {
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -372,11 +402,15 @@ export class OpenRouterClient {
 
     // Try to get the actual error message from the response
     let errorDetail = "";
+    let errorType: string | undefined;
     try {
       const body = (await response.json()) as any;
       errorDetail = body?.error?.message || body?.error || body?.message || "";
       if (typeof errorDetail === "object") {
         errorDetail = JSON.stringify(errorDetail);
+      }
+      if (typeof body?.error?.metadata?.error_type === "string") {
+        errorType = body.error.metadata.error_type;
       }
     } catch {
       // Fallback to raw text if JSON parsing fails
@@ -385,6 +419,18 @@ export class OpenRouterClient {
       } catch {
         // Ignore
       }
+    }
+
+    const transient = errorType ? OPENROUTER_TRANSIENT_ERROR_TYPES[errorType] : undefined;
+    if (transient) {
+      return new ApiError(
+        errorDetail ? `${transient.message}\n${errorDetail}` : transient.message,
+        transient.code,
+        status,
+        true,
+        undefined,
+        errorDetail,
+      );
     }
 
     return withOpenRouterMessage(classifyApiError(status, errorDetail, response.headers));
