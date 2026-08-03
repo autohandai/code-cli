@@ -86,6 +86,7 @@ function renderStatusUI(data: StatusData): Promise<void> {
         const tabs: TabName[] = ['Status', 'Config', 'Usage'];
         let currentTab = 0;
         let completed = false;
+        let keepAlive: ReturnType<typeof setInterval> | null = null;
 
         const input = process.stdin as NodeJS.ReadStream;
         const isTTY = input.isTTY;
@@ -125,8 +126,17 @@ function renderStatusUI(data: StatusData): Promise<void> {
         };
 
         let buffer = '';
+        let escTimer: ReturnType<typeof setTimeout> | null = null;
+
+        const clearEscTimer = () => {
+            if (escTimer) {
+                clearTimeout(escTimer);
+                escTimer = null;
+            }
+        };
 
         const handler = (chunk: Buffer | string) => {
+            clearEscTimer();
             buffer += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
 
             const processNext = (): boolean => {
@@ -167,6 +177,21 @@ function renderStatusUI(data: StatusData): Promise<void> {
             while (processNext()) {
                 // Keep processing buffered sequences until we run out or need more bytes
             }
+
+            // A lone ESC is indistinguishable from the start of an arrow-key
+            // sequence until the next byte arrives — and for a real Esc press
+            // that byte never comes, so the panel would ignore the exit key it
+            // advertises. Settle it the way terminals do: if nothing follows
+            // shortly, it was a standalone Esc.
+            if (buffer === '\u001b') {
+                escTimer = setTimeout(() => {
+                    escTimer = null;
+                    if (buffer === '\u001b') {
+                        buffer = '';
+                        handleSequence('\u001b');
+                    }
+                }, 50);
+            }
         };
 
         const handleSequence = (sequence: string) => {
@@ -197,6 +222,11 @@ function renderStatusUI(data: StatusData): Promise<void> {
             }
             completed = true;
 
+            clearEscTimer();
+            if (keepAlive) {
+                clearInterval(keepAlive);
+                keepAlive = null;
+            }
             input.off('data', handler);
             if (isTTY && !wasRaw && typeof input.setRawMode === 'function') {
                 try { input.setRawMode(false); } catch { /* TTY may be gone */ }
@@ -212,6 +242,14 @@ function renderStatusUI(data: StatusData): Promise<void> {
         };
 
         input.on('data', handler);
+        // Ink's teardown in onBeforeModal leaves stdin unref'd, so the 'data'
+        // listener above does not hold the event loop open. Without a ref'd
+        // handle the runtime drains the loop and exits cleanly (code 0) right
+        // after the first paint, taking the whole CLI down instead of showing
+        // this panel. Own the keep-alive here rather than re-ref'ing stdin so
+        // the modal restores the exact stdin state it inherited. Deliberately
+        // not unref'd — that would defeat the purpose.
+        keepAlive = setInterval(() => { }, 60_000);
         render();
     });
 }
