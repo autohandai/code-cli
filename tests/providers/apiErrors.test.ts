@@ -186,6 +186,29 @@ describe("classifyApiError", () => {
       expect(err.code).toBe("rate_limited");
       expect(err.retryAfterMs).toBeUndefined();
     });
+
+    it("caps an hours-long Retry-After header instead of proposing an unbounded wait", () => {
+      // Account-level "usage limit" 429s (as opposed to short per-minute
+      // throttling) can carry a Retry-After pointing at a reset hours away.
+      // Consumers (session retry loop, provider clients) use retryAfterMs
+      // directly as a sleep duration with no cap of their own, so an
+      // unbounded value here would silently block the whole session for
+      // hours on a single retry attempt instead of completing the
+      // configured number of retries.
+      const fourHoursFromNow = new Date(Date.now() + 4 * 60 * 60 * 1000).toUTCString();
+      const headers = new Headers({ "Retry-After": fourHoursFromNow });
+      const err = classifyApiError(429, "The usage limit has been reached", headers);
+      expect(err.code).toBe("rate_limited");
+      expect(err.retryable).toBe(true);
+      expect(err.retryAfterMs).toBeDefined();
+      expect(err.retryAfterMs!).toBeLessThanOrEqual(60_000);
+    });
+
+    it("caps a Retry-After header expressed as a very large second count", () => {
+      const headers = new Headers({ "Retry-After": "14400" }); // 4 hours
+      const err = classifyApiError(429, "Rate limited", headers);
+      expect(err.retryAfterMs).toBeLessThanOrEqual(60_000);
+    });
   });
 
   // =========================================================================

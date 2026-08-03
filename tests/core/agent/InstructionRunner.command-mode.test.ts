@@ -9,6 +9,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { InstructionRunner, type AgentInstructionHost } from '../../../src/core/agent/InstructionRunner.js';
 import { startDeepResearchRun } from '../../../src/deepResearch/session.js';
+import {
+  isAgentRetryableSessionError,
+  shouldUsePassiveAgentSessionRetry,
+} from '../../../src/core/agent/InputTurnCoordinator.js';
+import { classifyApiError } from '../../../src/providers/errors.js';
 
 function overrideStreamTTY(
   stream: NodeJS.ReadStream | NodeJS.WriteStream,
@@ -407,6 +412,53 @@ describe('InstructionRunner command mode UI', () => {
       expect(host.printCompletionSummary).toHaveBeenCalledWith(false, true);
     } finally {
       consoleLogSpy.mockRestore();
+    }
+  });
+
+  it('bounds the backoff delay and still exhausts all retries when a rate-limited error advertises an hours-long Retry-After', async () => {
+    const host = createHost();
+    host.runtime = {
+      ...host.runtime,
+      config: {
+        ...host.runtime.config,
+        agent: {
+          enableRequestQueue: true,
+          sessionRetryLimit: 3,
+          sessionRetryDelay: 1000,
+        },
+      },
+    };
+    const fourHoursFromNow = new Date(Date.now() + 4 * 60 * 60 * 1000).toUTCString();
+    const headers = new Headers({ 'Retry-After': fourHoursFromNow });
+    const rateLimitedError = () =>
+      classifyApiError(429, 'The usage limit has been reached', headers);
+
+    host.isRetryableSessionError = (err: Error) => isAgentRetryableSessionError(err);
+    host.shouldUsePassiveSessionRetry = (err: Error) => shouldUsePassiveAgentSessionRetry(err);
+    host.runReactLoop = vi.fn(async () => {
+      throw rateLimitedError();
+    });
+    const sleepDelays: number[] = [];
+    host.sleep = vi.fn(async (ms: number) => {
+      sleepDelays.push(ms);
+    });
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const result = await new InstructionRunner(host).run('call the rate-limited provider');
+
+      expect(result).toBe(false);
+      // Initial attempt + 3 retries, all completing rather than stalling on
+      // an hours-long sleep for the first retry.
+      expect(host.runReactLoop).toHaveBeenCalledTimes(4);
+      expect(sleepDelays).toHaveLength(3);
+      for (const delay of sleepDelays) {
+        expect(delay).toBeLessThanOrEqual(60_000);
+      }
+    } finally {
+      consoleLogSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
     }
   });
 

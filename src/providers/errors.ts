@@ -355,6 +355,18 @@ function stripHtmlFromBody(body: string): string {
     .trim();
 }
 
+/**
+ * Upper bound for a server-supplied retry delay (`Retry-After` header or a
+ * body-inferred value). Account-level "usage limit" 429s can advertise a
+ * reset hours away; consumers (the session retry loop, provider clients)
+ * use `retryAfterMs` directly as a sleep duration with no cap of their own,
+ * so an unbounded value would silently block the whole session for hours
+ * on a single retry attempt instead of completing its configured retries.
+ * Clamping here — the single point where every provider's retryAfterMs is
+ * computed — keeps automatic retries bounded everywhere at once.
+ */
+const MAX_RETRY_AFTER_MS = 60_000;
+
 function makeError(
   code: ApiErrorCode,
   httpStatus: number,
@@ -368,7 +380,10 @@ function makeError(
     ? `${friendlyMessage}\n${displayBody}`
     : friendlyMessage;
 
-  const retryAfterMs = parseRetryAfter(headers) ?? inferRetryAfterFromBody(code, rawBody);
+  const rawRetryAfterMs = parseRetryAfter(headers) ?? inferRetryAfterFromBody(code, rawBody);
+  const retryAfterMs = rawRetryAfterMs === undefined
+    ? undefined
+    : Math.min(rawRetryAfterMs, MAX_RETRY_AFTER_MS);
 
   return new ApiError(message, code, httpStatus, retryable, retryAfterMs, rawBody);
 }
