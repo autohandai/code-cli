@@ -177,10 +177,14 @@ async function renderLiveActiveAgents(
         input.setEncoding?.('utf8');
         input.on('data', onData);
         render().catch(() => {});
+        // Left ref'd on purpose. When /agents runs as a slash command, Ink's
+        // teardown in onBeforeModal leaves stdin unref'd, so the 'data' listener
+        // above does not hold the event loop open. An unref'd refresh timer let
+        // the loop drain and the whole CLI exited cleanly (code 0) right after
+        // the first paint instead of showing this view. cleanup() clears it.
         interval = setInterval(() => {
             render().catch(() => {});
         }, 1000);
-        interval.unref?.();
     });
 }
 
