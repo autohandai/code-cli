@@ -2339,6 +2339,42 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(screen.match(new RegExp(assistantMessage, 'g'))).toHaveLength(1);
   });
 
+  it('preserves visible chat history after saving /statusline settings', async () => {
+    const userMessage = 'Keep this history visible after statusline settings.';
+    const assistantMessage = 'STATUSLINE_HISTORY_SENTINEL';
+    const preload = await createMockOpenRouterFetchPreload(assistantMessage);
+    mockOpenRouterFetchPreloads.push(preload);
+    const session = await launchInteractive({
+      env: {
+        NODE_OPTIONS: [
+          process.env.NODE_OPTIONS,
+          `--import=${preload.importSpecifier}`,
+        ].filter(Boolean).join(' '),
+      },
+    });
+
+    await waitForComposer(session);
+    await session.type(userMessage);
+    await session.press('enter');
+    await session.waitForText(assistantMessage, { timeout: 60_000 });
+    await waitForComposer(session);
+
+    await session.type('/statusline');
+    await session.press('enter');
+    await session.waitForText('Provider and model', { timeout: 10_000 });
+    await session.press('space');
+    await session.press('enter');
+    await waitForComposer(session);
+
+    const screen = await session.text({ trimEnd: true });
+    await exitInteractive(session);
+
+    expect(screen, screen).toContain(userMessage);
+    expect(screen, screen).toContain(assistantMessage);
+    expect(screen.match(new RegExp(userMessage.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))).toHaveLength(1);
+    expect(screen.match(new RegExp(assistantMessage, 'g'))).toHaveLength(1);
+  });
+
   it('persists an Ollama model selection and restores it after restart', async () => {
     const selectedModel = 'tuistory-first:latest';
     const ollamaServer = await createMockOllamaServer([selectedModel, 'tuistory-second:latest']);
