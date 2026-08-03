@@ -243,7 +243,7 @@ program
   .option('--restricted', 'Deny all dangerous operations automatically', false)
   .option('--answer-only', 'Run the classified, tool-free Blueprint answer RPC profile', false)
   .option('--setup-only', 'Run only the scoped Autohand device-authorization RPC profile', false)
-  .option('--client-context <context>', 'RPC client context (vscode, chrome, or blueprint)')
+  .option('--client-context <context>', 'RPC client context: cli, vscode, chrome, slack, api, restricted, or blueprint (default: cli)')
   .option('--no-idle-logout', 'Disable authenticated idle logout for long-running agent sessions')
   .option('--goal [input]', 'Run /goal non-interactively (status when omitted, otherwise same arguments as /goal)')
   .option('--auto-skill', 'Auto-generate skills based on project analysis', false)

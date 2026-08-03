@@ -531,7 +531,7 @@ function handleNativeMessage(message) {
 function ensureChild() {
   if (child) return;
   const cliCommand = launchSettings?.cliPath || DEFAULT_CLI_COMMAND;
-  const args = [...DEFAULT_CLI_ARG_PREFIX, "--mode", "rpc"];
+  const args = [...DEFAULT_CLI_ARG_PREFIX, "--mode", "rpc", "--client-context", "chrome"];
   if (launchSettings?.workspacePath) args.push("--path", launchSettings.workspacePath);
   if (launchSettings?.modelOverride) args.push("--model", launchSettings.modelOverride);
   if (launchSettings?.thinkingLevel) args.push("--thinking", launchSettings.thinkingLevel);
@@ -711,8 +711,13 @@ export async function ensureNativeHostInstalled(options?: {
         const hasExpectedOrigin = expectedAllowedOrigins.length === 0
           || expectedAllowedOrigins.every((origin) => manifest.allowed_origins?.includes(origin));
         const pointsAtManagedHost = path.resolve(manifest.path) === path.resolve(hostScriptPath);
+        // Hosts written before RPC sessions declared a client context launch
+        // without one, which now resolves to 'cli' and strips the browser_*
+        // tools the side panel depends on. Treat them as stale so the host is
+        // rewritten with the flag.
         const hasCurrentCliLaunch = hostScript.includes(expectedCommandDeclaration)
-          && hostScript.includes(expectedArgsDeclaration);
+          && hostScript.includes(expectedArgsDeclaration)
+          && hostScript.includes('"--client-context", "chrome"');
         if (isValidShebang && hasExpectedOrigin && pointsAtManagedHost && hasCurrentCliLaunch) {
           continue;
         }
