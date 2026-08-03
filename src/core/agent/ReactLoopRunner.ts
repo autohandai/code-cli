@@ -445,9 +445,9 @@ export async function runAgentReactLoop(
       const messages = host.conversation.history();
       let tools = filterToolsByRelevance(allTools, messages, {
         cache: host.runtime.config.agent?.toolSelectionCache !== false,
-        // The Chrome side panel is browser-first by definition, so browser_*
+        // The browser side panel is browser-first by definition, so browser_*
         // tools stay available even before the user mentions a page.
-        baselineCategories: host.runtime.options.clientContext === 'chrome' ? ['browser'] : [],
+        baselineCategories: host.runtime.options.clientContext === 'browser' ? ['browser'] : [],
       });
 
       // Filter tools for plan mode (read-only tools only during planning phase)

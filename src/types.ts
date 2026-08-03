@@ -899,7 +899,7 @@ export interface LoadedConfig extends AutohandConfig {
 export type ClientContext =
   | 'cli'
   | 'vscode'
-  | 'chrome'
+  | 'browser'
   | 'slack'
   | 'api'
   | 'restricted'
@@ -952,7 +952,13 @@ export interface CLIOptions {
   goal?: string;
   /** Fork an existing session reference before entering the interactive loop. */
   fork?: string;
-  /** Client context for tool filtering (default: 'cli') */
+  /**
+   * Client context for tool filtering (default: 'cli'). RPC is a transport, not
+   * a client: the browser side panel, VS Code, the CLI and third-party
+   * integrations all speak it, so each declares itself via --client-context.
+   * Only 'browser' loads the browser skill prompt and browser_* tools, which
+   * keeps every other client from paying ~2.6k tokens per request for them.
+   */
   clientContext?: ClientContext;
   /** Auto-commit with LLM-generated message (runs lint & test first) */
   autoCommit?: boolean;

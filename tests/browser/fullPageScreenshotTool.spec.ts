@@ -24,13 +24,13 @@ describe('full-page browser screenshot tool', () => {
     shutdownBrowserToolBridge();
   });
 
-  it('is exposed to the model and allowed in Chrome mode', () => {
+  it('is exposed to the model and allowed in browser mode', () => {
     const definition = DEFAULT_TOOL_DEFINITIONS.find(
       (tool) => tool.name === 'browser_take_full_page_screenshot',
     );
 
     expect(definition?.description).toContain('entire page');
-    expect(createToolFilter('chrome').isAllowed('browser_take_full_page_screenshot')).toBe(true);
+    expect(createToolFilter('browser').isAllowed('browser_take_full_page_screenshot')).toBe(true);
     expect(CHROME_TOOL_POLICY.allowed).toContain('browser_take_full_page_screenshot');
     expect(CHROME_AUTOMATION_SYSTEM_PROMPT).toContain('browser_take_full_page_screenshot');
     expect(CHROME_AUTOMATION_SYSTEM_PROMPT).toContain('Do not scroll and stitch');

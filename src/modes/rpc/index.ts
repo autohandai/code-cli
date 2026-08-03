@@ -626,25 +626,32 @@ export async function runRpcMode(options: CLIOptions): Promise<0 | 1> {
 
     // Create runtime - permission mode is handled via RPC, not auto-approve.
     // Preserve the caller's typed context instead of assuming every RPC
-    // transport is the Chrome extension. RPC is a transport shared by the
-    // Chrome side panel, VS Code, the CLI and external integrations, so the
+    // transport is the browser extension. RPC is a transport shared by the
+    // browser side panel, VS Code, the CLI and external integrations, so the
     // client declares itself via --client-context and unclaimed sessions
-    // default to 'cli' rather than inheriting Chrome's browser-first policy.
+    // default to 'cli' rather than inheriting the browser-first policy.
     const supportedClients: readonly ClientContext[] = [
       'cli',
       'vscode',
-      'chrome',
+      'browser',
       'slack',
       'api',
       'restricted',
       'blueprint',
     ];
-    if (options.clientContext !== undefined && !supportedClients.includes(options.clientContext)) {
+    // 'chrome' was the pre-rename name for this context and shipped as an
+    // accepted --client-context value. Keep honouring it so already-installed
+    // native hosts and external clients do not break, but normalise to
+    // 'browser' so only one name reaches the tool policy.
+    const requestedClient = options.clientContext === ('chrome' as ClientContext)
+      ? 'browser'
+      : options.clientContext;
+    if (requestedClient !== undefined && !supportedClients.includes(requestedClient)) {
       throw new Error(
-        `Invalid --client-context value: ${String(options.clientContext)}. Expected one of: ${supportedClients.join(', ')}`,
+        `Invalid --client-context value: ${String(requestedClient)}. Expected one of: ${supportedClients.join(', ')}`,
       );
     }
-    const clientContext: ClientContext = options.clientContext ?? 'cli';
+    const clientContext: ClientContext = requestedClient ?? 'cli';
     const runtime: AgentRuntime = {
       config,
       workspaceRoot,
@@ -681,13 +688,13 @@ export async function runRpcMode(options: CLIOptions): Promise<0 | 1> {
     // Get conversation manager
     const conversation = ConversationManager.getInstance();
 
-    // Inject Chrome browser automation skill into the conversation
+    // Inject the browser automation skill into the conversation
     // This tells the LLM to prioritize browser_* tools over file/CLI tools.
-    // Only for the Chrome client: the note names every browser trigger keyword
+    // Only for the browser client: the note names every browser trigger keyword
     // ('browser', 'chrome', 'page', 'tab', 'click', 'screenshot', 'console',
     // 'network'), so injecting it elsewhere permanently marks the 'browser'
     // category relevant and defeats relevance-based tool filtering.
-    if (clientContext === 'chrome') {
+    if (clientContext === 'browser') {
       try {
         const { CHROME_AUTOMATION_SYSTEM_PROMPT } = await import('../../browser/chromeSkill.js');
         conversation.addSystemNote(CHROME_AUTOMATION_SYSTEM_PROMPT);
