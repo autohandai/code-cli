@@ -531,7 +531,7 @@ function handleNativeMessage(message) {
 function ensureChild() {
   if (child) return;
   const cliCommand = launchSettings?.cliPath || DEFAULT_CLI_COMMAND;
-  const args = [...DEFAULT_CLI_ARG_PREFIX, "--mode", "rpc", "--client-context", "chrome"];
+  const args = [...DEFAULT_CLI_ARG_PREFIX, "--mode", "rpc", "--client-context", "browser"];
   if (launchSettings?.workspacePath) args.push("--path", launchSettings.workspacePath);
   if (launchSettings?.modelOverride) args.push("--model", launchSettings.modelOverride);
   if (launchSettings?.thinkingLevel) args.push("--thinking", launchSettings.thinkingLevel);
@@ -714,10 +714,11 @@ export async function ensureNativeHostInstalled(options?: {
         // Hosts written before RPC sessions declared a client context launch
         // without one, which now resolves to 'cli' and strips the browser_*
         // tools the side panel depends on. Treat them as stale so the host is
-        // rewritten with the flag.
+        // rewritten with the flag. Hosts still naming the pre-rename 'chrome'
+        // context keep working via the alias, but are refreshed to 'browser'.
         const hasCurrentCliLaunch = hostScript.includes(expectedCommandDeclaration)
           && hostScript.includes(expectedArgsDeclaration)
-          && hostScript.includes('"--client-context", "chrome"');
+          && hostScript.includes('"--client-context", "browser"');
         if (isValidShebang && hasExpectedOrigin && pointsAtManagedHost && hasCurrentCliLaunch) {
           continue;
         }

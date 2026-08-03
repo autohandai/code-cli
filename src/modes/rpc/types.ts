@@ -24,7 +24,7 @@ import type { DecisionRecord, EvaluationRecord } from '../../autoresearch/ledger
 // Blueprint answer-only contract
 // ============================================================================
 
-export type RpcClientContext = 'vscode' | 'chrome' | 'blueprint';
+export type RpcClientContext = 'vscode' | 'browser' | 'blueprint';
 
 export type BlueprintArtifactClass =
   | 'code'

@@ -244,9 +244,9 @@ export const CONTEXT_POLICIES: Record<ClientContext, ToolPolicy> = {
     ]
   },
 
-  // Chrome: Browser-first, limited file access
+  // Browser: Browser-first, limited file access
   // Only browser_* tools + basic read/write for Downloads
-  chrome: {
+  browser: {
     allowedCategories: ['read', 'write', 'browser', 'meta'],
     allowedTools: [
       // Browser tools — ALWAYS available, highest priority
