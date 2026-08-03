@@ -35,25 +35,14 @@ export interface SimpleChatAgent {
 
 export function isSimpleChatInstruction(instruction: string): boolean {
   const normalized = instruction.trim().toLowerCase();
-  if (!normalized) return false;
-
-  // Keep fast-path scoped to obvious casual chat only.
-  // All coding/analysis tasks should go through the full ReAct loop.
-  if (normalized.length > 200) return false;
-  if (normalized.includes('@')) return false;
-  if (normalized.startsWith('/')) return false;
-  if (normalized.startsWith('!')) return false;
-
-  const codingOrActionKeywords = /\b(file|create|edit|delete|run|fix|implement|refactor|build|test|install|commit|push|read|write|search|find|list|show me|update|add|remove|change|modify|rename|copy|move|execute|deploy|check|analyze|review|debug|inspect|explore|look at|open|save)\b/i;
-  if (codingOrActionKeywords.test(normalized)) return false;
+  if (normalized.length === 0) return false;
 
   const casualPatterns = [
-    /^(hi|hello|hey|yo|sup|hola|bonjour|ola)\b/,
-    /^(thanks|thank you|thx|cool|nice|awesome|great|ok|okay)\b/,
-    /\b(tell me a joke|another joke|say something funny|make me laugh)\b/,
-    /\bwho are you\b/,
-    /\bwhat can you do\b/,
-    /^good (morning|afternoon|evening)\b/,
+    /^(hello|hi|hey|yo|howdy|sup|what'?s up)[!?. ]*$/,
+    /^(good\s+(morning|afternoon|evening|night))[!?. ]*$/,
+    /^(thanks|thank you|thx|ty)[!?. ]*$/,
+    /^(bye|goodbye|see you|later)[!?. ]*$/,
+    /^(how are you|how'?s it going)[!?. ]*$/,
   ];
 
   return casualPatterns.some((pattern) => pattern.test(normalized));
