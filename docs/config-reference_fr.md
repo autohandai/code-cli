@@ -1545,6 +1545,7 @@ Configuration des hooks de cycle de vie qui exécutent des commandes shell sur l
 | `pre-prompt` | Avant d'envoyer en LLM |
 | `post-response` | Après que LLM réponde |
 | `session-error` | Lorsqu'une erreur se produit |
+| `rate-limit` | Lorsqu'une limite de débit met fin au tour |
 
 ### Variables d'environnement
 

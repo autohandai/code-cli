@@ -242,6 +242,14 @@ describe('HookManager', () => {
       expect(summary['post-learn']).toEqual({ total: 0, enabled: 0 });
       expect(summary['mode-change']).toEqual({ total: 0, enabled: 0 });
       expect(summary['context:critical']).toEqual({ total: 0, enabled: 0 });
+      expect(summary['rate-limit']).toEqual({ total: 0, enabled: 0 });
+    });
+
+    it('counts registered rate-limit hooks', async () => {
+      await manager.addHook({ event: 'rate-limit', command: 'notify-send quota', enabled: true });
+
+      expect(manager.getSummary()['rate-limit']).toEqual({ total: 1, enabled: 1 });
+      expect(manager.getHooksForEvent('rate-limit')).toHaveLength(1);
     });
   });
 

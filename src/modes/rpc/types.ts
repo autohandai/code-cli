@@ -321,6 +321,7 @@ export const RPC_NOTIFICATIONS = {
   HOOK_PRE_PROMPT: 'autohand.hook.prePrompt',
   HOOK_POST_RESPONSE: 'autohand.hook.postResponse',
   HOOK_SESSION_ERROR: 'autohand.hook.sessionError',
+  HOOK_RATE_LIMIT: 'autohand.hook.rateLimit',
   HOOK_STOP: 'autohand.hook.stop',
   HOOK_SESSION_START: 'autohand.hook.sessionStart',
   HOOK_SESSION_END: 'autohand.hook.sessionEnd',
@@ -896,6 +897,24 @@ export interface HookSessionErrorNotificationParams {
   error: string;
   code?: string;
   context?: Record<string, unknown>;
+  timestamp: string;
+}
+
+/**
+ * Notification params for the rate-limit hook event.
+ *
+ * Fired when a provider rate limit ends the turn. Rate limits are not
+ * session-retried, so this arrives once, immediately, alongside
+ * `autohand.hook.sessionError`. `retryAfterMs` is present only when the
+ * provider advertised a Retry-After.
+ */
+export interface HookRateLimitNotificationParams {
+  error: string;
+  code?: string;
+  retryAfterMs?: number;
+  httpStatus?: number;
+  model?: string;
+  provider?: string;
   timestamp: string;
 }
 

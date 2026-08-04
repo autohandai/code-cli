@@ -41,10 +41,20 @@ export interface HookContext {
   tokensUsageStatus?: 'actual' | 'unavailable';
   /** Tool calls count (for stop) */
   toolCallsCount?: number;
-  /** Error message (for session-error) */
+  /** Error message (for session-error, rate-limit) */
   error?: string;
-  /** Error code (for session-error) */
+  /** Error code (for session-error, rate-limit) */
   errorCode?: string;
+
+  // Rate limit hooks
+  /** Provider-advertised retry delay in ms (for rate-limit) */
+  retryAfterMs?: number;
+  /** HTTP status that produced the rate limit (for rate-limit) */
+  httpStatus?: number;
+  /** Model that was rate limited (for rate-limit) */
+  model?: string;
+  /** Provider that reported the rate limit (for rate-limit) */
+  provider?: string;
 
   // Session hooks
   /** Session type for session-start (startup, resume, clear) */
@@ -652,6 +662,12 @@ export class HookManager {
     if (context.error) env.HOOK_ERROR = context.error;
     if (context.errorCode) env.HOOK_ERROR_CODE = context.errorCode;
 
+    // Rate limit hooks
+    if (context.retryAfterMs !== undefined) env.HOOK_RETRY_AFTER_MS = String(context.retryAfterMs);
+    if (context.httpStatus !== undefined) env.HOOK_HTTP_STATUS = String(context.httpStatus);
+    if (context.model) env.HOOK_MODEL = context.model;
+    if (context.provider) env.HOOK_PROVIDER = context.provider;
+
     // Session start/end hooks
     if (context.sessionType) env.HOOK_SESSION_TYPE = context.sessionType;
     if (context.sessionEndReason) env.HOOK_SESSION_END_REASON = context.sessionEndReason;
@@ -1162,6 +1178,7 @@ export class HookManager {
       'stop',
       'post-response', // Alias for 'stop'
       'session-error',
+      'rate-limit',
       'subagent-stop',
       'session-start',
       'session-end',

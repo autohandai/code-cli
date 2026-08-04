@@ -398,9 +398,20 @@ export function isAgentContextOverflowError(errorOrMessage: Error | string): boo
     return classified.code === 'context_overflow';
   }
 
+/**
+ * Session-level retry classification.
+ *
+ * `ApiError.retryable` answers "could this request succeed if it were repeated
+ * later?", which is a different question from the one the session retry loop
+ * asks. Rate limits are where the two diverge: a daily quota is retryable in
+ * principle but cannot clear inside the current turn, so recovering in-session
+ * only spends the retry budget on attempts guaranteed to fail while printing
+ * "Attempting recovery (n/5)" at the user. Rate limits end the turn instead,
+ * which lets the caller surface the quota and fire the rate-limit hook.
+ */
 export function isAgentRetryableSessionError(error: Error): boolean {
-    if (error instanceof ApiError) return error.retryable;
-    const classified = classifyApiError(0, error.message);
+    const classified = error instanceof ApiError ? error : classifyApiError(0, error.message);
+    if (classified.code === 'rate_limited') return false;
     return classified.retryable;
   }
 

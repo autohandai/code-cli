@@ -12,6 +12,7 @@ import { getProviderConfig } from '../config.js';
 import { isAwsBedrockProviderEnabled } from '../features/featureRegistry.js';
 import type { RemoteFeatureFlagManager } from '../features/RemoteFeatureFlagManager.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
+import { ApiError } from '../providers/errors.js';
 import { safeEmitKeypressEvents } from '../ui/inputPrompt.js';
 
 import { safeSetRawMode } from '../ui/rawMode.js';
@@ -1663,6 +1664,38 @@ export class AutohandAgent {
     } catch (reportError) {
       // Don't let bug reporting failure prevent the retry
       console.error(chalk.gray(`[Debug] Failed to submit bug report: ${(reportError as Error).message}`));
+    }
+  }
+
+  /**
+   * Fire lifecycle hooks for a terminal session failure.
+   *
+   * `session-error` fires for every terminal failure. Rate limits additionally
+   * fire `rate-limit` so automations can react to quota exhaustion specifically
+   * (switch model, top up credits, page someone) without parsing error text.
+   */
+  private async notifySessionFailure(error: Error): Promise<void> {
+    const apiError = error instanceof ApiError ? error : undefined;
+    const sessionId = this.sessionManager.getCurrentSession()?.metadata.sessionId;
+    const model = this.runtime.options.model ??
+      getProviderConfig(this.runtime.config, this.activeProvider)?.model;
+
+    await this.hookManager.executeHooks('session-error', {
+      sessionId,
+      error: error.message,
+      errorCode: apiError?.code,
+    });
+
+    if (apiError?.code === 'rate_limited') {
+      await this.hookManager.executeHooks('rate-limit', {
+        sessionId,
+        error: error.message,
+        errorCode: apiError.code,
+        retryAfterMs: apiError.retryAfterMs,
+        httpStatus: apiError.httpStatus,
+        model,
+        provider: this.activeProvider,
+      });
     }
   }
 

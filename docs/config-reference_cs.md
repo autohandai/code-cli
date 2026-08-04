@@ -1563,6 +1563,7 @@ Konfigurace pro háky životního cyklu, které spouštějí příkazy shellu p�
 | `pre-prompt` | Před odesláním do LLM |
 | `post-response` | Poté, co LLM odpoví |
 | `session-error` | Když dojde k chybě |
+| `rate-limit` | Když omezení počtu požadavků ukončí tah |
 
 ### Proměnné prostředí
 

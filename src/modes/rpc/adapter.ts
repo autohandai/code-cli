@@ -118,6 +118,7 @@ import type {
   HookPrePromptNotificationParams,
   HookPostResponseNotificationParams,
   HookSessionErrorNotificationParams,
+  HookRateLimitNotificationParams,
   HookStopNotificationParams,
   HookSessionStartNotificationParams,
   HookSessionEndNotificationParams,
@@ -1763,6 +1764,16 @@ export class RPCAdapter {
       case 'session-error':
         this.emitHookSessionError(context.error ?? '', context.errorCode);
         break;
+      case 'rate-limit':
+        this.emitHookRateLimit({
+          error: context.error ?? '',
+          code: context.errorCode,
+          retryAfterMs: context.retryAfterMs,
+          httpStatus: context.httpStatus,
+          model: context.model,
+          provider: context.provider,
+        });
+        break;
       case 'session-start':
         this.emitHookSessionStart(context.sessionType ?? 'startup');
         break;
@@ -1922,6 +1933,18 @@ export class RPCAdapter {
       timestamp: createTimestamp(),
     } satisfies HookSessionErrorNotificationParams;
     writeNotification(RPC_NOTIFICATIONS.HOOK_SESSION_ERROR, params);
+  }
+
+  /**
+   * Emit rate-limit notification.
+   * Called when a provider rate limit ends the turn without a session retry.
+   */
+  emitHookRateLimit(params: Omit<HookRateLimitNotificationParams, 'timestamp'>): void {
+    if (this.notificationsSealed) return;
+    writeNotification(RPC_NOTIFICATIONS.HOOK_RATE_LIMIT, {
+      ...params,
+      timestamp: createTimestamp(),
+    } satisfies HookRateLimitNotificationParams);
   }
 
   /**

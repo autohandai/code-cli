@@ -37,6 +37,7 @@ When running in RPC mode (VS Code, Zed, etc.), hook events are also emitted as J
 | `session-end` | When a session ends | reason (quit/clear/exit/error), duration |
 | `pre-clear` | Before memory extraction on `/clear` or `/new` | session id, cwd |
 | `session-error` | When an error occurs | error message, code, context |
+| `rate-limit` | When a provider rate limit ends the turn | error message, code, retryAfterMs, httpStatus, model, provider |
 | `subagent-stop` | When a subagent finishes execution | subagent id, name, type, success, duration |
 | `permission-request` | Before showing permission dialog | tool, path, permission type |
 | `notification` | When a notification is sent to user | notification type, message |
@@ -69,6 +70,41 @@ When running in RPC mode (VS Code, Zed, etc.), hook events are also emitted as J
 | `context:critical` | When context usage crosses the critical threshold | context lifecycle details |
 
 > **Note**: `post-response` is an alias for `stop` for backward compatibility.
+
+### Rate limits
+
+Rate limits are **not** retried within the turn. A quota cannot clear while the
+turn is still running, so retrying only spends the session retry budget on
+attempts that are guaranteed to fail. When a provider returns a rate limit the
+turn ends immediately and both `session-error` and `rate-limit` fire once.
+
+Genuine transient failures — network drops, timeouts, 5xx outages — still retry
+with backoff, honoring `Retry-After` when the provider sends one.
+
+```json
+{
+  "hooks": {
+    "rate-limit": [
+      {
+        "command": "notify-send \"Autohand: $HOOK_ERROR\"",
+        "description": "Desktop notification when a quota is hit"
+      }
+    ]
+  }
+}
+```
+
+`HOOK_RETRY_AFTER_MS` is set only when the provider advertised a `Retry-After`,
+so branch on its presence rather than assuming a value:
+
+```bash
+#!/bin/bash
+if [ -n "$HOOK_RETRY_AFTER_MS" ]; then
+  echo "Rate limited on $HOOK_MODEL; retry in $((HOOK_RETRY_AFTER_MS / 1000))s"
+else
+  echo "Rate limited on $HOOK_MODEL ($HOOK_PROVIDER) — quota exhausted"
+fi
+```
 
 ---
 
@@ -342,8 +378,12 @@ When your hook command executes, these environment variables are available:
 | `HOOK_TOOL_CALLS_COUNT` | Number of tool calls | stop |
 | `HOOK_TURN_TOOL_CALLS` | Tool calls in current turn | stop |
 | `HOOK_TURN_DURATION` | Turn duration in ms | stop |
-| `HOOK_ERROR` | Error message | session-error |
-| `HOOK_ERROR_CODE` | Error code | session-error |
+| `HOOK_ERROR` | Error message | session-error, rate-limit |
+| `HOOK_ERROR_CODE` | Error code | session-error, rate-limit |
+| `HOOK_RETRY_AFTER_MS` | Provider-advertised retry delay in ms (only when sent) | rate-limit |
+| `HOOK_HTTP_STATUS` | HTTP status that produced the rate limit | rate-limit |
+| `HOOK_MODEL` | Model that was rate limited | rate-limit |
+| `HOOK_PROVIDER` | Provider that reported the rate limit | rate-limit |
 | `HOOK_SESSION_TYPE` | startup, resume, or clear | session-start |
 | `HOOK_SESSION_END_REASON` | quit, clear, exit, or error | session-end |
 | `HOOK_SUBAGENT_ID` | Subagent task ID | subagent-stop |

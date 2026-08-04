@@ -1545,6 +1545,7 @@ sync:
 | `pre-prompt` |傳送至 LLM 之前 |
 | `post-response` | LLM回復後|
 | `session-error` |發生錯誤時 |
+| `rate-limit` |速率限制結束回合時 |
 
 ### 環境變數
 
