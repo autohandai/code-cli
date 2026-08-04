@@ -1,6 +1,6 @@
 # OptMem Memory Design Notes
 
-Placed in `docs/` because this repo already keeps design-analysis notes there, for example `docs/shell-tool-analysis.md` and `docs/cc-src-tool-gap-analysis.md`. There is no existing memory-design note to extend.
+Placed in `docs/` because this repo already keeps design-analysis notes there, for example `docs/shell-tool-analysis.md` and `docs/CLAUDE_CODE_GAPS.md`. There is no existing memory-design note to extend.
 
 Reviewed on 2026-07-27. Primary sources only:
 - Current CLI memory implementation: `src/memory/MemoryManager.ts`, `src/memory/types.ts`, `src/core/context/summarizer.ts`, `src/commands/memory.ts`
