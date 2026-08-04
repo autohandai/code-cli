@@ -195,6 +195,35 @@ describe('RPC Hook Notifications', () => {
       expect(writtenNotifications[0].params.context).toBeUndefined();
     });
 
+    it('emits rate-limit notification with quota details for SDK consumers', () => {
+      adapter.emitHookRateLimit({
+        error: 'Rate limit exceeded: free-models-per-day.',
+        code: 'rate_limited',
+        retryAfterMs: 60_000,
+        httpStatus: 429,
+        model: 'anthropic/claude-3.5-sonnet',
+        provider: 'openrouter',
+      });
+
+      expect(writtenNotifications).toHaveLength(1);
+      expect(writtenNotifications[0].method).toBe('autohand.hook.rateLimit');
+      expect(writtenNotifications[0].params).toEqual({
+        error: 'Rate limit exceeded: free-models-per-day.',
+        code: 'rate_limited',
+        retryAfterMs: 60_000,
+        httpStatus: 429,
+        model: 'anthropic/claude-3.5-sonnet',
+        provider: 'openrouter',
+        timestamp: '2025-01-01T00:00:00.000Z',
+      });
+    });
+
+    it('omits retryAfterMs when the provider advertised no Retry-After', () => {
+      adapter.emitHookRateLimit({ error: 'Rate limit exceeded', code: 'rate_limited' });
+
+      expect(writtenNotifications[0].params.retryAfterMs).toBeUndefined();
+    });
+
     it('handles error with code but no context', () => {
       adapter.emitHookSessionError('Timeout', 'TIMEOUT');
 

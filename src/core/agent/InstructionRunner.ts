@@ -149,6 +149,7 @@ export interface AgentInstructionHost {
   shouldUsePassiveSessionRetry(error: Error): boolean;
   injectContinuationMessage(error: Error, attempt: number): void;
   getDisplayErrorMessage(error: unknown): string;
+  notifySessionFailure?(error: Error): void | Promise<void>;
   recordTurnFailure?(message: string): void;
   emitOutput(event: AgentOutputEvent): void;
   printCompletionSummary(regionsStillActive: boolean, succeeded?: boolean): void;
@@ -525,6 +526,15 @@ export class InstructionRunner {
           autoReport: true,
         });
         host.sessionRetryCount = 0;
+
+        // Fires once per terminal failure, after retries are exhausted or skipped.
+        // A misbehaving user hook must not replace the provider error the user
+        // actually needs to see, so failures here are swallowed.
+        try {
+          await host.notifySessionFailure?.(err);
+        } catch {
+          // ignore hook failures
+        }
 
         host.stopUI(true, 'Session failed');
         // Emit error for RPC mode

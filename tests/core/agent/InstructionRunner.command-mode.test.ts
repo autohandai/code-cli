@@ -13,7 +13,7 @@ import {
   isAgentRetryableSessionError,
   shouldUsePassiveAgentSessionRetry,
 } from '../../../src/core/agent/InputTurnCoordinator.js';
-import { classifyApiError } from '../../../src/providers/errors.js';
+import { ApiError, classifyApiError } from '../../../src/providers/errors.js';
 
 function overrideStreamTTY(
   stream: NodeJS.ReadStream | NodeJS.WriteStream,
@@ -415,7 +415,7 @@ describe('InstructionRunner command mode UI', () => {
     }
   });
 
-  it('bounds the backoff delay and still exhausts all retries when a rate-limited error advertises an hours-long Retry-After', async () => {
+  it('bounds the backoff delay when a retryable outage advertises an hours-long Retry-After', async () => {
     const host = createHost();
     host.runtime = {
       ...host.runtime,
@@ -430,13 +430,13 @@ describe('InstructionRunner command mode UI', () => {
     };
     const fourHoursFromNow = new Date(Date.now() + 4 * 60 * 60 * 1000).toUTCString();
     const headers = new Headers({ 'Retry-After': fourHoursFromNow });
-    const rateLimitedError = () =>
-      classifyApiError(429, 'The usage limit has been reached', headers);
+    const outageError = () =>
+      classifyApiError(503, 'The upstream service is unavailable', headers);
 
     host.isRetryableSessionError = (err: Error) => isAgentRetryableSessionError(err);
     host.shouldUsePassiveSessionRetry = (err: Error) => shouldUsePassiveAgentSessionRetry(err);
     host.runReactLoop = vi.fn(async () => {
-      throw rateLimitedError();
+      throw outageError();
     });
     const sleepDelays: number[] = [];
     host.sleep = vi.fn(async (ms: number) => {
@@ -446,7 +446,7 @@ describe('InstructionRunner command mode UI', () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     try {
-      const result = await new InstructionRunner(host).run('call the rate-limited provider');
+      const result = await new InstructionRunner(host).run('call the flaky provider');
 
       expect(result).toBe(false);
       // Initial attempt + 3 retries, all completing rather than stalling on
@@ -456,6 +456,109 @@ describe('InstructionRunner command mode UI', () => {
       for (const delay of sleepDelays) {
         expect(delay).toBeLessThanOrEqual(60_000);
       }
+    } finally {
+      consoleLogSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
+  // Regression: a daily quota cannot recover inside the turn, so retrying it just
+  // printed "Attempting recovery (1/5)..." five times before failing anyway.
+  it('fails immediately without session retries when the provider reports a rate limit', async () => {
+    const host = createHost();
+    host.runtime = {
+      ...host.runtime,
+      config: {
+        ...host.runtime.config,
+        agent: {
+          enableRequestQueue: true,
+          sessionRetryLimit: 5,
+          sessionRetryDelay: 1000,
+        },
+      },
+    };
+    const rateLimited = () =>
+      classifyApiError(
+        429,
+        'Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day'
+      );
+
+    host.isRetryableSessionError = (err: Error) => isAgentRetryableSessionError(err);
+    host.shouldUsePassiveSessionRetry = (err: Error) => shouldUsePassiveAgentSessionRetry(err);
+    host.runReactLoop = vi.fn(async () => {
+      throw rateLimited();
+    });
+
+    const logged: string[] = [];
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logged.push(args.map(String).join(' '));
+    });
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const result = await new InstructionRunner(host).run('call the rate-limited provider');
+
+      expect(result).toBe(false);
+      expect(host.runReactLoop).toHaveBeenCalledTimes(1);
+      expect(host.sleep).not.toHaveBeenCalled();
+      expect(host.injectContinuationMessage).not.toHaveBeenCalled();
+      expect(logged.join('\n')).not.toContain('Attempting recovery');
+    } finally {
+      consoleLogSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
+  it('notifies the host once so rate-limit and session-error hooks can fire', async () => {
+    const host = createHost();
+    const notifySessionFailure = vi.fn();
+    host.notifySessionFailure = notifySessionFailure;
+    host.isRetryableSessionError = (err: Error) => isAgentRetryableSessionError(err);
+    host.shouldUsePassiveSessionRetry = (err: Error) => shouldUsePassiveAgentSessionRetry(err);
+    host.runReactLoop = vi.fn(async () => {
+      throw classifyApiError(429, 'Rate limit exceeded: free-models-per-day.');
+    });
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      await new InstructionRunner(host).run('call the rate-limited provider');
+
+      expect(notifySessionFailure).toHaveBeenCalledTimes(1);
+      const reported = notifySessionFailure.mock.calls[0]?.[0] as ApiError;
+      expect(reported).toBeInstanceOf(ApiError);
+      expect(reported.code).toBe('rate_limited');
+    } finally {
+      consoleLogSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
+  it('notifies the host after a retryable outage exhausts its retry budget', async () => {
+    const host = createHost();
+    host.runtime = {
+      ...host.runtime,
+      config: {
+        ...host.runtime.config,
+        agent: { enableRequestQueue: true, sessionRetryLimit: 2, sessionRetryDelay: 1 },
+      },
+    };
+    const notifySessionFailure = vi.fn();
+    host.notifySessionFailure = notifySessionFailure;
+    host.isRetryableSessionError = (err: Error) => isAgentRetryableSessionError(err);
+    host.shouldUsePassiveSessionRetry = (err: Error) => shouldUsePassiveAgentSessionRetry(err);
+    host.runReactLoop = vi.fn(async () => {
+      throw classifyApiError(503, 'The upstream service is unavailable');
+    });
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      await new InstructionRunner(host).run('call the flaky provider');
+
+      // Retries still happen for genuine outages; the hook fires once, at the end.
+      expect(host.runReactLoop).toHaveBeenCalledTimes(3);
+      expect(notifySessionFailure).toHaveBeenCalledTimes(1);
     } finally {
       consoleLogSpy.mockRestore();
       consoleErrorSpy.mockRestore();

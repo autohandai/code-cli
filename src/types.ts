@@ -671,6 +671,7 @@ export type HookEvent =
   | 'stop'              // Agent finished responding (turn complete)
   | 'post-response'     // Alias for 'stop' (backward compatibility)
   | 'session-error'
+  | 'rate-limit'        // Provider rate limit ended the turn (no session retry)
   | 'subagent-stop'     // Subagent (Task tool) finished
   | 'session-start'     // Session begins (startup, resume, clear)
   | 'session-end'       // Session ends (quit, exit)

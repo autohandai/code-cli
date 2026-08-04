@@ -28,6 +28,7 @@ export const HOOK_EVENTS: HookEvent[] = [
   'permission-request',
   'notification',
   'session-error',
+  'rate-limit',
   // Auto-mode events
   'automode:start',
   'automode:iteration',
@@ -93,6 +94,7 @@ const EVENT_DESCRIPTIONS: Record<HookEvent, string> = {
   'permission-request': 'When permission is requested',
   'notification': 'When notifications are shown',
   'session-error': 'When an error occurs',
+  'rate-limit': 'When a provider rate limit ends the turn (no retry)',
   // Auto-mode events
   'automode:start': 'When auto-mode loop starts',
   'automode:iteration': 'Each auto-mode iteration',
@@ -197,6 +199,7 @@ function getHookIcon(hook: HookDefinition): string {
     'file-modified': '📄',
     'stop': '🏁',
     'session-error': '❌',
+    'rate-limit': '🚦',
     'permission-request': '🔐',
     'notification': '🔔',
     'subagent-stop': '🤖',
@@ -269,6 +272,7 @@ function displayHooksList(allHooks: HookDefinition[]): void {
     'permission-request': '🔐',
     'notification': '🔔',
     'session-error': '❌',
+    'rate-limit': '🚦',
     // Review events
     'review:start': '🔍',
     'review:end': '📋',

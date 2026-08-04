@@ -1545,6 +1545,7 @@ Aracı olaylarında kabuk komutlarını çalıştıran yaşam döngüsü kancala
 | `pre-prompt` | LLM'ye göndermeden önce |
 | `post-response` | LLM yanıt verdikten sonra |
 | `session-error` | Hata oluştuğunda |
+| `rate-limit` | Hız sınırı turu sonlandırdığında |
 
 ### Ortam Değişkenleri
 

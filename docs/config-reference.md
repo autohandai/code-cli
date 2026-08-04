@@ -1787,6 +1787,7 @@ Configuration for lifecycle hooks that run shell commands on agent events. See [
 | `pre-prompt`    | Before sending to LLM                 |
 | `post-response` | After LLM responds                    |
 | `session-error` | When error occurs                     |
+| `rate-limit`    | When a rate limit ends the turn       |
 
 ### Environment Variables
 

@@ -1545,6 +1545,7 @@ Konfiguráció életciklus-horogokhoz, amelyek shell-parancsokat futtatnak az ü
 | `pre-prompt` | Mielőtt elküldené az LLM-nek |
 | `post-response` | Miután az LLM válaszol |
 | `session-error` | Hiba esetén |
+| `rate-limit` | Amikor a sebességkorlát véget vet a körnek |
 
 ### Környezeti változók
 

@@ -1670,6 +1670,7 @@ Konfiguration für Lifecycle-Hooks, die Shell-Befehle bei Agenten-Ereignissen au
 | `pre-prompt`    | Bevor an das LLM gesendet wird                 |
 | `post-response` | Nachdem das LLM geantwortet hat                    |
 | `session-error` | Wenn ein Fehler auftritt                     |
+| `rate-limit`    | Wenn ein Ratenlimit den Durchlauf beendet    |
 
 ### Umgebungsvariablen
 

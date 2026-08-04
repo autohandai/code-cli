@@ -1095,6 +1095,7 @@ share:
 | `pre-prompt`    | LLMに送信前                |
 | `post-response` | LLM応答後                  |
 | `session-error` | エラー発生時               |
+| `rate-limit`    | レート制限でターンが終了した時 |
 
 ### 環境変数
 

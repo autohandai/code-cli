@@ -194,6 +194,7 @@ const HOOK_EVENTS = new Set<HookEvent>([
   'stop',
   'post-response',
   'session-error',
+  'rate-limit',
   'subagent-stop',
   'session-start',
   'session-end',
