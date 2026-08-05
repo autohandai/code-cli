@@ -229,7 +229,14 @@ jobs:
       - name: Compile binary
         run: |
           mkdir -p binaries
-          bun build ./src/index.ts --compile --target=bun-${{ matrix.target }} --outfile ./binaries/${{ matrix.artifact }}
+          # node-llama-cpp lazily requires one @node-llama-cpp/<platform> prebuilt
+          # binary at runtime, chosen dynamically from ~13 optional platform
+          # packages. Only the current platform's package is ever installed, so
+          # bundling the module makes bun statically resolve every other
+          # platform's import() and fail. Externalizing leaves the dynamic
+          # import for Node/Bun module resolution at runtime, same as `sharp`
+          # in tsup.config.ts.
+          bun build ./src/index.ts --compile --target=bun-${{ matrix.target }} --external node-llama-cpp --outfile ./binaries/${{ matrix.artifact }}
 
       - name: Verify binary
         if: runner.os != 'Windows' && !contains(matrix.target, 'arm64') || matrix.os == 'macos-latest' && contains(matrix.target, 'arm64')
