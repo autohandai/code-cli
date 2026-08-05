@@ -89,7 +89,9 @@ jobs:
       - name: Test compilation
         run: |
           mkdir -p binaries
-          bun build ./src/index.ts --compile --outfile ./binaries/autohand-test
+          # See release.yml's Compile binary step: node-llama-cpp's dynamic
+          # platform-binary resolution can't be statically bundled.
+          bun build ./src/index.ts --compile --external node-llama-cpp --outfile ./binaries/autohand-test
 
       - name: Verify binary (Unix)
         if: runner.os != 'Windows'
