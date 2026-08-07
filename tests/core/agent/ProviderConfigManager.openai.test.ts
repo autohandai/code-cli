@@ -521,6 +521,89 @@ describe("ProviderConfigManager openai auth mode", () => {
     expect(providerOptions.some((option: { value: string }) => option.value === "bedrock")).toBe(false);
   });
 
+  it("shows providers in /model in alphabetical order by display name", async () => {
+    runtime.config.provider = "openrouter";
+    runtime.config.openrouter = undefined;
+    runtime.config.features = {
+      autohand_inference: true,
+    };
+    runtime.config.customProviders = {
+      beta: {
+        id: "beta",
+        displayName: "Zeta AI",
+        apiFormat: "openai-compatible",
+        baseUrl: "https://api.zeta.example/v1",
+        apiKeyRequired: true,
+        apiKey: "zeta-key-long-enough",
+        model: "zeta-1",
+      },
+      alpha: {
+        id: "alpha",
+        displayName: "Alpha AI",
+        apiFormat: "openai-compatible",
+        baseUrl: "https://api.alpha.example/v1",
+        apiKeyRequired: true,
+        apiKey: "alpha-key-long-enough",
+        model: "alpha-1",
+      },
+    };
+
+    mockShowModal.mockResolvedValueOnce(null);
+
+    await manager.promptModelSelection();
+
+    const options = mockShowModal.mock.calls[0][0].options as Array<{
+      value: string;
+      label: string;
+    }>;
+    const visibleLabels = options
+      .filter((option) => option.value !== "new-custom-provider")
+      .map((option) =>
+        option.label
+          .replace(/^[○●]\s*/, "")
+          .replace(/\s+\([^)]+\)/g, "")
+          .trim(),
+      );
+    expect(visibleLabels).toEqual([...visibleLabels].sort((left, right) =>
+      left.localeCompare(right, undefined, { sensitivity: "base" }),
+    ));
+  });
+
+  it("opens custom provider settings when selecting a configured custom provider from /model list", async () => {
+    runtime.config.provider = "openrouter";
+    runtime.config.openrouter = undefined;
+    runtime.config.customProviders = {
+      acme: {
+        id: "acme",
+        displayName: "Acme AI",
+        apiFormat: "openai-compatible",
+        baseUrl: "https://api.acme.example/v1",
+        apiKey: "acme-key-long-enough",
+        apiKeyRequired: true,
+        model: "acme-code-1",
+        contextWindow: 128_000,
+      },
+    };
+    mockShowModal
+      .mockResolvedValueOnce({ value: "custom:acme" })
+      .mockResolvedValueOnce({ value: "remove" });
+    mockShowConfirm.mockResolvedValueOnce(true);
+
+    await manager.promptModelSelection();
+
+    expect(mockShowModal).toHaveBeenCalledTimes(2);
+    expect(mockShowModal.mock.calls[0][0].title).toBe("Choose provider");
+    expect(mockShowModal.mock.calls[1][0].title).toBe("What would you like to change?");
+    expect(
+      mockShowModal.mock.calls[1][0].options.some(
+        (option: { value: string }) => option.value === "remove",
+      ),
+    ).toBe(true);
+    expect(runtime.config.provider).toBe("openrouter");
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+    expect(runtime.config.customProviders).toBeUndefined();
+  });
+
   it("updates OpenAI reasoning effort from the configured provider menu", async () => {
     runtime.config.provider = "openai";
     runtime.config.openai = {
