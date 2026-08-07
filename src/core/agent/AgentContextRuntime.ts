@@ -359,7 +359,11 @@ export function updateAgentContextUsage(
       undefined,
       host.contextWindow
     );
-    host.contextPercentLeft = Math.round((1 - usage.usagePercent) * 100);
+    // usagePercent is an unclamped ratio (totalTokens / window), so a prompt
+    // larger than the window drives this negative. Clamp to [0, 100] to match
+    // the message-only branch below and keep the composer from rendering
+    // nonsense like "-424% context left" on small-window models (e.g. fantail).
+    host.contextPercentLeft = Math.max(0, Math.min(100, Math.round((1 - usage.usagePercent) * 100)));
   } else {
     const usage = estimateMessagesTokens(messages);
     const percent = Math.max(0, Math.min(1 - usage / host.contextWindow, 1));

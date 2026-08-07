@@ -157,4 +157,25 @@ describe('updateAgentContextUsage composer display', () => {
 
     expect(host.inkRenderer?.setContextPercent).toHaveBeenCalledWith(host.contextPercentLeft);
   });
+
+  it('never reports a negative or over-100 context percent when the prompt overflows a small window', () => {
+    const host = makeUsageHost();
+    // makeUsageHost() uses a tiny 100-token window; a large prompt with tools
+    // overflows it many times over (usagePercent >> 1), which previously drove
+    // contextPercentLeft deeply negative (e.g. -424% context left in the composer).
+    updateAgentContextUsage(
+      host,
+      [{ role: 'user', content: 'x'.repeat(40_000) }],
+      [{
+        name: 'read_file',
+        description: 'Read a file',
+        parameters: { type: 'object', properties: {} },
+      }] as never
+    );
+
+    expect(host.contextPercentLeft).toBeGreaterThanOrEqual(0);
+    expect(host.contextPercentLeft).toBeLessThanOrEqual(100);
+    expect(host.contextPercentLeft).toBe(0);
+    expect(host.inkRenderer?.setContextPercent).toHaveBeenCalledWith(0);
+  });
 });
