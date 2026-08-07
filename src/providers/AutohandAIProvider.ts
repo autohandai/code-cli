@@ -21,11 +21,23 @@ export const AUTOHAND_AI_FANTAIL_CONTEXT_WINDOW = 16_000;
 export const AUTOHAND_AI_MOA_CONTEXT_WINDOW = 1_000_000;
 export const AUTOHAND_AI_DEFAULT_CONTEXT_WINDOW = AUTOHAND_AI_FANTAIL_CONTEXT_WINDOW;
 
+// Per-model output ceilings enforced by the inference gateway
+// (inference `MODEL_LIMITS.<model>.maxCompletionTokens`). Sending a larger
+// `max_tokens` is rejected upstream with a 400 "malformed request", so the
+// provider clamps every request to the target model's ceiling. Keep these in
+// lockstep with the inference worker.
+export const AUTOHAND_AI_FANTAIL_MAX_OUTPUT_TOKENS = 4_096;
+export const AUTOHAND_AI_MOA_MAX_OUTPUT_TOKENS = 262_144;
+// Requested output when the caller does not specify one; mirrors the shared
+// LLMGatewayClient default and is itself clamped to the model ceiling below.
+export const AUTOHAND_AI_DEFAULT_MAX_OUTPUT_TOKENS = 16_000;
+
 export interface AutohandAICloudModelDefinition {
   id: string;
   label: string;
   description: string;
   contextWindow: number;
+  maxOutputTokens: number;
   toolCalls: boolean;
   reasoningEfforts?: readonly ["medium", "high", "xhigh"];
 }
@@ -36,6 +48,7 @@ export const AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS = [
     label: "Fantail",
     description: "Ultra fast coding model with tool calls and 16k input context",
     contextWindow: AUTOHAND_AI_FANTAIL_CONTEXT_WINDOW,
+    maxOutputTokens: AUTOHAND_AI_FANTAIL_MAX_OUTPUT_TOKENS,
     toolCalls: true,
   },
   {
@@ -43,6 +56,7 @@ export const AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS = [
     label: "Moa (Thinking)",
     description: "Reasoning model with medium/high/xhigh effort and 256k input context",
     contextWindow: AUTOHAND_AI_MOA_CONTEXT_WINDOW,
+    maxOutputTokens: AUTOHAND_AI_MOA_MAX_OUTPUT_TOKENS,
     toolCalls: true,
     reasoningEfforts: ["medium", "high", "xhigh"],
   },
@@ -59,6 +73,28 @@ export const AUTOHAND_AI_LOCAL_MODELS = [
 export function getAutohandAICloudModelContextWindow(model: string): number {
   return AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS.find((definition) => definition.id === model)
     ?.contextWindow ?? AUTOHAND_AI_DEFAULT_CONTEXT_WINDOW;
+}
+
+/**
+ * The upstream `max_tokens` ceiling for a cloud model. Unknown models fall back
+ * to the shared default so their requests behave exactly as before.
+ */
+export function getAutohandAICloudModelMaxOutputTokens(model: string): number {
+  return AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS.find((definition) => definition.id === model)
+    ?.maxOutputTokens ?? AUTOHAND_AI_DEFAULT_MAX_OUTPUT_TOKENS;
+}
+
+/**
+ * Resolve the `max_tokens` to send for a model: the caller's request (or the
+ * shared default when omitted), clamped to the model's upstream ceiling and to
+ * a valid integer >= 1 so the inference gateway never rejects it as malformed.
+ */
+export function resolveAutohandAIMaxTokens(model: string, requested?: number): number {
+  const ceiling = getAutohandAICloudModelMaxOutputTokens(model);
+  const desired = Number.isFinite(requested) && requested !== undefined
+    ? Math.floor(requested)
+    : AUTOHAND_AI_DEFAULT_MAX_OUTPUT_TOKENS;
+  return Math.max(1, Math.min(desired, ceiling));
 }
 
 export class AutohandAIProvider implements LLMProvider {
@@ -142,9 +178,11 @@ export class AutohandAIProvider implements LLMProvider {
       throw new Error("Autohand AI provider is not configured.");
     }
 
+    const targetModel = request.model ?? this.model;
     return this.cloudClient.complete({
       ...request,
-      model: request.model ?? this.model,
+      model: targetModel,
+      maxTokens: resolveAutohandAIMaxTokens(targetModel, request.maxTokens),
       temperature: request.temperature ?? 0.1,
       ...(this.model === "moa" && this.config.reasoningEffort
         ? {

@@ -46,6 +46,7 @@ describe('getProviderConfig', () => {
 
   it('returns null for autohandai while autohand_inference is disabled', () => {
     const cfg: AutohandConfig = {
+      features: { autohand_inference: false },
       provider: 'autohandai',
       autohandai: {
         plan: 'cloud',

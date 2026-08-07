@@ -170,4 +170,91 @@ describe("AutohandAIProvider", () => {
       provider.complete({ messages: [{ role: "user", content: "hi" }] }),
     ).rejects.toThrow(/Autohand AI API key is required/);
   });
+
+  describe("per-model max_tokens output caps", () => {
+    function okFetchMock() {
+      return vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            id: "autohand-response",
+            created: 123,
+            choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
+          }),
+      });
+    }
+
+    function sentMaxTokens(fetchMock: ReturnType<typeof okFetchMock>): number | undefined {
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as { max_tokens?: number };
+      return body.max_tokens;
+    }
+
+    function cloudProvider(model: string) {
+      return new AutohandAIProvider({
+        plan: "cloud",
+        authMode: "api-key",
+        apiKey: "test-autohand-key",
+        model,
+      });
+    }
+
+    it("clamps a fantail request above the 4096 output cap down to 4096", async () => {
+      const fetchMock = okFetchMock();
+      globalThis.fetch = fetchMock as typeof globalThis.fetch;
+
+      await cloudProvider("fantail").complete({
+        messages: [{ role: "user", content: "hi" }],
+        maxTokens: 16_000,
+      });
+
+      expect(sentMaxTokens(fetchMock)).toBe(4096);
+    });
+
+    it("caps fantail at 4096 even when the caller omits max_tokens", async () => {
+      const fetchMock = okFetchMock();
+      globalThis.fetch = fetchMock as typeof globalThis.fetch;
+
+      await cloudProvider("fantail").complete({
+        messages: [{ role: "user", content: "hi" }],
+      });
+
+      expect(sentMaxTokens(fetchMock)).toBe(4096);
+    });
+
+    it("preserves a below-cap fantail request unchanged", async () => {
+      const fetchMock = okFetchMock();
+      globalThis.fetch = fetchMock as typeof globalThis.fetch;
+
+      await cloudProvider("fantail").complete({
+        messages: [{ role: "user", content: "hi" }],
+        maxTokens: 512,
+      });
+
+      expect(sentMaxTokens(fetchMock)).toBe(512);
+    });
+
+    it("leaves a moa request below its large output cap untouched", async () => {
+      const fetchMock = okFetchMock();
+      globalThis.fetch = fetchMock as typeof globalThis.fetch;
+
+      await cloudProvider("moa").complete({
+        messages: [{ role: "user", content: "hi" }],
+        maxTokens: 16_000,
+      });
+
+      expect(sentMaxTokens(fetchMock)).toBe(16_000);
+    });
+
+    it("clamps a moa request above the 262144 output cap down to 262144", async () => {
+      const fetchMock = okFetchMock();
+      globalThis.fetch = fetchMock as typeof globalThis.fetch;
+
+      await cloudProvider("moa").complete({
+        messages: [{ role: "user", content: "hi" }],
+        maxTokens: 300_000,
+      });
+
+      expect(sentMaxTokens(fetchMock)).toBe(262_144);
+    });
+  });
 });
