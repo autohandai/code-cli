@@ -188,35 +188,49 @@ export class ProviderConfigManager {
   private async promptProviderSelection(): Promise<void> {
     // Use ProviderFactory to get platform-aware list (includes MLX on Apple Silicon).
     const allProviders = ProviderFactory.getProviderNames(this.runtime.config);
-    const providerChoices: ModalOption[] = allProviders.map((name) => {
-      const isConfigured = this.isProviderConfigured(name);
-      const indicator = isConfigured ? chalk.green("●") : chalk.red("○");
-      const displayName = this.getProviderDisplayName(name);
-      const current =
-        name === this.getActiveProvider()
-          ? chalk.cyan(" (" + t("providers.config.current") + ")")
-          : "";
-      const siliconNote =
-        name === "mlx"
-          ? chalk.gray(" (" + t("providers.config.appleSilicon") + ")")
-          : "";
-      const hostedNote =
-        this.isHostedProvider(name)
-          ? chalk.gray(" (" + t("providers.config.hosted") + ")")
-          : "";
-      return {
-        label: `${indicator} ${displayName}${current}${siliconNote}${hostedNote}`,
-        value: name,
-      };
-    });
-    providerChoices.push({
+    type OrderedProviderChoice = ModalOption & { sortName: string };
+    const providerChoices: OrderedProviderChoice[] = allProviders
+      .map((name) => {
+        const isConfigured = this.isProviderConfigured(name);
+        const indicator = isConfigured ? chalk.green("●") : chalk.red("○");
+        const displayName = this.getProviderDisplayName(name);
+        const sortName = displayName.toLocaleLowerCase();
+        const current =
+          name === this.getActiveProvider()
+            ? chalk.cyan(" (" + t("providers.config.current") + ")")
+            : "";
+        const siliconNote =
+          name === "mlx"
+            ? chalk.gray(" (" + t("providers.config.appleSilicon") + ")")
+            : "";
+        const hostedNote =
+          this.isHostedProvider(name)
+            ? chalk.gray(" (" + t("providers.config.hosted") + ")")
+            : "";
+        return {
+          label: `${indicator} ${displayName}${current}${siliconNote}${hostedNote}`,
+          sortName,
+          value: name,
+        };
+      })
+      .sort((left, right) =>
+        left.sortName.localeCompare(right.sortName, undefined, {
+          sensitivity: "base",
+        }),
+      );
+
+    const options: ModalOption[] = providerChoices.map((providerChoice) => ({
+      label: providerChoice.label,
+      value: providerChoice.value,
+    }));
+    options.push({
       label: chalk.cyan("+ " + t("providers.config.newProvider")),
       value: "new-custom-provider",
     });
 
     const result = await showModal({
       title: t("providers.config.chooseProvider"),
-      options: providerChoices,
+      options,
     });
 
     if (!result) {
@@ -242,6 +256,11 @@ export class ProviderConfigManager {
         ),
       );
       await this.configureProvider(selectedProvider);
+      return;
+    }
+
+    if (isCustomProviderName(selectedProvider)) {
+      await this.promptConfiguredProviderSettings(selectedProvider);
       return;
     }
 
