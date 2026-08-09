@@ -27,7 +27,6 @@ import {
   createMockOpenRouterSequenceServer,
   createMockSkillInstallFetchPreload,
   createMockSubAgentCatalogFetchPreload,
-  createMockOllamaServer,
   createStalledSyncFetchPreload,
   createTempAutohandHome,
   dismissAutocompleteMenu,
@@ -2375,18 +2374,15 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(screen.match(new RegExp(assistantMessage, 'g'))).toHaveLength(1);
   });
 
-  it('persists an Ollama model selection and restores it after restart', async () => {
-    const selectedModel = 'tuistory-first:latest';
-    const ollamaServer = await createMockOllamaServer([selectedModel, 'tuistory-second:latest']);
-    mockServers.push(ollamaServer);
+  it('persists an Autohand AI provider selection and restores it after restart', async () => {
+    const selectedModel = 'fantail';
     const authServer = await createMockAuthServer();
     mockAuthServers.push(authServer);
     const state = await createTempAutohandHome({
       config: {
         provider: 'openrouter',
-        ollama: {
-          baseUrl: ollamaServer.baseUrl,
-          model: 'previous-ollama:latest',
+        features: {
+          autohand_inference: true,
         },
       },
     });
@@ -2398,6 +2394,7 @@ describe('interactive built CLI Tuistory tests', () => {
         env: {
           AUTOHAND_API_URL: authServer.baseUrl,
           AUTOHAND_AUTH_URL: authServer.baseUrl,
+          AUTOHAND_AUTH_API_URL: `${authServer.baseUrl}/api/auth`,
         },
         waitForDataTimeout: 15_000,
       })
@@ -2411,43 +2408,45 @@ describe('interactive built CLI Tuistory tests', () => {
     await session.press('3');
     await session.waitForText('Choose an LLM provider', { timeout: 10_000 });
     const providerScreen = await session.text({ trimEnd: true });
-    const ollamaLine = providerScreen
+    const autohandAILine = providerScreen
       .split('\n')
-      .find((line) => line.includes('Ollama'));
-    const ollamaShortcut = ollamaLine?.match(/^\s*(?:▸\s*)?([1-9])\.\s/)?.[1];
-    expect(isModalNumericShortcut(ollamaShortcut), providerScreen).toBe(true);
-    if (!isModalNumericShortcut(ollamaShortcut)) {
-      throw new Error('The visible Ollama option does not expose a numeric shortcut');
+      .find((line) => line.includes('Autohand AI'));
+    const autohandAIShortcut = autohandAILine?.match(/^\s*(?:▸\s*)?([1-9])\.\s/)?.[1];
+    expect(isModalNumericShortcut(autohandAIShortcut), providerScreen).toBe(true);
+    if (!isModalNumericShortcut(autohandAIShortcut)) {
+      throw new Error('The visible Autohand AI option does not expose a numeric shortcut');
     }
-    await session.press(ollamaShortcut);
-    await session.waitForText('Select a model', { timeout: 10_000 });
+    await session.press(autohandAIShortcut);
+    await session.waitForText('Choose an Autohand plan', { timeout: 10_000 });
     await session.press('enter');
-    await session.waitForText(`Using ollama model ${selectedModel}`, { timeout: 10_000 });
+    await session.waitForText('Select a model', { timeout: 10_000 });
+    await session.press('1');
+    await session.waitForText('Autohand AI configured successfully!', { timeout: 10_000 });
     await session.text({
       timeout: 10_000,
-      waitFor: (text) => text.includes(`autohand (Ollama, ${selectedModel})`),
+      waitFor: (text) => text.includes(`autohand (Autohand AI, ${selectedModel})`),
     });
 
     const screen = await session.text({ trimEnd: true });
-    expect(screen).toContain(`autohand (Ollama, ${selectedModel})`);
+    expect(screen).toContain(`autohand (Autohand AI, ${selectedModel})`);
 
     await exitInteractive(session);
 
     const savedConfig = await fs.readJson(state.configPath) as {
       provider?: string;
-      ollama?: { model?: string };
+      autohandai?: { model?: string };
     };
-    expect(savedConfig.provider).toBe('ollama');
-    expect(savedConfig.ollama?.model).toBe(selectedModel);
+    expect(savedConfig.provider).toBe('autohandai');
+    expect(savedConfig.autohandai?.model).toBe(selectedModel);
 
     const restartedSession = await launchWithPersistedConfig();
     await waitForComposer(restartedSession);
     const restartedScreen = await restartedSession.text({
       timeout: 10_000,
-      waitFor: (text) => text.includes(`autohand (Ollama, ${selectedModel})`),
+      waitFor: (text) => text.includes(`autohand (Autohand AI, ${selectedModel})`),
       trimEnd: true,
     });
-    expect(restartedScreen).toContain(`autohand (Ollama, ${selectedModel})`);
+    expect(restartedScreen).toContain(`autohand (Autohand AI, ${selectedModel})`);
     await exitInteractive(restartedSession);
   });
 });
