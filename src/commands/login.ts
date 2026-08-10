@@ -13,12 +13,123 @@ import { AUTH_CONFIG } from '../constants.js';
 import type { LoadedConfig } from '../types.js';
 import { createSyncService, DEFAULT_SYNC_CONFIG, isMemorySyncPath } from '../sync/index.js';
 import type { SyncFileEntry } from '../sync/index.js';
+import { isAutohandInferenceEnabled } from '../featureFlags.js';
+import {
+  AUTOHAND_AI_DEFAULT_BASE_URL,
+  getAutohandAICloudModelContextWindow,
+} from '../providers/AutohandAIProvider.js';
 
 export const metadata = {
   command: '/login',
   description: t('commands.login.description'),
   implemented: true,
 };
+
+/**
+ * `createDefaultConfig()` (config.ts) bakes a literal `provider: "openrouter"` into every
+ * freshly-created config file, before any login or /model ever runs — so `config.provider` is
+ * almost never actually `undefined` in practice. `"openrouter"` is the one value that's
+ * ambiguous: it's both the untouched factory default and a real choice a user (or /model) can
+ * make deliberately. The factory default always pairs it with an empty `apiKey`; a real choice
+ * doesn't. Every other provider value is unambiguous — nothing but an explicit choice ever
+ * produces it.
+ */
+function hasUserChosenProvider(config: LoadedConfig): boolean {
+  if (config.provider === undefined) return false;
+  if (config.provider === 'openrouter' && !config.openrouter?.apiKey) return false;
+  return true;
+}
+
+/** Same account-mode shape `/model` already builds for this provider (ProviderConfigManager.ts). */
+function applyAutohandAIProviderDefaults(config: LoadedConfig, accountToken: string): LoadedConfig {
+  const model = 'fantail';
+  return {
+    ...config,
+    provider: 'autohandai',
+    autohandai: {
+      plan: 'cloud',
+      authMode: 'account',
+      accountToken,
+      baseUrl: AUTOHAND_AI_DEFAULT_BASE_URL,
+      model,
+      contextWindow: getAutohandAICloudModelContextWindow(model),
+    },
+  };
+}
+
+/**
+ * A fresh login should work like Codex/ChatGPT sign-in: no separate `/model` step required.
+ * Only applies when the user has never chosen a provider — an explicit choice, however it was
+ * made, is never overwritten.
+ */
+export function applyPostLoginProviderDefault(config: LoadedConfig, accountToken: string): LoadedConfig {
+  if (hasUserChosenProvider(config) || !isAutohandInferenceEnabled(config)) return config;
+  return applyAutohandAIProviderDefaults(config, accountToken);
+}
+
+/**
+ * Catches accounts that authenticated before this defaulting existed and never re-run /login —
+ * without this, applyPostLoginProviderDefault only ever helps people who log in after it ships.
+ * Called once at CLI startup; persists via saveConfig only when it actually changes anything, so
+ * it's a no-op on every subsequent run once applied.
+ */
+export function applyStartupProviderDefaults(config: LoadedConfig): LoadedConfig {
+  if (!config.auth?.token) return config;
+  if (hasUserChosenProvider(config) || !isAutohandInferenceEnabled(config)) return config;
+  return applyAutohandAIProviderDefaults(config, config.auth.token);
+}
+
+export interface AutohandSwitchOfferDeps {
+  config: LoadedConfig;
+  /** The failing provider's ApiError.code — see providers/errors.ts. */
+  errorCode: string;
+  activeProvider: string | undefined;
+  providerLabel: string;
+  isInteractive: boolean;
+  /** Resolves the caller's own entitlement (GET /v1/auth/me), or null if it can't be determined. */
+  fetchEntitlement: (token: string) => Promise<{ tier: string; freeRemaining: number | null } | null>;
+  confirm: (message: string) => Promise<boolean>;
+  persist: (config: LoadedConfig) => Promise<void>;
+}
+
+/**
+ * When a user's own (non-autohandai) provider fails with a rate-limit/quota error, offer once to
+ * switch to Autohand's Fantail model instead — but only if they're logged in, the feature's on,
+ * they haven't been offered before, the session is interactive, and a live entitlement check says
+ * Autohand would actually have room for them (no point offering a switch that hits another wall).
+ * Accepting overrides their explicit provider on purpose — it's an opt-in, not the silent default.
+ */
+export async function maybeOfferAutohandAISwitch(deps: AutohandSwitchOfferDeps): Promise<LoadedConfig> {
+  const { config } = deps;
+  const token = config.auth?.token;
+
+  if (deps.errorCode !== 'rate_limited' && deps.errorCode !== 'payment_required') return config;
+  if (deps.activeProvider === 'autohandai') return config;
+  if (!token || !isAutohandInferenceEnabled(config)) return config;
+  if (config.autohandaiSwitchPromptShown) return config;
+  if (!deps.isInteractive) return config;
+
+  let entitlement: { tier: string; freeRemaining: number | null } | null;
+  try {
+    entitlement = await deps.fetchEntitlement(token);
+  } catch {
+    return config;
+  }
+  if (!entitlement) return config;
+  const hasRoom = entitlement.tier !== 'free' || (entitlement.freeRemaining ?? 0) > 0;
+  if (!hasRoom) return config;
+
+  // One-time: record it as shown regardless of the answer, so it never nags again.
+  let next: LoadedConfig = { ...config, autohandaiSwitchPromptShown: true };
+  const accepted = await deps.confirm(
+    `Your ${deps.providerLabel} hit a rate limit. Try Autohand's Fantail model instead?`,
+  );
+  if (accepted) {
+    next = applyAutohandAIProviderDefaults(next, token);
+  }
+  await deps.persist(next);
+  return next;
+}
 
 type LoginContext = Pick<SlashCommandContext, 'config'> & {
   restoreSync?: boolean;
@@ -153,14 +264,14 @@ export async function login(ctx: LoginContext): Promise<string | null> {
       const expiresAt = new Date(Date.now() + AUTH_CONFIG.sessionExpiryDays * 24 * 60 * 60 * 1000).toISOString();
 
       // Save to config
-      const updatedConfig: LoadedConfig = {
+      const updatedConfig: LoadedConfig = applyPostLoginProviderDefault({
         ...config,
         auth: {
           token: pollResult.token,
           user: pollResult.user,
           expiresAt,
         },
-      };
+      }, pollResult.token);
 
       await saveConfig(updatedConfig);
 

@@ -150,6 +150,8 @@ export interface AgentInstructionHost {
   injectContinuationMessage(error: Error, attempt: number): void;
   getDisplayErrorMessage(error: unknown): string;
   notifySessionFailure?(error: Error): void | Promise<void>;
+  /** Offer to switch to Autohand's provider when the user's own provider hit a rate/quota wall. */
+  maybeOfferProviderSwitch?(error: Error): void | Promise<void>;
   recordTurnFailure?(message: string): void;
   emitOutput(event: AgentOutputEvent): void;
   printCompletionSummary(regionsStillActive: boolean, succeeded?: boolean): void;
@@ -549,6 +551,15 @@ export class InstructionRunner {
           console.error(chalk.red(errorMessage));
         } else {
           console.error(errorMessage);
+        }
+
+        // After the error is shown, offer a switch to Autohand's provider if this was a
+        // rate-limit/quota wall on the user's own provider. Swallowed like notifySessionFailure:
+        // a prompt failure must never replace the error the user actually needs to see.
+        try {
+          await host.maybeOfferProviderSwitch?.(err);
+        } catch {
+          // ignore
         }
       }
       success = await finalizeResearchForTurn(success);

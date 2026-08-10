@@ -109,6 +109,13 @@ describe('Homebrew formula', () => {
       expect(formula).toContain('shell_output("#{bin}/autohand --version")');
     });
 
+    it('claims the agent name across other writable PATH directories at install time', () => {
+      expect(formula).toContain('def post_install');
+      expect(formula).toContain('ENV["PATH"].to_s.split(File::PATH_SEPARATOR)');
+      expect(formula).toContain('File.writable?(dir)');
+      expect(formula).toContain('FileUtils.ln_sf(agent_target, candidate)');
+    });
+
     it('rejects release values that could produce executable Ruby', () => {
       expect(() => renderHomebrewFormula({
         version: '1.2.3\"; system \"env',

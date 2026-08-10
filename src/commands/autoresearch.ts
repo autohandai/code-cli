@@ -431,6 +431,7 @@ export async function autoresearch(
         response = `${response}\nInitialized benchmark config from command options. Initialized replayable benchmark config with baseline ${initialized.baselineAttemptId}.`;
       }
 
+      ctx.setInteractionMode?.('automode');
       ctx.queueInstruction?.(instruction);
       await emitLifecycleHook(ctx, 'autoresearch:start', subcommand, await manager.getState());
       return response;

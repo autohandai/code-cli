@@ -105,6 +105,36 @@ describe('post-turn research publication', () => {
     expect(requestResearchPublication).not.toHaveBeenCalled();
   });
 
+  it('skips the blocking publish prompt while interactive automode is active, but still tells the user how to publish later', async () => {
+    host.interactiveAutomodeEnabled = true;
+
+    const result = await executePendingPostTurnAction(
+      host,
+      action,
+      true,
+      interactiveEnvironment,
+    );
+
+    expect(result).toContain('Research saved');
+    expect(result).toContain(`/publish-research ${action.reportPath}`);
+    expect(requestResearchPublication).not.toHaveBeenCalled();
+  });
+
+  it('skips the blocking publish prompt while the automode manager reports active, with the same recovery hint', async () => {
+    host.automodeManager = { isActive: () => true };
+
+    const result = await executePendingPostTurnAction(
+      host,
+      action,
+      true,
+      interactiveEnvironment,
+    );
+
+    expect(result).toContain('Research saved');
+    expect(result).toContain(`/publish-research ${action.reportPath}`);
+    expect(requestResearchPublication).not.toHaveBeenCalled();
+  });
+
   it('does not offer when the typed action disagrees with persisted run state', async () => {
     const result = await executePendingPostTurnAction(
       host,

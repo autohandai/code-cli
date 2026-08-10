@@ -18,13 +18,11 @@ function parseBooleanFlag(value: unknown): boolean | undefined {
   return undefined;
 }
 
-function envListIncludesFlag(value: string | undefined, flagName: string): boolean {
-  return (value ?? '')
-    .split(',')
-    .map((entry) => entry.trim().toLowerCase())
-    .includes(flagName);
-}
-
+/**
+ * Defaults to enabled: the autohandai backend (api + inference entitlement checking) is fully
+ * deployed and verified in production, so there's no longer a rollout reason to gate ordinary
+ * users out by default. Config and env can still force it off explicitly.
+ */
 export function isAutohandInferenceEnabled(
   config?: Pick<AutohandConfig, 'features'> | null,
 ): boolean {
@@ -36,5 +34,5 @@ export function isAutohandInferenceEnabled(
     parseBooleanFlag(process.env.AUTOHAND_INFERENCE_ENABLED);
   if (explicitEnv !== undefined) return explicitEnv;
 
-  return envListIncludesFlag(process.env.AUTOHAND_FEATURES, 'autohand_inference');
+  return true;
 }

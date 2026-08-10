@@ -8,7 +8,7 @@ import type { ColorToken } from './theme/types.js';
 import { stripAnsiCodes } from './displayUtils.js';
 
 const DEFAULT_BORDER_COLOR = '#8a8a8a';
-const PLAN_BORDER_COLOR = '#ff9d3f';
+export const PLAN_BORDER_COLOR = '#ff9d3f';
 const SHELL_BORDER_COLOR = '#000000';
 const SHELL_BOX_BG = '#ffffff';
 const SHELL_BOX_FG = '#000000';
@@ -67,7 +67,7 @@ function resolveBorderFallback(style: InputBorderStyle): string {
   return DEFAULT_BORDER_COLOR;
 }
 
-function hexToAnsiRgb(hex: string, type: 'fg' | 'bg'): string {
+export function hexToAnsiRgb(hex: string, type: 'fg' | 'bg'): string {
   const rgb = hexToRgb(hex);
   if (!rgb) return '';
   const base = type === 'fg' ? 38 : 48;

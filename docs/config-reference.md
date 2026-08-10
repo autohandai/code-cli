@@ -161,22 +161,20 @@ These explicit inputs remain available in bare mode:
 
 ### `features.autohand_inference`
 
-Autohand-hosted inference is behind the `autohand_inference` feature flag before the release is merged into mainline defaults.
+Autohand-hosted inference (the `autohandai` provider, Fantail/Moa) is enabled by default. Set this to `false` to hide it — for example, to keep a workspace pinned to a different provider without it appearing in `/model`.
 
 ```json
 {
   "features": {
-    "autohand_inference": true
+    "autohand_inference": false
   }
 }
 ```
 
-Environment opt-in is also supported:
+An environment override is also supported:
 
 ```bash
-AUTOHAND_FEATURE_AUTOHAND_INFERENCE=1 autohand
-# or
-AUTOHAND_FEATURES=autohand_inference autohand
+AUTOHAND_FEATURE_AUTOHAND_INFERENCE=0 autohand
 ```
 
 When disabled, Autohand is hidden from setup and `/model`, Fantail/Moa are hidden from ACP and JSON-RPC model discovery, and `autohandai` provider config resolves as unavailable.

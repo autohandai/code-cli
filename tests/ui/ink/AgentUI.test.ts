@@ -269,6 +269,94 @@ describe('AgentUI interaction mode shortcut', () => {
     expect(defaultFrame).not.toContain('[AUTO]');
     expect(onCycleInteractionMode).toHaveBeenCalledTimes(4);
   });
+
+  it('colors the mode glyph per mode, labels it, and hides it in default mode', async () => {
+    const modes = ['plan', 'yolo', 'automode', 'default'] as const;
+    let currentMode: typeof modes[number] = 'default';
+    let cursor = -1;
+    const onCycleInteractionMode = vi.fn(() => {
+      cursor += 1;
+      currentMode = modes[cursor] ?? 'default';
+      return currentMode;
+    });
+    const { lastFrame, stdin } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state: createInitialUIState(),
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+            getInteractionMode: () => currentMode,
+            onCycleInteractionMode,
+          })
+        )
+      )
+    );
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    // "● PLAN"/"● YOLO"/"● AUTO" (glyph + label together) uniquely identifies
+    // this new help-line indicator, distinct from the pre-existing bracketed
+    // "[PLAN]"/"[YOLO]"/"[AUTO]" indicator rendered above the scrollback.
+    const expectations: Record<'plan' | 'yolo' | 'automode', { glyphAndLabel: string; rgb: string }> = {
+      plan: { glyphAndLabel: '● PLAN', rgb: '255;157;63' },
+      yolo: { glyphAndLabel: '● YOLO', rgb: '198;120;221' },
+      automode: { glyphAndLabel: '● AUTO', rgb: '255;107;107' },
+    };
+
+    for (const mode of ['plan', 'yolo', 'automode'] as const) {
+      stdin.write('\x1b[Z');
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const rawFrame = lastFrame() ?? '';
+      expect(stripAnsi(rawFrame)).toContain(expectations[mode].glyphAndLabel);
+      expect(rawFrame).toContain(expectations[mode].rgb);
+    }
+
+    stdin.write('\x1b[Z');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const defaultFrame = stripAnsi(lastFrame() ?? '');
+    expect(defaultFrame).not.toContain('●');
+  });
+
+  it('hides the mode label but keeps the glyph when showModeLabel is false', async () => {
+    let currentMode: 'default' | 'plan' = 'default';
+    const onCycleInteractionMode = vi.fn(() => {
+      currentMode = 'plan';
+      return currentMode;
+    });
+    const { lastFrame, stdin } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state: { ...createInitialUIState(), showModeLabel: false },
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+            getInteractionMode: () => currentMode,
+            onCycleInteractionMode,
+          })
+        )
+      )
+    );
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    stdin.write('\x1b[Z');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const rawFrame = lastFrame() ?? '';
+    expect(rawFrame).toContain('255;157;63');
+    expect(stripAnsi(rawFrame)).toContain('●');
+    expect(stripAnsi(rawFrame)).not.toContain('● PLAN');
+  });
 });
 
 describe('AgentUI live command shortcut', () => {

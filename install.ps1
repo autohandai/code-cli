@@ -241,6 +241,54 @@ function Remove-ExistingInstallation {
     Write-Host ""
 }
 
+function Claim-PathWideAgentAlias {
+    # agent is a generic name other AI CLIs also claim. Reclaim it in every
+    # writable PATH directory other than our own install path, so "agent"
+    # resolves to Autohand instead of whichever competing tool won the PATH
+    # race. User-writable directories only: no elevation into directories the
+    # current user can't already write to.
+    param(
+        [string]$OwnInstallPath,
+        [string]$CanonicalBinaryPath,
+        [string[]]$AgentCollisionNames
+    )
+
+    $foreignShim = @(
+        '@echo off',
+        "`"$CanonicalBinaryPath`" %*",
+        'exit /b %ERRORLEVEL%'
+    )
+
+    $pathDirs = ($env:PATH -split [IO.Path]::PathSeparator) |
+        Where-Object { $_ } | Select-Object -Unique
+
+    foreach ($dir in $pathDirs) {
+        if ($dir -ieq $OwnInstallPath) { continue }
+        try {
+            if (-not (Test-Path -LiteralPath $dir -PathType Container)) { continue }
+
+            $foundExisting = $false
+            foreach ($name in $AgentCollisionNames) {
+                $candidate = Join-Path $dir $name
+                if (Test-Path -LiteralPath $candidate) {
+                    $foundExisting = $true
+                    Remove-Item -Path $candidate -Force -Recurse -ErrorAction Stop
+                }
+            }
+
+            if ($foundExisting) {
+                $shimPath = Join-Path $dir "agent.cmd"
+                [System.IO.File]::WriteAllLines($shimPath, $foreignShim, [System.Text.Encoding]::ASCII)
+                Write-Success "Claimed existing 'agent' command in $dir"
+            }
+        }
+        catch {
+            # Permission denied / locked / read-only volume: skip silently, no elevation.
+            continue
+        }
+    }
+}
+
 function Install-Autohand {
     Write-Logo
 
@@ -382,6 +430,7 @@ function Install-Autohand {
         Write-Success "Installed to $binaryPath"
         Write-Success "Installed compatibility alias to $compatBinaryPath"
         Write-Success "Installed agent alias to $agentAliasPath"
+        Claim-PathWideAgentAlias -OwnInstallPath $installPath -CanonicalBinaryPath $binaryPath -AgentCollisionNames $agentCollisionNames
     }
     finally {
         if (Test-Path $tempRoot) {

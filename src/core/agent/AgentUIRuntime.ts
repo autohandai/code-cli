@@ -662,14 +662,16 @@ export function forceRenderAgentSpinner(host: AgentUIRuntimeHost): void {
     const statusLine = `${verb}... (esc to interrupt · ${elapsed} · ${tokens}${queueHint})`;
     const footerLine = host.formatStatusLine();
     host.persistentInput.setStatusLine(footerLine);
+    const statusLineSettings = getConfigStatusLineSettings(host.runtime.config);
     host.inkRenderer?.setConfiguredLineExtensions?.(withPeerLineExtension(buildStatusLineExtension({
-      settings: getConfigStatusLineSettings(host.runtime.config),
+      settings: statusLineSettings,
       workspaceRoot: host.runtime.workspaceRoot,
       homeDir: os.homedir(),
       gitLabel: resolveStatusLineGitLabel(host),
       sessionDiffStats: host.sessionDiffStatsTracker?.getStats?.(),
       sessionHasFileChanges: host.filesModifiedThisSession === true,
     }), host.peerAwareness?.getPeers?.().length ?? 0));
+    host.inkRenderer?.setShowModeLabel?.(statusLineSettings.showModeLabel);
     const usingTerminalRegions = host.isUsingTerminalRegionsForActiveTurn();
 
     if (host.inkRenderer) {

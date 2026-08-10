@@ -28,6 +28,11 @@ describe('status line settings', () => {
     expect(left).toContain('PR #123');
   });
 
+  it('defaults showModeLabel to true and honors overrides', () => {
+    expect(resolveStatusLineSettings(undefined).showModeLabel).toBe(true);
+    expect(resolveStatusLineSettings({ showModeLabel: false }).showModeLabel).toBe(false);
+  });
+
   it('uses the token usage context segment when live usage is available', () => {
     const left = formatStatusLineLeft({
       contextPercentLeft: 85,

@@ -29,6 +29,7 @@ import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/index.js';
 import { getPlanModeManager } from '../../commands/plan.js';
 import type { InputBorderStyle } from '../box.js';
+import { PLAN_BORDER_COLOR, hexToAnsiRgb } from '../box.js';
 import { TextBuffer } from '../textBuffer.js';
 import { handleTextBufferKey, type KeyHandlerResult } from '../textBufferKeyHandler.js';
 import {
@@ -49,6 +50,31 @@ import {
   type InteractionMode,
 } from '../../core/agent/InteractionModeController.js';
 import { AnnouncementLine } from './AnnouncementLine.js';
+
+/**
+ * Fixed, theme-independent colors for the status-line mode glyph — these must
+ * stay legible on any light/dark theme, so they deliberately bypass useTheme().
+ */
+const INTERACTION_MODE_GLYPH_COLOR: Record<InteractionMode, string | undefined> = {
+  default: undefined,
+  plan: PLAN_BORDER_COLOR,
+  automode: '#ff6b6b',
+  yolo: '#c678dd',
+};
+
+function getInteractionModeLabel(mode: InteractionMode): string {
+  return mode === 'automode' ? 'AUTO' : mode.toUpperCase();
+}
+
+/**
+ * Ink's <Text color> prop routes through chalk's color-support auto-detection,
+ * which no-ops in non-TTY/low-color environments (including ink-testing-library).
+ * The mode glyph must always render its fixed color, so — like PLAN_BORDER_COLOR
+ * and SHELL_BORDER_COLOR elsewhere — embed the ANSI escape directly in the text.
+ */
+function colorizeGlyphText(hex: string, text: string): string {
+  return `${hexToAnsiRgb(hex, 'fg')}${text}\x1b[39m`;
+}
 
 export type { ActivityItem } from './TaskActivityPanel.js';
 
@@ -111,6 +137,8 @@ export interface AgentUIState {
   suggestionRefreshId?: number;
   /** Current mutually-exclusive editing interaction mode. */
   interactionMode: InteractionMode;
+  /** Whether to show the mode word (PLAN/YOLO/AUTO) next to the glyph in the help line. */
+  showModeLabel?: boolean;
   /**
    * Grouped multi-step / multi-agent activity (todo_write + sub-agents).
    * Rendered sticky above the status line.
@@ -1947,6 +1975,8 @@ export function AgentUI({
         nextPromptSuggestion={composerNextPromptSuggestion}
         inlineGhostSuffix={composerInlineGhostSuffix}
         showShortcuts={showShortcuts}
+        interactionMode={interactionMode}
+        showModeLabel={state.showModeLabel ?? true}
       />
     </Box>
   );
@@ -2381,6 +2411,8 @@ interface HelpLineSectionProps {
   provider?: string;
   model?: string;
   lineExtension?: LineExtension;
+  interactionMode?: InteractionMode;
+  showModeLabel?: boolean;
 }
 
 const HelpLineSection = memo(function HelpLineSection({
@@ -2390,6 +2422,8 @@ const HelpLineSection = memo(function HelpLineSection({
   provider,
   model,
   lineExtension,
+  interactionMode = 'default',
+  showModeLabel = true,
 }: HelpLineSectionProps) {
   const { colors } = useTheme();
   const { t } = useTranslation();
@@ -2405,8 +2439,15 @@ const HelpLineSection = memo(function HelpLineSection({
   const providerDisplay = provider
     ? `autohand (${t(`providers.${provider}`) ?? provider}${model ? `, ${model}` : ''})`
     : '';
+  const glyphColor = INTERACTION_MODE_GLYPH_COLOR[interactionMode];
+  const modeLabel = interactionMode !== 'default' && showModeLabel
+    ? getInteractionModeLabel(interactionMode)
+    : '';
   return (
     <Box>
+      {glyphColor ? (
+        <Text>{colorizeGlyphText(glyphColor, modeLabel ? `● ${modeLabel} ` : '● ')}</Text>
+      ) : null}
       <Text color={colors.dim}>
         {getComposerHelpLine(isWorking, providerDisplay, contextDisplay, t('ui.commandHint'), lineExtension)}
       </Text>
@@ -2419,6 +2460,8 @@ const HelpLineSection = memo(function HelpLineSection({
          prev.contextTokens?.total === next.contextTokens?.total &&
          prev.provider === next.provider &&
          prev.model === next.model &&
+         prev.interactionMode === next.interactionMode &&
+         prev.showModeLabel === next.showModeLabel &&
          prev.lineExtension === next.lineExtension;
 });
 
@@ -2541,6 +2584,10 @@ interface FixedBottomProps {
   inlineGhostSuffix?: string;
   /** Whether the shortcuts help panel is visible */
   showShortcuts: boolean;
+  /** Current mutually-exclusive editing interaction mode, rendered as a colored glyph. */
+  interactionMode?: InteractionMode;
+  /** Whether to show the mode word (PLAN/YOLO/AUTO) next to the glyph. */
+  showModeLabel?: boolean;
 }
 
 const FixedBottom = memo(function FixedBottom({
@@ -2574,6 +2621,8 @@ const FixedBottom = memo(function FixedBottom({
   nextPromptSuggestion,
   inlineGhostSuffix,
   showShortcuts,
+  interactionMode,
+  showModeLabel,
 }: FixedBottomProps) {
   return (
     <>
@@ -2626,6 +2675,8 @@ const FixedBottom = memo(function FixedBottom({
         contextTokens={contextTokens}
         provider={provider}
         model={model}
+        interactionMode={interactionMode}
+        showModeLabel={showModeLabel}
         lineExtension={mergeLineExtensions(
           configuredLineExtensions?.help,
           lineExtensions?.help,
@@ -2667,6 +2718,7 @@ export function createInitialUIState(): AgentUIState {
     lineExtensions: undefined,
     configuredLineExtensions: undefined,
     interactionMode: 'default',
+    showModeLabel: true,
     activityItems: [],
   };
 }

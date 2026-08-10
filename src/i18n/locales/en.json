@@ -340,7 +340,9 @@
         "showActiveMetrics": "Active turn metrics",
         "showActiveMetricsDesc": "Show elapsed time and token metrics while Autohand is running",
         "showCancelHint": "Cancel hint",
-        "showCancelHintDesc": "Show the Esc cancel hint while Autohand is running"
+        "showCancelHintDesc": "Show the Esc cancel hint while Autohand is running",
+        "showModeLabel": "Mode label",
+        "showModeLabelDesc": "Show PLAN, YOLO, or AUTO next to the mode indicator"
       }
     },
     "sessions": {

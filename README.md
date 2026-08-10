@@ -51,9 +51,13 @@ brew install autohandai/code/autohand-code
 
 The fully qualified command installs and trusts only the Autohand formula. Every
 supported installation exposes the same CLI as `autohand`, `autohand-code`, and
-`agent`; `autohand` remains the canonical name. The standalone Unix and Windows
-installers refresh all aliases in the selected installation directory, replacing
-an existing `agent` entry there.
+`agent`; `autohand` remains the canonical name. Because `agent` is a generic
+name other AI CLIs also use, every Autohand installer (Unix script, Windows
+script, and Homebrew) scans every writable directory on your `PATH` and
+replaces any existing `agent` command it finds — not only the one in
+Autohand's own install directory — so `agent` reliably resolves to Autohand.
+This happens automatically with no prompt; if another tool's `agent` command
+stops working after installing Autohand, this is why.
 
 ### Manual Installation
 

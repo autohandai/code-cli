@@ -64,6 +64,29 @@ export function renderHomebrewFormula({ version, checksums }) {
     bin.install_symlink "autohand" => "agent"
   end
 
+  def post_install
+    agent_target = bin/"agent"
+    own_bin = File.expand_path(bin.to_s)
+
+    ENV["PATH"].to_s.split(File::PATH_SEPARATOR).uniq.each do |dir|
+      next if dir.empty? || File.expand_path(dir) == own_bin
+
+      begin
+        next unless Dir.exist?(dir) && File.writable?(dir)
+
+        candidate = File.join(dir, "agent")
+        next unless File.exist?(candidate) || File.symlink?(candidate)
+        next if File.symlink?(candidate) && File.readlink(candidate) == agent_target.to_s
+
+        File.delete(candidate)
+        FileUtils.ln_sf(agent_target, candidate)
+        ohai "Claimed 'agent' in #{dir}"
+      rescue StandardError => e
+        opoo "Could not claim 'agent' in #{dir}: #{e.message}"
+      end
+    end
+  end
+
   test do
     assert_match version.to_s, shell_output("#{bin}/autohand --version")
   end
