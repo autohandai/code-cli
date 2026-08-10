@@ -19,6 +19,7 @@ import { hasTerminalProcessPid } from '../../src/testing/assertions/terminalOutp
 import { getHelpOrderedSlashCommands } from '../../src/ui/inputPrompt.js';
 import {
   clearComposerInput,
+  createMockAutohandAIQuotaServer,
   createFailingOpenRouterFetchPreload,
   createMockChangelogFetchPreload,
   createMockAuthServer,
@@ -238,6 +239,47 @@ afterEach(async () => {
 });
 
 describe('built CLI Tuistory smoke tests', () => {
+  it('recommends upgrading when an Autohand AI message quota is exhausted', async () => {
+    const quotaServer = await createMockAutohandAIQuotaServer();
+    mockServers.push(quotaServer);
+    const state = await createTempAutohandHome({
+      config: {
+        provider: 'autohandai',
+        autohandai: {
+          plan: 'cloud',
+          authMode: 'api-key',
+          apiKey: 'tuistory-autohand-api-key',
+          model: 'fantail',
+          baseUrl: quotaServer.baseUrl,
+        },
+        features: { autohand_inference: true },
+        network: { maxRetries: 0, retryDelay: 0 },
+      },
+    });
+    tempStates.push(state);
+    const session = await trackSession(launchBuiltAutohand([
+      '--path', state.workspaceRoot,
+      '--config', state.configPath,
+      '--offline',
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      waitForDataTimeout: 15_000,
+    }));
+
+    await session.waitForText('❯', { timeout: 15_000 });
+    await typeLikeUser(session, 'hey');
+    await session.press('enter');
+    await session.waitForText('Upgrade your Autohand Code plan for more usage', { timeout: 20_000 });
+    const output = session.readAll();
+
+    expect(output).toContain("You've used all your messages in this 5-hour window.");
+    expect(output).toContain(
+      'Upgrade your Autohand Code plan for more usage: https://console-v2.autohand.ai/upgrade/?from=cli&tier=pro',
+    );
+    await exitInteractive(session);
+  });
+
   it('renders help from the built dist entrypoint', async () => {
     const session = await trackSession(launchBuiltAutohand(['--help'], {
       waitForDataTimeout: 15_000,
