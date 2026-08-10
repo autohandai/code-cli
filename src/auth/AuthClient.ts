@@ -33,10 +33,25 @@ export interface AccountEntitlementLimits {
   models: string[];
 }
 
+export interface AccountQuotaWindow {
+  used: number;
+  remaining: number | null;
+  limit: number | null;
+  resetAt: string | null;
+}
+
+export interface AccountQuota {
+  available: boolean;
+  window5h: AccountQuotaWindow | null;
+  week: AccountQuotaWindow | null;
+  message?: string;
+}
+
 export interface AccountEntitlement {
   tier: string;
   freeRemaining: number | null;
   limits?: AccountEntitlementLimits;
+  quota?: AccountQuota;
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -81,6 +96,50 @@ function parseAccountEntitlementLimits(value: unknown): AccountEntitlementLimits
     perSeat: value.perSeat,
     models: value.models,
   };
+}
+
+function parseAccountQuotaWindow(value: unknown): AccountQuotaWindow | null | undefined {
+  if (value === null) return null;
+  if (!isRecord(value)
+    || !isNonNegativeNumber(value.used)
+    || !isNullableNonNegativeNumber(value.remaining)
+    || !isNullableNonNegativeNumber(value.limit)
+    || (value.resetAt !== null && !isSafeTimestamp(value.resetAt))) {
+    return undefined;
+  }
+  return {
+    used: value.used,
+    remaining: value.remaining,
+    limit: value.limit,
+    resetAt: value.resetAt,
+  };
+}
+
+function parseAccountQuota(value: unknown): AccountQuota | undefined {
+  if (!isRecord(value) || typeof value.available !== 'boolean') return undefined;
+  const window5h = parseAccountQuotaWindow(value.window5h);
+  const week = parseAccountQuotaWindow(value.week);
+  if (window5h === undefined || week === undefined) return undefined;
+  if (value.available && (window5h === null || week === null)) return undefined;
+  const message = isSafeText(value.message) ? value.message : undefined;
+  return {
+    available: value.available,
+    window5h,
+    week,
+    ...(message ? { message } : {}),
+  };
+}
+
+function isNonNegativeNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function isNullableNonNegativeNumber(value: unknown): value is number | null {
+  return value === null || isNonNegativeNumber(value);
+}
+
+function isSafeTimestamp(value: unknown): value is string {
+  return isSafeText(value, 64) && Number.isFinite(Date.parse(value));
 }
 
 function responseError(data: unknown, status: number): string {
@@ -479,11 +538,13 @@ export class AuthClient {
       if (typeof tier !== 'string') return null;
       const freeRemaining = entitlement?.freeRemaining;
       const limits = parseAccountEntitlementLimits(entitlement?.limits);
+      const quota = parseAccountQuota(entitlement?.quota);
 
       return {
         tier,
         freeRemaining: typeof freeRemaining === 'number' ? freeRemaining : null,
         ...(limits ? { limits } : {}),
+        ...(quota ? { quota } : {}),
       };
     } catch {
       clearTimeout(timeoutId);

@@ -84,6 +84,21 @@ describe('AuthClient.fetchEntitlement', () => {
             perSeat: false,
             models: ['fantail', 'moa'],
           },
+          quota: {
+            available: true,
+            window5h: {
+              used: 12,
+              remaining: 88,
+              limit: 100,
+              resetAt: '2026-08-10T06:00:00.000Z',
+            },
+            week: {
+              used: 120,
+              remaining: 880,
+              limit: 1000,
+              resetAt: '2026-08-17T01:00:00.000Z',
+            },
+          },
         },
       }), { status: 200 }),
     );
@@ -99,6 +114,21 @@ describe('AuthClient.fetchEntitlement', () => {
         requiresEligibility: false,
         perSeat: false,
         models: ['fantail', 'moa'],
+      },
+      quota: {
+        available: true,
+        window5h: {
+          used: 12,
+          remaining: 88,
+          limit: 100,
+          resetAt: '2026-08-10T06:00:00.000Z',
+        },
+        week: {
+          used: 120,
+          remaining: 880,
+          limit: 1000,
+          resetAt: '2026-08-17T01:00:00.000Z',
+        },
       },
     });
   });

@@ -85,7 +85,7 @@ async function gatherStatusData(ctx: SlashCommandContext): Promise<StatusData> {
         totalTokensUsed: ctx.getTotalTokensUsed?.() ?? 0,
         tokenUsageStatus: ctx.getTokenUsageStatus?.() ?? 'actual',
         usageV2Dashboard: ctx.isFeatureEnabled?.('usage_v2', ctx.config?.features?.usageV2 === true)
-            ? formatUsageDashboard(gatherUsageDashboardData(ctx))
+            ? formatUsageDashboard(gatherUsageDashboardData(ctx), accountEntitlement)
             : null,
         config: ctx.config,
         contextCompactionEnabled: ctx.isContextCompactionEnabled?.() ?? true,

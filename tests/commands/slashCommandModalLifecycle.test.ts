@@ -412,20 +412,48 @@ describe('/status command screen isolation', () => {
         isAvailable: vi.fn(async () => true),
       },
       workspaceRoot: '/tmp/workspace',
-      provider: 'openai',
-      model: 'gpt-5.5',
+      provider: 'autohandai',
+      model: 'moa',
       getContextPercentLeft: () => 90,
       getContextWindow: () => 258000,
       getTotalTokensUsed: () => 37500,
       getTokenUsageStatus: () => 'actual',
       config: {
-        provider: 'openai',
+        provider: 'autohandai',
         features: { usageV2: true },
-        openai: { apiKey: 'test', model: 'gpt-5.5', reasoningEffort: 'high', contextWindow: 258000 },
+        autohandai: { authMode: 'account', accountToken: 'test-token', model: 'moa', reasoningEffort: 'xhigh', contextWindow: 1_000_000 },
         permissions: { mode: 'interactive' },
         auth: { token: 'test-token', user: { id: 'u1', email: 'user@example.com', name: 'User' } },
       },
       isFeatureEnabled: () => true,
+      getAccountEntitlement: vi.fn(async () => ({
+        tier: 'pro',
+        freeRemaining: null,
+        limits: {
+          displayName: 'Autohand Code Pro',
+          messagesPer5h: 100,
+          messagesPerWeek: 1000,
+          rpm: 100,
+          requiresEligibility: false,
+          perSeat: false,
+          models: ['fantail', 'moa'],
+        },
+        quota: {
+          available: true,
+          window5h: {
+            used: 12,
+            remaining: 88,
+            limit: 100,
+            resetAt: '2026-08-10T06:00:00.000Z',
+          },
+          week: {
+            used: 120,
+            remaining: 880,
+            limit: 1000,
+            resetAt: '2026-08-17T01:00:00.000Z',
+          },
+        },
+      })),
       isContextCompactionEnabled: () => true,
     };
 
@@ -436,6 +464,7 @@ describe('/status command screen isolation', () => {
       while (input.listenerCount('data') === 0) {
         await new Promise<void>((resolve) => setImmediate(resolve));
       }
+      consoleSpy.mockClear();
       input.emit('data', '\t');
       input.emit('data', '\t');
       input.emit('data', '\u0003');
@@ -447,7 +476,14 @@ describe('/status command screen isolation', () => {
       expect(rendered).toContain('Context window:');
       expect(rendered).toContain('90% left');
       expect(rendered).toContain('37.5K used / 258K');
-      expect(rendered).toContain('Provider limits:');
+      expect(rendered).toContain('Autohand plan:');
+      expect(rendered).toContain('Autohand Code Pro');
+      expect(rendered).toContain('100 messages / 5 hours');
+      expect(rendered).toContain('5-hour window:');
+      expect(rendered).toContain('12 used / 100');
+      expect(rendered).toContain('Weekly window:');
+      expect(rendered).toContain('120 used / 1K');
+      expect(rendered).not.toContain('autohandai: not reported by provider');
     } finally {
       Object.defineProperty(process, 'stdin', { value: originalStdin, writable: true, configurable: true });
       Object.defineProperty(process, 'stdout', { value: originalStdout, writable: true, configurable: true });
