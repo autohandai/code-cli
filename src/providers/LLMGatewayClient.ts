@@ -503,8 +503,14 @@ export class LLMGatewayClient {
     const classified = classifyApiError(status, errorDetail, response.headers);
     const friendlyMessage = buildFriendlyErrors(this.errorLabels)[classified.code];
     if (friendlyMessage) {
+      const upgradeUrl = this.errorLabels.serviceName === "Autohand AI"
+        ? trustedAutohandUpgradeUrl(structuredError?.upgradeUrl)
+        : undefined;
+      const upgradeMessage = classified.code === "rate_limited" && upgradeUrl
+        ? `\nUpgrade your Autohand Code plan for more usage: ${upgradeUrl}`
+        : "";
       return new ApiError(
-        errorDetail ? `${friendlyMessage}\n${errorDetail}` : friendlyMessage,
+        `${errorDetail ? `${friendlyMessage}\n${errorDetail}` : friendlyMessage}${upgradeMessage}`,
         classified.code,
         classified.httpStatus,
         classified.retryable,

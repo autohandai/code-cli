@@ -237,6 +237,51 @@ export async function createMockOpenRouterServer(responseContent: string, delayM
   };
 }
 
+export async function createMockAutohandAIQuotaServer(): Promise<MockOpenRouterServer> {
+  const server = createServer((request, response) => {
+    if (request.url === '/chat/completions' && request.method === 'POST') {
+      request.resume();
+      response.writeHead(429, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({
+        error: {
+          type: 'rate_limited',
+          message: "You've used all your messages in this 5-hour window.",
+          scope: 'window_5h',
+          upgradeUrl: 'https://console-v2.autohand.ai/upgrade/?from=cli&tier=pro',
+        },
+      }));
+      return;
+    }
+
+    response.writeHead(404, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Mock Autohand AI quota server did not bind to a TCP port.');
+  }
+
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    close: async () => {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error?: Error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+    },
+  };
+}
+
 export async function createMockOpenRouterSequenceServer(
   responseContents: string[],
   delayMs = 0

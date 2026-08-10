@@ -320,6 +320,40 @@ describe('LLMGatewayClient', () => {
       })).rejects.toMatchObject({ code: 'rate_limited' });
     });
 
+    it('recommends a paid plan when Autohand AI quota is exhausted', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        headers: new Headers(),
+        json: () => Promise.resolve({
+          error: {
+            type: 'rate_limited',
+            message: "You've used all your messages in this 5-hour window.",
+            upgradeUrl: 'https://console-v2.autohand.ai/upgrade/?from=cli&tier=pro',
+          },
+        }),
+      });
+
+      const client = new LLMGatewayClient(
+        { apiKey: 'test-key', model: 'fantail' },
+        { maxRetries: 0 },
+        {
+          serviceName: 'Autohand AI',
+          credentialName: 'Autohand AI API key',
+          accountName: 'Autohand AI account',
+        },
+      );
+
+      await expect(client.complete({
+        messages: [{ role: 'user', content: 'Hello' }],
+      })).rejects.toMatchObject({
+        code: 'rate_limited',
+        message: expect.stringContaining(
+          'Upgrade your Autohand Code plan for more usage: https://console-v2.autohand.ai/upgrade/?from=cli&tier=pro',
+        ),
+      });
+    });
+
     it('classifies provider token-per-minute request-size failures as non-retryable context overflow', async () => {
       global.fetch = vi.fn().mockResolvedValue({
         ok: false,
