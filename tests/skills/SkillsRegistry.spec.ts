@@ -95,6 +95,14 @@ ${body}
       expect(extensionBuilder?.source).toBe('builtin');
       expect(extensionBuilder?.path).toContain('src/skills/builtin/extension-builder/SKILL.md');
       expect(extensionBuilder?.body).toContain('Pi');
+
+      const brainstorm = registry.getSkill('brainstorm');
+      expect(brainstorm).not.toBeNull();
+      expect(brainstorm?.source).toBe('builtin');
+      expect(brainstorm?.path).toContain('src/skills/builtin/brainstorm/SKILL.md');
+      expect(brainstorm?.body).toContain('Software Architect');
+      expect(brainstorm?.body).toContain('Product Owner');
+      expect(brainstorm?.body).toContain('Product Manager');
     });
 
     it('loads skills recursively when configured', async () => {
