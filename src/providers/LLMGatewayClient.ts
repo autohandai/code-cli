@@ -122,6 +122,37 @@ function coerceErrorDetail(value: unknown): string {
   return "";
 }
 
+interface StructuredGatewayError {
+  type?: string;
+  message?: string;
+  upgradeUrl?: string;
+}
+
+function structuredGatewayError(value: unknown): StructuredGatewayError | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const body = value as Record<string, unknown>;
+  const rawError = body.error;
+  if (!rawError || typeof rawError !== "object" || Array.isArray(rawError)) return undefined;
+  const error = rawError as Record<string, unknown>;
+  return {
+    ...(typeof error.type === "string" ? { type: error.type } : {}),
+    ...(typeof error.message === "string" ? { message: error.message } : {}),
+    ...(typeof error.upgradeUrl === "string" ? { upgradeUrl: error.upgradeUrl } : {}),
+  };
+}
+
+function trustedAutohandUpgradeUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "console-v2.autohand.ai"
+      ? url.toString()
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export class LLMGatewayClient {
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -444,9 +475,15 @@ export class LLMGatewayClient {
 
     // Try to get the actual error message from the response
     let errorDetail = "";
+    let structuredError: StructuredGatewayError | undefined;
     try {
-      const body = (await response.json()) as any;
-      errorDetail = coerceErrorDetail(body?.error?.message || body?.error || body?.message);
+      const body = await response.json() as unknown;
+      structuredError = structuredGatewayError(body);
+      const bodyRecord = body && typeof body === "object" && !Array.isArray(body)
+        ? body as Record<string, unknown>
+        : undefined;
+      errorDetail = structuredError?.message
+        ?? (coerceErrorDetail(bodyRecord?.error) || coerceErrorDetail(bodyRecord?.message));
     } catch {
       // Fallback to raw text if JSON parsing fails
       try {
@@ -454,6 +491,13 @@ export class LLMGatewayClient {
       } catch {
         // Ignore
       }
+    }
+
+    if (this.errorLabels.serviceName === "Autohand AI" && structuredError?.type === "model_not_available") {
+      const upgradeUrl = trustedAutohandUpgradeUrl(structuredError.upgradeUrl);
+      const message = `Access denied. ${structuredError.message ?? "This model is not available on your current plan."}`
+        + (upgradeUrl ? `\nPlease upgrade your plan: ${upgradeUrl}` : "");
+      return new ApiError(message, "access_denied", status, false, undefined, errorDetail);
     }
 
     const classified = classifyApiError(status, errorDetail, response.headers);

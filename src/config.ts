@@ -28,7 +28,7 @@ import { autoInitTheme, configureThemeSources, themeExists } from "./ui/theme/in
 import { loadLocalProjectSettings, type LocalProjectSettings } from "./permissions/localProjectPermissions.js";
 import { isAwsBedrockProviderEnabled } from "./features/featureRegistry.js";
 import { getCustomProviderConfig, isCustomProviderName } from "./providers/customProviders.js";
-import { getProviderDefaultModel, getProviderRuntimeDefaultModel } from "./providers/modelCatalog.js";
+import { getProviderDefaultModel, getProviderModelOptions, getProviderRuntimeDefaultModel } from "./providers/modelCatalog.js";
 
 const DEFAULT_CONFIG_PATH = AUTOHAND_FILES.configJson;
 const TOML_CONFIG_PATH = AUTOHAND_FILES.configToml;
@@ -45,8 +45,6 @@ const DEFAULT_SAKANA_URL = "https://api.sakana.ai/v1";
 const DEFAULT_DEEPSEEK_URL = "https://api.deepseek.com";
 const DEFAULT_BEDROCK_REGION = "us-east-1";
 const DEFAULT_AUTOHAND_AI_URL = "https://api.autohand.ai/v1";
-const DEFAULT_AUTOHAND_AI_CONTEXT_WINDOW = 16_000;
-const DEFAULT_AUTOHAND_AI_MOA_CONTEXT_WINDOW = 1_000_000;
 
 interface LegacyConfigShape {
   api_key?: string;
@@ -641,7 +639,7 @@ function mergeEnvVariables(config: AutohandConfig): AutohandConfig {
       plan: "cloud" as const,
       authMode: "api-key" as const,
       model: process.env.AUTOHAND_MODEL || "fantail",
-      contextWindow: DEFAULT_AUTOHAND_AI_CONTEXT_WINDOW,
+      contextWindow: defaultAutohandAIContextWindow({ plan: "cloud", model: "fantail" }),
     };
     config = {
       ...config,
@@ -710,10 +708,10 @@ function mergeEnvVariables(config: AutohandConfig): AutohandConfig {
 }
 
 function defaultAutohandAIContextWindow(settings: AutohandAISettings): number {
-  if (settings.plan === "local" || settings.model === "moa") {
-    return DEFAULT_AUTOHAND_AI_MOA_CONTEXT_WINDOW;
-  }
-  return DEFAULT_AUTOHAND_AI_CONTEXT_WINDOW;
+  return getProviderModelOptions("autohandai")
+    .find((model) => model.id === settings.model)?.contextWindow
+    ?? settings.contextWindow
+    ?? 128_000;
 }
 
 function normalizeConfig(
@@ -1185,7 +1183,9 @@ export function getProviderConfig(
     ...entry,
     baseUrl: entry.baseUrl ?? defaultBaseUrlFor(builtInProvider, entry.port),
     ...(chosen === "autohandai" && {
-      contextWindow: entry.contextWindow ?? defaultAutohandAIContextWindow(entry as AutohandAISettings),
+      contextWindow: (entry as AutohandAISettings).plan === "local"
+        ? entry.contextWindow ?? defaultAutohandAIContextWindow(entry as AutohandAISettings)
+        : defaultAutohandAIContextWindow(entry as AutohandAISettings),
     }),
   };
 }

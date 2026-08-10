@@ -27,8 +27,9 @@ import {
   estimateMessageTokens,
 } from './tokenizer.js';
 import { ContextCompactor } from './compactor.js';
-import { summarizeWithLLM } from './summarizer.js';
+import { boundCompactionSummary, summarizeWithLLM } from './summarizer.js';
 import { ConversationManager } from '../conversationManager.js';
+import { findProtectedRecentTurnIndices } from './priority.js';
 
 export class ContextOrchestrator {
   private enabled: boolean;
@@ -105,7 +106,7 @@ export class ContextOrchestrator {
           }
         },
         (usage) => {
-          this.onWarning?.(usage);
+          this.onWarning?.(this.normalizePublicUsage(usage));
           thresholdUsage = usage;
         },
         this.contextWindow,
@@ -143,7 +144,7 @@ export class ContextOrchestrator {
     // Auto-crop if at critical threshold (90%+)
     if (contextUsage.isCritical) {
       spinner?.stop();
-      this.onWarning?.(contextUsage);
+      this.onWarning?.(this.normalizePublicUsage(contextUsage));
       await this.emitThresholdHook(contextUsage);
 
       // Target 70% usage after cropping
@@ -152,7 +153,12 @@ export class ContextOrchestrator {
       const avgMessageTokens = 200;
       const messagesToRemove = Math.ceil(tokensToRemove / avgMessageTokens);
 
-      const removed = this.conversationManager.cropHistory('top', messagesToRemove);
+      const protectedIndices = findProtectedRecentTurnIndices(messages);
+      const indicesToRemove = messages
+        .map((_, index) => index)
+        .filter(index => index > 0 && !protectedIndices.has(index))
+        .slice(0, messagesToRemove);
+      const removed = this.conversationManager.removeIndices(indicesToRemove);
       let summary: string | undefined;
       if (removed.length > 0) {
         summary = await summarizeWithLLM(removed);
@@ -186,7 +192,7 @@ export class ContextOrchestrator {
     }
 
     if (contextUsage.isWarning && iteration === 0) {
-      this.onWarning?.(contextUsage);
+      this.onWarning?.(this.normalizePublicUsage(contextUsage));
       await this.emitThresholdHook(contextUsage);
     }
 
@@ -272,21 +278,14 @@ export class ContextOrchestrator {
       usage.totalTokens - targetTokens,
       minimumTokensToRemove,
     );
-    let lastUserIndex = -1;
-    for (let i = messages.length - 1; i >= 1; i--) {
-      if (messages[i].role === 'user') {
-        lastUserIndex = i;
-        break;
-      }
-    }
+    const protectedIndices = findProtectedRecentTurnIndices(messages);
 
     // Walk oldest-first by tokens
     const indicesToRemove: number[] = [];
     let removedTokens = 0;
 
     for (let i = 1; i < messages.length; i++) {
-      // Never remove the last user message
-      if (i === lastUserIndex) continue;
+      if (protectedIndices.has(i)) continue;
 
       indicesToRemove.push(i);
       removedTokens += estimateMessageTokens(messages[i]);
@@ -304,7 +303,7 @@ export class ContextOrchestrator {
       return { messages, usage, croppedCount: 0 };
     }
 
-    const summary = await summarizeWithLLM(removed);
+    const summary = boundCompactionSummary(await summarizeWithLLM(removed), removed);
     this.conversationManager.addSystemNote(
       `[Auto-Recovery] ${removed.length} messages compacted after context overflow.\nSummary: ${summary}`,
       '[Auto-Recovery]',
@@ -376,7 +375,7 @@ export class ContextOrchestrator {
       memoryFiles: 0, // Not tracked separately
       total: usage.totalTokens,
       contextWindow: usage.contextWindow,
-      usagePercent: Math.round(usage.usagePercent * 100) / 100,
+      usagePercent: Math.round(this.normalizeUsageRatio(usage.usagePercent) * 100) / 100,
       isWarning: usage.isWarning,
       isCritical: usage.isCritical,
     };
@@ -387,7 +386,7 @@ export class ContextOrchestrator {
    */
   getStatus(tools: FunctionDefinition[]): string {
     const usage = this.getUsage(tools);
-    const percent = Math.round(usage.usagePercent * 100);
+    const percent = Math.round(this.normalizeUsageRatio(usage.usagePercent) * 100);
 
     if (usage.isExceeded) {
       return `Context EXCEEDED: ${percent}% (${usage.totalTokens}/${usage.contextWindow} tokens)`;
@@ -411,7 +410,11 @@ export class ContextOrchestrator {
   // ── Internal ──────────────────────────────────────────────────────────────
 
   private normalizeUsageRatio(value: number): number {
-    return Number.isFinite(value) && value >= 0 ? value : 0;
+    return Number.isFinite(value) && value >= 0 ? Math.min(1, value) : 0;
+  }
+
+  private normalizePublicUsage(usage: ContextUsage): ContextUsage {
+    return { ...usage, usagePercent: this.normalizeUsageRatio(usage.usagePercent) };
   }
 
   private async emitHook(context: ContextHookContext): Promise<void> {

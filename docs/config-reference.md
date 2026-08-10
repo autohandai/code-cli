@@ -249,8 +249,10 @@ Requires `features.autohand_inference: true` or `AUTOHAND_FEATURE_AUTOHAND_INFER
 | `apiKey`         | string                     | SDK Cloud/API-key Cloud | -                   | Autohand AI API key                                       |
 | `baseUrl`        | string                     | No       | `https://api.autohand.ai/v1`  | OpenAI-compatible API endpoint                            |
 | `model`          | string                     | Yes      | `fantail`                     | `fantail`, `moa`, or a selected local MLX coding model    |
-| `contextWindow`  | number                     | No       | `16000` for Fantail, `1000000` for Moa, `256000` for Local | Model context window                      |
+| `contextWindow`  | number                     | No       | `64000` for Fantail, `1000000` for Moa, `256000` for Local | Model context window                      |
 | `reasoningEffort` | `"medium"`, `"high"`, or `"xhigh"` | Moa Cloud | `"high"` during setup | Moa thinking effort level |
+
+Cloud model context and output limits come from the active `models.json` catalog. The catalog is authoritative over stale persisted `contextWindow` values, so existing Fantail configurations automatically adopt its 64k input window and 16k output ceiling without requiring users to rewrite `~/.autohand/config.json`.
 | `port`           | number                     | Local    | `8080`                        | Local MLX server port                                     |
 | `localModelPath` | string                     | No       | -                             | Downloaded local coding model path                        |
 | `serverCommand`  | string                     | No       | -                             | Local server start command                                |
