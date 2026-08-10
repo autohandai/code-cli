@@ -142,7 +142,19 @@ describe('ActionExecutor', () => {
 
       const result = await executor.execute({ type: 'read_file', path: 'src/index.ts' });
 
-      expect(result).toBe(content);
+      expect(result).toBe(`     1\t${content}`);
+    });
+
+    it('bounds the complete compatibility read response including recovery notes', async () => {
+      const wideLine = '😀'.repeat(1_000);
+      const content = Array.from({ length: 100 }, () => wideLine).join('\n');
+      const executor = createExecutor({ readFile: vi.fn().mockResolvedValue(content) });
+
+      const result = await executor.execute({ type: 'read_file', path: 'src/unicode.log' });
+
+      expect(Buffer.byteLength(result, 'utf8')).toBeLessThanOrEqual(128 * 1024);
+      expect(result).not.toContain('�');
+      expect(result).toContain('128 KiB read ceiling');
     });
 
     it('throws error when read_file path is missing', async () => {

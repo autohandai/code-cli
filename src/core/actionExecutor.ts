@@ -88,7 +88,7 @@ import type {
   ToolFailureKind,
   ToolOutputChunk,
 } from '../types.js';
-import type { FileActionManager } from '../actions/filesystem.js';
+import type { FileActionManager, ReadFileWindowResult } from '../actions/filesystem.js';
 import {
   buildToolPermissionContexts,
   DEFAULT_TOOL_DEFINITIONS,
@@ -222,6 +222,10 @@ export interface ActionExecutorOptions {
 
 type AgentExecutorDeps = ActionExecutorOptions;
 type ToolFailureOutcome = Extract<ToolActionOutcome, { success: false }>;
+
+const READ_FILE_MAX_LINES = 2_000;
+const READ_FILE_MAX_BYTES = 128 * 1024;
+const READ_FILE_MAX_LINE_CHARACTERS = 2_000;
 
 interface ToolOutcomeCapture {
   failure?: ToolFailureOutcome;
@@ -554,6 +558,24 @@ export class ActionExecutor {
     }
 
     const values = action as unknown as Record<string, unknown>;
+    if (action.type === 'read_file') {
+      for (const field of ['offset', 'limit'] as const) {
+        const value = values[field];
+        if (value !== undefined
+          && (typeof value !== 'number'
+            || !Number.isFinite(value)
+            || !Number.isInteger(value)
+            || value < 0)) {
+          const error = `read_file requires "${field}" to be a non-negative integer.`;
+          return {
+            success: false,
+            kind: 'validation',
+            error,
+            output: `Error: ${error}`,
+          };
+        }
+      }
+    }
     if ((action.type === 'run_command' || action.type === 'shell')
       && (typeof values.command !== 'string' || values.command.length === 0)) {
       const error = `${action.type} requires a "command" argument (string)`;
@@ -1190,73 +1212,104 @@ export class ActionExecutor {
 
         const offset = typeof action.offset === 'number' ? action.offset : 0;
         const limit = typeof action.limit === 'number' ? action.limit : 0;
+        const effectiveLimit = Math.min(limit > 0 ? limit : READ_FILE_MAX_LINES, READ_FILE_MAX_LINES);
 
-        const fullContents = await this.files.readFile(action.path);
+        if (typeof this.files.readFileWindow === 'function') {
+          const window = await this.files.readFileWindow(action.path, {
+            offset,
+            lineLimit: effectiveLimit,
+            maxBytes: READ_FILE_MAX_BYTES,
+            maxLineCharacters: READ_FILE_MAX_LINE_CHARACTERS,
+          });
+          const openedPath = window.openedPath;
+          await this.recordPeerRead(openedPath);
+          this.recordExploration('read', openedPath);
+
+          if (window.format.kind === 'binary') {
+            const note = window.format.mimeType === 'application/pdf'
+              ? `Note: ${openedPath} is a binary application/pdf file. Use pdftotext "${openedPath}" - to extract its text.`
+              : `Note: ${openedPath} is a binary ${window.format.mimeType} file. read_file did not decode it as text.`;
+            return this.withReadPathRepairNote(note, window, action.path);
+          }
+          if (window.reachedEof && offset > 0 && offset >= window.linesScanned && window.lines.length === 0) {
+            return this.withReadPathRepairNote(
+              `Note: offset ${offset} is beyond the end of ${openedPath} (${window.linesScanned} lines scanned). Retry with a smaller offset.`,
+              window,
+              action.path,
+            );
+          }
+          if (window.reachedEof && window.linesScanned === 0 && window.lines.length === 0) {
+            return this.withReadPathRepairNote(`Note: ${openedPath} is empty.`, window, action.path);
+          }
+
+          const rendered = this.formatStreamedReadWindow(
+            window,
+            openedPath,
+            effectiveLimit,
+            action.path,
+          );
+          const fileSizeKB = (window.sizeBytes / 1024).toFixed(2);
+          console.log(chalk.cyan(`\n📄 ${openedPath}`));
+          console.log(chalk.gray(`   ${window.lines.length} lines returned (${fileSizeKB} KB total)`));
+          if (rendered.hasMore) {
+            console.log(chalk.yellow('   More content remains'));
+          }
+          return rendered.output;
+        }
+
+        const fullContents = this.normalizeReadFileContents(await this.files.readFile(action.path));
         await this.recordPeerRead(action.path);
         this.recordExploration('read', action.path);
 
-        const allLines = fullContents.split('\n');
+        const allLines = this.splitReadFileLines(fullContents);
         const totalLines = allLines.length;
         const fileSize = Buffer.byteLength(fullContents, 'utf8');
         const fileSizeKB = (fileSize / 1024).toFixed(2);
 
-        // Large file thresholds
-        const MAX_LINES = 2000;
-        const MAX_SIZE_BYTES = 80 * 1024;
-        const CHUNK_SIZE = 500; // Lines per chunk for smart reading
-
-        // If offset/limit specified, use chunked reading
-        if (offset > 0 || limit > 0) {
-          const effectiveLimit = limit > 0 ? limit : CHUNK_SIZE;
-          const startLine = Math.min(offset, totalLines);
-          const endLine = Math.min(startLine + effectiveLimit, totalLines);
-          const chunk = allLines.slice(startLine, endLine).join('\n');
-
-          console.log(chalk.cyan(`\n📄 ${action.path}`));
-          console.log(chalk.gray(`   Lines ${startLine + 1}-${endLine} of ${totalLines} (${fileSizeKB} KB total)`));
-
-          if (endLine < totalLines) {
-            console.log(chalk.yellow(`   ${totalLines - endLine} more lines remaining`));
-          }
-
-          return chunk;
+        if (totalLines === 0) {
+          return `Note: ${action.path} is empty.`;
         }
 
-        // Check if file is too large for single read - use smart chunking
-        if (totalLines > MAX_LINES || fileSize > MAX_SIZE_BYTES) {
-          console.log(chalk.cyan(`\n📄 ${action.path}`));
-          console.log(chalk.yellow(`   ⚠ Large file: ${totalLines} lines • ${fileSizeKB} KB`));
-          console.log(chalk.gray(`   Smart chunking: outline + first ${CHUNK_SIZE} lines`));
-
-          // Extract file structure/outline
-          const outline = this.extractFileOutline(allLines, action.path);
-
-          // Get first chunk of actual content
-          const firstChunk = allLines.slice(0, CHUNK_SIZE).join('\n');
-
-          // Build smart response with outline and first chunk
-          const response = [
-            `=== FILE OUTLINE (${action.path}) ===`,
-            `Total: ${totalLines} lines • ${fileSizeKB} KB`,
-            '',
-            outline,
-            '',
-            `=== CONTENT (lines 1-${CHUNK_SIZE}) ===`,
-            firstChunk,
-            '',
-            `=== NAVIGATION ===`,
-            `Showing lines 1-${CHUNK_SIZE} of ${totalLines}`,
-            `To read more sections, use: read_file with offset=<line> limit=${CHUNK_SIZE}`,
-            `Example: read_file path="${action.path}" offset=${CHUNK_SIZE} limit=${CHUNK_SIZE}`
-          ].join('\n');
-
-          return response;
+        if (offset >= totalLines) {
+          return `Note: offset ${offset} is beyond the end of ${action.path} (${totalLines} lines scanned). Retry with a smaller offset.`;
         }
+
+        const endLineExclusive = Math.min(offset + effectiveLimit, totalLines);
+        const lines = allLines.slice(offset, endLineExclusive).map((content, index) => {
+          const codePoints = Array.from(content);
+          return {
+            lineNumber: offset + index + 1,
+            content: codePoints.slice(0, READ_FILE_MAX_LINE_CHARACTERS).join(''),
+            clamped: codePoints.length > READ_FILE_MAX_LINE_CHARACTERS,
+          };
+        });
+        const compatibilityWindow: ReadFileWindowResult = {
+          lines,
+          ...(endLineExclusive < totalLines
+            ? { continuation: { kind: 'lines' as const, offset: endLineExclusive } }
+            : {}),
+          reachedEof: endLineExclusive >= totalLines,
+          linesScanned: totalLines,
+          resolvedPath: action.path,
+          openedPath: action.path,
+          repairedPath: false,
+          sizeBytes: fileSize,
+          format: { kind: 'text' },
+        };
+        const rendered = this.formatStreamedReadWindow(
+          compatibilityWindow,
+          action.path,
+          effectiveLimit,
+          action.path,
+        );
 
         console.log(chalk.cyan(`\n📄 ${action.path}`));
-        console.log(chalk.gray(`   ${totalLines} lines • ${fileSizeKB} KB`));
+        console.log(chalk.gray(`   Lines ${offset + 1}-${endLineExclusive} of ${totalLines} (${fileSizeKB} KB total)`));
+        if (rendered.hasMore) {
+          console.log(chalk.yellow('   More content remains'));
+        }
 
-        return fullContents;
+        return rendered.output;
       }
       case 'write_file': {
         if (!action.path) {
@@ -3374,110 +3427,167 @@ export class ActionExecutor {
     return undefined;
   }
 
-  /**
-   * Extract file outline/structure for smart chunking of large files.
-   * Identifies imports, classes, functions, and key sections with line numbers.
-   */
-  private extractFileOutline(lines: string[], filePath: string): string {
-    const ext = filePath.split('.').pop()?.toLowerCase() || '';
-    const outline: string[] = [];
+  private splitReadFileLines(contents: string): string[] {
+    if (contents.length === 0) {
+      return [];
+    }
+    const lines = contents.split('\n');
+    if (lines.at(-1) === '') {
+      lines.pop();
+    }
+    return lines;
+  }
 
-    // Language-specific patterns
-    const patterns: { [key: string]: RegExp[] } = {
-      ts: [
-        /^(import|export)\s+/,
-        /^(export\s+)?(async\s+)?function\s+(\w+)/,
-        /^(export\s+)?(abstract\s+)?class\s+(\w+)/,
-        /^(export\s+)?interface\s+(\w+)/,
-        /^(export\s+)?type\s+(\w+)/,
-        /^(export\s+)?enum\s+(\w+)/,
-        /^(export\s+)?const\s+(\w+)\s*[=:]/,
-      ],
-      js: [
-        /^(import|export)\s+/,
-        /^(export\s+)?(async\s+)?function\s+(\w+)/,
-        /^(export\s+)?class\s+(\w+)/,
-        /^(export\s+)?const\s+(\w+)\s*=/,
-        /^module\.exports/,
-      ],
-      py: [
-        /^(from|import)\s+/,
-        /^(async\s+)?def\s+(\w+)/,
-        /^class\s+(\w+)/,
-        /^(\w+)\s*=\s*(lambda|def)/,
-      ],
-      rs: [
-        /^(use|mod)\s+/,
-        /^(pub\s+)?(async\s+)?fn\s+(\w+)/,
-        /^(pub\s+)?struct\s+(\w+)/,
-        /^(pub\s+)?enum\s+(\w+)/,
-        /^(pub\s+)?trait\s+(\w+)/,
-        /^impl\s+/,
-      ],
-      go: [
-        /^import\s+/,
-        /^func\s+(\w+|\(\w+\s+\*?\w+\)\s+\w+)/,
-        /^type\s+(\w+)\s+(struct|interface)/,
-        /^var\s+(\w+)/,
-        /^const\s+/,
-      ],
+  private normalizeReadFileContents(contents: string): string {
+    const withoutBom = contents.startsWith('\uFEFF') ? contents.slice(1) : contents;
+    return withoutBom.replace(/\r\n/g, '\n');
+  }
+
+  private formatStreamedReadWindow(
+    window: ReadFileWindowResult,
+    filePath: string,
+    limit: number,
+    requestedPath: string,
+  ): { output: string; hasMore: boolean } {
+    const repairNote = window.repairedPath
+      ? `Note: Opened "${window.openedPath}" after repairing requested path "${requestedPath}".`
+      : undefined;
+    const clampNote = this.formatReadClampNote(window);
+    const existingContinuationNote = this.formatReadContinuationNote(
+      window.continuation,
+      filePath,
+      limit,
+    );
+    const lastLine = window.lines.at(-1);
+    const possibleByteContinuationNote = lastLine
+      ? this.formatReadContinuationNote({
+          kind: 'bytes',
+          offset: lastLine.lineNumber - 1,
+          sourceLineNumber: lastLine.lineNumber,
+        }, filePath, limit)
+      : undefined;
+    const continuationBytes = Math.max(
+      Buffer.byteLength(existingContinuationNote ?? '', 'utf8'),
+      Buffer.byteLength(possibleByteContinuationNote ?? '', 'utf8'),
+    );
+    const fixedPrefixBytes = repairNote
+      ? Buffer.byteLength(repairNote, 'utf8') + 2
+      : 0;
+    const fixedSuffixBytes = continuationBytes > 0 || clampNote
+      ? 2
+        + continuationBytes
+        + (continuationBytes > 0 && clampNote ? 1 : 0)
+        + Buffer.byteLength(clampNote ?? '', 'utf8')
+      : 0;
+    const rendered = this.renderReadLinesWithinBytes(
+      window.lines,
+      Math.max(0, READ_FILE_MAX_BYTES - fixedPrefixBytes - fixedSuffixBytes),
+    );
+    const continuationNote = this.formatReadContinuationNote(
+      rendered.continuation ?? window.continuation,
+      filePath,
+      limit,
+    );
+    const notes = [continuationNote, clampNote].filter((note): note is string => Boolean(note));
+    const sections = [repairNote, rendered.body, notes.length > 0 ? notes.join('\n') : undefined]
+      .filter((section): section is string => Boolean(section));
+    return {
+      output: sections.join('\n\n'),
+      hasMore: Boolean(rendered.continuation ?? window.continuation),
     };
+  }
 
-    // Get patterns for file type
-    const langPatterns = patterns[ext] || patterns['ts'] || [];
-    if (['tsx', 'jsx', 'mts', 'cts'].includes(ext)) {
-      langPatterns.push(...(patterns['ts'] || []));
+  private renderReadLinesWithinBytes(
+    lines: ReadFileWindowResult['lines'],
+    maximumBytes: number,
+  ): {
+    body: string;
+    continuation?: NonNullable<ReadFileWindowResult['continuation']>;
+  } {
+    const parts: string[] = [];
+    let usedBytes = 0;
+
+    for (const line of lines) {
+      const separator = parts.length > 0 ? '\n' : '';
+      const prefix = `${String(line.lineNumber).padStart(6)}\t`;
+      const completePart = `${separator}${prefix}${line.content}`;
+      const completeBytes = Buffer.byteLength(completePart, 'utf8');
+      if (usedBytes + completeBytes <= maximumBytes) {
+        parts.push(completePart);
+        usedBytes += completeBytes;
+        continue;
+      }
+
+      const fixedPart = `${separator}${prefix}`;
+      const remainingBytes = maximumBytes
+        - usedBytes
+        - Buffer.byteLength(fixedPart, 'utf8');
+      if (remainingBytes >= 0) {
+        parts.push(`${fixedPart}${this.utf8Prefix(line.content, remainingBytes)}`);
+      }
+      return {
+        body: parts.join(''),
+        continuation: {
+          kind: 'bytes',
+          offset: line.lineNumber - 1,
+          sourceLineNumber: line.lineNumber,
+        },
+      };
     }
 
-    let importStart = -1;
-    let importEnd = -1;
+    return { body: parts.join('') };
+  }
 
-    lines.forEach((line, idx) => {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
-        return;
-      }
-
-      const lineNum = idx + 1;
-
-      // Track import section
-      if (/^(import|from|use|require)\s+/.test(trimmed)) {
-        if (importStart === -1) {
-          importStart = lineNum;
-        }
-        importEnd = lineNum;
-        return;
-      }
-
-      // After imports, check for other patterns
-      for (const pattern of langPatterns) {
-        if (pattern.test(trimmed) && !/^(import|from|use)\s+/.test(trimmed)) {
-          // Extract meaningful identifier
-          let identifier = trimmed.slice(0, 60);
-          if (identifier.length < trimmed.length) identifier += '...';
-          outline.push(`  ${String(lineNum).padStart(4)}: ${identifier}`);
-          break;
-        }
-      }
-    });
-
-    // Build final outline
-    const result: string[] = [];
-
-    if (importStart !== -1) {
-      result.push(`Imports: lines ${importStart}-${importEnd}`);
+  private formatReadContinuationNote(
+    continuation: ReadFileWindowResult['continuation'],
+    filePath: string,
+    limit: number,
+  ): string | undefined {
+    if (continuation?.kind === 'bytes') {
+      return `Note: The 128 KiB read ceiling cut source line ${continuation.sourceLineNumber}. Continue with read_file path="${filePath}" offset=${continuation.offset} limit=${limit}.`;
     }
-
-    if (outline.length > 0) {
-      result.push('');
-      result.push('Definitions:');
-      result.push(...outline.slice(0, 50)); // Limit to 50 items
-      if (outline.length > 50) {
-        result.push(`  ... and ${outline.length - 50} more`);
-      }
+    if (continuation?.kind === 'lines') {
+      return `Note: More content remains. Continue with read_file path="${filePath}" offset=${continuation.offset} limit=${limit}.`;
     }
+    return undefined;
+  }
 
-    return result.length > 0 ? result.join('\n') : 'No structure detected';
+  private formatReadClampNote(window: ReadFileWindowResult): string | undefined {
+    const clampedLineNumbers = window.lines
+      .filter(line => line.clamped)
+      .map(line => line.lineNumber);
+    if (clampedLineNumbers.length === 0) {
+      return undefined;
+    }
+    const label = clampedLineNumbers.length === 1
+      ? `Line ${clampedLineNumbers[0]} exceeded ${READ_FILE_MAX_LINE_CHARACTERS} characters and was clamped.`
+      : `Lines ${clampedLineNumbers.join(', ')} exceeded ${READ_FILE_MAX_LINE_CHARACTERS} characters and were clamped.`;
+    return `Note: ${label} Use fff_grep or shell for targeted inspection.`;
+  }
+
+  private withReadPathRepairNote(
+    output: string,
+    window: ReadFileWindowResult,
+    requestedPath: string,
+  ): string {
+    return window.repairedPath
+      ? `Note: Opened "${window.openedPath}" after repairing requested path "${requestedPath}".\n\n${output}`
+      : output;
+  }
+
+  private utf8Prefix(value: string, maximumBytes: number): string {
+    if (maximumBytes <= 0) {
+      return '';
+    }
+    const bytes = Buffer.from(value, 'utf8');
+    if (bytes.length <= maximumBytes) {
+      return value;
+    }
+    let end = maximumBytes;
+    while (end > 0 && (bytes[end] & 0xc0) === 0x80) {
+      end--;
+    }
+    return bytes.subarray(0, end).toString('utf8');
   }
 
   private executeFind(action: Extract<AgentAction, { type: 'find' }>): string {

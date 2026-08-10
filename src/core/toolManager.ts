@@ -162,6 +162,15 @@ const WRITE_CAPABILITY_TOOLS = new Set<AgentAction['type']>([
   'copy_path',
 ]);
 
+const READ_FILE_PATH_ALIASES = [
+  'file_path',
+  'filePath',
+  'absolute_path',
+  'absolutePath',
+  'target',
+  'target_file',
+] as const;
+
 function resolveEffectivePermissionTool(
   action: AgentAction,
   values: Record<string, unknown>,
@@ -390,13 +399,13 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'read_file',
-    description: 'Read file contents. For large files (>2500 lines), use offset and limit to read in chunks.',
+    description: 'Read a bounded, line-numbered file window. Use offset and limit to continue large files.',
     parameters: {
       type: 'object',
       properties: {
         path: { type: 'string', description: 'Relative path to the file to read' },
-        offset: { type: 'number', description: 'Line number to start reading from (0-indexed). Use for large files.' },
-        limit: { type: 'number', description: 'Maximum number of lines to read. Use for large files.' }
+        offset: { type: 'integer', description: 'Non-negative, 0-indexed line number to start reading from.' },
+        limit: { type: 'integer', description: 'Non-negative maximum number of lines to read. Values above the tool ceiling are clamped.' }
       },
       required: ['path']
     }
@@ -2553,6 +2562,13 @@ export class ToolManager {
         onToolComplete?.(i, result);
       };
 
+      try {
+        call = this.repairReadFileInput(call);
+      } catch (error) {
+        reject(error instanceof Error ? error.message : String(error), 'validation');
+        continue;
+      }
+
       if (signal?.aborted) {
         reject(TOOL_ABORTED_MESSAGE, 'aborted', TOOL_ABORTED_MESSAGE);
         continue;
@@ -2822,6 +2838,55 @@ export class ToolManager {
       ...call,
       args: { ...args } as ToolCallRequest['args'],
     };
+  }
+
+  private repairReadFileInput(call: ToolCallRequest): ToolCallRequest {
+    if (call.tool !== 'read_file') {
+      return call;
+    }
+
+    const args = { ...this.getCallArgs(call) };
+    const pathInputs: Array<{ field: string; value: string }> = [];
+    for (const field of ['path', ...READ_FILE_PATH_ALIASES]) {
+      const value = args[field];
+      if (value === undefined) {
+        continue;
+      }
+      if (typeof value !== 'string') {
+        throw new Error(`read_file requires "${field}" to be a string.`);
+      }
+      pathInputs.push({ field, value });
+    }
+
+    const uniquePaths = new Set(pathInputs.map(input => input.value));
+    if (uniquePaths.size > 1) {
+      throw new Error('read_file received conflicting path aliases.');
+    }
+    if (args.path === undefined && pathInputs.length > 0) {
+      args.path = pathInputs[0].value;
+    }
+    for (const alias of READ_FILE_PATH_ALIASES) {
+      delete args[alias];
+    }
+
+    for (const field of ['offset', 'limit'] as const) {
+      const value = args[field];
+      if (value === undefined) {
+        continue;
+      }
+      const repaired = typeof value === 'string' && value.trim() !== ''
+        ? Number(value)
+        : value;
+      if (typeof repaired !== 'number'
+        || !Number.isFinite(repaired)
+        || !Number.isInteger(repaired)
+        || repaired < 0) {
+        throw new Error(`read_file requires "${field}" to be a non-negative integer.`);
+      }
+      args[field] = repaired;
+    }
+
+    return this.cloneToolCall(call, args);
   }
 
   private getCallArgs(call: ToolCallRequest): Record<string, unknown> {
