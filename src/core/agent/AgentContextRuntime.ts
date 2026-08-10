@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { getPlanModeManager } from '../../commands/plan.js';
+import { resolveBrainstormAutoInjection } from '../../skills/brainstormIntent.js';
 import { getProviderConfig } from '../../config.js';
 import { t } from '../../i18n/index.js';
 import type {
@@ -83,6 +84,7 @@ export interface AgentContextRuntimeHost {
       description: string;
       body: string;
     }>;
+    getSkill?(name: string): { name: string; description: string; body: string } | null | undefined;
   };
   versionCheckResult?: VersionCheckResult;
   buildSystemPrompt(): Promise<string>;
@@ -213,6 +215,30 @@ export async function buildAgentUserMessage(
       '',
       skill.body,
     ].join('\n'));
+  }
+
+  const planModeManager = getPlanModeManager();
+  const planModeActive = planModeManager.isEnabled() && planModeManager.getPhase() === 'planning';
+  const brainstormAlreadyInjected = mentionedSkills.some((skill) => skill.name === 'brainstorm');
+  if (
+    resolveBrainstormAutoInjection({
+      instruction,
+      planModeActive,
+      alreadyInjected: brainstormAlreadyInjected,
+    })
+  ) {
+    const brainstorm = host.skillsRegistry?.getSkill?.('brainstorm');
+    if (brainstorm) {
+      const reason = planModeActive
+        ? 'Plan mode is active'
+        : 'This request looks like a design or brainstorming task';
+      userPromptParts.push([
+        `Brainstorming mode (${reason}). Before proposing solutions, work through this as a Software Architect, Product Owner, and Product Manager:`,
+        brainstorm.description,
+        '',
+        brainstorm.body,
+      ].join('\n'));
+    }
   }
 
   const mentionContext = host.mentionResolver.flush();
