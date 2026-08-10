@@ -94,8 +94,6 @@ export async function executePendingPostTurnAction(
     || host.runtime.isCommandMode
     || host.runtime.isRpcMode
     || Boolean(host.runtime.options.prompt)
-    || host.interactiveAutomodeEnabled
-    || host.automodeManager?.isActive()
     || !environment.stdinIsTTY
     || !environment.stdoutIsTTY
     || environment.isCI
@@ -112,6 +110,15 @@ export async function executePendingPostTurnAction(
     || run.reportPath !== action.reportPath
   ) {
     return null;
+  }
+
+  if (host.interactiveAutomodeEnabled || host.automodeManager?.isActive()) {
+    // Automode means "don't interrupt with a blocking prompt" — but the user
+    // still deserves to know publishing is available and how to trigger it.
+    return [
+      'Research saved. Skipping the interactive publish prompt while auto mode is active.',
+      `Publish later with: /publish-research ${action.reportPath}`,
+    ].join('\n');
   }
 
   return host.requestResearchPublication(action.reportPath);

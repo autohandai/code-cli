@@ -37,6 +37,7 @@ describe('/autoresearch command', () => {
       queueInstruction: (instruction: string) => {
         queuedInstructions.push(instruction);
       },
+      setInteractionMode: vi.fn(),
       hookManager: { executeHooks } as unknown as SlashCommandContext['hookManager'],
     } as SlashCommandContext;
   });
@@ -80,6 +81,7 @@ describe('/autoresearch command', () => {
       autoresearchMaxIterations: 30,
       autoresearchSubcommand: 'start',
     }));
+    expect(ctx.setInteractionMode).toHaveBeenCalledWith('automode');
   });
 
   it('starts a new session from inferred benchmark flags', async () => {
@@ -159,6 +161,7 @@ describe('/autoresearch command', () => {
       autoresearchActive: true,
       autoresearchSubcommand: 'resume',
     }));
+    expect(ctx.setInteractionMode).toHaveBeenCalledWith('automode');
   });
 
   it('resumes a paused session without resetting goal or iteration', async () => {
@@ -237,6 +240,7 @@ describe('/autoresearch command', () => {
     const result = await autoresearch(ctx, ['status']);
 
     expect(result).toContain('optimize test runtime');
+    expect(ctx.setInteractionMode).not.toHaveBeenCalled();
   });
 
   it('finalizes kept runs into a reviewable artifact', async () => {
@@ -274,6 +278,7 @@ describe('/autoresearch command', () => {
       autoresearchActive: false,
       autoresearchSubcommand: 'off',
     }));
+    expect(ctx.setInteractionMode).not.toHaveBeenCalled();
   });
 });
 

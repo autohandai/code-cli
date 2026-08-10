@@ -37,6 +37,7 @@ describe('/statusline', () => {
       showActiveStatus: true,
       showActiveMetrics: true,
       showCancelHint: true,
+      showModeLabel: true,
     });
 
     showModalMock.mockResolvedValueOnce({ value: '__done__' });
@@ -46,7 +47,7 @@ describe('/statusline', () => {
     expect(showModalMock).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Status Line',
       multiSelect: true,
-      maxVisible: 12,
+      maxVisible: 13,
       options: expect.arrayContaining([
         expect.objectContaining({ value: 'showProviderModel', checked: true }),
         expect.objectContaining({ value: 'showContext', checked: true }),
@@ -59,6 +60,7 @@ describe('/statusline', () => {
         expect.objectContaining({ value: 'showActiveStatus', checked: true }),
         expect.objectContaining({ value: 'showActiveMetrics', checked: true }),
         expect.objectContaining({ value: 'showCancelHint', checked: true }),
+        expect.objectContaining({ value: 'showModeLabel', checked: true }),
         expect.objectContaining({ value: '__done__' }),
       ]),
     }));
@@ -79,6 +81,24 @@ describe('/statusline', () => {
 
     expect(result).toBe('Status line settings saved.');
     expect(config.ui?.statusLine?.showSessionLines).toBe(true);
+    expect(saveConfigMock).toHaveBeenCalledWith(config);
+  });
+
+  it('saves the mode label toggle back to ui.statusLine', async () => {
+    const { statusline } = await import('../../src/commands/statusline.js');
+    const config = createConfig();
+
+    showModalMock.mockImplementationOnce(async (options: {
+      onToggle?: (option: ModalOption, checked: boolean) => void;
+    }) => {
+      options.onToggle?.({ label: 'Mode label', value: 'showModeLabel' }, false);
+      return { value: '__done__' };
+    });
+
+    const result = await statusline({ config });
+
+    expect(result).toBe('Status line settings saved.');
+    expect(config.ui?.statusLine?.showModeLabel).toBe(false);
     expect(saveConfigMock).toHaveBeenCalledWith(config);
   });
 

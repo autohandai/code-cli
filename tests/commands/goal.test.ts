@@ -28,6 +28,7 @@ describe('/goal command', () => {
         features: { slashGoal: true },
       },
       queueInstruction: (instruction) => queued.push(instruction),
+      setInteractionMode: vi.fn(),
       hookManager: {
         executeHooks: vi.fn(async (event: HookEvent, context: Record<string, unknown>) => {
           hookEvents.push({ event, context });
@@ -73,6 +74,7 @@ describe('/goal command', () => {
     expect(result).toContain('Goal created');
     expect(result).toContain('finish release prep');
     expect(queued[0]).toContain('Active goal');
+    expect(ctx.setInteractionMode).toHaveBeenCalledWith('automode');
     expect(hookEvents).toEqual([
       {
         event: 'goal-written:completed',
@@ -126,6 +128,29 @@ describe('/goal command', () => {
     expect(result).toContain('Goal: second goal');
     expect(queued).toHaveLength(1);
     expect(queued[0]).toContain('Active goal: second goal');
+    expect(ctx.setInteractionMode).toHaveBeenCalledWith('automode');
+  });
+
+  it('switches to automode when resuming a paused goal', async () => {
+    await goal(ctx, ['first goal']);
+    await goal(ctx, ['pause']);
+    (ctx.setInteractionMode as ReturnType<typeof vi.fn>).mockClear();
+
+    const result = await goal(ctx, ['resume']);
+
+    expect(result).toContain('Goal: first goal');
+    expect(ctx.setInteractionMode).toHaveBeenCalledWith('automode');
+  });
+
+  it('does not change interaction mode when pausing, clearing, or drafting a goal', async () => {
+    await goal(ctx, ['first goal']);
+    (ctx.setInteractionMode as ReturnType<typeof vi.fn>).mockClear();
+
+    await goal(ctx, ['pause']);
+    await goal(ctx, ['clear']);
+    await goal(ctx, ['writer', 'a rough idea']);
+
+    expect(ctx.setInteractionMode).not.toHaveBeenCalled();
   });
 
   it('supports template invocation from bounded .pi-goals directories', async () => {

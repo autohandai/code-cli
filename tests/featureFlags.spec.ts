@@ -10,23 +10,19 @@ import { isAutohandInferenceEnabled } from '../src/featureFlags.js';
 describe('feature flags', () => {
   const originalFeatureEnv = process.env.AUTOHAND_FEATURE_AUTOHAND_INFERENCE;
   const originalLegacyEnv = process.env.AUTOHAND_INFERENCE_ENABLED;
-  const originalFeatureList = process.env.AUTOHAND_FEATURES;
 
   afterEach(() => {
     if (originalFeatureEnv === undefined) delete process.env.AUTOHAND_FEATURE_AUTOHAND_INFERENCE;
     else process.env.AUTOHAND_FEATURE_AUTOHAND_INFERENCE = originalFeatureEnv;
     if (originalLegacyEnv === undefined) delete process.env.AUTOHAND_INFERENCE_ENABLED;
     else process.env.AUTOHAND_INFERENCE_ENABLED = originalLegacyEnv;
-    if (originalFeatureList === undefined) delete process.env.AUTOHAND_FEATURES;
-    else process.env.AUTOHAND_FEATURES = originalFeatureList;
   });
 
-  it('keeps autohand_inference disabled by default', () => {
+  it('defaults autohand_inference to enabled now that the backend is deployed and verified', () => {
     delete process.env.AUTOHAND_FEATURE_AUTOHAND_INFERENCE;
     delete process.env.AUTOHAND_INFERENCE_ENABLED;
-    delete process.env.AUTOHAND_FEATURES;
 
-    expect(isAutohandInferenceEnabled()).toBe(false);
+    expect(isAutohandInferenceEnabled()).toBe(true);
   });
 
   it('enables autohand_inference from config', () => {
@@ -41,9 +37,18 @@ describe('feature flags', () => {
     expect(isAutohandInferenceEnabled()).toBe(true);
   });
 
-  it('enables autohand_inference from AUTOHAND_FEATURES list', () => {
-    process.env.AUTOHAND_FEATURES = 'other,autohand_inference';
+  it('can still be explicitly disabled via config, despite the enabled-by-default fallback', () => {
+    delete process.env.AUTOHAND_FEATURE_AUTOHAND_INFERENCE;
+    delete process.env.AUTOHAND_INFERENCE_ENABLED;
 
-    expect(isAutohandInferenceEnabled()).toBe(true);
+    expect(isAutohandInferenceEnabled({
+      features: { autohand_inference: false },
+    })).toBe(false);
+  });
+
+  it('can still be explicitly disabled via env, despite the enabled-by-default fallback', () => {
+    process.env.AUTOHAND_FEATURE_AUTOHAND_INFERENCE = 'false';
+
+    expect(isAutohandInferenceEnabled()).toBe(false);
   });
 });

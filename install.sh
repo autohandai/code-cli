@@ -178,6 +178,7 @@ EOF
     install_file "${_tmp_dir}/autohand" "$_dir/$BINARY_NAME"
     install_symlink "$BINARY_NAME" "$_dir/$COMPAT_BINARY_NAME"
     install_symlink "$BINARY_NAME" "$_dir/$AGENT_ALIAS_NAME"
+    claim_agent_alias_path_wide "$_dir/$BINARY_NAME" "$_dir"
 
     rm -rf "$_tmp_dir"
 
@@ -298,6 +299,48 @@ install_symlink() {
         printf "${YELLOW}Elevated permissions required to create alias in $(dirname "$_dest")${NC}\n"
         sudo ln -sfn "$_target" "$_dest"
     fi
+}
+
+claim_agent_alias_path_wide() {
+    # agent is a generic name other AI CLIs also claim (e.g. Grok installs its
+    # own "agent" earlier on PATH). Reclaim it in every writable PATH
+    # directory we didn't just install into, so "agent" resolves to Autohand
+    # instead of whichever competing tool happened to win the PATH race.
+    # User-writable directories only: no sudo/elevation into directories the
+    # current user can't already write to.
+    local _canonical="$1"
+    local _own_dir="$2"
+    local _seen=""
+    local _p _candidate _link_target
+    local _old_ifs="$IFS"
+
+    IFS=':'
+    set -- $PATH
+    IFS="$_old_ifs"
+
+    for _p in "$@"; do
+        [ -n "$_p" ] || continue
+        [ -d "$_p" ] || continue
+        [ "$_p" = "$_own_dir" ] && continue
+        case " $_seen " in
+            *" $_p "*) continue ;;
+        esac
+        _seen="$_seen $_p"
+        [ -w "$_p" ] || continue
+
+        _candidate="$_p/$AGENT_ALIAS_NAME"
+        if [ -L "$_candidate" ]; then
+            _link_target=$(readlink "$_candidate" 2>/dev/null || true)
+            [ "$_link_target" = "$_canonical" ] && continue
+        elif [ ! -e "$_candidate" ]; then
+            continue
+        fi
+
+        rm -f "$_candidate" 2>/dev/null || continue
+        if ln -sfn "$_canonical" "$_candidate" 2>/dev/null; then
+            info "Claimed existing 'agent' command in $_p"
+        fi
+    done
 }
 
 get_latest_alpha_tag() {

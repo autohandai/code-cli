@@ -20,7 +20,7 @@ describe("ProviderFactory", () => {
 
   describe("getProviderNames()", () => {
     it("should include standard providers while autohand inference is disabled", () => {
-      const providers = ProviderFactory.getProviderNames();
+      const providers = ProviderFactory.getProviderNames({ features: { autohand_inference: false } });
 
       expect(providers).not.toContain("autohandai");
       expect(providers).toContain("openrouter");
@@ -54,9 +54,11 @@ describe("ProviderFactory", () => {
     });
 
     it("should not include mlx on non-Apple Silicon", () => {
+      // autohand_inference now defaults on, so autohandai leads the default list.
       const providers = ProviderFactory.getProviderNames();
       expect(providers).not.toContain("mlx");
       expect(providers).toEqual([
+        "autohandai",
         "zai",
         "xai",
         "vertexai",
@@ -227,6 +229,7 @@ describe("ProviderFactory", () => {
     it("should return UnconfiguredProvider for autohandai when autohand_inference is disabled", () => {
       const config: AutohandConfig = {
         provider: "autohandai",
+        features: { autohand_inference: false },
         autohandai: {
           plan: "cloud",
           authMode: "api-key",

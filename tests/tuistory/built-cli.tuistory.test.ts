@@ -1634,30 +1634,24 @@ describe('interactive built CLI Tuistory tests', () => {
     await session.type('/deep-research Hermes self evolving and DSPy');
     await session.press('enter');
     await session.waitForText('Deep research started', { timeout: 10_000 });
-    const permissionSavedOrPublish = await session.text({
-      timeout: 30_000,
-      waitFor: (text) => (
-        (text.includes('Allow tool write_file?') && text.includes(reportPath)) ||
-        text.includes(`Research saved: ${reportPath}`) ||
-        text.includes('Would you like to publish this research?')
-      ),
-    });
-    if (permissionSavedOrPublish.includes('Allow tool write_file?')) {
-      await session.press('enter');
-    }
-    if (!permissionSavedOrPublish.includes('Would you like to publish this research?')) {
-      await session.waitForText('Would you like to publish this research?', { timeout: 30_000 });
-    }
-    await session.press('enter');
+    // /deep-research switches the session into automode, so tool calls are
+    // auto-approved and the post-turn publish step skips its blocking
+    // confirmation in favor of an informational recovery hint instead.
     await session.waitForText(
-      `Publication cancelled. Research remains local at ${reportPath}.`,
+      'Skipping the interactive publish prompt while auto mode is active.',
+      { timeout: 30_000 },
+    );
+    await session.waitForText(
+      `Publish later with: /publish-research ${reportPath}`,
       { timeout: 10_000 },
     );
 
     const output = session.readAll();
     expect(output).toContain(`Research saved: ${reportPath}`);
+    expect(output).not.toContain('Allow tool write_file?');
     expect(output).not.toContain('Write to this file?');
     expect(output).not.toContain(`Create new file ${reportPath}?`);
+    expect(output).not.toContain('Would you like to publish this research?');
 
     const savedReportPath = path.join(state.workspaceRoot, reportPath);
     expect(existsSync(savedReportPath)).toBe(true);

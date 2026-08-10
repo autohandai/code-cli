@@ -38,6 +38,9 @@ describe('CLI command aliases', () => {
     expect(installer).toContain(
       'install_symlink "$BINARY_NAME" "$_dir/$AGENT_ALIAS_NAME"',
     );
+    expect(installer).toContain(
+      'claim_agent_alias_path_wide "$_dir/$BINARY_NAME" "$_dir"',
+    );
   });
 
   it('installs the compatibility alias for local development builds', () => {
@@ -72,6 +75,10 @@ describe('CLI command aliases', () => {
     expect(installer).toContain('"%~dp0autohand.exe" %*');
     expect(installer).toContain(
       '[System.IO.File]::WriteAllLines($agentAliasPath, $compatShim, [System.Text.Encoding]::ASCII)',
+    );
+    expect(installer).toContain('function Claim-PathWideAgentAlias');
+    expect(installer).toContain(
+      'Claim-PathWideAgentAlias -OwnInstallPath $installPath -CanonicalBinaryPath $binaryPath -AgentCollisionNames $agentCollisionNames',
     );
   });
 });

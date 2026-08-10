@@ -7,7 +7,8 @@ import chalk from 'chalk';
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { getProviderConfig } from '../../config.js';
+import { getProviderConfig, saveConfig } from '../../config.js';
+import { applyStartupProviderDefaults } from '../../commands/login.js';
 import type {
   AgentRuntime,
   LLMToolCall,
@@ -445,7 +446,23 @@ function isRuntimeResourceShutdownStarted(host: AgentLifecycleHost): boolean {
     || host.runtimeResourceShutdownController?.signal.aborted === true;
 }
 
+/**
+ * Retroactively catches accounts that authenticated before autohandai defaulting existed and
+ * never re-run /login (applyPostLoginProviderDefault only fires on a fresh /login). A no-op,
+ * including the write, on every run after the first time it actually applies — see
+ * applyStartupProviderDefaults in commands/login.ts.
+ */
+async function applyStartupProviderDefaultsToHost(host: AgentLifecycleHost): Promise<void> {
+  const before = host.runtime.config as LoadedConfig;
+  const after = applyStartupProviderDefaults(before);
+  if (after === before) return;
+  host.runtime.config = after;
+  await saveConfig(after);
+}
+
 export async function runAgentInteractive(host: AgentLifecycleHost, initialInstruction?: string): Promise<void> {
+    await applyStartupProviderDefaultsToHost(host);
+
     // Bail out early if stdin is not a TTY - interactive mode requires a terminal
     if (!process.stdin.isTTY) {
       console.error(chalk.red('Interactive mode requires a terminal (TTY). Use --prompt for non-interactive usage.'));
@@ -972,6 +989,8 @@ export async function runAgentCommandMode(
   instruction: string,
   commandOptions: AbortSignal | RunAgentCommandModeOptions = {},
 ): Promise<boolean> {
+    await applyStartupProviderDefaultsToHost(host);
+
     const options = 'aborted' in commandOptions
       ? { signal: commandOptions }
       : commandOptions;

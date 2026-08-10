@@ -320,7 +320,7 @@ describe("buildConfigOptions()", () => {
 
 describe("parseAvailableModels()", () => {
   it("returns a list including popular models while autohand inference is disabled", () => {
-    const config = makeConfig();
+    const config = makeConfig({ features: { autohand_inference: false } });
     const models = parseAvailableModels(config);
 
     expect(models).not.toContain("fantail");
@@ -440,6 +440,7 @@ describe("resolveDefaultModel()", () => {
   it("falls back for autohandai provider settings while autohand_inference is disabled", () => {
     const config = makeConfig({
       provider: "autohandai",
+      features: { autohand_inference: false },
       autohandai: {
         plan: "cloud",
         authMode: "api-key",

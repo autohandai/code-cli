@@ -1057,6 +1057,13 @@ export class InkRenderer {
     this.updateState({ configuredLineExtensions });
   }
 
+  setShowModeLabel(showModeLabel: boolean): void {
+    if (this.state.showModeLabel === showModeLabel) {
+      return;
+    }
+    this.updateState({ showModeLabel });
+  }
+
   /**
    * Replace only the status-line extension point.
    */

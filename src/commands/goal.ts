@@ -154,6 +154,7 @@ async function handleQueue(manager: GoalManager, rest: string): Promise<string> 
 }
 
 function queueGoalContinuation(ctx: SlashCommandContext, objective: string): void {
+  ctx.setInteractionMode?.('automode');
   ctx.queueInstruction?.([
     `Active goal: ${objective}`,
     'Continue working toward this persistent goal until it is complete, blocked, paused, cleared, or budget-limited.',

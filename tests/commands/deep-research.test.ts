@@ -30,6 +30,7 @@ describe('/deep-research command', () => {
     ctx = {
       workspaceRoot,
       queueInstruction,
+      setInteractionMode: vi.fn(),
       skillsRegistry: {
         activateSkill,
       } as unknown as SlashCommandContext['skillsRegistry'],
@@ -87,6 +88,7 @@ describe('/deep-research command', () => {
     expect(result).toContain('/deep-research status');
     expect(activateSkill).toHaveBeenCalledWith('deep-research');
     expect(queueInstruction).toHaveBeenCalledOnce();
+    expect(ctx.setInteractionMode).toHaveBeenCalledWith('automode');
 
     const queued = queueInstruction.mock.calls[0][0] as string;
     const postTurnAction = queueInstruction.mock.calls[0][1];
@@ -180,6 +182,7 @@ describe('/deep-research command', () => {
 
     expect(result).toBe('No deep research run found. Start one with /deep-research <topic>.');
     expect(queueInstruction).not.toHaveBeenCalled();
+    expect(ctx.setInteractionMode).not.toHaveBeenCalled();
   });
 
   it('returns the prompt in non-interactive mode without queueing', async () => {

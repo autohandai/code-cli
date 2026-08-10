@@ -112,6 +112,7 @@ export async function deepResearch(
   }
 
   const activated = ctx.skillsRegistry?.activateSkill('deep-research') ?? false;
+  ctx.setInteractionMode?.('automode');
   ctx.queueInstruction(prompt, {
     kind: 'publish-research',
     runId: run.id,

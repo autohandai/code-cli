@@ -31,6 +31,7 @@ const STATUS_LINE_LABEL_KEYS: Record<StatusLineSettingKey, string> = {
   showActiveStatus: 'commands.statusline.fields.showActiveStatus',
   showActiveMetrics: 'commands.statusline.fields.showActiveMetrics',
   showCancelHint: 'commands.statusline.fields.showCancelHint',
+  showModeLabel: 'commands.statusline.fields.showModeLabel',
 };
 
 const STATUS_LINE_DESCRIPTION_KEYS: Record<StatusLineSettingKey, string> = {
@@ -45,6 +46,7 @@ const STATUS_LINE_DESCRIPTION_KEYS: Record<StatusLineSettingKey, string> = {
   showActiveStatus: 'commands.statusline.fields.showActiveStatusDesc',
   showActiveMetrics: 'commands.statusline.fields.showActiveMetricsDesc',
   showCancelHint: 'commands.statusline.fields.showCancelHintDesc',
+  showModeLabel: 'commands.statusline.fields.showModeLabelDesc',
 };
 
 function buildOptions(settings: Required<StatusLineSettings>): ModalOption[] {

@@ -1127,6 +1127,8 @@ describe('RPC Adapter - Browser handoff', () => {
   });
 
   it('hides Autohand AI Fantail models from supported models while autohand_inference is disabled', async () => {
+    // autohand_inference now defaults on, so this path has to be opted out explicitly.
+    mockAgent.runtime = { config: { features: { autohand_inference: false } } };
     const result = await adapter.handleGetSupportedModels();
 
     expect(result.models.map((model) => model.id)).not.toContain('fantail');

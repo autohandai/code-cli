@@ -274,6 +274,8 @@ export interface StatusLineSettings {
   showActiveMetrics?: boolean;
   /** Show the cancel hint while the agent is working (default: true). */
   showCancelHint?: boolean;
+  /** Show the mode word (PLAN/YOLO/AUTO) next to the glyph in the help line (default: true). */
+  showModeLabel?: boolean;
 }
 
 export interface UISettings {
@@ -873,6 +875,11 @@ export interface AutohandConfig {
   teams?: TeamSettings;
   /** Browser extension integration settings */
   chrome?: ChromeConfigSettings;
+  /**
+   * Set once the "your provider hit a rate limit — try Autohand?" offer has been shown, so it
+   * never nags a second time. Only relevant for users on their own (non-autohandai) provider.
+   */
+  autohandaiSwitchPromptShown?: boolean;
 }
 
 /** Supported web search providers */

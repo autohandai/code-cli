@@ -412,6 +412,43 @@ export class AuthClient {
   }
 
   /**
+   * Fetch the caller's own entitlement (tier + free-grant remaining) from GET /me. Used to decide,
+   * at a rate-limit failure on another provider, whether Autohand would actually have room before
+   * offering a switch. Returns null on any failure — callers treat "unknown" as "don't offer".
+   */
+  async fetchEntitlement(token: string): Promise<{ tier: string; freeRemaining: number | null } | null> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+
+    try {
+      const response = await fetch(`${this.baseUrl}/me`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Cookie': `auth_session=${token}`,
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!response.ok) return null;
+
+      const data = await response.json() as { entitlement?: { tier?: unknown; freeRemaining?: unknown } };
+      const tier = data.entitlement?.tier;
+      if (typeof tier !== 'string') return null;
+      const freeRemaining = data.entitlement?.freeRemaining;
+
+      return {
+        tier,
+        freeRemaining: typeof freeRemaining === 'number' ? freeRemaining : null,
+      };
+    } catch {
+      clearTimeout(timeoutId);
+      return null;
+    }
+  }
+
+  /**
    * Logout and invalidate session
    */
   async logout(token: string): Promise<LogoutResponse> {

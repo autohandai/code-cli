@@ -23,6 +23,7 @@ export const STATUS_LINE_SETTING_KEYS = [
   'showActiveStatus',
   'showActiveMetrics',
   'showCancelHint',
+  'showModeLabel',
 ] as const;
 
 export type StatusLineSettingKey = typeof STATUS_LINE_SETTING_KEYS[number];
@@ -39,6 +40,7 @@ export const DEFAULT_STATUS_LINE_SETTINGS: Required<ConfigStatusLineSettings> = 
   showActiveStatus: true,
   showActiveMetrics: true,
   showCancelHint: true,
+  showModeLabel: true,
 };
 
 export function resolveStatusLineSettings(
