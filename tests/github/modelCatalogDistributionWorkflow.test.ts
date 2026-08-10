@@ -18,6 +18,39 @@ const PUBLISH_WORKFLOW = join(ROOT, ".github/workflows/publish-model-catalog.yml
 const ADMIN_WORKFLOW = join(ROOT, ".github/workflows/model-catalog-admin-pr.yml");
 
 describe("model catalog distribution automation", () => {
+  it("generates the bundled Autohand AI provider catalog", () => {
+    const directory = mkdtempSync(join(tmpdir(), "autohand-model-distribution-"));
+    const outputPath = join(directory, "models.json");
+
+    try {
+      execFileSync(process.execPath, [
+        GENERATOR,
+        "--catalog",
+        join(ROOT, "src/providers/models.json"),
+        "--output",
+        outputPath,
+      ]);
+      const catalog = JSON.parse(readFileSync(outputPath, "utf8"));
+
+      expect(catalog.autohandai).toEqual({
+        fantail: expect.objectContaining({
+          api: "openai-completions",
+          baseUrl: "https://api.autohand.ai/v1",
+          contextWindow: 64_000,
+          maxTokens: 16_000,
+          provider: "autohandai",
+        }),
+        moa: expect.objectContaining({
+          contextWindow: 1_000_000,
+          maxTokens: 262_144,
+          provider: "autohandai",
+        }),
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("generates a Pi-compatible keyed catalog from the bundled source", () => {
     const directory = mkdtempSync(join(tmpdir(), "autohand-model-distribution-"));
     const sourcePath = join(directory, "source.json");
