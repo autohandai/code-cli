@@ -15,19 +15,9 @@ import type {
 } from "../types.js";
 import type { LLMProvider } from "./LLMProvider.js";
 import { AUTOHAND_AI_LOCAL_CODING_MODEL_FALLBACKS } from "./autohandAILocalSetup.js";
+import { getProviderModelOptions } from "./modelCatalog.js";
 
 export const AUTOHAND_AI_DEFAULT_BASE_URL = "https://api.autohand.ai/v1";
-export const AUTOHAND_AI_FANTAIL_CONTEXT_WINDOW = 16_000;
-export const AUTOHAND_AI_MOA_CONTEXT_WINDOW = 1_000_000;
-export const AUTOHAND_AI_DEFAULT_CONTEXT_WINDOW = AUTOHAND_AI_FANTAIL_CONTEXT_WINDOW;
-
-// Per-model output ceilings enforced by the inference gateway
-// (inference `MODEL_LIMITS.<model>.maxCompletionTokens`). Sending a larger
-// `max_tokens` is rejected upstream with a 400 "malformed request", so the
-// provider clamps every request to the target model's ceiling. Keep these in
-// lockstep with the inference worker.
-export const AUTOHAND_AI_FANTAIL_MAX_OUTPUT_TOKENS = 4_096;
-export const AUTOHAND_AI_MOA_MAX_OUTPUT_TOKENS = 262_144;
 // Requested output when the caller does not specify one; mirrors the shared
 // LLMGatewayClient default and is itself clamped to the model ceiling below.
 export const AUTOHAND_AI_DEFAULT_MAX_OUTPUT_TOKENS = 16_000;
@@ -39,28 +29,38 @@ export interface AutohandAICloudModelDefinition {
   contextWindow: number;
   maxOutputTokens: number;
   toolCalls: boolean;
-  reasoningEfforts?: readonly ["medium", "high", "xhigh"];
+  reasoningEfforts?: readonly ("medium" | "high" | "xhigh")[];
 }
 
-export const AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS = [
-  {
-    id: "fantail",
-    label: "Fantail",
-    description: "Ultra fast coding model with tool calls and 16k input context",
-    contextWindow: AUTOHAND_AI_FANTAIL_CONTEXT_WINDOW,
-    maxOutputTokens: AUTOHAND_AI_FANTAIL_MAX_OUTPUT_TOKENS,
-    toolCalls: true,
-  },
-  {
-    id: "moa",
-    label: "Moa (Thinking)",
-    description: "Reasoning model with medium/high/xhigh effort and 256k input context",
-    contextWindow: AUTOHAND_AI_MOA_CONTEXT_WINDOW,
-    maxOutputTokens: AUTOHAND_AI_MOA_MAX_OUTPUT_TOKENS,
-    toolCalls: true,
-    reasoningEfforts: ["medium", "high", "xhigh"],
-  },
-] as const satisfies readonly AutohandAICloudModelDefinition[];
+function requireCatalogNumber(model: string, field: "contextWindow" | "maxTokens"): number {
+  const value = getProviderModelOptions("autohandai").find((entry) => entry.id === model)?.[field];
+  if (value === undefined) {
+    throw new Error(`Autohand AI model catalog entry ${model} is missing ${field}.`);
+  }
+  return value;
+}
+
+export const AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS: readonly AutohandAICloudModelDefinition[] =
+  getProviderModelOptions("autohandai").map((model) => ({
+    id: model.id,
+    label: model.displayName ?? model.id,
+    description: model.description ?? model.displayName ?? model.id,
+    contextWindow: requireCatalogNumber(model.id, "contextWindow"),
+    maxOutputTokens: requireCatalogNumber(model.id, "maxTokens"),
+    toolCalls: model.toolCalls ?? false,
+    ...(model.reasoningEfforts
+      ? { reasoningEfforts: model.reasoningEfforts.filter(
+          (effort): effort is "medium" | "high" | "xhigh" =>
+            effort === "medium" || effort === "high" || effort === "xhigh",
+        ) }
+      : {}),
+  }));
+
+export const AUTOHAND_AI_FANTAIL_CONTEXT_WINDOW = requireCatalogNumber("fantail", "contextWindow");
+export const AUTOHAND_AI_MOA_CONTEXT_WINDOW = requireCatalogNumber("moa", "contextWindow");
+export const AUTOHAND_AI_DEFAULT_CONTEXT_WINDOW = AUTOHAND_AI_FANTAIL_CONTEXT_WINDOW;
+export const AUTOHAND_AI_FANTAIL_MAX_OUTPUT_TOKENS = requireCatalogNumber("fantail", "maxTokens");
+export const AUTOHAND_AI_MOA_MAX_OUTPUT_TOKENS = requireCatalogNumber("moa", "maxTokens");
 
 export const AUTOHAND_AI_CLOUD_MODELS = AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS.map(
   (model) => model.id,

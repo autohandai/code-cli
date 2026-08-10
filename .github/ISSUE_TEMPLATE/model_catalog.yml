@@ -14,6 +14,7 @@ body:
       label: Provider
       description: Select the built-in provider whose catalog should receive the model.
       options:
+        - autohandai
         - openrouter
         - ollama
         - openai

@@ -136,6 +136,29 @@ export function sortMessagesByPriority(messages: LLMMessage[]): number[] {
 }
 
 /**
+ * Protect the active user turn and, while it has no assistant response yet,
+ * the complete turn immediately before it. Follow-ups such as "let's spec it"
+ * depend on that previous assistant response for their meaning.
+ */
+export function findProtectedRecentTurnIndices(messages: LLMMessage[]): Set<number> {
+  const userIndices = messages
+    .map((message, index) => message.role === 'user' ? index : -1)
+    .filter(index => index >= 0);
+  const latestUserIndex = userIndices.at(-1);
+  if (latestUserIndex === undefined) return new Set<number>();
+
+  const hasAssistantResponse = messages
+    .slice(latestUserIndex + 1)
+    .some(message => message.role === 'assistant');
+  const previousUserIndex = userIndices.at(-2);
+  const protectedStart = !hasAssistantResponse && previousUserIndex !== undefined
+    ? previousUserIndex
+    : latestUserIndex;
+
+  return new Set(messages.map((_, index) => index).filter(index => index >= protectedStart));
+}
+
+/**
  * Ensure tool-call coherence when removing messages.
  * If a tool result is removed, its matching assistant tool_call must also go.
  * If an assistant with tool_calls is removed, all its tool results must also go.

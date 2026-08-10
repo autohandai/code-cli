@@ -62,8 +62,8 @@ describe('context/tokenizer', () => {
       expect(getContextWindow('fugu')).toBe(1_000_000);
       expect(getContextWindow('sakana/fugu-ultra')).toBe(1_000_000);
       expect(getContextWindow('glm-5.1')).toBe(200_000);
-      expect(getContextWindow('fantail')).toBe(16_000);
-      expect(getContextWindow('autohandai/moa')).toBe(1_000_000);
+      expect(getContextWindow('fantail', 64_000)).toBe(64_000);
+      expect(getContextWindow('autohandai/moa', 1_000_000)).toBe(1_000_000);
       expect(getContextWindow('tencent/hy3-preview:free')).toBe(262_144);
       expect(getContextWindow('tencent/hy3-preview-20260421:free')).toBe(262_144);
     });
@@ -371,6 +371,17 @@ describe('context/summarizer', () => {
       expect(summary).toContain('src/index.ts');
       expect(summary).toContain('read_file');
     });
+
+    it('preserves assistant ideas that a follow-up user message refers to', () => {
+      const summary = summarizeMessagesStatic([
+        { role: 'user', content: 'What feature should we build?' },
+        { role: 'assistant', content: 'Ideas: a live token dashboard, an extension marketplace, and offline Ollama mode.' },
+      ]);
+
+      expect(summary).toContain('live token dashboard');
+      expect(summary).toContain('extension marketplace');
+      expect(summary).toContain('offline Ollama mode');
+    });
   });
 
   describe('extractFileOperations', () => {
@@ -427,6 +438,45 @@ describe('context/compactor', () => {
     const result = await compactor.compact('openai/gpt-4o-mini', mockTools);
     const lastUser = result.messages.filter(m => m.role === 'user').pop();
     expect(lastUser?.content).toContain('Message 49');
+  });
+
+  it('preserves the last complete turn when the latest user message references it', async () => {
+    for (let i = 0; i < 12; i++) {
+      conversationManager.addMessage({ role: 'user', content: `Old request ${i} ${'x'.repeat(500)}` });
+      conversationManager.addMessage({ role: 'assistant', content: `Old response ${i} ${'y'.repeat(500)}` });
+    }
+    conversationManager.addMessage({ role: 'user', content: 'What can you do?' });
+    conversationManager.addMessage({
+      role: 'assistant',
+      content: 'Feature ideas: live token dashboard, extension marketplace, offline Ollama mode.',
+    });
+    conversationManager.addMessage({ role: 'user', content: "I loved those ideas, let's spec it." });
+
+    const result = await compactor.compact('fantail', [], undefined, undefined, 4_000);
+
+    expect(result.wasCropped).toBe(true);
+    expect(result.messages.some(message => message.content.includes('Feature ideas:'))).toBe(true);
+    expect(result.messages.some(message => message.content.includes("let's spec it"))).toBe(true);
+  });
+
+  it('does not repeatedly destroy recent turns when fixed tool overhead dominates the window', async () => {
+    conversationManager.addMessage({ role: 'user', content: `Old request ${'x'.repeat(1000)}` });
+    conversationManager.addMessage({ role: 'assistant', content: `Old response ${'y'.repeat(1000)}` });
+    conversationManager.addMessage({ role: 'user', content: 'What can you do?' });
+    conversationManager.addMessage({ role: 'assistant', content: 'Keep this complete brainstorm turn.' });
+    conversationManager.addMessage({ role: 'user', content: "Let's spec it." });
+    const fixedTools: FunctionDefinition[] = [{
+      name: 'large_tool',
+      description: 'z'.repeat(20_000),
+      parameters: { type: 'object', properties: {} },
+    }];
+
+    await compactor.compact('fantail', fixedTools, undefined, undefined, 4_000);
+    const second = await compactor.compact('fantail', fixedTools, undefined, undefined, 4_000);
+
+    expect(second.wasCropped).toBe(false);
+    expect(second.messages.some(message => message.content === 'Keep this complete brainstorm turn.')).toBe(true);
+    expect(second.messages.some(message => message.content === "Let's spec it.")).toBe(true);
   });
 });
 
@@ -535,19 +585,32 @@ describe('context/orchestrator', () => {
 
       expect(onHookEvent).toHaveBeenNthCalledWith(1, {
         event: 'context:critical',
-        usagePercent: usageBefore.usagePercent,
+        usagePercent: Math.min(1, usageBefore.usagePercent),
         remainingTokens: usageBefore.remainingTokens,
       });
       expect(onHookEvent).toHaveBeenNthCalledWith(2, {
         event: 'context:compact',
         croppedCount: result.croppedCount,
         summary: result.summary,
-        usagePercent: result.usage.usagePercent,
+        usagePercent: Math.min(1, result.usage.usagePercent),
         reason: 'tiered-compaction',
       });
       expect(usageBefore.usagePercent).toBeGreaterThan(1);
       expect(result.croppedCount).toBeGreaterThan(0);
       expect(result.usage.usagePercent).toBeLessThan(usageBefore.usagePercent);
+    });
+
+    it('keeps public warning percentages within the documented zero-to-one contract', async () => {
+      const onWarning = vi.fn();
+      const hookOrchestrator = new ContextOrchestrator({
+        model: 'fantail', contextWindow: 1_000, conversationManager, onWarning,
+      });
+      conversationManager.addMessage({ role: 'user', content: 'x'.repeat(10_000) });
+
+      const result = await hookOrchestrator.prepareRequest([]);
+
+      expect(result.usage.usagePercent).toBeGreaterThan(1);
+      expect(onWarning).toHaveBeenCalledWith(expect.objectContaining({ usagePercent: 1 }));
     });
 
     it('emits a warning hook when warning usage does not compact', async () => {
@@ -562,7 +625,7 @@ describe('context/orchestrator', () => {
       expect(onHookEvent).toHaveBeenCalledOnce();
       expect(onHookEvent).toHaveBeenCalledWith({
         event: 'context:warning',
-        usagePercent: result.usage.usagePercent,
+        usagePercent: Math.min(1, result.usage.usagePercent),
         remainingTokens: result.usage.remainingTokens,
       });
       expect(result.usage.usagePercent).toBeGreaterThanOrEqual(0.8);
@@ -644,7 +707,7 @@ describe('context/orchestrator', () => {
         event: 'context:compact',
         croppedCount: result.croppedCount,
         summary: result.summary,
-        usagePercent: result.usage.usagePercent,
+        usagePercent: Math.min(1, result.usage.usagePercent),
         reason: 'overflow',
       });
       expect(onHookEvent).toHaveBeenCalledWith({

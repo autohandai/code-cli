@@ -27,6 +27,7 @@ describe("modelCatalog", () => {
       getBundledModelCatalogPath,
       getProviderDefaultModel,
       getProviderModelIds,
+      getProviderModelOptions,
     } = await importCatalog();
 
     expect(getBundledModelCatalogPath()).toMatch(/src\/providers\/models\.json$/);
@@ -45,6 +46,11 @@ describe("modelCatalog", () => {
       "grok-4.3",
       "grok-4.20-reasoning",
     ]));
+    expect(getProviderDefaultModel("autohandai")).toBe("fantail");
+    expect(getProviderModelOptions("autohandai")).toEqual([
+      expect.objectContaining({ id: "fantail", contextWindow: 64_000, maxTokens: 16_000 }),
+      expect.objectContaining({ id: "moa", contextWindow: 1_000_000, maxTokens: 262_144 }),
+    ]);
   });
 
   it("keeps runtime defaults separate from user-facing defaults when needed", async () => {
@@ -72,6 +78,7 @@ describe("modelCatalog", () => {
       "nvidia",
       "deepseek",
       "bedrock",
+      "autohandai",
     ] as const;
 
     for (const provider of providers) {
@@ -177,6 +184,7 @@ describe("modelCatalog", () => {
           id: "nvidia/remote-model",
           displayName: "Remote Model",
           contextWindow: 262144,
+          maxTokens: 32768,
           reasoningEffort: "high",
         },
       ]));

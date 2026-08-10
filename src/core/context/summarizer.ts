@@ -23,6 +23,7 @@ export function summarizeMessagesStatic(messages: LLMMessage[]): string {
   const decisions: string[] = [];
   const errors: string[] = [];
   const userRequests: string[] = [];
+  const assistantContext: string[] = [];
 
   for (const msg of messages) {
     const metadata = msg.metadata ?? extractMessageMetadata(msg);
@@ -38,6 +39,11 @@ export function summarizeMessagesStatic(messages: LLMMessage[]): string {
     if (msg.role === 'user') {
       const preview = (msg.content ?? '').slice(0, 100);
       userRequests.push(preview + (preview.length < (msg.content?.length ?? 0) ? '...' : ''));
+    }
+
+    if (msg.role === 'assistant' && msg.content?.trim()) {
+      const preview = msg.content.trim().slice(0, 500);
+      assistantContext.push(preview + (preview.length < msg.content.trim().length ? '...' : ''));
     }
 
     if (metadata.isDecision && msg.role === 'assistant') {
@@ -59,6 +65,10 @@ export function summarizeMessagesStatic(messages: LLMMessage[]): string {
     parts.push(`User requests: ${userRequests.slice(0, 3).join(' | ')}`);
   }
 
+  if (assistantContext.length > 0) {
+    parts.push(`Assistant context: ${assistantContext.slice(-3).join(' | ')}`);
+  }
+
   if (files.size > 0) {
     parts.push(`Files touched: ${[...files].slice(0, 10).join(', ')}${files.size > 10 ? ` (+${files.size - 10} more)` : ''}`);
   }
@@ -76,6 +86,14 @@ export function summarizeMessagesStatic(messages: LLMMessage[]): string {
   }
 
   return parts.join('\n');
+}
+
+export function boundCompactionSummary(summary: string, removed: LLMMessage[]): string {
+  const removedCharacters = removed.reduce((total, message) => total + message.content.length, 0);
+  const maxCharacters = Math.max(160, Math.floor(removedCharacters * 0.2));
+  return summary.length <= maxCharacters
+    ? summary
+    : `${summary.slice(0, Math.max(0, maxCharacters - 3))}...`;
 }
 
 /**

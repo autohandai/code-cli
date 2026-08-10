@@ -18,8 +18,12 @@ export { getRemoteModelCatalogPath, getUserModelCatalogPath } from "./modelCatal
 export interface ModelCatalogEntry {
   id: string;
   displayName?: string;
+  description?: string;
   contextWindow?: number;
+  maxTokens?: number;
+  toolCalls?: boolean;
   reasoningEffort?: ReasoningEffort;
+  reasoningEfforts?: ReasoningEffort[];
 }
 
 interface ProviderModelCatalog {
@@ -48,6 +52,7 @@ const PROVIDERS: readonly BuiltInProviderName[] = [
   "nvidia",
   "deepseek",
   "bedrock",
+  "autohandai",
 ];
 
 const REASONING_EFFORTS: readonly ReasoningEffort[] = [
@@ -91,12 +96,27 @@ function normalizeModelEntry(value: unknown): ModelCatalogEntry | undefined {
   if (typeof value.displayName === "string" && value.displayName.trim()) {
     entry.displayName = value.displayName.trim();
   }
+  if (typeof value.description === "string" && value.description.trim()) {
+    entry.description = value.description.trim();
+  }
   if (typeof value.contextWindow === "number" && Number.isFinite(value.contextWindow)) {
     entry.contextWindow = value.contextWindow;
+  }
+  if (typeof value.maxTokens === "number" && Number.isFinite(value.maxTokens)) {
+    entry.maxTokens = value.maxTokens;
+  }
+  if (typeof value.toolCalls === "boolean") {
+    entry.toolCalls = value.toolCalls;
   }
   const reasoningEffort = normalizeReasoningEffort(value.reasoningEffort);
   if (reasoningEffort) {
     entry.reasoningEffort = reasoningEffort;
+  }
+  if (Array.isArray(value.reasoningEfforts)) {
+    const reasoningEfforts = value.reasoningEfforts
+      .map(normalizeReasoningEffort)
+      .filter((effort): effort is ReasoningEffort => Boolean(effort));
+    if (reasoningEfforts.length > 0) entry.reasoningEfforts = reasoningEfforts;
   }
   return entry;
 }

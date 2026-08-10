@@ -84,8 +84,6 @@ function inferContextWindow(model: string): number | undefined {
   if (normalized.startsWith('glm-5.2')) return 1_000_000;
   if (normalized.startsWith('glm-5.1')) return 200_000;
   if (normalized === 'fugu' || normalized === 'fugu-ultra') return 1_000_000;
-  if (normalized === 'fantail' || normalized.startsWith('fantail-')) return 16_000;
-  if (normalized === 'moa' || normalized.startsWith('moa-')) return 1_000_000;
   if (normalized.startsWith('qwen') || normalized.includes('coder') || normalized.includes('codestral')) return 128_000;
 
   return undefined;
@@ -239,7 +237,7 @@ export interface ContextUsage {
   contextWindow: number;
   /** Safe context window (with margin) */
   safeWindow: number;
-  /** Usage percentage (0-1) */
+  /** Internal usage ratio; values above 1 indicate overflow. Public events clamp this to 1. */
   usagePercent: number;
   /** Whether we're at warning threshold */
   isWarning: boolean;

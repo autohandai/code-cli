@@ -22,8 +22,13 @@ import {
   estimateMessageTokens,
 } from './tokenizer.js';
 import { compressToolOutput } from './compressor.js';
-import { sortMessagesByPriority, determineMessagePriority, findCoherentRemovalIndices } from './priority.js';
-import { summarizeWithLLM, summarizeMessagesStatic } from './summarizer.js';
+import {
+  sortMessagesByPriority,
+  determineMessagePriority,
+  findCoherentRemovalIndices,
+  findProtectedRecentTurnIndices,
+} from './priority.js';
+import { boundCompactionSummary, summarizeWithLLM, summarizeMessagesStatic } from './summarizer.js';
 
 // Tiered thresholds for progressive context management
 const COMPRESSION_THRESHOLD = 0.70;
@@ -194,7 +199,10 @@ export class ContextCompactor {
     contextWindow?: number,
   ): Promise<{ messages: LLMMessage[]; usage: ContextUsage; croppedCount: number; summary?: string }> {
     const targetUsage = 0.65;
-    const targetTokens = Math.floor(currentUsage.contextWindow * targetUsage);
+    const effectiveWindow = currentUsage.usagePercent > 0
+      ? currentUsage.totalTokens / currentUsage.usagePercent
+      : currentUsage.contextWindow;
+    const targetTokens = Math.floor(effectiveWindow * targetUsage);
     const tokensToRemove = currentUsage.totalTokens - targetTokens;
 
     if (tokensToRemove <= 0) {
@@ -207,12 +215,13 @@ export class ContextCompactor {
 
     const messages = this.conversationManager.history();
     const priorityOrder = sortMessagesByPriority(messages);
+    const protectedIndices = findProtectedRecentTurnIndices(messages);
 
     const toRemoveIndices: number[] = [];
     let removedTokens = 0;
 
     for (const idx of priorityOrder) {
-      if (idx === 0) continue;
+      if (idx === 0 || protectedIndices.has(idx)) continue;
 
       const msg = messages[idx];
       if (msg.role === 'user' && this.isLastUserMessage(messages, idx)) {
@@ -241,12 +250,17 @@ export class ContextCompactor {
       };
     }
 
-    const coherentIndices = findCoherentRemovalIndices(messages, toRemoveIndices);
+    const coherentIndices = findCoherentRemovalIndices(messages, toRemoveIndices)
+      .filter(index => !protectedIndices.has(index));
+    if (coherentIndices.length === 0) {
+      return { messages, usage: currentUsage, croppedCount: 0 };
+    }
     const removedMessages = coherentIndices.map(i => messages[i]);
 
-    const summary = currentUsage.usagePercent > 0.92
+    const rawSummary = currentUsage.usagePercent > 0.92
       ? summarizeMessagesStatic(removedMessages)
       : await summarizeWithLLM(removedMessages, this.llm, this.memoryManager);
+    const summary = boundCompactionSummary(rawSummary, removedMessages);
 
     const removed = this.conversationManager.removeIndices(coherentIndices);
     if (removed.length === 0) {

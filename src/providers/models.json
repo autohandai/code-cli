@@ -1,5 +1,29 @@
 {
   "providers": {
+    "autohandai": {
+      "defaultModel": "fantail",
+      "runtimeDefaultModel": "fantail",
+      "models": [
+        {
+          "id": "fantail",
+          "displayName": "Fantail",
+          "description": "Ultra-fast coding model with tool calls and 64k input context",
+          "contextWindow": 64000,
+          "maxTokens": 16000,
+          "toolCalls": true
+        },
+        {
+          "id": "moa",
+          "displayName": "Moa (Thinking)",
+          "description": "Reasoning model with medium, high, and xhigh effort and 1M input context",
+          "contextWindow": 1000000,
+          "maxTokens": 262144,
+          "toolCalls": true,
+          "reasoningEffort": "high",
+          "reasoningEfforts": ["medium", "high", "xhigh"]
+        }
+      ]
+    },
     "openrouter": {
       "defaultModel": "anthropic/claude-5-sonnet",
       "runtimeDefaultModel": "anthropic/claude-5-sonnet",

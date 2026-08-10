@@ -39,6 +39,7 @@ const BUILT_IN_PROVIDERS = new Set([
   "nvidia",
   "deepseek",
   "bedrock",
+  "autohandai",
 ]);
 
 interface ModelCatalogMetadata {

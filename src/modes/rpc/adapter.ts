@@ -15,7 +15,7 @@ import {
 import { buildAutomodeIterationPrompt } from '../../core/automodePrompt.js';
 import { McpClientManager } from '../../mcp/McpClientManager.js';
 import { classifyApiError, type ApiErrorCode } from '../../providers/errors.js';
-import { getAllCatalogModelOptions } from '../../providers/modelCatalog.js';
+import { getAllCatalogModelOptions, getProviderModelOptions } from '../../providers/modelCatalog.js';
 import type { ConversationManager } from '../../core/conversationManager.js';
 import type {
   AutohandConfig,
@@ -4137,16 +4137,16 @@ export class RPCAdapter {
     try {
       const config = (this.agent as unknown as { runtime?: { config?: AutohandConfig } } | null)
         ?.runtime?.config;
-      const autohandModels = isAutohandInferenceEnabled(config)
-        ? [
-            { id: 'fantail', displayName: 'Autohand AI Fantail' },
-            { id: 'moa', displayName: 'Autohand AI Moa (Thinking)' },
-          ]
-        : [];
-      const models = [...autohandModels, ...getAllCatalogModelOptions().map((model) => ({
-        id: model.id,
-        displayName: model.displayName ?? model.id,
-      }))];
+      const autohandModelIds = new Set(
+        getProviderModelOptions('autohandai').map((model) => model.id),
+      );
+      const includeAutohand = isAutohandInferenceEnabled(config);
+      const models = getAllCatalogModelOptions()
+        .filter((model) => includeAutohand || !autohandModelIds.has(model.id))
+        .map((model) => ({
+          id: model.id,
+          displayName: model.displayName ?? model.id,
+        }));
       return {
         models,
       };
