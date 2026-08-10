@@ -46,6 +46,7 @@ export interface UsageLimitRow {
   percentLeft?: number;
   used?: number;
   limit?: number;
+  unlimited?: boolean;
   resetLabel?: string;
   unavailableReason?: string;
 }
@@ -459,6 +460,10 @@ function formatUsageLimitRow(row: UsageLimitRow, labelWidth: number): string {
     return formatInfoRow(`${row.label}:`, row.unavailableReason, labelWidth);
   }
 
+  if (row.unlimited) {
+    return formatInfoRow(`${row.label}:`, 'No message limit', labelWidth);
+  }
+
   const percent = clampPercent(row.percentLeft ?? 100);
   const reset = row.resetLabel ? createCommandTheme().muted(` (${row.resetLabel})`) : '';
   const usage = typeof row.used === 'number' && typeof row.limit === 'number'
@@ -467,12 +472,70 @@ function formatUsageLimitRow(row: UsageLimitRow, labelWidth: number): string {
   return formatInfoRow(`${row.label}:`, `${formatProgressBar(percent)} ${percent}% left${reset}${usage}`, labelWidth);
 }
 
-export function formatUsageDashboard(data: UsageDashboardData): string {
+function accountQuotaUsageRows(entitlement: AccountEntitlement | null): UsageLimitRow[] | null {
+  const quota = entitlement?.quota;
+  if (!quota) return null;
+  if (!quota.available) {
+    return [{
+      label: 'autohandai',
+      unavailableReason: quota.message ?? 'current quota temporarily unavailable',
+    }];
+  }
+
+  return [
+    quotaWindowUsageRow('5-hour window', quota.window5h),
+    quotaWindowUsageRow('Weekly window', quota.week),
+  ];
+}
+
+function quotaWindowUsageRow(
+  label: string,
+  window: NonNullable<AccountEntitlement['quota']>['window5h'],
+): UsageLimitRow {
+  if (!window || window.limit === null) {
+    return { label, unlimited: true };
+  }
+  const percentLeft = window.limit === 0
+    ? 0
+    : (window.remaining ?? 0) / window.limit * 100;
+  return {
+    label,
+    percentLeft,
+    used: window.used,
+    limit: window.limit,
+    ...(window.resetAt ? { resetLabel: formatQuotaReset(window.resetAt) } : {}),
+  };
+}
+
+function formatQuotaReset(resetAt: string): string {
+  const reset = new Date(resetAt);
+  if (!Number.isFinite(reset.getTime())) return 'reset pending';
+  return `resets ${reset.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })}`;
+}
+
+export function formatUsageDashboard(
+  data: UsageDashboardData,
+  entitlement: AccountEntitlement | null = null,
+): string {
   const labelWidth = 24;
+  const accountQuotaRows = data.provider === 'autohandai'
+    ? accountQuotaUsageRows(entitlement)
+    : null;
   const providerLimitRows = data.usageLimits.length > 0
     ? data.usageLimits
-    : [{ label: String(data.provider), unavailableReason: 'not reported by provider' }];
+    : accountQuotaRows ?? [{
+      label: String(data.provider),
+      unavailableReason: data.provider === 'autohandai' && entitlement
+        ? 'current quota temporarily unavailable'
+        : 'not reported by provider',
+    }];
 
+  const allowance = entitlement ? formatAccountPlanAllowance(entitlement) : null;
   const lines = [
     formatInfoRow('Model:', formatModel(data), labelWidth),
     formatInfoRow('Provider:', String(data.provider), labelWidth),
@@ -480,6 +543,10 @@ export function formatUsageDashboard(data: UsageDashboardData): string {
     formatInfoRow('Permissions:', data.permissions, labelWidth),
     formatInfoRow('Agents.md:', data.agentsFile, labelWidth),
     formatInfoRow('Account:', data.account, labelWidth),
+    ...(entitlement ? [
+      formatInfoRow('Autohand plan:', formatAccountPlanName(entitlement), labelWidth),
+      ...(allowance ? [formatInfoRow('Allowance:', allowance, labelWidth)] : []),
+    ] : []),
     formatInfoRow('Session:', data.sessionId, labelWidth),
     '',
     formatInfoRow('Context window:', formatContextSummary(data), labelWidth),
@@ -623,5 +690,8 @@ export async function usage(ctx: SlashCommandContext, args: string[] = []): Prom
     model: ctx.model,
   });
 
-  return formatUsageDashboard(gatherUsageDashboardData(ctx));
+  return formatUsageDashboard(
+    gatherUsageDashboardData(ctx),
+    await resolveAccountEntitlement(ctx),
+  );
 }

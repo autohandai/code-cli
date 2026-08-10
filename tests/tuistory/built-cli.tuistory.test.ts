@@ -2315,6 +2315,56 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
+  it('shows the signed-in Autohand plan and live provider quota in the /status Usage tab', async () => {
+    const authServer = await createMockAuthServer();
+    mockAuthServers.push(authServer);
+    const session = await launchInteractive({
+      config: {
+        provider: 'autohandai',
+        autohandai: {
+          plan: 'cloud',
+          authMode: 'account',
+          accountToken: 'tuistory-account-token',
+          model: 'moa',
+          reasoningEffort: 'xhigh',
+          contextWindow: 1_000_000,
+        },
+        auth: {
+          token: 'tuistory-account-token',
+          user: {
+            id: 'tuistory-test-user',
+            email: 'tuistory@example.com',
+            name: 'Tuistory Test',
+          },
+        },
+        features: { usageV2: true, cliUsageV2: false },
+      },
+      env: {
+        AUTOHAND_AUTH_API_URL: `${authServer.baseUrl}/api/auth`,
+      },
+    });
+
+    await waitForComposer(session);
+    await session.type('/status');
+    await session.press('enter');
+    await session.waitForText('(tab to cycle)', { timeout: 10_000 });
+    await session.press('tab');
+    await session.press('tab');
+    await session.waitForText('Autohand plan:', { timeout: 10_000 });
+    const output = session.readAll();
+
+    expect(output).toContain('Autohand Code Pro');
+    expect(output).toContain('100 messages / 5 hours');
+    expect(output).toContain('5-hour window:');
+    expect(output).toContain('12 used / 100');
+    expect(output).toContain('Weekly window:');
+    expect(output).toContain('120 used / 1K');
+    expect(output).not.toContain('autohandai:              not reported by provider');
+    await session.press('escape');
+    await waitForComposer(session);
+    await exitInteractive(session);
+  });
+
   it('opens every registered slash command suggestion and dismisses the menu with Escape', async () => {
     const session = await launchInteractive();
     const slashCommands = getHelpOrderedSlashCommands(SLASH_COMMANDS).map(
