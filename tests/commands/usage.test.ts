@@ -118,6 +118,47 @@ function makeContext(overrides: Partial<SlashCommandContext> = {}): SlashCommand
 }
 
 describe('/usage command', () => {
+  it('shows the signed-in Autohand plan and message allowances above token activity', async () => {
+    const { usage } = await import('../../src/commands/usage.js');
+    const output = await usage(makeContext({
+      provider: 'autohandai',
+      config: {
+        configPath: '/tmp/autohand-config.json',
+        provider: 'autohandai',
+        autohandai: {
+          plan: 'cloud',
+          authMode: 'account',
+          accountToken: 'account-token',
+          model: 'fantail',
+        },
+        auth: {
+          token: 'account-token',
+          user: { id: 'user-1', email: 'user@example.com', name: 'Test User' },
+        },
+        features: { cliUsageV2: true },
+      },
+      getAccountEntitlement: vi.fn(async () => ({
+        tier: 'pro',
+        freeRemaining: null,
+        limits: {
+          displayName: 'Autohand Code Pro',
+          messagesPer5h: 100,
+          messagesPerWeek: 1000,
+          rpm: 100,
+          requiresEligibility: false,
+          perSeat: false,
+          models: ['fantail', 'moa'],
+        },
+      })),
+    }));
+
+    expect(output).toContain('Autohand plan');
+    expect(output).toContain('Autohand Code Pro');
+    expect(output).toContain('100 messages / 5 hours');
+    expect(output).toContain('1K messages / week');
+    expect(output).toContain('Token activity');
+  });
+
   it('renders the default daily token activity view from project sessions', async () => {
     const { usage } = await import('../../src/commands/usage.js');
     const ctx = makeContext();

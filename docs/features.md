@@ -85,8 +85,8 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | `/language` | Change display language |
 | `/login` | Authenticate with Autohand API |
 | `/logout` | Log out |
-| `/status` | Show session status |
-| `/usage` | Show project token activity by day, week, or month when `cli_usage_v2` is enabled |
+| `/status` | Show session status and the signed-in Autohand plan |
+| `/usage` | Show Autohand plan limits plus project token activity by day, week, or month when `cli_usage_v2` is enabled |
 | `/statusline` | Configure composer status-line fields |
 | `/permissions` | Manage tool permissions |
 | `/hooks` | Manage lifecycle hooks |
