@@ -2278,6 +2278,43 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
+  it('shows the signed-in Autohand plan and quota in /usage', async () => {
+    const authServer = await createMockAuthServer();
+    mockAuthServers.push(authServer);
+    const session = await launchInteractive({
+      config: {
+        provider: 'openai',
+        openai: {
+          apiKey: 'tuistory-test-api-key',
+          model: 'gpt-5.5',
+        },
+        auth: {
+          token: 'tuistory-account-token',
+          user: {
+            id: 'tuistory-test-user',
+            email: 'tuistory@example.com',
+            name: 'Tuistory Test',
+          },
+        },
+        features: { cliUsageV2: true },
+      },
+      env: {
+        AUTOHAND_AUTH_API_URL: `${authServer.baseUrl}/api/auth`,
+      },
+    });
+
+    await waitForComposer(session);
+    await session.type('/usage');
+    await session.press('enter');
+    await session.waitForText('Autohand Code Pro', { timeout: 10_000 });
+    const output = session.readAll();
+
+    expect(output).toContain('Autohand plan');
+    expect(output).toContain('100 messages / 5 hours');
+    expect(output).toContain('1K messages / week');
+    await exitInteractive(session);
+  });
+
   it('opens every registered slash command suggestion and dismisses the menu with Escape', async () => {
     const session = await launchInteractive();
     const slashCommands = getHelpOrderedSlashCommands(SLASH_COMMANDS).map(

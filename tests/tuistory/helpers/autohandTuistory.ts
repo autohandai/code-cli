@@ -830,6 +830,19 @@ export async function createMockAuthServer(
           email: 'tuistory@example.com',
           name: 'Tuistory Test',
         },
+        entitlement: {
+          tier: 'pro',
+          freeRemaining: null,
+          limits: {
+            displayName: 'Autohand Code Pro',
+            messagesPer5h: 100,
+            messagesPerWeek: 1000,
+            rpm: 100,
+            requiresEligibility: false,
+            perSeat: false,
+            models: ['fantail', 'moa'],
+          },
+        },
       }));
       return;
     }

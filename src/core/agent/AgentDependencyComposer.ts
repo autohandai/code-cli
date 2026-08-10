@@ -80,6 +80,7 @@ import { MentionResolver } from './MentionResolver.js';
 import { AutoReportManager } from '../../reporting/AutoReportManager.js';
 import { RemoteFeatureFlagManager } from '../../features/RemoteFeatureFlagManager.js';
 import { getAnnouncementManager } from '../../announcements/AnnouncementManager.js';
+import { getAuthClient } from '../../auth/index.js';
 import { syncAgentAnnouncementLine } from './AgentUIRuntime.js';
 import { getFeatureState } from '../../features/featureRegistry.js';
 import { isGoalFeatureEnabled, resolveGoalFeatureEnabled } from '../../goals/feature.js';
@@ -1530,6 +1531,13 @@ export function initializeAgentDependencies(
       },
       getTokenUsageStatus: () => host.sessionTokenUsageUnavailable ? 'unavailable' as const : 'actual' as const,
       getContextWindow: () => host.contextWindow,
+      getAccountEntitlement: () => {
+        const autohand = runtime.config.autohandai;
+        const token = autohand?.accountToken
+          ?? runtime.config.auth?.token
+          ?? (autohand?.authMode === 'api-key' ? autohand.apiKey : undefined);
+        return token ? getAuthClient().fetchEntitlement(token) : Promise.resolve(null);
+      },
       isFeatureEnabled: isRuntimeFeatureEnabled,
       trackFeatureActivation: (key: string, metadata?: Record<string, unknown>) => {
         void host.featureFlagManager?.trackFeatureActivation?.(key, metadata);

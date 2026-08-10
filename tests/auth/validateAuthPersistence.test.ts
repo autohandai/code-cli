@@ -62,6 +62,48 @@ describe('AuthClient.validateSession network error handling', () => {
   });
 });
 
+describe('AuthClient.fetchEntitlement', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns the authoritative plan name and message allowances', async () => {
+    const client = new AuthClient({ baseUrl: 'https://auth.example.com', timeout: 5000 });
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        entitlement: {
+          tier: 'pro',
+          freeRemaining: null,
+          limits: {
+            displayName: 'Autohand Code Pro',
+            messagesPer5h: 100,
+            messagesPerWeek: 1000,
+            rpm: 100,
+            requiresEligibility: false,
+            perSeat: false,
+            models: ['fantail', 'moa'],
+          },
+        },
+      }), { status: 200 }),
+    );
+
+    await expect(client.fetchEntitlement('pro-token')).resolves.toEqual({
+      tier: 'pro',
+      freeRemaining: null,
+      limits: {
+        displayName: 'Autohand Code Pro',
+        messagesPer5h: 100,
+        messagesPerWeek: 1000,
+        rpm: 100,
+        requiresEligibility: false,
+        perSeat: false,
+        models: ['fantail', 'moa'],
+      },
+    });
+  });
+});
+
 describe('AuthClient device authorization cancellation', () => {
   const deviceCode = 'D'.repeat(43);
 

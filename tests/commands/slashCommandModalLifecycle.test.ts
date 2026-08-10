@@ -213,6 +213,89 @@ describe('/status command screen isolation', () => {
     }
   });
 
+  it('shows the signed-in Autohand plan on the status screen', async () => {
+    const { EventEmitter } = await import('node:events');
+    const originalStdin = process.stdin;
+    const originalStdout = process.stdout;
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const input = new EventEmitter() as NodeJS.ReadStream & {
+      isTTY: boolean;
+      isRaw: boolean;
+      setRawMode: (mode: boolean) => void;
+      setEncoding: (encoding: BufferEncoding) => void;
+      resume: () => void;
+      pause: () => void;
+      isPaused: () => boolean;
+    };
+    input.isTTY = true;
+    input.isRaw = false;
+    input.setRawMode = vi.fn((mode: boolean) => { input.isRaw = mode; });
+    input.setEncoding = vi.fn();
+    input.resume = vi.fn();
+    input.pause = vi.fn();
+    input.isPaused = vi.fn(() => false);
+    const output = new EventEmitter() as NodeJS.WriteStream & {
+      isTTY: boolean;
+      write: (chunk: string | Uint8Array) => boolean;
+    };
+    output.isTTY = false;
+    output.write = vi.fn(() => true);
+    Object.defineProperty(process, 'stdin', { value: input, writable: true, configurable: true });
+    Object.defineProperty(process, 'stdout', { value: output, writable: true, configurable: true });
+
+    const ctx = {
+      sessionManager: {
+        getCurrentSession: () => ({ metadata: { sessionId: 'session-plan' } }),
+        listSessions: vi.fn(async () => []),
+      },
+      llm: { isAvailable: vi.fn(async () => true) },
+      workspaceRoot: '/tmp/workspace',
+      provider: 'autohandai',
+      model: 'fantail',
+      getContextPercentLeft: () => 100,
+      getTotalTokensUsed: () => 0,
+      config: {
+        provider: 'autohandai',
+        autohandai: { plan: 'cloud', authMode: 'account', accountToken: 'account-token', model: 'fantail' },
+        auth: { token: 'account-token', user: { id: 'u1', email: 'user@example.com', name: 'User' } },
+      },
+      getAccountEntitlement: vi.fn(async () => ({
+        tier: 'pro',
+        freeRemaining: null,
+        limits: {
+          displayName: 'Autohand Code Pro',
+          messagesPer5h: 100,
+          messagesPerWeek: 1000,
+          rpm: 100,
+          requiresEligibility: false,
+          perSeat: false,
+          models: ['fantail', 'moa'],
+        },
+      })),
+      isContextCompactionEnabled: () => true,
+    };
+
+    try {
+      const { status } = await import('../../src/commands/status.js');
+      const statusPromise = status(ctx as any);
+      while (input.listenerCount('data') === 0) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      input.emit('data', '\u0003');
+      await statusPromise;
+
+      const rendered = consoleSpy.mock.calls.map((args) => args.join(' ')).join('\n');
+      expect(rendered).toContain('Plan:');
+      expect(rendered).toContain('Autohand Code Pro');
+      expect(rendered).toContain('100 messages / 5 hours');
+    } finally {
+      Object.defineProperty(process, 'stdin', { value: originalStdin, writable: true, configurable: true });
+      Object.defineProperty(process, 'stdout', { value: originalStdout, writable: true, configurable: true });
+      consoleSpy.mockRestore();
+      vi.restoreAllMocks();
+    }
+  });
+
   it('labels context as estimated and shows unavailable actual token usage', async () => {
     const { EventEmitter } = await import('node:events');
     const originalStdin = process.stdin;

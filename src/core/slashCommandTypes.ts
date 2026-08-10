@@ -34,6 +34,7 @@ import type { ExtensionService } from '../extensions/ExtensionService.js';
 import type { PendingPostTurnAction } from './agent/PostTurnActionCoordinator.js';
 import type { InteractionMode } from './agent/InteractionModeController.js';
 import type { AnnouncementManagerContract } from '../announcements/AnnouncementManager.js';
+import type { AccountEntitlement } from '../auth/AuthClient.js';
 
 export interface SlashCommandContext {
     listWorkspaceFiles?: () => Promise<void>;
@@ -67,6 +68,8 @@ export interface SlashCommandContext {
     getContextWindow?: () => number;
     /** Get provider/account usage limits when available */
     getUsageLimits?: () => UsageLimitRow[] | undefined;
+    /** Resolve the signed-in Autohand account's plan and catalog-backed limits. */
+    getAccountEntitlement?: () => Promise<AccountEntitlement | null>;
     /** Evaluate a feature flag using the active local/remote feature state */
     isFeatureEnabled?: (key: string, localDefault?: boolean) => boolean;
     /** Track feature activation without affecting command behavior */

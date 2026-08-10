@@ -2295,8 +2295,8 @@ Autohand provides a rich set of slash commands for interactive use. Type `/` in 
 | `/undo`       | Revert git changes and last turn                      |
 | `/export`     | Export session to markdown/JSON/HTML                  |
 | `/share`      | Share current session                                 |
-| `/status`     | Show session status                                   |
-| `/usage`      | Show project token activity by day, week, or month    |
+| `/status`     | Show session status and the signed-in Autohand plan   |
+| `/usage`      | Show Autohand plan limits and project token activity  |
 
 ### Model & Provider
 

@@ -14,6 +14,7 @@ import type { SessionMetadata } from '../session/types.js';
 import type { LoadedConfig, PermissionMode, ProviderName, ProviderSettings, ReasoningEffort } from '../types.js';
 import { createCommandTheme } from './commandTheme.js';
 import { formatAccount } from './accountDisplay.js';
+import type { AccountEntitlement } from '../auth/AuthClient.js';
 
 export const USAGE_V2_FLAG = 'usage_v2';
 export const CLI_USAGE_V2_FLAG = 'cli_usage_v2';
@@ -67,7 +68,7 @@ export interface UsageDashboardData {
 
 export const metadata = {
   command: '/usage',
-  description: 'Show token activity by day, week, or month',
+  description: 'Show account plan limits and token activity',
   implemented: true,
   subcommands: [
     { name: 'daily', description: 'Show daily token activity for the last 12 months' },
@@ -117,6 +118,41 @@ function formatCompactNumber(value: number): string {
   }
 
   return String(Math.round(value));
+}
+
+function formatMessageAllowance(value: number | null, window: string): string {
+  return value === null
+    ? `No ${window} message limit`
+    : `${formatCompactNumber(value)} messages / ${window}`;
+}
+
+export function formatAccountPlanName(entitlement: AccountEntitlement): string {
+  return entitlement.limits?.displayName ?? entitlement.tier;
+}
+
+export function formatAccountPlanAllowance(entitlement: AccountEntitlement): string | null {
+  if (!entitlement.limits) return null;
+  return [
+    formatMessageAllowance(entitlement.limits.messagesPer5h, '5 hours'),
+    formatMessageAllowance(entitlement.limits.messagesPerWeek, 'week'),
+  ].join(' · ');
+}
+
+export async function resolveAccountEntitlement(ctx: SlashCommandContext): Promise<AccountEntitlement | null> {
+  try {
+    return await ctx.getAccountEntitlement?.() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function formatAccountPlanSummary(entitlement: AccountEntitlement): string {
+  const theme = createCommandTheme();
+  const allowance = formatAccountPlanAllowance(entitlement);
+  return [
+    `${theme.muted('Autohand plan')}  ${theme.warning(formatAccountPlanName(entitlement))}`,
+    ...(allowance ? [`${theme.muted('Allowance')}      ${allowance}`] : []),
+  ].join('\n');
 }
 
 function formatPermissionMode(mode?: PermissionMode): string {
@@ -546,12 +582,13 @@ function formatPeriodTabs(period: UsageActivityPeriod): string {
     .join(theme.muted(' · '));
 }
 
-function formatUsageActivityDashboard(data: UsageActivityData): string {
+function formatUsageActivityDashboard(data: UsageActivityData, entitlement: AccountEntitlement | null): string {
   const theme = createCommandTheme();
   const heatmap = data.period === 'daily' ? renderDailyHeatmap(data) : renderLinearHeatmap(data);
   return [
     theme.accent(`/usage ${data.period}`),
     '',
+    ...(entitlement ? [formatAccountPlanSummary(entitlement), ''] : []),
     `${theme.bold('Token activity')}   ${theme.muted(data.rangeLabel)}`,
     formatActivitySummary(data),
     '',
@@ -570,7 +607,11 @@ export async function usage(ctx: SlashCommandContext, args: string[] = []): Prom
       model: ctx.model,
       period,
     });
-    return formatUsageActivityDashboard(await gatherUsageActivityData(ctx, period));
+    const [activity, entitlement] = await Promise.all([
+      gatherUsageActivityData(ctx, period),
+      resolveAccountEntitlement(ctx),
+    ]);
+    return formatUsageActivityDashboard(activity, entitlement);
   }
 
   if (!isUsageV2Enabled(ctx)) {

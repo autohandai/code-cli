@@ -23,6 +23,22 @@ const CREDENTIAL_PATTERN = /^ahc_[A-Za-z0-9_-]{43}$/u;
 const DEVICE_AUTH_ERROR = 'Autohand returned an invalid device-authorization challenge.';
 const DEVICE_AUTH_STATUS_ERROR = 'Autohand returned an invalid device-authorization status.';
 
+export interface AccountEntitlementLimits {
+  displayName: string;
+  messagesPer5h: number | null;
+  messagesPerWeek: number | null;
+  rpm: number;
+  requiresEligibility: boolean;
+  perSeat: boolean;
+  models: string[];
+}
+
+export interface AccountEntitlement {
+  tier: string;
+  freeRemaining: number | null;
+  limits?: AccountEntitlementLimits;
+}
+
 type JsonRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -41,6 +57,30 @@ function isSafeText(value: unknown, maxLength = 256): value is string {
     && value.length > 0
     && value.length <= maxLength
     && !/[\u0000-\u001f\u007f]/u.test(value);
+}
+
+function parseAccountEntitlementLimits(value: unknown): AccountEntitlementLimits | undefined {
+  if (!isRecord(value)
+    || !isSafeText(value.displayName)
+    || (value.messagesPer5h !== null && typeof value.messagesPer5h !== 'number')
+    || (value.messagesPerWeek !== null && typeof value.messagesPerWeek !== 'number')
+    || typeof value.rpm !== 'number'
+    || typeof value.requiresEligibility !== 'boolean'
+    || typeof value.perSeat !== 'boolean'
+    || !Array.isArray(value.models)
+    || !value.models.every((model) => isSafeText(model))) {
+    return undefined;
+  }
+
+  return {
+    displayName: value.displayName,
+    messagesPer5h: value.messagesPer5h,
+    messagesPerWeek: value.messagesPerWeek,
+    rpm: value.rpm,
+    requiresEligibility: value.requiresEligibility,
+    perSeat: value.perSeat,
+    models: value.models,
+  };
 }
 
 function responseError(data: unknown, status: number): string {
@@ -416,7 +456,7 @@ export class AuthClient {
    * at a rate-limit failure on another provider, whether Autohand would actually have room before
    * offering a switch. Returns null on any failure — callers treat "unknown" as "don't offer".
    */
-  async fetchEntitlement(token: string): Promise<{ tier: string; freeRemaining: number | null } | null> {
+  async fetchEntitlement(token: string): Promise<AccountEntitlement | null> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
@@ -433,14 +473,17 @@ export class AuthClient {
 
       if (!response.ok) return null;
 
-      const data = await response.json() as { entitlement?: { tier?: unknown; freeRemaining?: unknown } };
-      const tier = data.entitlement?.tier;
+      const data: unknown = await response.json();
+      const entitlement = isRecord(data) && isRecord(data.entitlement) ? data.entitlement : undefined;
+      const tier = entitlement?.tier;
       if (typeof tier !== 'string') return null;
-      const freeRemaining = data.entitlement?.freeRemaining;
+      const freeRemaining = entitlement?.freeRemaining;
+      const limits = parseAccountEntitlementLimits(entitlement?.limits);
 
       return {
         tier,
         freeRemaining: typeof freeRemaining === 'number' ? freeRemaining : null,
+        ...(limits ? { limits } : {}),
       };
     } catch {
       clearTimeout(timeoutId);
