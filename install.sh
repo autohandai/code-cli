@@ -175,6 +175,14 @@ EOF
 
     chmod +x "${_tmp_dir}/autohand"
 
+    local _binary_version
+    if ! _binary_version=$(probe_binary_version "${_tmp_dir}/autohand" "${_tmp_dir}/version"); then
+        printf "${RED}Error: Downloaded Autohand CLI failed to start${NC}\n"
+        printf "${YELLOW}The existing installation was not changed.${NC}\n"
+        rm -rf "$_tmp_dir"
+        exit 1
+    fi
+
     install_file "${_tmp_dir}/autohand" "$_dir/$BINARY_NAME"
     install_symlink "$BINARY_NAME" "$_dir/$COMPAT_BINARY_NAME"
     install_symlink "$BINARY_NAME" "$_dir/$AGENT_ALIAS_NAME"
@@ -198,32 +206,12 @@ EOF
     printf "${GREEN}Autohand CLI installed successfully!${NC}\n"
     echo ""
 
-    if command -v "$_dir/$BINARY_NAME" > /dev/null 2>&1; then
-        # Use timeout to guard against binary hangs (e.g., circular dependency deadlock)
-        _ver=""
-        if command -v timeout > /dev/null 2>&1; then
-            _ver=$(timeout 5 "$_dir/$BINARY_NAME" --version < /dev/null 2>/dev/null) || true
-        else
-            # macOS doesn't have timeout by default; use a background job
-            "$_dir/$BINARY_NAME" --version < /dev/null > /tmp/.autohand_ver 2>/dev/null &
-            _pid=$!
-            sleep 3
-            if kill -0 "$_pid" 2>/dev/null; then
-                kill "$_pid" 2>/dev/null
-                wait "$_pid" 2>/dev/null || true
-            else
-                wait "$_pid" 2>/dev/null || true
-                _ver=$(cat /tmp/.autohand_ver 2>/dev/null) || true
-            fi
-            rm -f /tmp/.autohand_ver
-        fi
-        echo "Version: ${_ver:-unknown}"
-        echo ""
-        echo "Get started:"
-        echo "  autohand              # Start interactive mode"
-        echo "  autohand --help       # Show all options"
-        echo "  autohand login        # Sign in to your account"
-    fi
+    echo "Version: $_binary_version"
+    echo ""
+    echo "Get started:"
+    echo "  autohand              # Start interactive mode"
+    echo "  autohand --help       # Show all options"
+    echo "  autohand login        # Sign in to your account"
 
     install_local_ai_runtime_if_requested
 
@@ -275,6 +263,51 @@ verify_checksum() {
     fi
 
     success "Checksum verification passed"
+}
+
+probe_binary_version() {
+    local _binary="$1"
+    local _output_file="$2"
+    local _pid _watchdog _status
+
+    if command -v timeout > /dev/null 2>&1; then
+        if timeout 5 "$_binary" --version < /dev/null > "$_output_file" 2>/dev/null; then
+            _status=0
+        else
+            _status=$?
+        fi
+
+        if [ "$_status" -ne 0 ]; then
+            return "$_status"
+        fi
+    else
+        "$_binary" --version < /dev/null > "$_output_file" 2>/dev/null &
+        _pid=$!
+        (
+            local _sleep_pid=""
+            trap '[ -z "$_sleep_pid" ] || kill "$_sleep_pid" 2>/dev/null; exit 0' HUP INT TERM
+            sleep 5 &
+            _sleep_pid=$!
+            wait "$_sleep_pid" 2>/dev/null || exit 0
+            kill "$_pid" 2>/dev/null
+        ) &
+        _watchdog=$!
+
+        if wait "$_pid" 2>/dev/null; then
+            _status=0
+        else
+            _status=$?
+        fi
+
+        kill "$_watchdog" 2>/dev/null || true
+        wait "$_watchdog" 2>/dev/null || true
+
+        if [ "$_status" -ne 0 ]; then
+            return "$_status"
+        fi
+    fi
+
+    cat "$_output_file"
 }
 
 install_file() {

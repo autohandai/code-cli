@@ -3,7 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   chmodSync,
@@ -66,6 +66,51 @@ afterEach(() => {
 });
 
 describe('release installer command aliases', () => {
+  unixIt('rejects a downloaded binary that cannot start before replacing the installation', () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), 'autohand-installer-startup-'));
+    tempRoots.push(tempRoot);
+    const payloadDir = join(tempRoot, 'payload');
+    const fixtureBinDir = join(tempRoot, 'fixture-bin');
+    const installDir = join(tempRoot, 'install');
+    const archivePath = join(tempRoot, 'autohand.tar.gz');
+    const checksumPath = `${archivePath}.sha256`;
+    const fixtureBinary = join(payloadDir, 'autohand');
+    const installedBinary = join(installDir, 'autohand');
+    const existingBinary = '#!/bin/sh\nprintf "existing-version\\n"\n';
+
+    mkdirSync(payloadDir, { recursive: true });
+    mkdirSync(fixtureBinDir, { recursive: true });
+    mkdirSync(installDir, { recursive: true });
+    writeFileSync(fixtureBinary, '#!/bin/sh\nkill -9 $$\n');
+    chmodSync(fixtureBinary, 0o755);
+    writeFileSync(installedBinary, existingBinary);
+    chmodSync(installedBinary, 0o755);
+    execFileSync('tar', ['-czf', archivePath, '-C', payloadDir, 'autohand']);
+    const checksum = createHash('sha256')
+      .update(readFileSync(archivePath))
+      .digest('hex');
+    writeFileSync(checksumPath, `${checksum}  autohand.tar.gz\n`);
+
+    writeFakeCurl(fixtureBinDir);
+
+    const result = spawnSync('/bin/sh', ['install.sh'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${fixtureBinDir}:${SAFE_SYSTEM_PATH}`,
+        AUTOHAND_INSTALL_DIR: installDir,
+        AUTOHAND_TEST_ARCHIVE: archivePath,
+        AUTOHAND_TEST_CHECKSUM: checksumPath,
+        AUTOHAND_VERSION: 'test-version',
+      },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stdout).toContain('Error: Downloaded Autohand CLI failed to start');
+    expect(readFileSync(installedBinary, 'utf8')).toBe(existingBinary);
+  });
+
   unixIt('force-refreshes autohand-code and agent aliases in the install directory', () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'autohand-installer-aliases-'));
     tempRoots.push(tempRoot);
