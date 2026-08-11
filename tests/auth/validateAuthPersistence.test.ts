@@ -149,14 +149,14 @@ describe('AuthClient device authorization cancellation', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({
         success: true,
-        schemaVersion: 1,
+        schemaVersion: 2,
         status: 'cancelled',
       }), { status: 200 }),
     );
 
     await expect(client.cancelDeviceAuth(deviceCode)).resolves.toEqual({
       success: true,
-      schemaVersion: 1,
+      schemaVersion: 2,
       status: 'cancelled',
     });
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -165,7 +165,7 @@ describe('AuthClient device authorization cancellation', () => {
       expect.objectContaining({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceCode, schemaVersion: 1 }),
+        body: JSON.stringify({ deviceCode, schemaVersion: 2 }),
       }),
     );
   });

@@ -1163,7 +1163,10 @@ export class SetupWizard {
 
       await this.sleep(pollInterval);
 
-      const pollResult = await authClient.pollDeviceAuth(initResult.deviceCode);
+      const pollResult = await authClient.pollDeviceAuth(
+        initResult.deviceCode,
+        initResult.schemaVersion ?? 2,
+      );
 
       if (pollResult.status === 'authorized' && pollResult.token && pollResult.user) {
         process.stdout.write('\r' + ' '.repeat(20) + '\r');

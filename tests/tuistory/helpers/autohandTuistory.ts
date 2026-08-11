@@ -815,12 +815,6 @@ export async function createMockAuthServer(
 ): Promise<MockAuthServer> {
   let pollCount = 0;
   const deviceCode = 'D'.repeat(43);
-  const continuation = [
-    'v1',
-    'current',
-    'eyJhdWQiOiJhdXRvaGFuZC1zaXRlLWNsaS1hdXRoLXYxIn0',
-    'S'.repeat(43),
-  ].join('.');
   const server = createServer((request, response) => {
     if (request.url === '/api/auth/me' && request.method === 'GET') {
       response.writeHead(200, { 'content-type': 'application/json' });
@@ -866,12 +860,11 @@ export async function createMockAuthServer(
       response.writeHead(201, { 'content-type': 'application/json' });
       response.end(JSON.stringify({
         success: true,
-        schemaVersion: 1,
+        schemaVersion: 2,
         deviceCode,
         userCode: 'TEST-CAFE',
         verificationUri: 'https://autohand.ai/signin',
-        verificationUriComplete:
-          `https://autohand.ai/signin?continue=${continuation}&user_code=TEST-CAFE`,
+        verificationUriComplete: 'https://autohand.ai/signin?user_code=TEST-CAFE',
         expiresIn: 300,
         interval: 1,
       }));
@@ -887,7 +880,7 @@ export async function createMockAuthServer(
       ) {
         response.end(JSON.stringify({
           success: true,
-          schemaVersion: 1,
+          schemaVersion: 2,
           status: 'authorized',
           token: `ahc_${'C'.repeat(43)}`,
           user: {
@@ -900,7 +893,7 @@ export async function createMockAuthServer(
       }
       response.end(JSON.stringify({
         success: true,
-        schemaVersion: 1,
+        schemaVersion: 2,
         status: 'pending',
         interval: 1,
       }));
