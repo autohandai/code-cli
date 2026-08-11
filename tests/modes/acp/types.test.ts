@@ -280,7 +280,25 @@ describe("buildConfigOptions()", () => {
     const options = buildConfigOptions(config);
 
     expect(Array.isArray(options)).toBe(true);
-    expect(options.length).toBe(3);
+    expect(options.length).toBe(4);
+  });
+
+  it("includes the current model as a standard ACP model config option", () => {
+    const options = buildConfigOptions(makeConfig());
+    const model = options.find((option) => option.id === "model");
+
+    expect(model).toMatchObject({
+      type: "select",
+      category: "model",
+      name: "Model",
+      currentValue: "your-modelcard-id-here",
+    });
+    expect(model).toHaveProperty(
+      "options",
+      expect.arrayContaining([
+        expect.objectContaining({ value: "your-modelcard-id-here" }),
+      ]),
+    );
   });
 
   it("includes thinking_level option", () => {
