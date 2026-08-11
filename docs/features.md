@@ -101,7 +101,7 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | `/share` | Share current session |
 | `/sync` | Sync settings |
 | `/add-dir` | Add directories to workspace |
-| `/goal` | Set, review, or refine a persistent session goal |
+| `/goal` | Set a persistent goal and continue successful auto-mode turns until it reaches a terminal state |
 | `/goal writer` | Draft one or more well-specified goals with the built-in `$goal-writer` skill |
 | `/automode` | Start autonomous coding mode |
 | `/autoresearch` | Run replayable benchmark loops with adaptive decisions, history, replay, comparison, and Pareto analysis |

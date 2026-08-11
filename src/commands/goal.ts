@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
-import { GoalManager } from '../goals/GoalManager.js';
+import { buildGoalContinuationInstruction, GoalManager } from '../goals/GoalManager.js';
 import type { SlashCommand, SlashCommandContext } from '../core/slashCommandTypes.js';
 import type { GoalMutationResult, GoalSnapshot } from '../goals/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, resolveGoalFeatureEnabled } from '../goals/feature.js';
@@ -155,11 +155,7 @@ async function handleQueue(manager: GoalManager, rest: string): Promise<string> 
 
 function queueGoalContinuation(ctx: SlashCommandContext, objective: string): void {
   ctx.setInteractionMode?.('automode');
-  ctx.queueInstruction?.([
-    `Active goal: ${objective}`,
-    'Continue working toward this persistent goal until it is complete, blocked, paused, cleared, or budget-limited.',
-    'Use get_goal or update_goal when you need to inspect or modify the goal state.',
-  ].join('\n'));
+  ctx.queueInstruction?.(buildGoalContinuationInstruction(objective));
 }
 
 function formatMutation(result: GoalMutationResult): string {
