@@ -241,6 +241,17 @@ export function mergeModelOptions(
   return merged;
 }
 
+function mergeModelOptionOverrides(
+  primary: readonly ModelCatalogEntry[],
+  fallback: readonly ModelCatalogEntry[],
+): ModelCatalogEntry[] {
+  const fallbackById = new Map(fallback.map((entry) => [entry.id, entry]));
+  return mergeModelOptions(primary, fallback).map((entry) => {
+    const fallbackEntry = fallbackById.get(entry.id);
+    return fallbackEntry ? { ...fallbackEntry, ...entry } : entry;
+  });
+}
+
 export function mergeModelIds(primary: readonly string[], fallback: readonly string[]): string[] {
   const normalizedPrimary = primary.map((id) => ({ id }));
   const normalizedFallback = fallback.map((id) => ({ id }));
@@ -260,7 +271,7 @@ function mergeCatalogs(base: ModelCatalog, override: ModelCatalog): ModelCatalog
     merged.providers[provider] = {
       defaultModel: overrideProvider?.defaultModel ?? baseProvider?.defaultModel,
       runtimeDefaultModel: overrideProvider?.runtimeDefaultModel ?? baseProvider?.runtimeDefaultModel,
-      models: mergeModelOptions(overrideProvider?.models ?? [], baseProvider?.models ?? []),
+      models: mergeModelOptionOverrides(overrideProvider?.models ?? [], baseProvider?.models ?? []),
     };
   }
 
