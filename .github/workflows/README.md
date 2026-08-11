@@ -24,8 +24,9 @@ This directory contains automated CI/CD workflows for the Autohand CLI project.
    - Linux ARM64 (`autohand-linux-arm64`)
    - Windows x64 (`autohand-windows-x64.exe`)
 
-4. **Signs macOS binaries after Bun compilation** and verifies the transported
-   Actions artifacts on macOS before release publication
+4. **Signs macOS binaries after Bun compilation** and verifies each transported
+   Actions artifact on a native Apple Silicon or Intel runner before release
+   publication
 
 5. **Generates release notes** from the correct previous release tag
 
