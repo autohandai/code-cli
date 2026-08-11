@@ -15,16 +15,27 @@ interface WorkflowStep {
   if?: string;
   env?: Record<string, string>;
   run?: string;
+  uses?: string;
+  with?: Record<string, string>;
+}
+
+interface WorkflowJob {
+  needs?: string[];
+  'runs-on'?: string;
+  strategy?: {
+    matrix?: {
+      artifact?: string[];
+    };
+  };
+  steps: WorkflowStep[];
 }
 
 interface ReleaseWorkflow {
   jobs: {
-    prepare: {
-      steps: WorkflowStep[];
-    };
-    release: {
-      steps: WorkflowStep[];
-    };
+    prepare: WorkflowJob;
+    build: WorkflowJob;
+    'verify-macos-artifacts'?: WorkflowJob;
+    release: WorkflowJob;
   };
 }
 
@@ -133,6 +144,51 @@ describe('release workflow', () => {
 
     expect(workflowScripts).not.toContain('git push origin ${{ github.ref_name }}');
     expect(workflowScripts).not.toContain('No changes to push');
+  });
+
+  it('signs macOS binaries after compilation and verifies transported artifacts before release', () => {
+    const workflow = loadReleaseWorkflow();
+    const buildSteps = workflow.jobs.build.steps;
+    const compileIndex = buildSteps.findIndex((step) => step.name === 'Compile binary');
+    const signIndex = buildSteps.findIndex((step) => step.name === 'Sign macOS binary');
+    const smokeIndex = buildSteps.findIndex((step) => step.name === 'Smoke test binary');
+    const uploadIndex = buildSteps.findIndex((step) => step.name === 'Upload artifact');
+    const signStep = buildSteps[signIndex];
+
+    expect(compileIndex).toBeGreaterThanOrEqual(0);
+    expect(signIndex).toBeGreaterThan(compileIndex);
+    expect(smokeIndex).toBeGreaterThan(signIndex);
+    expect(uploadIndex).toBeGreaterThan(smokeIndex);
+    expect(signStep?.if).toBe("runner.os == 'macOS'");
+    expect(signStep?.run).toContain('codesign --force --sign - --timestamp=none');
+    expect(signStep?.run).toContain('codesign --verify --strict --verbose=4');
+
+    const transportJob = workflow.jobs['verify-macos-artifacts'];
+    const downloadStep = transportJob?.steps.find(
+      (step) => step.name === 'Download macOS artifact',
+    );
+    const verifyStep = transportJob?.steps.find(
+      (step) => step.name === 'Verify transported macOS binary',
+    );
+
+    expect(transportJob?.needs).toEqual(['prepare', 'build']);
+    expect(transportJob?.['runs-on']).toBe('macos-latest');
+    expect(transportJob?.strategy?.matrix?.artifact).toEqual([
+      'autohand-macos-arm64',
+      'autohand-macos-x64',
+    ]);
+    expect(downloadStep?.uses).toBe('actions/download-artifact@v8');
+    expect(downloadStep?.with).toEqual({
+      name: '${{ matrix.artifact }}',
+      path: 'binaries',
+    });
+    expect(verifyStep?.run).toContain('codesign --verify --strict --verbose=4');
+    expect(verifyStep?.run).toContain('"$binary" --version < /dev/null');
+    expect(workflow.jobs.release.needs).toEqual([
+      'prepare',
+      'build',
+      'verify-macos-artifacts',
+    ]);
   });
 
   it('builds, verifies, and publishes alpha packages with the alpha npm dist-tag', () => {
