@@ -35,10 +35,12 @@ describe('local install scripts', () => {
     };
     const proofScript = packageJson.scripts?.proof ?? '';
     const unitProofScript = packageJson.scripts?.['proof:unit'] ?? '';
+    const typecheckScript = packageJson.scripts?.typecheck ?? '';
 
     expect(proofScript).toBe('bun run proof:unit && bun run proof:build-tuistory');
-    expect(unitProofScript).toBe('eslint . && tsc --noEmit && node --max-old-space-size=8192 ./node_modules/vitest/vitest.mjs run');
-    expect(unitProofScript).not.toContain('bun run');
+    expect(typecheckScript).toBe('node ./node_modules/@typescript/native/bin/tsc --noEmit');
+    expect(unitProofScript).toBe('eslint . && bun run typecheck && node --max-old-space-size=8192 ./node_modules/vitest/vitest.mjs run');
+    expect(unitProofScript).not.toContain('tsc --noEmit');
   });
 
   it('runs dev through a portable minimal bun environment', () => {

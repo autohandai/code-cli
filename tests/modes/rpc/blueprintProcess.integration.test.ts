@@ -22,8 +22,7 @@ function runRestrictedProfile(
 ): Promise<ProcessResult> {
   return new Promise((resolve, reject) => {
     const child = spawn('bun', [
-      '--preload',
-      'tests/fixtures/rpcPanicFetch.ts',
+      '--preload=./tests/fixtures/rpcPanicFetch.ts',
       'src/index.ts',
       ...args,
     ], {
