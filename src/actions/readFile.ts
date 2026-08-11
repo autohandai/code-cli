@@ -4,13 +4,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { createReadStream } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
+import { TextDecoder } from 'node:util';
 
 export interface ReadTextWindowOptions {
   offset: number;
   lineLimit: number;
   maxBytes: number;
   maxLineCharacters: number;
+  captureDigest?: boolean;
 }
 
 export interface ReadTextWindowLine {
@@ -28,6 +31,8 @@ export interface ReadTextWindowResult {
   continuation?: ReadTextWindowContinuation;
   reachedEof: boolean;
   linesScanned: number;
+  /** Raw-byte digest, available only when a valid UTF-8 stream reached EOF. */
+  sha256?: string;
 }
 
 class TextWindowCollector {
@@ -211,16 +216,42 @@ export async function readTextFileWindow(
 ): Promise<ReadTextWindowResult> {
   const collector = new TextWindowCollector(options);
   const decoder = new StringDecoder('utf8');
+  const captureDigest = options.captureDigest === true;
+  const utf8Validator = captureDigest
+    ? new TextDecoder('utf-8', { fatal: true })
+    : undefined;
+  const hash = captureDigest ? createHash('sha256') : undefined;
   const stream = createReadStream(filePath, { highWaterMark: 64 * 1024 });
+  let utf8Valid = true;
 
   for await (const chunk of stream) {
-    collector.consume(decoder.write(chunk as Buffer));
+    const bytes = chunk as Buffer;
+    hash?.update(bytes);
+    if (utf8Validator && utf8Valid) {
+      try {
+        utf8Validator.decode(bytes, { stream: true });
+      } catch {
+        utf8Valid = false;
+      }
+    }
+    collector.consume(decoder.write(bytes));
     if (collector.stopped) {
       break;
     }
   }
   if (!collector.stopped) {
     collector.consume(decoder.end());
+    if (utf8Validator && utf8Valid) {
+      try {
+        utf8Validator.decode();
+      } catch {
+        utf8Valid = false;
+      }
+    }
   }
-  return collector.finish();
+  const result = collector.finish();
+  return {
+    ...result,
+    ...(result.reachedEof && utf8Valid && hash ? { sha256: hash.digest('hex') } : {}),
+  };
 }

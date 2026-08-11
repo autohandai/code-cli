@@ -14,15 +14,16 @@ import { readFileSync } from 'node:fs';
 describe('file mutation tools diff display', () => {
   const src = readFileSync('src/core/actionExecutor.ts', 'utf-8');
 
-  /** Extract a block of source from case start to the given length */
-  function extractCaseBlock(caseName: string, length = 500): string {
-    const idx = src.indexOf(`case '${caseName}'`);
-    if (idx === -1) throw new Error(`case '${caseName}' not found in actionExecutor.ts`);
-    return src.slice(idx, idx + length);
+  /** Extract one complete top-level switch case without relying on source length. */
+  function extractCaseBlock(caseName: string): string {
+    const start = src.indexOf(`case '${caseName}'`);
+    if (start === -1) throw new Error(`case '${caseName}' not found in actionExecutor.ts`);
+    const nextCase = src.indexOf('\n      case ', start + 1);
+    return src.slice(start, nextCase === -1 ? src.length : nextCase);
   }
 
   it('format_file calls notifyFileModified and showDiff when content changes', () => {
-    const block = extractCaseBlock('format_file', 800);
+    const block = extractCaseBlock('format_file');
     expect(block).toContain('notifyFileModified');
     expect(block).toContain('context?.toolCallId');
     expect(block).toContain('showDiff');
@@ -30,20 +31,20 @@ describe('file mutation tools diff display', () => {
   });
 
   it('delete_path calls notifyFileModified with delete type', () => {
-    const block = extractCaseBlock('delete_path', 1000);
+    const block = extractCaseBlock('delete_path');
     expect(block).toContain('notifyFileModified');
     expect(block).toContain('context?.toolCallId');
     expect(block).toContain("'delete'");
   });
 
   it('delete_path reads old content before deletion for diff display', () => {
-    const block = extractCaseBlock('delete_path', 1000);
+    const block = extractCaseBlock('delete_path');
     expect(block).toContain('readFile');
     expect(block).toContain('showDiff');
   });
 
   it('add_dependency shows package.json diff', () => {
-    const block = extractCaseBlock('add_dependency', 800);
+    const block = extractCaseBlock('add_dependency');
     expect(block).toContain('notifyFileModified');
     expect(block).toContain('context?.toolCallId');
     expect(block).toContain('showDiff');
@@ -51,7 +52,7 @@ describe('file mutation tools diff display', () => {
   });
 
   it('remove_dependency shows package.json diff', () => {
-    const block = extractCaseBlock('remove_dependency', 800);
+    const block = extractCaseBlock('remove_dependency');
     expect(block).toContain('notifyFileModified');
     expect(block).toContain('context?.toolCallId');
     expect(block).toContain('showDiff');
@@ -59,7 +60,7 @@ describe('file mutation tools diff display', () => {
   });
 
   it('git_checkout shows diff and calls notifyFileModified', () => {
-    const block = extractCaseBlock('git_checkout', 900);
+    const block = extractCaseBlock('git_checkout');
     expect(block).toContain('notifyFileModified');
     expect(block).toContain('context?.toolCallId');
     expect(block).toContain('showDiff');
@@ -67,19 +68,19 @@ describe('file mutation tools diff display', () => {
   });
 
   it('rename_path calls notifyFileModified with create type', () => {
-    const block = extractCaseBlock('rename_path', 400);
+    const block = extractCaseBlock('rename_path');
     expect(block).toContain('notifyFileModified');
     expect(block).toContain('context?.toolCallId');
   });
 
   it('copy_path calls notifyFileModified with create type', () => {
-    const block = extractCaseBlock('copy_path', 400);
+    const block = extractCaseBlock('copy_path');
     expect(block).toContain('notifyFileModified');
     expect(block).toContain('context?.toolCallId');
   });
 
   it('todo_write calls notifyFileModified', () => {
-    const block = extractCaseBlock('todo_write', 3100);
+    const block = extractCaseBlock('todo_write');
     expect(block).toContain('notifyFileModified');
     expect(block).toContain('context?.toolCallId');
   });

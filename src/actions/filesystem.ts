@@ -6,6 +6,7 @@
 import fs from 'fs-extra';
 import type { Stats } from 'node:fs';
 import { open, opendir } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -18,6 +19,7 @@ import {
   type ReadTextWindowOptions,
   type ReadTextWindowResult,
 } from './readFile.js';
+import type { ReadFileRevision } from '../session/types.js';
 
 /**
  * Resource limits to prevent DoS and resource exhaustion
@@ -76,7 +78,33 @@ export interface ReadFileWindowResult extends ReadTextWindowResult {
   openedPath: string;
   repairedPath: boolean;
   sizeBytes: number;
+  revision: ReadFileRevision;
+  revisionStable: boolean;
   format: { kind: 'text' } | { kind: 'binary'; mimeType: string };
+}
+
+export interface ReadFileInspection {
+  requestedPath: string;
+  resolvedPath: string;
+  openedPath: string;
+  repairedPath: boolean;
+  revision: ReadFileRevision;
+}
+
+export type FilePathInspection =
+  | { kind: 'missing'; requestedPath: string; resolvedPath: string }
+  | { kind: 'directory'; requestedPath: string; resolvedPath: string }
+  | {
+      kind: 'file';
+      requestedPath: string;
+      resolvedPath: string;
+      revision: ReadFileRevision;
+    };
+
+export interface HashedFileRevision {
+  sha256: string;
+  revision: ReadFileRevision;
+  revisionStable: boolean;
 }
 
 interface AdmittedSearchEntry {
@@ -105,6 +133,7 @@ export class FileActionManager {
   private onBatchChange: BatchChangeCallback | null = null;
   private currentToolId = '';
   private currentToolName = '';
+  private previewStaleCheckEnabled = false;
 
   constructor(
     workspaceRoot: string,
@@ -199,6 +228,10 @@ export class FileActionManager {
     this.onBatchChange = null;
   }
 
+  setPreviewStaleCheckEnabled(enabled: boolean): void {
+    this.previewStaleCheckEnabled = enabled;
+  }
+
   /**
    * Check if in preview mode
    */
@@ -254,6 +287,25 @@ export class FileActionManager {
     for (const change of changesToApply) {
       try {
         const fullPath = this.resolvePath(change.filePath);
+        if (this.previewStaleCheckEnabled) {
+          const exists = await fs.pathExists(fullPath);
+          if (change.changeType === 'create') {
+            if (exists) {
+              throw new Error(`${change.filePath} was created after preview; review and retry.`);
+            }
+          } else {
+            if (!exists) {
+              throw new Error(`${change.filePath} changed after preview; review and retry.`);
+            }
+            const stats = await fs.stat(fullPath);
+            const currentContents = stats.isFile()
+              ? await fs.readFile(fullPath, 'utf8')
+              : '';
+            if (currentContents !== change.originalContent) {
+              throw new Error(`${change.filePath} changed after preview; review and retry.`);
+            }
+          }
+        }
 
         if (change.changeType === 'delete') {
           await fs.remove(fullPath);
@@ -343,15 +395,20 @@ export class FileActionManager {
   async readFileWindow(
     target: string,
     options: ReadTextWindowOptions,
+    inspection?: ReadFileInspection,
   ): Promise<ReadFileWindowResult> {
-    this.assertSafeReadFileTarget(target);
-    const { filePath, openedPath, repairedPath } = await this.resolveReadFileTarget(target);
-    const stats = await fs.stat(filePath);
-    if (!stats.isFile()) {
-      throw new Error(`Path ${target} is not a regular file.`);
-    }
-    const format = await this.detectReadFileFormat(filePath, stats.size);
+    const inspected = inspection?.requestedPath === target
+      ? inspection
+      : await this.inspectReadFile(target);
+    const {
+      resolvedPath: filePath,
+      openedPath,
+      repairedPath,
+      revision,
+    } = inspected;
+    const format = await this.detectReadFileFormat(filePath, revision.sizeBytes);
     if (format.kind === 'binary') {
+      const currentRevision = this.toReadFileRevision(await fs.stat(filePath));
       return {
         lines: [],
         reachedEof: true,
@@ -359,18 +416,96 @@ export class FileActionManager {
         resolvedPath: filePath,
         openedPath,
         repairedPath,
-        sizeBytes: stats.size,
+        sizeBytes: revision.sizeBytes,
+        revision,
+        revisionStable: this.sameReadFileRevision(revision, currentRevision),
         format,
       };
     }
+    const result = await readTextFileWindow(filePath, options);
+    const currentRevision = this.toReadFileRevision(await fs.stat(filePath));
     return {
-      ...await readTextFileWindow(filePath, options),
+      ...result,
       resolvedPath: filePath,
       openedPath,
       repairedPath,
-      sizeBytes: stats.size,
+      sizeBytes: revision.sizeBytes,
+      revision,
+      revisionStable: this.sameReadFileRevision(revision, currentRevision),
       format,
     };
+  }
+
+  async inspectReadFile(target: string): Promise<ReadFileInspection> {
+    this.assertSafeReadFileTarget(target);
+    const { filePath, openedPath, repairedPath } = await this.resolveReadFileTarget(target);
+    const resolvedPath = await fs.realpath(filePath);
+    const stats = await fs.stat(resolvedPath);
+    if (!stats.isFile()) {
+      throw new Error(`Path ${target} is not a regular file.`);
+    }
+    return {
+      requestedPath: target,
+      resolvedPath,
+      openedPath,
+      repairedPath,
+      revision: this.toReadFileRevision(stats),
+    };
+  }
+
+  async inspectPath(target: string): Promise<FilePathInspection> {
+    const requestedPath = target;
+    const admittedPath = this.resolvePath(target);
+    if (!(await fs.pathExists(admittedPath))) {
+      return { kind: 'missing', requestedPath, resolvedPath: admittedPath };
+    }
+    const resolvedPath = await fs.realpath(admittedPath);
+    const stats = await fs.stat(resolvedPath);
+    if (stats.isDirectory()) {
+      return { kind: 'directory', requestedPath, resolvedPath };
+    }
+    if (!stats.isFile()) {
+      throw new Error(`Path ${target} is not a regular file.`);
+    }
+    return {
+      kind: 'file',
+      requestedPath,
+      resolvedPath,
+      revision: this.toReadFileRevision(stats),
+    };
+  }
+
+  async hashInspectedFile(inspection: Extract<FilePathInspection, { kind: 'file' }>): Promise<HashedFileRevision> {
+    const before = this.toReadFileRevision(await fs.stat(inspection.resolvedPath));
+    const hash = createHash('sha256');
+    const stream = fs.createReadStream(inspection.resolvedPath);
+    for await (const chunk of stream) {
+      hash.update(chunk as Buffer);
+    }
+    const after = this.toReadFileRevision(await fs.stat(inspection.resolvedPath));
+    return {
+      sha256: hash.digest('hex'),
+      revision: before,
+      revisionStable: this.sameReadFileRevision(before, after),
+    };
+  }
+
+  private toReadFileRevision(stats: Stats): ReadFileRevision {
+    return {
+      sizeBytes: stats.size,
+      mtimeMs: stats.mtimeMs,
+      ctimeMs: stats.ctimeMs,
+      ...(Number.isSafeInteger(stats.ino) ? { inode: stats.ino } : {}),
+      ...(Number.isSafeInteger(stats.dev) ? { device: stats.dev } : {}),
+    };
+  }
+
+  private sameReadFileRevision(left: ReadFileRevision, right: ReadFileRevision): boolean {
+    return left.sizeBytes === right.sizeBytes
+      && left.mtimeMs === right.mtimeMs
+      && left.ctimeMs === right.ctimeMs
+      && left.inode === right.inode
+      && left.device === right.device;
   }
 
   private assertSafeReadFileTarget(target: string): void {

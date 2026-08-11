@@ -1,7 +1,7 @@
 # `read_file` Specification
 
-Status: proposed for the text-read path.
-Reviewed: 2026-08-10.
+Status: implemented for the text-read path and three opt-in stateful-read increments.
+Reviewed: 2026-08-11.
 Source analysis: [source-analysis.md](./source-analysis.md).
 Implementation audit: [implementation-audit.md](./implementation-audit.md).
 
@@ -17,7 +17,11 @@ This specification adopts the article's high-value text-read recommendations whe
 - `offset` remains a **zero-based line index** because that is the existing published tool schema. Returned line labels remain one-based so they agree with editors and stack traces.
 - `limit` remains optional. `0` and omission select the default window; a positive value selects a smaller window. A caller cannot raise a ceiling by requesting a larger value.
 - `ui.readFileCharLimit` continues to affect terminal display only. The bounded model result defined here is independent of that display setting.
-- Stateful unchanged-read deduplication and a read-before-write ledger are not added by this change. They alter write authorization and conversation state and require a separate cross-tool design review.
+- Stateful behavior ships as three ordered, restart-required experiments. All are disabled by default, so existing reads and writes remain compatible:
+  - `read_state_ledger` records model-visible coverage without changing tool output or write authorization;
+  - `read_state_dedup` implies the ledger and enables consume-on-hit unchanged-read stubs;
+  - `read_before_write` implies both earlier increments and enforces the ledger for direct file-mutation tools.
+- `AUTOHAND_DISABLE_STATEFUL_READ=1` is the emergency compatibility switch. It disables all three increments for the current process even when their configuration flags are enabled.
 
 ## Normative requirements
 
@@ -76,6 +80,52 @@ This specification adopts the article's high-value text-read recommendations whe
 2. Repaired reads report the actual workspace-relative path that was opened.
 3. Tool output remains full for the model while existing UI-only output compaction may shorten terminal rendering.
 
+### RT-7: Session read ledger
+
+1. When any stateful-read experiment is enabled, every successful text read records what was actually visible to the model, not merely what the scanner loaded.
+2. Ledger entries are keyed by the canonical opened path and an observed file revision. A revision contains file size, modification time, change time, and platform file identity where available.
+3. The ledger stores no file contents. It stores a raw SHA-256 digest only after a stable, valid-UTF-8 stream has reached EOF, plus merged zero-based ranges for source lines that were shown completely and without a per-line clamp.
+4. A line cut by either byte ceiling or the per-line clamp is not covered. A later window may cover a byte-cut line by reading again from that line; a clamped line cannot become covered through `read_file` alone.
+5. A text file is complete only when the ledger has a stable raw digest, knows the total source-line count, and merged coverage spans every source line. An empty text file read from offset zero is complete. Binary, document-format, and text views containing replacement for invalid UTF-8 never make an entry complete.
+6. Coverage from multiple windows may be merged only while the canonical path still has the same observed revision. Any revision change starts a new entry and discards coverage and dedup records for the older revision.
+7. Ledger state is bounded and persists with the active session independently of conversation compaction. Resuming the same session restores it. Starting, forking, or cloning into a different session starts with an empty ledger.
+8. Ledger persistence is fail-soft for reads: a storage failure must not turn a successful read into an operational failure. Enforcement remains fail-closed when no trustworthy complete entry is available.
+9. `read_state_ledger` alone must not change model-visible read results, mutation outcomes, permissions, previews, undo, RPC, ACP, or teammate behavior.
+
+### RT-8: Unchanged-read deduplication
+
+1. Deduplication is eligible only when `read_state_dedup` or `read_before_write` is enabled and the emergency compatibility switch is not set.
+2. A hit requires the same canonical opened path, unchanged observed revision, requested path spelling, zero-based offset, and effective line limit as an earlier model-visible result.
+3. A hit returns a short non-error stub identifying the unchanged path and window. The stub must say that repeating the same call will resend the full content.
+4. Returning the stub consumes that view record before the call completes. The next identical read returns real content and recreates the record, bounding a stale-reference loop after compaction to one wasted call.
+5. A duplicate offset-zero window must not be stubbed while its ledger entry is partial. This preserves the model's escape route when it retries from the beginning to satisfy write safety.
+6. A changed revision, repaired path resolving to a different file, failed read, binary note, or ineligible partial offset-zero entry is a cache miss.
+7. Dedup state is bounded per file and per session. Eviction causes a full read, never a false hit.
+8. Dedup checks the cheap file revision before streaming. The optimization must reduce model-visible bytes and should reduce elapsed time for repeated unchanged complete reads.
+
+### RT-9: Read-before-write enforcement
+
+1. Enforcement is active only when `read_before_write` is enabled and the emergency compatibility switch is not set. Permission bypass, auto-confirm, YOLO, and unrestricted modes do not bypass this content-safety invariant.
+2. Creating a path that does not exist does not require a prior read. An operation that would make no byte or path change may return its existing no-op result without a prior read.
+3. Before an existing regular file is changed or removed, the ledger must contain a complete entry for its canonical path and the current raw SHA-256 digest must equal the recorded digest.
+4. Failures distinguish three recoverable cases: the file has not been read, only part of it has been read, or its bytes changed after the read. Each failure names the path and asks for a complete `read_file` pass before retrying.
+5. Enforcement covers every direct file-mutation action according to the bytes or path it can destroy:
+   - `write_file`, `append_file`, `apply_patch`, `notebook_edit`, `search_replace`, `format_file`, and `multi_file_edit` guard their existing target;
+   - `delete_path` guards an existing regular file; directory deletion retains its existing confirmation and permission contract because `read_file` cannot represent a directory tree;
+   - `rename_path` guards its existing source and any existing regular-file destination that would be overwritten;
+   - `copy_path` guards an existing regular-file destination that would be overwritten. Its source is not guarded because the operation does not mutate it.
+6. Opaque multi-file mutation surfaces such as shell commands, dependency-manager commands, and Git commands retain their existing permission and peer-safety contracts; they are not falsely advertised as ledger-enforced.
+7. A successful mutation makes any prior entry stale by changing or removing the on-disk revision. Undo is a user-directed recovery path and is not blocked, but its filesystem change is observed normally by the next dedup or enforcement check.
+8. Preview mode performs the same ledger check before proposing a mutation. When a preview is later applied, its captured original state must still match disk; stale previews are rejected instead of overwriting newer bytes.
+9. The same `ActionExecutor` boundary is used by interactive, command, RPC, ACP, and mobile runtimes. Headless teammate executors use an isolated in-memory ledger when they have no resumable session store.
+
+### RT-10: Stateful-read experiment controls
+
+1. The feature registry exposes `read_state_ledger`, `read_state_dedup`, and `read_before_write` as disabled-by-default experimental switches with documented config paths.
+2. Later increments imply earlier behavior even if only the later switch is configured. This makes illegal combinations resolve to the safest coherent mode.
+3. All switches require a restart so the active executor, advertised experiment state, and session persistence boundary cannot drift during a turn.
+4. The emergency environment switch wins over local and remote configuration and restores the pre-feature behavior without changing persisted configuration.
+
 ## Public test seams
 
 - `ToolManager.execute()` proves model-emitted repair, strict validation, and that invalid calls do not reach the executor.
@@ -93,6 +143,7 @@ This specification adopts the article's high-value text-read recommendations whe
 | 2,001 lines | Continuation note with `offset=2000` |
 | Multi-byte text at byte ceiling | Valid UTF-8 and a correct resume offset |
 | One line over 2,000 code points | Clamped line plus an explicit clamp note |
+| Text-like bytes containing invalid UTF-8 | Replacement may be displayed, but the ledger remains incomplete and cannot authorize mutation |
 | File larger than the old 10 MiB full-read cap | Requested window succeeds without a full-file allocation |
 | CRLF plus BOM | BOM absent and line content normalized |
 | Binary bytes in `.txt` | Concise binary note; no raw NUL data |
@@ -103,16 +154,21 @@ This specification adopts the article's high-value text-read recommendations whe
 | Near-miss filename | Bounded `Did you mean` suggestions |
 | `offset: "2"` through `ToolManager` | Repaired and executed as integer `2` |
 | `offset: "2abc"`, `1.5`, or `-1` | Validation failure; executor not called |
+| Ledger-only mode, repeated complete read | Both calls return the original full output; session state records complete coverage |
+| Resume the same session | Complete coverage and dedup eligibility restore from session state |
+| Two identical complete reads with dedup enabled | First returns content; second returns a consume-on-hit stub; third returns content |
+| Offset-zero partial read repeated | Real partial content returns again; no dedup loop blocks completion |
+| File changes between duplicate reads | Full current content returns; no stale dedup stub |
+| Large file read through contiguous windows | Merged complete-line coverage authorizes only after every line is fully visible |
+| Existing-file mutation without a read | Recoverable `has not been read` authorization failure |
+| Existing-file mutation after partial read | Recoverable `only part` authorization failure |
+| Existing-file mutation after disk change | Recoverable `changed after` authorization failure |
+| Existing-file mutation after complete unchanged read | Mutation succeeds in enforcement mode |
+| New-file creation in enforcement mode | Creation succeeds without a synthetic read |
+| Complete empty-file read followed by a beyond-EOF probe | The later probe does not revoke valid authorization for the same revision |
+| Stale RPC preview acceptance | Preview application rejects the changed original |
+| `AUTOHAND_DISABLE_STATEFUL_READ=1` | Legacy read and mutation behavior is restored for the process |
 
-## Deferred cross-tool work
+## Deliberate policy boundary
 
-The article's read ledger and consume-on-hit dedup cache are credible ideas, but they are not isolated read-tool changes. Before adopting them, Autohand needs a separate specification covering:
-
-- which write/edit tools require a prior full read;
-- how partial and per-line-clamped views are represented;
-- what content or file identity proves a safe overwrite;
-- how compaction invalidates dedup references;
-- how the ledger interacts with peer-awareness, preview mode, undo, RPC, and resumed sessions;
-- compatibility and escape-hatch behavior for automation.
-
-The Command Code article and public tool reference currently disagree about whether a partial/clamped read can authorize an overwrite, so that behavior is explicitly not used as an Autohand requirement.
+The Command Code article and its public tool reference still disagree about whether a partial or clamped read may authorize an overwrite. Autohand follows the stricter public contract: only aggregated, completely visible source lines plus a stable full-file digest authorize a mutation. The emergency switch exists for automation that cannot yet satisfy that invariant; partial content is never silently treated as complete.

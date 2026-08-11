@@ -48,6 +48,26 @@ describe('read_file public contract', () => {
     });
   });
 
+  it('captures a full-file digest only when stateful reads request it', async () => {
+    await fse.writeFile(path.join(workspaceRoot, 'digest.txt'), 'digest me');
+    const files = new FileActionManager(workspaceRoot);
+    const options = {
+      offset: 0,
+      lineLimit: 2_000,
+      maxBytes: 128 * 1024,
+      maxLineCharacters: 2_000,
+    };
+
+    const legacy = await files.readFileWindow('digest.txt', options);
+    const stateful = await files.readFileWindow('digest.txt', {
+      ...options,
+      captureDigest: true,
+    });
+
+    expect(legacy.sha256).toBeUndefined();
+    expect(stateful.sha256).toMatch(/^[a-f0-9]{64}$/u);
+  });
+
   it('describes an empty file instead of returning silence', async () => {
     await fse.writeFile(path.join(workspaceRoot, 'empty.txt'), '');
 
@@ -375,11 +395,8 @@ describe('read_file public contract', () => {
     expect(outcome).toMatchObject({
       success: false,
       kind: 'operational',
-      error: expect.stringContaining(
-        'Did you mean one of: "AGENTA.md", "AGENTB.md", "AGENTC.md"?',
-      ),
+      error: 'File AGENT.md not found in workspace. Did you mean one of: "AGENTA.md", "AGENTB.md", "AGENTC.md"?',
     });
-    expect(outcome.success ? outcome.output : outcome.error).not.toContain('AGENTD.md');
   });
 
   it.each([

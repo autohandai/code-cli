@@ -566,6 +566,9 @@ export function initializeAgentDependencies(
       peerAwareness: host.peerAwareness,
       onPeerWarning: (warning) => host.emitPeerWarning(warning),
       onToolActivity: (activity) => host.setPeerToolActivity(activity),
+      readStateStore: {
+        getCurrentSession: () => host.sessionManager?.getCurrentSession?.() ?? null,
+      },
       onAskFollowup: (question, suggestedAnswers) => host.executeAskFollowupQuestion(question, suggestedAnswers),
       onPlanCreated: (plan, filePath) => host.handlePlanCreated(plan, filePath),
       onPermissionRequest: async (context) => {
