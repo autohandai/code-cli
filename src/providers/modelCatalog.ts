@@ -8,6 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { BuiltInProviderName, ReasoningEffort } from "../types.js";
+import bundledModelCatalog from "./models.json" with { type: "json" };
 import {
   getRemoteModelCatalogPath,
   getUserModelCatalogPath,
@@ -223,6 +224,10 @@ function readCatalogFile(filePath: string): ModelCatalog {
   }
 }
 
+function readBundledCatalog(): ModelCatalog {
+  return normalizeCatalog(bundledModelCatalog);
+}
+
 export function mergeModelOptions(
   primary: readonly ModelCatalogEntry[],
   fallback: readonly ModelCatalogEntry[],
@@ -279,7 +284,7 @@ function mergeCatalogs(base: ModelCatalog, override: ModelCatalog): ModelCatalog
 }
 
 export function loadModelCatalog(): ModelCatalog {
-  const bundled = readCatalogFile(getBundledModelCatalogPath());
+  const bundled = readBundledCatalog();
   const remote = readCatalogFile(getRemoteModelCatalogPath());
   const override = readCatalogFile(getUserModelCatalogPath());
   return mergeCatalogs(mergeCatalogs(bundled, remote), override);
