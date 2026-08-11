@@ -194,7 +194,7 @@ jobs:
           - os: macos-latest
             target: darwin-arm64
             artifact: autohand-macos-arm64
-          - os: macos-latest
+          - os: macos-15-intel
             target: darwin-x64
             artifact: autohand-macos-x64
           - os: ubuntu-latest
@@ -302,12 +302,14 @@ jobs:
   verify-macos-artifacts:
     needs: [prepare, build]
     if: needs.prepare.outputs.should_release == 'true'
-    runs-on: macos-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        artifact:
-          - autohand-macos-arm64
-          - autohand-macos-x64
+        include:
+          - os: macos-latest
+            artifact: autohand-macos-arm64
+          - os: macos-15-intel
+            artifact: autohand-macos-x64
 
     steps:
       - name: Download macOS artifact

@@ -25,6 +25,11 @@ interface WorkflowJob {
   strategy?: {
     matrix?: {
       artifact?: string[];
+      include?: Array<{
+        os: string;
+        target?: string;
+        artifact: string;
+      }>;
     };
   };
   steps: WorkflowStep[];
@@ -149,6 +154,7 @@ describe('release workflow', () => {
   it('signs macOS binaries after compilation and verifies transported artifacts before release', () => {
     const workflow = loadReleaseWorkflow();
     const buildSteps = workflow.jobs.build.steps;
+    const buildTargets = workflow.jobs.build.strategy?.matrix?.include;
     const compileIndex = buildSteps.findIndex((step) => step.name === 'Compile binary');
     const signIndex = buildSteps.findIndex((step) => step.name === 'Sign macOS binary');
     const smokeIndex = buildSteps.findIndex((step) => step.name === 'Smoke test binary');
@@ -162,6 +168,18 @@ describe('release workflow', () => {
     expect(signStep?.if).toBe("runner.os == 'macOS'");
     expect(signStep?.run).toContain('codesign --force --sign - --timestamp=none');
     expect(signStep?.run).toContain('codesign --verify --strict --verbose=4');
+    expect(buildTargets).toEqual(expect.arrayContaining([
+      {
+        os: 'macos-latest',
+        target: 'darwin-arm64',
+        artifact: 'autohand-macos-arm64',
+      },
+      {
+        os: 'macos-15-intel',
+        target: 'darwin-x64',
+        artifact: 'autohand-macos-x64',
+      },
+    ]));
 
     const transportJob = workflow.jobs['verify-macos-artifacts'];
     const downloadStep = transportJob?.steps.find(
@@ -172,10 +190,10 @@ describe('release workflow', () => {
     );
 
     expect(transportJob?.needs).toEqual(['prepare', 'build']);
-    expect(transportJob?.['runs-on']).toBe('macos-latest');
-    expect(transportJob?.strategy?.matrix?.artifact).toEqual([
-      'autohand-macos-arm64',
-      'autohand-macos-x64',
+    expect(transportJob?.['runs-on']).toBe('${{ matrix.os }}');
+    expect(transportJob?.strategy?.matrix?.include).toEqual([
+      { os: 'macos-latest', artifact: 'autohand-macos-arm64' },
+      { os: 'macos-15-intel', artifact: 'autohand-macos-x64' },
     ]);
     expect(downloadStep?.uses).toBe('actions/download-artifact@v8');
     expect(downloadStep?.with).toEqual({
