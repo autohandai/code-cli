@@ -120,6 +120,18 @@ The `/settings` command opens an interactive settings editor directly in the ter
 - [x] `cli_usage_v2` is enabled by default and powers `/usage`, `/usage weekly`, and `/usage monthly`
 - [x] `experimental_browser_tools_v2` is disabled by default and requires a CLI restart; after an extension capability handshake it adds snapshot refs, typed waits, verified actions, and dedicated form tools
 
+### Experimental: stateful read safety
+
+Stateful read safety ships as three ordered, default-off experiments. All three require a CLI restart after changing them:
+
+- `read_state_ledger` records the exact source-line coverage shown to the model in the active session without changing reads or writes.
+- `read_state_dedup` implies the ledger and replaces an eligible repeated unchanged read with a one-use stub. Repeating the call again restores the full content.
+- `read_before_write` implies both earlier increments and requires a complete, unchanged `read_file` view before a direct tool overwrites or removes an existing regular file. Partial, clamped, invalid-UTF-8, and stale views do not authorize a mutation.
+
+Enable one increment with `autohand experiments enable <feature>` or `/experiments enable <feature>`. The equivalent config paths are `features.readStateLedger`, `features.readStateDedup`, and `features.readBeforeWrite` in `~/.autohand/config.json`.
+
+If compatibility problems prevent startup or a workflow from proceeding, launch the process with `AUTOHAND_DISABLE_STATEFUL_READ=1`. This emergency switch disables all three increments without changing the saved configuration.
+
 ### Experimental: provider prompt caching
 
 The `prompt_caching` switch (default off) adds a stable, opaque session-affinity hint to eligible provider requests so the provider can reuse unchanged prompt prefixes. It does not cache assistant responses locally and cannot move a provider's KV cache to another provider.

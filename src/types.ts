@@ -389,6 +389,12 @@ export interface FeatureFlagSettings {
   experimentalHandoff?: boolean;
   /** Enable negotiated browser automation protocol v2 tools. */
   experimentalBrowserToolsV2?: boolean;
+  /** Record model-visible file coverage in the active session. */
+  readStateLedger?: boolean;
+  /** Deduplicate repeated unchanged file windows; implies readStateLedger. */
+  readStateDedup?: boolean;
+  /** Require a complete unchanged read before direct file mutations; implies earlier read-state flags. */
+  readBeforeWrite?: boolean;
 }
 
 export type PermissionMode = 'interactive' | 'unrestricted' | 'restricted' | 'external';

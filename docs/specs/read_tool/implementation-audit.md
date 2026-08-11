@@ -1,7 +1,8 @@
 # `read_file` Implementation Audit
 
-Audit date: 2026-08-10.
-Baseline: local `main` at `deceaeff`.
+Audit date: 2026-08-11.
+Original bounded-read baseline: local `main` at `deceaeff`.
+Stateful-read baseline: local `main` at `21da5dde`.
 Normative contract: [README.md](./README.md).
 
 ## Baseline path
@@ -13,8 +14,12 @@ At the audited baseline, the model-visible tool schema was registered in `src/co
 - `ToolManager` repairs only unambiguous read aliases and fully numeric non-negative integer strings before schema validation.
 - `ActionExecutor` independently validates direct callers, preserves the zero-based offset contract, and formats one-based source labels plus actionable recovery notes.
 - `FileActionManager.readFileWindow()` reuses the existing containment boundary, blocks pseudo-device paths before I/O, performs bounded read-only filename recovery, sniffs binary signatures, and delegates text to the streaming scanner in `src/actions/readFile.ts`.
-- The scanner skips pre-offset content without accumulation and enforces the line, complete-response byte, and per-line ceilings without splitting UTF-8 code points.
+- The scanner skips pre-offset content without accumulation, enforces the line, complete-response byte, and per-line ceilings without splitting UTF-8 code points, and hashes only complete valid-UTF-8 streams for read authorization.
 - The legacy `readFile()` contract remains unchanged for mutation and compatibility callers.
+- `ReadSessionLedger` owns bounded per-session revision, coverage, digest, and dedup-view state. `Session` persists that state atomically; new, cloned, and forked sessions do not inherit it.
+- `ActionExecutor` resolves the three ordered feature flags, records only model-visible complete lines, consumes unchanged-read dedup records before returning a stub, and guards each direct file-mutation tool at its destructive target.
+- Mutation authorization hashes the current raw file and distinguishes unread, partial, and stale state. New paths remain writable, permission bypass modes do not bypass the invariant, and `AUTOHAND_DISABLE_STATEFUL_READ=1` restores legacy behavior immediately.
+- Preview acceptance verifies the captured original again before applying a pending change, so authorization cannot be followed by a blind stale overwrite.
 
 ## Finding-by-finding disposition
 
@@ -22,8 +27,8 @@ At the audited baseline, the model-visible tool schema was registered in `src/co
 | --- | --- | --- |
 | Three independent ceilings | The executor has a 2,000-line threshold and 80 KiB threshold, but no per-line clamp. Explicit `limit` can bypass the line threshold. | Adopt all three as hard output ceilings. |
 | Recovery instead of silence | Empty files return an empty string. Past-EOF windows also return an empty string. Large-file output includes a continuation example. | Adopt explicit empty/EOF/truncation notes. |
-| Read-before-write ledger | No model-view ledger exists. Peer awareness records only mtime for concurrent-session warnings. | Defer; cross-tool and potentially breaking. |
-| Self-expiring unchanged-read dedup | No unchanged-read result cache exists. | Defer with the ledger design. |
+| Read-before-write ledger | No model-view ledger exists. Peer awareness records only mtime for concurrent-session warnings. | Adopt behind ordered, restart-required, default-off experiments. Partial, clamped, and invalid-UTF-8 views do not authorize writes. |
+| Self-expiring unchanged-read dedup | No unchanged-read result cache exists. | Adopt consume-on-hit records keyed by canonical file revision and exact requested window. |
 | Filename normalization and suggestions | Existing `resolvePath()` enforces realpath containment but missing names fail without model-visible recovery. | Adopt bounded read-only recovery with containment rechecks. |
 | Memory-capped streaming | `FileActionManager.readFile()` rejects files over 10 MiB and otherwise loads the entire file before the executor slices it. | Adopt a dedicated streaming window path while preserving full reads for mutation internals. |
 | Images attach as image blocks | `ToolActionOutcome.output` is string-only; `read_file` decodes all admitted files as UTF-8. | Do not claim parity. Return truthful binary notes; design multimodal results separately. |
@@ -47,17 +52,33 @@ At the audited baseline, the model-visible tool schema was registered in `src/co
 
 - Do not change the raw `FileActionManager.readFile()` contract used by writes, patches, formatting, notebook edits, and diff capture.
 - Do not change `offset` from zero-based to one-based without separate breaking-change approval.
-- Do not add write denial based on read history in this slice.
+- Keep all stateful behavior disabled by default and independently reversible with the process-local emergency switch.
+- Enforce only direct file-mutation tools. Opaque shell, dependency-manager, and Git commands retain their existing permission contracts.
+- Never treat a partial, clamped, invalid-UTF-8, unstable-revision, or stale view as complete.
 - Do not advertise image attachment until the provider/tool-result path carries typed image blocks end to end.
 - Keep path repair read-only and run every candidate through the same containment logic as the original request.
+
+## Stateful-read benchmark
+
+`bun run benchmark:read-state` exercises the real executor and session-persistence path with a deterministic 1,000-line, 75,000-byte file. Each of five alternating-order rounds measures 100 identical reads after one warmup call. The script exits nonzero unless consume-on-hit dedup beats legacy reads on both model-visible bytes and median aggregate elapsed time.
+
+Final local result on 2026-08-11:
+
+| Mode | Model-visible bytes per 100 calls | Median elapsed per 100 calls |
+| --- | ---: | ---: |
+| Legacy | 8,199,900 | 351.006 ms |
+| Stateful dedup | 4,107,450 | 237.913 ms |
+| Improvement | 49.909% | 32.220% |
 
 ## Validation evidence
 
 | Gate | Evidence |
 | --- | --- |
-| Focused public-seam tests | `tests/readFileTool.spec.ts`: 34 passing cases, including repaired-path containment, full pseudo-device coverage, and complete-response byte accounting. |
-| Related tool/action tests | 455 passing tests split across the public read/tool/filesystem/peer slice and the legacy executor suite. |
+| Focused public-seam tests | `tests/readFileTool.spec.ts`: 35 passing cases, including repaired-path containment, full pseudo-device coverage, complete-response byte accounting, and opt-in digest capture. |
+| Stateful system tests | `tests/readStateLedger.spec.ts`: 49 passing cases covering persistence boundaries, state bounds, line/byte/clamp coverage, invalid UTF-8, consume-on-hit recovery, revision changes, all direct mutation targets, stale previews, compatibility flags, and resumed/new/branched sessions. |
+| Reproducible performance gate | `bun run benchmark:read-state` passed with 49.909% fewer model-visible bytes and 32.220% lower median aggregate elapsed time. |
+| Related tool/action tests | 435 passing Vitest cases across executor, validation, search/replace, filesystem limits, tool scheduling, feature commands, feature flags, peer awareness, and RPC shutdown suites. |
 | TypeScript | `bun run typecheck` passed. |
 | Lint | `bun run lint` passed. |
-| Two-axis review | Standards and specification reviews completed; all high/medium findings were resolved and regression-tested. |
-| Full `bun run proof` | Passed on the final aggregate run: lint, typecheck, 553 unit/integration files with 8,062 passing tests, ESM/CJS/type-definition builds, and 5 Tuistory files with 63 passing scenarios. An earlier unrelated extension PTY no-data timeout passed unchanged on its exact rerun before the clean aggregate. |
+| Contract and standards review | Manual compatibility, persistence, bounded-state, malformed-text, preview-staleness, mutation-target, and empty-file monotonicity reviews completed; findings were regression-tested. |
+| Full `bun run proof` | Passed on the final aggregate run: lint, typecheck, 554 unit/integration files with 8,114 passing tests, ESM/CJS/type-definition builds, and 5 Tuistory files with 63 passing scenarios. |

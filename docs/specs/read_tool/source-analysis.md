@@ -1,6 +1,6 @@
 # Read Tool Source Analysis
 
-Reviewed on 2026-08-10.
+Reviewed on 2026-08-11.
 
 Sources used:
 - Requested article: <https://commandcode.ai/docs/harness-engineering/read-tool>
@@ -85,3 +85,5 @@ The article and current public `write_file` docs appear inconsistent on partial-
 - Public `Tools` docs: partial reads, including byte-capped previews, do not count for overwrite permission.
 
 If we are auditing behavior or aligning our own contract, this needs direct source-code confirmation from Command Code once their implementation is public or from a maintainer statement. Until then, treat the overwrite exception as unverified.
+
+Autohand deliberately follows the stricter public-tools contract: partial, byte-cut, per-line-clamped, and invalid-UTF-8 views do not authorize direct file mutation.

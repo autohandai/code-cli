@@ -93,6 +93,7 @@ export AUTOHAND_HOME=/custom/path  # Changes ~/.autohand to /custom/path
 | `AUTOHAND_CLIENT_VERSION`              | Client version (set by ACP extensions)           | `0.169.0`                        |
 | `AUTOHAND_CODE`                        | Environment detection flag (set automatically)   | `1`                              |
 | `AUTOHAND_CODE_SIMPLE`                 | Enable bare mode without passing `--bare`        | `1`                              |
+| `AUTOHAND_DISABLE_STATEFUL_READ`       | Emergency opt-out for all stateful-read experiments | `1`                           |
 
 ### Thinking Level
 
@@ -2273,6 +2274,16 @@ Remote feature flags are fetched from `/v1/feature-flags/evaluate`, cached at `~
 `token_usage_status` is an experimental feature switch (config path `features.tokenUsageStatus`, default off) that shows real-time token usage in the working status line — cumulative tokens up (`↑`) and down (`↓`) plus context-window occupancy, e.g. `↑15.7k ↓3.2k · context: 6.0% (15.7k/262.1k)`. The context window is resolved per model across all providers. Enable it with `autohand experiments enable token_usage_status`.
 
 `prompt_caching` is an experimental feature switch (config path `features.promptCaching`, default off) that sends an opaque session-affinity hint on eligible provider requests. The initial candidate is the ChatGPT OAuth Responses transport; standard OpenAI Chat Completions and other providers remain unchanged. Enable it with `autohand experiments enable prompt_caching`. The OAuth transport remains unverified until a current two-turn live probe confirms accepted controls and provider-reported cache usage, so an independent remote kill switch and exact-field fallback remain active.
+
+The restart-required stateful-read experiments are ordered and disabled by default:
+
+| Feature | Config path | Behavior |
+| --- | --- | --- |
+| `read_state_ledger` | `features.readStateLedger` | Persists bounded model-visible file coverage in the active session without changing tool results. |
+| `read_state_dedup` | `features.readStateDedup` | Implies the ledger and returns a consume-on-hit stub for an eligible repeated unchanged read. |
+| `read_before_write` | `features.readBeforeWrite` | Implies both earlier increments and requires a complete unchanged read before direct tools mutate an existing regular file. |
+
+Enable an increment with `autohand experiments enable <feature>`. Partial, clamped, invalid-UTF-8, and stale views never authorize a write. Set `AUTOHAND_DISABLE_STATEFUL_READ=1` for a process-local emergency rollback without changing the stored flags.
 
 ---
 

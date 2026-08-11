@@ -124,6 +124,11 @@ import {
   isGitMutationCommand,
   type PeerWarning,
 } from '../session/peers/index.js';
+import {
+  ReadSessionLedger,
+  resolveStatefulReadMode,
+  type ReadStateStore,
+} from './agent/ReadSessionLedger.js';
 
 /** Response from permission-request hook */
 export interface PermissionHookResponse {
@@ -218,6 +223,8 @@ export interface ActionExecutorOptions {
   };
   onPeerWarning?: (warning: PeerWarning) => void;
   onToolActivity?: (activity?: { tool: string; command?: string }) => void;
+  /** Optional persistence boundary for stateful model-visible reads. */
+  readStateStore?: ReadStateStore;
 }
 
 type AgentExecutorDeps = ActionExecutorOptions;
@@ -316,6 +323,7 @@ export class ActionExecutor {
   private readonly peerAwareness?: AgentExecutorDeps['peerAwareness'];
   private readonly onPeerWarning?: AgentExecutorDeps['onPeerWarning'];
   private readonly onToolActivity?: AgentExecutorDeps['onToolActivity'];
+  private readonly readSessionLedger: ReadSessionLedger;
   private readonly securityScanner: SecurityScanner;
   private readonly searchCache: Map<string, string> = new Map();
   private fffSearchProviderPromise: Promise<FFFSearchProvider> | null = null;
@@ -355,6 +363,10 @@ export class ActionExecutor {
     this.peerAwareness = deps.peerAwareness;
     this.onPeerWarning = deps.onPeerWarning;
     this.onToolActivity = deps.onToolActivity;
+    this.readSessionLedger = new ReadSessionLedger(deps.readStateStore);
+    this.files.setPreviewStaleCheckEnabled?.(
+      resolveStatefulReadMode(this.runtime.config) === 'enforce',
+    );
     this.securityScanner = new SecurityScanner();
   }
 
@@ -1213,14 +1225,33 @@ export class ActionExecutor {
         const offset = typeof action.offset === 'number' ? action.offset : 0;
         const limit = typeof action.limit === 'number' ? action.limit : 0;
         const effectiveLimit = Math.min(limit > 0 ? limit : READ_FILE_MAX_LINES, READ_FILE_MAX_LINES);
+        const statefulReadMode = resolveStatefulReadMode(this.runtime.config);
+        const viewKey = this.readViewKey(action.path, offset, effectiveLimit);
 
         if (typeof this.files.readFileWindow === 'function') {
+          const inspection = typeof this.files.inspectReadFile === 'function'
+            ? await this.files.inspectReadFile(action.path)
+            : undefined;
+          if (inspection && (statefulReadMode === 'dedup' || statefulReadMode === 'enforce')) {
+            const duplicate = await this.readSessionLedger.consumeDuplicate({
+              path: inspection.resolvedPath,
+              revision: inspection.revision,
+              viewKey,
+              offset,
+            });
+            if (duplicate) {
+              await this.recordPeerRead(inspection.openedPath);
+              this.recordExploration('read', inspection.openedPath);
+              return `Note: ${inspection.openedPath} is unchanged since the previous read (offset=${offset}, limit=${effectiveLimit}). Repeat the same read_file call to resend the full content.`;
+            }
+          }
           const window = await this.files.readFileWindow(action.path, {
             offset,
             lineLimit: effectiveLimit,
             maxBytes: READ_FILE_MAX_BYTES,
             maxLineCharacters: READ_FILE_MAX_LINE_CHARACTERS,
-          });
+            captureDigest: statefulReadMode !== 'off',
+          }, inspection);
           const openedPath = window.openedPath;
           await this.recordPeerRead(openedPath);
           this.recordExploration('read', openedPath);
@@ -1232,6 +1263,13 @@ export class ActionExecutor {
             return this.withReadPathRepairNote(note, window, action.path);
           }
           if (window.reachedEof && offset > 0 && offset >= window.linesScanned && window.lines.length === 0) {
+            await this.recordModelVisibleRead(
+              window,
+              offset,
+              [],
+              statefulReadMode,
+              viewKey,
+            );
             return this.withReadPathRepairNote(
               `Note: offset ${offset} is beyond the end of ${openedPath} (${window.linesScanned} lines scanned). Retry with a smaller offset.`,
               window,
@@ -1239,6 +1277,13 @@ export class ActionExecutor {
             );
           }
           if (window.reachedEof && window.linesScanned === 0 && window.lines.length === 0) {
+            await this.recordModelVisibleRead(
+              window,
+              offset,
+              [],
+              statefulReadMode,
+              viewKey,
+            );
             return this.withReadPathRepairNote(`Note: ${openedPath} is empty.`, window, action.path);
           }
 
@@ -1254,6 +1299,13 @@ export class ActionExecutor {
           if (rendered.hasMore) {
             console.log(chalk.yellow('   More content remains'));
           }
+          await this.recordModelVisibleRead(
+            window,
+            offset,
+            rendered.completeVisibleLines,
+            statefulReadMode,
+            viewKey,
+          );
           return rendered.output;
         }
 
@@ -1294,6 +1346,12 @@ export class ActionExecutor {
           openedPath: action.path,
           repairedPath: false,
           sizeBytes: fileSize,
+          revision: {
+            sizeBytes: fileSize,
+            mtimeMs: 0,
+            ctimeMs: 0,
+          },
+          revisionStable: false,
           format: { kind: 'text' },
         };
         const rendered = this.formatStreamedReadWindow(
@@ -1392,6 +1450,15 @@ export class ActionExecutor {
           // EXISTING FILE with identical content - skip write entirely
           return `No changes needed for ${action.path} (content identical)`;
         } else {
+          const readSafetyFailure = await this.readBeforeMutationFailure(action.path);
+          if (readSafetyFailure) {
+            return this.recordToolFailure(
+              capture,
+              'authorization',
+              readSafetyFailure,
+              readSafetyFailure,
+            );
+          }
           // EXISTING FILE - show diff
           console.log(chalk.cyan(`\n📝 ${action.path}:`));
           this.showDiff(oldContent, newContent, action.path);
@@ -1405,6 +1472,10 @@ export class ActionExecutor {
       case 'append_file': {
         if (!action.path) {
           throw new Error('append_file requires a "path" argument.');
+        }
+        const readSafetyFailure = await this.enforceReadBeforeMutation(action.path, capture);
+        if (readSafetyFailure) {
+          return readSafetyFailure;
         }
         const addition = this.pickText(action.contents, action.content) ?? '';
         const oldContent = await this.files.readFile(action.path).catch(() => '');
@@ -1426,6 +1497,10 @@ export class ActionExecutor {
         if (!patch) {
           return 'Error: apply_patch requires a "patch" argument.';
         }
+        const readSafetyFailure = await this.enforceReadBeforeMutation(action.path, capture);
+        if (readSafetyFailure) {
+          return readSafetyFailure;
+        }
 
         console.log(chalk.cyan(`\n🔧 ${action.path}:`));
         console.log(chalk.gray('Applying patch...'));
@@ -1441,6 +1516,10 @@ export class ActionExecutor {
       case 'notebook_edit': {
         if (!action.path) {
           throw new Error('notebook_edit requires a "path" argument.');
+        }
+        const readSafetyFailure = await this.enforceReadBeforeMutation(action.path, capture);
+        if (readSafetyFailure) {
+          return readSafetyFailure;
         }
 
         const current = await this.files.readFile(action.path);
@@ -1612,6 +1691,10 @@ export class ActionExecutor {
             return `Skipped deleting ${action.path}`;
           }
         }
+        const readSafetyFailure = await this.enforceReadBeforeMutation(action.path, capture);
+        if (readSafetyFailure) {
+          return readSafetyFailure;
+        }
         const oldDeleteContent = await this.files.readFile(action.path).catch(() => null);
         await this.files.deletePath(action.path);
         if (oldDeleteContent !== null) {
@@ -1627,6 +1710,14 @@ export class ActionExecutor {
         if (!action.from || !action.to) {
           throw new Error('rename_path requires "from" and "to" arguments.');
         }
+        const sourceReadSafetyFailure = await this.enforceReadBeforeMutation(action.from, capture);
+        if (sourceReadSafetyFailure) {
+          return sourceReadSafetyFailure;
+        }
+        const destinationReadSafetyFailure = await this.enforceReadBeforeMutation(action.to, capture);
+        if (destinationReadSafetyFailure) {
+          return destinationReadSafetyFailure;
+        }
         await this.files.renamePath(action.from, action.to);
         this.notifyFileModified(action.to, 'create', context?.toolCallId);
         return `Renamed ${action.from} -> ${action.to}`;
@@ -1634,6 +1725,10 @@ export class ActionExecutor {
       case 'copy_path': {
         if (!action.from || !action.to) {
           throw new Error('copy_path requires "from" and "to" arguments.');
+        }
+        const readSafetyFailure = await this.enforceReadBeforeMutation(action.to, capture);
+        if (readSafetyFailure) {
+          return readSafetyFailure;
         }
         await this.files.copyPath(action.from, action.to);
         this.notifyFileModified(action.to, 'create', context?.toolCallId);
@@ -1649,6 +1744,10 @@ export class ActionExecutor {
         const content = await this.files.readFile(action.path);
         const result = this.applySearchReplaceBlocks(content, action.blocks);
         if (content !== result) {
+          const readSafetyFailure = await this.enforceReadBeforeMutation(action.path, capture);
+          if (readSafetyFailure) {
+            return readSafetyFailure;
+          }
           console.log(chalk.cyan(`\n🔄 ${action.path}:`));
           this.showDiff(content, result, action.path);
           await this.files.writeFile(action.path, result);
@@ -1660,6 +1759,10 @@ export class ActionExecutor {
       case 'format_file': {
         if (!action.path) {
           throw new Error('format_file requires a "path" argument.');
+        }
+        const readSafetyFailure = await this.enforceReadBeforeMutation(action.path, capture);
+        if (readSafetyFailure) {
+          return readSafetyFailure;
         }
         const oldFormatContent = await this.files.readFile(action.path).catch(() => '');
         await this.files.formatFile(action.path, (contents, file) => applyFormatter(action.formatter, contents, file));
@@ -2596,6 +2699,10 @@ export class ActionExecutor {
         }
 
         if (oldContent !== newContent) {
+          const readSafetyFailure = await this.enforceReadBeforeMutation(action.file_path, capture);
+          if (readSafetyFailure) {
+            return readSafetyFailure;
+          }
           this.showDiff(oldContent, newContent, action.file_path);
           await this.files.writeFile(action.file_path, newContent);
           this.notifyFileModified(action.file_path, 'modify', context?.toolCallId);
@@ -3448,7 +3555,7 @@ export class ActionExecutor {
     filePath: string,
     limit: number,
     requestedPath: string,
-  ): { output: string; hasMore: boolean } {
+  ): { output: string; hasMore: boolean; completeVisibleLines: number[] } {
     const repairNote = window.repairedPath
       ? `Note: Opened "${window.openedPath}" after repairing requested path "${requestedPath}".`
       : undefined;
@@ -3494,6 +3601,15 @@ export class ActionExecutor {
     return {
       output: sections.join('\n\n'),
       hasMore: Boolean(rendered.continuation ?? window.continuation),
+      completeVisibleLines: rendered.completeLineNumbers
+        .filter(lineNumber => !window.lines.some(
+          line => line.lineNumber === lineNumber && line.clamped,
+        ))
+        .filter(lineNumber => !(
+          window.continuation?.kind === 'bytes'
+          && window.continuation.sourceLineNumber === lineNumber
+        ))
+        .map(lineNumber => lineNumber - 1),
     };
   }
 
@@ -3503,8 +3619,10 @@ export class ActionExecutor {
   ): {
     body: string;
     continuation?: NonNullable<ReadFileWindowResult['continuation']>;
+    completeLineNumbers: number[];
   } {
     const parts: string[] = [];
+    const completeLineNumbers: number[] = [];
     let usedBytes = 0;
 
     for (const line of lines) {
@@ -3515,6 +3633,7 @@ export class ActionExecutor {
       if (usedBytes + completeBytes <= maximumBytes) {
         parts.push(completePart);
         usedBytes += completeBytes;
+        completeLineNumbers.push(line.lineNumber);
         continue;
       }
 
@@ -3527,6 +3646,7 @@ export class ActionExecutor {
       }
       return {
         body: parts.join(''),
+        completeLineNumbers,
         continuation: {
           kind: 'bytes',
           offset: line.lineNumber - 1,
@@ -3535,7 +3655,79 @@ export class ActionExecutor {
       };
     }
 
-    return { body: parts.join('') };
+    return { body: parts.join(''), completeLineNumbers };
+  }
+
+  private async recordModelVisibleRead(
+    window: ReadFileWindowResult,
+    offset: number,
+    visibleLines: number[],
+    mode: ReturnType<typeof resolveStatefulReadMode>,
+    viewKey: string,
+  ): Promise<void> {
+    if (mode === 'off') {
+      return;
+    }
+    await this.readSessionLedger.recordRead({
+      path: window.resolvedPath,
+      revision: window.revision,
+      revisionStable: window.revisionStable,
+      visibleLines,
+      reachedEof: window.reachedEof,
+      totalLines: window.linesScanned,
+      sha256: window.sha256,
+      offset,
+      ...(mode === 'dedup' || mode === 'enforce' ? { viewKey } : {}),
+    });
+  }
+
+  private readViewKey(requestedPath: string, offset: number, limit: number): string {
+    return JSON.stringify({ version: 1, requestedPath, offset, limit });
+  }
+
+  private async readBeforeMutationFailure(filePath: string): Promise<string | undefined> {
+    if (resolveStatefulReadMode(this.runtime.config) !== 'enforce') {
+      return undefined;
+    }
+    const inspection = await this.files.inspectPath(filePath);
+    if (inspection.kind !== 'file') {
+      return undefined;
+    }
+    const current = await this.files.hashInspectedFile(inspection);
+    if (!current.revisionStable) {
+      return this.formatReadBeforeMutationFailure(filePath, 'changed');
+    }
+    const authorization = await this.readSessionLedger.authorizeMutation(
+      inspection.resolvedPath,
+      current.sha256,
+    );
+    return authorization.allowed
+      ? undefined
+      : this.formatReadBeforeMutationFailure(filePath, authorization.reason);
+  }
+
+  private async enforceReadBeforeMutation(
+    filePath: string,
+    capture?: ToolOutcomeCapture,
+  ): Promise<string | undefined> {
+    const failure = await this.readBeforeMutationFailure(filePath);
+    return failure
+      ? this.recordToolFailure(capture, 'authorization', failure, failure)
+      : undefined;
+  }
+
+  private formatReadBeforeMutationFailure(
+    filePath: string,
+    reason: 'unread' | 'partial' | 'changed',
+  ): string {
+    const guidance = `Read the complete current file with read_file path="${filePath}" before retrying.`;
+    if (reason === 'partial') {
+      return `Blocked: Only part of ${filePath} has been read in this session. ${guidance}`;
+    }
+    if (reason === 'changed') {
+      return `Blocked: ${filePath} changed after it was read. ${guidance}`;
+    }
+    return `Blocked: ${filePath} has not been read in this session. ${guidance}`;
   }
 
   private formatReadContinuationNote(

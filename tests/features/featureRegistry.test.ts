@@ -64,6 +64,36 @@ describe('feature registry', () => {
     expect(getFeatureState(config, 'prompt_caching')?.enabled).toBe(true);
   });
 
+  it('registers the ordered stateful-read experiments as restart-required and default-off', () => {
+    expect(FEATURE_REGISTRY.filter(feature => [
+      'read_state_ledger',
+      'read_state_dedup',
+      'read_before_write',
+    ].includes(feature.id))).toEqual([
+      expect.objectContaining({
+        id: 'read_state_ledger',
+        stage: 'experimental',
+        configPath: 'features.readStateLedger',
+        defaultEnabled: false,
+        requiresRestart: true,
+      }),
+      expect.objectContaining({
+        id: 'read_state_dedup',
+        stage: 'experimental',
+        configPath: 'features.readStateDedup',
+        defaultEnabled: false,
+        requiresRestart: true,
+      }),
+      expect.objectContaining({
+        id: 'read_before_write',
+        stage: 'experimental',
+        configPath: 'features.readBeforeWrite',
+        defaultEnabled: false,
+        requiresRestart: true,
+      }),
+    ]);
+  });
+
   it('updates nested config paths without disturbing adjacent settings', () => {
     const config = makeConfig({
       ui: {

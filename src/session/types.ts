@@ -25,6 +25,40 @@ export interface SessionTurnUsageInput {
     occurredAt?: string;
 }
 
+export interface ReadFileRevision {
+    sizeBytes: number;
+    mtimeMs: number;
+    ctimeMs: number;
+    inode?: number;
+    device?: number;
+}
+
+export interface ReadFileCoverageRange {
+    startLine: number;
+    endLineExclusive: number;
+}
+
+export interface SessionReadFileView {
+    key: string;
+    recordedAt: string;
+}
+
+export interface SessionReadFileEntry {
+    path: string;
+    revision: ReadFileRevision;
+    coverage: ReadFileCoverageRange[];
+    totalLines?: number;
+    sha256?: string;
+    complete: boolean;
+    views: SessionReadFileView[];
+    lastReadAt: string;
+}
+
+export interface SessionReadFileState {
+    schemaVersion: 1;
+    entries: SessionReadFileEntry[];
+}
+
 export interface SessionMetadata {
     sessionId: string;
     createdAt: string;
@@ -63,6 +97,8 @@ export interface SessionMetadata {
         sourceUserMessageOrdinal?: number;
         createdAt: string;
     };
+    /** Bounded state for experimental model-visible read tracking. */
+    readFileState?: SessionReadFileState;
 }
 
 export interface SessionMessage {

@@ -12,6 +12,7 @@ import type {
     WorkspaceState,
     SessionIndex,
     SessionTurnUsageInput,
+    SessionReadFileState,
 } from './types.js';
 import { AUTOHAND_PATHS } from '../constants.js';
 import { atomicWriteJson, withFileLock } from '../utils/atomicFile.js';
@@ -209,6 +210,7 @@ export class SessionManager {
             messageCount: copiedMessages.length,
             status: 'active',
             exitCode: undefined,
+            readFileState: undefined,
             branch: {
                 type: options.type,
                 sourceSessionId,
@@ -480,7 +482,7 @@ export class Session {
     async save(): Promise<void> {
         await this.ensureSessionDir();
         const metadataPath = path.join(this.sessionDir, 'metadata.json');
-        await fs.writeJson(metadataPath, this.metadata, { spaces: 2 });
+        await atomicWriteJson(metadataPath, this.metadata);
     }
 
     async load(): Promise<void> {
@@ -508,6 +510,18 @@ export class Session {
 
     getState(): WorkspaceState | null {
         return this.state;
+    }
+
+    getReadFileState(): SessionReadFileState | null {
+        return this.metadata.readFileState
+            ? structuredClone(this.metadata.readFileState)
+            : null;
+    }
+
+    async updateReadFileState(state: SessionReadFileState): Promise<void> {
+        this.metadata.readFileState = structuredClone(state);
+        this.metadata.lastActiveAt = new Date().toISOString();
+        await this.save();
     }
 
     async close(summary?: string): Promise<void> {
