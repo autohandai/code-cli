@@ -386,9 +386,22 @@ export interface AcpSessionState {
  * Build ACP config options from the loaded config.
  */
 export function buildConfigOptions(
-  _config: LoadedConfig,
+  config: LoadedConfig,
 ): SessionConfigOption[] {
   const options: SessionConfigOption[] = [];
+
+  options.push({
+    type: "select",
+    id: "model",
+    name: "Model",
+    description: "Select the model used for this session",
+    category: "model",
+    options: parseAvailableModels(config).map((modelId) => ({
+      value: modelId,
+      name: modelId.split("/").pop() ?? modelId,
+    })),
+    currentValue: resolveDefaultModel(config),
+  });
 
   // Thinking level
   options.push({

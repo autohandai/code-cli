@@ -20,8 +20,6 @@ import type {
   PromptResponse,
   SetSessionModeRequest,
   SetSessionModeResponse,
-  SetSessionModelRequest,
-  SetSessionModelResponse,
   ListSessionsRequest,
   ListSessionsResponse,
   ResumeSessionRequest,
@@ -31,7 +29,6 @@ import type {
   McpServer,
   SessionConfigOption,
   SessionModeState,
-  SessionModelState,
   SetSessionConfigOptionRequest,
   SetSessionConfigOptionResponse,
   ToolCallStatus,
@@ -74,6 +71,22 @@ interface AssistantReplayParts {
   thought?: string;
   text?: string;
 }
+
+interface LegacySessionModelState {
+  availableModels: Array<{
+    modelId: string;
+    name: string;
+  }>;
+  currentModelId: string;
+}
+
+interface LegacySetSessionModelRequest {
+  sessionId: string;
+  modelId: string;
+}
+
+type LegacySetSessionModelResponse = Record<string, never>;
+type ResponseWithLegacyModels<T> = T & { models: LegacySessionModelState };
 
 const AUTOHAND_ACP_AUTH_METHODS: NonNullable<InitializeResponse['authMethods']> = [
   {
@@ -187,14 +200,14 @@ export class AutohandAcpAdapter implements Agent {
     } as SessionModeState;
   }
 
-  private buildSessionModels(config: LoadedConfig, modelId: string): SessionModelState {
+  private buildSessionModels(config: LoadedConfig, modelId: string): LegacySessionModelState {
     return {
       availableModels: parseAvailableModels(config).map((m) => ({
         modelId: m,
         name: m.split('/').pop() ?? m,
       })),
       currentModelId: modelId,
-    } as SessionModelState;
+    };
   }
 
   private getSessionCommands(config: LoadedConfig): AcpCommand[] {
@@ -209,6 +222,15 @@ export class AutohandAcpAdapter implements Agent {
   private getSessionConfigOptions(sessionId: string): SessionConfigOption[] {
     const options = this.sessionConfigOptions.get(sessionId) ?? [];
     return this.cloneConfigOptions(options);
+  }
+
+  private updateModelConfigOption(sessionId: string, modelId: string): void {
+    const option = this.sessionConfigOptions
+      .get(sessionId)
+      ?.find((entry) => entry.id === 'model');
+    if (option?.type === 'select') {
+      option.currentValue = modelId;
+    }
   }
 
   private validateMode(modeId: string): void {
@@ -239,6 +261,12 @@ export class AutohandAcpAdapter implements Agent {
           env: Object.fromEntries(server.env.map((variable: { name: string; value: string }) => [variable.name, variable.value])),
           autoConnect: true,
         };
+      }
+
+      if (server.type === 'acp') {
+        throw RequestError.invalidParams({
+          message: `ACP-channel MCP server "${server.name}" is not supported by this adapter`,
+        });
       }
 
       return {
@@ -402,8 +430,8 @@ export class AutohandAcpAdapter implements Agent {
           await this.connection.sessionUpdate({
             sessionId,
             update: {
-              sessionUpdate: 'agent_message_chunk',
-              content: { type: 'thinking', text: replayParts.thought },
+              sessionUpdate: 'agent_thought_chunk',
+              content: { type: 'text', text: replayParts.thought },
             },
           });
         }
@@ -459,6 +487,7 @@ export class AutohandAcpAdapter implements Agent {
 
       if (loadedSession.metadata.model) {
         state.modelId = loadedSession.metadata.model;
+        this.updateModelConfigOption(sessionId, state.modelId);
       }
 
       this.sessions.set(sessionId, state);
@@ -536,14 +565,14 @@ export class AutohandAcpAdapter implements Agent {
   // ACP Agent Interface: newSession
   // ==========================================================================
 
-  async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
+  async newSession(params: NewSessionRequest): Promise<ResponseWithLegacyModels<NewSessionResponse>> {
     const sessionId = crypto.randomUUID();
     const workspaceRoot = this.resolveWorkspaceRoot(sessionId, params.cwd);
     const { config, state, agent } = await this.createManagedSession(sessionId, workspaceRoot);
     await this.connectSessionMcpServers(agent, params.mcpServers);
     this.emitHookSessionStart(sessionId, 'startup');
 
-    const response: NewSessionResponse = {
+    const response: ResponseWithLegacyModels<NewSessionResponse> = {
       sessionId,
       modes: this.buildSessionModes(state.modeId),
       models: this.buildSessionModels(config, state.modelId),
@@ -751,7 +780,9 @@ export class AutohandAcpAdapter implements Agent {
   // ACP Agent Interface: unstable_setSessionModel
   // ==========================================================================
 
-  async unstable_setSessionModel(params: SetSessionModelRequest): Promise<SetSessionModelResponse> {
+  async unstable_setSessionModel(
+    params: LegacySetSessionModelRequest,
+  ): Promise<LegacySetSessionModelResponse> {
     const session = this.sessions.get(params.sessionId);
     const agent = this.agents.get(params.sessionId);
     if (!session) {
@@ -764,17 +795,19 @@ export class AutohandAcpAdapter implements Agent {
     this.validateModel(config, params.modelId);
 
     session.modelId = params.modelId;
+    this.updateModelConfigOption(params.sessionId, params.modelId);
     agent.applyAcpModel(params.modelId);
     process.stderr.write(`[ACP] Session ${params.sessionId} model set to: ${params.modelId}\n`);
     return {};
   }
 
-  async unstable_setSessionConfigOption(
+  async setSessionConfigOption(
     params: SetSessionConfigOptionRequest
   ): Promise<SetSessionConfigOptionResponse> {
     const options = this.sessionConfigOptions.get(params.sessionId);
     const agent = this.agents.get(params.sessionId);
-    if (!options || !agent) {
+    const session = this.sessions.get(params.sessionId);
+    if (!options || !agent || !session) {
       throw RequestError.invalidParams({ message: 'Session not found' });
     }
 
@@ -802,18 +835,33 @@ export class AutohandAcpAdapter implements Agent {
     }
 
     option.currentValue = params.value;
-    agent.applyAcpConfigOption(params.configId, String(params.value));
+    if (params.configId === 'model') {
+      const modelId = String(params.value);
+      const config = await this.ensureConfig();
+      this.validateModel(config, modelId);
+      session.modelId = modelId;
+      agent.applyAcpModel(modelId);
+      process.stderr.write(`[ACP] Session ${params.sessionId} model set to: ${modelId}\n`);
+    } else {
+      agent.applyAcpConfigOption(params.configId, String(params.value));
+    }
 
     return {
       configOptions: this.cloneConfigOptions(options),
     };
   }
 
+  async unstable_setSessionConfigOption(
+    params: SetSessionConfigOptionRequest,
+  ): Promise<SetSessionConfigOptionResponse> {
+    return this.setSessionConfigOption(params);
+  }
+
   // ==========================================================================
-  // ACP Agent Interface: unstable_listSessions (optional)
+  // ACP Agent Interface: listSessions (optional)
   // ==========================================================================
 
-  async unstable_listSessions(params: ListSessionsRequest): Promise<ListSessionsResponse> {
+  async listSessions(params: ListSessionsRequest): Promise<ListSessionsResponse> {
     // Delegate to SessionManager for persistent session listing
     try {
       const { SessionManager } = await import('../../session/SessionManager.js');
@@ -847,11 +895,17 @@ export class AutohandAcpAdapter implements Agent {
     }
   }
 
+  async unstable_listSessions(params: ListSessionsRequest): Promise<ListSessionsResponse> {
+    return this.listSessions(params);
+  }
+
   // ==========================================================================
-  // ACP Agent Interface: unstable_resumeSession (optional)
+  // ACP Agent Interface: resumeSession (optional)
   // ==========================================================================
 
-  async unstable_resumeSession(_params: ResumeSessionRequest): Promise<ResumeSessionResponse> {
+  async resumeSession(
+    _params: ResumeSessionRequest,
+  ): Promise<ResponseWithLegacyModels<ResumeSessionResponse>> {
     try {
       const params = _params;
       const { config, state } = await this.restoreSession(params.sessionId, params.cwd, params.mcpServers);
@@ -867,6 +921,12 @@ export class AutohandAcpAdapter implements Agent {
       const message = error instanceof Error ? error.message : String(error);
       throw RequestError.invalidParams({ message: `Failed to resume session: ${message}` });
     }
+  }
+
+  async unstable_resumeSession(
+    params: ResumeSessionRequest,
+  ): Promise<ResponseWithLegacyModels<ResumeSessionResponse>> {
+    return this.resumeSession(params);
   }
 
   // ==========================================================================
@@ -912,7 +972,9 @@ export class AutohandAcpAdapter implements Agent {
   // ACP Agent Interface: loadSession (optional)
   // ==========================================================================
 
-  async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
+  async loadSession(
+    params: LoadSessionRequest,
+  ): Promise<ResponseWithLegacyModels<LoadSessionResponse>> {
     try {
       const { config, state, messages } = await this.restoreSession(params.sessionId, params.cwd, params.mcpServers);
       await this.replayConversation(params.sessionId, messages);
@@ -1044,9 +1106,9 @@ export class AutohandAcpAdapter implements Agent {
             await this.connection.sessionUpdate({
               sessionId,
               update: {
-                sessionUpdate: 'agent_message_chunk',
+                sessionUpdate: 'agent_thought_chunk',
                 content: {
-                  type: 'thinking',
+                  type: 'text',
                   text: event.thought,
                 },
               },

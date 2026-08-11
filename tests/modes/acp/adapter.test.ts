@@ -444,9 +444,10 @@ describe("AutohandAcpAdapter", () => {
       const result = await adapter.newSession(makeNewSessionRequest());
 
       expect(result.configOptions).toBeDefined();
-      expect(result.configOptions!.length).toBe(3);
+      expect(result.configOptions!.length).toBe(4);
 
       const configIds = result.configOptions!.map((o) => o.id);
+      expect(configIds).toContain("model");
       expect(configIds).toContain("thinking_level");
       expect(configIds).toContain("auto_commit");
       expect(configIds).toContain("context_compact");
@@ -534,6 +535,28 @@ describe("AutohandAcpAdapter", () => {
           autoConnect: true,
         },
       ]);
+    });
+
+    it("rejects ACP-channel MCP servers until the adapter supports their connection bridge", async () => {
+      await expect(
+        adapter.newSession(
+          makeNewSessionRequest({
+            mcpServers: [
+              {
+                type: "acp",
+                name: "editor-mcp",
+                serverId: "server-123",
+              },
+            ],
+          }),
+        ),
+      ).rejects.toMatchObject({
+        data: {
+          message: 'ACP-channel MCP server "editor-mcp" is not supported by this adapter',
+        },
+      });
+
+      expect(mockAgent.connectAcpMcpServers).not.toHaveBeenCalled();
     });
 
     it("sets output listener on the agent", async () => {
@@ -831,7 +854,7 @@ describe("AutohandAcpAdapter", () => {
         ],
       });
 
-      const response = await adapter.unstable_resumeSession({
+      const response = await adapter.resumeSession({
         sessionId: "session-123",
         cwd: "/workspace",
       } as any);
@@ -840,6 +863,10 @@ describe("AutohandAcpAdapter", () => {
         "session-123",
       );
       expect(response.models?.currentModelId).toBe("openai/gpt-4o");
+      expect(
+        response.configOptions?.find((option) => option.id === "model")
+          ?.currentValue,
+      ).toBe("openai/gpt-4o");
       expect(mockConversation.addSystemNote).toHaveBeenCalledWith(
         "System note",
       );
@@ -968,24 +995,36 @@ describe("AutohandAcpAdapter", () => {
         mcpServers: [],
       } as any);
 
-      const emittedContent = connection.sessionUpdate.mock.calls.map(
-        (call) => call[0]?.update?.content,
+      const emittedUpdates = connection.sessionUpdate.mock.calls.map(
+        (call) => call[0]?.update,
       );
-      expect(emittedContent).toContainEqual({
-        type: "thinking",
-        text: "The user is asking a casual question about my capabilities.",
+      expect(emittedUpdates).toContainEqual({
+        sessionUpdate: "agent_thought_chunk",
+        content: {
+          type: "text",
+          text: "The user is asking a casual question about my capabilities.",
+        },
       });
-      expect(emittedContent).toContainEqual({
-        type: "thinking",
-        text: "I should answer directly.",
+      expect(emittedUpdates).toContainEqual({
+        sessionUpdate: "agent_thought_chunk",
+        content: {
+          type: "text",
+          text: "I should answer directly.",
+        },
       });
-      expect(emittedContent).toContainEqual({
-        type: "text",
-        text: "I can help with code, debugging, and planning.",
+      expect(emittedUpdates).toContainEqual({
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "I can help with code, debugging, and planning.",
+        },
       });
-      expect(emittedContent).not.toContainEqual({
-        type: "text",
-        text: expect.stringContaining('"thought"'),
+      expect(emittedUpdates).not.toContainEqual({
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: expect.stringContaining('"thought"'),
+        },
       });
     });
 
@@ -1032,7 +1071,7 @@ describe("AutohandAcpAdapter", () => {
       }));
       mockPersistentSessionManager.listSessions.mockResolvedValue(sessions);
 
-      const firstPage = await adapter.unstable_listSessions({} as any);
+      const firstPage = await adapter.listSessions({} as any);
       expect(firstPage.sessions).toHaveLength(50);
       expect(firstPage.nextCursor).toBe("50");
 
@@ -1171,6 +1210,16 @@ describe("AutohandAcpAdapter", () => {
       expect(result).toEqual({});
       expect(mockAgent.applyAcpModel).toHaveBeenCalledWith("openai/gpt-5");
 
+      const configResult = await adapter.setSessionConfigOption({
+        sessionId: session.sessionId,
+        configId: "thinking_level",
+        value: "extended",
+      });
+      expect(
+        configResult.configOptions.find((option) => option.id === "model")
+          ?.currentValue,
+      ).toBe("openai/gpt-5");
+
       stderrSpy.mockRestore();
     });
 
@@ -1203,6 +1252,32 @@ describe("AutohandAcpAdapter", () => {
   // -------------------------------------------------------------------------
 
   describe("unstable_setSessionConfigOption()", () => {
+    it("applies model changes through the standard ACP model config option", async () => {
+      await adapter.initialize(makeInitRequest());
+      const session = await adapter.newSession(makeNewSessionRequest());
+      const stderrSpy = vi
+        .spyOn(process.stderr, "write")
+        .mockImplementation(() => true);
+
+      const result = await adapter.setSessionConfigOption({
+        sessionId: session.sessionId,
+        configId: "model",
+        value: "openai/gpt-5",
+      });
+
+      expect(mockAgent.applyAcpModel).toHaveBeenCalledWith("openai/gpt-5");
+      expect(mockAgent.applyAcpConfigOption).not.toHaveBeenCalledWith(
+        "model",
+        "openai/gpt-5",
+      );
+      expect(
+        result.configOptions.find((option) => option.id === "model")
+          ?.currentValue,
+      ).toBe("openai/gpt-5");
+
+      stderrSpy.mockRestore();
+    });
+
     it("updates known config options and applies the change to the active agent", async () => {
       await adapter.initialize(makeInitRequest());
       const session = await adapter.newSession(makeNewSessionRequest());
@@ -1261,6 +1336,26 @@ describe("AutohandAcpAdapter", () => {
       await adapter.initialize(makeInitRequest());
       const session = await adapter.newSession(makeNewSessionRequest());
       sessionId = session.sessionId;
+    });
+
+    it("emits thinking output through the ACP thought chunk update", async () => {
+      const outputListener = mockAgent.setOutputListener.mock.calls[0][0];
+
+      await outputListener({
+        type: "thinking",
+        thought: "I should inspect the current implementation.",
+      });
+
+      expect(connection.sessionUpdate).toHaveBeenCalledWith({
+        sessionId,
+        update: {
+          sessionUpdate: "agent_thought_chunk",
+          content: {
+            type: "text",
+            text: "I should inspect the current implementation.",
+          },
+        },
+      });
     });
 
     it("emits sessionStart hook with startup type on newSession", async () => {
