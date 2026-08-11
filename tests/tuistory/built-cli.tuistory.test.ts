@@ -24,6 +24,7 @@ import {
   createMockChangelogFetchPreload,
   createMockAuthServer,
   createMockMobilePairingFetchPreload,
+  createMockOllamaServer,
   createMockOpenRouterFetchPreload,
   createMockOpenRouterSequenceServer,
   createMockSkillInstallFetchPreload,
@@ -77,6 +78,21 @@ function latestStableRepositoryVersion(): string {
 
 function isModalNumericShortcut(value: string | undefined): value is ModalNumericShortcut {
   return value !== undefined && MODAL_NUMERIC_SHORTCUTS.has(value);
+}
+
+async function selectModalOptionByLabel(session: Session, label: string): Promise<void> {
+  for (let index = 0; index < 30; index += 1) {
+    const screen = await session.text({ trimEnd: true });
+    const selectedLine = screen
+      .split('\n')
+      .find((line) => line.includes('▸') && line.includes(label));
+    if (selectedLine) {
+      await session.press('enter');
+      return;
+    }
+    await session.press('down');
+  }
+  throw new Error(`Could not select modal option: ${label}`);
 }
 
 async function trackSession(sessionPromise: Promise<Session>): Promise<Session> {
@@ -2522,6 +2538,74 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(screen, screen).toContain(assistantMessage);
     expect(screen.match(new RegExp(userMessage.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))).toHaveLength(1);
     expect(screen.match(new RegExp(assistantMessage, 'g'))).toHaveLength(1);
+  });
+
+  it('persists an Ollama model selection and restores it after restart', async () => {
+    const selectedModel = 'tuistory-first:latest';
+    const ollamaServer = await createMockOllamaServer([selectedModel, 'tuistory-second:latest']);
+    mockServers.push(ollamaServer);
+    const authServer = await createMockAuthServer();
+    mockAuthServers.push(authServer);
+    const state = await createTempAutohandHome({
+      config: {
+        provider: 'openrouter',
+        ollama: {
+          baseUrl: ollamaServer.baseUrl,
+          model: 'previous-ollama:latest',
+        },
+      },
+    });
+    tempStates.push(state);
+    const launchWithPersistedConfig = (): Promise<Session> => trackSession(
+      launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        env: {
+          AUTOHAND_API_URL: authServer.baseUrl,
+          AUTOHAND_AUTH_URL: authServer.baseUrl,
+          AUTOHAND_AUTH_API_URL: `${authServer.baseUrl}/api/auth`,
+        },
+        waitForDataTimeout: 15_000,
+      })
+    );
+    const session = await launchWithPersistedConfig();
+
+    await waitForComposer(session);
+    await session.type('/model');
+    await session.press('enter');
+    await session.waitForText('What would you like to change?', { timeout: 10_000 });
+    await session.press('3');
+    await session.waitForText('Choose an LLM provider', { timeout: 10_000 });
+    await selectModalOptionByLabel(session, 'Ollama');
+    await session.waitForText('Select a model', { timeout: 10_000 });
+    await session.press('enter');
+    await session.waitForText(`Using ollama model ${selectedModel}`, { timeout: 10_000 });
+    await session.text({
+      timeout: 10_000,
+      waitFor: (text) => text.includes(`autohand (Ollama, ${selectedModel})`),
+    });
+
+    const screen = await session.text({ trimEnd: true });
+    expect(screen).toContain(`autohand (Ollama, ${selectedModel})`);
+
+    await exitInteractive(session);
+
+    const savedConfig = await fs.readJson(state.configPath) as {
+      provider?: string;
+      ollama?: { model?: string };
+    };
+    expect(savedConfig.provider).toBe('ollama');
+    expect(savedConfig.ollama?.model).toBe(selectedModel);
+
+    const restartedSession = await launchWithPersistedConfig();
+    await waitForComposer(restartedSession);
+    const restartedScreen = await restartedSession.text({
+      timeout: 10_000,
+      waitFor: (text) => text.includes(`autohand (Ollama, ${selectedModel})`),
+      trimEnd: true,
+    });
+    expect(restartedScreen).toContain(`autohand (Ollama, ${selectedModel})`);
+    await exitInteractive(restartedSession);
   });
 
   it('persists an Autohand AI provider selection and restores it after restart', async () => {
