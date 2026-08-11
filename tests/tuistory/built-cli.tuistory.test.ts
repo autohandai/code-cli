@@ -349,6 +349,33 @@ describe('built CLI Tuistory smoke tests', () => {
     expectCleanExit(session);
   });
 
+  it('starts when a user catalog has an incomplete Fantail override', async () => {
+    const state = await createTempAutohandHome();
+    tempStates.push(state);
+    await writeFile(
+      path.join(state.autohandHome, 'models.json'),
+      JSON.stringify({
+        providers: {
+          autohandai: {
+            defaultModel: 'fantail',
+            models: ['fantail'],
+          },
+        },
+      }),
+    );
+    const session = await trackSession(launchBuiltAutohand(['--version'], {
+      autohandHome: state.autohandHome,
+      waitForDataTimeout: 15_000,
+    }));
+
+    await session.waitForText(packageJson.version, { timeout: 10_000 });
+    const output = session.readAll();
+
+    expect(output).not.toContain('missing contextWindow');
+    await waitForExit(session);
+    expectCleanExit(session);
+  });
+
   it('renders the latest stable repository tag when development versioning is enabled', async () => {
     const expectedVersion = latestStableRepositoryVersion();
     const session = await trackSession(launchBuiltAutohand(['--version'], {

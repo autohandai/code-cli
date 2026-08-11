@@ -126,6 +126,36 @@ describe("modelCatalog", () => {
     }
   });
 
+  it("inherits bundled metadata for incomplete model overrides", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "autohand-models-"));
+    const overridePath = join(dir, "models.json");
+    writeFileSync(
+      overridePath,
+      JSON.stringify({
+        providers: {
+          autohandai: {
+            models: [{ id: "fantail", displayName: "Custom Fantail" }],
+          },
+        },
+      }),
+    );
+    process.env.AUTOHAND_MODELS_CATALOG = overridePath;
+
+    try {
+      const { getProviderModelOptions } = await importCatalog();
+
+      expect(getProviderModelOptions("autohandai")[0]).toEqual(expect.objectContaining({
+        id: "fantail",
+        displayName: "Custom Fantail",
+        contextWindow: 64_000,
+        maxTokens: 16_000,
+        toolCalls: true,
+      }));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("uses ~/.autohand/models.json as the default override path", async () => {
     const dir = mkdtempSync(join(tmpdir(), "autohand-home-"));
     process.env.AUTOHAND_HOME = dir;
