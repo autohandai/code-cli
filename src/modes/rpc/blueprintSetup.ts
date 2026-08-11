@@ -11,6 +11,7 @@ import type {
   AuthUser,
   DeviceAuthInitResponse,
   DeviceAuthPollResponse,
+  DeviceAuthClientType,
 } from '../../auth/types.js';
 
 export const BLUEPRINT_SETUP_CONTRACT_VERSION = 1 as const;
@@ -138,7 +139,7 @@ type BlueprintSetupTerminalResult = Exclude<
 >;
 
 export interface BlueprintDeviceAuthClient {
-  initiateDeviceAuth(): Promise<DeviceAuthInitResponse>;
+  initiateDeviceAuth(clientType?: DeviceAuthClientType): Promise<DeviceAuthInitResponse>;
   pollDeviceAuth(deviceCode: string): Promise<DeviceAuthPollResponse>;
   cancelDeviceAuth(deviceCode: string): Promise<{ success: boolean; error?: string }>;
 }
@@ -336,7 +337,9 @@ export class BlueprintSetupSessionManager {
       );
     }
 
-    const challenge = validateChallenge(await this.options.authClient.initiateDeviceAuth());
+    const challenge = validateChallenge(
+      await this.options.authClient.initiateDeviceAuth('blueprint'),
+    );
     const sessionId = this.createSessionId();
     if (!/^[a-f0-9]{32}$/u.test(sessionId) || this.sessions.has(sessionId)) {
       throw new BlueprintSetupError(

@@ -14,6 +14,13 @@ export interface AuthUser {
   avatar?: string;
 }
 
+export type DeviceAuthClientType =
+  | 'desktop'
+  | 'cli'
+  | 'blueprint'
+  | 'assembly'
+  | 'mobile';
+
 /** Device authorization initiation response */
 export interface DeviceAuthInitResponse {
   success: boolean;
