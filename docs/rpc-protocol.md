@@ -149,9 +149,13 @@ process. Poll returns a closed `pending`, `authorized`, `expired`,
 code, raw API body, or credential. `authorized` is returned only after the
 existing Autohand config owner persists the credential successfully.
 
-The CLI calls the canonical API routes below. The browser challenge must be
-the API-returned `https://autohand.ai/signin` URL with only signed `continue`
-and `user_code` parameters.
+The CLI calls the canonical API routes below. New API device-auth requests use
+schema version 2, whose API-returned browser challenge is exactly
+`https://autohand.ai/signin?user_code=XXXX-XXXX`. The CLI also validates and
+preserves legacy schema-version-1 challenges containing only signed `continue`
+and matching `user_code` parameters so already-issued sessions can drain.
+`autohand-cli` remains the wire-protocol client ID; Blueprint is the
+presentation client type for this setup flow.
 
 ```text
 POST https://api.autohand.ai/v1/auth/cli/initiate

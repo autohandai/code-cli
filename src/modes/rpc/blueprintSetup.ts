@@ -140,13 +140,17 @@ type BlueprintSetupTerminalResult = Exclude<
 
 export interface BlueprintDeviceAuthClient {
   initiateDeviceAuth(clientType?: DeviceAuthClientType): Promise<DeviceAuthInitResponse>;
-  pollDeviceAuth(deviceCode: string): Promise<DeviceAuthPollResponse>;
-  cancelDeviceAuth(deviceCode: string): Promise<{ success: boolean; error?: string }>;
+  pollDeviceAuth(deviceCode: string, schemaVersion?: 1 | 2): Promise<DeviceAuthPollResponse>;
+  cancelDeviceAuth(
+    deviceCode: string,
+    schemaVersion?: 1 | 2,
+  ): Promise<{ success: boolean; error?: string }>;
 }
 
 interface ActiveSetupSession {
   kind: 'active';
   deviceCode: string;
+  schemaVersion: 1 | 2;
   expiresAtUnixMs: number;
   pollAfterMs: number;
   nextPollAtUnixMs: number;
@@ -170,6 +174,7 @@ export interface BlueprintSetupSessionManagerOptions {
 function validateChallenge(result: DeviceAuthInitResponse): {
   deviceCode: string;
   userCode: string;
+  schemaVersion: 1 | 2;
   verificationUriComplete: string;
   expiresIn: number;
   pollAfterMs: number;
@@ -209,15 +214,26 @@ function validateChallenge(result: DeviceAuthInitResponse): {
       'Autohand returned an invalid device-authorization challenge.',
     );
   }
-  const queryKeys = [...new Set(url.searchParams.keys())].sort();
+  const queryKeys = [...url.searchParams.keys()];
+  const schemaVersion = result.schemaVersion ?? (
+    queryKeys.length === 1 && queryKeys[0] === 'user_code' ? 2 : 1
+  );
+  const validQuery = schemaVersion === 2
+    ? queryKeys.length === 1 &&
+      queryKeys[0] === 'user_code' &&
+      url.searchParams.getAll('user_code').length === 1
+    : queryKeys.length === 2 &&
+      queryKeys.filter(key => key === 'continue').length === 1 &&
+      queryKeys.filter(key => key === 'user_code').length === 1 &&
+      Boolean(url.searchParams.get('continue'));
   if (url.protocol !== 'https:'
       || url.origin !== 'https://autohand.ai'
       || url.pathname !== '/signin'
       || url.username
       || url.password
       || url.hash
-      || queryKeys.join(',') !== 'continue,user_code'
-      || !url.searchParams.get('continue')
+      || (schemaVersion !== 1 && schemaVersion !== 2)
+      || !validQuery
       || url.searchParams.get('user_code') !== result.userCode) {
     throw new BlueprintSetupError(
       'invalid_challenge',
@@ -228,6 +244,7 @@ function validateChallenge(result: DeviceAuthInitResponse): {
   return {
     deviceCode: result.deviceCode,
     userCode: result.userCode,
+    schemaVersion,
     verificationUriComplete: url.toString(),
     expiresIn,
     pollAfterMs: interval * 1000,
@@ -352,6 +369,7 @@ export class BlueprintSetupSessionManager {
     this.sessions.set(sessionId, {
       kind: 'active',
       deviceCode: challenge.deviceCode,
+      schemaVersion: challenge.schemaVersion,
       expiresAtUnixMs,
       pollAfterMs: challenge.pollAfterMs,
       nextPollAtUnixMs: now + challenge.pollAfterMs,
@@ -388,7 +406,10 @@ export class BlueprintSetupSessionManager {
       };
     }
 
-    const apiResult = await this.options.authClient.pollDeviceAuth(session.deviceCode);
+    const apiResult = await this.options.authClient.pollDeviceAuth(
+      session.deviceCode,
+      session.schemaVersion,
+    );
     if (!apiResult.success) return failed('poll_failed');
     if (apiResult.status === 'pending') {
       session.nextPollAtUnixMs = now + session.pollAfterMs;
@@ -429,7 +450,10 @@ export class BlueprintSetupSessionManager {
     if (!session) return failed('protocol_mismatch');
     if (session.kind === 'terminal') return session.result;
 
-    const result = await this.options.authClient.cancelDeviceAuth(session.deviceCode);
+    const result = await this.options.authClient.cancelDeviceAuth(
+      session.deviceCode,
+      session.schemaVersion,
+    );
     if (!result.success) {
       const terminalFailure = failed('cancel_failed');
       this.sessions.set(parsed.data.sessionId, { kind: 'terminal', result: terminalFailure });
@@ -444,7 +468,10 @@ export class BlueprintSetupSessionManager {
     const cancellations: Promise<unknown>[] = [];
     for (const session of this.sessions.values()) {
       if (session.kind === 'active') {
-        cancellations.push(this.options.authClient.cancelDeviceAuth(session.deviceCode));
+        cancellations.push(this.options.authClient.cancelDeviceAuth(
+          session.deviceCode,
+          session.schemaVersion,
+        ));
       }
     }
     this.sessions.clear();

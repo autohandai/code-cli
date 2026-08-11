@@ -218,10 +218,11 @@ describe('SetupWizard — Mandatory Registration', () => {
     // Mock successful device auth
     mockInitiateDeviceAuth.mockResolvedValueOnce({
       success: true,
+      schemaVersion: 2,
       deviceCode: 'test-device-code',
-      userCode: 'ABC-123',
-      verificationUri: 'https://autohand.ai/cli-auth',
-      verificationUriComplete: 'https://autohand.ai/cli-auth?code=ABC-123&source=cli',
+      userCode: 'ABCD-EFGH',
+      verificationUri: 'https://autohand.ai/signin',
+      verificationUriComplete: 'https://autohand.ai/signin?user_code=ABCD-EFGH',
       expiresIn: 300,
       interval: 2,
     });
@@ -243,7 +244,7 @@ describe('SetupWizard — Mandatory Registration', () => {
     expect(result.skippedSteps).not.toContain('registration');
     // Device auth should be called automatically (no confirmation needed)
     expect(mockInitiateDeviceAuth).toHaveBeenCalledOnce();
-    expect(mockPollDeviceAuth).toHaveBeenCalledWith('test-device-code');
+    expect(mockPollDeviceAuth).toHaveBeenCalledWith('test-device-code', 2);
   });
 
   it('should allow retry when device auth initiation fails', async () => {

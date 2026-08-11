@@ -24,7 +24,7 @@ export type DeviceAuthClientType =
 /** Device authorization initiation response */
 export interface DeviceAuthInitResponse {
   success: boolean;
-  schemaVersion?: 1;
+  schemaVersion?: 1 | 2;
   deviceCode?: string;
   userCode?: string;
   verificationUri?: string;
@@ -37,7 +37,7 @@ export interface DeviceAuthInitResponse {
 /** Device authorization poll response */
 export interface DeviceAuthPollResponse {
   success: boolean;
-  schemaVersion?: 1;
+  schemaVersion?: 1 | 2;
   status: 'pending' | 'authorized' | 'expired' | 'cancelled';
   interval?: number;
   token?: string;
@@ -48,7 +48,7 @@ export interface DeviceAuthPollResponse {
 /** Device authorization cancellation response */
 export interface DeviceAuthCancelResponse {
   success: boolean;
-  schemaVersion?: 1;
+  schemaVersion?: 1 | 2;
   status?: 'cancelled';
   error?: string;
 }

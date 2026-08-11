@@ -254,7 +254,10 @@ export async function login(ctx: LoginContext): Promise<string | null> {
 
     await sleep(pollInterval);
 
-    const pollResult = await authClient.pollDeviceAuth(initResult.deviceCode);
+    const pollResult = await authClient.pollDeviceAuth(
+      initResult.deviceCode,
+      initResult.schemaVersion ?? 2,
+    );
 
     if (pollResult.status === 'authorized' && pollResult.token && pollResult.user) {
       // Clear the waiting line
