@@ -53,18 +53,19 @@ describe('Blueprint setup-only device authorization', () => {
 
   it('returns only the user-safe challenge and keeps deviceCode private', async () => {
     const pollDeviceAuth = vi.fn();
+    const initiateDeviceAuth = vi.fn(async () => ({
+      success: true,
+      deviceCode: 'private-device-code',
+      userCode: 'ABCD-EFGH',
+      verificationUri: 'https://autohand.ai/signin',
+      verificationUriComplete:
+        'https://autohand.ai/signin?continue=signed-opaque&user_code=ABCD-EFGH',
+      expiresIn: 300,
+      interval: 2,
+    }));
     const manager = new BlueprintSetupSessionManager({
       authClient: {
-        initiateDeviceAuth: vi.fn(async () => ({
-          success: true,
-          deviceCode: 'private-device-code',
-          userCode: 'ABCD-EFGH',
-          verificationUri: 'https://autohand.ai/signin',
-          verificationUriComplete:
-            'https://autohand.ai/signin?continue=signed-opaque&user_code=ABCD-EFGH',
-          expiresIn: 300,
-          interval: 2,
-        })),
+        initiateDeviceAuth,
         pollDeviceAuth,
         cancelDeviceAuth: vi.fn(),
       },
@@ -85,6 +86,7 @@ describe('Blueprint setup-only device authorization', () => {
       pollAfterMs: 2000,
     });
     expect(JSON.stringify(result)).not.toContain('private-device-code');
+    expect(initiateDeviceAuth).toHaveBeenCalledWith('blueprint');
     expect(pollDeviceAuth).not.toHaveBeenCalled();
   });
 

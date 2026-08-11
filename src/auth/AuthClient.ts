@@ -13,6 +13,7 @@ import type {
   SessionValidationResponse,
   LogoutResponse,
   AuthUser,
+  DeviceAuthClientType,
 } from './types.js';
 
 const DEFAULT_TIMEOUT = 10000;
@@ -330,7 +331,7 @@ export class AuthClient {
    * Initiate device authorization flow
    * Returns device code and user code for display
    */
-  async initiateDeviceAuth(): Promise<DeviceAuthInitResponse> {
+  async initiateDeviceAuth(clientType: DeviceAuthClientType = 'cli'): Promise<DeviceAuthInitResponse> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
@@ -342,6 +343,7 @@ export class AuthClient {
         },
         body: JSON.stringify({
           clientId: 'autohand-cli',
+          clientType,
           schemaVersion: DEVICE_AUTH_SCHEMA_VERSION,
         }),
         signal: controller.signal,

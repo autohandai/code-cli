@@ -42,7 +42,7 @@ describe('AuthClient canonical device authorization contract', () => {
     }, 201));
     const client = new AuthClient({ baseUrl: 'https://api.autohand.ai/v1/auth' });
 
-    await expect(client.initiateDeviceAuth()).resolves.toMatchObject({
+    await expect(client.initiateDeviceAuth('assembly')).resolves.toMatchObject({
       success: true,
       schemaVersion: 1,
       deviceCode,
@@ -51,7 +51,11 @@ describe('AuthClient canonical device authorization contract', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       'https://api.autohand.ai/v1/auth/cli/initiate',
       expect.objectContaining({
-        body: JSON.stringify({ clientId: 'autohand-cli', schemaVersion: 1 }),
+        body: JSON.stringify({
+          clientId: 'autohand-cli',
+          clientType: 'assembly',
+          schemaVersion: 1,
+        }),
       }),
     );
   });
