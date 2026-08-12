@@ -37,4 +37,94 @@ describe('AgentDelegator typed outcomes', () => {
       error: "Agent 'missing-reviewer' not found.; Agent 'missing-tester' not found.",
     });
   });
+
+  it('runs serial delegation through the native SubAgent protocol', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const registry = AgentRegistry.getInstance();
+    vi.spyOn(registry, 'loadAgents').mockResolvedValue();
+    vi.spyOn(registry, 'getAgent').mockReturnValue({
+      name: 'repo-reader',
+      description: 'Repository reader',
+      systemPrompt: 'Inspect repositories.',
+      tools: ['read_file'],
+      path: '/tmp/repo-reader.md',
+      source: 'builtin',
+    });
+    const complete = vi.fn().mockResolvedValue({ content: 'Serial done.' });
+    const llm = {
+      getName: () => 'autohandai',
+      complete,
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: vi.fn().mockResolvedValue([]),
+      isAvailable: vi.fn().mockResolvedValue(true),
+      setModel: vi.fn(),
+    } satisfies LLMProvider;
+    const delegator = new AgentDelegator(
+      llm,
+      { executeForTool: vi.fn() } as unknown as ActionExecutor,
+      { maxDepth: 2 },
+    );
+
+    try {
+      await expect(delegator.delegateTaskForTool('repo-reader', 'Inspect package.json')).resolves.toMatchObject({
+        success: true,
+        output: 'Serial done.',
+      });
+      const request = complete.mock.calls[0]?.[0];
+      expect(request?.tools).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: 'read_file' }),
+      ]));
+      const prompt = request?.messages.find((message) => message.role === 'system')?.content;
+      expect(prompt).toContain('Use the native tool interface');
+      expect(prompt).not.toContain('Always respond with structured JSON');
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('runs every parallel delegation through the native SubAgent protocol', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const registry = AgentRegistry.getInstance();
+    vi.spyOn(registry, 'loadAgents').mockResolvedValue();
+    vi.spyOn(registry, 'getAgent').mockImplementation((name) => ({
+      name,
+      description: `${name} agent`,
+      systemPrompt: 'Inspect repositories.',
+      tools: ['read_file'],
+      path: `/tmp/${name}.md`,
+      source: 'builtin',
+    }));
+    const complete = vi.fn().mockResolvedValue({ content: 'Parallel done.' });
+    const llm = {
+      getName: () => 'autohandai',
+      complete,
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: vi.fn().mockResolvedValue([]),
+      isAvailable: vi.fn().mockResolvedValue(true),
+      setModel: vi.fn(),
+    } satisfies LLMProvider;
+    const delegator = new AgentDelegator(
+      llm,
+      { executeForTool: vi.fn() } as unknown as ActionExecutor,
+      { maxDepth: 2 },
+    );
+
+    try {
+      await expect(delegator.delegateParallelForTool([
+        { agent_name: 'reader-one', task: 'Inspect package.json' },
+        { agent_name: 'reader-two', task: 'Inspect src' },
+      ])).resolves.toMatchObject({ success: true });
+      expect(complete).toHaveBeenCalledTimes(2);
+      for (const [request] of complete.mock.calls) {
+        expect(request.tools).toEqual(expect.arrayContaining([
+          expect.objectContaining({ name: 'read_file' }),
+        ]));
+        const prompt = request.messages.find((message) => message.role === 'system')?.content;
+        expect(prompt).toContain('Use the native tool interface');
+        expect(prompt).not.toContain('Always respond with structured JSON');
+      }
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
 });

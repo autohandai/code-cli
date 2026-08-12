@@ -19,6 +19,7 @@ vi.mock("../../src/providers/ProviderFactory.js", () => ({
   ProviderFactory: {
     create: vi.fn().mockReturnValue({
       getName: () => "mock",
+      getCapabilities: () => ({ nativeToolCalling: true }),
       complete: vi
         .fn()
         .mockResolvedValue({ content: '{"finalResponse": "Done"}' }),
@@ -38,20 +39,12 @@ vi.mock("../../src/core/agents/AgentRegistry.js", () => ({
         name: "tester",
         description: "Writes tests",
         systemPrompt: "You write tests.",
-        tools: ["read_file", "write_file"],
+        tools: ["*"],
         path: "/tmp/tester.md",
         source: "builtin" as const,
       }),
     }),
   },
-}));
-
-vi.mock("../../src/core/agents/SubAgent.js", () => ({
-  SubAgent: vi.fn().mockImplementation(function MockSubAgent() {
-    return {
-    run: vi.fn().mockResolvedValue("Completed: wrote 3 test files"),
-    };
-  }),
 }));
 
 vi.mock("../../src/core/toolsRegistry.js", () => ({
@@ -173,7 +166,42 @@ describe("teammate executeTask", () => {
         createdAt: "",
       },
     );
-    expect(result).toContain("Completed");
+    expect(result).toContain("Done");
+  });
+
+  it("runs the teammate SubAgent engine with native tools instead of the legacy JSON protocol", async () => {
+    const { ProviderFactory } = await import("../../src/providers/ProviderFactory.js");
+    const provider = ProviderFactory.create({} as never) as {
+      complete: ReturnType<typeof vi.fn>;
+      getCapabilities(): { nativeToolCalling: boolean };
+    };
+    provider.complete.mockClear();
+
+    await executeTask(
+      {
+        teamName: "test",
+        name: "worker",
+        agentName: "tester",
+        leadSessionId: "sess-native",
+      },
+      {
+        id: "task-native",
+        subject: "Inspect tools",
+        description: "Inspect the repository",
+        status: "in_progress",
+        blockedBy: [],
+        createdAt: "",
+      },
+    );
+
+    expect(provider.getCapabilities()).toEqual({ nativeToolCalling: true });
+    const request = provider.complete.mock.calls[0]?.[0];
+    expect(request?.tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "read_file" }),
+    ]));
+    const prompt = request?.messages.find((message: { role: string }) => message.role === "system")?.content;
+    expect(prompt).toContain("Use the native tool interface");
+    expect(prompt).not.toContain("Always respond with structured JSON");
   });
 
   it("returns error string on agent not found", async () => {
@@ -232,9 +260,13 @@ describe("teammate executeTask", () => {
     const { syncDynamicRuntimeExtensions } = await import(
       "../../src/core/agent/dynamicRuntimeExtensions.js"
     );
-    const { SubAgent } = await import("../../src/core/agents/SubAgent.js");
-    vi.mocked(syncDynamicRuntimeExtensions).mockClear();
-    vi.mocked(SubAgent).mockClear();
+    const { ProviderFactory } = await import("../../src/providers/ProviderFactory.js");
+    const extensionsMock = syncDynamicRuntimeExtensions as unknown as { mockClear(): void };
+    const provider = ProviderFactory.create({} as never) as {
+      complete: ReturnType<typeof vi.fn>;
+    };
+    extensionsMock.mockClear();
+    provider.complete.mockClear();
 
     await executeTask(
       {
@@ -255,11 +287,10 @@ describe("teammate executeTask", () => {
     );
 
     expect(syncDynamicRuntimeExtensions).toHaveBeenCalledOnce();
-    const subAgentCall = vi.mocked(SubAgent).mock.calls.at(-1);
-    const options = subAgentCall?.[3];
-    expect(options?.getToolDefinitions?.()).toEqual([
+    const request = provider.complete.mock.calls[0]?.[0];
+    expect(request?.tools).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "find_todos" }),
-    ]);
+    ]));
   });
 });
 

@@ -197,7 +197,7 @@ describe('LLMGatewayClient', () => {
       );
     });
 
-    it('omits orphaned tool messages from OpenAI-compatible chat payloads', async () => {
+    it('preserves orphaned tool observations as API-valid system context', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
@@ -230,7 +230,13 @@ describe('LLMGatewayClient', () => {
       const payload = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
         messages: Array<{ role: string; tool_call_id?: string }>;
       };
-      expect(payload.messages).toEqual([{ role: 'user', content: 'Continue' }]);
+      expect(payload.messages).toEqual([
+        { role: 'user', content: 'Continue' },
+        {
+          role: 'system',
+          content: '[Recovered Tool Result: read_file]\norphan result',
+        },
+      ]);
     });
 
     it('should throw friendly error on 401 authentication failure', async () => {

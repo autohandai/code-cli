@@ -41,10 +41,14 @@ import {
   formatToolResultsBatch,
 } from './AgentFormatter.js';
 import {
-  buildToolLoopCallSignature,
-  buildToolLoopResultSignature,
   truncateToolLoopSignature,
 } from './ToolLoopSignature.js';
+import {
+  inspectExpectedNativeToolResults,
+  resolveAssistantToolCalls,
+  ToolLoopGuard,
+  ToolReflectionGuard,
+} from './ToolLoopPolicy.js';
 import { isAutohandDebugEnabled } from '../../utils/debugLog.js';
 import { syncDynamicRuntimeExtensions } from './dynamicRuntimeExtensions.js';
 import {
@@ -378,20 +382,11 @@ export async function runAgentReactLoop(
       : null;
 
     try {
-    const identicalCallHardLimit = 6;
-    const identicalCallAndResultLimit = 3;
-    const forceNoToolsViolationLimit = 2;
     const perToolFailureLimit = 2; // Max consecutive failures for same tool (regardless of args)
-    let lastToolCallSignature = '';
-    let identicalToolCallCount = 0;
-    let lastToolResultSignature = '';
-    let identicalToolResultCount = 0;
-    let forceNoToolsUntilResponse = false;
-    let forceNoToolsViolationCount = 0;
+    const loopGuard = new ToolLoopGuard();
     const toolConsecutiveFailures = new Map<string, number>();
-    let needsReflection = false; // Set after tool execution; cleared when model reflects
-    const reflectionViolationLimit = 2;
-    let reflectionViolationCount = 0;
+    const reflectionGuard = new ToolReflectionGuard();
+    let expectedOutboundToolResultIds: string[] = [];
     let invalidDeferredActionCount = 0;
     let consecutiveEmptyResponseCount = 0;
 
@@ -434,6 +429,24 @@ export async function runAgentReactLoop(
       }
     };
 
+    const recordRejectedNativeToolCalls = async (
+      calls: ToolCallRequest[],
+      content: string,
+    ): Promise<void> => {
+      if (!supportsNativeToolCalling) return;
+
+      for (const call of calls) {
+        if (!call.id) continue;
+        host.conversation.addMessage({
+          role: 'tool',
+          name: call.tool,
+          content,
+          tool_call_id: call.id,
+        });
+        await host.saveToolMessage(call.tool, content, call.id);
+      }
+    };
+
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
       // Check for abort at the start of each iteration
       if (abortController.signal.aborted) {
@@ -460,7 +473,7 @@ export async function runAgentReactLoop(
         }
       }
 
-      if (forceNoToolsUntilResponse) {
+      if (loopGuard.isForcingFinalResponse()) {
         tools = [];
       }
 
@@ -490,7 +503,59 @@ export async function runAgentReactLoop(
         host.forceRenderSpinner();
       }
       // Get messages with images included for multimodal support
-      const messagesWithImages = await host.getMessagesWithImages();
+      let messagesWithImages = await host.getMessagesWithImages();
+
+      if (supportsNativeToolCalling && expectedOutboundToolResultIds.length > 0) {
+        const integrity = inspectExpectedNativeToolResults(
+          messagesWithImages,
+          expectedOutboundToolResultIds,
+        );
+        if (!integrity.ok) {
+          loopGuard.forceFinalResponse();
+          tools = [];
+          const integrityNote =
+            '[Tool Result Integrity] One or more prior tool results were not available in the outbound provider payload. ' +
+            'Tools have been disabled for this recovery response. Do not retry the calls; explain the integrity failure ' +
+            'or answer from results that remain visible.';
+          host.conversation.addSystemNote(integrityNote);
+
+          const missingByAssistantId = new Map(
+            integrity.missingResults.map((result) => [result.id, result]),
+          );
+          messagesWithImages = messagesWithImages.flatMap((message): LLMMessage[] => {
+            if (message.role !== 'assistant' || !message.tool_calls?.length) {
+              return [message];
+            }
+            const syntheticResults = message.tool_calls.flatMap((call): LLMMessage[] => {
+              const missing = missingByAssistantId.get(call.id);
+              if (!missing) return [];
+              return [{
+                role: 'tool',
+                name: missing.tool,
+                content: 'Tool result not available in the outbound payload; the call will not be retried automatically.',
+                tool_call_id: missing.id,
+              }];
+            });
+            return [message, ...syntheticResults];
+          });
+          messagesWithImages.push({ role: 'system', content: integrityNote });
+          expectedOutboundToolResultIds = [];
+
+          host.autoReportManager.reportError(
+            new Error('Outbound native tool history failed integrity validation'),
+            {
+              errorType: 'tool_result_integrity',
+              model: host.runtime.options.model,
+              provider: host.activeProvider,
+              conversationLength: host.conversation.history().length,
+              context: {
+                missingAssistantCallIds: integrity.missingAssistantCallIds,
+                missingToolResultIds: integrity.missingResults.map((result) => result.id),
+              },
+            },
+          ).catch(() => {});
+        }
+      }
 
       if (debugMode) host.writeDebugLine(`[AGENT DEBUG] Calling LLM with ${messagesWithImages.length} messages, ${tools.length} tools`);
 
@@ -647,9 +712,15 @@ export async function runAgentReactLoop(
 
       consecutiveEmptyResponseCount = 0;
       invalidDeferredActionCount = 0;
+      const assistantToolCalls = resolveAssistantToolCalls(
+        completion.toolCalls,
+        payload.toolCalls,
+        supportsNativeToolCalling,
+      );
+      const currentAssistantToolCallIds = assistantToolCalls.map((call) => call.id);
       const assistantMessage: LLMMessage = { role: 'assistant', content: completion.content };
-      if (completion.toolCalls?.length) {
-        assistantMessage.tool_calls = completion.toolCalls;
+      if (assistantToolCalls.length) {
+        assistantMessage.tool_calls = assistantToolCalls;
       }
       host.conversation.addMessage(assistantMessage);
       await host.saveAssistantMessage(completion.content, payload.toolCalls);
@@ -670,10 +741,6 @@ export async function runAgentReactLoop(
       // Response could come from finalResponse, response, or thought (when no tool calls)
       const hasResponse = Boolean(payload.finalResponse || payload.response || (!toolCount && payload.thought));
 
-      if (!payload.toolCalls?.length) {
-        forceNoToolsViolationCount = 0;
-      }
-
       if (!host.inkRenderer) {
         // Console mode: show iteration status
         if (iteration > 0) {
@@ -686,58 +753,76 @@ export async function runAgentReactLoop(
         }
       }
 
-      // Reflection loop guard: after tool results, the model MUST reflect before
-      // calling more tools. If it jumps straight to tool calls without a reflection
-      // (or a substantive thought that implicitly reflects), inject a system note.
-      const hasMeaningfulReflection = typeof payload.reflection === 'string' && payload.reflection.trim().length > 0;
+      const reflectionDecision = reflectionGuard.evaluate(payload);
+      if (reflectionDecision.type === 'integrity_failure' && payload.toolCalls?.length) {
+        loopGuard.forceFinalResponse();
+        const integrityMessage =
+          '[Tool Result Integrity] The assistant reported that prior tool results were unavailable. ' +
+          'The proposed follow-up tools were not executed to prevent a blind retry loop. ' +
+          'Use the tool results already present in the conversation and provide a finalResponse now.';
+        await recordRejectedNativeToolCalls(
+          payload.toolCalls,
+          'Tool call not executed: prior tool-result visibility was reported as unavailable.',
+        );
+        host.conversation.addSystemNote(integrityMessage);
+        expectedOutboundToolResultIds = currentAssistantToolCallIds;
 
-      if (needsReflection && payload.toolCalls && payload.toolCalls.length > 0) {
-        const thoughtIsSubstantive = (payload.thought?.length ?? 0) > 50;
-        if (!hasMeaningfulReflection && !thoughtIsSubstantive) {
-          reflectionViolationCount++;
-          if (reflectionViolationCount < reflectionViolationLimit) {
-            host.conversation.addSystemNote(
-              '[Reflection Required] You received tool results but did not reflect on them. ' +
-              'Before calling more tools, include a "reflection" field summarizing what you learned ' +
-              'from the previous tool outputs and how they inform your next action. ' +
-              'Alternatively, provide a substantive "thought" (50+ chars) that analyzes the results.'
-            );
-            if (debugMode) host.writeDebugLine('[AGENT DEBUG] Reflection guard triggered: model called tools without reflecting');
-            continue;
-          }
-          // After limit exceeded, allow the tool calls through (avoid infinite loop)
-          // and reset state so the counter doesn't grow unboundedly within this turn.
-          if (debugMode) host.writeDebugLine('[AGENT DEBUG] Reflection guard: violation limit exceeded, allowing tool calls');
-          needsReflection = false;
-          reflectionViolationCount = 0;
-        }
+        host.autoReportManager.reportError(
+          new Error('Assistant reported missing tool observations'),
+          {
+            errorType: 'tool_result_integrity',
+            model: host.runtime.options.model,
+            provider: host.activeProvider,
+            conversationLength: host.conversation.history().length,
+          },
+        ).catch(() => {});
+        continue;
       }
-      // Reflection satisfied (or not required)
-      if (needsReflection && (hasMeaningfulReflection || (payload.thought?.length ?? 0) > 50 || !payload.toolCalls?.length)) {
-        needsReflection = false;
-        reflectionViolationCount = 0;
+
+      if (reflectionDecision.type === 'require_reflection' && payload.toolCalls?.length) {
+        await recordRejectedNativeToolCalls(
+          payload.toolCalls,
+          'Tool call not executed: reflection on the previous tool results is required first.',
+        );
+        host.conversation.addSystemNote(
+          '[Reflection Required] You received tool results but did not reflect on them. ' +
+          'Before calling more tools, include a "reflection" field summarizing what you learned ' +
+          'from the previous tool outputs and how they inform your next action. ' +
+          'Alternatively, provide a substantive "thought" (50+ chars) that analyzes the results.'
+        );
+        expectedOutboundToolResultIds = currentAssistantToolCallIds;
+        if (debugMode) host.writeDebugLine('[AGENT DEBUG] Reflection guard triggered: model called tools without reflecting');
+        continue;
+      }
+
+      if (reflectionDecision.type === 'force_final' && payload.toolCalls?.length) {
+        loopGuard.forceFinalResponse();
+        await recordRejectedNativeToolCalls(
+          payload.toolCalls,
+          'Tool call not executed: repeated missing reflection forced a final response.',
+        );
+        host.conversation.addSystemNote(
+          '[Critical Reflection Guard] The assistant attempted another tool call without analyzing prior results. ' +
+          'The call was not executed. Do not call tools again; provide a finalResponse from the available evidence.'
+        );
+        expectedOutboundToolResultIds = currentAssistantToolCallIds;
+        continue;
       }
 
       if (payload.toolCalls && payload.toolCalls.length > 0) {
-        const toolCallSignature = buildToolLoopCallSignature(payload.toolCalls);
-        if (toolCallSignature === lastToolCallSignature) {
-          identicalToolCallCount += 1;
-        } else {
-          lastToolCallSignature = toolCallSignature;
-          identicalToolCallCount = 1;
-          lastToolResultSignature = '';
-          identicalToolResultCount = 0;
-          forceNoToolsViolationCount = 0;
-        }
-
-        if (forceNoToolsUntilResponse) {
-          forceNoToolsViolationCount += 1;
+        const loopDecision = loopGuard.observeCalls(payload.toolCalls);
+        if (loopDecision.type === 'reject') {
+          await recordRejectedNativeToolCalls(
+            payload.toolCalls,
+            'Tool call not executed: the loop guard requires a final response.',
+          );
+          expectedOutboundToolResultIds = currentAssistantToolCallIds;
           host.conversation.addSystemNote(
             '[Critical Loop Guard] You are still calling tools after being told to stop. ' +
             'Do not call tools again. Provide your finalResponse now.'
           );
 
-          if (forceNoToolsViolationCount >= forceNoToolsViolationLimit) {
+          if (loopDecision.exhausted) {
             host.stopStatusUpdates();
             const loopFallback =
               'I stopped repeated tool calls to prevent a loop and token waste. ' +
@@ -752,11 +837,15 @@ export async function runAgentReactLoop(
           continue;
         }
 
-        if (identicalToolCallCount >= identicalCallHardLimit) {
-          forceNoToolsUntilResponse = true;
+        if (loopDecision.type === 'force_final') {
+          await recordRejectedNativeToolCalls(
+            payload.toolCalls,
+            'Tool call not executed: repeated tool calls forced a final response.',
+          );
+          expectedOutboundToolResultIds = currentAssistantToolCallIds;
           host.conversation.addSystemNote(
-            `[Critical Loop Guard] Repeated tool call sequence detected (${identicalToolCallCount}x). ` +
-            `Last sequence: ${truncateToolLoopSignature(toolCallSignature)}. ` +
+            `[Critical Loop Guard] Repeated tool call sequence detected (${loopDecision.repeatCount}x). ` +
+            `Last sequence: ${truncateToolLoopSignature(loopDecision.signature)}. ` +
             'Stop calling tools and provide your finalResponse using the current results.'
           );
           continue;
@@ -1058,19 +1147,7 @@ export async function runAgentReactLoop(
             );
           }
 
-          const toolResultSignature = buildToolLoopResultSignature(results);
-          if (toolResultSignature === lastToolResultSignature) {
-            identicalToolResultCount += 1;
-          } else {
-            lastToolResultSignature = toolResultSignature;
-            identicalToolResultCount = 1;
-          }
-
-          if (
-            identicalToolCallCount >= identicalCallAndResultLimit &&
-            identicalToolResultCount >= identicalCallAndResultLimit
-          ) {
-            forceNoToolsUntilResponse = true;
+          if (loopGuard.observeResults(results).forcedFinalResponse) {
             host.conversation.addSystemNote(
               '[Critical Loop Guard] Tool calls and outputs are repeating without progress. ' +
               'Stop calling tools and provide your finalResponse now.'
@@ -1162,7 +1239,8 @@ export async function runAgentReactLoop(
         }
 
         // Mark that the next iteration must include reflection on these tool results
-        needsReflection = true;
+        reflectionGuard.expectReflection();
+        expectedOutboundToolResultIds = currentAssistantToolCallIds;
 
         // Check for abort after tool execution before continuing
         if (abortController.signal.aborted) {
