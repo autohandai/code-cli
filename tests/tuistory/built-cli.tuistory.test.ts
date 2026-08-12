@@ -972,6 +972,57 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
+  it('continues an active goal after a non-terminal model response', async () => {
+    const openRouterServer = await createMockOpenRouterSequenceServer([
+      JSON.stringify({
+        thought: 'The goal needs implementation work after this planning turn.',
+        toolCalls: [],
+        finalResponse: 'FIRST_GOAL_TURN_FINISHED',
+      }),
+      JSON.stringify({
+        thought: 'The implementation is now complete, so the persistent goal can be completed.',
+        toolCalls: [{ tool: 'update_goal', args: { status: 'complete' } }],
+      }),
+      JSON.stringify({
+        toolCalls: [],
+        finalResponse: 'GOAL_CONTINUATION_FINISHED',
+      }),
+    ]);
+    mockServers.push(openRouterServer);
+    const session = await launchInteractive({
+      config: {
+        openrouter: { baseUrl: openRouterServer.baseUrl },
+        features: { slashGoal: true },
+        agent: { autoMemory: false, maxIterations: 4, sessionRetryLimit: 0 },
+        network: { maxRetries: 0, retryDelay: 0 },
+        ui: {
+          promptSuggestions: false,
+          showCompletionNotification: false,
+          terminalBell: false,
+        },
+      },
+    });
+
+    await waitForComposer(session);
+    await session.type('/goal build a toddler-friendly browser game');
+    await session.press('enter');
+    await session.waitForText('Goal created.', { timeout: 10_000 });
+    await session.waitForText('FIRST_GOAL_TURN_FINISHED', { timeout: 15_000 });
+    await session.waitForText('GOAL_CONTINUATION_FINISHED', { timeout: 5_000 });
+
+    await waitForComposer(session);
+    await session.type('/goal');
+    await session.press('enter');
+    await session.waitForText('Status: complete', { timeout: 5_000 });
+
+    const output = session.readAll();
+    expect(output).toContain('Interactive auto mode active');
+    expect(output).toContain('GOAL_CONTINUATION_FINISHED');
+    expect(output.match(/GOAL_CONTINUATION_FINISHED/gu)).toHaveLength(1);
+
+    await exitInteractive(session);
+  }, 45_000);
+
   it('starts device auth from the startup auth gate', async () => {
     const state = await createTempAutohandHome({
       config: {
