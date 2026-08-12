@@ -39,6 +39,17 @@ describe("AutohandAIProvider", () => {
     expect(AUTOHAND_AI_MOA_CONTEXT_WINDOW).toBe(1_000_000);
   });
 
+  it("advertises native tool calling for Moa", () => {
+    const provider = new AutohandAIProvider({
+      plan: "cloud",
+      authMode: "api-key",
+      apiKey: "test-autohand-key",
+      model: "moa",
+    });
+
+    expect(provider.getCapabilities()).toEqual({ nativeToolCalling: true });
+  });
+
   it("uses the Autohand AI cloud chat completions endpoint with API key auth and temperature 0.1", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

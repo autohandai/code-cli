@@ -19,6 +19,7 @@ import { hasTerminalProcessPid } from '../../src/testing/assertions/terminalOutp
 import { getHelpOrderedSlashCommands } from '../../src/ui/inputPrompt.js';
 import {
   clearComposerInput,
+  createMockAutohandAINativeToolServer,
   createMockAutohandAIQuotaServer,
   createFailingOpenRouterFetchPreload,
   createMockChangelogFetchPreload,
@@ -255,6 +256,66 @@ afterEach(async () => {
 });
 
 describe('built CLI Tuistory smoke tests', () => {
+  it('round-trips one native Moa tool result without repeating the call', async () => {
+    const nativeToolServer = await createMockAutohandAINativeToolServer();
+    mockServers.push(nativeToolServer);
+    const state = await createTempAutohandHome({
+      config: {
+        provider: 'autohandai',
+        autohandai: {
+          plan: 'cloud',
+          authMode: 'api-key',
+          apiKey: 'tuistory-autohand-api-key',
+          model: 'moa',
+          baseUrl: nativeToolServer.baseUrl,
+        },
+        features: { autohand_inference: true },
+        agent: { maxIterations: 4, sessionRetryLimit: 0 },
+        network: { maxRetries: 0, retryDelay: 0 },
+      },
+    });
+    tempStates.push(state);
+
+    const session = await trackSession(launchBuiltAutohand([
+      '--path', state.workspaceRoot,
+      '--config', state.configPath,
+      '--prompt', 'Read package.json exactly once and report its package name.',
+      '--y',
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      waitForDataTimeout: 15_000,
+    }));
+
+    await waitForExit(session, 30_000);
+    const output = session.readAll();
+    expect(output).toContain('MOA_NATIVE_TOOL_HISTORY_OK');
+    expect(output).not.toContain('I stopped repeated tool calls');
+    expect(nativeToolServer.requests).toHaveLength(2);
+
+    const firstTools = nativeToolServer.requests[0]?.tools as Array<{
+      function?: { name?: string };
+    }>;
+    expect(firstTools.some((tool) => tool.function?.name === 'read_file')).toBe(true);
+
+    const continuationMessages = nativeToolServer.requests[1]?.messages as Array<{
+      role?: string;
+      content?: string;
+      tool_call_id?: string;
+      tool_calls?: Array<{ id?: string }>;
+    }>;
+    expect(continuationMessages).toContainEqual(expect.objectContaining({
+      role: 'assistant',
+      tool_calls: [expect.objectContaining({ id: 'call_read_package' })],
+    }));
+    expect(continuationMessages).toContainEqual(expect.objectContaining({
+      role: 'tool',
+      tool_call_id: 'call_read_package',
+      content: expect.stringContaining('tuistory-workspace'),
+    }));
+    expectCleanExit(session);
+  }, 45_000);
+
   it('recommends upgrading when an Autohand AI message quota is exhausted', async () => {
     const quotaServer = await createMockAutohandAIQuotaServer();
     mockServers.push(quotaServer);

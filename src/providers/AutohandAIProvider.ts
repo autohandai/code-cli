@@ -13,7 +13,7 @@ import type {
   LLMResponse,
   NetworkSettings,
 } from "../types.js";
-import type { LLMProvider } from "./LLMProvider.js";
+import type { LLMProvider, LLMProviderCapabilities } from "./LLMProvider.js";
 import { AUTOHAND_AI_LOCAL_CODING_MODEL_FALLBACKS } from "./autohandAILocalSetup.js";
 import { getProviderModelOptions } from "./modelCatalog.js";
 
@@ -137,6 +137,17 @@ export class AutohandAIProvider implements LLMProvider {
 
   getName(): string {
     return "autohandai";
+  }
+
+  getCapabilities(): LLMProviderCapabilities {
+    if (this.localProvider) {
+      return this.localProvider.getCapabilities();
+    }
+
+    const model = AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS.find(
+      (definition) => definition.id === this.model,
+    );
+    return { nativeToolCalling: model?.toolCalls === true };
   }
 
   setModel(model: string): void {

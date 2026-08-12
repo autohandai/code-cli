@@ -11,9 +11,9 @@ import type { ActionExecutor } from '../../../src/core/actionExecutor.js';
 import { PermissionManager } from '../../../src/permissions/PermissionManager.js';
 import type { ToolAuthorizationOptions } from '../../../src/core/toolManager.js';
 
-function nativeToolCall(name: string, args: Record<string, unknown>) {
+function nativeToolCall(name: string, args: Record<string, unknown>, id = `call-${name}`) {
   return {
-    id: `call-${name}`,
+    id,
     type: 'function' as const,
     function: { name, arguments: JSON.stringify(args) },
   };
@@ -58,6 +58,64 @@ describe('SubAgent', () => {
       expect(complete).toHaveBeenCalledWith(expect.not.objectContaining({
         tools: expect.any(Array),
         toolChoice: expect.anything()
+      }));
+      const systemPrompt = complete.mock.calls[0]?.[0]?.messages.find(
+        (message) => message.role === 'system',
+      )?.content;
+      expect(systemPrompt).toContain('"reflection"');
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('uses the shared legacy reaction protocol and carries tool result ids into the next request', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const executeForTool = vi.fn().mockResolvedValue({
+      success: true,
+      output: 'package contents',
+    });
+    const complete = vi.fn()
+      .mockResolvedValueOnce({
+        id: 'tool-turn',
+        created: 1,
+        content: '[TOOL_CALL]{"name":"read_file","arguments":{"path":"package.json"}}[/TOOL_CALL]',
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'answer',
+        created: 2,
+        content: '{"finalResponse":"Done."}',
+        raw: {},
+      });
+    const llm = {
+      getName: () => 'legacy',
+      complete,
+      listModels: vi.fn().mockResolvedValue([]),
+      isAvailable: vi.fn().mockResolvedValue(true),
+      setModel: vi.fn(),
+    } satisfies LLMProvider;
+    const subAgent = new SubAgent({
+      name: 'legacy-reader',
+      description: 'Legacy reader',
+      systemPrompt: 'Read repository files.',
+      tools: ['read_file'],
+      path: '/tmp/legacy-reader.md',
+      source: 'external',
+    }, llm, { executeForTool } as unknown as ActionExecutor, {
+      clientContext: 'cli',
+      depth: 0,
+      maxDepth: 0,
+    });
+
+    try {
+      await expect(subAgent.run('Read package.json')).resolves.toBe('Done.');
+      expect(executeForTool).toHaveBeenCalledOnce();
+      expect(complete).toHaveBeenCalledTimes(2);
+      const secondRequest = complete.mock.calls[1]?.[0];
+      expect(secondRequest?.messages).toContainEqual(expect.objectContaining({
+        role: 'tool',
+        content: 'package contents',
+        tool_call_id: expect.any(String),
       }));
     } finally {
       logSpy.mockRestore();
@@ -108,6 +166,12 @@ describe('SubAgent', () => {
         ],
         toolChoice: 'auto'
       }));
+      const firstRequest = complete.mock.calls[0]?.[0];
+      const systemPrompt = firstRequest?.messages.find(
+        (message) => message.role === 'system',
+      )?.content;
+      expect(systemPrompt).toContain('Use the native tool interface');
+      expect(systemPrompt).not.toContain('Always respond with structured JSON');
     } finally {
       logSpy.mockRestore();
     }
@@ -260,6 +324,261 @@ describe('SubAgent', () => {
         role: 'tool',
         tool_call_id: 'call-read_file',
         content: 'file contents',
+      }));
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('promotes a native-capable provider JSON fallback into matched assistant and tool history', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const executeForTool = vi.fn().mockResolvedValue({
+      success: true,
+      output: 'fallback file contents',
+    });
+    const complete = vi.fn()
+      .mockResolvedValueOnce({
+        id: 'fallback-tool-turn',
+        created: 1,
+        content: JSON.stringify({
+          thought: 'Read the requested file.',
+          toolCalls: [{ tool: 'read_file', args: { path: 'package.json' } }],
+        }),
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'answer',
+        created: 2,
+        content: 'Done.',
+        raw: {},
+      });
+    const llm = {
+      getName: () => 'autohandai',
+      complete,
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: vi.fn().mockResolvedValue([]),
+      isAvailable: vi.fn().mockResolvedValue(true),
+      setModel: vi.fn(),
+    } satisfies LLMProvider;
+    const subAgent = new SubAgent({
+      name: 'fallback-reader',
+      description: 'Fallback reader',
+      systemPrompt: 'Inspect repository files.',
+      tools: ['read_file'],
+      path: '/tmp/fallback-reader.md',
+      source: 'builtin',
+    }, llm, { executeForTool } as unknown as ActionExecutor, {
+      clientContext: 'cli',
+      depth: 0,
+      maxDepth: 0,
+    });
+
+    try {
+      await expect(subAgent.run('Read package.json')).resolves.toBe('Done.');
+      const secondRequestMessages = complete.mock.calls[1]?.[0]?.messages as Array<Record<string, unknown>>;
+      const assistantCall = secondRequestMessages.find(
+        (message) => message.role === 'assistant' && Array.isArray(message.tool_calls),
+      )?.tool_calls as Array<{ id: string; function: { name: string } }> | undefined;
+      expect(assistantCall?.[0]).toEqual(expect.objectContaining({
+        type: 'function',
+        function: expect.objectContaining({ name: 'read_file' }),
+      }));
+      expect(secondRequestMessages).toContainEqual(expect.objectContaining({
+        role: 'tool',
+        tool_call_id: assistantCall?.[0]?.id,
+        content: 'fallback file contents',
+      }));
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('stops a repeated call-and-result loop before executing the fourth duplicate', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const executeForTool = vi.fn().mockResolvedValue({
+      success: true,
+      output: 'the same package contents',
+    });
+    const repeatedCalls = [1, 2, 3, 4].map((sequence) => ({
+      id: `tool-turn-${sequence}`,
+      created: sequence,
+      content: sequence === 1
+        ? 'Reading package.json.'
+        : '{"reflection":"The prior output is unchanged and I am deliberately checking the same file again.","thought":"Repeating the read."}',
+      toolCalls: [nativeToolCall('read_file', { path: 'package.json' }, `call-${sequence}`)],
+      raw: {},
+    }));
+    const complete = vi.fn()
+      .mockResolvedValueOnce(repeatedCalls[0])
+      .mockResolvedValueOnce(repeatedCalls[1])
+      .mockResolvedValueOnce(repeatedCalls[2])
+      .mockResolvedValueOnce(repeatedCalls[3])
+      .mockResolvedValueOnce({
+        id: 'answer',
+        created: 5,
+        content: 'Done from the existing result.',
+        raw: {},
+      });
+    const llm = {
+      getName: () => 'autohandai',
+      complete,
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: vi.fn().mockResolvedValue([]),
+      isAvailable: vi.fn().mockResolvedValue(true),
+      setModel: vi.fn(),
+    } satisfies LLMProvider;
+    const subAgent = new SubAgent({
+      name: 'looping-reader',
+      description: 'Looping reader',
+      systemPrompt: 'Inspect repository files.',
+      tools: ['read_file'],
+      path: '/tmp/looping-reader.md',
+      source: 'builtin',
+    }, llm, { executeForTool } as unknown as ActionExecutor, {
+      clientContext: 'cli',
+      depth: 0,
+      maxDepth: 0,
+    });
+
+    try {
+      await expect(subAgent.run('Read package.json')).resolves.toBe('Done from the existing result.');
+      expect(executeForTool).toHaveBeenCalledTimes(3);
+      expect(complete).toHaveBeenCalledTimes(5);
+      expect(complete.mock.calls[3]?.[0]?.tools).toBeUndefined();
+      expect(complete.mock.calls[4]?.[0]?.tools).toBeUndefined();
+      const finalRequestMessages = complete.mock.calls[4]?.[0]?.messages as Array<Record<string, unknown>>;
+      const rejectedAssistantIndex = finalRequestMessages.findIndex((message) =>
+        message.role === 'assistant'
+        && Array.isArray(message.tool_calls)
+        && message.tool_calls.some((call: { id?: string }) => call.id === 'call-4')
+      );
+      expect(finalRequestMessages[rejectedAssistantIndex + 1]).toEqual(expect.objectContaining({
+        role: 'tool',
+        tool_call_id: 'call-4',
+        content: expect.stringContaining('not executed'),
+      }));
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('stops when reflection reports missing tool outputs instead of blindly retrying', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const executeForTool = vi.fn().mockResolvedValue({ success: true, output: 'package contents' });
+    const complete = vi.fn()
+      .mockResolvedValueOnce({
+        id: 'initial-read',
+        created: 1,
+        content: 'Reading package.json.',
+        toolCalls: [nativeToolCall('read_file', { path: 'package.json' }, 'call-1')],
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'blind-retry',
+        created: 2,
+        content: '{"reflection":"The previous tool output was not visible.","thought":"Retrying it."}',
+        toolCalls: [nativeToolCall('read_file', { path: 'package.json' }, 'call-2')],
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'answer',
+        created: 3,
+        content: 'Stopped without repeating the read.',
+        raw: {},
+      });
+    const llm = {
+      getName: () => 'autohandai',
+      complete,
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: vi.fn().mockResolvedValue([]),
+      isAvailable: vi.fn().mockResolvedValue(true),
+      setModel: vi.fn(),
+    } satisfies LLMProvider;
+    const subAgent = new SubAgent({
+      name: 'integrity-reader',
+      description: 'Integrity reader',
+      systemPrompt: 'Inspect repository files.',
+      tools: ['read_file'],
+      path: '/tmp/integrity-reader.md',
+      source: 'builtin',
+    }, llm, { executeForTool } as unknown as ActionExecutor, {
+      clientContext: 'cli',
+      depth: 0,
+      maxDepth: 0,
+    });
+
+    try {
+      await expect(subAgent.run('Read package.json')).resolves.toBe('Stopped without repeating the read.');
+      expect(executeForTool).toHaveBeenCalledTimes(1);
+      expect(complete.mock.calls[2]?.[0]?.tools).toBeUndefined();
+      expect(complete.mock.calls[2]?.[0]?.messages).toContainEqual(expect.objectContaining({
+        role: 'tool',
+        tool_call_id: 'call-2',
+        content: expect.stringContaining('not executed'),
+      }));
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('requires reflection before a delegated agent can call another tool', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const executedIds: string[] = [];
+    const executeForTool = vi.fn().mockImplementation((_action, context) => {
+      executedIds.push(context?.toolCallId);
+      return Promise.resolve({ success: true, output: 'observed output' });
+    });
+    const complete = vi.fn()
+      .mockResolvedValueOnce({
+        id: 'first-read',
+        created: 1,
+        content: 'Initial read.',
+        toolCalls: [nativeToolCall('read_file', { path: 'first.ts' }, 'call-1')],
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'unreflected-read',
+        created: 2,
+        content: 'Next read.',
+        toolCalls: [nativeToolCall('read_file', { path: 'blocked.ts' }, 'call-2')],
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'reflected-read',
+        created: 3,
+        content: '{"reflection":"The first file identified the exact dependency I need to inspect next.","thought":"Reading that dependency."}',
+        toolCalls: [nativeToolCall('read_file', { path: 'allowed.ts' }, 'call-3')],
+        raw: {},
+      })
+      .mockResolvedValueOnce({ id: 'answer', created: 4, content: 'Done.', raw: {} });
+    const llm = {
+      getName: () => 'autohandai',
+      complete,
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: vi.fn().mockResolvedValue([]),
+      isAvailable: vi.fn().mockResolvedValue(true),
+      setModel: vi.fn(),
+    } satisfies LLMProvider;
+    const subAgent = new SubAgent({
+      name: 'reflective-reader',
+      description: 'Reflective reader',
+      systemPrompt: 'Inspect repository files.',
+      tools: ['read_file'],
+      path: '/tmp/reflective-reader.md',
+      source: 'builtin',
+    }, llm, { executeForTool } as unknown as ActionExecutor, {
+      clientContext: 'cli',
+      depth: 0,
+      maxDepth: 0,
+    });
+
+    try {
+      await expect(subAgent.run('Inspect dependencies')).resolves.toBe('Done.');
+      expect(executedIds).toEqual(['call-1', 'call-3']);
+      expect(complete.mock.calls[2]?.[0]?.messages).toContainEqual(expect.objectContaining({
+        role: 'tool',
+        tool_call_id: 'call-2',
+        content: expect.stringContaining('not executed'),
       }));
     } finally {
       logSpy.mockRestore();

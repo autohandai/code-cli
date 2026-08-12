@@ -53,6 +53,10 @@ export interface MockOpenRouterServer {
   close: () => Promise<void>;
 }
 
+export interface MockNativeToolServer extends MockOpenRouterServer {
+  requests: JsonRecord[];
+}
+
 export interface MockOpenRouterFetchPreload {
   importSpecifier: string;
   cleanup: () => Promise<void>;
@@ -268,6 +272,82 @@ export async function createMockAutohandAIQuotaServer(): Promise<MockOpenRouterS
 
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
+    close: async () => {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error?: Error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+    },
+  };
+}
+
+export async function createMockAutohandAINativeToolServer(): Promise<MockNativeToolServer> {
+  const requests: JsonRecord[] = [];
+  const server = createServer(async (request, response) => {
+    if (request.url !== '/chat/completions' || request.method !== 'POST') {
+      response.writeHead(404, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ error: 'not found' }));
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    const body = recordOrEmpty(JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown);
+    requests.push(body);
+
+    const firstRequest = requests.length === 1;
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({
+      id: `chatcmpl-autohand-native-${requests.length}`,
+      created: Math.floor(Date.now() / 1000),
+      choices: [{
+        index: 0,
+        message: firstRequest
+          ? {
+              role: 'assistant',
+              content: 'Read package.json once.',
+              tool_calls: [{
+                id: 'call_read_package',
+                type: 'function',
+                function: {
+                  name: 'read_file',
+                  arguments: JSON.stringify({ path: 'package.json' }),
+                },
+              }],
+            }
+          : {
+              role: 'assistant',
+              content: 'MOA_NATIVE_TOOL_HISTORY_OK',
+            },
+        finish_reason: firstRequest ? 'tool_calls' : 'stop',
+      }],
+      usage: {
+        prompt_tokens: 42,
+        completion_tokens: 12,
+        total_tokens: 54,
+      },
+    }));
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Mock Autohand AI native tool server did not bind to a TCP port.');
+  }
+
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    requests,
     close: async () => {
       await new Promise<void>((resolve, reject) => {
         server.close((error?: Error) => {

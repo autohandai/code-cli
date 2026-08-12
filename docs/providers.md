@@ -75,6 +75,8 @@ Autohand AI is the preferred first-party provider. Use `autohandai` with `plan: 
 
 Fantail uses a 64k input context window and a 16k maximum output. Moa retains its 1M input context and 262,144-token output contract. These limits and the available cloud model list are read from `src/providers/models.json` (or a validated catalog override), not duplicated in provider code. If a selected model requires a higher account tier or an Autohand AI message quota is exhausted, the CLI includes the trusted upgrade link returned by the inference service.
 
+Fantail and Moa use native tool calling in the main agent, delegated agents, parallel agents, and teammates. Autohand preserves matching tool-call IDs and results across model turns; if an observation disappears or repeated calls stop making progress, the runtime withholds further tools and asks the model to finish from the evidence already available.
+
 Cloud mode uses the OpenAI-compatible `/chat/completions` API and defaults to temperature `0.1`.
 
 | Model | Notes |

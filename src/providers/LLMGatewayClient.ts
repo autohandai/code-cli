@@ -47,7 +47,11 @@ function sanitizeMessages(messages: LLMMessage[]): Record<string, unknown>[] {
 
   return messages.flatMap((msg) => {
     if (msg.role === "tool" && (!msg.tool_call_id || !matchedToolCallIds.has(msg.tool_call_id))) {
-      return [];
+      const label = msg.name ? `: ${msg.name}` : "";
+      return [{
+        role: "system",
+        content: `[Recovered Tool Result${label}]\n${msg.content}`,
+      }];
     }
 
     const sanitized: Record<string, unknown> = {
