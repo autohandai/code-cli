@@ -349,7 +349,7 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/publish-research`| Preview and publish a saved research report with explicit confirmation             |
 | `/automode`        | Manage auto-mode                                                                 |
 | `/autoresearch`    | Run replayable benchmark loops with history, replay, comparison, and Pareto analysis |
-| `/goal`            | Set, review, or refine the current session goal                                  |
+| `/goal`            | Set a persistent goal and continue automatically until it reaches a terminal state |
 | `/goal writer`     | Draft one or more well-specified goals with the built-in `$goal-writer` skill    |
 | `/squad`           | Open/manage the local Autohand Squad runtime                                     |
 | `/go`              | Pair this session with the Autohand Code iOS app                                 |

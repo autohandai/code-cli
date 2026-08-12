@@ -38,6 +38,7 @@ import { shouldForceAgentIdleLogout } from './AgentSessionAccounting.js';
 import { consumeAgentInkSubmittedInstructionEcho } from './AgentUIRuntime.js';
 import {
   createQueuedAgentInstruction,
+  resolveActiveGoalContinuation,
   unpackQueuedAgentInstruction,
   type PendingPostTurnAction,
   type SequencedQueuedAgentInstruction,
@@ -1694,6 +1695,18 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
           } else if (publicationResult) {
             console.log(renderTerminalMarkdown(publicationResult));
           }
+        }
+        const goalContinuation = await resolveActiveGoalContinuation(
+          {
+            runtime: host.runtime,
+            shouldExit: host.shouldExit,
+            interactiveAutomodeEnabled: host.interactiveAutomodeEnabled,
+            runtimeResourceShutdownController: host.runtimeResourceShutdownController,
+          },
+          turnSucceeded,
+        );
+        if (goalContinuation) {
+          host.pendingInkInstructions.push(createQueuedAgentInstruction({ text: goalContinuation }));
         }
         host.flushMcpStartupSummaryIfPending();
 

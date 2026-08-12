@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { readDeepResearchRun } from '../../deepResearch/session.js';
+import { buildGoalContinuationInstruction, GoalManager } from '../../goals/GoalManager.js';
 import type { MobileComposerCommandExecutionOutcome } from '../../mobile/MobileHandoffClient.js';
 import type { MobileComposerExecutableCommand } from '../../mobile/MobileCommandPolicy.js';
 import type { MobileClaimedTurnContext } from '../../mobile/MobileRelay.js';
@@ -70,6 +71,15 @@ export interface PostTurnActionHost {
   requestResearchPublication(reportPath: string): Promise<string>;
 }
 
+export interface ActiveGoalContinuationHost {
+  runtime: {
+    workspaceRoot: string;
+  };
+  shouldExit: boolean;
+  interactiveAutomodeEnabled: boolean;
+  runtimeResourceShutdownController?: AbortController;
+}
+
 export function unpackQueuedAgentInstruction(
   value: PendingAgentInstruction,
 ): SequencedQueuedAgentInstruction {
@@ -122,6 +132,30 @@ export async function executePendingPostTurnAction(
   }
 
   return host.requestResearchPublication(action.reportPath);
+}
+
+export async function resolveActiveGoalContinuation(
+  host: ActiveGoalContinuationHost,
+  turnSucceeded: boolean,
+): Promise<string | null> {
+  if (
+    !turnSucceeded
+    || !host.interactiveAutomodeEnabled
+    || host.shouldExit
+    || host.runtimeResourceShutdownController?.signal.aborted
+  ) {
+    return null;
+  }
+
+  try {
+    const snapshot = await new GoalManager(host.runtime.workspaceRoot).getSnapshot();
+    if (snapshot.goal?.status !== 'active') {
+      return null;
+    }
+    return buildGoalContinuationInstruction(snapshot.goal.objective);
+  } catch {
+    return null;
+  }
 }
 
 function currentPostTurnEnvironment(): PostTurnEnvironment {
