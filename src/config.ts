@@ -45,6 +45,7 @@ const DEFAULT_SAKANA_URL = "https://api.sakana.ai/v1";
 const DEFAULT_DEEPSEEK_URL = "https://api.deepseek.com";
 const DEFAULT_BEDROCK_REGION = "us-east-1";
 const DEFAULT_AUTOHAND_AI_URL = "https://api.autohand.ai/v1";
+const DEFAULT_CONTROL_PLANE_API_URL = "https://api.autohand.ai";
 
 interface LegacyConfigShape {
   api_key?: string;
@@ -610,6 +611,27 @@ function mergeWorkspaceSettings(
   return merged;
 }
 
+function normalizeSavedApiBaseUrl(baseUrl: string | undefined): string | undefined {
+  const normalized = baseUrl?.trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  try {
+    const hostname = new URL(normalized).hostname.toLowerCase();
+    if (
+      hostname === "autohand-web.pages.dev"
+      || hostname.endsWith(".autohand-web.pages.dev")
+    ) {
+      return DEFAULT_CONTROL_PLANE_API_URL;
+    }
+  } catch {
+    return normalized;
+  }
+
+  return normalized;
+}
+
 /**
  * Merge environment variables into config
  * Env vars take precedence over config file values
@@ -620,8 +642,8 @@ function mergeEnvVariables(config: AutohandConfig): AutohandConfig {
     api: {
       baseUrl:
         process.env.AUTOHAND_API_URL ||
-        config.api?.baseUrl ||
-        "https://api.autohand.ai",
+        normalizeSavedApiBaseUrl(config.api?.baseUrl) ||
+        DEFAULT_CONTROL_PLANE_API_URL,
       companySecret:
         process.env.AUTOHAND_SECRET || config.api?.companySecret || "",
     },
