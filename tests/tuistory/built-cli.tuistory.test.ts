@@ -808,6 +808,36 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
+  it('does not treat the Enter that submits /whatsnew as an announcement dismissal', async () => {
+    const session = await launchWithCachedAnnouncements();
+    await waitForComposer(session);
+
+    await session.type('/whatsnew');
+    await session.press('enter');
+    const modal = await session.text({
+      timeout: 10_000,
+      waitFor: (text) => (
+        text.includes("What's new")
+        && text.includes('Voice dictation is here')
+        && text.includes('Squad mode is ready')
+      ),
+      trimEnd: true,
+    });
+
+    expect(modal).toContain('Voice dictation is here');
+    expect(modal).toContain('Squad mode is ready');
+
+    await session.press('escape');
+    const restored = await session.text({
+      timeout: 10_000,
+      waitFor: (text) => text.includes('❯') && text.includes('Voice dictation is here'),
+      trimEnd: true,
+    });
+
+    expect(restored).toContain('Voice dictation is here');
+    await exitInteractive(session);
+  });
+
   it('opens /whatsnew, dismisses the selection, and restores the composer on Escape', async () => {
     const session = await launchWithCachedAnnouncements();
     await waitForComposer(session);
