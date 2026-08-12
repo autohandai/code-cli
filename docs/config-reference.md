@@ -1423,6 +1423,11 @@ Backend API configuration for team features.
 | `baseUrl`       | string | `https://api.autohand.ai` | API endpoint                            |
 | `companySecret` | string | -                         | Team/company secret for shared features |
 
+`api.baseUrl` must point to the Autohand control-plane API, not the Autohand website. Saved
+`*.autohand-web.pages.dev` website deployment URLs are repaired to the canonical API during
+config loading. Explicit `AUTOHAND_API_URL` overrides remain unchanged for development and
+staging environments.
+
 Can also be set via environment variables:
 
 - `AUTOHAND_API_URL` → `api.baseUrl`
