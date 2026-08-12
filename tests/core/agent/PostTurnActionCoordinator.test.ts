@@ -9,10 +9,13 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   executePendingPostTurnAction,
+  resolveActiveGoalContinuation,
   unpackQueuedAgentInstruction,
+  type ActiveGoalContinuationHost,
   type PostTurnActionHost,
   type PostTurnEnvironment,
 } from '../../../src/core/agent/PostTurnActionCoordinator.js';
+import { GoalManager } from '../../../src/goals/GoalManager.js';
 
 const interactiveEnvironment: PostTurnEnvironment = {
   stdinIsTTY: true,
@@ -145,5 +148,48 @@ describe('post-turn research publication', () => {
 
     expect(result).toBeNull();
     expect(requestResearchPublication).not.toHaveBeenCalled();
+  });
+});
+
+describe('post-turn active goal continuation', () => {
+  let workspaceRoot: string;
+  let host: ActiveGoalContinuationHost;
+
+  beforeEach(async () => {
+    workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-goal-continuation-'));
+    await new GoalManager(workspaceRoot).createGoal({ objective: 'Finish the browser game' });
+    host = {
+      runtime: { workspaceRoot },
+      shouldExit: false,
+      interactiveAutomodeEnabled: true,
+    };
+  });
+
+  afterEach(async () => {
+    await fs.remove(workspaceRoot);
+  });
+
+  it('continues a successful auto-mode turn while the goal remains active', async () => {
+    const continuation = await resolveActiveGoalContinuation(host, true);
+
+    expect(continuation).toContain('Active goal: Finish the browser game');
+    expect(continuation).toContain('until it is complete, blocked, paused, cleared, or budget-limited');
+  });
+
+  it.each([
+    ['the turn failed', false, true, false],
+    ['auto mode is disabled', true, false, false],
+    ['the session is exiting', true, true, true],
+  ])('does not continue when %s', async (_label, turnSucceeded, autoMode, shouldExit) => {
+    host.interactiveAutomodeEnabled = autoMode;
+    host.shouldExit = shouldExit;
+
+    await expect(resolveActiveGoalContinuation(host, turnSucceeded)).resolves.toBeNull();
+  });
+
+  it('stops scheduling after the goal reaches a terminal state', async () => {
+    await new GoalManager(workspaceRoot).updateGoal({ status: 'complete' });
+
+    await expect(resolveActiveGoalContinuation(host, true)).resolves.toBeNull();
   });
 });

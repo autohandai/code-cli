@@ -23,6 +23,14 @@ import type {
 const GOAL_STATE_FILE = 'goals.local.json';
 const MAX_OBJECTIVE_LENGTH = 80_000;
 
+export function buildGoalContinuationInstruction(objective: string): string {
+  return [
+    `Active goal: ${objective}`,
+    'Continue working toward this persistent goal until it is complete, blocked, paused, cleared, or budget-limited.',
+    'Use get_goal or update_goal when you need to inspect or modify the goal state.',
+  ].join('\n');
+}
+
 export class GoalManager {
   constructor(private readonly workspaceRoot: string) {}
 
