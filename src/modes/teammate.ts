@@ -84,6 +84,7 @@ export async function executeTask(
     toolsRegistry,
     permissionManager,
     getRegisteredTools: () => runtimeToolDefinitions,
+    getCurrentSessionId: () => opts.leadSessionId,
   });
 
   // Run SubAgent

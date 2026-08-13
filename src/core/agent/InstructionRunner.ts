@@ -44,6 +44,7 @@ interface InstructionProviderConfigManager {
 
 interface InstructionSessionManager {
   getCurrentSession(): {
+    metadata?: { sessionId: string };
     recordTurnUsage?: (input: SessionTurnUsageInput) => Promise<void>;
     getMessages?: () => SessionMessage[];
   } | null;
@@ -634,7 +635,9 @@ export class InstructionRunner {
         const turnTokens = isActualTurnUsage(completedTurnUsage) && !host.currentTurnHadUnavailableUsage
           ? completedTurnUsage.totalTokens
           : 0;
-        await new GoalManager(host.runtime.workspaceRoot).recordTurnUsage({ tokensUsed: turnTokens });
+        await new GoalManager(host.runtime.workspaceRoot, {
+          sessionId: host.sessionManager?.getCurrentSession()?.metadata?.sessionId,
+        }).recordTurnUsage({ tokensUsed: turnTokens });
       } catch {
         // Goal accounting is best-effort and must never mask the turn result.
       }

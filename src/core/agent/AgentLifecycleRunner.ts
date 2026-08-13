@@ -1699,6 +1699,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         const goalContinuation = await resolveActiveGoalContinuation(
           {
             runtime: host.runtime,
+            sessionId: host.sessionManager.getCurrentSession()?.metadata.sessionId,
             shouldExit: host.shouldExit,
             interactiveAutomodeEnabled: host.interactiveAutomodeEnabled,
             runtimeResourceShutdownController: host.runtimeResourceShutdownController,

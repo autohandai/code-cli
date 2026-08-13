@@ -57,6 +57,15 @@ export interface MockNativeToolServer extends MockOpenRouterServer {
   requests: JsonRecord[];
 }
 
+export interface MockNativeAssistantTurn {
+  content: string;
+  toolCall?: {
+    id: string;
+    name: string;
+    args?: JsonRecord;
+  };
+}
+
 export interface MockOpenRouterFetchPreload {
   importSpecifier: string;
   cleanup: () => Promise<void>;
@@ -287,6 +296,22 @@ export async function createMockAutohandAIQuotaServer(): Promise<MockOpenRouterS
 }
 
 export async function createMockAutohandAINativeToolServer(): Promise<MockNativeToolServer> {
+  return createMockAutohandAINativeSequenceServer([
+    {
+      content: 'Read package.json once.',
+      toolCall: {
+        id: 'call_read_package',
+        name: 'read_file',
+        args: { path: 'package.json' },
+      },
+    },
+    { content: 'MOA_NATIVE_TOOL_HISTORY_OK' },
+  ]);
+}
+
+export async function createMockAutohandAINativeSequenceServer(
+  turns: MockNativeAssistantTurn[],
+): Promise<MockNativeToolServer> {
   const requests: JsonRecord[] = [];
   const server = createServer(async (request, response) => {
     if (request.url !== '/chat/completions' || request.method !== 'POST') {
@@ -302,31 +327,31 @@ export async function createMockAutohandAINativeToolServer(): Promise<MockNative
     const body = recordOrEmpty(JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown);
     requests.push(body);
 
-    const firstRequest = requests.length === 1;
+    const turn = turns[Math.min(requests.length - 1, turns.length - 1)]
+      ?? { content: '' };
     response.writeHead(200, { 'content-type': 'application/json' });
     response.end(JSON.stringify({
       id: `chatcmpl-autohand-native-${requests.length}`,
       created: Math.floor(Date.now() / 1000),
       choices: [{
         index: 0,
-        message: firstRequest
-          ? {
-              role: 'assistant',
-              content: 'Read package.json once.',
-              tool_calls: [{
-                id: 'call_read_package',
-                type: 'function',
-                function: {
-                  name: 'read_file',
-                  arguments: JSON.stringify({ path: 'package.json' }),
-                },
-              }],
-            }
-          : {
-              role: 'assistant',
-              content: 'MOA_NATIVE_TOOL_HISTORY_OK',
-            },
-        finish_reason: firstRequest ? 'tool_calls' : 'stop',
+        message: {
+          role: 'assistant',
+          content: turn.content,
+          ...(turn.toolCall
+            ? {
+                tool_calls: [{
+                  id: turn.toolCall.id,
+                  type: 'function',
+                  function: {
+                    name: turn.toolCall.name,
+                    arguments: JSON.stringify(turn.toolCall.args ?? {}),
+                  },
+                }],
+              }
+            : {}),
+        },
+        finish_reason: turn.toolCall ? 'tool_calls' : 'stop',
       }],
       usage: {
         prompt_tokens: 42,

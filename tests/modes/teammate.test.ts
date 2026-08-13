@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { PassThrough } from "node:stream";
 
+const actionExecutorConstructor = vi.hoisted(() => vi.fn());
+
 // Mock heavy dependencies before importing
 vi.mock("../../src/config.js", () => ({
   loadConfig: vi.fn().mockResolvedValue({
@@ -69,7 +71,9 @@ vi.mock("../../src/core/agent/dynamicRuntimeExtensions.js", () => ({
 
 vi.mock("../../src/core/actionExecutor.js", () => ({
   ActionExecutor: class {
-    constructor() {}
+    constructor(options: unknown) {
+      actionExecutorConstructor(options);
+    }
   },
 }));
 
@@ -149,6 +153,30 @@ describe("parseTeammateOptions", () => {
 });
 
 describe("teammate executeTask", () => {
+  it("scopes goal tools to the teammate lead-session boundary", async () => {
+    await executeTask(
+      {
+        teamName: "test",
+        name: "worker",
+        agentName: "tester",
+        leadSessionId: "sess-goal-owner",
+      },
+      {
+        id: "task-goal-owner",
+        subject: "Inspect goal",
+        description: "Inspect the active goal",
+        status: "in_progress",
+        blockedBy: [],
+        createdAt: "",
+      },
+    );
+
+    const options = actionExecutorConstructor.mock.calls.at(-1)?.[0] as {
+      getCurrentSessionId?: () => string | undefined;
+    };
+    expect(options.getCurrentSessionId?.()).toBe("sess-goal-owner");
+  });
+
   it("runs SubAgent and returns result", async () => {
     const result = await executeTask(
       {

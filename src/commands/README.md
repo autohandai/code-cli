@@ -27,7 +27,7 @@ Each command is a separate TypeScript file that exports:
 | `/agents definitions` | `agents.ts` | List configured sub-agents |
 | `/tools` | `tools.ts` | Manage persisted meta-tools |
 | `/experiments` | `features.ts` | List and toggle experiments |
-| `/goal` | `goal.ts` | Manage persistent goals, budgets, templates, and queued goal work; active goals continue across successful auto-mode turns until terminal. Requires `slash_goal`. |
+| `/goal` | `goal.ts` | Manage session-attached persistent goals, budgets, templates, and queued work; fresh sessions require explicit `/goal resume`. Requires `slash_goal`. |
 | `/squad` | `squad.ts` | Open/manage the standalone Autohand Squad runtime. |
 | `/usage` | `usage.ts` | Show Autohand plan limits and project token activity |
 | `/statusline` | `statusline.ts` | Configure composer status-line fields |

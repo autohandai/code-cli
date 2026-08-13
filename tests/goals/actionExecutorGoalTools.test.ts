@@ -14,9 +14,11 @@ import type { AgentRuntime } from '../../src/types.js';
 describe('goal tools', () => {
   let workspaceRoot: string;
   let executor: ActionExecutor;
+  let currentSessionId: string;
 
   beforeEach(async () => {
     workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-goal-tools-'));
+    currentSessionId = 'session-current';
     executor = new ActionExecutor({
       runtime: {
         workspaceRoot,
@@ -29,6 +31,7 @@ describe('goal tools', () => {
       files: new FileActionManager(workspaceRoot),
       resolveWorkspacePath: (relativePath: string) => path.resolve(workspaceRoot, relativePath),
       confirmDangerousAction: vi.fn().mockResolvedValue(true),
+      getCurrentSessionId: () => currentSessionId,
     });
   });
 
@@ -49,6 +52,20 @@ describe('goal tools', () => {
     const snapshot = await executor.execute({ type: 'get_goal' });
     expect(snapshot).toContain('finish tool wiring');
     expect(snapshot).toContain('tokenBudget');
+  });
+
+  it('does not expose a prior-session goal objective through get_goal', async () => {
+    currentSessionId = 'session-prior';
+    await executor.execute({
+      type: 'create_goal',
+      objective: 'old objective must remain dormant',
+    });
+    currentSessionId = 'session-current';
+
+    const snapshot = await executor.execute({ type: 'get_goal' });
+
+    expect(snapshot).toContain('not attached to the current session');
+    expect(snapshot).not.toContain('old objective must remain dormant');
   });
 
   it('queues and starts goals through agent tools', async () => {

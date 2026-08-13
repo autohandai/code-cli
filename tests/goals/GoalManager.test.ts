@@ -22,7 +22,7 @@ describe('GoalManager', () => {
   });
 
   it('persists active goals under the project .autohand directory', async () => {
-    const manager = new GoalManager(workspaceRoot);
+    const manager = new GoalManager(workspaceRoot, { sessionId: 'session-current' });
     const created = await manager.createGoal({ objective: 'ship durable goals' });
 
     expect(created.ok).toBe(true);
@@ -33,7 +33,38 @@ describe('GoalManager', () => {
 
     expect(snapshot.goal?.goalId).toBe(created.goal?.goalId);
     expect(snapshot.goal?.status).toBe('active');
+    expect(snapshot.activeSessionId).toBe('session-current');
     expect(await fs.pathExists(path.join(workspaceRoot, '.autohand', 'goals.local.json'))).toBe(true);
+  });
+
+  it('keeps a prior-session goal dormant until the current session explicitly resumes it', async () => {
+    const priorSession = new GoalManager(workspaceRoot, { sessionId: 'session-prior' });
+    await priorSession.createGoal({ objective: 'finish the prior report' });
+    const before = await priorSession.getSnapshot();
+
+    const currentSession = new GoalManager(workspaceRoot, { sessionId: 'session-current' });
+    const detached = await currentSession.getSessionSnapshot();
+
+    expect(detached).toMatchObject({
+      goal: null,
+      queue: [],
+      completed: [],
+      sessionAttachment: 'detached',
+      detachedGoal: {
+        goalId: before.goal?.goalId,
+        status: 'active',
+      },
+    });
+    expect(detached.message).toContain('not attached to the current session');
+    expect(JSON.stringify(detached)).not.toContain('finish the prior report');
+
+    await currentSession.recordTurnUsage({ tokensUsed: 500 });
+    expect(await priorSession.getSnapshot()).toEqual(before);
+
+    const resumed = await currentSession.updateGoal({ status: 'active' });
+    expect(resumed.ok).toBe(true);
+    expect((await currentSession.getSnapshot()).activeSessionId).toBe('session-current');
+    expect((await currentSession.getSessionSnapshot()).goal?.objective).toBe('finish the prior report');
   });
 
   it('queues multi-item goal blocks in FIFO order', async () => {

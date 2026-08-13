@@ -111,6 +111,8 @@ describe('SystemPromptBuilder', () => {
     expect(disabledPrompt).not.toContain('### Persistent Goals');
     expect(enabledPrompt).toContain('### Persistent Goals');
     expect(enabledPrompt).toContain('create_goal');
+    expect(enabledPrompt).toContain('Persistent goal execution is session-scoped');
+    expect(enabledPrompt).toContain('/goal resume');
   });
 
   it('includes completion report guidance by default', async () => {

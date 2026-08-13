@@ -50,6 +50,16 @@ export interface GoalSnapshot {
   queue: QueuedGoal[];
   completed: CompletedGoal[];
   updatedAt: number;
+  /** Session currently authorized to continue and account usage to the active goal. */
+  activeSessionId?: string;
+}
+
+export type GoalSessionAttachment = 'none' | 'unscoped' | 'attached' | 'detached';
+
+export interface GoalSessionSnapshot extends Omit<GoalSnapshot, 'activeSessionId'> {
+  sessionAttachment: GoalSessionAttachment;
+  detachedGoal?: Pick<GoalState, 'goalId' | 'status' | 'createdAt' | 'updatedAt'>;
+  message?: string;
 }
 
 export interface GoalTemplateMetadata {

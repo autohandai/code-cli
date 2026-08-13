@@ -75,6 +75,7 @@ export interface ActiveGoalContinuationHost {
   runtime: {
     workspaceRoot: string;
   };
+  sessionId?: string;
   shouldExit: boolean;
   interactiveAutomodeEnabled: boolean;
   runtimeResourceShutdownController?: AbortController;
@@ -148,11 +149,13 @@ export async function resolveActiveGoalContinuation(
   }
 
   try {
-    const snapshot = await new GoalManager(host.runtime.workspaceRoot).getSnapshot();
-    if (snapshot.goal?.status !== 'active') {
+    const goal = await new GoalManager(host.runtime.workspaceRoot, {
+      sessionId: host.sessionId,
+    }).getActiveGoalForSession();
+    if (!goal) {
       return null;
     }
-    return buildGoalContinuationInstruction(snapshot.goal.objective);
+    return buildGoalContinuationInstruction(goal.objective);
   } catch {
     return null;
   }
