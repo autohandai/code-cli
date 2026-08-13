@@ -147,6 +147,7 @@ export interface ActionExecutorOptions {
   confirmDangerousAction: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<boolean>;
   projectManager?: ProjectManager;
   sessionId?: string;
+  getCurrentSessionId?: () => string | undefined;
   onExploration?: (entry: ExplorationEvent) => void;
   toolsRegistry?: ToolsRegistry;
   metaToolService?: MetaToolService;
@@ -368,6 +369,12 @@ export class ActionExecutor {
       resolveStatefulReadMode(this.runtime.config) === 'enforce',
     );
     this.securityScanner = new SecurityScanner();
+  }
+
+  private createGoalManager(): GoalManager {
+    return new GoalManager(this.runtime.workspaceRoot, {
+      sessionId: this.deps.getCurrentSessionId?.() ?? this.sessionId,
+    });
   }
 
   private shouldDisplayToolOutput(): boolean {
@@ -1533,15 +1540,15 @@ export class ActionExecutor {
         return JSON.stringify(tools, null, 2);
       }
       case 'get_goal': {
-        const manager = new GoalManager(this.runtime.workspaceRoot);
-        return JSON.stringify(await manager.getSnapshot(), null, 2);
+        const manager = this.createGoalManager();
+        return JSON.stringify(await manager.getSessionSnapshot(), null, 2);
       }
       case 'list_goal_templates': {
-        const manager = new GoalManager(this.runtime.workspaceRoot);
+        const manager = this.createGoalManager();
         return JSON.stringify(await manager.listTemplates(), null, 2);
       }
       case 'create_goal': {
-        const manager = new GoalManager(this.runtime.workspaceRoot);
+        const manager = this.createGoalManager();
         const created = await manager.createOrQueueGoal({
           objective: action.objective,
           source: 'tool',
@@ -1556,7 +1563,7 @@ export class ActionExecutor {
         return formatGoalToolResult(created);
       }
       case 'create_goal_from_template': {
-        const manager = new GoalManager(this.runtime.workspaceRoot);
+        const manager = this.createGoalManager();
         const resolution = await import('../goals/templates.js').then((mod) => mod.resolveGoalTemplateByName(
           this.runtime.workspaceRoot,
           action.template,
@@ -1583,7 +1590,7 @@ export class ActionExecutor {
         return formatGoalToolResult(created);
       }
       case 'update_goal': {
-        const manager = new GoalManager(this.runtime.workspaceRoot);
+        const manager = this.createGoalManager();
         const updated = await manager.updateGoal({
           objective: action.objective,
           status: parseGoalStatus(action.status),
@@ -1595,11 +1602,11 @@ export class ActionExecutor {
         return formatGoalToolResult(updated);
       }
       case 'clear_goal': {
-        const manager = new GoalManager(this.runtime.workspaceRoot);
+        const manager = this.createGoalManager();
         return formatGoalToolResult(await manager.clearGoal());
       }
       case 'enqueue_goal': {
-        const manager = new GoalManager(this.runtime.workspaceRoot);
+        const manager = this.createGoalManager();
         return formatGoalToolResult(await manager.enqueueGoal({
           objective: action.objective,
           source: 'tool',
@@ -1610,23 +1617,22 @@ export class ActionExecutor {
         }));
       }
       case 'list_goal_queue': {
-        const manager = new GoalManager(this.runtime.workspaceRoot);
-        const snapshot = await manager.getSnapshot();
-        return JSON.stringify({ goal: snapshot.goal, queue: snapshot.queue, completed: snapshot.completed }, null, 2);
+        const manager = this.createGoalManager();
+        return JSON.stringify(await manager.getSessionSnapshot(), null, 2);
       }
       case 'start_queued_goal': {
-        const manager = new GoalManager(this.runtime.workspaceRoot);
+        const manager = this.createGoalManager();
         return formatGoalToolResult(await manager.startQueuedGoal());
       }
       case 'dequeue_goal': {
-        const manager = new GoalManager(this.runtime.workspaceRoot);
+        const manager = this.createGoalManager();
         return formatGoalToolResult(await manager.dequeueGoal({
           rationale: action.rationale,
           authority: action.authority,
         }));
       }
       case 'remove_queued_goal': {
-        const manager = new GoalManager(this.runtime.workspaceRoot);
+        const manager = this.createGoalManager();
         const queueId = action.queueId ?? action.queue_id;
         if (!queueId) return 'Error: remove_queued_goal requires queueId.';
         return formatGoalToolResult(await manager.removeQueuedGoal(queueId));

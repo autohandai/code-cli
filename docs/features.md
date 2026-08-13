@@ -101,13 +101,15 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | `/share` | Share current session |
 | `/sync` | Sync settings |
 | `/add-dir` | Add directories to workspace |
-| `/goal` | Set a persistent goal and continue successful auto-mode turns until it reaches a terminal state |
+| `/goal` | Set a session-attached persistent goal and continue successful auto-mode turns until it reaches a terminal state |
 | `/goal writer` | Draft one or more well-specified goals with the built-in `$goal-writer` skill |
 | `/automode` | Start autonomous coding mode |
 | `/autoresearch` | Run replayable benchmark loops with adaptive decisions, history, replay, comparison, and Pareto analysis |
 | `/cc` | Context compaction |
 | `/search` | Search codebase |
 | `/settings` | Interactive settings editor — browse categories, edit values inline |
+
+Persistent goal files survive between conversations, while execution and usage accounting stay attached to the session that created or resumed the goal. A new session can inspect old state with `/goal`, but it must run `/goal resume` before continuing that work.
 
 ## Experiment Switches
 - [x] `autohand experiments list` prints a Codex-style table of feature id, lifecycle stage, and enabled state

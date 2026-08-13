@@ -30,7 +30,9 @@ export async function goal(ctx: SlashCommandContext, args: string[] = []): Promi
   }
   await ctx.trackFeatureActivation?.('slash_goal', { surface: 'slash_command' });
 
-  const manager = new GoalManager(ctx.workspaceRoot);
+  const manager = new GoalManager(ctx.workspaceRoot, {
+    sessionId: ctx.sessionManager?.getCurrentSession()?.metadata.sessionId,
+  });
   const input = args.join(' ').trim();
   if (!input) {
     const snapshot = await manager.getSnapshot();

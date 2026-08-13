@@ -258,7 +258,7 @@ export function buildToolPermissionContext(action: AgentAction): PermissionConte
 export const GOAL_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'get_goal',
-    description: 'Inspect the current persistent goal, queue, status, time and token budgets, and progress metadata. Use only for explicit goal-management requests.'
+    description: 'Inspect the current session\'s persistent goal, queue, status, time and token budgets, and progress metadata. Use only for explicit goal-management requests. A detached result must not be continued until the user explicitly resumes it.'
   },
   {
     name: 'create_goal',

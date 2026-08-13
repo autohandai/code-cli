@@ -557,6 +557,7 @@ export function initializeAgentDependencies(
       onToolOutput: (chunk) => host.handleToolOutput(chunk),
       toolsRegistry: host.toolsRegistry,
       getRegisteredTools: () => host.toolManager?.listDefinitions() ?? [],
+      getCurrentSessionId: () => host.sessionManager?.getCurrentSession?.()?.metadata?.sessionId,
       memoryManager: host.memoryManager,
       permissionManager: host.permissionManager,
       onFileModified: (filePath, changeType, toolCallId) => {

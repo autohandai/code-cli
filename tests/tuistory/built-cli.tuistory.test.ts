@@ -19,6 +19,7 @@ import { hasTerminalProcessPid } from '../../src/testing/assertions/terminalOutp
 import { getHelpOrderedSlashCommands } from '../../src/ui/inputPrompt.js';
 import {
   clearComposerInput,
+  createMockAutohandAINativeSequenceServer,
   createMockAutohandAINativeToolServer,
   createMockAutohandAIQuotaServer,
   createFailingOpenRouterFetchPreload,
@@ -256,6 +257,95 @@ afterEach(async () => {
 });
 
 describe('built CLI Tuistory smoke tests', () => {
+  it('keeps a prior-session goal dormant when a fresh MOA session starts with an acknowledgement', async () => {
+    const nativeToolServer = await createMockAutohandAINativeSequenceServer([
+      {
+        content: 'Checking whether an old goal should drive this turn.',
+        toolCall: {
+          id: 'call_get_goal',
+          name: 'get_goal',
+        },
+      },
+      { content: 'FRESH_SESSION_ACKNOWLEDGED' },
+    ]);
+    mockServers.push(nativeToolServer);
+    const state = await createTempAutohandHome({
+      config: {
+        provider: 'autohandai',
+        autohandai: {
+          plan: 'cloud',
+          authMode: 'api-key',
+          apiKey: 'tuistory-autohand-api-key',
+          model: 'moa',
+          baseUrl: nativeToolServer.baseUrl,
+        },
+        features: { autohand_inference: true, slashGoal: true },
+        agent: { autoMemory: false, maxIterations: 4, sessionRetryLimit: 0 },
+        network: { maxRetries: 0, retryDelay: 0 },
+        ui: {
+          promptSuggestions: false,
+          showCompletionNotification: false,
+          terminalBell: false,
+        },
+      },
+    });
+    tempStates.push(state);
+
+    const staleGoalPath = path.join(state.workspaceRoot, '.autohand', 'goals.local.json');
+    const staleUpdatedAt = Date.parse('2026-06-01T00:00:00.000Z');
+    await fs.outputJson(staleGoalPath, {
+      version: 1,
+      goal: {
+        goalId: 'prior-session-goal',
+        objective: 'WRITE_THE_OLD_JUNE_IMPROVEMENT_REPORT',
+        status: 'active',
+        tokensUsed: 27_424_831,
+        timeUsedSeconds: 5_270_977,
+        createdAt: staleUpdatedAt,
+        updatedAt: staleUpdatedAt,
+      },
+      queue: [],
+      completed: [],
+      updatedAt: staleUpdatedAt,
+    });
+
+    const session = await trackSession(launchBuiltAutohand([
+      '--path', state.workspaceRoot,
+      '--config', state.configPath,
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      waitForDataTimeout: 15_000,
+    }));
+
+    await session.waitForText('❯', { timeout: 20_000 });
+    await session.type('ok');
+    await session.press('enter');
+    await session.waitForText('FRESH_SESSION_ACKNOWLEDGED', { timeout: 20_000 });
+
+    const continuationMessages = nativeToolServer.requests[1]?.messages as Array<{
+      role?: string;
+      content?: string;
+      tool_call_id?: string;
+    }>;
+    const goalResult = continuationMessages.find((message) => (
+      message.role === 'tool' && message.tool_call_id === 'call_get_goal'
+    ));
+    expect(goalResult?.content).toContain('not attached to the current session');
+    expect(goalResult?.content).not.toContain('WRITE_THE_OLD_JUNE_IMPROVEMENT_REPORT');
+
+    const persisted = await fs.readJson(staleGoalPath) as {
+      goal: { tokensUsed: number; timeUsedSeconds: number; updatedAt: number };
+    };
+    expect(persisted.goal).toMatchObject({
+      tokensUsed: 27_424_831,
+      timeUsedSeconds: 5_270_977,
+      updatedAt: staleUpdatedAt,
+    });
+
+    await exitInteractive(session);
+  }, 45_000);
+
   it('round-trips one native Moa tool result without repeating the call', async () => {
     const nativeToolServer = await createMockAutohandAINativeToolServer();
     mockServers.push(nativeToolServer);

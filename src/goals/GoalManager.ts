@@ -13,6 +13,7 @@ import type {
   CompletedGoal,
   GoalCreateInput,
   GoalMutationResult,
+  GoalSessionSnapshot,
   GoalSnapshot,
   GoalState,
   GoalTemplateMetadata,
@@ -23,6 +24,10 @@ import type {
 const GOAL_STATE_FILE = 'goals.local.json';
 const MAX_OBJECTIVE_LENGTH = 80_000;
 
+export interface GoalManagerOptions {
+  sessionId?: string;
+}
+
 export function buildGoalContinuationInstruction(objective: string): string {
   return [
     `Active goal: ${objective}`,
@@ -32,12 +37,69 @@ export function buildGoalContinuationInstruction(objective: string): string {
 }
 
 export class GoalManager {
-  constructor(private readonly workspaceRoot: string) {}
+  private readonly sessionId?: string;
+
+  constructor(
+    private readonly workspaceRoot: string,
+    options: GoalManagerOptions = {},
+  ) {
+    this.sessionId = options.sessionId?.trim() || undefined;
+  }
 
   async getSnapshot(): Promise<GoalSnapshot> {
     const snapshot = await this.readSnapshot();
     const goal = snapshot.goal ? this.withLiveElapsed(snapshot.goal) : null;
     return { ...snapshot, goal };
+  }
+
+  async getSessionSnapshot(): Promise<GoalSessionSnapshot> {
+    const snapshot = await this.getSnapshot();
+    const publicSnapshot: Omit<GoalSnapshot, 'activeSessionId'> = {
+      version: snapshot.version,
+      goal: snapshot.goal,
+      queue: snapshot.queue,
+      completed: snapshot.completed,
+      updatedAt: snapshot.updatedAt,
+    };
+
+    if (!snapshot.goal) {
+      return { ...publicSnapshot, sessionAttachment: 'none' };
+    }
+    if (!this.sessionId) {
+      return { ...publicSnapshot, sessionAttachment: 'unscoped' };
+    }
+    if (snapshot.activeSessionId === this.sessionId) {
+      return { ...publicSnapshot, sessionAttachment: 'attached' };
+    }
+
+    return {
+      ...publicSnapshot,
+      goal: null,
+      queue: [],
+      completed: [],
+      sessionAttachment: 'detached',
+      detachedGoal: {
+        goalId: snapshot.goal.goalId,
+        status: snapshot.goal.status,
+        createdAt: snapshot.goal.createdAt,
+        updatedAt: snapshot.goal.updatedAt,
+      },
+      message: [
+        'A persistent goal exists for this workspace but is not attached to the current session.',
+        'Do not continue it from this turn. Use /goal to inspect it or /goal resume to explicitly attach it.',
+      ].join(' '),
+    };
+  }
+
+  async getActiveGoalForSession(): Promise<GoalState | null> {
+    const snapshot = await this.getSnapshot();
+    if (
+      snapshot.goal?.status !== 'active'
+      || !this.isSnapshotAttachedToCurrentSession(snapshot)
+    ) {
+      return null;
+    }
+    return snapshot.goal;
   }
 
   async listTemplates(): Promise<GoalTemplateMetadata[]> {
@@ -82,7 +144,12 @@ export class GoalManager {
       createdAt: now,
       updatedAt: now,
     };
-    const next = { ...snapshot, goal, updatedAt: now };
+    const next: GoalSnapshot = {
+      ...snapshot,
+      goal,
+      updatedAt: now,
+      activeSessionId: this.sessionId,
+    };
     await this.writeSnapshot(next);
     return result(next, true, snapshot.goal?.status === 'complete' ? 'Goal created; replaced completed goal.' : 'Goal created.');
   }
@@ -185,14 +252,26 @@ export class GoalManager {
     }
 
     next = { ...next, updatedAt: Date.now() };
-    const updated = { ...snapshot, goal: next, updatedAt: next.updatedAt };
+    const updated: GoalSnapshot = {
+      ...snapshot,
+      goal: next,
+      updatedAt: next.updatedAt,
+      activeSessionId: input.status === 'active' && this.sessionId
+        ? this.sessionId
+        : snapshot.activeSessionId,
+    };
     await this.writeSnapshot(updated);
     return result(updated, true, `Goal updated: ${changes.join(', ')}.`);
   }
 
   async clearGoal(): Promise<GoalMutationResult> {
     const snapshot = await this.readSnapshot();
-    const next = { ...snapshot, goal: null, updatedAt: Date.now() };
+    const next: GoalSnapshot = {
+      ...snapshot,
+      goal: null,
+      updatedAt: Date.now(),
+      activeSessionId: undefined,
+    };
     await this.writeSnapshot(next);
     return result(next, true, snapshot.goal ? 'Goal cleared.' : 'No goal was set.');
   }
@@ -287,7 +366,13 @@ export class GoalManager {
       createdAt: now,
       updatedAt: now,
     };
-    const updated = { ...snapshot, goal, queue: snapshot.queue.slice(1), updatedAt: now };
+    const updated: GoalSnapshot = {
+      ...snapshot,
+      goal,
+      queue: snapshot.queue.slice(1),
+      updatedAt: now,
+      activeSessionId: this.sessionId,
+    };
     await this.writeSnapshot(updated);
     return { ...result(updated, true, 'Started queued goal.'), started: nextQueued, dequeued: nextQueued };
   }
@@ -316,6 +401,16 @@ export class GoalManager {
   async recordTurnUsage(input: { tokensUsed?: number }): Promise<GoalMutationResult> {
     const snapshot = await this.readSnapshot();
     if (!snapshot.goal) return result(snapshot, true, 'No active goal.');
+    if (!this.isSnapshotAttachedToCurrentSession(snapshot)) {
+      return result(
+        snapshot,
+        true,
+        'Goal usage not recorded because the goal is not attached to the current session.',
+      );
+    }
+    if (snapshot.goal.status !== 'active') {
+      return result(snapshot, true, 'Goal usage not recorded because the goal is not active.');
+    }
     let goal = this.withLiveElapsed(snapshot.goal);
     goal = {
       ...goal,
@@ -387,6 +482,10 @@ export class GoalManager {
     const elapsedDelta = Math.max(0, Math.floor((Date.now() - goal.updatedAt) / 1000));
     return { ...goal, timeUsedSeconds: goal.timeUsedSeconds + elapsedDelta };
   }
+
+  private isSnapshotAttachedToCurrentSession(snapshot: GoalSnapshot): boolean {
+    return !this.sessionId || snapshot.activeSessionId === this.sessionId;
+  }
 }
 
 function emptySnapshot(): GoalSnapshot {
@@ -400,6 +499,9 @@ function normalizeSnapshot(raw: Partial<GoalSnapshot>): GoalSnapshot {
     queue: Array.isArray(raw.queue) ? raw.queue.map(normalizeQueuedGoal).filter((item): item is QueuedGoal => Boolean(item)) : [],
     completed: Array.isArray(raw.completed) ? raw.completed.map(normalizeCompletedGoal).filter((item): item is CompletedGoal => Boolean(item)) : [],
     updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : Date.now(),
+    activeSessionId: typeof raw.activeSessionId === 'string' && raw.activeSessionId.trim()
+      ? raw.activeSessionId
+      : undefined,
   };
 }
 

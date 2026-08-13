@@ -157,9 +157,11 @@ describe('post-turn active goal continuation', () => {
 
   beforeEach(async () => {
     workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-goal-continuation-'));
-    await new GoalManager(workspaceRoot).createGoal({ objective: 'Finish the browser game' });
+    await new GoalManager(workspaceRoot, { sessionId: 'session-current' })
+      .createGoal({ objective: 'Finish the browser game' });
     host = {
       runtime: { workspaceRoot },
+      sessionId: 'session-current',
       shouldExit: false,
       interactiveAutomodeEnabled: true,
     };
@@ -189,6 +191,12 @@ describe('post-turn active goal continuation', () => {
 
   it('stops scheduling after the goal reaches a terminal state', async () => {
     await new GoalManager(workspaceRoot).updateGoal({ status: 'complete' });
+
+    await expect(resolveActiveGoalContinuation(host, true)).resolves.toBeNull();
+  });
+
+  it('does not continue an active goal attached to a prior session', async () => {
+    host.sessionId = 'session-new';
 
     await expect(resolveActiveGoalContinuation(host, true)).resolves.toBeNull();
   });
