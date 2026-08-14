@@ -13,6 +13,7 @@ import type { Team } from './types.js';
 interface TeamManagerOptions {
   leadSessionId: string;
   workspacePath: string;
+  maxTeammates?: number;
   onTeammateMessage?: (from: string, msg: { method: string; params: Record<string, unknown> }) => void;
   onHookEvent?: (event: HookEvent, context: Omit<HookContext, 'event' | 'workspace'>) => Promise<void> | void;
 }
@@ -21,6 +22,8 @@ interface AddTeammateOptions {
   name: string;
   agentName: string;
   model?: string;
+  requestedRole?: string;
+  agentSource?: string;
 }
 
 const TEAM_SHUTDOWN_TIMEOUT_MS = 2_000;
@@ -51,9 +54,11 @@ export class TeamManager {
   private readonly opts: TeamManagerOptions;
   private shutdownPromise: Promise<void> | null = null;
   private closing = false;
+  private readonly maxTeammates: number;
 
   constructor(opts: TeamManagerOptions) {
     this.opts = opts;
+    this.maxTeammates = Math.max(1, Math.floor(opts.maxTeammates ?? 5));
   }
 
   /** Access the underlying task manager for creating and querying tasks. */
@@ -108,6 +113,12 @@ export class TeamManager {
   addTeammate(opts: AddTeammateOptions): TeammateProcess {
     if (this.closing) throw new Error('Team is shutting down');
     if (!this.team) throw new Error('No active team');
+    if (this.teammates.has(opts.name)) {
+      throw new Error(`Teammate "${opts.name}" is already active`);
+    }
+    if (this.teammates.size >= this.maxTeammates) {
+      throw new Error(`Team has reached the configured maximum of ${this.maxTeammates} teammates`);
+    }
 
     const tp = new TeammateProcess({
       teamName: this.team.name,
@@ -115,6 +126,8 @@ export class TeamManager {
       agentName: opts.agentName,
       leadSessionId: this.opts.leadSessionId,
       model: opts.model,
+      requestedRole: opts.requestedRole,
+      agentSource: opts.agentSource,
       workspacePath: this.opts.workspacePath,
     });
 

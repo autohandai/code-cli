@@ -52,6 +52,22 @@ describe('TeammateProcess', () => {
     expect(info.status).toBe('spawning');
   });
 
+  it('preserves requested role and agent source in member status', () => {
+    const tp = new TeammateProcess({
+      teamName: 'test',
+      name: 'ui-reviewer',
+      agentName: 'ui-designer',
+      requestedRole: 'ui',
+      agentSource: 'catalog',
+      leadSessionId: 'sess',
+    });
+
+    expect(tp.toMember()).toMatchObject({
+      requestedRole: 'ui',
+      agentSource: 'catalog',
+    });
+  });
+
   it('should include optional model in spawn args', () => {
     const args = TeammateProcess.buildSpawnArgs({
       teamName: 'test',

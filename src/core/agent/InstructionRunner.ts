@@ -31,6 +31,7 @@ import {
 
 interface InstructionConversation {
   addMessage(message: { role: 'user'; content: string }): void;
+  addSystemNote(content: string, label?: string): void;
   history(): unknown[];
 }
 
@@ -118,6 +119,7 @@ export interface AgentInstructionHost {
   installPersistentConsoleBridge(): () => void;
   formatStatusLine(): { left: string; right?: string };
   printUserInstructionToChatLog(instruction: string): void;
+  prepareSpecialists?(instruction: string): Promise<string | undefined>;
   setupPersistentInputInterruptHandlers(
     abortController: AbortController,
     onCancel: () => void
@@ -388,6 +390,16 @@ export class InstructionRunner {
       : shouldUsePersistentInput
         ? host.setupPersistentInputInterruptHandlers(abortController, handleCancel)
         : host.setupEscListener(abortController, handleCancel, true);
+
+    const specialistResults = await host.prepareSpecialists?.(instruction);
+    if (specialistResults) {
+      host.conversation.addSystemNote(specialistResults, '[Specialist Results]');
+    }
+    if (abortController.signal.aborted) {
+      success = false;
+      return false;
+    }
+
     const stopPreparation = host.startPreparationStatus(instruction);
     try {
       const userMessage = await host.buildUserMessage(instruction);

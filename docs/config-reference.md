@@ -2280,6 +2280,8 @@ Remote feature flags are fetched from `/v1/feature-flags/evaluate`, cached at `~
 
 `prompt_caching` is an experimental feature switch (config path `features.promptCaching`, default off) that sends an opaque session-affinity hint on eligible provider requests. The initial candidate is the ChatGPT OAuth Responses transport; standard OpenAI Chat Completions and other providers remain unchanged. Enable it with `autohand experiments enable prompt_caching`. The OAuth transport remains unverified until a current two-turn live probe confirms accepted controls and provider-reported cache usage, so an independent remote kill switch and exact-field fallback remain active.
 
+`automatic_specialists` is an experimental feature switch (config path `features.automaticSpecialists`, default off, restart required) that resolves explicit specialist-team requests before the lead ReAct loop. It renders the selected roster, runs bounded read-only work in parallel, serializes workspace-mutating specialist tasks, and feeds structured results back to the lead. Missing exact catalog matches use one aggregate approval and fail soft to valid local specialists. Enable it with `autohand experiments enable automatic_specialists`. This switch never starts or queues `/squad` automatically.
+
 The restart-required stateful-read experiments are ordered and disabled by default:
 
 | Feature | Config path | Behavior |

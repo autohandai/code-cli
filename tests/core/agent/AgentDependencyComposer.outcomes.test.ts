@@ -40,6 +40,16 @@ interface AgentOutcomeInternals {
     delegateTask: ReturnType<typeof vi.fn>;
     delegateTaskForTool: ReturnType<typeof vi.fn>;
   };
+  specialistOrchestrator: {
+    continueInterview: ReturnType<typeof vi.fn>;
+    installStagedCatalogSelections: ReturnType<typeof vi.fn>;
+  };
+  prepareSpecialists(instruction: string): Promise<string | undefined>;
+  orchestrateSpecialistsFromTool: ReturnType<typeof vi.fn>;
+  teamManager: {
+    getTeam: ReturnType<typeof vi.fn>;
+    shutdown: ReturnType<typeof vi.fn>;
+  };
   mcpManager: {
     callTool: ReturnType<typeof vi.fn>;
   };
@@ -56,6 +66,7 @@ interface AgentOutcomeInternals {
 function createAgent(
   options: AgentRuntime['options'] = {},
   permissionMode: 'interactive' | 'unrestricted' = 'unrestricted',
+  automaticSpecialists = false,
 ): { agent: AutohandAgent; internals: AgentOutcomeInternals } {
   const llm = {
     generate: vi.fn(),
@@ -73,6 +84,7 @@ function createAgent(
       openrouter: { model: 'test-model' },
       permissions: { mode: permissionMode },
       ui: { useInkRenderer: false },
+      features: { automaticSpecialists },
     },
     workspaceRoot: '/test/workspace',
     options,
@@ -256,6 +268,137 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
         permissionType: 'tool_approval',
       },
     ]]);
+  });
+
+  it('uses one canonical approval for an aggregated specialist catalog installation', async () => {
+    const { agent, internals } = createAgent({}, 'interactive', true);
+    const confirmApproval = vi.fn().mockResolvedValue({ decision: 'allow_once' });
+    agent.setConfirmationCallback(confirmApproval);
+    internals.specialistOrchestrator.installStagedCatalogSelections = vi.fn().mockResolvedValue({
+      installedAgents: ['ui-designer', 'ux-researcher'],
+      failedAgents: [],
+    });
+
+    const [result] = await internals.toolManager.execute([{
+      id: 'specialist-install',
+      tool: 'install_specialist_roster',
+      args: { plan_id: 'plan-1', agent_names: ['ui-designer', 'ux-researcher'] },
+    }]);
+
+    expect(confirmApproval).toHaveBeenCalledOnce();
+    expect(confirmApproval).toHaveBeenCalledWith(
+      expect.stringContaining('ui-designer, ux-researcher'),
+      expect.objectContaining({ tool: 'install_specialist_roster' }),
+    );
+    expect(internals.specialistOrchestrator.installStagedCatalogSelections).toHaveBeenCalledWith(
+      'plan-1',
+      ['ui-designer', 'ux-researcher'],
+    );
+    expect(result).toMatchObject({ success: true });
+  });
+
+  it('exposes only the high-level specialist tool to the model when the feature is enabled', () => {
+    const enabled = createAgent({}, 'unrestricted', true).internals.toolManager;
+    const disabled = createAgent({}, 'unrestricted', false).internals.toolManager;
+
+    expect(enabled.listDefinitions().map((definition) => definition.name))
+      .toContain('orchestrate_specialists');
+    expect(enabled.listDefinitions().map((definition) => definition.name))
+      .not.toContain('install_specialist_roster');
+    expect(enabled.listAllDefinitions().map((definition) => definition.name))
+      .toContain('install_specialist_roster');
+    expect(disabled.listAllDefinitions().map((definition) => definition.name))
+      .not.toContain('orchestrate_specialists');
+  });
+
+  it('runs model-discovered specialists through the high-level tool', async () => {
+    const { internals } = createAgent({}, 'unrestricted', true);
+    internals.orchestrateSpecialistsFromTool = vi.fn().mockResolvedValue('STRUCTURED_SPECIALIST_RESULTS');
+
+    const [result] = await internals.toolManager.execute([{
+      tool: 'orchestrate_specialists',
+      args: { objective: 'Inspect auth.', requested_roles: ['security', 'review'] },
+    }]);
+
+    expect(internals.orchestrateSpecialistsFromTool).toHaveBeenCalledWith(
+      'Inspect auth.',
+      ['security', 'review'],
+    );
+    expect(result).toMatchObject({ success: true, output: 'STRUCTURED_SPECIALIST_RESULTS' });
+  });
+
+  it('auto-approves aggregated specialist installation in unrestricted mode', async () => {
+    const { agent, internals } = createAgent({}, 'unrestricted', true);
+    const confirmApproval = vi.fn();
+    agent.setConfirmationCallback(confirmApproval);
+    internals.specialistOrchestrator.installStagedCatalogSelections = vi.fn().mockResolvedValue({
+      installedAgents: ['ui-designer'],
+      failedAgents: [],
+    });
+
+    const [result] = await internals.toolManager.execute([{
+      tool: 'install_specialist_roster',
+      args: { plan_id: 'plan-1', agent_names: ['ui-designer'] },
+    }]);
+
+    expect(confirmApproval).not.toHaveBeenCalled();
+    expect(internals.specialistOrchestrator.installStagedCatalogSelections).toHaveBeenCalledOnce();
+    expect(result.success).toBe(true);
+  });
+
+  it('routes a later user answer through the active specialist interview', async () => {
+    const { internals } = createAgent({}, 'unrestricted', true);
+    internals.specialistOrchestrator.continueInterview = vi.fn().mockResolvedValue({
+      plan: {
+        objective: 'Continue interview',
+        requestedRoles: ['product-interviewer'],
+        selectedAgents: [{
+          requestedRole: 'product-interviewer',
+          agentName: 'product-interviewer',
+          source: 'builtin',
+          matchReason: 'active interview',
+        }],
+        source: 'interview',
+        matchReason: 'active interview',
+        executionMode: 'interview',
+        unresolvedRoles: [],
+      },
+      batches: [{
+        agents: ['product-interviewer'],
+        outcome: { success: true, output: 'complete: false\nNext questions: What is the deadline?' },
+      }],
+      completed: true,
+    });
+
+    const result = await internals.prepareSpecialists('The primary user is an engineer.');
+
+    expect(internals.specialistOrchestrator.continueInterview).toHaveBeenCalledWith(
+      'The primary user is an engineer.',
+    );
+    expect(result).toContain('product-interviewer');
+    expect(result).toContain('What is the deadline?');
+  });
+
+  it('does not silently replace a differently named active team', async () => {
+    const { internals } = createAgent();
+    internals.teamManager.getTeam = vi.fn().mockReturnValue({
+      name: 'active-review',
+      status: 'active',
+      members: [],
+    });
+    internals.teamManager.shutdown = vi.fn().mockResolvedValue(undefined);
+
+    const [result] = await internals.toolManager.execute([{
+      tool: 'create_team',
+      args: { name: 'replacement' },
+    }]);
+
+    expect(result).toMatchObject({
+      success: false,
+      kind: 'validation',
+      error: expect.stringContaining('active-review'),
+    });
+    expect(internals.teamManager.shutdown).not.toHaveBeenCalled();
   });
 
   it('preserves the originating tool-call ID on file-modified lifecycle and output events', async () => {

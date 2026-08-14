@@ -121,6 +121,21 @@ Persistent goal files survive between conversations, while execution and usage a
 - [x] Remote feature flags are cached in `~/.autohand/feature-flags.json` and refreshed after their API TTL expires
 - [x] `cli_usage_v2` is enabled by default and powers `/usage`, `/usage weekly`, and `/usage monthly`
 - [x] `experimental_browser_tools_v2` is disabled by default and requires a CLI restart; after an extension capability handshake it adds snapshot refs, typed waits, verified actions, and dedicated form tools
+- [x] `automatic_specialists` is disabled by default and requires a CLI restart; it resolves explicit specialist-team requests before the lead turn, renders the roster, aggregates catalog approval, and returns structured results for synthesis
+
+### Experimental: automatic specialists
+
+Enable `automatic_specialists` with `autohand experiments enable automatic_specialists`
+or set `features.automaticSpecialists: true` in `~/.autohand/config.json`, then
+restart the CLI. Explicit prompts that ask to bring, assemble, or run a team of
+named roles are resolved host-side; incidental mentions of agents or security do
+not trigger orchestration.
+
+The experiment bundles `product-interviewer`, `planner`, `debugger`,
+`security-auditor`, and `release-readiness`. Catalog-backed gaps use one
+authorization request for the resolved roster and continue with local agents if
+installation is denied or the catalog is unavailable. Natural-language
+orchestration does not start `/squad`.
 
 ### Experimental: stateful read safety
 

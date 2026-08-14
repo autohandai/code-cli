@@ -65,6 +65,21 @@ describe('TeamManager', () => {
     expect(team?.members).toHaveLength(1);
   });
 
+  it('enforces the configured teammate limit without dropping existing members', () => {
+    manager = new TeamManager({
+      leadSessionId: 'sess-123',
+      workspacePath: '/tmp',
+      maxTeammates: 2,
+    });
+    manager.createTeam('limited');
+    manager.addTeammate({ name: 'one', agentName: 'researcher' });
+    manager.addTeammate({ name: 'two', agentName: 'reviewer' });
+
+    expect(() => manager.addTeammate({ name: 'three', agentName: 'tester' }))
+      .toThrow('maximum of 2');
+    expect(manager.getTeam()?.members).toHaveLength(2);
+  });
+
   it('should get team status', () => {
     manager.createTeam('test');
     manager.addTeammate({ name: 'worker', agentName: 'code-cleaner' });

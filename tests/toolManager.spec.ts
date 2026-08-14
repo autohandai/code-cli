@@ -78,6 +78,33 @@ describe('ToolManager', () => {
     expect(names.has('send_team_message')).toBe(true);
   });
 
+  it('keeps internal tools executable without exposing them to the model', async () => {
+    const executor = vi.fn().mockResolvedValue(successfulOutcome('installed'));
+    const manager = new ToolManager({
+      executor,
+      confirmApproval: vi.fn().mockResolvedValue({ decision: 'allow_once' }),
+      definitions: [
+        { name: 'read_file', description: 'Visible read tool' },
+        {
+          name: 'install_specialist_roster',
+          description: 'Internal aggregate install',
+          modelVisible: false,
+        },
+      ],
+    });
+
+    expect(manager.listAllDefinitions().map((definition) => definition.name))
+      .toContain('install_specialist_roster');
+    expect(manager.listDefinitions().map((definition) => definition.name))
+      .not.toContain('install_specialist_roster');
+
+    const [result] = await manager.execute([{
+      tool: 'install_specialist_roster',
+      args: { plan_id: 'plan-1', agent_names: ['ui-designer', 'ux-researcher'] },
+    }]);
+    expect(result.success).toBe(true);
+  });
+
   it('does NOT include plan tool in DEFAULT_TOOL_DEFINITIONS', () => {
     const names = new Set(DEFAULT_TOOL_DEFINITIONS.map((tool) => tool.name));
     expect(names.has('plan')).toBe(false);

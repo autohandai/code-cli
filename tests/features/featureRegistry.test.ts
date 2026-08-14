@@ -33,6 +33,7 @@ describe('feature registry', () => {
     expect(ids).toContain('usage_v2');
     expect(ids).toContain('cli_usage_v2');
     expect(ids).toContain('slash_goal');
+    expect(ids).toContain('automatic_specialists');
     expect(ids).toContain('experimental_fork');
     expect(ids).toContain('experimental_clone');
     expect(ids).toContain('experimental_handoff');
@@ -46,6 +47,7 @@ describe('feature registry', () => {
     expect(getFeatureState(config, 'chrome_integration')?.enabled).toBe(false);
     expect(getFeatureState(config, 'cli_usage_v2')?.enabled).toBe(true);
     expect(getFeatureState(config, 'slash_goal')?.enabled).toBe(false);
+    expect(getFeatureState(config, 'automatic_specialists')?.enabled).toBe(false);
     expect(getFeatureState(config, 'experimental_fork')?.enabled).toBe(false);
     expect(getFeatureState(config, 'experimental_clone')?.enabled).toBe(false);
     expect(getFeatureState(config, 'experimental_handoff')?.enabled).toBe(false);
@@ -270,6 +272,20 @@ describe('feature registry', () => {
     expect(result.ok).toBe(true);
     expect(config.features?.slashGoal).toBe(true);
     expect(getFeatureState(config, 'slash_goal')?.enabled).toBe(true);
+  });
+
+  it('keeps automatic specialist orchestration default-off and locally opt-in', () => {
+    const config = makeConfig();
+
+    const result = setFeatureState(config, 'automatic_specialists', true);
+
+    expect(result.ok).toBe(true);
+    expect(config.features?.automaticSpecialists).toBe(true);
+    expect(getFeatureState(config, 'automatic_specialists')).toEqual(expect.objectContaining({
+      enabled: true,
+      stage: 'experimental',
+      requiresRestart: true,
+    }));
   });
 
   it('enables experimental fork and clone through local feature config paths', () => {

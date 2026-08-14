@@ -38,6 +38,51 @@ The lead does not execute tasks directly. It creates the task list, assigns work
 
 ## Choosing Agents for Your Team
 
+### Automatic Specialist Rosters (Experimental)
+
+The default-off `automatic_specialists` experiment resolves explicit requests
+before the lead model starts its normal tool loop. Enable it and restart:
+
+```bash
+autohand experiments enable automatic_specialists
+```
+
+Then an explicit request such as:
+
+```text
+Bring a team of UI, UX, and security agents to inspect this repo.
+```
+
+prints the resolved roster before execution:
+
+```text
+UI → ui-designer [catalog]
+UX → ux-researcher [session]
+Security → security-auditor [builtin]
+```
+
+Resolution prefers session and user definitions, already installed catalog
+definitions, extensions, built-ins, and finally exact matches from the default
+catalog. Missing catalog definitions are installed after one approval for the
+whole roster; YOLO mode uses the same authorization policy and does not prompt.
+Catalog or network failures do not discard valid local specialists and are not
+retried in a model tool loop.
+
+Read-only inspections run concurrently in batches bounded by
+`teams.maxTeammates` (and the five-agent delegation ceiling). Objectives that
+request workspace changes are serialized unless explicit worktree isolation is
+available. Results return to the lead for synthesis; specialist processes never
+address the user directly.
+
+`product-interviewer` is session-aware. Its decisions, unknowns, and next small
+question set are returned through the lead, and later user answers continue the
+same interview until it reports completion. Starting a fresh session clears that
+interview context.
+
+Automatic specialist detection uses synchronous delegation. It never starts or
+queues `/squad`; Squad remains entitlement-gated and explicitly user-controlled.
+For durable dependency-linked work, create or reuse a named `/team` instead.
+
 ### Discovering Agents from the Default Catalog
 
 When the built-in definitions do not cover a role, Autohand can search the
@@ -56,7 +101,14 @@ The agent uses `find_sub_agents` to search by role, category, tools, or use case
 then `install_sub_agent` with an exact result name. Installed definitions are
 available to `delegate_task`, `delegate_parallel`, and `add_teammate` without
 restarting Autohand. Run `/agents definitions` to inspect the configured
-definitions.
+definitions. These lower-level tools remain available when automatic specialists
+are disabled or when you want to choose the catalog entry manually.
+
+Catalog installs validate registry paths, download size, frontmatter, declared
+tools, and optional SHA-256 hashes before an atomic write. Provenance and content
+hashes are stored beside the agent directory. If an installed definition is
+edited locally, Autohand treats it as user-owned and never overwrites it
+automatically.
 
 ### Read-Only vs Read-Write Agents
 
@@ -86,6 +138,11 @@ Think about this when designing task dependencies:
 | Remove dead code | `code-cleaner` | Has delete and patch tools |
 | Generate docs | `docs-writer` | Has file creation and search tools |
 | Code review | `reviewer` | Read-only tools enforce review discipline |
+| Product discovery | `product-interviewer` | Lead-mediated requirements clarification |
+| Architecture and sequencing | `planner` | Dependencies, acceptance criteria, and rollout planning |
+| Reproduction-first diagnosis | `debugger` | Diagnoses without applying unsolicited fixes |
+| Security assessment | `security-auditor` | Threat modeling and vulnerability review |
+| Release assessment | `release-readiness` | Separates build, packaging, compatibility, and rollout evidence |
 
 When a task does not map cleanly to a built-in agent, create a custom agent with the exact tool set you need. See [Creating Custom Agent Teams](#creating-custom-agent-teams) below.
 
@@ -216,6 +273,12 @@ reviewer        -> Review the implementation
 ```
 
 The `reviewer` is the built-in agent -- there is no need to create a custom version unless you want to add domain-specific review criteria.
+
+An active named team is durable. Repeating `/team create <same-name>` reuses it;
+requesting a different name never shuts the current team down implicitly. Run
+`/team shutdown` first when replacement is intentional. `/team status` includes
+each member's requested role and definition source when the resolver supplied
+that provenance.
 
 ---
 

@@ -17,6 +17,7 @@ function createMockTeamManager(hasTeam = true) {
       members: [
         { name: 'hunter', agentName: 'code-cleaner', pid: 123, status: 'working' },
         { name: 'writer', agentName: 'docs-writer', pid: 456, status: 'idle' },
+        { name: 'ui-reviewer', agentName: 'ui-designer', pid: 789, status: 'idle', requestedRole: 'ui', agentSource: 'catalog' },
       ],
     } : null),
     getStatus: vi.fn().mockReturnValue({
@@ -47,6 +48,8 @@ describe('/team command', () => {
     expect(result).toContain('test-team');
     expect(result).toContain('hunter');
     expect(result).toContain('writer');
+    expect(result).toContain('requested: ui');
+    expect(result).toContain('source: catalog');
   });
 
   it('should return warning when no team manager', async () => {
@@ -67,6 +70,25 @@ describe('/team command', () => {
     expect(mock.createTeam).toHaveBeenCalledWith('my-project');
     expect(result).toContain('my-project');
     expect(result).toContain('created');
+  });
+
+  it('reuses an identically named active team', async () => {
+    const mock = createMockTeamManager(true);
+
+    const result = await team({ teamManager: mock as any }, ['create', 'test-team']);
+
+    expect(mock.createTeam).not.toHaveBeenCalled();
+    expect(result).toContain('already active');
+  });
+
+  it('does not replace a differently named active team', async () => {
+    const mock = createMockTeamManager(true);
+
+    const result = await team({ teamManager: mock as any }, ['create', 'replacement']);
+
+    expect(mock.createTeam).not.toHaveBeenCalled();
+    expect(result).toContain('test-team');
+    expect(result).toMatch(/shut it down/i);
   });
 
   it('should create a team with default name when none provided', async () => {

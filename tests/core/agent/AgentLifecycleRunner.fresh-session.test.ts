@@ -135,6 +135,11 @@ function createFreshSessionHost(): {
       add: vi.fn(() => 1),
       formatPlaceholder: vi.fn(() => '[Image #1]'),
     },
+    specialistOrchestrator: {
+      clearSessionContext: vi.fn(() => {
+        events.push('clear-specialist-context');
+      }),
+    },
     taskStartedAt: 1,
     totalTokensUsed: 91,
     currentTurnActualUsage: { kind: 'actual', promptTokens: 1, completionTokens: 1, totalTokens: 2 },
@@ -209,6 +214,7 @@ describe('startFreshAgentSession', () => {
       'end-old-telemetry',
       'reset-conversation',
       'clear-images',
+      'clear-specialist-context',
       'create-new-session',
       'start-new-feedback',
       'start-new-heartbeat',

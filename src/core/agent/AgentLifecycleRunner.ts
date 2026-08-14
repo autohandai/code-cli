@@ -124,6 +124,7 @@ export interface FreshAgentSessionStateHost {
   lastActivityAt: number;
   imageManager?: Pick<ImageManager, 'clear'>;
   sessionDiffStatsTracker?: SessionDiffStatsTracker;
+  specialistOrchestrator?: { clearSessionContext(): void };
 }
 
 export function resetFreshAgentSessionState(
@@ -152,6 +153,7 @@ export function resetFreshAgentSessionState(
   host.lastAssistantResponseForNotification = '';
   host.lastActivityAt = startedAt;
   host.imageManager?.clear();
+  host.specialistOrchestrator?.clearSessionContext();
   if (host.sessionDiffStatsTracker) {
     host.sessionDiffStatsTracker = new SessionDiffStatsTracker(host.runtime.workspaceRoot);
   }

@@ -7,16 +7,27 @@
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { AUTOHAND_PATHS } from '../../constants.js';
 import type { ExternalAgentsConfig, InlineAgentDefinition } from '../../types.js';
 import type { ExtensionAgentContribution, ExtensionScope } from '../../extensions/types.js';
+import {
+    isCatalogManagedContent,
+    readCatalogProvenance,
+    type CatalogProvenanceManifest,
+} from './catalogProvenance.js';
 
 export const BUILTIN_AGENT_NAMES = [
     'code-cleaner',
+    'debugger',
     'docs-writer',
+    'planner',
+    'product-interviewer',
+    'release-readiness',
     'researcher',
     'reviewer',
+    'security-auditor',
     'tester',
     'todo-resolver',
 ] as const;
@@ -99,7 +110,7 @@ export function parseInlineAgents(input: string | Record<string, unknown>): Inli
 }
 
 /** Source of an agent definition */
-export type AgentSource = 'builtin' | 'user' | 'external' | 'extension' | 'auto-generated' | 'session';
+export type AgentSource = 'builtin' | 'user' | 'catalog' | 'external' | 'extension' | 'auto-generated' | 'session';
 
 export interface AgentDefinition extends AgentConfig {
     name: string; // Derived from filename
@@ -168,6 +179,7 @@ export class AgentRegistry {
     private extensionAgents: Map<string, AgentDefinition> = new Map();
     private agentsDir: string;
     private externalPaths: string[] = [];
+    private catalogProvenance: CatalogProvenanceManifest = { schemaVersion: 1, entries: {} };
 
     private constructor() {
         this.agentsDir = AUTOHAND_PATHS.agents;
@@ -213,6 +225,7 @@ export class AgentRegistry {
      */
     public async loadAgents(): Promise<void> {
         this.agents.clear();
+        this.catalogProvenance = await readCatalogProvenance(this.agentsDir);
 
         // Load from main autohand agents directory
         await this.loadAgentsFromDir(this.agentsDir, 'user');
@@ -350,9 +363,15 @@ export class AgentRegistry {
             const content = await fs.readFile(filePath, 'utf-8');
             const json = JSON.parse(content);
             const config = AgentConfigSchema.parse(json);
+            const resolvedSource = source === 'user' && isCatalogManagedContent(
+                name,
+                path.basename(filePath),
+                content,
+                this.catalogProvenance,
+            ) ? 'catalog' : source;
             // Don't overwrite existing agents (first loaded wins)
             if (!this.agents.has(name)) {
-                this.agents.set(name, { name, path: filePath, source, ...config });
+                this.agents.set(name, { name, path: filePath, source: resolvedSource, ...config });
             }
         } catch (error) {
             console.warn(`Failed to load agent '${name}': ${(error as Error).message}`);
@@ -364,10 +383,16 @@ export class AgentRegistry {
         try {
             const content = await fs.readFile(filePath, 'utf-8');
             const parsed = parseMarkdownAgent(content);
+            const resolvedSource = source === 'user' && isCatalogManagedContent(
+                name,
+                path.basename(filePath),
+                content,
+                this.catalogProvenance,
+            ) ? 'catalog' : source;
             const definition: AgentDefinition = {
                 name,
                 path: filePath,
-                source,
+                source: resolvedSource,
                 description: parsed.description || `Agent ${name}`,
                 systemPrompt: parsed.systemPrompt,
                 tools: parsed.tools.length > 0 ? parsed.tools : ['*'],
@@ -387,7 +412,17 @@ export class AgentRegistry {
      * (loaded after user agents, so first-loaded-wins applies).
      */
     public async loadBuiltinAgents(): Promise<void> {
-        const builtinDir = path.join(path.dirname(new URL(import.meta.url).pathname), '../../agents/builtin');
-        await this.loadAgentsFromDir(builtinDir, 'builtin');
+        const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+        const candidates = [
+            path.join(moduleDir, '../../agents/builtin'),
+            path.join(moduleDir, 'agents/builtin'),
+        ];
+        for (const builtinDir of candidates) {
+            const exists = await fs.access(builtinDir).then(() => true).catch(() => false);
+            if (exists) {
+                await this.loadAgentsFromDir(builtinDir, 'builtin');
+                return;
+            }
+        }
     }
 }
