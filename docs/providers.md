@@ -73,7 +73,7 @@ Bundled provider model choices live in `src/providers/models.json` and packaged 
 
 Autohand AI is the preferred first-party provider. Use `autohandai` with `plan: "cloud"` for Autohand-hosted Fantail and Moa models at `https://api.autohand.ai/v1`, or `plan: "local"` for Apple Silicon MLX local inference.
 
-Fantail uses a 64k input context window and a 16k maximum output. Moa retains its 1M input context and 262,144-token output contract. These limits and the available cloud model list are read from `src/providers/models.json` (or a validated catalog override), not duplicated in provider code. If a selected model requires a higher account tier or an Autohand AI message quota is exhausted, the CLI includes the trusted upgrade link returned by the inference service.
+Fantail uses a 64k input context window and a 16k maximum output. Moa retains its 1M input context and 262,144-token output contract. These limits and the available cloud model list are read from `src/providers/models.json` (or a validated catalog override), not duplicated in provider code. If a selected model requires a higher account tier or an Autohand AI message quota is exhausted, the CLI identifies the exhausted window, shows its exact reset in the computer's local timezone with a relative duration, and includes the trusted upgrade link returned by the inference service. `/usage` shows the same account quota windows before they are exhausted.
 
 Fantail and Moa use native tool calling in the main agent, delegated agents, parallel agents, and teammates. Autohand preserves matching tool-call IDs and results across model turns; if an observation disappears or repeated calls stop making progress, the runtime withholds further tools and asks the model to finish from the evidence already available.
 
@@ -674,9 +674,15 @@ Update `~/.autohand/config.json`:
 
 **Symptom:** "Rate limit exceeded" errors
 
+Autohand AI distinguishes short request-per-minute throttles from account quota
+exhaustion. The CLI automatically retries only a server-identified RPM throttle,
+honors its bounded `Retry-After` delay, and remains cancellable while waiting.
+A 5-hour or weekly quota limit ends the turn immediately instead of keeping the
+terminal or auto mode asleep until the reset.
+
 **Solutions:**
 
-1. Wait and retry
+1. Check the localized reset time in the error or run `/usage`
 2. Use a different model
 3. Upgrade your API plan
 4. Configure retry settings:

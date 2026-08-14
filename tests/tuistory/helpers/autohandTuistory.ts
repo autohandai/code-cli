@@ -254,12 +254,17 @@ export async function createMockAutohandAIQuotaServer(): Promise<MockOpenRouterS
   const server = createServer((request, response) => {
     if (request.url === '/chat/completions' && request.method === 'POST') {
       request.resume();
-      response.writeHead(429, { 'content-type': 'application/json' });
+      const resetAt = Math.floor(Date.now() / 1000) + 2 * 60 * 60 + 30 * 60;
+      response.writeHead(429, {
+        'content-type': 'application/json',
+        'retry-after': String(2 * 60 * 60 + 30 * 60),
+      });
       response.end(JSON.stringify({
         error: {
           type: 'rate_limited',
           message: "You've used all your messages in this 5-hour window.",
           scope: 'window_5h',
+          resetAt,
           upgradeUrl: 'https://console-v2.autohand.ai/upgrade/?from=cli&tier=pro',
         },
       }));

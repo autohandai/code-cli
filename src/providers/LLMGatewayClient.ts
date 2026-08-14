@@ -129,6 +129,8 @@ function coerceErrorDetail(value: unknown): string {
 interface StructuredGatewayError {
   type?: string;
   message?: string;
+  scope?: string;
+  resetAt?: number;
   upgradeUrl?: string;
 }
 
@@ -141,8 +143,86 @@ function structuredGatewayError(value: unknown): StructuredGatewayError | undefi
   return {
     ...(typeof error.type === "string" ? { type: error.type } : {}),
     ...(typeof error.message === "string" ? { message: error.message } : {}),
+    ...(typeof error.scope === "string" ? { scope: error.scope } : {}),
+    ...(typeof error.resetAt === "number"
+      && Number.isSafeInteger(error.resetAt)
+      && error.resetAt > 0
+      ? { resetAt: error.resetAt }
+      : {}),
     ...(typeof error.upgradeUrl === "string" ? { upgradeUrl: error.upgradeUrl } : {}),
   };
+}
+
+const AUTOHAND_QUOTA_SCOPE_LABELS = {
+  window_5h: "5-hour",
+  window_week: "weekly",
+} as const;
+
+type AutohandQuotaScope = keyof typeof AUTOHAND_QUOTA_SCOPE_LABELS;
+type AutohandRateLimitScope = AutohandQuotaScope | "rpm";
+
+class AutohandRateLimitError extends ApiError {
+  readonly scope: AutohandRateLimitScope;
+
+  constructor(
+    message: string,
+    httpStatus: number,
+    retryable: boolean,
+    scope: AutohandRateLimitScope,
+    retryAfterMs?: number,
+    rawDetail?: string,
+  ) {
+    super(message, "rate_limited", httpStatus, retryable, retryAfterMs, rawDetail);
+    this.scope = scope;
+  }
+}
+
+function isAutohandQuotaScope(value: string | undefined): value is AutohandQuotaScope {
+  return value === "window_5h" || value === "window_week";
+}
+
+function formatResetDistance(resetAtMs: number, nowMs: number): string {
+  const minutes = Math.max(1, Math.ceil((resetAtMs - nowMs) / 60_000));
+  const days = Math.floor(minutes / (24 * 60));
+  const hours = Math.floor((minutes % (24 * 60)) / 60);
+  const remainingMinutes = minutes % 60;
+  const parts = [
+    ...(days > 0 ? [`${days}d`] : []),
+    ...(hours > 0 ? [`${hours}h`] : []),
+    ...(remainingMinutes > 0 ? [`${remainingMinutes}m`] : []),
+  ];
+  return parts.join(" ") || "less than a minute";
+}
+
+function formatAutohandQuotaReset(resetAtSeconds: number | undefined): string {
+  if (resetAtSeconds === undefined) {
+    return "Reset time is temporarily unavailable. Run /usage to refresh your quota.";
+  }
+
+  const resetAtMs = resetAtSeconds * 1000;
+  const resetAt = new Date(resetAtMs);
+  if (!Number.isFinite(resetAt.getTime())) {
+    return "Reset time is temporarily unavailable. Run /usage to refresh your quota.";
+  }
+
+  const formatter = new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+  const timeZone = formatter.resolvedOptions().timeZone || "local time";
+  return `Resets ${formatter.format(resetAt)} (${timeZone}) · in ${formatResetDistance(resetAtMs, Date.now())}.`;
+}
+
+function buildAutohandQuotaMessage(error: StructuredGatewayError): string {
+  const scope = error.scope as AutohandQuotaScope;
+  const upgradeUrl = trustedAutohandUpgradeUrl(error.upgradeUrl);
+  const upgradeMessage = upgradeUrl
+    ? `\nUpgrade your Autohand Code plan for more usage: ${upgradeUrl}`
+    : "";
+  return `Autohand AI ${AUTOHAND_QUOTA_SCOPE_LABELS[scope]} message limit reached.`
+    + `\n${error.message ?? "Your current message allowance is exhausted."}`
+    + `\n${formatAutohandQuotaReset(error.resetAt)}`
+    + upgradeMessage;
 }
 
 function trustedAutohandUpgradeUrl(value: string | undefined): string | undefined {
@@ -264,8 +344,12 @@ export class LLMGatewayClient {
 
         // If we have more attempts left, wait before retrying
         if (attempt < this.maxRetries) {
-          const delay = this.retryDelay * Math.pow(2, attempt); // Exponential backoff
-          await this.sleep(delay);
+          const delay = lastError instanceof AutohandRateLimitError
+            && lastError.scope === "rpm"
+            && lastError.retryAfterMs !== undefined
+            ? lastError.retryAfterMs
+            : this.retryDelay * Math.pow(2, attempt);
+          await this.sleep(delay, request.signal);
         }
       }
     }
@@ -504,6 +588,34 @@ export class LLMGatewayClient {
       return new ApiError(message, "access_denied", status, false, undefined, errorDetail);
     }
 
+    if (this.errorLabels.serviceName === "Autohand AI"
+      && structuredError?.type === "rate_limited"
+      && isAutohandQuotaScope(structuredError.scope)) {
+      return new AutohandRateLimitError(
+        buildAutohandQuotaMessage(structuredError),
+        status,
+        false,
+        structuredError.scope,
+        undefined,
+        errorDetail,
+      );
+    }
+
+    if (this.errorLabels.serviceName === "Autohand AI"
+      && structuredError?.type === "rate_limited"
+      && structuredError.scope === "rpm") {
+      const classified = classifyApiError(status, errorDetail, response.headers);
+      const friendlyMessage = buildFriendlyErrors(this.errorLabels).rate_limited;
+      return new AutohandRateLimitError(
+        `${friendlyMessage}\n${structuredError.message ?? errorDetail}`,
+        status,
+        true,
+        "rpm",
+        classified.retryAfterMs,
+        errorDetail,
+      );
+    }
+
     const classified = classifyApiError(status, errorDetail, response.headers);
     const friendlyMessage = buildFriendlyErrors(this.errorLabels)[classified.code];
     if (friendlyMessage) {
@@ -513,11 +625,15 @@ export class LLMGatewayClient {
       const upgradeMessage = classified.code === "rate_limited" && upgradeUrl
         ? `\nUpgrade your Autohand Code plan for more usage: ${upgradeUrl}`
         : "";
+      const retryable = this.errorLabels.serviceName === "Autohand AI"
+        && classified.code === "rate_limited"
+        ? false
+        : classified.retryable;
       return new ApiError(
         `${errorDetail ? `${friendlyMessage}\n${errorDetail}` : friendlyMessage}${upgradeMessage}`,
         classified.code,
         classified.httpStatus,
-        classified.retryable,
+        retryable,
         classified.retryAfterMs,
         classified.rawDetail,
       );
@@ -581,7 +697,21 @@ export class LLMGatewayClient {
     return controller.signal;
   }
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  private sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) {
+      return Promise.reject(new ApiError("Request cancelled.", "cancelled", 0, false));
+    }
+
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        clearTimeout(timeoutId);
+        reject(new ApiError("Request cancelled.", "cancelled", 0, false));
+      };
+      const timeoutId = setTimeout(() => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      }, ms);
+      signal?.addEventListener("abort", onAbort, { once: true });
+    });
   }
 }
