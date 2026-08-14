@@ -69,6 +69,15 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     defaultEnabled: true,
   },
   {
+    id: 'automatic_specialists',
+    label: 'Automatic specialists',
+    description: 'Resolve and run explicitly requested specialist rosters before the lead turn.',
+    stage: 'experimental',
+    configPath: 'features.automaticSpecialists',
+    defaultEnabled: false,
+    requiresRestart: true,
+  },
+  {
     id: 'community_skills',
     label: 'Community skills',
     description: 'Enable discovery and use of community skill packs.',

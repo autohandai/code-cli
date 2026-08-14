@@ -381,6 +381,8 @@ export interface FeatureFlagSettings {
   tokenUsageStatus?: boolean;
   /** Enable experimental provider-native prompt cache affinity. */
   promptCaching?: boolean;
+  /** Resolve and run explicitly requested specialist rosters before the lead turn. */
+  automaticSpecialists?: boolean;
   /** Enable the experimental /fork session branching surface. */
   experimentalFork?: boolean;
   /** Enable the experimental /clone session duplication surface. */
@@ -1488,9 +1490,11 @@ export type AgentAction =
   | { type: 'create_meta_tool'; name: string; description: string; parameters: Record<string, unknown>; handler: string; scope?: 'user' | 'project' }
   | { type: 'delegate_task'; agent_name: string; task: string }
   | { type: 'delegate_parallel'; tasks: Array<{ agent_name: string; task: string }> }
+  | { type: 'orchestrate_specialists'; objective: string; requested_roles: string[] }
+  | { type: 'install_specialist_roster'; plan_id: string; agent_names: string[] }
   // Team coordination tools
   | { type: 'create_team'; name: string }
-  | { type: 'add_teammate'; name: string; agent_name: string; model?: string }
+  | { type: 'add_teammate'; name: string; agent_name: string; model?: string; requested_role?: string; agent_source?: string }
   | { type: 'create_task'; subject: string; description: string; blocked_by?: string[] }
   | { type: 'task_get'; task_id: string }
   | { type: 'task_list'; status?: 'pending' | 'in_progress' | 'completed'; owner?: string }

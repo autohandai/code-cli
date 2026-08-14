@@ -7,9 +7,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { DEFAULT_TOOL_DEFINITIONS } from '../../src/core/toolManager.js';
 import { filterToolsByRelevance } from '../../src/core/toolFilter.js';
 import type { LLMMessage } from '../../src/types.js';
+import { AgentRegistry } from '../../src/core/agents/AgentRegistry.js';
 import {
   installSubAgentFromCatalog,
   searchSubAgentsCatalog,
@@ -101,11 +103,11 @@ const uiDesignerMarkdown = [
   '',
 ].join('\n');
 
-function mockFetch(markdown = uiDesignerMarkdown): typeof fetch {
+function mockFetch(markdown = uiDesignerMarkdown, registryPayload = registry): typeof fetch {
   return (async (url: RequestInfo | URL) => {
     const href = String(url);
     if (href.endsWith('/registry.json')) {
-      return new Response(JSON.stringify(registry), { status: 200 });
+      return new Response(JSON.stringify(registryPayload), { status: 200 });
     }
     if (href.endsWith('/categories/01-core-development/ui-designer.md')) {
       return new Response(markdown, { status: 200 });
@@ -155,6 +157,7 @@ describe('sub-agent catalog actions', () => {
   const tempRoots: string[] = [];
 
   afterEach(async () => {
+    (AgentRegistry as unknown as { instance?: AgentRegistry }).instance = undefined;
     await Promise.all(tempRoots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
   });
 
@@ -285,5 +288,78 @@ describe('sub-agent catalog actions', () => {
     })).rejects.toThrow('did not download as an Autohand markdown agent');
 
     await expect(fs.access(path.join(root, 'ui-designer.md'))).rejects.toThrow();
+  });
+
+  it('rejects catalog paths that escape the trusted raw-content root', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-sub-agents-'));
+    tempRoots.push(root);
+    const unsafeRegistry = {
+      ...registry,
+      agents: [{ ...registry.agents[2], path: '../ui-designer.md' }],
+    };
+
+    await expect(installSubAgentFromCatalog('ui-designer', {
+      destinationDir: root,
+      fetchImpl: mockFetch(uiDesignerMarkdown, unsafeRegistry),
+    })).rejects.toThrow('invalid catalog path');
+
+    expect(await fs.readdir(root)).toEqual([]);
+  });
+
+  it('rejects content that does not match a registry-provided sha256', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-sub-agents-'));
+    tempRoots.push(root);
+    const hashedRegistry = {
+      ...registry,
+      agents: [{ ...registry.agents[2], sha256: '0'.repeat(64) }],
+    };
+
+    await expect(installSubAgentFromCatalog('ui-designer', {
+      destinationDir: root,
+      fetchImpl: mockFetch(uiDesignerMarkdown, hashedRegistry),
+    })).rejects.toThrow('content hash mismatch');
+
+    expect(await fs.readdir(root)).toEqual([]);
+  });
+
+  it('validates downloaded tool allowlists before installation', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-sub-agents-'));
+    tempRoots.push(root);
+
+    await expect(installSubAgentFromCatalog('ui-designer', {
+      destinationDir: root,
+      fetchImpl: mockFetch(uiDesignerMarkdown.replace('fff_find', 'unknown_catalog_tool')),
+      allowedTools: new Set(['read_file', 'fff_grep', 'fff_find']),
+    })).rejects.toThrow('unsupported tool');
+
+    expect(await fs.readdir(root)).toEqual([]);
+  });
+
+  it('persists catalog provenance and reclassifies a tampered definition as user-owned', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-sub-agents-'));
+    tempRoots.push(root);
+
+    await installSubAgentFromCatalog('ui-designer', {
+      destinationDir: root,
+      fetchImpl: mockFetch(),
+    });
+
+    const provenancePath = path.join(root, '.catalog', 'provenance.json');
+    const provenance = JSON.parse(await fs.readFile(provenancePath, 'utf8')) as {
+      entries: Record<string, { contentHash: string; catalogPath: string }>;
+    };
+    expect(provenance.entries['ui-designer']).toEqual(expect.objectContaining({
+      contentHash: createHash('sha256').update(uiDesignerMarkdown).digest('hex'),
+      catalogPath: 'categories/01-core-development/ui-designer.md',
+    }));
+
+    const registryInstance = AgentRegistry.getInstance();
+    (registryInstance as unknown as { agentsDir: string }).agentsDir = root;
+    await registryInstance.loadAgents();
+    expect(registryInstance.getAgent('ui-designer')?.source).toBe('catalog');
+
+    await fs.writeFile(path.join(root, 'ui-designer.md'), `${uiDesignerMarkdown}\nUser customization.\n`, 'utf8');
+    await registryInstance.loadAgents();
+    expect(registryInstance.getAgent('ui-designer')?.source).toBe('user');
   });
 });

@@ -28,6 +28,8 @@ interface PromptTeam {
     name: string;
     agentName: string;
     status: string;
+    requestedRole?: string;
+    agentSource?: string;
   }>;
 }
 
@@ -453,7 +455,11 @@ export class SystemPromptBuilder {
     if (activeTeam) {
       parts.push('', '## Active Team: ' + activeTeam.name);
       for (const m of activeTeam.members) {
-        parts.push(`- ${m.name} [${m.agentName}] ${m.status}`);
+        const provenance = [
+          m.requestedRole ? `requested=${m.requestedRole}` : '',
+          m.agentSource ? `source=${m.agentSource}` : '',
+        ].filter(Boolean).join(' ');
+        parts.push(`- ${m.name} [${m.agentName}] ${m.status}${provenance ? ` ${provenance}` : ''}`);
       }
     }
 

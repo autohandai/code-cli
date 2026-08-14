@@ -31,16 +31,22 @@ describe('AgentRegistry built-in agents', () => {
     return { root, userDir, externalDir };
   }
 
-  it('should load built-in agents', async () => {
+  async function loadIsolatedRegistry(): Promise<AgentRegistry> {
+    const { userDir } = await createTempAgentDirs();
     const registry = AgentRegistry.getInstance();
+    (registry as any).agentsDir = userDir;
     await registry.loadAgents();
+    return registry;
+  }
+
+  it('should load built-in agents', async () => {
+    const registry = await loadIsolatedRegistry();
     const builtins = registry.getAgentsBySource('builtin');
-    expect(builtins.length).toBeGreaterThanOrEqual(6);
+    expect(builtins.length).toBeGreaterThanOrEqual(11);
   });
 
-  it('should include all 6 expected built-in agent names', async () => {
-    const registry = AgentRegistry.getInstance();
-    await registry.loadAgents();
+  it('should include the original six and five specialist built-ins', async () => {
+    const registry = await loadIsolatedRegistry();
     const builtins = registry.getAgentsBySource('builtin');
     const names = builtins.map((a) => a.name);
     expect(names).toContain('researcher');
@@ -49,6 +55,11 @@ describe('AgentRegistry built-in agents', () => {
     expect(names).toContain('docs-writer');
     expect(names).toContain('tester');
     expect(names).toContain('reviewer');
+    expect(names).toContain('product-interviewer');
+    expect(names).toContain('planner');
+    expect(names).toContain('debugger');
+    expect(names).toContain('security-auditor');
+    expect(names).toContain('release-readiness');
   });
 
   it('should parse frontmatter for description and tools', async () => {

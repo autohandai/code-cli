@@ -53,6 +53,7 @@ import { createPersistentInput } from '../../ui/persistentInput.js';
 import { PermissionManager } from '../../permissions/PermissionManager.js';
 import { HookManager } from '../HookManager.js';
 import { TeamManager } from '../teams/TeamManager.js';
+import type { TeamMember, TeamTask } from '../teams/types.js';
 import { RepeatManager } from '../RepeatManager.js';
 import { intervalToCron, shorthandToHuman, shorthandToMs } from '../../commands/repeat.js';
 import { ActivityIndicator } from '../../ui/activityIndicator.js';
@@ -83,6 +84,7 @@ import { getAnnouncementManager } from '../../announcements/AnnouncementManager.
 import { getAuthClient } from '../../auth/index.js';
 import { syncAgentAnnouncementLine } from './AgentUIRuntime.js';
 import { getFeatureState } from '../../features/featureRegistry.js';
+import { SpecialistOrchestrator } from '../agents/SpecialistOrchestrator.js';
 import { isGoalFeatureEnabled, resolveGoalFeatureEnabled } from '../../goals/feature.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { SuggestionEngine } from '../SuggestionEngine.js';
@@ -533,6 +535,7 @@ export function initializeAgentDependencies(
     host.teamManager = new TeamManager({
       leadSessionId: randomUUID(),
       workspacePath: runtime.workspaceRoot,
+      maxTeammates: runtime.config.teams?.maxTeammates,
       onTeammateMessage: (from, msg) => {
         if (msg.method === 'team.log') {
           const { level, text } = msg.params as { level: string; text: string };
@@ -687,6 +690,13 @@ export function initializeAgentDependencies(
         });
       }
     });
+    host.specialistOrchestrator = new SpecialistOrchestrator(host.delegator, {
+      maxParallel: runtime.config.teams?.maxTeammates,
+      offline: runtime.options.offline === true || runtime.options.bare === true,
+      getAllowedTools: () => new Set(
+        (host.toolManager?.listAllDefinitions() ?? []).map((definition: ToolDefinition) => definition.name),
+      ),
+    });
     host.errorLogger = new ErrorLogger(packageJson.version);
     host.autoReportManager = new AutoReportManager(runtime.config, packageJson.version);
     host.feedbackManager = new FeedbackManager({
@@ -769,6 +779,47 @@ export function initializeAgentDependencies(
       () => host.emitStatus()
     );
 
+    const specialistTools: ToolDefinition[] = getFeatureState(runtime.config, 'automatic_specialists')?.enabled === true
+      ? [
+          {
+            name: 'orchestrate_specialists',
+            description: 'Resolve and run a bounded roster of requested specialists, then return structured results for lead synthesis. Use when specialist needs are discovered during a turn.',
+            parameters: {
+              type: 'object',
+              properties: {
+                objective: { type: 'string', description: 'The concrete objective the specialists should analyze or execute' },
+                requested_roles: {
+                  type: 'array',
+                  description: 'Requested specialist roles, such as UI, UX, security, debugger, planner, or release readiness',
+                  items: { type: 'string' },
+                },
+              },
+              required: ['objective', 'requested_roles'],
+            },
+            requiresApproval: false,
+          },
+          {
+            name: 'install_specialist_roster',
+            description: 'Install one previously resolved specialist roster from the default catalog.',
+            parameters: {
+              type: 'object',
+              properties: {
+                plan_id: { type: 'string', description: 'Opaque resolved specialist plan identifier' },
+                agent_names: {
+                  type: 'array',
+                  description: 'Exact catalog agents in the resolved roster',
+                  items: { type: 'string' },
+                },
+              },
+              required: ['plan_id', 'agent_names'],
+            },
+            requiresApproval: true,
+            approvalMessage: 'Install the resolved specialist roster from the default Autohand catalog?',
+            modelVisible: false,
+          },
+        ]
+      : [];
+
     const delegationTools: ToolDefinition[] = [
       {
         name: 'delegate_task',
@@ -806,6 +857,7 @@ export function initializeAgentDependencies(
         },
         requiresApproval: false
       },
+      ...specialistTools,
       // Team coordination tools
       {
         name: 'create_team',
@@ -827,7 +879,9 @@ export function initializeAgentDependencies(
           properties: {
             name: { type: 'string', description: 'Friendly name for this teammate' },
             agent_name: { type: 'string', description: 'Agent definition to use (from Available Agents)' },
-            model: { type: 'string', description: 'Optional LLM model override' }
+            model: { type: 'string', description: 'Optional LLM model override' },
+            requested_role: { type: 'string', description: 'Original requested specialist role' },
+            agent_source: { type: 'string', description: 'Resolved agent source, such as session, catalog, extension, or builtin' }
           },
           required: ['name', 'agent_name']
         },
@@ -991,40 +1045,58 @@ export function initializeAgentDependencies(
             outcome = await host.delegator.delegateTaskForTool(action.agent_name, action.task);
           } else if (action.type === 'delegate_parallel') {
             outcome = await host.delegator.delegateParallelForTool(action.tasks);
+          } else if (action.type === 'orchestrate_specialists') {
+            result = await host.orchestrateSpecialistsFromTool(action.objective, action.requested_roles);
+          } else if (action.type === 'install_specialist_roster') {
+            const installation = await host.specialistOrchestrator.installStagedCatalogSelections(
+              action.plan_id,
+              action.agent_names,
+            );
+            result = JSON.stringify(installation);
+            if (installation.failedAgents.length > 0) {
+              const error = `Failed to install specialists: ${installation.failedAgents.join(', ')}`;
+              outcome = { success: false, kind: 'operational', error, output: result };
+            }
           } else if (action.type === 'create_team') {
-            // Handle existing team: same name → reuse, different name → replace
+            // Reuse an identically named team, but never destroy a different active team implicitly.
             let team = host.teamManager.getTeam();
             let created = false;
             if (team && team.name !== action.name) {
-              // Different team requested — shutdown old, create new
-              await host.teamManager.shutdown();
-              team = null;
+              const error = `Team "${team.name}" is already active. Shut it down explicitly before creating "${action.name}".`;
+              outcome = { success: false, kind: 'validation', error, output: error };
+            } else {
+              if (!team) {
+                team = host.teamManager.createTeam(action.name);
+                created = true;
+              }
+              // Auto-profile the project
+              const { ProjectProfiler } = await import('../teams/ProjectProfiler.js');
+              const profiler = new ProjectProfiler(host.runtime.workspaceRoot);
+              const profile = await profiler.analyze();
+              // List available agents
+              const { AgentRegistry } = await import('../agents/AgentRegistry.js');
+              const registry = AgentRegistry.getInstance();
+              await registry.loadAgents();
+              const agents = registry.getAllAgents().map(a => `  - ${a.name}: ${a.description}`).join('\n');
+              const header = created
+                ? `Team "${team.name}" created.`
+                : `Team "${team.name}" already active (reusing). Members: ${team.members.length}, Tasks: ${host.teamManager.tasks.listTasks().length}.`;
+              result = [
+                header,
+                `\nProject: ${profile.languages.join(', ')} | Frameworks: ${profile.frameworks.join(', ') || 'none'}`,
+                `Signals: ${profile.signals.map(s => `${s.type}(${s.severity})`).join(', ') || 'none'}`,
+                `\nAvailable agents:\n${agents || '  (none)'}`,
+                `\nNext: call add_teammate for each role, then create_task.`,
+              ].join('\n');
             }
-            if (!team) {
-              team = host.teamManager.createTeam(action.name);
-              created = true;
-            }
-            // Auto-profile the project
-            const { ProjectProfiler } = await import('../teams/ProjectProfiler.js');
-            const profiler = new ProjectProfiler(host.runtime.workspaceRoot);
-            const profile = await profiler.analyze();
-            // List available agents
-            const { AgentRegistry } = await import('../agents/AgentRegistry.js');
-            const registry = AgentRegistry.getInstance();
-            await registry.loadAgents();
-            const agents = registry.getAllAgents().map(a => `  - ${a.name}: ${a.description}`).join('\n');
-            const header = created
-              ? `Team "${team.name}" created.`
-              : `Team "${team.name}" already active (reusing). Members: ${team.members.length}, Tasks: ${host.teamManager.tasks.listTasks().length}.`;
-            result = [
-              header,
-              `\nProject: ${profile.languages.join(', ')} | Frameworks: ${profile.frameworks.join(', ') || 'none'}`,
-              `Signals: ${profile.signals.map(s => `${s.type}(${s.severity})`).join(', ') || 'none'}`,
-              `\nAvailable agents:\n${agents || '  (none)'}`,
-              `\nNext: call add_teammate for each role, then create_task.`,
-            ].join('\n');
           } else if (action.type === 'add_teammate') {
-            host.teamManager.addTeammate({ name: action.name, agentName: action.agent_name, model: action.model });
+            host.teamManager.addTeammate({
+              name: action.name,
+              agentName: action.agent_name,
+              model: action.model,
+              requestedRole: action.requested_role,
+              agentSource: action.agent_source,
+            });
             result = `Teammate "${action.name}" added (agent: ${action.agent_name}). Process spawning.`;
           } else if (action.type === 'create_task') {
             const task = host.teamManager.tasks.createTask({
@@ -1092,9 +1164,15 @@ export function initializeAgentDependencies(
               outcome = { success: false, kind: 'validation', error, output: error };
             } else {
               const status = host.teamManager.getStatus();
-              const members = team.members.map((m: any) => `  ${m.name} (${m.agentName}) - ${m.status}`).join('\n');
+              const members = team.members.map((m: TeamMember) => {
+                const provenance = [
+                  m.requestedRole ? `requested: ${m.requestedRole}` : '',
+                  m.agentSource ? `source: ${m.agentSource}` : '',
+                ].filter(Boolean).join(', ');
+                return `  ${m.name} (${m.agentName}) - ${m.status}${provenance ? ` [${provenance}]` : ''}`;
+              }).join('\n');
               const tasks = host.teamManager.tasks.listTasks();
-              const taskLines = tasks.map((t: any) => {
+              const taskLines = tasks.map((t: TeamTask) => {
                 const owner = t.owner ? ` -> ${t.owner}` : '';
                 const blocked = t.blockedBy.length > 0 ? ` (blocked by: ${t.blockedBy.join(', ')})` : '';
                 return `  [${t.status}] ${t.id}: ${t.subject}${owner}${blocked}`;

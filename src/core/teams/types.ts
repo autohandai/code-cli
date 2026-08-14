@@ -17,6 +17,8 @@ export const TeamMemberSchema = z.object({
   pid: z.number().int().nonnegative(),
   status: TeamMemberStatusSchema,
   model: z.string().optional(),
+  requestedRole: z.string().min(1).optional(),
+  agentSource: z.string().min(1).optional(),
 });
 export type TeamMember = z.infer<typeof TeamMemberSchema>;
 

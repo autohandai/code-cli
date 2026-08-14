@@ -7,7 +7,12 @@
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { AUTOHAND_PATHS } from '../constants.js';
+import {
+  hashCatalogContent,
+  writeCatalogProvenanceEntry,
+} from '../core/agents/catalogProvenance.js';
 
 export const DEFAULT_SUB_AGENT_REGISTRY_URL =
   'https://raw.githubusercontent.com/autohandai/awesome-sub-agents/main/registry.json';
@@ -21,6 +26,7 @@ export interface CatalogSubAgent {
   path: string;
   tools: string[];
   model?: string;
+  sha256?: string;
 }
 
 export interface CatalogRegistry {
@@ -42,6 +48,8 @@ export interface InstallSubAgentOptions {
   fetchImpl?: typeof fetch;
   registryUrl?: string;
   rawBaseUrl?: string;
+  allowedTools?: ReadonlySet<string>;
+  registry?: CatalogRegistry;
 }
 
 function getFetch(fetchImpl?: typeof fetch): typeof fetch {
@@ -68,6 +76,26 @@ function asStringArray(value: unknown): string[] | undefined {
   return strings.length > 0 ? strings : undefined;
 }
 
+function validateCatalogPath(agentPath: string): void {
+  const normalized = path.posix.normalize(agentPath);
+  const segments = agentPath.split('/');
+  if (
+    path.posix.isAbsolute(agentPath)
+    || agentPath.includes('\\')
+    || normalized !== agentPath
+    || segments.some((segment) => segment === '' || segment === '.' || segment === '..')
+    || !/\.(?:md|markdown)$/i.test(agentPath)
+  ) {
+    throw new Error(`invalid catalog path: ${agentPath}`);
+  }
+}
+
+function validateCatalogName(name: string): void {
+  if (!/^[a-z0-9][a-z0-9._-]{0,127}$/i.test(name)) {
+    throw new Error(`invalid catalog agent name: ${name}`);
+  }
+}
+
 function parseRegistry(raw: string): CatalogRegistry {
   const parsed = JSON.parse(raw) as { schemaVersion?: unknown; repository?: unknown; agents?: unknown };
   if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.agents)) {
@@ -87,6 +115,12 @@ function parseRegistry(raw: string): CatalogRegistry {
     if (!name || !description || !category || !agentPath || !tools) {
       throw new Error(`invalid sub-agent registry entry at index ${index}`);
     }
+    validateCatalogName(name);
+    validateCatalogPath(agentPath);
+    const sha256 = asString(record.sha256);
+    if (sha256 && !/^[a-f0-9]{64}$/i.test(sha256)) {
+      throw new Error(`invalid sha256 for sub-agent registry entry at index ${index}`);
+    }
     return {
       name,
       description,
@@ -94,6 +128,7 @@ function parseRegistry(raw: string): CatalogRegistry {
       path: agentPath,
       tools,
       model: asString(record.model),
+      sha256,
     };
   });
 
@@ -104,7 +139,7 @@ function parseRegistry(raw: string): CatalogRegistry {
   };
 }
 
-async function fetchRegistry(options: {
+export async function fetchSubAgentsRegistry(options: {
   fetchImpl?: typeof fetch;
   registryUrl?: string;
 } = {}): Promise<CatalogRegistry> {
@@ -282,6 +317,25 @@ function matchesCategory(agent: CatalogSubAgent, category?: string): boolean {
   return hay === needle || hay.includes(needle) || needle.includes(hay);
 }
 
+export function rankSubAgentsCatalog(
+  registry: CatalogRegistry,
+  query: string,
+  options: Pick<SearchSubAgentsOptions, 'category' | 'limit'> = {},
+): CatalogSubAgent[] {
+  const limit = normalizeLimit(options.limit);
+  const normalizedQuery = query?.trim() ?? '';
+  return registry.agents
+    .filter((agent) => matchesCategory(agent, options.category))
+    .map((agent) => ({ agent, score: scoreSubAgentMatch(agent, normalizedQuery) }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.agent.name.localeCompare(b.agent.name);
+    })
+    .slice(0, limit)
+    .map((entry) => entry.agent);
+}
+
 function formatAgentResults(agents: CatalogSubAgent[], query: string): string {
   const header = `Found ${agents.length} sub-agent${agents.length === 1 ? '' : 's'} matching "${query.trim() || '*'}":`;
   const body = agents.map((agent, index) => {
@@ -305,20 +359,9 @@ export async function searchSubAgentsCatalog(
   query: string,
   options: SearchSubAgentsOptions = {},
 ): Promise<string> {
-  const registry = await fetchRegistry(options);
-  const limit = normalizeLimit(options.limit);
+  const registry = await fetchSubAgentsRegistry(options);
   const normalizedQuery = query?.trim() ?? '';
-
-  const ranked = registry.agents
-    .filter((agent) => matchesCategory(agent, options.category))
-    .map((agent) => ({ agent, score: scoreSubAgentMatch(agent, normalizedQuery) }))
-    .filter((entry) => entry.score > 0)
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      return a.agent.name.localeCompare(b.agent.name);
-    })
-    .slice(0, limit)
-    .map((entry) => entry.agent);
+  const ranked = rankSubAgentsCatalog(registry, normalizedQuery, options);
 
   if (ranked.length === 0) {
     return [
@@ -353,11 +396,86 @@ function safeAgentFilename(name: string): string {
   return safe || 'sub-agent';
 }
 
+const MAX_CATALOG_AGENT_BYTES = 256 * 1024;
+
+function parseDownloadedAgent(markdown: string): { tools: string[]; body: string } {
+  if (Buffer.byteLength(markdown, 'utf8') > MAX_CATALOG_AGENT_BYTES) {
+    throw new Error(`catalog agent exceeds ${MAX_CATALOG_AGENT_BYTES} bytes`);
+  }
+  const frontmatter = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
+  if (!frontmatter) {
+    throw new Error('catalog entry did not download as an Autohand markdown agent');
+  }
+
+  const fields = new Map<string, string>();
+  for (const line of frontmatter[1].split(/\r?\n/)) {
+    const match = line.match(/^([a-zA-Z][\w-]*):\s*(.*?)\s*$/);
+    if (match) fields.set(match[1].toLowerCase(), match[2]);
+  }
+  if (!fields.get('description')?.trim()) {
+    throw new Error('catalog agent frontmatter requires a description');
+  }
+  const tools = (fields.get('tools') ?? '')
+    .split(',')
+    .map((tool) => tool.trim())
+    .filter(Boolean);
+  if (tools.length === 0 || tools.some((tool) => !/^[a-zA-Z0-9_.:-]+$/.test(tool))) {
+    throw new Error('catalog agent frontmatter requires a valid tool allowlist');
+  }
+  const body = frontmatter[2].trim();
+  if (!body) throw new Error('catalog agent body is empty');
+  return { tools, body };
+}
+
+function validateDownloadedAgent(
+  agent: CatalogSubAgent,
+  markdown: string,
+  allowedTools?: ReadonlySet<string>,
+): string {
+  const parsed = parseDownloadedAgent(markdown);
+  const registryTools = new Set(agent.tools);
+  for (const tool of parsed.tools) {
+    if (!registryTools.has(tool)) {
+      throw new Error(`catalog agent declares unsupported tool not present in registry: ${tool}`);
+    }
+    if (allowedTools && !allowedTools.has(tool)) {
+      throw new Error(`catalog agent declares unsupported tool: ${tool}`);
+    }
+  }
+  const contentHash = hashCatalogContent(markdown);
+  if (agent.sha256 && contentHash !== agent.sha256.toLowerCase()) {
+    throw new Error(`catalog agent content hash mismatch for ${agent.name}`);
+  }
+  return contentHash;
+}
+
+async function writeAgentAtomically(
+  targetPath: string,
+  content: string,
+  overwrite: boolean,
+): Promise<void> {
+  const temporaryPath = `${targetPath}.${process.pid}.${randomUUID()}.tmp`;
+  await fs.writeFile(temporaryPath, content, { encoding: 'utf8', flag: 'wx' });
+  try {
+    if (overwrite) {
+      await fs.rename(temporaryPath, targetPath);
+    } else {
+      // A same-directory hard link makes target creation atomic and fails with
+      // EEXIST if another process installs or creates this definition first.
+      await fs.link(temporaryPath, targetPath);
+      await fs.unlink(temporaryPath);
+    }
+  } catch (error) {
+    await fs.unlink(temporaryPath).catch(() => {});
+    throw error;
+  }
+}
+
 export async function installSubAgentFromCatalog(
   name: string,
   options: InstallSubAgentOptions = {},
 ): Promise<string> {
-  const registry = await fetchRegistry(options);
+  const registry = options.registry ?? await fetchSubAgentsRegistry(options);
   const agent = findAgent(registry.agents, name);
   if (!agent) {
     const similar = findSimilarAgents(registry.agents, name);
@@ -369,9 +487,7 @@ export async function installSubAgentFromCatalog(
 
   const rawBaseUrl = (options.rawBaseUrl ?? DEFAULT_SUB_AGENT_RAW_BASE_URL).replace(/\/$/, '');
   const markdown = await fetchText(`${rawBaseUrl}/${agent.path}`, options.fetchImpl);
-  if (!markdown.startsWith('---\n')) {
-    throw new Error(`catalog entry ${agent.name} did not download as an Autohand markdown agent`);
-  }
+  const contentHash = validateDownloadedAgent(agent, markdown, options.allowedTools);
 
   const destinationDir = options.destinationDir ?? AUTOHAND_PATHS.agents;
   await fs.mkdir(destinationDir, { recursive: true });
@@ -382,7 +498,15 @@ export async function installSubAgentFromCatalog(
     return `Sub-agent ${agent.name} already exists at ${targetPath}. Use overwrite=true to replace it.`;
   }
 
-  await fs.writeFile(targetPath, markdown, 'utf8');
+  await writeAgentAtomically(targetPath, markdown, options.overwrite === true);
+  await writeCatalogProvenanceEntry(destinationDir, {
+    agentName: agent.name,
+    fileName: path.basename(targetPath),
+    repository: registry.repository,
+    catalogPath: agent.path,
+    contentHash,
+    installedAt: new Date().toISOString(),
+  });
   return [
     `Installed sub-agent ${agent.name} to ${targetPath}.`,
     `Use delegate_task agent_name="${agent.name}" task="..." or add_teammate agent_name="${agent.name}" after creating a team.`,

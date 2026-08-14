@@ -15,6 +15,8 @@ interface TeammateSpawnOptions {
   leadSessionId: string;
   model?: string;
   workspacePath?: string;
+  requestedRole?: string;
+  agentSource?: string;
 }
 
 type MessageHandler = (msg: { method: string; params: Record<string, unknown> }) => void;
@@ -234,6 +236,8 @@ export class TeammateProcess {
       pid: this.pid,
       status: this._status,
       model: this.opts.model,
+      requestedRole: this.opts.requestedRole,
+      agentSource: this.opts.agentSource,
     };
   }
 }

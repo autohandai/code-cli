@@ -44,6 +44,15 @@ export async function team(ctx: TeamCommandContext, args: string[]): Promise<str
   switch (subcommand) {
     case 'create': {
       const name = args.slice(1).join('-') || 'default';
+      const activeTeam = ctx.teamManager.getTeam();
+      if (activeTeam?.status === 'active') {
+        if (activeTeam.name === name) {
+          return chalk.green(`Team "${name}" is already active; reusing it. Use /team status to view.`);
+        }
+        return chalk.yellow(
+          `Team "${activeTeam.name}" is already active. Shut it down with /team shutdown before creating "${name}".`,
+        );
+      }
       ctx.teamManager.createTeam(name);
       return chalk.green(`Team "${name}" created. Use /team status to view.`);
     }
@@ -68,7 +77,11 @@ export async function team(ctx: TeamCommandContext, args: string[]): Promise<str
         const statusColor = member.status === 'working' ? chalk.yellow :
                            member.status === 'idle' ? chalk.green :
                            member.status === 'shutdown' ? chalk.red : chalk.gray;
-        lines.push(`  ${statusColor('●')} ${chalk.white(member.name)} (${member.agentName}) - ${statusColor(member.status)}`);
+        const provenance = [
+          member.requestedRole ? `requested: ${member.requestedRole}` : '',
+          member.agentSource ? `source: ${member.agentSource}` : '',
+        ].filter(Boolean).join(', ');
+        lines.push(`  ${statusColor('●')} ${chalk.white(member.name)} (${member.agentName}) - ${statusColor(member.status)}${provenance ? ` [${provenance}]` : ''}`);
       }
 
       // List tasks

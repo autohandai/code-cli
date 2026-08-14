@@ -12,7 +12,7 @@ import { getProviderConfig, saveConfig } from '../config.js';
 import { getAuthClient } from '../auth/index.js';
 import { safePrompt } from '../utils/prompt.js';
 import { maybeOfferAutohandAISwitch } from '../commands/login.js';
-import { isAwsBedrockProviderEnabled } from '../features/featureRegistry.js';
+import { getFeatureState, isAwsBedrockProviderEnabled } from '../features/featureRegistry.js';
 import type { RemoteFeatureFlagManager } from '../features/RemoteFeatureFlagManager.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import { ApiError } from '../providers/errors.js';
@@ -52,6 +52,14 @@ import type {
 } from '../types.js';
 
 import { AgentDelegator } from './agents/AgentDelegator.js';
+import {
+  createSpecialistRequest,
+  detectSpecialistRequest,
+  formatSpecialistResults,
+  formatSpecialistRoster,
+  SpecialistOrchestrator,
+  type SpecialistRequest,
+} from './agents/SpecialistOrchestrator.js';
 import type { ToolDefinition } from './toolManager.js';
 import { ErrorLogger } from './errorLogger.js';
 import { MemoryManager } from '../memory/MemoryManager.js';
@@ -360,6 +368,7 @@ export class AutohandAgent {
   private permissionManager!: PermissionManager;
   private hookManager!: HookManager;
   private delegator!: AgentDelegator;
+  private specialistOrchestrator!: SpecialistOrchestrator;
   private feedbackManager!: FeedbackManager;
   private telemetryManager!: TelemetryManager;
   private featureFlagManager?: RemoteFeatureFlagManager;
@@ -1294,6 +1303,53 @@ export class AutohandAgent {
 
   private async buildUserMessage(instruction: string): Promise<string> {
     return buildAgentUserMessage(this as unknown as AgentContextRuntimeHost, instruction);
+  }
+
+  private async prepareSpecialists(instruction: string): Promise<string | undefined> {
+    if (getFeatureState(this.runtime.config, 'automatic_specialists')?.enabled !== true) {
+      return undefined;
+    }
+
+    const request = detectSpecialistRequest(instruction);
+    if (!request) {
+      const continuation = await this.specialistOrchestrator.continueInterview(instruction);
+      return continuation ? formatSpecialistResults(continuation) : undefined;
+    }
+
+    return this.runSpecialistOrchestration(request);
+  }
+
+  private async orchestrateSpecialistsFromTool(
+    objective: string,
+    requestedRoles: string[],
+  ): Promise<string> {
+    return this.runSpecialistOrchestration(
+      createSpecialistRequest(objective, requestedRoles, 'tool'),
+    );
+  }
+
+  private async runSpecialistOrchestration(request: SpecialistRequest): Promise<string> {
+    const plan = await this.specialistOrchestrator.resolve(request);
+    console.log(`\n${formatSpecialistRoster(plan)}\n`);
+    const stagedInstallation = this.specialistOrchestrator.stageCatalogInstallation(plan);
+    if (stagedInstallation) {
+      const [installation] = await this.toolManager.execute([{
+        tool: 'install_specialist_roster',
+        args: {
+          plan_id: stagedInstallation.planId,
+          agent_names: stagedInstallation.agentNames,
+        },
+      }]);
+      if (!installation.success) {
+        this.specialistOrchestrator.declineStagedCatalogInstallation(stagedInstallation.planId);
+      }
+    }
+    if (plan.selectedAgents.length === 0) {
+      return formatSpecialistResults({ plan, batches: [], completed: false });
+    }
+
+    const result = await this.specialistOrchestrator.execute(plan);
+    return formatSpecialistResults(result);
   }
 
   private async buildSystemPrompt(): Promise<string> {

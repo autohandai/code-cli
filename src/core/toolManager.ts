@@ -53,6 +53,11 @@ const SEQUENTIAL_TOOL_CATEGORIES = new Set<ToolCategory>([
   'shell'
 ]);
 
+const SPECIALIST_BUILTIN_TOOL_NAMES = new Set<AgentAction['type']>([
+  'orchestrate_specialists',
+  'install_specialist_roster',
+]);
+
 export function shouldPromptForToolPermission(
   tool: string,
   explicitlyRequired = false,
@@ -112,6 +117,8 @@ export interface ToolDefinition {
   parameters?: ToolParameters;
   requiresApproval?: boolean;
   approvalMessage?: string;
+  /** Internal definitions remain executable but are omitted from model-facing schemas. */
+  modelVisible?: boolean;
 }
 
 export interface ToolManagerOptions {
@@ -1250,7 +1257,9 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
       properties: {
         name: { type: 'string', description: 'Human-readable teammate name' },
         agent_name: { type: 'string', description: 'Registered agent name to run' },
-        model: { type: 'string', description: 'Optional model override for that teammate' }
+        model: { type: 'string', description: 'Optional model override for that teammate' },
+        requested_role: { type: 'string', description: 'Original requested specialist role' },
+        agent_source: { type: 'string', description: 'Resolved agent source' }
       },
       required: ['name', 'agent_name']
     }
@@ -2365,7 +2374,7 @@ export class ToolManager {
   registerMetaTools(toolDefinitions: ToolDefinition[]): void {
     for (const def of toolDefinitions) {
       // Skip if conflicts with a built-in tool
-      if (DEFAULT_TOOL_DEFINITIONS.some(d => d.name === def.name) || GOAL_TOOL_DEFINITIONS.some(d => d.name === def.name)) {
+      if (this.isBuiltInTool(def.name)) {
         continue;
       }
       this.definitions.set(def.name, def);
@@ -2408,7 +2417,9 @@ export class ToolManager {
    * Check if a tool name conflicts with built-in definitions
    */
   isBuiltInTool(name: string): boolean {
-    return DEFAULT_TOOL_DEFINITIONS.some(d => d.name === name) || GOAL_TOOL_DEFINITIONS.some(d => d.name === name);
+    return DEFAULT_TOOL_DEFINITIONS.some(d => d.name === name)
+      || GOAL_TOOL_DEFINITIONS.some(d => d.name === name)
+      || SPECIALIST_BUILTIN_TOOL_NAMES.has(name as AgentAction['type']);
   }
 
   listToolNames(): AgentAction['type'][] {
@@ -2427,7 +2438,9 @@ export class ToolManager {
    * List tool definitions filtered by client context
    */
   listDefinitions(): ToolDefinition[] {
-    return this.toolFilter.filterDefinitions(Array.from(this.definitions.values()));
+    return this.toolFilter.filterDefinitions(
+      Array.from(this.definitions.values()).filter((definition) => definition.modelVisible !== false),
+    );
   }
 
   /**
@@ -3122,6 +3135,9 @@ export class ToolManager {
 
   private buildApprovalMessage(call: ToolCallRequest, definition: ToolDefinition): string {
     const args = this.getCallArgs(call);
+    if (call.tool === 'install_specialist_roster' && Array.isArray(args.agent_names)) {
+      return `Install these resolved specialists from the default Autohand catalog?\n  ${args.agent_names.join(', ')}`;
+    }
     if (call.tool === 'run_command' || call.tool === 'shell') {
       const command = String(args.command ?? '');
       const commandArgs = Array.isArray(args.args) ? args.args.join(' ') : '';
