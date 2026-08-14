@@ -73,10 +73,16 @@ When running in RPC mode (VS Code, Zed, etc.), hook events are also emitted as J
 
 ### Rate limits
 
-Rate limits are **not** retried within the turn. A quota cannot clear while the
-turn is still running, so retrying only spends the session retry budget on
-attempts that are guaranteed to fail. When a provider returns a rate limit the
-turn ends immediately and both `session-error` and `rate-limit` fire once.
+Long-window rate limits are **not** retried within the turn. A 5-hour, weekly,
+daily, or otherwise unscoped quota cannot clear during a useful turn, so
+retrying only spends the session retry budget on attempts that are guaranteed
+to fail. When one of these limits is returned, the turn ends immediately and
+both `session-error` and `rate-limit` fire once.
+
+Autohand AI request-per-minute throttles are the exception: when the service
+explicitly returns `scope: "rpm"`, the provider client may retry within its
+configured attempt budget and uses the bounded server `Retry-After` delay. If
+those attempts are exhausted, the hooks fire for the final rate-limit error.
 
 Genuine transient failures — network drops, timeouts, 5xx outages — still retry
 with backoff, honoring `Retry-After` when the provider sends one.
