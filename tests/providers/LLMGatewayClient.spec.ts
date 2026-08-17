@@ -340,7 +340,7 @@ describe('LLMGatewayClient', () => {
             message: "You've used all your messages in this 5-hour window.",
             scope: 'window_5h',
             resetAt,
-            upgradeUrl: 'https://console-v2.autohand.ai/upgrade/?from=cli&tier=pro',
+            upgradeUrl: 'https://console.autohand.ai/upgrade/?from=cli&tier=pro',
           },
         }),
       });
@@ -362,7 +362,7 @@ describe('LLMGatewayClient', () => {
           code: 'rate_limited',
           retryable: false,
           message: expect.stringMatching(
-            /5-hour message limit reached\.[\s\S]*Resets .+ \(Pacific\/Auckland\) · in 2h 30m\.[\s\S]*Upgrade your Autohand Code plan for more usage: https:\/\/console-v2\.autohand\.ai\/upgrade\/\?from=cli&tier=pro/,
+            /5-hour message limit reached\.[\s\S]*Resets .+ \(Pacific\/Auckland\) · in 2h 30m\.[\s\S]*Upgrade your Autohand Code plan for more usage: https:\/\/console\.autohand\.ai\/upgrade\/\?from=cli&tier=pro/,
           ),
         });
         expect(global.fetch).toHaveBeenCalledTimes(1);
@@ -386,7 +386,7 @@ describe('LLMGatewayClient', () => {
             message: "You've used all your messages for this week.",
             scope: 'window_week',
             resetAt: 'not-a-timestamp',
-            upgradeUrl: 'https://console-v2.autohand.ai/upgrade/?from=cli&tier=max',
+            upgradeUrl: 'https://console.autohand.ai/upgrade/?from=cli&tier=max',
           },
         }),
       });

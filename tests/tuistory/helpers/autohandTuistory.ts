@@ -265,7 +265,7 @@ export async function createMockAutohandAIQuotaServer(): Promise<MockOpenRouterS
           message: "You've used all your messages in this 5-hour window.",
           scope: 'window_5h',
           resetAt,
-          upgradeUrl: 'https://console-v2.autohand.ai/upgrade/?from=cli&tier=pro',
+          upgradeUrl: 'https://console.autohand.ai/upgrade/?from=cli&tier=pro',
         },
       }));
       return;
