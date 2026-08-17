@@ -2351,11 +2351,8 @@ const StatusSection = memo(function StatusSection({
          prev.lineExtension === next.lineExtension;
 });
 
-/**
- * Re-render with the footer so Ink receives fresh cursor intent for every repaint.
- */
+/** Keep cursor writes tied to composer changes instead of status-only repaints. */
 interface InputLineWrapperProps {
-  isWorking: boolean;
   enableQueueInput: boolean;
   input: string;
   cursorOffset: number;
@@ -2369,8 +2366,7 @@ interface InputLineWrapperProps {
   enableHardwareCursor?: boolean;
 }
 
-function InputLineWrapper({
-  isWorking,
+const InputLineWrapper = memo(function InputLineWrapper({
   enableQueueInput,
   input,
   cursorOffset,
@@ -2398,7 +2394,7 @@ function InputLineWrapper({
       enableHardwareCursor={enableHardwareCursor}
     />
   );
-}
+});
 
 /**
  * Help line section - shows context info and command hints
@@ -2590,6 +2586,36 @@ interface FixedBottomProps {
   showModeLabel?: boolean;
 }
 
+/** Keep completion repainting passive until the user edits the composer again. */
+function useUserDrivenComposerCursor(
+  isWorking: boolean,
+  input: string,
+  cursorOffset: number,
+): boolean {
+  const previousIsWorking = useRef(isWorking);
+  const completionInput = useRef<{ input: string; cursorOffset: number } | null>(null);
+  const justCompleted = previousIsWorking.current && !isWorking;
+  const inputChangedAfterCompletion = completionInput.current !== null && (
+    completionInput.current.input !== input
+    || completionInput.current.cursorOffset !== cursorOffset
+  );
+
+  useEffect(() => {
+    if (isWorking) {
+      completionInput.current = null;
+    } else if (previousIsWorking.current) {
+      completionInput.current = { input, cursorOffset };
+    } else if (inputChangedAfterCompletion) {
+      completionInput.current = null;
+    }
+    previousIsWorking.current = isWorking;
+  }, [cursorOffset, input, inputChangedAfterCompletion, isWorking]);
+
+  if (isWorking || justCompleted) return false;
+  if (completionInput.current !== null) return inputChangedAfterCompletion;
+  return true;
+}
+
 const FixedBottom = memo(function FixedBottom({
   announcement,
   terminalColumns,
@@ -2624,6 +2650,8 @@ const FixedBottom = memo(function FixedBottom({
   interactionMode,
   showModeLabel,
 }: FixedBottomProps) {
+  const enableHardwareCursor = useUserDrivenComposerCursor(isWorking, input, cursorOffset);
+
   return (
     <>
       {announcement ? (
@@ -2654,7 +2682,6 @@ const FixedBottom = memo(function FixedBottom({
         )}
       />
       <InputLineWrapper
-        isWorking={isWorking}
         enableQueueInput={enableQueueInput}
         input={input}
         cursorOffset={cursorOffset}
@@ -2663,7 +2690,7 @@ const FixedBottom = memo(function FixedBottom({
         placeholderText={placeholderText}
         nextPromptSuggestion={nextPromptSuggestion}
         inlineGhostSuffix={inlineGhostSuffix}
-        enableHardwareCursor={!isWorking || input.length > 0}
+        enableHardwareCursor={enableHardwareCursor}
       />
       <FileMentionWrapper fileMentionDropdown={fileMentionDropdown} />
       <SlashCommandWrapper slashCommandDropdown={slashCommandDropdown} />

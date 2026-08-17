@@ -27,6 +27,7 @@ import {
   createMockAuthServer,
   createMockMobilePairingFetchPreload,
   createMockOllamaServer,
+  createMockOpenRouterServer,
   createMockOpenRouterFetchPreload,
   createMockOpenRouterSequenceServer,
   createMockSkillInstallFetchPreload,
@@ -869,6 +870,52 @@ describe('interactive built CLI Tuistory tests', () => {
       waitFor: (text) => text.includes('❯'),
     });
   }
+
+  it('keeps working-turn status refreshes from refocusing a drafted composer', async () => {
+    const openRouterServer = await createMockOpenRouterServer(
+      'Delayed response completed.',
+      4_000,
+    );
+    mockServers.push(openRouterServer);
+    const session = await launchInteractive({
+      config: {
+        openrouter: { baseUrl: openRouterServer.baseUrl },
+        agent: { sessionRetryLimit: 0 },
+      },
+    });
+    await waitForComposer(session);
+
+    await session.type('Run a delayed response while I inspect the chat history.');
+    await session.press('enter');
+    await session.text({
+      timeout: 10_000,
+      waitFor: (text) => text.includes('esc to cancel'),
+    });
+    await session.type('preserve this draft');
+    await session.text({
+      timeout: 5_000,
+      waitFor: (text) => composerLineIncludes(text, 'preserve this draft'),
+    });
+
+    const outputStart = session.getRawOutput().length;
+    await new Promise<void>((resolve) => setTimeout(resolve, 2_200));
+    const refreshOutput = session.getRawOutput().slice(outputStart);
+
+    expect(stripAnsi(refreshOutput)).toMatch(/\b0m 0[12]s\b/u);
+    expect(refreshOutput).not.toContain('\x1b[?25h');
+
+    const completionOutputStart = session.getRawOutput().length;
+    await session.text({
+      timeout: 10_000,
+      waitFor: (text) => text.includes('Delayed response completed.'),
+    });
+    const completionOutput = session.getRawOutput().slice(completionOutputStart);
+    expect(completionOutput).not.toContain('\x1b[?25h');
+
+    await session.type('!');
+    await waitForCursorAfterTypedText(session, 'preserve this draft!');
+    await exitInteractive(session);
+  });
 
   const cachedAnnouncements = [
     {
