@@ -115,6 +115,38 @@ describe('AgentUI TextBuffer integration helpers', () => {
     expect(getTextBufferCursorOffset(buffer)).toBe(5);
   });
 
+  it('inserts text at the cursor position selected with a composer click', async () => {
+    const instance = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state: { ...createInitialUIState(), currentInput: 'hello' },
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+            mouseComposerCursor: true,
+          }),
+        ),
+      ),
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const frame = stripAnsi(instance.lastFrame() ?? '');
+    const contentRow = frame.split('\n').findIndex((line) => line.includes('❯ hello')) + 1;
+    expect(contentRow).toBeGreaterThan(0);
+
+    instance.stdin.write(`\x1b[<0;5;${contentRow}M`);
+    instance.stdin.write(`\x1b[${contentRow};8R`);
+    instance.stdin.write('X');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(stripAnsi(instance.lastFrame() ?? '')).toContain('❯ heXllo');
+  });
+
   it('supports multiline cursor offsets', () => {
     const buffer = new TextBuffer(20, 10, 'hello\nworld');
 
@@ -122,6 +154,13 @@ describe('AgentUI TextBuffer integration helpers', () => {
     handleInkTextBufferInput(buffer, '', createInkKey({ leftArrow: true }));
 
     expect(getTextBufferCursorOffset(buffer)).toBe('hello\nwor'.length);
+  });
+
+  it('converts code-point cursor columns to string offsets after emoji', () => {
+    const buffer = new TextBuffer(20, 10, 'a🙂b');
+    buffer.setCursor(0, 2);
+
+    expect(getTextBufferCursorOffset(buffer)).toBe('a🙂'.length);
   });
 
   it('treats residual Shift+Enter fragments as newline insertion', () => {

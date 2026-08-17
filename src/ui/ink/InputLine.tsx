@@ -3,12 +3,25 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { useMemo, useRef } from 'react';
-import { Box, Text, useBoxMetrics, useCursor, type DOMElement } from 'ink';
+import React, { useEffect, useMemo, useRef } from 'react';
+import {
+  Box,
+  Text,
+  measureElement,
+  useBoxMetrics,
+  useCursor,
+  useStdout,
+  type DOMElement,
+} from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
 import { buildMultiLineRenderState } from '../inputPrompt.js';
 import { stripAnsiCodes } from '../displayUtils.js';
 import type { InputBorderStyle } from '../box.js';
+import {
+  DISABLE_SGR_MOUSE_TRACKING,
+  ENABLE_SGR_MOUSE_TRACKING,
+  type ComposerOutputLayout,
+} from './mouseInput.js';
 
 function drawInkRule(width: number, edge: 'top' | 'bottom'): string {
   const glyph = edge === 'top' ? '▔' : '▁';
@@ -31,6 +44,10 @@ export interface InputLineProps {
   inlineGhostSuffix?: string;
   /** Whether the terminal hardware cursor should be moved into the composer. */
   enableHardwareCursor?: boolean;
+  /** Enable terminal mouse reports for click-to-position editing. */
+  enableMouseCursor?: boolean;
+  /** Publishes the measured composer layout in Ink output coordinates. */
+  onLayoutChange?: (layout: ComposerOutputLayout | null) => void;
 }
 
 export function resolveInputLineCursorPosition(
@@ -58,11 +75,14 @@ function InputLineComponent({
   nextPromptSuggestion,
   inlineGhostSuffix,
   enableHardwareCursor = true,
+  enableMouseCursor = false,
+  onLayoutChange,
 }: InputLineProps) {
   const { theme } = useTheme();
   const rootRef = useRef<DOMElement | null>(null);
   const metrics = useBoxMetrics(rootRef);
   const { setCursorPosition } = useCursor();
+  const { stdout } = useStdout();
 
   const borderToken = borderStyle === 'plan'
     ? 'warning'
@@ -104,6 +124,53 @@ function InputLineComponent({
       displayData
     )
   );
+
+  useEffect(() => {
+    if (
+      !enableMouseCursor
+      || !enableHardwareCursor
+      || !isActive
+      || !metrics.hasMeasured
+      || !rootRef.current
+    ) {
+      onLayoutChange?.(null);
+      return;
+    }
+
+    const position = measureElement(rootRef.current);
+    onLayoutChange?.({
+      ...position,
+      cursorX: position.x + displayData.cursorColumn,
+      cursorY: position.y + displayData.cursorRow + 1,
+    });
+
+    return () => {
+      onLayoutChange?.(null);
+    };
+  }, [
+    displayData.cursorColumn,
+    displayData.cursorRow,
+    enableHardwareCursor,
+    enableMouseCursor,
+    isActive,
+    metrics.hasMeasured,
+    metrics.height,
+    metrics.left,
+    metrics.top,
+    metrics.width,
+    onLayoutChange,
+  ]);
+
+  useEffect(() => {
+    if (!enableMouseCursor || !enableHardwareCursor || !isActive || !stdout.isTTY) {
+      return;
+    }
+
+    stdout.write(ENABLE_SGR_MOUSE_TRACKING);
+    return () => {
+      stdout.write(DISABLE_SGR_MOUSE_TRACKING);
+    };
+  }, [enableHardwareCursor, enableMouseCursor, isActive, stdout]);
 
   const renderContentLine = (line: string, index: number) => {
     return (

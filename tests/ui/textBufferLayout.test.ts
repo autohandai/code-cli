@@ -82,6 +82,19 @@ describe('calculateLayout', () => {
     const layout = calculateLayout(['a     b'], 20);
     expect(layout.visualLines.length).toBe(1);
   });
+
+  it('wraps joined emoji without splitting the grapheme', () => {
+    const layout = calculateLayout(['a👩‍💻b'], 3);
+
+    expect(layout.visualLines).toEqual(['a👩‍💻', 'b']);
+    expect(layout.visualToLogical).toEqual([[0, 0], [0, 'a👩‍💻'.length]]);
+  });
+
+  it('wraps CJK glyphs by terminal cell width', () => {
+    const layout = calculateLayout(['界界a'], 4);
+
+    expect(layout.visualLines).toEqual(['界界', 'a']);
+  });
 });
 
 describe('logicalToVisual', () => {
@@ -109,6 +122,12 @@ describe('logicalToVisual', () => {
   it('maps second logical line', () => {
     const layout = calculateLayout(['hello', 'world'], 20);
     expect(logicalToVisual(layout, 1, 3)).toEqual([1, 3]);
+  });
+
+  it('maps a string cursor after a joined emoji to its terminal cell column', () => {
+    const layout = calculateLayout(['a👩‍💻b'], 20);
+
+    expect(logicalToVisual(layout, 0, 'a👩‍💻'.length)).toEqual([0, 3]);
   });
 });
 
@@ -164,6 +183,13 @@ describe('visualToLogical', () => {
     const layout = calculateLayout(['hello world'], 10);
     // visual line 1, col 1 → logical line 0, col 7
     expect(visualToLogical(layout, 1, 1)).toEqual([0, 7]);
+  });
+
+  it('snaps a click inside a joined emoji to a grapheme boundary', () => {
+    const layout = calculateLayout(['a👩‍💻b'], 20);
+
+    expect(visualToLogical(layout, 0, 1)).toEqual([0, 1]);
+    expect(visualToLogical(layout, 0, 2)).toEqual([0, 'a👩‍💻'.length]);
   });
 
   it('round-trips correctly', () => {

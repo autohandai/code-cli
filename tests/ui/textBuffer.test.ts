@@ -330,6 +330,16 @@ describe('TextBuffer', () => {
         expect(buf.getCursorCol()).toBe(7);
       });
 
+      it('clamps by terminal cell width when the target line contains wide glyphs', () => {
+        const buf = new TextBuffer(80, 10, 'abc\n界a');
+        buf.setCursor(0, 3);
+
+        buf.moveDown();
+
+        expect(buf.getCursorRow()).toBe(1);
+        expect(buf.getCursorCol()).toBe(2);
+      });
+
       it('does nothing on last line', () => {
         const buf = new TextBuffer(80, 10, 'hello');
         buf.setCursor(0, 0);

@@ -32,6 +32,19 @@ describe('getProviderConfig', () => {
     }
   });
 
+  it('keeps composer mouse tracking opt-in for new configs', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
+    const configPath = path.join(tempDir, 'config.json');
+
+    try {
+      const config = await loadConfig(configPath);
+
+      expect(config.ui?.mouseComposerCursor).toBe(false);
+    } finally {
+      await fs.remove(tempDir);
+    }
+  });
+
   it('rejects non-boolean completion report config values', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
     const configPath = path.join(tempDir, 'config.json');
@@ -50,6 +63,24 @@ describe('getProviderConfig', () => {
 
     try {
       await expect(loadConfig(configPath)).rejects.toThrow('ui.completionReportEnabled must be boolean');
+    } finally {
+      await fs.remove(tempDir);
+    }
+  });
+
+  it('rejects non-boolean composer mouse tracking values', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
+    const configPath = path.join(tempDir, 'config.json');
+
+    await fs.writeJson(configPath, {
+      provider: 'openrouter',
+      ui: {
+        mouseComposerCursor: 'yes',
+      },
+    });
+
+    try {
+      await expect(loadConfig(configPath)).rejects.toThrow('ui.mouseComposerCursor must be boolean');
     } finally {
       await fs.remove(tempDir);
     }

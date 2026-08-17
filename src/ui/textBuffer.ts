@@ -10,6 +10,7 @@ import {
   visualToLogical,
   type VisualLayout,
 } from './textBufferLayout.js';
+import stringWidth from 'string-width';
 
 /**
  * Code-point-safe string length (handles emoji and surrogate pairs).
@@ -176,7 +177,7 @@ export class TextBuffer {
 
     const targetVisRow = visRow - 1;
     const targetVisLine = layout.visualLines[targetVisRow]!;
-    const clampedVisCol = Math.min(this.preferredCol, targetVisLine.length);
+    const clampedVisCol = Math.min(this.preferredCol, stringWidth(targetVisLine));
 
     const [logRow, logStrCol] = visualToLogical(layout, targetVisRow, clampedVisCol);
     this.cursorRow = logRow;
@@ -201,7 +202,7 @@ export class TextBuffer {
 
     const targetVisRow = visRow + 1;
     const targetVisLine = layout.visualLines[targetVisRow]!;
-    const clampedVisCol = Math.min(this.preferredCol, targetVisLine.length);
+    const clampedVisCol = Math.min(this.preferredCol, stringWidth(targetVisLine));
 
     const [logRow, logStrCol] = visualToLogical(layout, targetVisRow, clampedVisCol);
     this.cursorRow = logRow;

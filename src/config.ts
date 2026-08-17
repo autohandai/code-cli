@@ -141,6 +141,7 @@ function createDefaultConfig(): AutohandConfig {
       completionReportEnabled: true,
       activityVerbsEnabled: true,
       promptSuggestions: true,
+      mouseComposerCursor: false,
     },
     telemetry: {
       enabled: false,
@@ -770,6 +771,7 @@ function normalizeConfig(
         completionReportEnabled: true,
         activityVerbsEnabled: true,
         promptSuggestions: true,
+        mouseComposerCursor: false,
       },
     };
   }
@@ -887,6 +889,12 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
       typeof config.ui.promptSuggestions !== "boolean"
     ) {
       throw new Error(`ui.promptSuggestions must be boolean in ${configPath}`);
+    }
+    if (
+      config.ui.mouseComposerCursor !== undefined &&
+      typeof config.ui.mouseComposerCursor !== "boolean"
+    ) {
+      throw new Error(`ui.mouseComposerCursor must be boolean in ${configPath}`);
     }
     if (
       config.ui.completionReportEnabled !== undefined &&
