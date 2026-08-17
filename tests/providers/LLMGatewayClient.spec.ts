@@ -447,6 +447,44 @@ describe('LLMGatewayClient', () => {
       expect(global.fetch).toHaveBeenCalledTimes(1);
     });
 
+    it('identifies uncached input-token throughput as terminal and never retries it as RPM', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        headers: new Headers({ 'Retry-After': '1' }),
+        json: () => Promise.resolve({
+          error: {
+            type: 'rate_limited',
+            message: 'Your uncached input-token throughput is exhausted for this minute.',
+            scope: 'input_tpm',
+            upgradeUrl: 'https://console.autohand.ai/upgrade/?from=cli&tier=max',
+          },
+        }),
+      });
+      global.fetch = fetchMock;
+      const client = new LLMGatewayClient(
+        { apiKey: 'test-key', model: 'fantail' },
+        { maxRetries: 3, retryDelay: 0 },
+        {
+          serviceName: 'Autohand AI',
+          credentialName: 'Autohand AI API key',
+          accountName: 'Autohand AI account',
+        },
+      );
+
+      await expect(client.complete({
+        messages: [{ role: 'user', content: 'Hello' }],
+      })).rejects.toMatchObject({
+        code: 'rate_limited',
+        retryable: false,
+        scope: 'input_tpm',
+        message: expect.stringMatching(
+          /uncached input-token throughput reached[\s\S]*Upgrade your Autohand Code plan/,
+        ),
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it('retries a transient Autohand AI RPM throttle after the server delay', async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-08-14T00:00:00.000Z'));

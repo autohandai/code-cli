@@ -267,7 +267,9 @@ describe('/status command screen isolation', () => {
           messagesPer5h: 250,
           messagesPer24h: 1000,
           messagesPerWeek: 7000,
-          rpm: 200,
+          rpm: 1000,
+          inputTokensPerMinute: 500_000,
+          outputTokensPerMinute: 80_000,
           requiresEligibility: false,
           perSeat: false,
           models: ['fantail', 'moa'],
@@ -291,7 +293,9 @@ describe('/status command screen isolation', () => {
       expect(rendered).toContain('250 requests / 5 hours');
       expect(rendered).toContain('1K requests / 24 hours');
       expect(rendered).toContain('7K requests / week');
-      expect(rendered).toContain('200 requests / minute');
+      expect(rendered).toContain('1K requests / minute');
+      expect(rendered).toContain('500K uncached input tokens / minute');
+      expect(rendered).toContain('80K output tokens / minute');
     } finally {
       Object.defineProperty(process, 'stdin', { value: originalStdin, writable: true, configurable: true });
       Object.defineProperty(process, 'stdout', { value: originalStdout, writable: true, configurable: true });

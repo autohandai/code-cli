@@ -141,7 +141,16 @@ export function formatAccountPlanAllowance(entitlement: AccountEntitlement): str
 }
 
 export function formatAccountPlanThroughput(entitlement: AccountEntitlement): string | null {
-  return entitlement.limits ? `${formatCompactNumber(entitlement.limits.rpm)} requests / minute` : null;
+  if (!entitlement.limits) return null;
+  return [
+    `${formatCompactNumber(entitlement.limits.rpm)} requests / minute`,
+    ...(entitlement.limits.inputTokensPerMinute === null
+      ? []
+      : [`${formatCompactNumber(entitlement.limits.inputTokensPerMinute)} uncached input tokens / minute`]),
+    ...(entitlement.limits.outputTokensPerMinute === null
+      ? []
+      : [`${formatCompactNumber(entitlement.limits.outputTokensPerMinute)} output tokens / minute`]),
+  ].join(' · ');
 }
 
 export async function resolveAccountEntitlement(ctx: SlashCommandContext): Promise<AccountEntitlement | null> {
