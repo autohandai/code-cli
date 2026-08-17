@@ -82,6 +82,54 @@ describe('AgentDelegator typed outcomes', () => {
     }
   });
 
+  it('publishes subagent activity before execution and preserves the same id on completion', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const registry = AgentRegistry.getInstance();
+    vi.spyOn(registry, 'loadAgents').mockResolvedValue();
+    vi.spyOn(registry, 'getAgent').mockReturnValue({
+      name: 'repo-reader',
+      description: 'Repository reader',
+      systemPrompt: 'Inspect repositories.',
+      tools: ['read_file'],
+      path: '/tmp/repo-reader.md',
+      source: 'builtin',
+    });
+    const onSubagentStart = vi.fn().mockResolvedValue(undefined);
+    const onSubagentStop = vi.fn().mockResolvedValue(undefined);
+    const delegator = new AgentDelegator(
+      {
+        getName: () => 'autohandai',
+        complete: vi.fn().mockResolvedValue({ content: 'Done.' }),
+        getCapabilities: () => ({ nativeToolCalling: true }),
+        listModels: vi.fn().mockResolvedValue([]),
+        isAvailable: vi.fn().mockResolvedValue(true),
+        setModel: vi.fn(),
+      } satisfies LLMProvider,
+      { executeForTool: vi.fn() } as unknown as ActionExecutor,
+      { onSubagentStart, onSubagentStop },
+    );
+
+    try {
+      await delegator.delegateTaskForTool('repo-reader', 'Inspect package.json');
+
+      expect(onSubagentStart).toHaveBeenCalledWith(expect.objectContaining({
+        subagentName: 'repo-reader',
+        subagentType: 'builtin',
+        task: 'Inspect package.json',
+      }));
+      expect(onSubagentStop).toHaveBeenCalledWith(expect.objectContaining({
+        subagentId: onSubagentStart.mock.calls[0]?.[0].subagentId,
+        subagentName: 'repo-reader',
+        success: true,
+      }));
+      expect(onSubagentStart.mock.invocationCallOrder[0]).toBeLessThan(
+        onSubagentStop.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+      );
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it('runs every parallel delegation through the native SubAgent protocol', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const registry = AgentRegistry.getInstance();

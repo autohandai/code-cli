@@ -24,14 +24,20 @@ type ParallelDelegationResult =
         error: string;
     };
 
-/** Context passed to the subagent-stop hook callback */
-export interface SubagentStopContext {
+/** Context published when a subagent begins execution. */
+export interface SubagentStartContext {
     /** Unique identifier for the subagent run */
     subagentId: string;
     /** Name of the agent that ran */
     subagentName: string;
     /** Type of agent (from registry) */
     subagentType: string;
+    /** Delegated task text */
+    task: string;
+}
+
+/** Context passed to the subagent-stop hook callback */
+export interface SubagentStopContext extends SubagentStartContext {
     /** Whether the subagent completed successfully */
     success: boolean;
     /** Error message if failed */
@@ -49,6 +55,8 @@ export interface DelegatorOptions {
     maxDepth?: number;
     /** Callback fired when a subagent completes */
     onSubagentStop?: (context: SubagentStopContext) => Promise<void>;
+    /** Callback fired immediately before a subagent begins execution. */
+    onSubagentStart?: (context: SubagentStartContext) => Promise<void>;
     /** Active CLI config for feature-gated tools inherited by sub-agents. */
     featureConfig?: LoadedConfig;
     /** Parent authorization policy and hook bridge inherited by every nested tool call. */
@@ -65,6 +73,7 @@ export class AgentDelegator {
     private readonly currentDepth: number;
     private readonly maxDepth: number;
     private readonly onSubagentStop?: (context: SubagentStopContext) => Promise<void>;
+    private readonly onSubagentStart?: (context: SubagentStartContext) => Promise<void>;
     private readonly featureConfig?: LoadedConfig;
     private readonly authorization?: ToolAuthorizationOptions;
     private readonly confirmApproval?: ToolManagerOptions['confirmApproval'];
@@ -81,6 +90,7 @@ export class AgentDelegator {
         this.currentDepth = options.currentDepth ?? 0;
         this.maxDepth = options.maxDepth ?? DEFAULT_MAX_DEPTH;
         this.onSubagentStop = options.onSubagentStop;
+        this.onSubagentStart = options.onSubagentStart;
         this.featureConfig = options.featureConfig;
         this.authorization = options.authorization;
         this.confirmApproval = options.confirmApproval;
@@ -125,6 +135,13 @@ export class AgentDelegator {
         const startTime = Date.now();
         const agent = new SubAgent(agentConfig, this.llm, this.actionExecutor, subAgentOptions);
 
+        await this.onSubagentStart?.({
+            subagentId,
+            subagentName: agentName,
+            subagentType: agentConfig.source ?? 'user',
+            task,
+        });
+
         try {
             const result = await agent.run(task);
 
@@ -134,6 +151,7 @@ export class AgentDelegator {
                     subagentId,
                     subagentName: agentName,
                     subagentType: agentConfig.source ?? 'user',
+                    task,
                     success: true,
                     duration: Date.now() - startTime
                 });
@@ -149,6 +167,7 @@ export class AgentDelegator {
                     subagentId,
                     subagentName: agentName,
                     subagentType: agentConfig.source ?? 'user',
+                    task,
                     success: false,
                     error: errorMessage,
                     duration: Date.now() - startTime
@@ -207,6 +226,13 @@ export class AgentDelegator {
             const startTime = Date.now();
             const agent = new SubAgent(agentConfig, this.llm, this.actionExecutor, subAgentOptions);
 
+            await this.onSubagentStart?.({
+                subagentId,
+                subagentName: agent_name,
+                subagentType: agentConfig.source ?? 'user',
+                task,
+            });
+
             try {
                 const result = await agent.run(task);
 
@@ -216,6 +242,7 @@ export class AgentDelegator {
                         subagentId,
                         subagentName: agent_name,
                         subagentType: agentConfig.source ?? 'user',
+                        task,
                         success: true,
                         duration: Date.now() - startTime
                     });
@@ -231,6 +258,7 @@ export class AgentDelegator {
                         subagentId,
                         subagentName: agent_name,
                         subagentType: agentConfig.source ?? 'user',
+                        task,
                         success: false,
                         error: errorMessage,
                         duration: Date.now() - startTime

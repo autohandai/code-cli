@@ -15,20 +15,35 @@ vi.mock('../../../src/core/teams/TeammateProcess.js', () => {
         this.agentName = opts.agentName;
         this.status = 'spawning' as string;
         this.pid = 0;
+        this.onMessage = undefined as ((message: { method: string; params: Record<string, unknown> }) => void) | undefined;
+        this.onExit = undefined as ((code: number | null) => void) | undefined;
         this.setStatus = vi.fn((s: string) => { this.status = s; });
-        this.spawn = vi.fn();
+        this.spawn = vi.fn((
+          onMessage: (message: { method: string; params: Record<string, unknown> }) => void,
+          onExit: (code: number | null) => void,
+        ) => {
+          this.onMessage = onMessage;
+          this.onExit = onExit;
+        });
         this.send = vi.fn();
         this.assignTask = vi.fn();
         this.sendMessage = vi.fn();
         this.requestShutdown = vi.fn();
         this.kill = vi.fn();
       }
+      emitMessage(message: { method: string; params: Record<string, unknown> }) {
+        this.onMessage?.(message);
+      }
+      emitExit(code: number | null) {
+        this.status = 'shutdown';
+        this.onExit?.(code);
+      }
       toMember() {
         return {
           name: this.name,
           agentName: this.agentName,
           pid: 0,
-          status: 'idle',
+          status: this.status,
         };
       }
     },
@@ -88,6 +103,30 @@ describe('TeamManager', () => {
     expect(status.teamName).toBe('test');
   });
 
+  it('reports an unexpected teammate process exit to runtime consumers', () => {
+    const onTeammateMessage = vi.fn();
+    manager = new TeamManager({
+      leadSessionId: 'sess-123',
+      workspacePath: '/tmp',
+      onTeammateMessage,
+    });
+    manager.createTeam('test');
+    manager.addTeammate({ name: 'worker', agentName: 'code-cleaner' });
+
+    const teammate = (manager as unknown as {
+      teammates: Map<string, { emitExit(code: number | null): void }>;
+    }).teammates.get('worker');
+    teammate?.emitExit(1);
+
+    expect(onTeammateMessage).toHaveBeenCalledWith('worker', {
+      method: 'team.log',
+      params: {
+        level: 'error',
+        text: 'Teammate process exited unexpectedly (code 1).',
+      },
+    });
+  });
+
   it('should expose task manager', () => {
     manager.createTeam('test');
     const task = manager.tasks.createTask({ subject: 'A', description: '' });
@@ -119,6 +158,65 @@ describe('TeamManager', () => {
     expect(tasks[0].status).toBe('in_progress');
   });
 
+  it('assigns pending work as soon as a spawned teammate reports ready', () => {
+    manager.createTeam('test');
+    manager.addTeammate({ name: 'worker', agentName: 'code-cleaner' });
+    const task = manager.tasks.createTask({ subject: 'Fix bug', description: 'Fix it' });
+    const teammates = (manager as unknown as {
+      teammates: Map<string, {
+        emitMessage(message: { method: string; params: Record<string, unknown> }): void;
+      }>;
+    }).teammates;
+
+    expect(manager.tasks.getTask(task.id)?.status).toBe('pending');
+
+    teammates.get('worker')?.emitMessage({
+      method: 'team.ready',
+      params: { name: 'worker' },
+    });
+
+    expect(manager.tasks.getTask(task.id)).toEqual(expect.objectContaining({
+      owner: 'worker',
+      status: 'in_progress',
+    }));
+  });
+
+  it('publishes live task and teammate snapshots without polling', () => {
+    const snapshots: Array<ReturnType<TeamManager['getSnapshot']>> = [];
+    const unsubscribe = manager.subscribe((snapshot) => snapshots.push(snapshot));
+    manager.createTeam('test');
+    manager.addTeammate({ name: 'worker', agentName: 'code-cleaner' });
+    const task = manager.tasks.createTask({ subject: 'Fix bug', description: 'Fix it' });
+    const teammates = (manager as unknown as {
+      teammates: Map<string, {
+        emitMessage(message: { method: string; params: Record<string, unknown> }): void;
+      }>;
+    }).teammates;
+
+    teammates.get('worker')?.emitMessage({
+      method: 'team.ready',
+      params: { name: 'worker' },
+    });
+    teammates.get('worker')?.emitMessage({
+      method: 'team.taskUpdate',
+      params: { taskId: task.id, status: 'completed', result: 'done' },
+    });
+    unsubscribe();
+
+    expect(snapshots.at(-1)).toEqual(expect.objectContaining({
+      team: expect.objectContaining({
+        name: 'test',
+        members: [expect.objectContaining({ name: 'worker', status: 'idle' })],
+      }),
+      tasks: [expect.objectContaining({
+        id: task.id,
+        owner: 'worker',
+        status: 'completed',
+        output: 'done',
+      })],
+    }));
+  });
+
   it('emits hook events for team lifecycle operations', async () => {
     const onHookEvent = vi.fn();
     manager = new TeamManager({ leadSessionId: 'sess-123', workspacePath: '/tmp', onHookEvent });
@@ -148,13 +246,21 @@ describe('TeamManager', () => {
     }));
     expect(onHookEvent).toHaveBeenCalledWith('task-assigned', expect.objectContaining({
       teamTaskOwner: 'worker',
+      teamMemberCount: 1,
+      teamTasksCompleted: 0,
+      teamTasksTotal: 1,
     }));
     expect(onHookEvent).toHaveBeenCalledWith('task-completed', expect.objectContaining({
       teamTaskId: taskId,
       teamTaskResult: 'done',
+      teamMemberCount: 1,
+      teamTasksCompleted: 1,
+      teamTasksTotal: 1,
     }));
     expect(onHookEvent).toHaveBeenCalledWith('teammate-idle', expect.objectContaining({
       teammateName: 'worker',
+      teamTasksCompleted: 1,
+      teamTasksTotal: 1,
     }));
     expect(onHookEvent).toHaveBeenCalledWith('team-shutdown', expect.objectContaining({
       teamName: 'test',

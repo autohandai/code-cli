@@ -187,9 +187,9 @@ export interface HookContext {
   teamTaskResult?: string;
   /** Total team members (for team events) */
   teamMemberCount?: number;
-  /** Completed tasks count (for team-shutdown) */
+  /** Completed tasks count (for team task/idle/shutdown events) */
   teamTasksCompleted?: number;
-  /** Total tasks count (for team-shutdown) */
+  /** Total tasks count (for team task/idle/shutdown events) */
   teamTasksTotal?: number;
 }
 

@@ -36,6 +36,7 @@ import { ProjectManager } from '../../session/ProjectManager.js';
 import { createToolsRegistry } from '../toolsRegistry.js';
 import type { AgentRuntime, HookEvent, ToolActionOutcome } from '../../types.js';
 import { AgentDelegator } from '../agents/AgentDelegator.js';
+import { attachTeamActivityBridge, enableAutomaticCoordinationMode } from './TeamActivityBridge.js';
 import { ErrorLogger } from '../errorLogger.js';
 import { MemoryManager } from '../../memory/MemoryManager.js';
 import type { CapabilityUsageInput } from '../../memory/types.js';
@@ -83,6 +84,7 @@ import { RemoteFeatureFlagManager } from '../../features/RemoteFeatureFlagManage
 import { getAnnouncementManager } from '../../announcements/AnnouncementManager.js';
 import { getAuthClient } from '../../auth/index.js';
 import { syncAgentAnnouncementLine } from './AgentUIRuntime.js';
+import { formatSubAgentActivityLabel } from '../../ui/ink/TaskActivityPanel.js';
 import { getFeatureState } from '../../features/featureRegistry.js';
 import { SpecialistOrchestrator } from '../agents/SpecialistOrchestrator.js';
 import { isGoalFeatureEnabled, resolveGoalFeatureEnabled } from '../../goals/feature.js';
@@ -535,6 +537,7 @@ export function initializeAgentDependencies(
     host.teamManager = new TeamManager({
       leadSessionId: randomUUID(),
       workspacePath: runtime.workspaceRoot,
+      configPath: runtime.config.configPath,
       maxTeammates: runtime.config.teams?.maxTeammates,
       onTeammateMessage: (from, msg) => {
         if (msg.method === 'team.log') {
@@ -546,6 +549,20 @@ export function initializeAgentDependencies(
       onHookEvent: async (event, context) => {
         await host.hookManager.executeHooks(event, context);
       },
+    });
+    host.teamActivityUnsubscribe = attachTeamActivityBridge({
+      teamManager: host.teamManager,
+      isInteractive: !runtime.isCommandMode && !runtime.isRpcMode,
+      getInteractionMode: () => host.getInteractionMode(),
+      setInteractionMode: (mode) => {
+        host.setInteractionMode(mode);
+      },
+      setTeamActivity: (snapshot) => {
+        host.teamActivitySnapshot = snapshot;
+        host.inkRenderer?.setTeamActivity?.(snapshot);
+      },
+      emitOutput: (event) => host.emitOutput(event),
+      notifyUser: (message) => host.notifyUser(message),
     });
 
     host.actionExecutor = new ActionExecutor({
@@ -679,7 +696,32 @@ export function initializeAgentDependencies(
       authorization: toolAuthorization,
       confirmApproval: (message, context) => host.confirmDangerousAction(message, context),
       getToolDefinitions: () => host.toolManager?.listDefinitions() ?? [],
+      onSubagentStart: async (context) => {
+        enableAutomaticCoordinationMode({
+          isInteractive: !runtime.isCommandMode && !runtime.isRpcMode,
+          getInteractionMode: () => host.getInteractionMode(),
+          setInteractionMode: (mode) => {
+            host.setInteractionMode(mode);
+          },
+        });
+        host.inkRenderer?.upsertActivityItem?.({
+          id: context.subagentId,
+          kind: 'subagent',
+          label: formatSubAgentActivityLabel(context.subagentName, context.task),
+          status: 'in_progress',
+          detail: context.subagentType,
+        });
+      },
       onSubagentStop: async (context) => {
+        host.inkRenderer?.upsertActivityItem?.({
+          id: context.subagentId,
+          kind: 'subagent',
+          label: formatSubAgentActivityLabel(context.subagentName, context.task),
+          status: context.success ? 'completed' : 'failed',
+          detail: context.success
+            ? `${Math.max(0, Math.round(context.duration / 1000))}s`
+            : context.error ?? 'failed',
+        });
         await host.hookManager.executeHooks('subagent-stop', {
           subagentId: context.subagentId,
           subagentName: context.subagentName,
@@ -1711,6 +1753,7 @@ export function initializeAgentDependencies(
       },
       // Team manager for /team, /tasks, /message commands
       teamManager: host.teamManager,
+      onToggleTeamView: (visible: boolean) => host.inkRenderer?.setTeamPanelVisible?.(visible),
       // Repeat manager for /repeat recurring prompt scheduling
       repeatManager: host.repeatManager,
       // Queue an instruction to be sent to the LLM silently (e.g. /review)

@@ -20,6 +20,39 @@ export interface TeammateOptions {
   leadSessionId: string;
   model?: string;
   workspacePath?: string;
+  configPath?: string;
+}
+
+export async function withTeammateTaskEnvironment<T>(
+  opts: TeammateOptions,
+  task: TeamTask,
+  action: () => Promise<T>,
+): Promise<T> {
+  const scopedEnvironment: Record<string, string | undefined> = {
+    AUTOHAND_TEAM_NAME: opts.teamName,
+    AUTOHAND_TEAMMATE_NAME: opts.name,
+    AUTOHAND_TEAMMATE_AGENT: opts.agentName,
+    AUTOHAND_TEAM_LEAD_SESSION_ID: opts.leadSessionId,
+    AUTOHAND_TEAM_TASK_ID: task.id,
+    AUTOHAND_TEAM_TASK_SUBJECT: task.subject,
+    AUTOHAND_TEAM_TASK_OWNER: task.owner,
+  };
+  const previousEnvironment = new Map<string, string | undefined>();
+
+  for (const [key, value] of Object.entries(scopedEnvironment)) {
+    previousEnvironment.set(key, process.env[key]);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+
+  try {
+    return await action();
+  } finally {
+    for (const [key, value] of previousEnvironment) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 }
 
 /**
@@ -29,6 +62,13 @@ export interface TeammateOptions {
 export async function executeTask(
   opts: TeammateOptions,
   task: TeamTask
+): Promise<string> {
+  return withTeammateTaskEnvironment(opts, task, () => executeTaskWithEnvironment(opts, task));
+}
+
+async function executeTaskWithEnvironment(
+  opts: TeammateOptions,
+  task: TeamTask,
 ): Promise<string> {
   const { loadConfig } = await import('../config.js');
   const { ProviderFactory } = await import('../providers/ProviderFactory.js');
@@ -42,7 +82,7 @@ export async function executeTask(
 
   // Load config and create provider
   const workspacePath = opts.workspacePath || process.cwd();
-  const config = await loadConfig(undefined, workspacePath);
+  const config = await loadConfig(opts.configPath, workspacePath);
   const provider = ProviderFactory.create(config);
   if (opts.model) provider.setModel(opts.model);
 
@@ -253,5 +293,6 @@ export function parseTeammateOptions(argv: string[]): TeammateOptions | null {
     leadSessionId,
     model: getArg('--model'),
     workspacePath: getArg('--path'),
+    configPath: getArg('--config'),
   };
 }

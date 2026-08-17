@@ -2226,7 +2226,7 @@ These flags override config file settings:
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `--mode <mode>`               | Run mode: interactive (default), rpc, or acp                                                   |
 | `--acp`                       | Shorthand for --mode acp (Agent Client Protocol over stdio)                                    |
-| `--teammate-mode <mode>`      | Team display mode: auto, in-process, or tmux                                                   |
+| `--teammate-mode <mode>`      | Legacy team display preference; the live team view stays in the lead terminal                  |
 
 To register the native stdio agent in Zed, JetBrains IDEs, JetBrains Air, or another compatible development environment, see the [ACP integration guide](./guides/ACP.md).
 

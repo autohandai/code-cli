@@ -35,13 +35,13 @@ export const TeamPanel = memo(({ team, tasks }: TeamPanelProps) => {
   const done = tasks.filter((t) => t.status === 'completed').length;
 
   return (
-    <Box flexDirection="column" borderStyle="single" paddingX={1}>
-      <Box justifyContent="space-between">
+    <Box flexDirection="column" marginTop={1} marginBottom={1}>
+      <Box gap={1}>
         <Text bold>Team: {team.name}</Text>
-        <Text>{theme.fg(team.status === 'active' ? 'success' : 'muted', team.status === 'active' ? '🟢' : '⚪')}</Text>
+        <Text>{theme.fg(team.status === 'active' ? 'success' : 'muted', `● ${team.status}`)}</Text>
+        <Text>{theme.fg('muted', '· Cmd+T close · Ctrl+T portable')}</Text>
       </Box>
 
-      {/* Task list */}
       <Box flexDirection="column" marginTop={1}>
         <Text bold>Tasks [{done}/{tasks.length} done]</Text>
         {tasks.map((task) => (
@@ -54,14 +54,16 @@ export const TeamPanel = memo(({ team, tasks }: TeamPanelProps) => {
         {tasks.length === 0 && <Text>{theme.fg('muted', '  No tasks yet')}</Text>}
       </Box>
 
-      {/* Members list */}
       <Box flexDirection="column" marginTop={1}>
         <Text bold>Teammates</Text>
         {team.members.map((member) => (
           <Box key={member.name} gap={1}>
             <StatusIcon status={member.status} />
             <Text>{member.name}</Text>
-            <Text>{theme.fg('muted', `(${member.agentName})`)}</Text>
+            <Text>{theme.fg(
+              'muted',
+              `(${member.agentName}${member.status === 'shutdown' ? `; exit ${member.exitCode ?? 'unknown'}` : ''})`,
+            )}</Text>
           </Box>
         ))}
         {team.members.length === 0 && <Text>{theme.fg('muted', '  No teammates yet')}</Text>}

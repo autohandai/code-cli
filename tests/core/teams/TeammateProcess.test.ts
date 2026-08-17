@@ -52,6 +52,19 @@ describe('TeammateProcess', () => {
     expect(info.status).toBe('spawning');
   });
 
+  it('includes the exit code in a shutdown member snapshot', () => {
+    const tp = new TeammateProcess({
+      teamName: 'test',
+      name: 'worker',
+      agentName: 'code-cleaner',
+      leadSessionId: 'sess',
+    });
+    tp.setStatus('shutdown');
+    (tp as unknown as { exitCode: number }).exitCode = 1;
+
+    expect(tp.toMember()).toMatchObject({ status: 'shutdown', exitCode: 1 });
+  });
+
   it('preserves requested role and agent source in member status', () => {
     const tp = new TeammateProcess({
       teamName: 'test',
@@ -90,6 +103,41 @@ describe('TeammateProcess', () => {
     });
     expect(args).toContain('--path');
     expect(args).toContain('/tmp/project');
+  });
+
+  it('should keep teammates on the lead configuration path', () => {
+    const args = TeammateProcess.buildSpawnArgs({
+      teamName: 'test',
+      name: 'worker',
+      agentName: 'researcher',
+      leadSessionId: 'sess',
+      configPath: '/tmp/autohand-team-config.json',
+    });
+
+    expect(args).toContain('--config');
+    expect(args).toContain('/tmp/autohand-team-config.json');
+  });
+
+  it('builds an explicit teammate identity environment for hooks and tools', () => {
+    const env = TeammateProcess.buildSpawnEnv({
+      teamName: 'release-readiness',
+      name: 'planner',
+      agentName: 'repo-reader',
+      leadSessionId: 'lead-123',
+      requestedRole: 'planning',
+      agentSource: 'catalog',
+    }, { PATH: '/bin' });
+
+    expect(env).toMatchObject({
+      PATH: '/bin',
+      AUTOHAND_TEAMMATE: '1',
+      AUTOHAND_TEAM_NAME: 'release-readiness',
+      AUTOHAND_TEAMMATE_NAME: 'planner',
+      AUTOHAND_TEAMMATE_AGENT: 'repo-reader',
+      AUTOHAND_TEAM_LEAD_SESSION_ID: 'lead-123',
+      AUTOHAND_TEAM_REQUESTED_ROLE: 'planning',
+      AUTOHAND_TEAM_AGENT_SOURCE: 'catalog',
+    });
   });
 
   it('escalates a stuck child through SIGTERM and SIGKILL within a deadline', async () => {

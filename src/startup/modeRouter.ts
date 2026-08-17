@@ -7,8 +7,8 @@ import { resolveAutoModeLaunchMode } from '../modes/autoModeRouting.js';
 import type { CLIOptions } from '../types.js';
 
 export type ProtocolLaunchMode = 'rpc' | 'acp' | 'standard';
+export type InternalLaunchMode = 'teammate' | 'standard';
 export type PostAuthLaunchMode =
-  | 'teammate'
   | 'auto-unavailable'
   | 'auto-standalone'
   | 'auto-interactive'
@@ -22,6 +22,10 @@ export function resolveProtocolLaunchMode(options: { mode?: string }): ProtocolL
   return 'standard';
 }
 
+export function resolveInternalLaunchMode(options: { mode?: string }): InternalLaunchMode {
+  return options.mode === 'teammate' ? 'teammate' : 'standard';
+}
+
 export function resolvePostAuthLaunchMode(options: {
   mode?: string;
   autoMode?: string;
@@ -29,9 +33,6 @@ export function resolvePostAuthLaunchMode(options: {
   argv: string[];
   stdinIsTTY: boolean;
 }): PostAuthLaunchMode {
-  if (options.mode === 'teammate') {
-    return 'teammate';
-  }
   const autoMode = resolveAutoModeLaunchMode({
     hasAutoModeFlag: options.argv.some((arg) => arg === '--auto-mode'),
     autoModeTask: options.autoMode,

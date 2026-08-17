@@ -21,7 +21,7 @@ if (process.stdout.isTTY && !requestsStructuredCommandOutput && !requestsProtoco
 // Set environment variable for detection by Expect and other tools
 process.env.AUTOHAND_CODE = '1';
 import 'dotenv/config';
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
 import chalk from 'chalk';
 import fs from 'fs-extra';
 import path from 'node:path';
@@ -61,6 +61,7 @@ import {
 } from './startup/cliOptions.js';
 import {
   resolveAgentLaunchMode,
+  resolveInternalLaunchMode,
   resolvePostAuthLaunchMode,
   resolveProtocolLaunchMode,
 } from './startup/modeRouter.js';
@@ -260,7 +261,11 @@ program
   .option('--output <file>', 'Output file for patch (default: stdout, used with --patch)')
   .option('--mode <mode>', 'Run mode: interactive (default), rpc, or acp', 'interactive')
   .option('--acp', 'Shorthand for --mode acp (Agent Client Protocol over stdio)', false)
-  .option('--teammate-mode <mode>', 'Team display mode: auto, in-process, or tmux')
+  .addOption(new Option('--team <name>').hideHelp())
+  .addOption(new Option('--name <name>').hideHelp())
+  .addOption(new Option('--agent <name>').hideHelp())
+  .addOption(new Option('--lead-session <id>').hideHelp())
+  .option('--teammate-mode <mode>', 'Legacy team display preference; live team view stays in the lead terminal')
   .option('--worktree [name]', 'Run session in isolated git worktree (optional name)')
   .option('--tmux', 'Launch in a dedicated tmux session (implies --worktree)')
   // Auto-mode options
@@ -505,6 +510,20 @@ program
       return;
     }
 
+    // Teammate children use authenticated configuration inherited from the
+    // lead and reserve stdout exclusively for JSON-RPC. Route them before the
+    // interactive authentication gate so login UI cannot corrupt the pipe.
+    if (resolveInternalLaunchMode(opts) === 'teammate') {
+      const { parseTeammateOptions, runTeammateMode } = await import('./modes/teammate.js');
+      const teammateOpts = parseTeammateOptions(process.argv);
+      if (!teammateOpts) {
+        console.error('Error: --mode teammate requires --team, --name, --agent, and --lead-session');
+        process.exit(1);
+      }
+      await runTeammateMode(teammateOpts);
+      return;
+    }
+
     // ── Workspace safety gate ──
     // Check workspace is safe BEFORE requiring authentication so users
     // running from home/system directories get the warning first.
@@ -577,18 +596,6 @@ program
       argv: process.argv,
       stdinIsTTY: Boolean(process.stdin.isTTY),
     });
-
-    // Teammate mode — headless process receiving tasks from lead
-    if (postAuthLaunchMode === 'teammate') {
-      const { parseTeammateOptions, runTeammateMode } = await import('./modes/teammate.js');
-      const teammateOpts = parseTeammateOptions(process.argv);
-      if (!teammateOpts) {
-        console.error('Error: --mode teammate requires --team, --name, --agent, and --lead-session');
-        process.exit(1);
-      }
-      await runTeammateMode(teammateOpts);
-      return;
-    }
 
     if (postAuthLaunchMode === 'auto-unavailable') {
       console.error(chalk.red('Interactive auto-mode requires a terminal (TTY). Use `autohand --auto-mode "<task>"` for standalone loops.'));

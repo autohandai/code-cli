@@ -8,11 +8,12 @@ import { TeammateProcess } from './TeammateProcess.js';
 import { TaskManager } from './TaskManager.js';
 import type { HookContext } from '../HookManager.js';
 import type { HookEvent } from '../../types.js';
-import type { Team } from './types.js';
+import type { Team, TeamActivitySnapshot } from './types.js';
 
 interface TeamManagerOptions {
   leadSessionId: string;
   workspacePath: string;
+  configPath?: string;
   maxTeammates?: number;
   onTeammateMessage?: (from: string, msg: { method: string; params: Record<string, unknown> }) => void;
   onHookEvent?: (event: HookEvent, context: Omit<HookContext, 'event' | 'workspace'>) => Promise<void> | void;
@@ -50,15 +51,21 @@ function settleWithin(task: Promise<unknown>, timeoutMs: number): Promise<void> 
 export class TeamManager {
   private team: Team | null = null;
   private teammates: Map<string, TeammateProcess> = new Map();
-  private _tasks = new TaskManager();
+  private _tasks: TaskManager;
   private readonly opts: TeamManagerOptions;
   private shutdownPromise: Promise<void> | null = null;
   private closing = false;
   private readonly maxTeammates: number;
+  private readonly listeners = new Set<(snapshot: TeamActivitySnapshot) => void>();
 
   constructor(opts: TeamManagerOptions) {
     this.opts = opts;
     this.maxTeammates = Math.max(1, Math.floor(opts.maxTeammates ?? 5));
+    this._tasks = this.createTaskManager();
+  }
+
+  private createTaskManager(): TaskManager {
+    return new TaskManager(() => this.notifyStateChanged());
   }
 
   /** Access the underlying task manager for creating and querying tasks. */
@@ -85,7 +92,8 @@ export class TeamManager {
       members: [],
     };
     this.shutdownPromise = null;
-    this._tasks = new TaskManager();
+    this._tasks = this.createTaskManager();
+    this.notifyStateChanged();
     void this.emitHookEvent('team-created', {
       sessionId: this.opts.leadSessionId,
       teamName: this.team.name,
@@ -129,6 +137,7 @@ export class TeamManager {
       requestedRole: opts.requestedRole,
       agentSource: opts.agentSource,
       workspacePath: this.opts.workspacePath,
+      configPath: this.opts.configPath,
     });
 
     this.teammates.set(opts.name, tp);
@@ -137,6 +146,7 @@ export class TeamManager {
       (msg) => this.handleTeammateMessage(opts.name, msg),
       (code) => this.handleTeammateExit(opts.name, code),
     );
+    this.notifyStateChanged();
 
     void this.emitHookEvent('teammate-spawned', {
       sessionId: this.opts.leadSessionId,
@@ -167,6 +177,7 @@ export class TeamManager {
       case 'team.ready':
         tp?.setStatus('idle');
         void this.emitTeammateIdleHook(from);
+        this.tryAssignIdleTeammate();
         break;
 
       case 'team.taskUpdate': {
@@ -181,6 +192,7 @@ export class TeamManager {
           void this.emitHookEvent('task-completed', {
             sessionId: this.opts.leadSessionId,
             teamName: this.team?.name,
+            ...this.getTeamProgressContext(),
             teammateName: from,
             teamTaskId: taskId,
             teamTaskOwner: task?.owner ?? from,
@@ -213,6 +225,7 @@ export class TeamManager {
         break;
     }
 
+    this.notifyStateChanged();
     this.opts.onTeammateMessage?.(from, msg);
   }
 
@@ -221,16 +234,26 @@ export class TeamManager {
    * releases any in-progress tasks back to pending so they can be
    * picked up by another teammate (crash recovery).
    */
-  private handleTeammateExit(name: string, _code: number | null): void {
+  private handleTeammateExit(name: string, code: number | null): void {
     const tp = this.teammates.get(name);
     if (tp) {
       tp.setStatus('shutdown');
+    }
+    if (!this.closing && this.team?.status === 'active') {
+      this.opts.onTeammateMessage?.(name, {
+        method: 'team.log',
+        params: {
+          level: 'error',
+          text: `Teammate process exited unexpectedly (code ${code ?? 'unknown'}).`,
+        },
+      });
     }
     for (const task of this._tasks.listTasks()) {
       if (task.owner === name && task.status === 'in_progress') {
         this._tasks.releaseTask(task.id);
       }
     }
+    this.notifyStateChanged();
   }
 
   /**
@@ -245,9 +268,11 @@ export class TeamManager {
       const task = available[0];
       this._tasks.assignTask(task.id, name);
       tp.assignTask(task);
+      this.notifyStateChanged();
       void this.emitHookEvent('task-assigned', {
         sessionId: this.opts.leadSessionId,
         teamName: this.team?.name,
+        ...this.getTeamProgressContext(),
         teammateName: name,
         teamTaskId: task.id,
         teamTaskOwner: name,
@@ -303,6 +328,7 @@ export class TeamManager {
       })), TEAM_SHUTDOWN_TIMEOUT_MS);
 
       this.team.status = 'completed';
+      this.notifyStateChanged();
       const tasks = this._tasks.listTasks();
       await settleWithin(this.emitHookEvent('team-shutdown', {
         sessionId: this.opts.leadSessionId,
@@ -314,6 +340,41 @@ export class TeamManager {
     } finally {
       this.teammates.clear();
       this.closing = false;
+      this.notifyStateChanged();
+    }
+  }
+
+  getSnapshot(): TeamActivitySnapshot {
+    const team = this.getTeam();
+    return {
+      team: team ? {
+        ...team,
+        members: team.members.map((member) => ({ ...member })),
+      } : null,
+      tasks: this._tasks.listTasks().map((task) => ({
+        ...task,
+        blockedBy: [...task.blockedBy],
+      })),
+    };
+  }
+
+  subscribe(listener: (snapshot: TeamActivitySnapshot) => void): () => void {
+    this.listeners.add(listener);
+    listener(this.getSnapshot());
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notifyStateChanged(): void {
+    if (this.listeners.size === 0) return;
+    const snapshot = this.getSnapshot();
+    for (const listener of this.listeners) {
+      try {
+        listener(snapshot);
+      } catch {
+        // UI and protocol listeners must not interrupt team orchestration.
+      }
     }
   }
 
@@ -335,8 +396,20 @@ export class TeamManager {
       sessionId: this.opts.leadSessionId,
       teamName: this.team?.name,
       teammateName,
-      teamMemberCount: this.teammates.size,
+      ...this.getTeamProgressContext(),
     });
+  }
+
+  private getTeamProgressContext(): Pick<
+    HookContext,
+    'teamMemberCount' | 'teamTasksCompleted' | 'teamTasksTotal'
+  > {
+    const tasks = this._tasks.listTasks();
+    return {
+      teamMemberCount: this.teammates.size,
+      teamTasksCompleted: tasks.filter((task) => task.status === 'completed').length,
+      teamTasksTotal: tasks.length,
+    };
   }
 
   private async emitHookEvent(

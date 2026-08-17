@@ -1197,6 +1197,34 @@ export class AutohandAcpAdapter implements Agent {
           }
           break;
 
+        case 'team_update': {
+          const snapshot = event.teamActivity;
+          if (!snapshot?.team) {
+            break;
+          }
+          await this.connection.sessionUpdate({
+            sessionId,
+            update: {
+              sessionUpdate: 'plan',
+              entries: snapshot.tasks.map((task) => ({
+                content: task.owner ? `${task.subject} → ${task.owner}` : task.subject,
+                priority: 'medium' as const,
+                status: task.status,
+                _meta: {
+                  teamName: snapshot.team?.name,
+                  taskId: task.id,
+                  ...(task.owner ? { owner: task.owner } : {}),
+                },
+              })),
+              _meta: {
+                teamName: snapshot.team.name,
+                memberCount: snapshot.team.members.length,
+              },
+            },
+          });
+          break;
+        }
+
         case 'schedule_triggered':
           if (event.content) {
             await this.connection.sessionUpdate({

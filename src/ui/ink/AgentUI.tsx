@@ -25,6 +25,8 @@ import { UserMessage } from './UserMessage.js';
 import { ShortcutsHelpPanel } from './ShortcutsHelpPanel.js';
 import { SitrepMessage, parseSitrepText } from './SitrepMessage.js';
 import { TaskActivityPanel, type ActivityItem } from './TaskActivityPanel.js';
+import { TeamPanel } from './TeamPanel.js';
+import type { TeamActivitySnapshot } from '../../core/teams/types.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/index.js';
 import { getPlanModeManager } from '../../commands/plan.js';
@@ -144,6 +146,10 @@ export interface AgentUIState {
    * Rendered sticky above the status line.
    */
   activityItems?: ActivityItem[];
+  /** Live background team state owned by TeamManager. */
+  teamActivity?: TeamActivitySnapshot;
+  /** Whether the expanded team view is visible. */
+  teamPanelVisible: boolean;
   /** Highest-priority active CLI announcement rendered above status. */
   announcement?: AnnouncementLineState;
 }
@@ -161,6 +167,8 @@ export interface AgentUIProps {
   /** Dismiss the currently rendered announcement without changing composer input. */
   onDismissAnnouncement?: (id: string) => void;
   onToggleLiveCommandExpanded?: () => void;
+  /** Toggle the expanded live team view. */
+  onToggleTeamPanel?: () => void;
   onInputChange?: (input: string) => void;
   enableQueueInput?: boolean;
   /** Called when a dragged/dropped image is detected in the input */
@@ -203,11 +211,17 @@ const RESERVED_EXTENSION_KEYBINDINGS = new Set([
   'ctrl+c',
   'ctrl+d',
   'ctrl+x',
+  'ctrl+t',
+  'meta+t',
   'shift+tab',
   'escape',
   'enter',
   'return',
 ]);
+
+export function isTeamViewShortcut(input: string, key: InkKey): boolean {
+  return input.toLowerCase() === 't' && (key.meta || key.ctrl);
+}
 
 export function matchesExtensionKeybinding(
   input: string,
@@ -679,6 +693,7 @@ export function AgentUI({
   onCtrlC,
   onDismissAnnouncement,
   onToggleLiveCommandExpanded,
+  onToggleTeamPanel,
   onInputChange,
   enableQueueInput = true,
   onImageDetected,
@@ -777,6 +792,8 @@ export function AgentUI({
   announcementRef.current = state.announcement;
   const onToggleLiveCommandExpandedRef = useRef(onToggleLiveCommandExpanded);
   onToggleLiveCommandExpandedRef.current = onToggleLiveCommandExpanded;
+  const onToggleTeamPanelRef = useRef(onToggleTeamPanel);
+  onToggleTeamPanelRef.current = onToggleTeamPanel;
   const onInstructionRef = useRef(onInstruction);
   onInstructionRef.current = onInstruction;
   const onInputChangeRef = useRef(onInputChange);
@@ -1262,6 +1279,11 @@ export function AgentUI({
       if (pasteResult.completedText !== undefined) {
         insertPastedText(pasteResult.completedText);
       }
+      return;
+    }
+
+    if (isTeamViewShortcut(char, key)) {
+      onToggleTeamPanelRef.current?.();
       return;
     }
 
@@ -1938,6 +1960,8 @@ export function AgentUI({
         selectedQueueIndex={queueSelectionIndex}
         completionStats={chatIncludesCompletion ? null : state.completionStats}
         activityItems={state.activityItems ?? []}
+        teamActivity={state.teamActivity}
+        teamPanelVisible={state.teamPanelVisible}
         enableQueueInput={enableQueueInput}
         input={input}
         cursorOffset={cursorOffset}
@@ -2216,6 +2240,8 @@ interface StatusSectionProps {
   selectedQueueIndex: number | null;
   completionStats: { elapsed: string; tokens: string; status?: TurnCompletionStatus } | null;
   activityItems?: ActivityItem[];
+  teamActivity?: TeamActivitySnapshot;
+  teamPanelVisible: boolean;
   contextPercent?: number;
   contextTokens?: ContextTokenDisplay;
   provider?: string;
@@ -2283,6 +2309,8 @@ const StatusSection = memo(function StatusSection({
   selectedQueueIndex,
   completionStats,
   activityItems = [],
+  teamActivity,
+  teamPanelVisible,
   contextPercent,
   contextTokens,
   provider,
@@ -2301,6 +2329,10 @@ const StatusSection = memo(function StatusSection({
       {/* Grouped todos + sub-agent runs — sticky above the spinner/status line */}
       {showActivity && <TaskActivityPanel items={activityItems} />}
 
+      {teamPanelVisible && teamActivity?.team && (
+        <TeamPanel team={teamActivity.team} tasks={teamActivity.tasks} />
+      )}
+
       {/* Status line with spinner - always renders for stability */}
       <StatusLine
         isWorking={isWorking}
@@ -2312,6 +2344,7 @@ const StatusSection = memo(function StatusSection({
         contextTokens={contextTokens}
         provider={provider}
         model={model}
+        teamActivity={teamActivity}
         lineExtension={lineExtension}
       />
 
@@ -2346,6 +2379,8 @@ const StatusSection = memo(function StatusSection({
          prev.completionStats?.tokens === next.completionStats?.tokens &&
          prev.completionStats?.status === next.completionStats?.status &&
          prev.activityItems === next.activityItems &&
+         prev.teamActivity === next.teamActivity &&
+         prev.teamPanelVisible === next.teamPanelVisible &&
          prev.provider === next.provider &&
          prev.model === next.model &&
          prev.lineExtension === next.lineExtension;
@@ -2557,6 +2592,8 @@ interface FixedBottomProps {
   selectedQueueIndex: number | null;
   completionStats: { elapsed: string; tokens: string; status?: TurnCompletionStatus } | null;
   activityItems?: ActivityItem[];
+  teamActivity?: TeamActivitySnapshot;
+  teamPanelVisible: boolean;
   enableQueueInput: boolean;
   input: string;
   cursorOffset: number;
@@ -2627,6 +2664,8 @@ const FixedBottom = memo(function FixedBottom({
   selectedQueueIndex,
   completionStats,
   activityItems = [],
+  teamActivity,
+  teamPanelVisible,
   enableQueueInput,
   input,
   cursorOffset,
@@ -2671,6 +2710,8 @@ const FixedBottom = memo(function FixedBottom({
         selectedQueueIndex={selectedQueueIndex}
         completionStats={completionStats}
         activityItems={activityItems}
+        teamActivity={teamActivity}
+        teamPanelVisible={teamPanelVisible}
         contextPercent={contextPercent}
         contextTokens={contextTokens}
         provider={provider}
@@ -2747,5 +2788,6 @@ export function createInitialUIState(): AgentUIState {
     interactionMode: 'default',
     showModeLabel: true,
     activityItems: [],
+    teamPanelVisible: false,
   };
 }

@@ -5,6 +5,7 @@
  */
 import type { Ora } from 'ora';
 import type { ThemeDefinition } from './ui/theme/types.js';
+import type { TeamActivitySnapshot } from './core/teams/types.js';
 
 // InkRenderer type defined inline to avoid tsx dev mode issues with .tsx imports
 interface InkRendererInterface {
@@ -793,7 +794,7 @@ export interface HookResponse {
 export interface TeamSettings {
   /** Enable team features (default: true) */
   enabled?: boolean;
-  /** Display mode: auto-detect, in-process TUI, or tmux split panes */
+  /** Legacy display preference retained for configuration compatibility. */
   teammateMode?: 'auto' | 'in-process' | 'tmux';
   /** Maximum simultaneous teammates (default: 5) */
   maxTeammates?: number;
@@ -998,6 +999,8 @@ export interface CLIOptions {
   output?: string;
   /** Launch in dedicated tmux session */
   tmux?: boolean;
+  /** Legacy team display preference retained for CLI compatibility. */
+  teammateMode?: 'auto' | 'in-process' | 'tmux';
   // Auto-mode options
   /** Inline task prompt for standalone auto-mode loop */
   autoMode?: string;
@@ -1725,7 +1728,7 @@ export interface AgentStatusSnapshot {
 }
 
 export interface AgentOutputEvent {
-  type: 'message' | 'thinking' | 'tool_start' | 'tool_end' | 'error' | 'schedule_triggered' | 'file_modified';
+  type: 'message' | 'thinking' | 'tool_start' | 'tool_end' | 'error' | 'schedule_triggered' | 'file_modified' | 'team_update';
   content?: string;
   thought?: string;
   toolName?: string;
@@ -1739,6 +1742,8 @@ export interface AgentOutputEvent {
   filePath?: string;
   /** Change type for file_modified events */
   changeType?: 'create' | 'modify' | 'delete';
+  /** Complete live team state for TUI, RPC, and ACP consumers. */
+  teamActivity?: TeamActivitySnapshot;
 }
 
 // ============ Community Skills Marketplace Types ============

@@ -38,6 +38,7 @@ import {
   type WorkspaceChangeSet,
 } from '../../core/agent/WorkspaceChangeCapture.js';
 import type { InteractionMode } from '../../core/agent/InteractionModeController.js';
+import type { TeamActivitySnapshot } from '../../core/teams/types.js';
 import type { LineExtension, LineSegment } from './StatusLine.js';
 import {
   createSequencedQueuedWork,
@@ -183,6 +184,7 @@ interface AgentUIWrapperProps {
   onCtrlC: () => void;
   onDismissAnnouncement?: (id: string) => void;
   onToggleLiveCommandExpanded: () => void;
+  onToggleTeamPanel: () => void;
   onInputChange: (input: string) => void;
   enableQueueInput?: boolean;
   onImageDetected?: (data: Buffer, mimeType: string, filename?: string) => number;
@@ -213,6 +215,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       onCtrlC,
       onDismissAnnouncement,
       onToggleLiveCommandExpanded,
+      onToggleTeamPanel,
       onInputChange,
       enableQueueInput,
       onImageDetected,
@@ -258,6 +261,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         onCtrlC={onCtrlC}
         onDismissAnnouncement={onDismissAnnouncement}
         onToggleLiveCommandExpanded={onToggleLiveCommandExpanded}
+        onToggleTeamPanel={onToggleTeamPanel}
         onInputChange={handleInputChange}
         enableQueueInput={enableQueueInput}
         onImageDetected={onImageDetected}
@@ -434,6 +438,7 @@ export class InkRenderer {
             onCtrlC={this.options.onCtrlC}
             onDismissAnnouncement={this.options.onDismissAnnouncement}
             onToggleLiveCommandExpanded={() => this.toggleActiveLiveCommandExpanded()}
+            onToggleTeamPanel={() => this.toggleTeamPanel()}
             onInputChange={this.handleInputChange}
             enableQueueInput={this.options.enableQueueInput}
             onImageDetected={this.options.onImageDetected}
@@ -1039,6 +1044,18 @@ export class InkRenderer {
     this.updateState({ activityItems: [] });
   }
 
+  setTeamActivity(teamActivity: TeamActivitySnapshot): void {
+    this.updateState({ teamActivity });
+  }
+
+  setTeamPanelVisible(visible: boolean): void {
+    this.updateState({ teamPanelVisible: visible });
+  }
+
+  toggleTeamPanel(): void {
+    this.setTeamPanelVisible(!this.state.teamPanelVisible);
+  }
+
   /**
    * Replace all status/help line extension points.
    */
@@ -1222,6 +1239,7 @@ export class InkRenderer {
               onCtrlC={this.options.onCtrlC}
               onDismissAnnouncement={this.options.onDismissAnnouncement}
               onToggleLiveCommandExpanded={() => this.toggleActiveLiveCommandExpanded()}
+              onToggleTeamPanel={() => this.toggleTeamPanel()}
               onInputChange={this.handleInputChange}
               enableQueueInput={this.options.enableQueueInput}
               onImageDetected={this.options.onImageDetected}

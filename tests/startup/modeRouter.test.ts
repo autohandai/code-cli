@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   resolveAgentLaunchMode,
+  resolveInternalLaunchMode,
   resolvePostAuthLaunchMode,
   resolveProtocolLaunchMode,
 } from '../../src/startup/modeRouter.js';
@@ -13,6 +14,7 @@ import {
 describe('CLI mode routing', () => {
   it('routes no-argument launches to the interactive agent', () => {
     expect(resolveProtocolLaunchMode({})).toBe('standard');
+    expect(resolveInternalLaunchMode({})).toBe('standard');
     expect(resolvePostAuthLaunchMode({
       argv: [],
       stdinIsTTY: true,
@@ -32,12 +34,9 @@ describe('CLI mode routing', () => {
     expect(resolveProtocolLaunchMode({ mode })).toBe(expected);
   });
 
-  it('keeps teammate routing ahead of auto-mode routing', () => {
-    expect(resolvePostAuthLaunchMode({
+  it('routes teammate children through the internal pre-auth boundary', () => {
+    expect(resolveInternalLaunchMode({
       mode: 'teammate',
-      autoMode: 'automate this',
-      argv: ['--auto-mode'],
-      stdinIsTTY: true,
     })).toBe('teammate');
   });
 

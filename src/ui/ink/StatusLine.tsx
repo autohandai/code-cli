@@ -9,6 +9,7 @@ import Spinner from 'ink-spinner';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/index.js';
 import type { Theme } from '../theme/Theme.js';
+import type { TeamActivitySnapshot } from '../../core/teams/types.js';
 
 export type LineSegmentColor =
   | 'text'
@@ -47,8 +48,35 @@ export interface StatusLineProps {
   provider?: string;
   /** Current LLM model name */
   model?: string;
+  /** Live background team state shown even while the lead is idle. */
+  teamActivity?: TeamActivitySnapshot;
   /** Optional extension points for status-line text segments. */
   lineExtension?: LineExtension;
+}
+
+export function buildTeamActivitySegment(
+  snapshot: TeamActivitySnapshot | undefined,
+): { segment?: LineSegment; busy: boolean } {
+  if (!snapshot?.team) return { busy: false };
+  const done = snapshot.tasks.filter((task) => task.status === 'completed').length;
+  const working = snapshot.team.members.filter((member) => member.status === 'working').length;
+  const spawning = snapshot.team.members.filter((member) => member.status === 'spawning').length;
+  const open = snapshot.tasks.filter((task) => task.status !== 'completed').length;
+  const busy = snapshot.team.status === 'active' && (working > 0 || spawning > 0 || open > 0);
+  const workerLabel = working > 0
+    ? `${working} working`
+    : spawning > 0
+      ? `${spawning} starting`
+      : 'team idle';
+
+  return {
+    busy,
+    segment: {
+      id: 'team-activity',
+      text: `${snapshot.team.name} · ${done}/${snapshot.tasks.length} done · ${workerLabel} · cmd+t team`,
+      color: busy ? 'warning' : 'success',
+    },
+  };
 }
 
 function normalizeSegmentText(segment: LineSegment): string {
@@ -166,13 +194,16 @@ function StatusLineComponent({
   elapsed,
   tokens,
   queueCount = 0,
+  teamActivity,
   lineExtension,
 }: StatusLineProps) {
   const { colors, theme } = useTheme();
   const { t } = useTranslation();
-  const defaultSegments = isWorking
-    ? buildStatusSegments(status, elapsed, tokens, queueCount, t('ui.escToCancel'))
-    : [];
+  const teamStatus = buildTeamActivitySegment(teamActivity);
+  const defaultSegments = [
+    ...(isWorking ? buildStatusSegments(status, elapsed, tokens, queueCount, t('ui.escToCancel')) : []),
+    ...(teamStatus.segment ? [teamStatus.segment] : []),
+  ];
   const { segments, separator } = resolveLineSegments(defaultSegments, lineExtension);
 
   // Always render to maintain stable layout - show placeholder when not working
@@ -187,7 +218,7 @@ function StatusLineComponent({
 
   return (
     <Box>
-      {isWorking && (
+      {(isWorking || teamStatus.busy) && (
         <>
           <Text color={colors.accent}>
             <Spinner type="dots" />
@@ -218,8 +249,9 @@ export const StatusLine = memo(StatusLineComponent, (prev, next) => {
            prev.contextTokens?.total === next.contextTokens?.total &&
            prev.provider === next.provider &&
            prev.model === next.model &&
+           prev.teamActivity === next.teamActivity &&
            prev.lineExtension === next.lineExtension;
   }
   // When both are not working, can safely skip
-  return prev.lineExtension === next.lineExtension;
+  return prev.teamActivity === next.teamActivity && prev.lineExtension === next.lineExtension;
 });

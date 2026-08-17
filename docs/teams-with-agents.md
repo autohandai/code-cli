@@ -34,6 +34,14 @@ Each teammate process:
 
 The lead does not execute tasks directly. It creates the task list, assigns work to teammates, and monitors progress until completion.
 
+Team progress remains visible after the lead turn ends. The status line shows an
+animated team activity dot and live completed/working counts; Cmd+T (or portable
+Ctrl+T) and `/team view` open the expanded task/member view. `/tasks` reads the
+same live task store, so a teammate completion is reflected immediately without
+asking the lead for another status report. Starting a durable team or synchronous
+subagent from the default editing mode switches the session to AUTO while
+preserving an explicit PLAN or YOLO selection.
+
 ---
 
 ## Choosing Agents for Your Team

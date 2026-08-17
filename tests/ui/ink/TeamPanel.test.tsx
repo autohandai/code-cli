@@ -38,6 +38,7 @@ describe('TeamPanel', () => {
     const { lastFrame } = renderWithTheme(<TeamPanel team={mockTeam} tasks={mockTasks} />);
     const output = lastFrame();
     expect(output).toContain('code-cleanup');
+    expect(output).toContain('Cmd+T close');
   });
 
   it('should render task count', () => {
@@ -59,6 +60,18 @@ describe('TeamPanel', () => {
     const output = lastFrame();
     expect(output).toContain('hunter');
     expect(output).toContain('writer');
+  });
+
+  it('shows the exit code for a failed teammate process', () => {
+    const failedTeam: Team = {
+      ...mockTeam,
+      members: [
+        { name: 'reviewer', agentName: 'security-auditor', pid: 0, status: 'shutdown', exitCode: 1 },
+      ],
+    };
+    const { lastFrame } = renderWithTheme(<TeamPanel team={failedTeam} tasks={mockTasks} />);
+
+    expect(lastFrame()).toContain('security-auditor; exit 1');
   });
 
   it('should handle empty tasks', () => {
