@@ -67,7 +67,87 @@ describe('AuthClient.fetchEntitlement', () => {
     vi.restoreAllMocks();
   });
 
-  it('returns the authoritative plan name and message allowances', async () => {
+  it('returns the authoritative plan name, request quotas, and throughput', async () => {
+    const client = new AuthClient({ baseUrl: 'https://auth.example.com', timeout: 5000 });
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        entitlement: {
+          tier: 'pro',
+          freeRemaining: null,
+          limits: {
+            displayName: 'Autohand Code Pro',
+            messagesPer5h: 250,
+            messagesPer24h: 1000,
+            messagesPerWeek: 7000,
+            rpm: 200,
+            requiresEligibility: false,
+            perSeat: false,
+            models: ['fantail', 'moa'],
+          },
+          quota: {
+            available: true,
+            window5h: {
+              used: 12,
+              remaining: 238,
+              limit: 250,
+              resetAt: '2026-08-10T06:00:00.000Z',
+            },
+            window24h: {
+              used: 120,
+              remaining: 880,
+              limit: 1000,
+              resetAt: '2026-08-11T01:00:00.000Z',
+            },
+            week: {
+              used: 120,
+              remaining: 6880,
+              limit: 7000,
+              resetAt: '2026-08-17T01:00:00.000Z',
+            },
+          },
+        },
+      }), { status: 200 }),
+    );
+
+    await expect(client.fetchEntitlement('pro-token')).resolves.toEqual({
+      tier: 'pro',
+      freeRemaining: null,
+      limits: {
+        displayName: 'Autohand Code Pro',
+        messagesPer5h: 250,
+        messagesPer24h: 1000,
+        messagesPerWeek: 7000,
+        rpm: 200,
+        requiresEligibility: false,
+        perSeat: false,
+        models: ['fantail', 'moa'],
+      },
+      quota: {
+        available: true,
+        window5h: {
+          used: 12,
+          remaining: 238,
+          limit: 250,
+          resetAt: '2026-08-10T06:00:00.000Z',
+        },
+        window24h: {
+          used: 120,
+          remaining: 880,
+          limit: 1000,
+          resetAt: '2026-08-11T01:00:00.000Z',
+        },
+        week: {
+          used: 120,
+          remaining: 6880,
+          limit: 7000,
+          resetAt: '2026-08-17T01:00:00.000Z',
+        },
+      },
+    });
+  });
+
+  it('accepts the pre-rollout entitlement contract without a 24-hour quota', async () => {
     const client = new AuthClient({ baseUrl: 'https://auth.example.com', timeout: 5000 });
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
@@ -103,33 +183,9 @@ describe('AuthClient.fetchEntitlement', () => {
       }), { status: 200 }),
     );
 
-    await expect(client.fetchEntitlement('pro-token')).resolves.toEqual({
-      tier: 'pro',
-      freeRemaining: null,
-      limits: {
-        displayName: 'Autohand Code Pro',
-        messagesPer5h: 100,
-        messagesPerWeek: 1000,
-        rpm: 100,
-        requiresEligibility: false,
-        perSeat: false,
-        models: ['fantail', 'moa'],
-      },
-      quota: {
-        available: true,
-        window5h: {
-          used: 12,
-          remaining: 88,
-          limit: 100,
-          resetAt: '2026-08-10T06:00:00.000Z',
-        },
-        week: {
-          used: 120,
-          remaining: 880,
-          limit: 1000,
-          resetAt: '2026-08-17T01:00:00.000Z',
-        },
-      },
+    await expect(client.fetchEntitlement('pro-token')).resolves.toMatchObject({
+      limits: { messagesPer24h: null },
+      quota: { window24h: null },
     });
   });
 });

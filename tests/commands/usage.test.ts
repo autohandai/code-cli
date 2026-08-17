@@ -118,7 +118,7 @@ function makeContext(overrides: Partial<SlashCommandContext> = {}): SlashCommand
 }
 
 describe('/usage command', () => {
-  it('shows the signed-in Autohand plan and message allowances above token activity', async () => {
+  it('shows the signed-in Autohand plan, request quotas, and throughput above token activity', async () => {
     const { usage } = await import('../../src/commands/usage.js');
     const output = await usage(makeContext({
       provider: 'autohandai',
@@ -142,9 +142,10 @@ describe('/usage command', () => {
         freeRemaining: null,
         limits: {
           displayName: 'Autohand Code Pro',
-          messagesPer5h: 100,
-          messagesPerWeek: 1000,
-          rpm: 100,
+          messagesPer5h: 250,
+          messagesPer24h: 1000,
+          messagesPerWeek: 7000,
+          rpm: 200,
           requiresEligibility: false,
           perSeat: false,
           models: ['fantail', 'moa'],
@@ -154,8 +155,10 @@ describe('/usage command', () => {
 
     expect(output).toContain('Autohand plan');
     expect(output).toContain('Autohand Code Pro');
-    expect(output).toContain('100 messages / 5 hours');
-    expect(output).toContain('1K messages / week');
+    expect(output).toContain('250 requests / 5 hours');
+    expect(output).toContain('1K requests / 24 hours');
+    expect(output).toContain('7K requests / week');
+    expect(output).toContain('200 requests / minute');
     expect(output).toContain('Token activity');
   });
 

@@ -337,7 +337,7 @@ describe('LLMGatewayClient', () => {
         json: () => Promise.resolve({
           error: {
             type: 'rate_limited',
-            message: "You've used all your messages in this 5-hour window.",
+            message: "You've used all your requests in this 5-hour window.",
             scope: 'window_5h',
             resetAt,
             upgradeUrl: 'https://console.autohand.ai/upgrade/?from=cli&tier=pro',
@@ -362,7 +362,7 @@ describe('LLMGatewayClient', () => {
           code: 'rate_limited',
           retryable: false,
           message: expect.stringMatching(
-            /5-hour message limit reached\.[\s\S]*Resets .+ \(Pacific\/Auckland\) · in 2h 30m\.[\s\S]*Upgrade your Autohand Code plan for more usage: https:\/\/console\.autohand\.ai\/upgrade\/\?from=cli&tier=pro/,
+            /5-hour request quota reached\.[\s\S]*Resets .+ \(Pacific\/Auckland\) · in 2h 30m\.[\s\S]*Upgrade your Autohand Code plan for more usage: https:\/\/console\.autohand\.ai\/upgrade\/\?from=cli&tier=pro/,
           ),
         });
         expect(global.fetch).toHaveBeenCalledTimes(1);
@@ -383,7 +383,7 @@ describe('LLMGatewayClient', () => {
         json: () => Promise.resolve({
           error: {
             type: 'rate_limited',
-            message: "You've used all your messages for this week.",
+            message: "You've used all your requests for this week.",
             scope: 'window_week',
             resetAt: 'not-a-timestamp',
             upgradeUrl: 'https://console.autohand.ai/upgrade/?from=cli&tier=max',
@@ -407,10 +407,44 @@ describe('LLMGatewayClient', () => {
         code: 'rate_limited',
         retryable: false,
         message: expect.stringMatching(
-          /weekly message limit reached\.[\s\S]*Reset time is temporarily unavailable\. Run \/usage to refresh your quota\./,
+          /weekly request quota reached\.[\s\S]*Reset time is temporarily unavailable\. Run \/usage to refresh your quota\./,
         ),
       });
       expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('identifies a 24-hour quota as terminal without calling it a generic rate limit', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        headers: new Headers({ 'Retry-After': '3600' }),
+        json: () => Promise.resolve({
+          error: {
+            type: 'rate_limited',
+            message: "You've used all your requests in this 24-hour window.",
+            scope: 'window_24h',
+            resetAt: Math.floor(Date.now() / 1000) + 3600,
+          },
+        }),
+      });
+      const client = new LLMGatewayClient(
+        { apiKey: 'test-key', model: 'fantail' },
+        { maxRetries: 3, retryDelay: 0 },
+        {
+          serviceName: 'Autohand AI',
+          credentialName: 'Autohand AI API key',
+          accountName: 'Autohand AI account',
+        },
+      );
+
+      await expect(client.complete({
+        messages: [{ role: 'user', content: 'Hello' }],
+      })).rejects.toMatchObject({
+        code: 'rate_limited',
+        message: expect.stringContaining('Autohand AI 24-hour request quota reached.'),
+        retryable: false,
+      });
+      expect(global.fetch).toHaveBeenCalledTimes(1);
     });
 
     it('retries a transient Autohand AI RPM throttle after the server delay', async () => {

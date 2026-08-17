@@ -13,6 +13,7 @@ import { createCommandTheme } from './commandTheme.js';
 import {
     formatAccountPlanAllowance,
     formatAccountPlanName,
+    formatAccountPlanThroughput,
     formatUsageDashboard,
     gatherUsageDashboardData,
     resolveAccountEntitlement,
@@ -303,6 +304,10 @@ function renderStatusTab(data: StatusData): void {
         const allowance = formatAccountPlanAllowance(data.accountEntitlement);
         if (allowance) {
             console.log(theme.bold('Allowance:'), allowance);
+        }
+        const throughput = formatAccountPlanThroughput(data.accountEntitlement);
+        if (throughput) {
+            console.log(theme.bold('Throughput:'), throughput);
         }
     }
     console.log(

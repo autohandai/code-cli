@@ -262,8 +262,8 @@ export async function createMockAutohandAIQuotaServer(): Promise<MockOpenRouterS
       response.end(JSON.stringify({
         error: {
           type: 'rate_limited',
-          message: "You've used all your messages in this 5-hour window.",
-          scope: 'window_5h',
+          message: "You've used all your requests in this 24-hour window.",
+          scope: 'window_24h',
           resetAt,
           upgradeUrl: 'https://console.autohand.ai/upgrade/?from=cli&tier=pro',
         },
@@ -939,9 +939,10 @@ export async function createMockAuthServer(
           freeRemaining: null,
           limits: {
             displayName: 'Autohand Code Pro',
-            messagesPer5h: 100,
-            messagesPerWeek: 1000,
-            rpm: 100,
+            messagesPer5h: 250,
+            messagesPer24h: 1000,
+            messagesPerWeek: 7000,
+            rpm: 200,
             requiresEligibility: false,
             perSeat: false,
             models: ['fantail', 'moa'],
@@ -950,14 +951,20 @@ export async function createMockAuthServer(
             available: true,
             window5h: {
               used: 12,
-              remaining: 88,
-              limit: 100,
+              remaining: 238,
+              limit: 250,
               resetAt: '2026-08-10T06:00:00.000Z',
             },
-            week: {
+            window24h: {
               used: 120,
               remaining: 880,
               limit: 1000,
+              resetAt: '2026-08-11T01:00:00.000Z',
+            },
+            week: {
+              used: 120,
+              remaining: 6880,
+              limit: 7000,
               resetAt: '2026-08-17T01:00:00.000Z',
             },
           },

@@ -121,10 +121,10 @@ function formatCompactNumber(value: number): string {
   return String(Math.round(value));
 }
 
-function formatMessageAllowance(value: number | null, window: string): string {
+function formatRequestQuota(value: number | null, window: string): string {
   return value === null
-    ? `No ${window} message limit`
-    : `${formatCompactNumber(value)} messages / ${window}`;
+    ? `No ${window} request quota`
+    : `${formatCompactNumber(value)} requests / ${window}`;
 }
 
 export function formatAccountPlanName(entitlement: AccountEntitlement): string {
@@ -134,9 +134,14 @@ export function formatAccountPlanName(entitlement: AccountEntitlement): string {
 export function formatAccountPlanAllowance(entitlement: AccountEntitlement): string | null {
   if (!entitlement.limits) return null;
   return [
-    formatMessageAllowance(entitlement.limits.messagesPer5h, '5 hours'),
-    formatMessageAllowance(entitlement.limits.messagesPerWeek, 'week'),
+    formatRequestQuota(entitlement.limits.messagesPer5h, '5 hours'),
+    formatRequestQuota(entitlement.limits.messagesPer24h, '24 hours'),
+    formatRequestQuota(entitlement.limits.messagesPerWeek, 'week'),
   ].join(' · ');
+}
+
+export function formatAccountPlanThroughput(entitlement: AccountEntitlement): string | null {
+  return entitlement.limits ? `${formatCompactNumber(entitlement.limits.rpm)} requests / minute` : null;
 }
 
 export async function resolveAccountEntitlement(ctx: SlashCommandContext): Promise<AccountEntitlement | null> {
@@ -150,9 +155,11 @@ export async function resolveAccountEntitlement(ctx: SlashCommandContext): Promi
 function formatAccountPlanSummary(entitlement: AccountEntitlement): string {
   const theme = createCommandTheme();
   const allowance = formatAccountPlanAllowance(entitlement);
+  const throughput = formatAccountPlanThroughput(entitlement);
   return [
     `${theme.muted('Autohand plan')}  ${theme.warning(formatAccountPlanName(entitlement))}`,
     ...(allowance ? [`${theme.muted('Allowance')}      ${allowance}`] : []),
+    ...(throughput ? [`${theme.muted('Throughput')}     ${throughput}`] : []),
   ].join('\n');
 }
 
@@ -461,7 +468,7 @@ function formatUsageLimitRow(row: UsageLimitRow, labelWidth: number): string {
   }
 
   if (row.unlimited) {
-    return formatInfoRow(`${row.label}:`, 'No message limit', labelWidth);
+    return formatInfoRow(`${row.label}:`, 'No request quota', labelWidth);
   }
 
   const percent = clampPercent(row.percentLeft ?? 100);
@@ -483,8 +490,9 @@ function accountQuotaUsageRows(entitlement: AccountEntitlement | null): UsageLim
   }
 
   return [
-    quotaWindowUsageRow('5-hour window', quota.window5h),
-    quotaWindowUsageRow('Weekly window', quota.week),
+    quotaWindowUsageRow('5-hour quota', quota.window5h),
+    ...(quota.window24h ? [quotaWindowUsageRow('24-hour quota', quota.window24h)] : []),
+    quotaWindowUsageRow('Weekly quota', quota.week),
   ];
 }
 
@@ -536,6 +544,7 @@ export function formatUsageDashboard(
     }];
 
   const allowance = entitlement ? formatAccountPlanAllowance(entitlement) : null;
+  const throughput = entitlement ? formatAccountPlanThroughput(entitlement) : null;
   const lines = [
     formatInfoRow('Model:', formatModel(data), labelWidth),
     formatInfoRow('Provider:', String(data.provider), labelWidth),
@@ -546,6 +555,7 @@ export function formatUsageDashboard(
     ...(entitlement ? [
       formatInfoRow('Autohand plan:', formatAccountPlanName(entitlement), labelWidth),
       ...(allowance ? [formatInfoRow('Allowance:', allowance, labelWidth)] : []),
+      ...(throughput ? [formatInfoRow('Throughput:', throughput, labelWidth)] : []),
     ] : []),
     formatInfoRow('Session:', data.sessionId, labelWidth),
     '',
