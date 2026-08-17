@@ -12,7 +12,7 @@ Agent Teams uses a lead-managed model. A single lead process orchestrates everyt
 - **Teammate processes** -- Headless child processes spawned via `autohand --mode teammate`. Each runs its own LLM loop to work on assigned tasks.
 - **Communication** -- All inter-process communication uses JSON-RPC 2.0 over stdio, encoded as newline-delimited JSON. The `MessageRouter` class handles encoding and decoding.
 - **Task management** -- The lead maintains a shared `TaskManager` with dependency resolution. Tasks have `blockedBy` arrays; a task only becomes available when all its dependencies are completed.
-- **Auto-assignment** -- When a teammate sends a `team.idle` signal, the lead calls `getAvailableTasks()` and assigns the next pending, unblocked task automatically.
+- **Auto-assignment** -- When a teammate first reports `team.ready` or later sends `team.idle`, the lead assigns the next pending, unblocked task automatically.
 
 There is no direct teammate-to-teammate communication channel. All messages pass through the lead.
 
@@ -28,7 +28,6 @@ Enable and configure teams in `~/.autohand/config.json`:
 {
   "teams": {
     "enabled": true,
-    "teammateMode": "auto",
     "maxTeammates": 5
   }
 }
@@ -39,22 +38,12 @@ Enable and configure teams in `~/.autohand/config.json`:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `enabled` | boolean | `true` | Enable or disable team features |
-| `teammateMode` | string | `"auto"` | Display mode for teammate output |
 | `maxTeammates` | number | `5` | Maximum number of simultaneous teammates |
 
-The `teammateMode` option accepts three values:
-
-- **`auto`** -- Uses tmux if the `$TMUX` environment variable is set; otherwise falls back to the in-process Ink TUI.
-- **`in-process`** -- Renders teammate panels inline in the lead terminal using Ink components.
-- **`tmux`** -- Creates tmux split panes, one per teammate. Requires an active tmux session.
-
-### CLI Override
-
-The `--teammate-mode` flag overrides the config value at launch:
-
-```bash
-autohand --teammate-mode tmux
-```
+`teams.teammateMode` and `--teammate-mode` remain accepted for compatibility.
+The supported live view is rendered in the lead terminal for both normal launches
+and `autohand --tmux`; teammate worker processes remain headless so their JSON-RPC
+transport cannot be confused with terminal output.
 
 ---
 
@@ -65,7 +54,9 @@ autohand --teammate-mode tmux
 | Command | Description |
 |---------|-------------|
 | `/team` or `/team help` | Show available team subcommands |
+| `/team create [name]` | Create a team or reuse the active team with the same name |
 | `/team status` | Show team name, active/completed status, member count, task progress, member list with status indicators, and the full task list |
+| `/team view` | Open the live team view without asking the agent for a status report |
 | `/team shutdown` | Gracefully shut down all teammates |
 
 Example `/team status` output:
@@ -155,30 +146,35 @@ A task with unresolved dependencies will not appear in `getAvailableTasks()` and
 
 ## Display Modes
 
-### In-Process (Ink TUI)
+### Live Lead View
 
-The `TeamPanel` component renders inline in your terminal with a bordered panel showing:
+While a team has open work, the status line displays an animated activity dot,
+team name, completed task count, and active teammate count even when the lead is
+idle. Updates are pushed from the team runtime; no status prompt or polling loop
+is required.
+
+Open or close the expanded view with:
+
+- **Cmd+T** when the terminal forwards Meta+T.
+- **Ctrl+T** as the portable terminal shortcut.
+- **`/team view`** to open it explicitly.
+
+The expanded `TeamPanel` renders inline in the lead terminal and shows:
 
 - **Header** -- Team name with an active/inactive indicator.
 - **Task list** -- Progress count (N/M done) and each task with its status icon, subject, and assigned owner.
 - **Teammate list** -- Each teammate with a status icon, name, and agent type.
 
-The `TeammateView` component shows per-teammate log output:
+Creating a team from the default interactive editing mode also changes the
+session to **AUTO** so teammates can proceed without approval prompts. An
+explicit PLAN or YOLO choice is preserved. ACP/RPC sessions keep their client-
+selected permission mode.
 
-- Teammate name and current status (color-coded: yellow for working, green for idle, red for shutdown).
-- Timestamped log entries, scrolling to show the last 10 lines by default.
-- Color-coded log levels: red for errors, yellow for warnings.
+### `--tmux`
 
-### Tmux Mode
-
-When running inside tmux, Autohand creates split panes for each teammate:
-
-- Each teammate gets its own pane, created via `tmux split-window`.
-- Panes are labeled with the teammate name using `tmux select-pane -T`.
-- Supports both horizontal (`-h`, side by side) and vertical (`-v`, stacked) splits.
-- All panes are cleaned up on team shutdown via `tmux kill-pane`.
-
-**Auto-detection**: If the `$TMUX` environment variable is set, tmux mode is selected by default when `teammateMode` is set to `"auto"`.
+`autohand --tmux` launches the lead CLI in a dedicated tmux session. The same
+status-line activity and expanded team view render there; teammate processes
+stay headless and communicate with the lead over piped JSON-RPC.
 
 ---
 
@@ -190,12 +186,13 @@ Teams emit lifecycle events that integrate with the Autohand hooks system. Confi
 |---|---|---|
 | `team-created` | Team is created | `teamName` |
 | `teammate-spawned` | Teammate process starts | `teamName`, `teammateName`, `teammateAgentName`, `teammatePid` |
-| `teammate-idle` | Teammate finishes a task and goes idle | `teamName`, `teammateName` |
-| `task-assigned` | Task assigned to a teammate | `teamName`, `teamTaskId`, `teamTaskOwner` |
-| `task-completed` | Task marked done | `teamName`, `teamTaskId`, `teamTaskResult` |
+| `teammate-idle` | Teammate finishes a task and goes idle | `teamName`, `teammateName`, task totals |
+| `task-assigned` | Task assigned to a teammate | `teamName`, `teamTaskId`, `teamTaskOwner`, member/task totals |
+| `task-completed` | Task marked done | `teamName`, `teamTaskId`, `teamTaskResult`, member/task totals |
 | `team-shutdown` | Team cleanup completes | `teamName`, `teamMemberCount`, `teamTasksCompleted`, `teamTasksTotal` |
 
-Context values are available as environment variables with the `HOOK_` prefix (e.g., `HOOK_teamTaskId`).
+Context values are available as uppercase environment variables such as
+`HOOK_TEAM_TASK_ID`, `HOOK_TEAM_TASKS_COMPLETED`, and `HOOK_TEAM_TASKS_TOTAL`.
 
 ### Example Hook Configuration
 
@@ -206,12 +203,12 @@ Context values are available as environment variables with the `HOOK_` prefix (e
     "hooks": [
       {
         "event": "task-completed",
-        "command": "echo \"Task $HOOK_teamTaskId done by $HOOK_teamTaskOwner\" >> ~/.autohand/team.log",
+        "command": "echo \"Task $HOOK_TEAM_TASK_ID done by $HOOK_TEAM_TASK_OWNER\" >> ~/.autohand/team.log",
         "description": "Log task completions"
       },
       {
         "event": "team-shutdown",
-        "command": "echo \"Team $HOOK_teamName finished: $HOOK_teamTasksCompleted/$HOOK_teamTasksTotal tasks\"",
+        "command": "echo \"Team $HOOK_TEAM_NAME finished: $HOOK_TEAM_TASKS_COMPLETED/$HOOK_TEAM_TASKS_TOTAL tasks\"",
         "description": "Report team summary on shutdown",
         "async": true
       }
@@ -278,9 +275,15 @@ A teammate child process follows this lifecycle:
 
 1. **Spawn** -- The lead spawns a new Node.js process with `--mode teammate` and passes team metadata as CLI flags:
    ```
-   autohand --mode teammate --team <teamName> --name <name> --agent <agentName> --lead-session <sessionId> [--model <model>] [--path <workspacePath>]
+   autohand --mode teammate --team <teamName> --name <name> --agent <agentName> --lead-session <sessionId> [--model <model>] [--path <workspacePath>] [--config <configPath>]
    ```
-   The child process inherits the current environment with `AUTOHAND_TEAMMATE=1` added.
+   The child process inherits the current environment plus
+   `AUTOHAND_TEAMMATE`, `AUTOHAND_TEAM_NAME`, `AUTOHAND_TEAMMATE_NAME`,
+   `AUTOHAND_TEAMMATE_AGENT`, and `AUTOHAND_TEAM_LEAD_SESSION_ID`. Resolved
+   teammates also receive `AUTOHAND_TEAM_REQUESTED_ROLE` and
+   `AUTOHAND_TEAM_AGENT_SOURCE` when available. During a task,
+   `AUTOHAND_TEAM_TASK_ID`, `AUTOHAND_TEAM_TASK_SUBJECT`, and
+   `AUTOHAND_TEAM_TASK_OWNER` are scoped to that execution.
 
 2. **Ready** -- The teammate sends `team.ready` to the lead via stdout, signaling it is initialized and ready for work.
 
@@ -368,4 +371,10 @@ When `/team shutdown` is invoked or the lead session ends:
 2. A 3-second grace period allows teammates to acknowledge via `team.shutdownAck`.
 3. After the grace period, any remaining teammate processes are force-terminated with `SIGTERM`.
 4. The team status is set to `completed` and internal teammate references are cleared.
-5. In tmux mode, all managed panes are closed via `tmux kill-pane`.
+5. The live view marks the team completed and clears its teammate processes.
+
+### ACP
+
+ACP clients receive each complete team snapshot as an ACP `plan` update. Team
+tasks map to plan entries with `pending`, `in_progress`, or `completed` status,
+so editors can render the same background progress without parsing terminal text.

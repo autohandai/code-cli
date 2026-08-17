@@ -24,6 +24,12 @@ export class TaskManager {
   private tasks: Map<string, TeamTask> = new Map();
   private counter = 0;
 
+  constructor(private readonly onChange?: () => void) {}
+
+  private notifyChange(): void {
+    this.onChange?.();
+  }
+
   createTask(input: CreateTaskInput): TeamTask {
     const id = `task-${++this.counter}`;
     const task: TeamTask = {
@@ -35,6 +41,7 @@ export class TaskManager {
       createdAt: new Date().toISOString(),
     };
     this.tasks.set(id, task);
+    this.notifyChange();
     return task;
   }
 
@@ -61,6 +68,7 @@ export class TaskManager {
     if (!task) throw new Error(`Task ${id} not found`);
     task.owner = owner;
     task.status = 'in_progress';
+    this.notifyChange();
   }
 
   completeTask(id: string): void {
@@ -68,6 +76,7 @@ export class TaskManager {
     if (!task) throw new Error(`Task ${id} not found`);
     task.status = 'completed';
     task.completedAt = new Date().toISOString();
+    this.notifyChange();
   }
 
   releaseTask(id: string): void {
@@ -76,6 +85,7 @@ export class TaskManager {
     task.status = 'pending';
     task.owner = undefined;
     task.completedAt = undefined;
+    this.notifyChange();
   }
 
   updateTask(id: string, updates: UpdateTaskInput): TeamTask {
@@ -107,6 +117,7 @@ export class TaskManager {
       task.completedAt = undefined;
     }
 
+    this.notifyChange();
     return task;
   }
 
@@ -121,6 +132,7 @@ export class TaskManager {
     const task = this.tasks.get(id);
     if (!task) throw new Error(`Task ${id} not found`);
     task.output = output;
+    this.notifyChange();
     return task;
   }
 

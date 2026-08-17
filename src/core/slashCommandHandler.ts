@@ -647,7 +647,10 @@ export class SlashCommandHandler {
         }
         case '/team': {
           const { team } = await import('../commands/team.js');
-          return team({ teamManager: this.ctx.teamManager }, args);
+          return team({
+            teamManager: this.ctx.teamManager,
+            onToggleTeamView: this.ctx.onToggleTeamView,
+          }, args);
         }
         case '/tasks': {
           const { tasks } = await import('../commands/tasks.js');

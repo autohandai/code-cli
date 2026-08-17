@@ -426,8 +426,8 @@ When your hook command executes, these environment variables are available:
 | `HOOK_TEAM_TASK_OWNER` | Team task owner | task-assigned, task-completed |
 | `HOOK_TEAM_TASK_RESULT` | Team task result | task-completed |
 | `HOOK_TEAM_MEMBER_COUNT` | Number of team members | team-created, teammate-spawned, teammate-idle, team-shutdown |
-| `HOOK_TEAM_TASKS_COMPLETED` | Completed task count | team-shutdown |
-| `HOOK_TEAM_TASKS_TOTAL` | Total task count | team-shutdown |
+| `HOOK_TEAM_TASKS_COMPLETED` | Completed task count | teammate-idle, task-assigned, task-completed, team-shutdown |
+| `HOOK_TEAM_TASKS_TOTAL` | Total task count | teammate-idle, task-assigned, task-completed, team-shutdown |
 | `HOOK_ADDITIONAL_WORKSPACES` | JSON array of additional workspaces | All events when configured |
 
 ---

@@ -14,6 +14,7 @@ export const metadata: SlashCommand = {
   implemented: true,
   subcommands: [
     { name: 'create', description: 'Create a new team' },
+    { name: 'view', description: 'Open the live team activity view' },
     { name: 'status', description: 'Show team status' },
     { name: 'shutdown', description: 'Shut down all teammates' },
   ],
@@ -21,6 +22,7 @@ export const metadata: SlashCommand = {
 
 interface TeamCommandContext {
   teamManager?: TeamManager;
+  onToggleTeamView?: (visible: boolean) => void;
 }
 
 export async function team(ctx: TeamCommandContext, args: string[]): Promise<string | null> {
@@ -35,6 +37,7 @@ export async function team(ctx: TeamCommandContext, args: string[]): Promise<str
       chalk.bold('Team Commands:'),
       '',
       `  ${chalk.cyan('/team create <name>')}  Create a new team`,
+      `  ${chalk.cyan('/team view')}           Open the live team activity view`,
       `  ${chalk.cyan('/team status')}         Show current team status`,
       `  ${chalk.cyan('/team shutdown')}       Shut down all teammates`,
       `  ${chalk.cyan('/team')}                Show this help`,
@@ -42,6 +45,14 @@ export async function team(ctx: TeamCommandContext, args: string[]): Promise<str
   }
 
   switch (subcommand) {
+    case 'view': {
+      if (!ctx.teamManager.getTeam()) {
+        return chalk.yellow('No active team. Create one first.');
+      }
+      ctx.onToggleTeamView?.(true);
+      return chalk.green('Opened the live team view. Press Cmd+T or Ctrl+T to close it.');
+    }
+
     case 'create': {
       const name = args.slice(1).join('-') || 'default';
       const activeTeam = ctx.teamManager.getTeam();

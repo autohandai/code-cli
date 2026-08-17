@@ -36,6 +36,17 @@ function createMockTeamManager(hasTeam = true) {
 }
 
 describe('/team command', () => {
+  it('opens the live team view without requiring a status prompt', async () => {
+    const onToggleTeamView = vi.fn();
+    const result = await team({
+      teamManager: createMockTeamManager() as any,
+      onToggleTeamView,
+    }, ['view']);
+
+    expect(onToggleTeamView).toHaveBeenCalledWith(true);
+    expect(result).toContain('live team view');
+  });
+
   it('should show help when called with no args', async () => {
     const mock = createMockTeamManager();
     const result = await team({ teamManager: mock as any }, []);

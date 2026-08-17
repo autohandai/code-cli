@@ -19,6 +19,7 @@ import {
   handleInkTextBufferInput,
   isBareComposerTrigger,
   matchesExtensionKeybinding,
+  isTeamViewShortcut,
   resolveInkHiddenPastes,
   storeInkHiddenPaste,
 } from '../../../src/ui/ink/AgentUI.js';
@@ -79,6 +80,12 @@ afterEach(() => {
 });
 
 describe('AgentUI TextBuffer integration helpers', () => {
+  it('recognizes Cmd+T and Ctrl+T as team view shortcuts', () => {
+    expect(isTeamViewShortcut('t', createInkKey({ meta: true }))).toBe(true);
+    expect(isTeamViewShortcut('t', createInkKey({ ctrl: true }))).toBe(true);
+    expect(isTeamViewShortcut('t', createInkKey())).toBe(false);
+  });
+
   it('matches extension keybindings without claiming reserved composer controls', () => {
     expect(matchesExtensionKeybinding('k', createInkKey({ ctrl: true }), {
       key: 'ctrl+k',
@@ -396,6 +403,50 @@ describe('AgentUI live command shortcut', () => {
 
     expect(onToggleLiveCommandExpanded).toHaveBeenCalledOnce();
     expect(stripAnsi(lastFrame() ?? '')).toContain('next instruction');
+  });
+});
+
+describe('AgentUI team activity view', () => {
+  it('renders the live team panel when the view is open', () => {
+    const state = {
+      ...createInitialUIState(),
+      teamPanelVisible: true,
+      teamActivity: {
+        team: {
+          name: 'prompt-shrink',
+          createdAt: '2026-08-17T00:00:00.000Z',
+          leadSessionId: 'lead-1',
+          status: 'active' as const,
+          members: [
+            { name: 'planner', agentName: 'planner', pid: 101, status: 'working' as const },
+          ],
+        },
+        tasks: [
+          { id: 'task-1', subject: 'Plan compression', description: '', status: 'in_progress' as const, blockedBy: [], createdAt: '' },
+        ],
+      },
+    };
+    const { lastFrame } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+          })
+        )
+      )
+    );
+
+    const frame = stripAnsi(lastFrame() ?? '');
+    expect(frame).toContain('Team: prompt-shrink');
+    expect(frame).toContain('Plan compression');
+    expect(frame).toContain('planner');
   });
 });
 

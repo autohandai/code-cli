@@ -644,6 +644,8 @@ export async function shutdownAgentRuntimeResources(host: AgentLifecycleHost): P
       host.persistentConsoleBridgeCleanup = null;
       callResourceCleanupSync(host.announcementUnsubscribe ?? undefined);
       host.announcementUnsubscribe = null;
+      callResourceCleanupSync(host.teamActivityUnsubscribe ?? undefined);
+      host.teamActivityUnsubscribe = null;
 
       callResourceCleanupSync(() => host.repeatManager?.shutdown());
       host.persistentInputActiveTurn = false;

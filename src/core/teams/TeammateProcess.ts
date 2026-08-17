@@ -15,6 +15,7 @@ interface TeammateSpawnOptions {
   leadSessionId: string;
   model?: string;
   workspacePath?: string;
+  configPath?: string;
   requestedRole?: string;
   agentSource?: string;
 }
@@ -49,6 +50,7 @@ export class TeammateProcess {
   private childClosed = false;
   private router = new MessageRouter();
   private _status: TeamMemberStatus = 'spawning';
+  private exitCode: number | null | undefined;
   private readonly opts: TeammateSpawnOptions;
 
   constructor(opts: TeammateSpawnOptions) {
@@ -86,7 +88,24 @@ export class TeammateProcess {
     ];
     if (opts.model) args.push('--model', opts.model);
     if (opts.workspacePath) args.push('--path', opts.workspacePath);
+    if (opts.configPath) args.push('--config', opts.configPath);
     return args;
+  }
+
+  static buildSpawnEnv(
+    opts: TeammateSpawnOptions,
+    baseEnv: NodeJS.ProcessEnv = process.env,
+  ): NodeJS.ProcessEnv {
+    return {
+      ...baseEnv,
+      AUTOHAND_TEAMMATE: '1',
+      AUTOHAND_TEAM_NAME: opts.teamName,
+      AUTOHAND_TEAMMATE_NAME: opts.name,
+      AUTOHAND_TEAMMATE_AGENT: opts.agentName,
+      AUTOHAND_TEAM_LEAD_SESSION_ID: opts.leadSessionId,
+      ...(opts.requestedRole ? { AUTOHAND_TEAM_REQUESTED_ROLE: opts.requestedRole } : {}),
+      ...(opts.agentSource ? { AUTOHAND_TEAM_AGENT_SOURCE: opts.agentSource } : {}),
+    };
   }
 
   /**
@@ -99,7 +118,7 @@ export class TeammateProcess {
     const binPath = process.argv[1];
     this.child = spawn(process.execPath, [binPath, ...args], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, AUTOHAND_TEAMMATE: '1' },
+      env: TeammateProcess.buildSpawnEnv(this.opts),
     });
     this.childClosed = false;
 
@@ -126,6 +145,7 @@ export class TeammateProcess {
     }
 
     this.child.on('exit', (code) => {
+      this.exitCode = code;
       this._status = 'shutdown';
       onExit(code);
     });
@@ -235,6 +255,7 @@ export class TeammateProcess {
       agentName: this.opts.agentName,
       pid: this.pid,
       status: this._status,
+      ...(this._status === 'shutdown' ? { exitCode: this.exitCode ?? null } : {}),
       model: this.opts.model,
       requestedRole: this.opts.requestedRole,
       agentSource: this.opts.agentSource,

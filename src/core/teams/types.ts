@@ -16,6 +16,7 @@ export const TeamMemberSchema = z.object({
   agentName: z.string().min(1),
   pid: z.number().int().nonnegative(),
   status: TeamMemberStatusSchema,
+  exitCode: z.number().int().nullable().optional(),
   model: z.string().optional(),
   requestedRole: z.string().min(1).optional(),
   agentSource: z.string().min(1).optional(),
@@ -54,6 +55,11 @@ export const TeamTaskSchema = z.object({
   output: z.string().optional(),
 });
 export type TeamTask = z.infer<typeof TeamTaskSchema>;
+
+export interface TeamActivitySnapshot {
+  team: Team | null;
+  tasks: TeamTask[];
+}
 
 // --- Project Profile ---
 

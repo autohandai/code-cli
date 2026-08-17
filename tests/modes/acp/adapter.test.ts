@@ -1358,6 +1358,61 @@ describe("AutohandAcpAdapter", () => {
       });
     });
 
+    it("maps live team tasks to ACP plan updates", async () => {
+      const outputListener = mockAgent.setOutputListener.mock.calls[0][0];
+      connection.sessionUpdate.mockClear();
+
+      await outputListener({
+        type: "team_update",
+        teamActivity: {
+          team: {
+            name: "release-readiness",
+            createdAt: "2026-08-17T00:00:00.000Z",
+            leadSessionId: "lead-1",
+            status: "active",
+            members: [{
+              name: "planner",
+              agentName: "repo-reader",
+              pid: 42,
+              status: "working",
+            }],
+          },
+          tasks: [{
+            id: "task-1",
+            subject: "Plan the rollout",
+            description: "Produce the implementation sequence.",
+            status: "completed",
+            owner: "planner",
+            blockedBy: [],
+            createdAt: "2026-08-17T00:00:01.000Z",
+            completedAt: "2026-08-17T00:00:02.000Z",
+          }],
+        },
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(connection.sessionUpdate).toHaveBeenCalledWith({
+        sessionId,
+        update: {
+          sessionUpdate: "plan",
+          entries: [{
+            content: "Plan the rollout → planner",
+            priority: "medium",
+            status: "completed",
+            _meta: {
+              teamName: "release-readiness",
+              taskId: "task-1",
+              owner: "planner",
+            },
+          }],
+          _meta: {
+            teamName: "release-readiness",
+            memberCount: 1,
+          },
+        },
+      });
+    });
+
     it("emits sessionStart hook with startup type on newSession", async () => {
       // newSession already called in beforeEach — check that extNotification was called with sessionStart
       const extNotif = connection.extNotification as ReturnType<typeof vi.fn>;

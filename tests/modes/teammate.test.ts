@@ -87,6 +87,7 @@ import {
   executeTask,
   parseTeammateOptions,
   runTeammateModeWithStreams,
+  withTeammateTaskEnvironment,
 } from "../../src/modes/teammate.js";
 import type { TeammateOptions } from "../../src/modes/teammate.js";
 
@@ -114,6 +115,7 @@ describe("parseTeammateOptions", () => {
       leadSessionId: "session-123",
       model: undefined,
       workspacePath: undefined,
+      configPath: undefined,
     });
   });
 
@@ -135,10 +137,13 @@ describe("parseTeammateOptions", () => {
       "your-modelcard-id-here",
       "--path",
       "/tmp/workspace",
+      "--config",
+      "/tmp/team-config.json",
     ];
     const opts = parseTeammateOptions(argv);
     expect(opts?.model).toBe("your-modelcard-id-here");
     expect(opts?.workspacePath).toBe("/tmp/workspace");
+    expect(opts?.configPath).toBe("/tmp/team-config.json");
   });
 
   it("should return null when required options are missing", () => {
@@ -153,6 +158,47 @@ describe("parseTeammateOptions", () => {
 });
 
 describe("teammate executeTask", () => {
+  it("scopes task identity environment variables to one execution", async () => {
+    const originalTaskId = process.env.AUTOHAND_TEAM_TASK_ID;
+    delete process.env.AUTOHAND_TEAM_TASK_ID;
+
+    try {
+      await withTeammateTaskEnvironment(
+        {
+          teamName: "release-readiness",
+          name: "planner",
+          agentName: "repo-reader",
+          leadSessionId: "lead-123",
+        },
+        {
+          id: "task-17",
+          subject: "Plan the rollout",
+          description: "Produce the implementation sequence.",
+          status: "in_progress",
+          owner: "planner",
+          blockedBy: [],
+          createdAt: "",
+        },
+        async () => {
+          expect(process.env).toMatchObject({
+            AUTOHAND_TEAM_NAME: "release-readiness",
+            AUTOHAND_TEAMMATE_NAME: "planner",
+            AUTOHAND_TEAMMATE_AGENT: "repo-reader",
+            AUTOHAND_TEAM_LEAD_SESSION_ID: "lead-123",
+            AUTOHAND_TEAM_TASK_ID: "task-17",
+            AUTOHAND_TEAM_TASK_SUBJECT: "Plan the rollout",
+            AUTOHAND_TEAM_TASK_OWNER: "planner",
+          });
+        },
+      );
+
+      expect(process.env.AUTOHAND_TEAM_TASK_ID).toBeUndefined();
+    } finally {
+      if (originalTaskId === undefined) delete process.env.AUTOHAND_TEAM_TASK_ID;
+      else process.env.AUTOHAND_TEAM_TASK_ID = originalTaskId;
+    }
+  });
+
   it("scopes goal tools to the teammate lead-session boundary", async () => {
     await executeTask(
       {
@@ -175,6 +221,33 @@ describe("teammate executeTask", () => {
       getCurrentSessionId?: () => string | undefined;
     };
     expect(options.getCurrentSessionId?.()).toBe("sess-goal-owner");
+  });
+
+  it("loads the configuration explicitly forwarded by the lead", async () => {
+    const { loadConfig } = await import("../../src/config.js");
+    const loadConfigMock = vi.mocked(loadConfig);
+    loadConfigMock.mockClear();
+
+    await executeTask(
+      {
+        teamName: "test",
+        name: "worker",
+        agentName: "tester",
+        leadSessionId: "sess-config",
+        workspacePath: "/tmp/workspace",
+        configPath: "/tmp/team-config.json",
+      },
+      {
+        id: "task-config",
+        subject: "Inspect config",
+        description: "Use the lead configuration",
+        status: "in_progress",
+        blockedBy: [],
+        createdAt: "",
+      },
+    );
+
+    expect(loadConfigMock).toHaveBeenCalledWith("/tmp/team-config.json", "/tmp/workspace");
   });
 
   it("runs SubAgent and returns result", async () => {

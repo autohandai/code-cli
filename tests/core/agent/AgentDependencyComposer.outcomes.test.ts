@@ -39,6 +39,16 @@ interface AgentOutcomeInternals {
   delegator: {
     delegateTask: ReturnType<typeof vi.fn>;
     delegateTaskForTool: ReturnType<typeof vi.fn>;
+    onSubagentStart?: (context: {
+      subagentId: string;
+      subagentName: string;
+      subagentType: string;
+      task: string;
+    }) => Promise<void>;
+  };
+  getInteractionMode(): string;
+  inkRenderer?: {
+    upsertActivityItem: ReturnType<typeof vi.fn>;
   };
   specialistOrchestrator: {
     continueInterview: ReturnType<typeof vi.fn>;
@@ -171,6 +181,27 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
       success: false,
       kind: 'operational',
       error: 'Agent reviewer was not found.',
+    });
+  });
+
+  it('switches default interactive sessions to auto mode when a subagent starts', async () => {
+    const { internals } = createAgent({}, 'interactive');
+    internals.inkRenderer = { upsertActivityItem: vi.fn() };
+
+    await internals.delegator.onSubagentStart?.({
+      subagentId: 'subagent-1',
+      subagentName: 'reviewer',
+      subagentType: 'builtin',
+      task: 'Review the authentication flow',
+    });
+
+    expect(internals.getInteractionMode()).toBe('automode');
+    expect(internals.inkRenderer.upsertActivityItem).toHaveBeenCalledWith({
+      id: 'subagent-1',
+      kind: 'subagent',
+      label: 'reviewer: Review the authentication flow',
+      status: 'in_progress',
+      detail: 'builtin',
     });
   });
 

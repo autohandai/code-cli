@@ -315,6 +315,9 @@ export async function initializeAgentUI(host: AgentUIRuntimeHost, abortControlle
         host.ui?.setWorking(true, 'Gathering context...');
         host.runtime.inkRenderer = host.inkRenderer;
         syncAgentAnnouncementLine(host);
+        if (host.teamActivitySnapshot) {
+          host.inkRenderer?.setTeamActivity?.(host.teamActivitySnapshot);
+        }
         
         // Ensure fallback spinner is NOT initialized when Ink is active
         if (host.runtime?.spinner) {

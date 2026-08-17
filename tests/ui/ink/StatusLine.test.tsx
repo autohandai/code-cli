@@ -49,6 +49,36 @@ describe('StatusLine extensions', () => {
     expect(frame).toContain('esc to cancel');
   });
 
+  it('shows ambient team progress while the lead is idle', () => {
+    const { lastFrame } = renderStatusLine({
+      isWorking: false,
+      status: '',
+      teamActivity: {
+        team: {
+          name: 'prompt-shrink',
+          createdAt: '2026-08-17T00:00:00.000Z',
+          leadSessionId: 'lead-1',
+          status: 'active',
+          members: [
+            { name: 'planner', agentName: 'planner', pid: 101, status: 'working' },
+            { name: 'reviewer', agentName: 'reviewer', pid: 102, status: 'idle' },
+          ],
+        },
+        tasks: [
+          { id: 'task-1', subject: 'Plan', description: '', status: 'completed', blockedBy: [], createdAt: '' },
+          { id: 'task-2', subject: 'Review', description: '', status: 'in_progress', blockedBy: [], createdAt: '' },
+          { id: 'task-3', subject: 'Ship', description: '', status: 'pending', blockedBy: [], createdAt: '' },
+        ],
+      },
+    });
+
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('prompt-shrink');
+    expect(frame).toContain('1/3 done');
+    expect(frame).toContain('1 working');
+    expect(frame).toContain('cmd+t');
+  });
+
   it('appends custom status segments after default active-turn chrome', () => {
     const { lastFrame } = renderStatusLine({
       isWorking: true,

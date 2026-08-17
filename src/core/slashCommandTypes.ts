@@ -122,6 +122,8 @@ export interface SlashCommandContext {
     onTopRecommendation?: (slug: string) => void;
     /** Team manager for /team and /tasks commands */
     teamManager?: TeamManager;
+    /** Toggle the expanded live team activity view. */
+    onToggleTeamView?: (visible: boolean) => void;
     /** Repeat manager for /repeat recurring prompt scheduling */
     repeatManager?: RepeatManager;
     /** Queue an instruction to be sent to the LLM on the next turn (not displayed to user) */
