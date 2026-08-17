@@ -47,10 +47,18 @@ describe('feature registry', () => {
     expect(getFeatureState(config, 'chrome_integration')?.enabled).toBe(false);
     expect(getFeatureState(config, 'cli_usage_v2')?.enabled).toBe(true);
     expect(getFeatureState(config, 'slash_goal')?.enabled).toBe(false);
-    expect(getFeatureState(config, 'automatic_specialists')?.enabled).toBe(false);
+    expect(getFeatureState(config, 'automatic_specialists')?.enabled).toBe(true);
     expect(getFeatureState(config, 'experimental_fork')?.enabled).toBe(false);
     expect(getFeatureState(config, 'experimental_clone')?.enabled).toBe(false);
     expect(getFeatureState(config, 'experimental_handoff')?.enabled).toBe(false);
+  });
+
+  it('allows users to disable automatic specialists explicitly', () => {
+    const config = makeConfig({
+      features: { automaticSpecialists: false },
+    });
+
+    expect(getFeatureState(config, 'automatic_specialists')?.enabled).toBe(false);
   });
 
   it('keeps prompt caching experimental and disabled until explicitly enabled', () => {
@@ -274,15 +282,15 @@ describe('feature registry', () => {
     expect(getFeatureState(config, 'slash_goal')?.enabled).toBe(true);
   });
 
-  it('keeps automatic specialist orchestration default-off and locally opt-in', () => {
+  it('keeps automatic specialist orchestration default-on and locally opt-out', () => {
     const config = makeConfig();
 
-    const result = setFeatureState(config, 'automatic_specialists', true);
+    const result = setFeatureState(config, 'automatic_specialists', false);
 
     expect(result.ok).toBe(true);
-    expect(config.features?.automaticSpecialists).toBe(true);
+    expect(config.features?.automaticSpecialists).toBe(false);
     expect(getFeatureState(config, 'automatic_specialists')).toEqual(expect.objectContaining({
-      enabled: true,
+      enabled: false,
       stage: 'experimental',
       requiresRestart: true,
     }));
