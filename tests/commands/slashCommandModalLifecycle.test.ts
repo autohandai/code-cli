@@ -264,9 +264,10 @@ describe('/status command screen isolation', () => {
         freeRemaining: null,
         limits: {
           displayName: 'Autohand Code Pro',
-          messagesPer5h: 100,
-          messagesPerWeek: 1000,
-          rpm: 100,
+          messagesPer5h: 250,
+          messagesPer24h: 1000,
+          messagesPerWeek: 7000,
+          rpm: 200,
           requiresEligibility: false,
           perSeat: false,
           models: ['fantail', 'moa'],
@@ -287,7 +288,10 @@ describe('/status command screen isolation', () => {
       const rendered = consoleSpy.mock.calls.map((args) => args.join(' ')).join('\n');
       expect(rendered).toContain('Plan:');
       expect(rendered).toContain('Autohand Code Pro');
-      expect(rendered).toContain('100 messages / 5 hours');
+      expect(rendered).toContain('250 requests / 5 hours');
+      expect(rendered).toContain('1K requests / 24 hours');
+      expect(rendered).toContain('7K requests / week');
+      expect(rendered).toContain('200 requests / minute');
     } finally {
       Object.defineProperty(process, 'stdin', { value: originalStdin, writable: true, configurable: true });
       Object.defineProperty(process, 'stdout', { value: originalStdout, writable: true, configurable: true });
@@ -431,9 +435,10 @@ describe('/status command screen isolation', () => {
         freeRemaining: null,
         limits: {
           displayName: 'Autohand Code Pro',
-          messagesPer5h: 100,
-          messagesPerWeek: 1000,
-          rpm: 100,
+          messagesPer5h: 250,
+          messagesPer24h: 1000,
+          messagesPerWeek: 7000,
+          rpm: 200,
           requiresEligibility: false,
           perSeat: false,
           models: ['fantail', 'moa'],
@@ -442,14 +447,20 @@ describe('/status command screen isolation', () => {
           available: true,
           window5h: {
             used: 12,
-            remaining: 88,
-            limit: 100,
+            remaining: 238,
+            limit: 250,
             resetAt: '2026-08-10T06:00:00.000Z',
           },
-          week: {
+          window24h: {
             used: 120,
             remaining: 880,
             limit: 1000,
+            resetAt: '2026-08-11T01:00:00.000Z',
+          },
+          week: {
+            used: 120,
+            remaining: 6880,
+            limit: 7000,
             resetAt: '2026-08-17T01:00:00.000Z',
           },
         },
@@ -478,11 +489,16 @@ describe('/status command screen isolation', () => {
       expect(rendered).toContain('37.5K used / 258K');
       expect(rendered).toContain('Autohand plan:');
       expect(rendered).toContain('Autohand Code Pro');
-      expect(rendered).toContain('100 messages / 5 hours');
-      expect(rendered).toContain('5-hour window:');
-      expect(rendered).toContain('12 used / 100');
-      expect(rendered).toContain('Weekly window:');
+      expect(rendered).toContain('250 requests / 5 hours');
+      expect(rendered).toContain('1K requests / 24 hours');
+      expect(rendered).toContain('7K requests / week');
+      expect(rendered).toContain('200 requests / minute');
+      expect(rendered).toContain('5-hour quota:');
+      expect(rendered).toContain('12 used / 250');
+      expect(rendered).toContain('24-hour quota:');
       expect(rendered).toContain('120 used / 1K');
+      expect(rendered).toContain('Weekly quota:');
+      expect(rendered).toContain('120 used / 7K');
       expect(rendered).not.toContain('autohandai: not reported by provider');
     } finally {
       Object.defineProperty(process, 'stdin', { value: originalStdin, writable: true, configurable: true });

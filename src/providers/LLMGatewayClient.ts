@@ -154,8 +154,9 @@ function structuredGatewayError(value: unknown): StructuredGatewayError | undefi
 }
 
 const AUTOHAND_QUOTA_SCOPE_LABELS = {
-  window_5h: "5-hour",
-  window_week: "weekly",
+  window_5h: "5-hour request quota",
+  window_24h: "24-hour request quota",
+  window_week: "weekly request quota",
 } as const;
 
 type AutohandQuotaScope = keyof typeof AUTOHAND_QUOTA_SCOPE_LABELS;
@@ -178,7 +179,7 @@ class AutohandRateLimitError extends ApiError {
 }
 
 function isAutohandQuotaScope(value: string | undefined): value is AutohandQuotaScope {
-  return value === "window_5h" || value === "window_week";
+  return value === "window_5h" || value === "window_24h" || value === "window_week";
 }
 
 function formatResetDistance(resetAtMs: number, nowMs: number): string {
@@ -219,8 +220,8 @@ function buildAutohandQuotaMessage(error: StructuredGatewayError): string {
   const upgradeMessage = upgradeUrl
     ? `\nUpgrade your Autohand Code plan for more usage: ${upgradeUrl}`
     : "";
-  return `Autohand AI ${AUTOHAND_QUOTA_SCOPE_LABELS[scope]} message limit reached.`
-    + `\n${error.message ?? "Your current message allowance is exhausted."}`
+  return `Autohand AI ${AUTOHAND_QUOTA_SCOPE_LABELS[scope]} reached.`
+    + `\n${error.message ?? "Your current request quota is exhausted."}`
     + `\n${formatAutohandQuotaReset(error.resetAt)}`
     + upgradeMessage;
 }

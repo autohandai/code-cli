@@ -27,6 +27,7 @@ const DEVICE_AUTH_STATUS_ERROR = 'Autohand returned an invalid device-authorizat
 export interface AccountEntitlementLimits {
   displayName: string;
   messagesPer5h: number | null;
+  messagesPer24h: number | null;
   messagesPerWeek: number | null;
   rpm: number;
   requiresEligibility: boolean;
@@ -44,6 +45,7 @@ export interface AccountQuotaWindow {
 export interface AccountQuota {
   available: boolean;
   window5h: AccountQuotaWindow | null;
+  window24h: AccountQuotaWindow | null;
   week: AccountQuotaWindow | null;
   message?: string;
 }
@@ -76,9 +78,12 @@ function isSafeText(value: unknown, maxLength = 256): value is string {
 }
 
 function parseAccountEntitlementLimits(value: unknown): AccountEntitlementLimits | undefined {
-  if (!isRecord(value)
-    || !isSafeText(value.displayName)
+  if (!isRecord(value)) return undefined;
+  const messagesPer24h = value.messagesPer24h === undefined ? null : value.messagesPer24h;
+  if (
+    !isSafeText(value.displayName)
     || (value.messagesPer5h !== null && typeof value.messagesPer5h !== 'number')
+    || (messagesPer24h !== null && typeof messagesPer24h !== 'number')
     || (value.messagesPerWeek !== null && typeof value.messagesPerWeek !== 'number')
     || typeof value.rpm !== 'number'
     || typeof value.requiresEligibility !== 'boolean'
@@ -91,6 +96,7 @@ function parseAccountEntitlementLimits(value: unknown): AccountEntitlementLimits
   return {
     displayName: value.displayName,
     messagesPer5h: value.messagesPer5h,
+    messagesPer24h,
     messagesPerWeek: value.messagesPerWeek,
     rpm: value.rpm,
     requiresEligibility: value.requiresEligibility,
@@ -119,13 +125,15 @@ function parseAccountQuotaWindow(value: unknown): AccountQuotaWindow | null | un
 function parseAccountQuota(value: unknown): AccountQuota | undefined {
   if (!isRecord(value) || typeof value.available !== 'boolean') return undefined;
   const window5h = parseAccountQuotaWindow(value.window5h);
+  const window24h = value.window24h === undefined ? null : parseAccountQuotaWindow(value.window24h);
   const week = parseAccountQuotaWindow(value.week);
-  if (window5h === undefined || week === undefined) return undefined;
+  if (window5h === undefined || window24h === undefined || week === undefined) return undefined;
   if (value.available && (window5h === null || week === null)) return undefined;
   const message = isSafeText(value.message) ? value.message : undefined;
   return {
     available: value.available,
     window5h,
+    window24h,
     week,
     ...(message ? { message } : {}),
   };

@@ -407,7 +407,7 @@ describe('built CLI Tuistory smoke tests', () => {
     expectCleanExit(session);
   }, 45_000);
 
-  it('recommends upgrading when an Autohand AI message quota is exhausted', async () => {
+  it('recommends upgrading when an Autohand AI request quota is exhausted', async () => {
     const quotaServer = await createMockAutohandAIQuotaServer();
     mockServers.push(quotaServer);
     const state = await createTempAutohandHome({
@@ -442,14 +442,14 @@ describe('built CLI Tuistory smoke tests', () => {
     await session.waitForText('Upgrade your Autohand Code plan for more usage', { timeout: 20_000 });
     const output = session.readAll();
 
-    expect(output).toContain('Autohand AI 5-hour message limit reached.');
-    expect(output).toContain("You've used all your messages in this 5-hour window.");
+    expect(output).toContain('Autohand AI 24-hour request quota reached.');
+    expect(output).toContain("You've used all your requests in this 24-hour window.");
     expect(output).toContain('(Pacific/Auckland) · in 2h 30m.');
     expect(output).toContain(
       'Upgrade your Autohand Code plan for more usage: https://console.autohand.ai/upgrade/?from=cli&tier=pro',
     );
     expect(output).not.toContain('Please wait a moment and try again');
-    expect(output.match(/Autohand AI 5-hour message limit reached\./gu)).toHaveLength(1);
+    expect(output.match(/Autohand AI 24-hour request quota reached\./gu)).toHaveLength(1);
     await exitInteractive(session);
   });
 
@@ -2641,8 +2641,10 @@ describe('interactive built CLI Tuistory tests', () => {
     const output = session.readAll();
 
     expect(output).toContain('Autohand plan');
-    expect(output).toContain('100 messages / 5 hours');
-    expect(output).toContain('1K messages / week');
+    expect(output).toContain('250 requests / 5 hours');
+    expect(output).toContain('1K requests / 24 hours');
+    expect(output).toContain('7K requests / week');
+    expect(output).toContain('200 requests / minute');
     await exitInteractive(session);
   });
 
@@ -2685,11 +2687,16 @@ describe('interactive built CLI Tuistory tests', () => {
     const output = session.readAll();
 
     expect(output).toContain('Autohand Code Pro');
-    expect(output).toContain('100 messages / 5 hours');
-    expect(output).toContain('5-hour window:');
-    expect(output).toContain('12 used / 100');
-    expect(output).toContain('Weekly window:');
+    expect(output).toContain('250 requests / 5 hours');
+    expect(output).toContain('1K requests / 24 hours');
+    expect(output).toContain('7K requests / week');
+    expect(output).toContain('200 requests / minute');
+    expect(output).toContain('5-hour quota:');
+    expect(output).toContain('12 used / 250');
+    expect(output).toContain('24-hour quota:');
     expect(output).toContain('120 used / 1K');
+    expect(output).toContain('Weekly quota:');
+    expect(output).toContain('120 used / 7K');
     expect(output).not.toContain('autohandai:              not reported by provider');
     await session.press('escape');
     await waitForComposer(session);
