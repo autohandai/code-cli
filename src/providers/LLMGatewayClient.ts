@@ -159,8 +159,14 @@ const AUTOHAND_QUOTA_SCOPE_LABELS = {
   window_week: "weekly request quota",
 } as const;
 
+const AUTOHAND_TOKEN_THROUGHPUT_SCOPE_LABELS = {
+  input_tpm: "uncached input-token throughput",
+  output_tpm: "output-token throughput",
+} as const;
+
 type AutohandQuotaScope = keyof typeof AUTOHAND_QUOTA_SCOPE_LABELS;
-type AutohandRateLimitScope = AutohandQuotaScope | "rpm";
+type AutohandTokenThroughputScope = keyof typeof AUTOHAND_TOKEN_THROUGHPUT_SCOPE_LABELS;
+type AutohandRateLimitScope = AutohandQuotaScope | AutohandTokenThroughputScope | "rpm";
 
 class AutohandRateLimitError extends ApiError {
   readonly scope: AutohandRateLimitScope;
@@ -180,6 +186,10 @@ class AutohandRateLimitError extends ApiError {
 
 function isAutohandQuotaScope(value: string | undefined): value is AutohandQuotaScope {
   return value === "window_5h" || value === "window_24h" || value === "window_week";
+}
+
+function isAutohandTokenThroughputScope(value: string | undefined): value is AutohandTokenThroughputScope {
+  return value === "input_tpm" || value === "output_tpm";
 }
 
 function formatResetDistance(resetAtMs: number, nowMs: number): string {
@@ -223,6 +233,17 @@ function buildAutohandQuotaMessage(error: StructuredGatewayError): string {
   return `Autohand AI ${AUTOHAND_QUOTA_SCOPE_LABELS[scope]} reached.`
     + `\n${error.message ?? "Your current request quota is exhausted."}`
     + `\n${formatAutohandQuotaReset(error.resetAt)}`
+    + upgradeMessage;
+}
+
+function buildAutohandTokenThroughputMessage(error: StructuredGatewayError): string {
+  const scope = error.scope as AutohandTokenThroughputScope;
+  const upgradeUrl = trustedAutohandUpgradeUrl(error.upgradeUrl);
+  const upgradeMessage = upgradeUrl
+    ? `\nUpgrade your Autohand Code plan for more usage: ${upgradeUrl}`
+    : "";
+  return `Autohand AI ${AUTOHAND_TOKEN_THROUGHPUT_SCOPE_LABELS[scope]} reached.`
+    + `\n${error.message ?? "Your token throughput is exhausted for this minute."}`
     + upgradeMessage;
 }
 
@@ -594,6 +615,19 @@ export class LLMGatewayClient {
       && isAutohandQuotaScope(structuredError.scope)) {
       return new AutohandRateLimitError(
         buildAutohandQuotaMessage(structuredError),
+        status,
+        false,
+        structuredError.scope,
+        undefined,
+        errorDetail,
+      );
+    }
+
+    if (this.errorLabels.serviceName === "Autohand AI"
+      && structuredError?.type === "rate_limited"
+      && isAutohandTokenThroughputScope(structuredError.scope)) {
+      return new AutohandRateLimitError(
+        buildAutohandTokenThroughputMessage(structuredError),
         status,
         false,
         structuredError.scope,

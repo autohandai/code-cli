@@ -30,6 +30,8 @@ export interface AccountEntitlementLimits {
   messagesPer24h: number | null;
   messagesPerWeek: number | null;
   rpm: number;
+  inputTokensPerMinute: number | null;
+  outputTokensPerMinute: number | null;
   requiresEligibility: boolean;
   perSeat: boolean;
   models: string[];
@@ -80,12 +82,16 @@ function isSafeText(value: unknown, maxLength = 256): value is string {
 function parseAccountEntitlementLimits(value: unknown): AccountEntitlementLimits | undefined {
   if (!isRecord(value)) return undefined;
   const messagesPer24h = value.messagesPer24h === undefined ? null : value.messagesPer24h;
+  const inputTokensPerMinute = value.inputTokensPerMinute === undefined ? null : value.inputTokensPerMinute;
+  const outputTokensPerMinute = value.outputTokensPerMinute === undefined ? null : value.outputTokensPerMinute;
   if (
     !isSafeText(value.displayName)
     || (value.messagesPer5h !== null && typeof value.messagesPer5h !== 'number')
     || (messagesPer24h !== null && typeof messagesPer24h !== 'number')
     || (value.messagesPerWeek !== null && typeof value.messagesPerWeek !== 'number')
     || typeof value.rpm !== 'number'
+    || (inputTokensPerMinute !== null && typeof inputTokensPerMinute !== 'number')
+    || (outputTokensPerMinute !== null && typeof outputTokensPerMinute !== 'number')
     || typeof value.requiresEligibility !== 'boolean'
     || typeof value.perSeat !== 'boolean'
     || !Array.isArray(value.models)
@@ -99,6 +105,8 @@ function parseAccountEntitlementLimits(value: unknown): AccountEntitlementLimits
     messagesPer24h,
     messagesPerWeek: value.messagesPerWeek,
     rpm: value.rpm,
+    inputTokensPerMinute,
+    outputTokensPerMinute,
     requiresEligibility: value.requiresEligibility,
     perSeat: value.perSeat,
     models: value.models,

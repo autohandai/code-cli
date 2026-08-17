@@ -2644,7 +2644,9 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(output).toContain('250 requests / 5 hours');
     expect(output).toContain('1K requests / 24 hours');
     expect(output).toContain('7K requests / week');
-    expect(output).toContain('200 requests / minute');
+    expect(output).toContain('1K requests / minute');
+    expect(output).toContain('500K uncached input tokens / minute');
+    expect(output).toContain('80K output tokens / minute');
     await exitInteractive(session);
   });
 
@@ -2690,7 +2692,9 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(output).toContain('250 requests / 5 hours');
     expect(output).toContain('1K requests / 24 hours');
     expect(output).toContain('7K requests / week');
-    expect(output).toContain('200 requests / minute');
+    expect(output).toContain('1K requests / minute');
+    expect(output).toContain('500K uncached input tokens / minute');
+    expect(output).toContain('80K output tokens / minute');
     expect(output).toContain('5-hour quota:');
     expect(output).toContain('12 used / 250');
     expect(output).toContain('24-hour quota:');

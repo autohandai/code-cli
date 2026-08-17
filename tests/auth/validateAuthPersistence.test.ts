@@ -80,7 +80,9 @@ describe('AuthClient.fetchEntitlement', () => {
             messagesPer5h: 250,
             messagesPer24h: 1000,
             messagesPerWeek: 7000,
-            rpm: 200,
+            rpm: 1000,
+            inputTokensPerMinute: 500_000,
+            outputTokensPerMinute: 80_000,
             requiresEligibility: false,
             perSeat: false,
             models: ['fantail', 'moa'],
@@ -118,7 +120,9 @@ describe('AuthClient.fetchEntitlement', () => {
         messagesPer5h: 250,
         messagesPer24h: 1000,
         messagesPerWeek: 7000,
-        rpm: 200,
+        rpm: 1000,
+        inputTokensPerMinute: 500_000,
+        outputTokensPerMinute: 80_000,
         requiresEligibility: false,
         perSeat: false,
         models: ['fantail', 'moa'],
@@ -184,7 +188,11 @@ describe('AuthClient.fetchEntitlement', () => {
     );
 
     await expect(client.fetchEntitlement('pro-token')).resolves.toMatchObject({
-      limits: { messagesPer24h: null },
+      limits: {
+        messagesPer24h: null,
+        inputTokensPerMinute: null,
+        outputTokensPerMinute: null,
+      },
       quota: { window24h: null },
     });
   });

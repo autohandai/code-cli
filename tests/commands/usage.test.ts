@@ -118,6 +118,26 @@ function makeContext(overrides: Partial<SlashCommandContext> = {}): SlashCommand
 }
 
 describe('/usage command', () => {
+  it('formats Max throughput as exactly four times Pro', async () => {
+    const { formatAccountPlanThroughput } = await import('../../src/commands/usage.js');
+    expect(formatAccountPlanThroughput({
+      tier: 'max',
+      freeRemaining: null,
+      limits: {
+        displayName: 'Autohand Code Max',
+        messagesPer5h: 1000,
+        messagesPer24h: null,
+        messagesPerWeek: 10_000,
+        rpm: 4000,
+        inputTokensPerMinute: 2_000_000,
+        outputTokensPerMinute: 320_000,
+        requiresEligibility: false,
+        perSeat: false,
+        models: ['fantail', 'moa'],
+      },
+    })).toBe('4K requests / minute · 2M uncached input tokens / minute · 320K output tokens / minute');
+  });
+
   it('shows the signed-in Autohand plan, request quotas, and throughput above token activity', async () => {
     const { usage } = await import('../../src/commands/usage.js');
     const output = await usage(makeContext({
@@ -145,7 +165,9 @@ describe('/usage command', () => {
           messagesPer5h: 250,
           messagesPer24h: 1000,
           messagesPerWeek: 7000,
-          rpm: 200,
+          rpm: 1000,
+          inputTokensPerMinute: 500_000,
+          outputTokensPerMinute: 80_000,
           requiresEligibility: false,
           perSeat: false,
           models: ['fantail', 'moa'],
@@ -158,7 +180,9 @@ describe('/usage command', () => {
     expect(output).toContain('250 requests / 5 hours');
     expect(output).toContain('1K requests / 24 hours');
     expect(output).toContain('7K requests / week');
-    expect(output).toContain('200 requests / minute');
+    expect(output).toContain('1K requests / minute');
+    expect(output).toContain('500K uncached input tokens / minute');
+    expect(output).toContain('80K output tokens / minute');
     expect(output).toContain('Token activity');
   });
 
