@@ -215,6 +215,8 @@
         "completionReportEnabledDesc": "Ask the model to summarize completed action turns",
         "promptSuggestions": "Prompt suggestions",
         "promptSuggestionsDesc": "Show LLM-generated next-step suggestions",
+        "mouseComposerCursor": "Mouse composer cursor",
+        "mouseComposerCursorDesc": "Click in composer text to position the cursor",
         "activityVerbsEnabled": "Activity verbs",
         "activityVerbsEnabledDesc": "Show rotating activity verbs while the agent is working",
         "activitySymbol": "Activity symbol",

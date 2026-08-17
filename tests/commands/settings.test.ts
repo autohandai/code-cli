@@ -149,6 +149,15 @@ describe('SETTINGS_REGISTRY', () => {
     });
   });
 
+  it('exposes mouse composer cursor editing as an off-by-default UI setting', () => {
+    const setting = SETTINGS_REGISTRY.find(s => s.key === 'ui.mouseComposerCursor');
+    expect(setting).toMatchObject({
+      category: 'ui',
+      type: 'boolean',
+      defaultValue: false,
+    });
+  });
+
   it('exposes idle logout as an on-by-default agent setting', () => {
     const setting = SETTINGS_REGISTRY.find(s => s.key === 'agent.idleLogoutEnabled');
     expect(setting).toMatchObject({
@@ -180,6 +189,18 @@ describe('resolveAwarenessTier', () => {
 });
 
 describe('setConfigSetting', () => {
+  it('enables mouse composer cursor editing from its dotted config key', () => {
+    const config = createMockConfig();
+
+    const result = setConfigSetting(config, 'ui.mouseComposerCursor', 'true');
+
+    expect(result).toEqual({
+      key: 'ui.mouseComposerCursor',
+      value: true,
+    });
+    expect(config.ui.mouseComposerCursor).toBe(true);
+  });
+
   it('maps silent_tool_output to ui.silentToolOutput', () => {
     const config = createMockConfig();
 

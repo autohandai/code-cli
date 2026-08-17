@@ -666,6 +666,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
     },
     "showCompletionNotification": true,
     "showThinking": true,
+    "mouseComposerCursor": false,
     "terminalBell": true,
     "checkForUpdates": true,
     "updateCheckInterval": 24
@@ -695,6 +696,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `completionReportEnabled`    | boolean | `true`  | Ask the model to include a concise completion report after completed action turns |
 | `showCompletionNotification` | boolean | `true`  | Show system notification when task completes                                                   |
 | `showThinking`               | boolean | `true`  | Display LLM's reasoning/thought process                                                        |
+| `mouseComposerCursor`        | boolean | `false` | Enable experimental click-to-position editing in the Ink composer                              |
 | `terminalBell`               | boolean | `true`  | Ring terminal bell when task completes (shows badge on terminal tab/dock)                      |
 | `checkForUpdates`            | boolean | `true`  | Check for CLI updates on startup                                                               |
 | `updateCheckInterval`        | number | `24`    | Hours between update checks (uses cached result within interval)                               |
@@ -806,6 +808,16 @@ AUTOHAND_LEGACY_UI=1 autohand
 ```
 
 Note: This feature is experimental and may have edge cases. The default ora-based UI remains stable and fully functional.
+
+### Mouse Composer Cursor
+
+Enable `mouseComposerCursor` to place the blinking composer cursor by clicking text, including wrapped lines and Unicode text:
+
+```bash
+autohand config set ui.mouseComposerCursor true
+```
+
+The setting is off by default because terminal mouse reporting can change native selection and scroll-wheel behavior. Mouse reporting is disabled while the agent owns the screen for active work and is always restored when Autohand exits. Terminal-specific modifier keys, commonly Shift, may bypass mouse reporting for native selection.
 
 ### Update Check
 

@@ -32,6 +32,7 @@ export interface InkUIManagerOptions {
   runtimeLineExtensions?: AgentUILineExtensions;
   getInteractionMode?: () => InteractionMode;
   onCycleInteractionMode?: () => InteractionMode;
+  mouseComposerCursor?: boolean;
   rendererFactory?: (options: InkRendererOptions) => InkRenderer;
 }
 

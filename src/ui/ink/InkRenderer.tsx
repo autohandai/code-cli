@@ -71,6 +71,7 @@ export interface InkRendererOptions {
   runtimeLineExtensions?: AgentUILineExtensions;
   getInteractionMode?: () => InteractionMode;
   onCycleInteractionMode?: () => InteractionMode;
+  mouseComposerCursor?: boolean;
 }
 
 export interface SetWorkingOptions {
@@ -200,6 +201,7 @@ interface AgentUIWrapperProps {
   onRemoveQueuedInstruction: (index: number) => void;
   getInteractionMode?: () => InteractionMode;
   onCycleInteractionMode?: () => InteractionMode;
+  mouseComposerCursor?: boolean;
 }
 
 /**
@@ -231,6 +233,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       onRemoveQueuedInstruction,
       getInteractionMode,
       onCycleInteractionMode,
+      mouseComposerCursor,
     } = props;
 
     const [state, setState] = useState<AgentUIState>(initialState);
@@ -277,6 +280,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         onRemoveQueuedInstruction={onRemoveQueuedInstruction}
         getInteractionMode={getInteractionMode}
         onCycleInteractionMode={onCycleInteractionMode}
+        mouseComposerCursor={mouseComposerCursor}
       />
     );
   }
@@ -454,6 +458,7 @@ export class InkRenderer {
             onRemoveQueuedInstruction={(index) => this.removeQueuedInstruction(index)}
             getInteractionMode={this.options.getInteractionMode}
             onCycleInteractionMode={this.options.onCycleInteractionMode}
+            mouseComposerCursor={this.options.mouseComposerCursor}
           />
         </I18nProvider>
       </ThemeProvider>,
@@ -1255,6 +1260,7 @@ export class InkRenderer {
               onRemoveQueuedInstruction={(index) => this.removeQueuedInstruction(index)}
               getInteractionMode={this.options.getInteractionMode}
               onCycleInteractionMode={this.options.onCycleInteractionMode}
+              mouseComposerCursor={this.options.mouseComposerCursor}
             />
           </I18nProvider>
         </ThemeProvider>,

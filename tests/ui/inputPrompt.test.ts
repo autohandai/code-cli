@@ -1085,6 +1085,42 @@ describe('buildMultiLineRenderState', () => {
 
     expect(state.cursorRow).toBeGreaterThan(0);
   });
+
+  it('maps a click on a wrapped composer row to the logical cursor position', async () => {
+    const { resolveComposerCursorPosition } = await import('../../src/ui/inputPrompt.js');
+
+    expect(resolveComposerCursorPosition('abcdefghijk', 10, 1, 3)).toEqual({
+      column: 9,
+      row: 0,
+    });
+  });
+
+  it('maps a click after a wide emoji to a code-point cursor column', async () => {
+    const { resolveComposerCursorPosition } = await import('../../src/ui/inputPrompt.js');
+
+    expect(resolveComposerCursorPosition('a🙂b', 10, 0, 5)).toEqual({
+      column: 2,
+      row: 0,
+    });
+  });
+
+  it('maps a click after a joined emoji to the complete grapheme boundary', async () => {
+    const { resolveComposerCursorPosition } = await import('../../src/ui/inputPrompt.js');
+
+    expect(resolveComposerCursorPosition('a👩‍💻b', 10, 0, 5)).toEqual({
+      column: 4,
+      row: 0,
+    });
+  });
+
+  it('maps a click after adjacent CJK glyphs by terminal cell width', async () => {
+    const { resolveComposerCursorPosition } = await import('../../src/ui/inputPrompt.js');
+
+    expect(resolveComposerCursorPosition('界界', 10, 0, 6)).toEqual({
+      column: 2,
+      row: 0,
+    });
+  });
 });
 
 describe('inline ghost suffix rendering', () => {

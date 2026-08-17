@@ -40,6 +40,7 @@ import {
   getPromptBlockWidth,
   isShiftEnterResidualSequence,
   processImagesInText,
+  resolveComposerCursorPosition,
 } from '../inputPrompt.js';
 import { renderTerminalMarkdown } from '../../core/immediateCommandRouter.js';
 import { buildFileMentionSuggestions } from '../mentionFilter.js';
@@ -52,6 +53,14 @@ import {
   type InteractionMode,
 } from '../../core/agent/InteractionModeController.js';
 import { AnnouncementLine } from './AnnouncementLine.js';
+import {
+  REQUEST_CURSOR_POSITION,
+  parseCursorPositionReport,
+  parseSgrMouseInput,
+  resolveComposerClickPosition,
+  type ComposerOutputLayout,
+  type SgrMouseInput,
+} from './mouseInput.js';
 
 /**
  * Fixed, theme-independent colors for the status-line mode glyph — these must
@@ -197,6 +206,8 @@ export interface AgentUIProps {
   getInteractionMode?: () => InteractionMode;
   /** Cycle the canonical interaction mode and return the selected mode. */
   onCycleInteractionMode?: () => InteractionMode;
+  /** Enable experimental click-to-position composer input. */
+  mouseComposerCursor?: boolean;
 }
 
 interface TextBufferKeyInfo {
@@ -457,7 +468,8 @@ export function getTextBufferCursorOffset(buffer: TextBuffer): number {
     offset += 1;
   }
 
-  return offset + col;
+  const cursorLine = lines[row] ?? '';
+  return offset + Array.from(cursorLine).slice(0, col).join('').length;
 }
 
 const COMPOSER_TRIGGER_CHARS = new Set(['/', '@', '$', '!', '#']);
@@ -708,7 +720,9 @@ export function AgentUI({
   onRemoveQueuedInstruction,
   getInteractionMode,
   onCycleInteractionMode,
+  mouseComposerCursor = false,
 }: AgentUIProps) {
+  const { stdout } = useStdout();
   const { colors } = useTheme();
   const { t } = useTranslation();
   const slashCommands = state.runtimeSlashCommands ?? slashCommandProps;
@@ -768,6 +782,11 @@ export function AgentUI({
   // on every render while keeping handler logic up-to-date.
   const inputRef = useRef(input);
   inputRef.current = input;
+  const composerLayoutRef = useRef<ComposerOutputLayout | null>(null);
+  const pendingMouseClickRef = useRef<SgrMouseInput | null>(null);
+  const handleComposerLayoutChange = useCallback((layout: ComposerOutputLayout | null) => {
+    composerLayoutRef.current = layout;
+  }, []);
   const cursorOffsetRef = useRef(cursorOffset);
   cursorOffsetRef.current = cursorOffset;
   const fileMentionVisibleRef = useRef(fileMentionVisible);
@@ -1274,6 +1293,51 @@ export function AgentUI({
   const handleInput = useCallback((char: string, key: InkKey) => {
     syncBufferViewport();
 
+    if (mouseComposerCursor) {
+      const mouseInput = parseSgrMouseInput(char);
+      if (mouseInput) {
+        if (
+          mouseInput.action === 'press'
+          && mouseInput.button === 'left'
+          && composerLayoutRef.current
+        ) {
+          pendingMouseClickRef.current = mouseInput;
+          stdout.write(REQUEST_CURSOR_POSITION);
+        }
+        return;
+      }
+
+      const terminalCursor = parseCursorPositionReport(char);
+      if (terminalCursor) {
+        const pendingClick = pendingMouseClickRef.current;
+        const layout = composerLayoutRef.current;
+        pendingMouseClickRef.current = null;
+        if (!pendingClick || !layout) {
+          return;
+        }
+
+        const clickedCell = resolveComposerClickPosition(pendingClick, terminalCursor, layout);
+        if (!clickedCell) {
+          return;
+        }
+
+        const cursor = resolveComposerCursorPosition(
+          inputRef.current,
+          layout.width,
+          clickedCell.visualRow,
+          clickedCell.visualColumn,
+        );
+        if (!cursor) {
+          return;
+        }
+
+        textBufferRef.current.setCursorPosition(cursor.row, cursor.column);
+        syncInputFromBuffer();
+        setCtrlCCount(0);
+        return;
+      }
+    }
+
     const pasteResult = consumeInkBracketedPasteInput(char, pasteStateRef.current);
     if (pasteResult.handled) {
       if (pasteResult.completedText !== undefined) {
@@ -1765,7 +1829,15 @@ export function AgentUI({
       }
       return;
     }
-  }, [syncBufferViewport, syncInputFromBuffer, dismissAutocompleteState, acceptActiveAutocompleteSuggestion, insertPastedText]);
+  }, [
+    acceptActiveAutocompleteSuggestion,
+    dismissAutocompleteState,
+    insertPastedText,
+    mouseComposerCursor,
+    stdout,
+    syncBufferViewport,
+    syncInputFromBuffer,
+  ]);
 
   // Extra safety: wrap in a ref so useInput never re-registers even if
   // the above callback identity changes unexpectedly.
@@ -1998,6 +2070,8 @@ export function AgentUI({
         borderStyle={inputBorderStyle}
         nextPromptSuggestion={composerNextPromptSuggestion}
         inlineGhostSuffix={composerInlineGhostSuffix}
+        mouseComposerCursor={mouseComposerCursor}
+        onComposerLayoutChange={handleComposerLayoutChange}
         showShortcuts={showShortcuts}
         interactionMode={interactionMode}
         showModeLabel={state.showModeLabel ?? true}
@@ -2399,6 +2473,8 @@ interface InputLineWrapperProps {
   nextPromptSuggestion?: string;
   inlineGhostSuffix?: string;
   enableHardwareCursor?: boolean;
+  enableMouseCursor?: boolean;
+  onLayoutChange?: (layout: ComposerOutputLayout | null) => void;
 }
 
 const InputLineWrapper = memo(function InputLineWrapper({
@@ -2411,6 +2487,8 @@ const InputLineWrapper = memo(function InputLineWrapper({
   nextPromptSuggestion,
   inlineGhostSuffix,
   enableHardwareCursor,
+  enableMouseCursor,
+  onLayoutChange,
 }: InputLineWrapperProps) {
   if (!enableQueueInput) {
     return null;
@@ -2427,6 +2505,8 @@ const InputLineWrapper = memo(function InputLineWrapper({
       nextPromptSuggestion={nextPromptSuggestion}
       inlineGhostSuffix={inlineGhostSuffix}
       enableHardwareCursor={enableHardwareCursor}
+      enableMouseCursor={enableMouseCursor}
+      onLayoutChange={onLayoutChange}
     />
   );
 });
@@ -2615,6 +2695,8 @@ interface FixedBottomProps {
   placeholderText?: string;
   nextPromptSuggestion?: string;
   inlineGhostSuffix?: string;
+  mouseComposerCursor?: boolean;
+  onComposerLayoutChange?: (layout: ComposerOutputLayout | null) => void;
   /** Whether the shortcuts help panel is visible */
   showShortcuts: boolean;
   /** Current mutually-exclusive editing interaction mode, rendered as a colored glyph. */
@@ -2685,6 +2767,8 @@ const FixedBottom = memo(function FixedBottom({
   placeholderText,
   nextPromptSuggestion,
   inlineGhostSuffix,
+  mouseComposerCursor,
+  onComposerLayoutChange,
   showShortcuts,
   interactionMode,
   showModeLabel,
@@ -2732,6 +2816,8 @@ const FixedBottom = memo(function FixedBottom({
         nextPromptSuggestion={nextPromptSuggestion}
         inlineGhostSuffix={inlineGhostSuffix}
         enableHardwareCursor={enableHardwareCursor}
+        enableMouseCursor={mouseComposerCursor}
+        onLayoutChange={onComposerLayoutChange}
       />
       <FileMentionWrapper fileMentionDropdown={fileMentionDropdown} />
       <SlashCommandWrapper slashCommandDropdown={slashCommandDropdown} />

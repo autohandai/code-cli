@@ -28,6 +28,45 @@ export interface VisualLayout {
   visualLines: string[];
   logicalToVisual: Array<Array<[number, number]>>;
   visualToLogical: Array<[number, number]>;
+  logicalLines: string[];
+}
+
+interface GraphemeCell {
+  segment: string;
+  start: number;
+  end: number;
+  width: number;
+}
+
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+function getGraphemeCells(value: string): GraphemeCell[] {
+  return Array.from(graphemeSegmenter.segment(value), ({ segment, index }) => ({
+    segment,
+    start: index,
+    end: index + segment.length,
+    width: stringWidth(segment),
+  }));
+}
+
+function stringIndexAtVisualColumn(value: string, visualColumn: number): number {
+  const targetColumn = Math.max(0, visualColumn);
+  let currentColumn = 0;
+
+  for (const grapheme of getGraphemeCells(value)) {
+    const nextColumn = currentColumn + grapheme.width;
+    if (targetColumn <= currentColumn) {
+      return grapheme.start;
+    }
+    if (targetColumn < nextColumn) {
+      return targetColumn - currentColumn >= Math.ceil(grapheme.width / 2)
+        ? grapheme.end
+        : grapheme.start;
+    }
+    currentColumn = nextColumn;
+  }
+
+  return value.length;
 }
 
 /* ------------------------------------------------------------------ */
@@ -38,7 +77,7 @@ export interface VisualLayout {
  * Wrap `lines` into visual lines that fit within `viewportWidth` columns.
  *
  * Uses a greedy word-wrap algorithm:
- * 1. Walk each logical line character by character.
+ * 1. Walk each logical line by grapheme cluster.
  * 2. Track the current visual line width via `stringWidth`.
  * 3. Remember the last space position for word-boundary breaking.
  * 4. When adding a character would exceed `viewportWidth`:
@@ -67,57 +106,57 @@ export function calculateLayout(
       visRows.push([visIdx, 0]);
       visualToLogicalMap.push([logRow, 0]);
     } else {
-      let pos = 0;
+      const graphemes = getGraphemeCells(line);
+      let position = 0;
 
-      while (pos < line.length) {
-        const segStart = pos;
+      while (position < graphemes.length) {
+        const segStart = graphemes[position]!.start;
         const visIdx = visualLines.length;
 
-        // Greedily collect characters that fit in the viewport width
         let currentWidth = 0;
-        let lastSpacePos = -1; // position *after* the space character
-        let endPos = pos;
+        let lastSpacePosition = -1;
+        let endPosition = position;
 
-        while (endPos < line.length) {
-          const ch = line[endPos];
-          const chWidth = stringWidth(ch);
-
-          if (currentWidth + chWidth > width) {
+        while (endPosition < graphemes.length) {
+          const grapheme = graphemes[endPosition]!;
+          if (currentWidth + grapheme.width > width && endPosition > position) {
             break;
           }
 
-          currentWidth += chWidth;
-          endPos++;
+          currentWidth += grapheme.width;
+          endPosition += 1;
 
-          if (ch === ' ') {
-            lastSpacePos = endPos; // position after the space
+          if (grapheme.segment === ' ') {
+            lastSpacePosition = endPosition;
+          }
+
+          if (currentWidth >= width) {
+            break;
           }
         }
 
-        if (endPos < line.length) {
-          // Need to wrap — decide where to break
-          if (lastSpacePos > pos) {
-            // Word-boundary break: include the trailing space in this line
-            const segment = line.slice(segStart, lastSpacePos);
+        if (endPosition < graphemes.length) {
+          if (lastSpacePosition > position) {
+            const segmentEnd = graphemes[lastSpacePosition - 1]!.end;
+            const segment = line.slice(segStart, segmentEnd);
             visualLines.push(segment);
             visRows.push([visIdx, segStart]);
             visualToLogicalMap.push([logRow, segStart]);
-            pos = lastSpacePos;
+            position = lastSpacePosition;
           } else {
-            // Hard break: no space found, break at the exact width boundary
-            const segment = line.slice(segStart, endPos);
+            const segmentEnd = graphemes[endPosition - 1]!.end;
+            const segment = line.slice(segStart, segmentEnd);
             visualLines.push(segment);
             visRows.push([visIdx, segStart]);
             visualToLogicalMap.push([logRow, segStart]);
-            pos = endPos;
+            position = endPosition;
           }
         } else {
-          // Remainder fits — last segment of this logical line
-          const segment = line.slice(segStart, endPos);
+          const segment = line.slice(segStart);
           visualLines.push(segment);
           visRows.push([visIdx, segStart]);
           visualToLogicalMap.push([logRow, segStart]);
-          pos = endPos;
+          position = endPosition;
         }
       }
     }
@@ -129,6 +168,7 @@ export function calculateLayout(
     visualLines,
     logicalToVisual: logicalToVisualMap,
     visualToLogical: visualToLogicalMap,
+    logicalLines: [...lines],
   };
 }
 
@@ -141,7 +181,7 @@ export function calculateLayout(
  *
  * Searches `logicalToVisual[logRow]` to find the visual row whose
  * `logColStart` range contains `logCol`, then returns
- * `[visualRow, logCol - logColStart]`.
+ * the matching terminal cell column.
  */
 export function logicalToVisual(
   layout: VisualLayout,
@@ -157,20 +197,22 @@ export function logicalToVisual(
   for (let i = spans.length - 1; i >= 0; i--) {
     const [visRow, logColStart] = spans[i];
     if (logCol >= logColStart) {
-      return [visRow, logCol - logColStart];
+      const logicalLine = layout.logicalLines[logRow] ?? '';
+      return [visRow, stringWidth(logicalLine.slice(logColStart, logCol))];
     }
   }
 
   // Fallback: first span
   const [visRow, logColStart] = spans[0];
-  return [visRow, logCol - logColStart];
+  const logicalLine = layout.logicalLines[logRow] ?? '';
+  return [visRow, stringWidth(logicalLine.slice(logColStart, logCol))];
 }
 
 /**
  * Convert a visual cursor position to a logical (row, col) position.
  *
  * Looks up `visualToLogical[visRow]` to get `[logRow, logColStart]`,
- * then returns `[logRow, logColStart + visCol]`.
+ * then snaps the terminal cell column to a grapheme boundary.
  */
 export function visualToLogical(
   layout: VisualLayout,
@@ -183,5 +225,6 @@ export function visualToLogical(
   }
 
   const [logRow, logColStart] = mapping;
-  return [logRow, logColStart + visCol];
+  const visualLine = layout.visualLines[visRow] ?? '';
+  return [logRow, logColStart + stringIndexAtVisualColumn(visualLine, visCol)];
 }

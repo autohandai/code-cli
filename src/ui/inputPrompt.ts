@@ -9,6 +9,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import os from 'node:os';
+import stringWidth from 'string-width';
 import { TerminalResizeWatcher } from './terminalResize.js';
 import {
   isShellCommand,
@@ -40,7 +41,7 @@ import { themedFg } from './theme/index.js';
 import { stripAnsiCodes, enableBracketedPaste, disableBracketedPaste } from './displayUtils.js';
 import { TextBuffer } from './textBuffer.js';
 import { handleTextBufferKey } from './textBufferKeyHandler.js';
-import { calculateLayout, logicalToVisual } from './textBufferLayout.js';
+import { calculateLayout, logicalToVisual, visualToLogical } from './textBufferLayout.js';
 
 /**
  * Module-level event emitter for delivering messages above the active prompt.
@@ -1114,6 +1115,47 @@ export function buildMultiLineRenderState(
     cursorColumn: finalCursorColumn,
     lineCount: overallVisualRow,
   };
+}
+
+export interface ComposerCursorPosition {
+  row: number;
+  column: number;
+}
+
+export function resolveComposerCursorPosition(
+  currentLine: string,
+  width: number,
+  visualRow: number,
+  visualColumn: number,
+): ComposerCursorPosition | null {
+  const { segments } = splitMultilineSegments(currentLine);
+  const contentWidth = Math.max(1, width - PROMPT_INPUT_PREFIX.length);
+  let rowOffset = 0;
+
+  for (let row = 0; row < segments.length; row += 1) {
+    const segment = sanitizeRenderLine(segments[row] ?? '');
+    const layout = calculateLayout([segment], contentWidth);
+    const rowCount = Math.max(1, layout.visualLines.length);
+    if (visualRow < rowOffset || visualRow >= rowOffset + rowCount) {
+      rowOffset += rowCount;
+      continue;
+    }
+
+    const wrappedRow = visualRow - rowOffset;
+    const wrappedLine = layout.visualLines[wrappedRow] ?? '';
+    const contentColumn = Math.max(
+      0,
+      Math.min(stringWidth(wrappedLine), visualColumn - PROMPT_INPUT_PREFIX.length),
+    );
+    const [, stringColumn] = visualToLogical(layout, wrappedRow, contentColumn);
+
+    return {
+      row,
+      column: Array.from(segment.slice(0, stringColumn)).length,
+    };
+  }
+
+  return null;
 }
 
 interface MultilineSegments {

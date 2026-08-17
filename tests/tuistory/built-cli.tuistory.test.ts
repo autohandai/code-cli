@@ -160,6 +160,22 @@ async function waitForCursorAfterTypedText(session: Session, typedText: string):
   return screen;
 }
 
+async function waitForTerminalCursorVisible(session: Session): Promise<void> {
+  const deadline = Date.now() + 2_000;
+
+  while (Date.now() < deadline) {
+    if (session.getTerminalData().cursorVisible) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+
+  expect(
+    session.getTerminalData().cursorVisible,
+    JSON.stringify(session.getRawOutput().slice(-2_000)),
+  ).toBe(true);
+}
+
 function linesContaining(screen: string, text: string): string[] {
   return screen.split('\n').filter((line) => line.includes(text));
 }
@@ -1466,6 +1482,48 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(screen).not.toContain('helloX');
 
     await exitInteractive(session);
+  });
+
+  it('positions the real composer cursor with a mouse click', async () => {
+    const session = await launchInteractive({
+      config: {
+        ui: {
+          mouseComposerCursor: true,
+          promptSuggestions: false,
+        },
+      },
+    });
+
+    await waitForComposer(session);
+    await session.type('hello');
+    const cursorScreen = await session.text({
+      timeout: 5_000,
+      waitFor: (text) => composerLineIncludes(text, 'hello'),
+      trimEnd: true,
+    });
+
+    expect(session.getRawOutput()).toContain('\x1b[?1000h\x1b[?1006h');
+    expect(composerLineIncludes(cursorScreen, 'hello')).toBe(true);
+
+    await session.click('llo');
+    expect(session.getRawOutput()).toContain('\x1b[6n');
+    const [terminalCursorColumn, terminalCursorRow] = session.getTerminalData().cursor;
+    session.writeRaw(`\x1b[${terminalCursorRow + 1};${terminalCursorColumn + 1}R`);
+    await session.waitIdle();
+    await waitForTerminalCursorVisible(session);
+    await session.type('X');
+
+    const screen = await session.text({
+      timeout: 5_000,
+      waitFor: (text) => composerLineIncludes(text, 'heXllo'),
+      trimEnd: true,
+    });
+
+    expect(screen).toContain('heXllo');
+    expect(screen).not.toContain('helloX');
+
+    await exitInteractive(session);
+    expect(session.getRawOutput()).toContain('\x1b[?1006l\x1b[?1000l');
   });
 
   it('keeps multiline, large paste, and image paste placeholders intact in the real prompt', async () => {
