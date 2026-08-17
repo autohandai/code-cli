@@ -229,7 +229,7 @@ function trustedAutohandUpgradeUrl(value: string | undefined): string | undefine
   if (!value) return undefined;
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && url.hostname === "console-v2.autohand.ai"
+    return url.protocol === "https:" && url.hostname === "console.autohand.ai"
       ? url.toString()
       : undefined;
   } catch {

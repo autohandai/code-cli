@@ -275,7 +275,7 @@ describe("AutohandAIProvider", () => {
         type: "model_not_available",
         message: "This model requires a higher tier than free.",
         scope: "tier_models",
-        upgradeUrl: "https://console-v2.autohand.ai/upgrade/?from=cli&tier=pro",
+        upgradeUrl: "https://console.autohand.ai/upgrade/?from=cli&tier=pro",
       },
     }), {
       status: 403,
@@ -293,7 +293,7 @@ describe("AutohandAIProvider", () => {
       messages: [{ role: "user", content: "think" }],
     })).rejects.toThrow(
       "Access denied. This model requires a higher tier than free.\n" +
-      "Please upgrade your plan: https://console-v2.autohand.ai/upgrade/?from=cli&tier=pro",
+      "Please upgrade your plan: https://console.autohand.ai/upgrade/?from=cli&tier=pro",
     );
   });
 });

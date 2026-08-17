@@ -445,7 +445,7 @@ describe('built CLI Tuistory smoke tests', () => {
     expect(output).toContain("You've used all your messages in this 5-hour window.");
     expect(output).toContain('(Pacific/Auckland) · in 2h 30m.');
     expect(output).toContain(
-      'Upgrade your Autohand Code plan for more usage: https://console-v2.autohand.ai/upgrade/?from=cli&tier=pro',
+      'Upgrade your Autohand Code plan for more usage: https://console.autohand.ai/upgrade/?from=cli&tier=pro',
     );
     expect(output).not.toContain('Please wait a moment and try again');
     expect(output.match(/Autohand AI 5-hour message limit reached\./gu)).toHaveLength(1);
