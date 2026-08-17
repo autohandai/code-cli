@@ -86,7 +86,6 @@ describe('automatic specialist orchestration', () => {
       config: {
         openrouter: { baseUrl: server.baseUrl },
         agent: { maxIterations: 4, sessionRetryLimit: 0 },
-        features: { automaticSpecialists: true },
       },
     });
     tempStates.push(state);
@@ -160,6 +159,7 @@ describe('automatic specialist orchestration', () => {
       config: {
         openrouter: { baseUrl: server.baseUrl },
         agent: { maxIterations: 6, sessionRetryLimit: 0 },
+        features: { automaticSpecialists: false },
       },
     });
     tempStates.push(state);

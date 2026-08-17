@@ -40,14 +40,8 @@ The lead does not execute tasks directly. It creates the task list, assigns work
 
 ### Automatic Specialist Rosters (Experimental)
 
-The default-off `automatic_specialists` experiment resolves explicit requests
-before the lead model starts its normal tool loop. Enable it and restart:
-
-```bash
-autohand experiments enable automatic_specialists
-```
-
-Then an explicit request such as:
+The default-on `automatic_specialists` experiment resolves explicit requests
+before the lead model starts its normal tool loop. An explicit request such as:
 
 ```text
 Bring a team of UI, UX, and security agents to inspect this repo.
@@ -59,6 +53,12 @@ prints the resolved roster before execution:
 UI → ui-designer [catalog]
 UX → ux-researcher [session]
 Security → security-auditor [builtin]
+```
+
+To opt out, disable the feature and restart the CLI:
+
+```bash
+autohand experiments disable automatic_specialists
 ```
 
 Resolution prefers session and user definitions, already installed catalog

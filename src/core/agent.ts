@@ -1309,6 +1309,9 @@ export class AutohandAgent {
     if (getFeatureState(this.runtime.config, 'automatic_specialists')?.enabled !== true) {
       return undefined;
     }
+    if (!this.specialistOrchestrator) {
+      return undefined;
+    }
 
     const request = detectSpecialistRequest(instruction);
     if (!request) {

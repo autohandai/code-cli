@@ -74,7 +74,7 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     description: 'Resolve and run explicitly requested specialist rosters before the lead turn.',
     stage: 'experimental',
     configPath: 'features.automaticSpecialists',
-    defaultEnabled: false,
+    defaultEnabled: true,
     requiresRestart: true,
   },
   {

@@ -696,6 +696,7 @@ describe('built CLI Tuistory smoke tests', () => {
       config: {
         openrouter: { baseUrl: openRouterServer.baseUrl },
         agent: { maxIterations: 8, sessionRetryLimit: 0 },
+        features: { automaticSpecialists: false },
       },
     });
     tempStates.push(state);
@@ -1933,6 +1934,9 @@ describe('interactive built CLI Tuistory tests', () => {
         },
         agent: {
           maxIterations: 4,
+        },
+        features: {
+          automaticSpecialists: false,
         },
       },
     });
