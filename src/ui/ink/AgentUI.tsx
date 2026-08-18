@@ -206,7 +206,7 @@ export interface AgentUIProps {
   getInteractionMode?: () => InteractionMode;
   /** Cycle the canonical interaction mode and return the selected mode. */
   onCycleInteractionMode?: () => InteractionMode;
-  /** Enable experimental click-to-position composer input. */
+  /** Enable click-to-position composer input. */
   mouseComposerCursor?: boolean;
 }
 
@@ -720,7 +720,7 @@ export function AgentUI({
   onRemoveQueuedInstruction,
   getInteractionMode,
   onCycleInteractionMode,
-  mouseComposerCursor = false,
+  mouseComposerCursor = true,
 }: AgentUIProps) {
   const { stdout } = useStdout();
   const { colors } = useTheme();

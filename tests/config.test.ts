@@ -32,14 +32,14 @@ describe('getProviderConfig', () => {
     }
   });
 
-  it('keeps composer mouse tracking opt-in for new configs', async () => {
+  it('enables composer mouse tracking for new configs by default', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
     const configPath = path.join(tempDir, 'config.json');
 
     try {
       const config = await loadConfig(configPath);
 
-      expect(config.ui?.mouseComposerCursor).toBe(false);
+      expect(config.ui?.mouseComposerCursor).toBe(true);
     } finally {
       await fs.remove(tempDir);
     }

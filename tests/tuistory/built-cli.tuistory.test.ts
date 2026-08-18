@@ -1488,7 +1488,6 @@ describe('interactive built CLI Tuistory tests', () => {
     const session = await launchInteractive({
       config: {
         ui: {
-          mouseComposerCursor: true,
           promptSuggestions: false,
         },
       },

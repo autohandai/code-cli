@@ -149,12 +149,12 @@ describe('SETTINGS_REGISTRY', () => {
     });
   });
 
-  it('exposes mouse composer cursor editing as an off-by-default UI setting', () => {
+  it('exposes mouse composer cursor editing as an on-by-default UI setting', () => {
     const setting = SETTINGS_REGISTRY.find(s => s.key === 'ui.mouseComposerCursor');
     expect(setting).toMatchObject({
       category: 'ui',
       type: 'boolean',
-      defaultValue: false,
+      defaultValue: true,
     });
   });
 
