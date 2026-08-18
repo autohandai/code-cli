@@ -274,7 +274,7 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
         suggestionProvider: () => host.suggestionEngine?.getNextPromptSuggestion() ?? undefined,
         getInteractionMode: () => host.getInteractionMode(),
         onCycleInteractionMode: () => host.cycleInteractionMode(),
-        mouseComposerCursor: host.runtime?.config?.ui?.mouseComposerCursor === true,
+        mouseComposerCursor: host.runtime?.config?.ui?.mouseComposerCursor !== false,
         skillsProvider: () =>
           host.skillsRegistry.listSkills().map((skill: { name: string; description?: string; isActive: boolean; source: string }) => ({
             name: skill.name,

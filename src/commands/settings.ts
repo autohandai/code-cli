@@ -111,7 +111,7 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
   { key: 'ui.showCompletionNotification', labelKey: 'commands.settings.ui.showCompletionNotification', descriptionKey: 'commands.settings.ui.showCompletionNotificationDesc', category: 'ui', type: 'boolean', defaultValue: true },
   { key: 'ui.completionReportEnabled', labelKey: 'commands.settings.ui.completionReportEnabled', descriptionKey: 'commands.settings.ui.completionReportEnabledDesc', category: 'ui', type: 'boolean', defaultValue: true },
   { key: 'ui.promptSuggestions', labelKey: 'commands.settings.ui.promptSuggestions', descriptionKey: 'commands.settings.ui.promptSuggestionsDesc', category: 'ui', type: 'boolean', defaultValue: true },
-  { key: 'ui.mouseComposerCursor', labelKey: 'commands.settings.ui.mouseComposerCursor', descriptionKey: 'commands.settings.ui.mouseComposerCursorDesc', category: 'ui', type: 'boolean', defaultValue: false },
+  { key: 'ui.mouseComposerCursor', labelKey: 'commands.settings.ui.mouseComposerCursor', descriptionKey: 'commands.settings.ui.mouseComposerCursorDesc', category: 'ui', type: 'boolean', defaultValue: true },
   { key: 'ui.activityVerbsEnabled', labelKey: 'commands.settings.ui.activityVerbsEnabled', descriptionKey: 'commands.settings.ui.activityVerbsEnabledDesc', category: 'ui', type: 'boolean', defaultValue: true },
   { key: 'ui.activitySymbol', labelKey: 'commands.settings.ui.activitySymbol', descriptionKey: 'commands.settings.ui.activitySymbolDesc', category: 'ui', type: 'string', defaultValue: '\u2733' },
   { key: 'ui.statusLine', labelKey: 'commands.settings.ui.statusLine', descriptionKey: 'commands.settings.ui.statusLineDesc', category: 'ui', type: 'string', redirect: '/statusline' },

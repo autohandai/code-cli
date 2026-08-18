@@ -315,7 +315,7 @@ export interface UISettings {
   notifications?: boolean | NotificationConfig;
   /** Show LLM-generated next-step suggestions in prompt placeholder (default: true) */
   promptSuggestions?: boolean;
-  /** Enable experimental mouse click-to-position editing in the Ink composer (default: false). */
+  /** Enable mouse click-to-position editing in the Ink composer (default: true). */
   mouseComposerCursor?: boolean;
   /** Fixed composer status-line display preferences. */
   statusLine?: StatusLineSettings;
