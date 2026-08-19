@@ -170,6 +170,13 @@ function responseError(data: unknown, status: number): string {
   return `HTTP ${status}`;
 }
 
+function requiresSchemaV1Retry(data: unknown, status: number): boolean {
+  if (status !== 400 || !isRecord(data) || data.success !== false || data.schemaVersion !== 1) {
+    return false;
+  }
+  return isRecord(data.error) && data.error.code === 'invalid_request';
+}
+
 function isValidContinuation(value: string): boolean {
   const parts = value.split('.');
   return value.length >= 64
@@ -366,30 +373,42 @@ export class AuthClient {
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
     try {
-      const response = await fetch(`${this.baseUrl}/cli/initiate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          clientId: 'autohand-cli',
-          clientType,
-          schemaVersion: DEVICE_AUTH_SCHEMA_VERSION,
-        }),
-        signal: controller.signal,
-      });
+      const initiate = async (schemaVersion: 1 | 2) => {
+        const response = await fetch(`${this.baseUrl}/cli/initiate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            clientId: 'autohand-cli',
+            clientType,
+            schemaVersion,
+          }),
+          signal: controller.signal,
+        });
+        return {
+          response,
+          data: await response.json() as unknown,
+        };
+      };
+
+      let schemaVersion: 1 | 2 = DEVICE_AUTH_SCHEMA_VERSION;
+      let attempt = await initiate(schemaVersion);
+      if (requiresSchemaV1Retry(attempt.data, attempt.response.status)) {
+        schemaVersion = 1;
+        attempt = await initiate(schemaVersion);
+      }
 
       clearTimeout(timeoutId);
-      const data = await response.json() as unknown;
 
-      if (!response.ok) {
+      if (!attempt.response.ok) {
         return {
           success: false,
-          error: responseError(data, response.status),
+          error: responseError(attempt.data, attempt.response.status),
         };
       }
 
-      return parseDeviceChallenge(data, DEVICE_AUTH_SCHEMA_VERSION) ?? {
+      return parseDeviceChallenge(attempt.data, schemaVersion) ?? {
         success: false,
         error: DEVICE_AUTH_ERROR,
       };

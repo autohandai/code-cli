@@ -1314,7 +1314,7 @@ describe('interactive built CLI Tuistory tests', () => {
     await session.waitForText('Waiting for authorization', { timeout: 10_000 });
   });
 
-  it('loads an interactive composer after successful startup device auth', async () => {
+  it('loads an interactive composer after negotiating the production device auth schema', async () => {
     const state = await createTempAutohandHome({
       config: {
         auth: {
@@ -1324,7 +1324,10 @@ describe('interactive built CLI Tuistory tests', () => {
     });
     tempStates.push(state);
 
-    const authServer = await createMockAuthServer({ authorizeAfterPolls: 1 });
+    const authServer = await createMockAuthServer({
+      authorizeAfterPolls: 1,
+      deviceAuthSchemaVersion: 1,
+    });
     mockAuthServers.push(authServer);
     const stalledSyncPreload = await createStalledSyncFetchPreload();
     mockOpenRouterFetchPreloads.push(stalledSyncPreload);
