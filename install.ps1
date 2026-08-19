@@ -103,15 +103,49 @@ Examples:
 }
 
 function Get-Architecture {
-    $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+    param(
+        [AllowNull()][object]$RuntimeArchitecture,
+        [AllowNull()][string]$ProcessorArchitectureW6432,
+        [AllowNull()][string]$ProcessorArchitecture
+    )
 
-    switch ($arch) {
-        "X64" { return "windows-x64" }
-        "Arm64" { return "windows-arm64" }
-        default {
-            throw "Unsupported CPU architecture: $arch"
+    if (-not $PSBoundParameters.ContainsKey("RuntimeArchitecture")) {
+        try {
+            $RuntimeArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+        }
+        catch {
+            $RuntimeArchitecture = $null
         }
     }
+    if (-not $PSBoundParameters.ContainsKey("ProcessorArchitectureW6432")) {
+        $ProcessorArchitectureW6432 = $env:PROCESSOR_ARCHITEW6432
+    }
+    if (-not $PSBoundParameters.ContainsKey("ProcessorArchitecture")) {
+        $ProcessorArchitecture = $env:PROCESSOR_ARCHITECTURE
+    }
+
+    $architectureCandidates = @(
+        $RuntimeArchitecture,
+        $ProcessorArchitectureW6432,
+        $ProcessorArchitecture
+    )
+
+    foreach ($candidate in $architectureCandidates) {
+        if ([string]::IsNullOrWhiteSpace([string]$candidate)) {
+            continue
+        }
+
+        switch (([string]$candidate).Trim().ToUpperInvariant()) {
+            "X64" { return "windows-x64" }
+            "AMD64" { return "windows-x64" }
+        }
+    }
+
+    $runtimeDisplay = if ([string]::IsNullOrWhiteSpace([string]$RuntimeArchitecture)) { "<empty>" } else { [string]$RuntimeArchitecture }
+    $wow64Display = if ([string]::IsNullOrWhiteSpace($ProcessorArchitectureW6432)) { "<empty>" } else { $ProcessorArchitectureW6432 }
+    $processDisplay = if ([string]::IsNullOrWhiteSpace($ProcessorArchitecture)) { "<empty>" } else { $ProcessorArchitecture }
+
+    throw "Unsupported CPU architecture. RuntimeInformation.OSArchitecture=$runtimeDisplay; PROCESSOR_ARCHITEW6432=$wow64Display; PROCESSOR_ARCHITECTURE=$processDisplay. Autohand currently supports 64-bit Intel/AMD Windows (x64). Please include this message when contacting support at https://autohand.ai/support."
 }
 
 function Get-LatestVersion {
