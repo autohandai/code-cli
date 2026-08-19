@@ -327,6 +327,8 @@ describe('LLMGatewayClient', () => {
     });
 
     it('recommends a paid plan when Autohand AI quota is exhausted', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-08-14T00:00:00.000Z'));
       const originalTimeZone = process.env.TZ;
       process.env.TZ = 'Pacific/Auckland';
       const resetAt = Math.floor(Date.now() / 1000) + 2 * 60 * 60 + 30 * 60;
@@ -367,6 +369,7 @@ describe('LLMGatewayClient', () => {
         });
         expect(global.fetch).toHaveBeenCalledTimes(1);
       } finally {
+        vi.useRealTimers();
         if (originalTimeZone === undefined) {
           delete process.env.TZ;
         } else {

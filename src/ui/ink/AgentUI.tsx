@@ -2460,7 +2460,7 @@ const StatusSection = memo(function StatusSection({
          prev.lineExtension === next.lineExtension;
 });
 
-/** Keep cursor writes tied to composer changes instead of status-only repaints. */
+/** Keep passive composers memoized while refreshing cursor intent during active editing. */
 interface InputLineWrapperProps {
   enableQueueInput: boolean;
   input: string;
@@ -2473,6 +2473,7 @@ interface InputLineWrapperProps {
   nextPromptSuggestion?: string;
   inlineGhostSuffix?: string;
   enableHardwareCursor?: boolean;
+  refreshHardwareCursor?: boolean;
   enableMouseCursor?: boolean;
   onLayoutChange?: (layout: ComposerOutputLayout | null) => void;
 }
@@ -2509,6 +2510,23 @@ const InputLineWrapper = memo(function InputLineWrapper({
       onLayoutChange={onLayoutChange}
     />
   );
+}, (previous, next) => {
+  if (next.refreshHardwareCursor) {
+    return false;
+  }
+
+  return previous.enableQueueInput === next.enableQueueInput
+    && previous.input === next.input
+    && previous.cursorOffset === next.cursorOffset
+    && previous.inputWidth === next.inputWidth
+    && previous.borderStyle === next.borderStyle
+    && previous.placeholderText === next.placeholderText
+    && previous.nextPromptSuggestion === next.nextPromptSuggestion
+    && previous.inlineGhostSuffix === next.inlineGhostSuffix
+    && previous.enableHardwareCursor === next.enableHardwareCursor
+    && previous.refreshHardwareCursor === next.refreshHardwareCursor
+    && previous.enableMouseCursor === next.enableMouseCursor
+    && previous.onLayoutChange === next.onLayoutChange;
 });
 
 /**
@@ -2705,15 +2723,24 @@ interface FixedBottomProps {
   showModeLabel?: boolean;
 }
 
-/** Keep completion repainting passive until the user edits the composer again. */
+interface ComposerCursorIntent {
+  enabled: boolean;
+  refreshOnParentRender: boolean;
+}
+
+/** Keep passive repainting passive, but preserve cursor intent once an idle user edits. */
 function useUserDrivenComposerCursor(
   isWorking: boolean,
   input: string,
   cursorOffset: number,
-): boolean {
+): ComposerCursorIntent {
   const previousIsWorking = useRef(isWorking);
+  const previousInput = useRef({ input, cursorOffset });
   const completionInput = useRef<{ input: string; cursorOffset: number } | null>(null);
+  const hasIdleUserEdit = useRef(false);
   const justCompleted = previousIsWorking.current && !isWorking;
+  const inputChanged = previousInput.current.input !== input
+    || previousInput.current.cursorOffset !== cursorOffset;
   const inputChangedAfterCompletion = completionInput.current !== null && (
     completionInput.current.input !== input
     || completionInput.current.cursorOffset !== cursorOffset
@@ -2722,17 +2749,30 @@ function useUserDrivenComposerCursor(
   useEffect(() => {
     if (isWorking) {
       completionInput.current = null;
+      hasIdleUserEdit.current = false;
     } else if (previousIsWorking.current) {
       completionInput.current = { input, cursorOffset };
+      hasIdleUserEdit.current = false;
     } else if (inputChangedAfterCompletion) {
       completionInput.current = null;
+      hasIdleUserEdit.current = true;
+    } else if (inputChanged) {
+      hasIdleUserEdit.current = true;
     }
     previousIsWorking.current = isWorking;
-  }, [cursorOffset, input, inputChangedAfterCompletion, isWorking]);
+    previousInput.current = { input, cursorOffset };
+  }, [cursorOffset, input, inputChanged, inputChangedAfterCompletion, isWorking]);
 
-  if (isWorking || justCompleted) return false;
-  if (completionInput.current !== null) return inputChangedAfterCompletion;
-  return true;
+  const enabled = isWorking || justCompleted
+    ? false
+    : completionInput.current !== null
+      ? inputChangedAfterCompletion
+      : true;
+
+  return {
+    enabled,
+    refreshOnParentRender: enabled && (hasIdleUserEdit.current || inputChanged),
+  };
 }
 
 const FixedBottom = memo(function FixedBottom({
@@ -2773,7 +2813,7 @@ const FixedBottom = memo(function FixedBottom({
   interactionMode,
   showModeLabel,
 }: FixedBottomProps) {
-  const enableHardwareCursor = useUserDrivenComposerCursor(isWorking, input, cursorOffset);
+  const composerCursorIntent = useUserDrivenComposerCursor(isWorking, input, cursorOffset);
 
   return (
     <>
@@ -2815,7 +2855,8 @@ const FixedBottom = memo(function FixedBottom({
         placeholderText={placeholderText}
         nextPromptSuggestion={nextPromptSuggestion}
         inlineGhostSuffix={inlineGhostSuffix}
-        enableHardwareCursor={enableHardwareCursor}
+        enableHardwareCursor={composerCursorIntent.enabled}
+        refreshHardwareCursor={composerCursorIntent.refreshOnParentRender}
         enableMouseCursor={mouseComposerCursor}
         onLayoutChange={onComposerLayoutChange}
       />
