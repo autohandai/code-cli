@@ -78,6 +78,7 @@ export interface MockAuthServer {
 
 export interface MockAuthServerOptions {
   authorizeAfterPolls?: number;
+  deviceAuthSchemaVersion?: 1 | 2;
 }
 
 export function repoRoot(): string {
@@ -925,6 +926,13 @@ export async function createMockAuthServer(
 ): Promise<MockAuthServer> {
   let pollCount = 0;
   const deviceCode = 'D'.repeat(43);
+  const schemaVersion = options.deviceAuthSchemaVersion ?? 2;
+  const continuation = [
+    'v1',
+    'current',
+    'eyJhdWQiOiJhdXRvaGFuZC1zaXRlLWNsaS1hdXRoLXYxIn0',
+    'S'.repeat(43),
+  ].join('.');
   const server = createServer((request, response) => {
     if (request.url === '/api/auth/me' && request.method === 'GET') {
       response.writeHead(200, { 'content-type': 'application/json' });
@@ -976,17 +984,46 @@ export async function createMockAuthServer(
     }
 
     if (request.url === '/v1/auth/cli/initiate' && request.method === 'POST') {
-      response.writeHead(201, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({
-        success: true,
-        schemaVersion: 2,
-        deviceCode,
-        userCode: 'TEST-CAFE',
-        verificationUri: 'https://autohand.ai/signin',
-        verificationUriComplete: 'https://autohand.ai/signin?user_code=TEST-CAFE',
-        expiresIn: 300,
-        interval: 1,
-      }));
+      const chunks: Buffer[] = [];
+      request.on('data', (chunk: Buffer | string) => chunks.push(Buffer.from(chunk)));
+      request.on('end', () => {
+        let requestedSchemaVersion: unknown;
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+          requestedSchemaVersion = typeof body === 'object' && body !== null && 'schemaVersion' in body
+            ? body.schemaVersion
+            : undefined;
+        } catch {
+          requestedSchemaVersion = undefined;
+        }
+
+        if (requestedSchemaVersion !== schemaVersion) {
+          response.writeHead(400, { 'content-type': 'application/json' });
+          response.end(JSON.stringify({
+            success: false,
+            schemaVersion,
+            error: {
+              code: 'invalid_request',
+              message: 'Request body does not match the CLI auth contract.',
+            },
+          }));
+          return;
+        }
+
+        response.writeHead(201, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({
+          success: true,
+          schemaVersion,
+          deviceCode,
+          userCode: 'TEST-CAFE',
+          verificationUri: 'https://autohand.ai/signin',
+          verificationUriComplete: schemaVersion === 1
+            ? `https://autohand.ai/signin?continue=${continuation}&user_code=TEST-CAFE`
+            : 'https://autohand.ai/signin?user_code=TEST-CAFE',
+          expiresIn: 300,
+          interval: 1,
+        }));
+      });
       return;
     }
 
@@ -999,7 +1036,7 @@ export async function createMockAuthServer(
       ) {
         response.end(JSON.stringify({
           success: true,
-          schemaVersion: 2,
+          schemaVersion,
           status: 'authorized',
           token: `ahc_${'C'.repeat(43)}`,
           user: {
@@ -1012,7 +1049,7 @@ export async function createMockAuthServer(
       }
       response.end(JSON.stringify({
         success: true,
-        schemaVersion: 2,
+        schemaVersion,
         status: 'pending',
         interval: 1,
       }));

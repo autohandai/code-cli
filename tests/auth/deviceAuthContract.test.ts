@@ -80,6 +80,48 @@ describe('AuthClient canonical device authorization contract', () => {
     });
   });
 
+  it('negotiates schema v1 when the auth endpoint explicitly advertises it', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({
+        success: false,
+        schemaVersion: 1,
+        error: {
+          code: 'invalid_request',
+          message: 'Request body does not match the CLI auth contract.',
+        },
+      }, 400))
+      .mockResolvedValueOnce(jsonResponse({
+        success: true,
+        schemaVersion: 1,
+        deviceCode,
+        userCode: 'TEST-CAFE',
+        verificationUri: 'https://autohand.ai/signin',
+        verificationUriComplete: v1CompletionUrl,
+        expiresIn: 300,
+        interval: 5,
+      }, 201));
+    const client = new AuthClient({ baseUrl: 'https://api.autohand.ai/v1/auth' });
+
+    await expect(client.initiateDeviceAuth()).resolves.toMatchObject({
+      success: true,
+      schemaVersion: 1,
+      deviceCode,
+      verificationUriComplete: v1CompletionUrl,
+    });
+    expect(fetchMock.mock.calls.map(([, init]) => init?.body)).toEqual([
+      JSON.stringify({
+        clientId: 'autohand-cli',
+        clientType: 'cli',
+        schemaVersion: 2,
+      }),
+      JSON.stringify({
+        clientId: 'autohand-cli',
+        clientType: 'cli',
+        schemaVersion: 1,
+      }),
+    ]);
+  });
+
   it('rejects malformed or device-code-bearing continuations', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({
       success: true,
