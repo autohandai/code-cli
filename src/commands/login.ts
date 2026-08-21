@@ -14,6 +14,7 @@ import type { LoadedConfig } from '../types.js';
 import { createSyncService, DEFAULT_SYNC_CONFIG, isMemorySyncPath } from '../sync/index.js';
 import type { SyncFileEntry } from '../sync/index.js';
 import { isAutohandInferenceEnabled } from '../featureFlags.js';
+import { formatPlan, planSummaryFromEntitlement } from '../billing/planSummary.js';
 import {
   AUTOHAND_AI_DEFAULT_BASE_URL,
   getAutohandAICloudModelContextWindow,
@@ -280,6 +281,19 @@ export async function login(ctx: LoginContext): Promise<string | null> {
 
       console.log();
       console.log(chalk.green(t('commands.login.success', { email: pollResult.user.name || pollResult.user.email })));
+
+      // Show the plan straight away so the first thing after signing in answers
+      // "what am I on?" without a trip to the console.
+      try {
+        const entitlement = await getAuthClient().fetchEntitlement(pollResult.token);
+        const plan = formatPlan(planSummaryFromEntitlement(entitlement));
+        if (plan) {
+          console.log(chalk.dim(`Plan: ${plan}`));
+        }
+      } catch {
+        // The plan is a courtesy; never let it block a successful sign-in.
+      }
+
       console.log();
 
       // Only prompt for sync restore in interactive terminal sessions.

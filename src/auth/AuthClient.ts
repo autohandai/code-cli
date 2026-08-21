@@ -55,6 +55,8 @@ export interface AccountQuota {
 export interface AccountEntitlement {
   tier: string;
   freeRemaining: number | null;
+  /** How the subscription renews; null when free or the price is unrecognised. */
+  interval?: 'month' | 'year' | null;
   limits?: AccountEntitlementLimits;
   quota?: AccountQuota;
 }
@@ -597,9 +599,13 @@ export class AuthClient {
       const limits = parseAccountEntitlementLimits(entitlement?.limits);
       const quota = parseAccountQuota(entitlement?.quota);
 
+      const interval = entitlement?.interval;
+      const cycle = interval === 'month' || interval === 'year' ? interval : null;
       return {
         tier,
         freeRemaining: typeof freeRemaining === 'number' ? freeRemaining : null,
+        // Omitted rather than null when unknown, matching the other optional fields.
+        ...(cycle ? { interval: cycle } : {}),
         ...(limits ? { limits } : {}),
         ...(quota ? { quota } : {}),
       };

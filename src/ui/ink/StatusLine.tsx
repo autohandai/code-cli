@@ -34,6 +34,13 @@ export interface LineExtension {
   separator?: string;
 }
 
+/** The account's plan as the CLI should show it. */
+export interface PlanSummary {
+  tier: string;
+  label: string;
+  interval?: 'month' | 'year' | null;
+}
+
 export interface StatusLineProps {
   isWorking: boolean;
   status: string;
@@ -52,6 +59,26 @@ export interface StatusLineProps {
   teamActivity?: TeamActivitySnapshot;
   /** Optional extension points for status-line text segments. */
   lineExtension?: LineExtension;
+  /** Account plan, shown whether or not a turn is running. */
+  plan?: PlanSummary;
+}
+
+export function buildPlanSegment(plan?: PlanSummary): LineSegment | null {
+  const label = plan?.label?.trim();
+  if (!label) return null;
+
+  // Only a paid plan renews, so a cycle is never invented for Free.
+  const cycle = plan?.interval === 'year'
+    ? 'Annual'
+    : plan?.interval === 'month'
+      ? 'Monthly'
+      : null;
+
+  return {
+    id: 'plan',
+    text: cycle ? `${label} · ${cycle}` : label,
+    color: 'muted',
+  };
 }
 
 export function buildTeamActivitySegment(
@@ -196,13 +223,16 @@ function StatusLineComponent({
   queueCount = 0,
   teamActivity,
   lineExtension,
+  plan,
 }: StatusLineProps) {
   const { colors, theme } = useTheme();
   const { t } = useTranslation();
   const teamStatus = buildTeamActivitySegment(teamActivity);
+  const planSegment = buildPlanSegment(plan);
   const defaultSegments = [
     ...(isWorking ? buildStatusSegments(status, elapsed, tokens, queueCount, t('ui.escToCancel')) : []),
     ...(teamStatus.segment ? [teamStatus.segment] : []),
+    ...(planSegment ? [planSegment] : []),
   ];
   const { segments, separator } = resolveLineSegments(defaultSegments, lineExtension);
 
@@ -235,6 +265,10 @@ function StatusLineComponent({
  * Memoized StatusLine - prevents unnecessary re-renders
  * Note: We don't memoize too strictly since spinner animation needs updates
  */
+function samePlan(a?: PlanSummary, b?: PlanSummary) {
+  return a?.tier === b?.tier && a?.label === b?.label && a?.interval === b?.interval;
+}
+
 export const StatusLine = memo(StatusLineComponent, (prev, next) => {
   // Don't skip re-render when working (spinner needs animation updates)
   if (prev.isWorking || next.isWorking) {
@@ -250,8 +284,11 @@ export const StatusLine = memo(StatusLineComponent, (prev, next) => {
            prev.provider === next.provider &&
            prev.model === next.model &&
            prev.teamActivity === next.teamActivity &&
-           prev.lineExtension === next.lineExtension;
+           prev.lineExtension === next.lineExtension &&
+           samePlan(prev.plan, next.plan);
   }
   // When both are not working, can safely skip
-  return prev.teamActivity === next.teamActivity && prev.lineExtension === next.lineExtension;
+  return prev.teamActivity === next.teamActivity &&
+         prev.lineExtension === next.lineExtension &&
+         samePlan(prev.plan, next.plan);
 });

@@ -34,6 +34,61 @@ describe('StatusLine extensions', () => {
     expect(source).toContain('theme.fg(getSegmentToken(segment.color), normalizeSegmentText(segment))');
   });
 
+  it('shows the account plan while idle so it is always visible', () => {
+    const { lastFrame } = renderStatusLine({
+      isWorking: false,
+      status: '',
+      plan: { tier: 'pro', label: 'Pro', interval: 'month' },
+    });
+
+    expect(lastFrame()).toContain('Pro');
+    expect(lastFrame()).toContain('Monthly');
+  });
+
+  it('names the annual cycle when the account renews yearly', () => {
+    const { lastFrame } = renderStatusLine({
+      isWorking: false,
+      status: '',
+      plan: { tier: 'max', label: 'Max', interval: 'year' },
+    });
+
+    expect(lastFrame()).toContain('Max');
+    expect(lastFrame()).toContain('Annual');
+  });
+
+  it('shows a free plan without inventing a billing cycle', () => {
+    const { lastFrame } = renderStatusLine({
+      isWorking: false,
+      status: '',
+      plan: { tier: 'free', label: 'Free', interval: null },
+    });
+
+    expect(lastFrame()).toContain('Free');
+    expect(lastFrame()).not.toContain('Monthly');
+    expect(lastFrame()).not.toContain('Annual');
+  });
+
+  it('keeps the plan visible alongside a working status', () => {
+    const { lastFrame } = renderStatusLine({
+      isWorking: true,
+      status: 'Compiling...',
+      plan: { tier: 'pro', label: 'Pro', interval: 'month' },
+    });
+
+    expect(lastFrame()).toContain('Compiling...');
+    expect(lastFrame()).toContain('Pro');
+  });
+
+  it('renders nothing extra when the plan is unknown', () => {
+    const { lastFrame } = renderStatusLine({
+      isWorking: false,
+      status: '',
+    });
+
+    expect(lastFrame()).not.toContain('Monthly');
+    expect(lastFrame()).not.toContain('Annual');
+  });
+
   it('keeps the rotating activity verb in the active status line', () => {
     const { lastFrame } = renderStatusLine({
       isWorking: true,
