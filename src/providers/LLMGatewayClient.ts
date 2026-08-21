@@ -216,12 +216,29 @@ function formatAutohandQuotaReset(resetAtSeconds: number | undefined): string {
     return "Reset time is temporarily unavailable. Run /usage to refresh your quota.";
   }
 
+  const configuredTimeZone = resolveConfiguredTimeZone();
   const formatter = new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
+    ...(configuredTimeZone ? { timeZone: configuredTimeZone } : {}),
   });
   const timeZone = formatter.resolvedOptions().timeZone || "local time";
   return `Resets ${formatter.format(resetAt)} (${timeZone}) · in ${formatResetDistance(resetAtMs, Date.now())}.`;
+}
+
+/**
+ * Honors a TZ override explicitly: worker threads inherit the process zone and
+ * ignore later TZ changes, so relying on the ICU default would render reset
+ * times in the wrong zone. Unusable values fall back to the runtime default.
+ */
+function resolveConfiguredTimeZone(): string | undefined {
+  const configured = process.env.TZ?.trim();
+  if (!configured) return undefined;
+  try {
+    return new Intl.DateTimeFormat(undefined, { timeZone: configured }).resolvedOptions().timeZone;
+  } catch {
+    return undefined;
+  }
 }
 
 function buildAutohandQuotaMessage(error: StructuredGatewayError): string {
