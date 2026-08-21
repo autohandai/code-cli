@@ -266,10 +266,8 @@ function quickVisionCheck(lowerModel: string): boolean {
   // Anthropic Claude (all Claude 3+ models support vision)
   if (
     lowerModel.includes('claude-3') ||
-    lowerModel.includes('claude-4') ||
-    lowerModel.includes('claude-sonnet-4') ||
-    lowerModel.includes('claude-opus-4') ||
-    lowerModel.includes('claude-opus-4-7')
+    /claude-[4-9]/u.test(lowerModel) ||
+    /claude-(?:fable|sonnet|opus)-[4-9]/u.test(lowerModel)
   ) {
     return true;
   }

@@ -14,6 +14,7 @@ import type {
   NvidiaChatTemplateKwargs,
 } from "../types.js";
 import { ApiError, classifyApiError } from "./errors.js";
+import { normalizeOutboundMessages } from "./messagePayload.js";
 import { normalizeLLMUsage } from "./usage.js";
 
 /**
@@ -25,61 +26,22 @@ import { normalizeLLMUsage } from "./usage.js";
  * - name (for function messages, optional)
  * Excludes internal fields like priority, metadata.
  */
+/**
+ * The gateway fronts several upstream providers, including Claude models that
+ * reject the loose turn shapes OpenAI tolerates. Shared repair handles those;
+ * the gateway keeps its own recovery for orphaned tool observations so their
+ * content stays in context instead of being dropped.
+ */
 function sanitizeMessages(messages: LLMMessage[]): Record<string, unknown>[] {
-  const toolOutputIds = new Set(
-    messages
-      .filter((msg) => msg.role === "tool" && msg.tool_call_id)
-      .map((msg) => msg.tool_call_id as string)
-  );
-  const matchedToolCallIds = new Set<string>();
-
-  for (const msg of messages) {
-    if (msg.role !== "assistant" || !msg.tool_calls?.length) {
-      continue;
-    }
-
-    for (const toolCall of msg.tool_calls) {
-      if (toolOutputIds.has(toolCall.id)) {
-        matchedToolCallIds.add(toolCall.id);
-      }
-    }
-  }
-
-  return messages.flatMap((msg) => {
-    if (msg.role === "tool" && (!msg.tool_call_id || !matchedToolCallIds.has(msg.tool_call_id))) {
-      const label = msg.name ? `: ${msg.name}` : "";
-      return [{
+  return normalizeOutboundMessages(messages, {
+    orphanedToolResults: "recover",
+    recoverOrphanedToolResult: (message) => {
+      const label = message.name ? `: ${message.name}` : "";
+      return {
         role: "system",
-        content: `[Recovered Tool Result${label}]\n${msg.content}`,
-      }];
-    }
-
-    const sanitized: Record<string, unknown> = {
-      role: msg.role,
-      content: msg.content,
-    };
-
-    // Add tool_call_id for tool response messages
-    if (msg.role === "tool" && msg.tool_call_id) {
-      sanitized.tool_call_id = msg.tool_call_id;
-    }
-
-    // Add tool_calls for assistant messages that invoked tools
-    if (msg.role === "assistant" && msg.tool_calls?.length) {
-      const matchedToolCalls = msg.tool_calls.filter((toolCall) => matchedToolCallIds.has(toolCall.id));
-      if (matchedToolCalls.length > 0) {
-        sanitized.tool_calls = matchedToolCalls;
-      } else if (!msg.content) {
-        return [];
-      }
-    }
-
-    // Add name for function/tool context (optional, some providers use it)
-    if (msg.name) {
-      sanitized.name = msg.name;
-    }
-
-    return [sanitized];
+        content: `[Recovered Tool Result${label}]\n${message.content}`,
+      };
+    },
   });
 }
 

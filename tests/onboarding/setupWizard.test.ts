@@ -617,6 +617,43 @@ describe("SetupWizard", () => {
       expect(result.config.openai?.apiKey).toBe("sk-openai-test-key");
     });
 
+    it("should configure Anthropic with native API validation and catalog models", async () => {
+      const wizard = new SetupWizard(testWorkspace);
+      mockShowModal
+        .mockResolvedValueOnce({ value: "en" })
+        .mockResolvedValueOnce({ value: "anthropic" })
+        .mockResolvedValueOnce({ value: "claude-sonnet-5" })
+        .mockResolvedValueOnce({ value: "interactive" });
+      mockShowPassword.mockResolvedValueOnce("sk-ant-test-key-long-enough");
+      mockShowConfirm
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+
+      const result = await wizard.run({ skipWelcome: true });
+
+      expect(result.success).toBe(true);
+      expect(result.config.anthropic).toEqual(expect.objectContaining({
+        apiKey: "sk-ant-test-key-long-enough",
+        baseUrl: "https://api.anthropic.com",
+        model: "claude-sonnet-5",
+      }));
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://api.anthropic.com/v1/models",
+        expect.objectContaining({
+          headers: {
+            "x-api-key": "sk-ant-test-key-long-enough",
+            "anthropic-version": expect.any(String),
+          },
+        }),
+      );
+    });
+
     it("should offer to use existing API key", async () => {
       const existingConfig: LoadedConfig = {
         configPath: testConfigPath,

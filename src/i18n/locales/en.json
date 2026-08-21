@@ -726,6 +726,7 @@
   },
   "providers": {
     "openrouter": "OpenRouter",
+    "anthropic": "Anthropic",
     "autohandai": "Autohand AI",
     "openai": "OpenAI",
     "ollama": "Ollama",
@@ -776,6 +777,7 @@
     },
     "hints": {
       "openrouter": "Cloud - Access to 100+ models (Claude, GPT-4, etc.)",
+      "anthropic": "Cloud - Native Anthropic Messages API for Claude models",
       "autohandai": "Cloud or Local - Autohand-hosted Fantail models, or Apple Silicon MLX local inference",
       "openai": "Cloud - Official OpenAI models (GPT-4o, o1, etc.)",
       "ollama": "Local - Run models on your machine (free)",
@@ -895,6 +897,10 @@
       "openrouter": {
         "title": "OpenRouter Configuration",
         "apiKeyUrl": "https://openrouter.ai/keys"
+      },
+      "anthropic": {
+        "title": "Anthropic Configuration",
+        "apiKeyUrl": "https://console.anthropic.com/settings/keys"
       },
       "autohandai": {
         "title": "Autohand AI Configuration",

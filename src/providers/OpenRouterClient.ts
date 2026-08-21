@@ -14,6 +14,13 @@ import type {
 } from "../types.js";
 import { ApiError, classifyApiError, type ApiErrorCode } from "./errors.js";
 import { modelSupportsImages } from "./modelCapabilities.js";
+import {
+  anthropicModelSupportsTemperature,
+  isAnthropicModel,
+  normalizeAnthropicModelKey,
+} from "./anthropicModels.js";
+import { normalizeOpenRouterModelId } from "./modelCatalog.js";
+import { normalizeOutboundMessages } from "./messagePayload.js";
 import { normalizeLLMUsage } from "./usage.js";
 
 /**
@@ -61,31 +68,9 @@ function sanitizeMessages(
   messages: LLMMessage[],
   allowImageInputs: boolean
 ): Record<string, unknown>[] {
-  return messages.map((msg) => {
-    const sanitized: Record<string, unknown> = {
-      role: msg.role,
-      content:
-        allowImageInputs || !Array.isArray(msg.content)
-          ? msg.content
-          : getTextContent(msg.content),
-    };
-
-    // Add tool_call_id for tool response messages
-    if (msg.role === "tool" && msg.tool_call_id) {
-      sanitized.tool_call_id = msg.tool_call_id;
-    }
-
-    // Add tool_calls for assistant messages that invoked tools
-    if (msg.role === "assistant" && msg.tool_calls?.length) {
-      sanitized.tool_calls = msg.tool_calls;
-    }
-
-    // Add name for function/tool context (optional, some providers use it)
-    if (msg.name) {
-      sanitized.name = msg.name;
-    }
-
-    return sanitized;
+  return normalizeOutboundMessages(messages, {
+    transformContent: (content) =>
+      allowImageInputs || !Array.isArray(content) ? content : getTextContent(content),
   });
 }
 
@@ -109,6 +94,29 @@ const OPENROUTER_FRIENDLY_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   timeout:
     "The request timed out. The OpenRouter service may be experiencing high load.",
 };
+
+/**
+ * Pull the upstream provider's error text out of OpenRouter's error metadata so
+ * a provider-side rejection is diagnosable instead of collapsing into a generic
+ * "malformed request".
+ */
+function extractUpstreamErrorDetail(metadata: unknown): string {
+  if (!metadata || typeof metadata !== "object") {
+    return "";
+  }
+  const { raw, provider_name: providerName } = metadata as {
+    raw?: unknown;
+    provider_name?: unknown;
+  };
+  const rawDetail =
+    typeof raw === "string" ? raw : raw !== undefined ? JSON.stringify(raw) : "";
+  if (!rawDetail) {
+    return "";
+  }
+  return typeof providerName === "string" && providerName
+    ? `${providerName}: ${rawDetail}`
+    : rawDetail;
+}
 
 function withOpenRouterMessage(error: ApiError): ApiError {
   const friendlyMessage = OPENROUTER_FRIENDLY_MESSAGES[error.code];
@@ -185,15 +193,25 @@ export class OpenRouterClient {
   }
 
   async complete(request: LLMRequest): Promise<LLMResponse> {
-    const selectedModel = request.model ?? this.defaultModel;
+    // Retired IDs can still reach us from a saved session, a --model flag, or a
+    // stale config, and OpenRouter rejects them as malformed requests.
+    const selectedModel = normalizeOpenRouterModelId(request.model ?? this.defaultModel);
     const allowImageInputs = messageContainsImageContent(request.messages)
       ? await modelSupportsImages(selectedModel)
       : false;
 
+    // Claude 5, Opus 4.7, and Opus 4.8 reject sampling parameters outright, and
+    // OpenRouter forwards `temperature` untouched.
+    const anthropicModelKey = isAnthropicModel(selectedModel)
+      ? normalizeAnthropicModelKey(selectedModel)
+      : undefined;
+    const acceptsTemperature =
+      !anthropicModelKey || anthropicModelSupportsTemperature(anthropicModelKey);
+
     const payload: Record<string, unknown> = {
       model: selectedModel,
       messages: sanitizeMessages(request.messages, allowImageInputs),
-      temperature: request.temperature ?? 0.2,
+      ...(acceptsTemperature ? { temperature: request.temperature ?? 0.2 } : {}),
       max_tokens: request.maxTokens ?? 16000, // Increased from 1000 to allow large file generation
       stream: request.stream ?? false,
     };
@@ -226,17 +244,12 @@ export class OpenRouterClient {
           payload.reasoning_effort = 'low';
         }
       }
-      // Anthropic Claude models with extended thinking support
-      // OpenRouter passes provider-specific options via the provider field
-      if (model.includes('claude') && request.thinkingLevel === 'extended') {
-        payload.provider = {
-          anthropic: {
-            thinking: {
-              type: 'enabled',
-              budget_tokens: 10000
-            }
-          }
-        };
+      // Claude extended thinking goes through OpenRouter's unified `reasoning`
+      // field. A nested `provider.anthropic.thinking` object is not part of the
+      // routing schema, and `budget_tokens` is rejected outright on Claude 5,
+      // Opus 4.7, and Opus 4.8.
+      if (anthropicModelKey && request.thinkingLevel === 'extended') {
+        payload.reasoning = { effort: 'high' };
       }
     }
 
@@ -411,6 +424,12 @@ export class OpenRouterClient {
       }
       if (typeof body?.error?.metadata?.error_type === "string") {
         errorType = body.error.metadata.error_type;
+      }
+      // OpenRouter's own message is often the opaque wrapper "Provider returned
+      // error"; the upstream provider's actual complaint lives in metadata.
+      const upstreamDetail = extractUpstreamErrorDetail(body?.error?.metadata);
+      if (upstreamDetail) {
+        errorDetail = errorDetail ? `${errorDetail}\n${upstreamDetail}` : upstreamDetail;
       }
     } catch {
       // Fallback to raw text if JSON parsing fails

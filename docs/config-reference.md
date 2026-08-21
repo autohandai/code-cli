@@ -188,6 +188,7 @@ Active LLM provider to use.
 | -------------- | ---------------------------- |
 | `"autohandai"` | Autohand AI Cloud or Local   |
 | `"openrouter"` | OpenRouter API (default)     |
+| `"anthropic"`  | Anthropic Messages API       |
 | `"ollama"`     | Local Ollama instance        |
 | `"llamacpp"`   | Local llama.cpp server       |
 | `"openai"`     | OpenAI API directly          |
@@ -279,6 +280,29 @@ OpenRouter provider configuration.
 | `baseUrl`       | string | No       | `https://openrouter.ai/api/v1` | API endpoint                                                                |
 | `model`         | string | Yes      | -                              | Model identifier (e.g., `your-modelcard-id-here`)                           |
 | `contextWindow` | number | No       | Auto                           | Exact model context window. Autohand fills this from OpenRouter when known. |
+
+### `anthropic`
+
+Native Anthropic Messages API configuration. Autohand sends system prompts, tool definitions, tool uses, and tool results using Anthropic's native request format.
+
+```json
+{
+  "anthropic": {
+    "apiKey": "sk-ant-xxx",
+    "baseUrl": "https://api.anthropic.com",
+    "model": "claude-sonnet-5",
+    "contextWindow": 1000000
+  }
+}
+```
+
+| Field           | Type   | Required | Default                     | Description                                      |
+| --------------- | ------ | -------- | --------------------------- | ------------------------------------------------ |
+| `apiKey`        | string | Yes      | -                           | Your Anthropic Console API key                   |
+| `baseUrl`       | string | No       | `https://api.anthropic.com` | Anthropic API origin; `/v1/messages` is appended |
+| `model`         | string | Yes      | `claude-sonnet-5`           | Native Anthropic model identifier                |
+| `contextWindow` | number | No       | Catalog value               | Model context window used by Autohand accounting |
+| `reasoningEffort` | string | No     | Provider default            | Native output effort (`low` through `xhigh`)      |
 
 ### `zai`
 

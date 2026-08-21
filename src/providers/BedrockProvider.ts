@@ -176,8 +176,28 @@ function parseToolArguments(argumentsJson: string): unknown {
   }
 }
 
-function toTextContent(content: string): ConverseContentBlock[] {
-  return content ? [{ text: content }] : [];
+const EMPTY_TOOL_RESULT_PLACEHOLDER = "(no output)";
+
+/**
+ * Converse has no image block in this integration, and multimodal turns arrive
+ * as a content array cast to `string`, so flatten to the text parts.
+ */
+function toPlainText(content: LLMMessage["content"]): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return "";
+  }
+  return (content as Array<{ type?: unknown; text?: unknown }>)
+    .filter((part) => part?.type === "text" && typeof part.text === "string")
+    .map((part) => part.text as string)
+    .join("\n");
+}
+
+function toTextContent(content: LLMMessage["content"]): ConverseContentBlock[] {
+  const text = toPlainText(content);
+  return text.trim() ? [{ text }] : [];
 }
 
 function toToolUseBlocks(toolCalls: LLMToolCall[]): ConverseContentBlock[] {
@@ -202,7 +222,7 @@ function toConverseMessage(message: LLMMessage): ConverseMessage | null {
         {
           toolResult: {
             toolUseId: message.tool_call_id ?? message.name ?? "tool_result",
-            content: [{ text: message.content }],
+            content: [{ text: toPlainText(message.content).trim() || EMPTY_TOOL_RESULT_PLACEHOLDER }],
           },
         },
       ],
@@ -214,16 +234,13 @@ function toConverseMessage(message: LLMMessage): ConverseMessage | null {
       ...toTextContent(message.content),
       ...(message.tool_calls?.length ? toToolUseBlocks(message.tool_calls) : []),
     ];
-    return {
-      role: "assistant",
-      content: content.length > 0 ? content : [{ text: "" }],
-    };
+    // Bedrock rejects both an empty content list and a blank text block, so a
+    // turn with nothing to say is dropped rather than padded.
+    return content.length > 0 ? { role: "assistant", content } : null;
   }
 
-  return {
-    role: "user",
-    content: toTextContent(message.content),
-  };
+  const userContent = toTextContent(message.content);
+  return userContent.length > 0 ? { role: "user", content: userContent } : null;
 }
 
 function toOpenAIMessage(message: LLMMessage): Record<string, unknown> {

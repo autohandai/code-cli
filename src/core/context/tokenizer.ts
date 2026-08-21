@@ -59,6 +59,12 @@ function normalizeModelId(model: string): string {
 
 function inferContextWindow(model: string): number | undefined {
   const normalized = normalizeModelId(model);
+  const modelName = normalized.split('/').at(-1) ?? normalized;
+
+  if (/^claude-(?:fable|mythos|sonnet|opus)-5(?:$|[-.])/u.test(modelName)) return 1_000_000;
+  if (/^claude-(?:sonnet|opus)-4[-.](?:6|7|8)(?:$|[-.])/u.test(modelName)) return 1_000_000;
+  if (/^claude-sonnet-4[-.]5(?:$|[-.])/u.test(modelName)) return 1_000_000;
+  if (/^claude-(?:haiku|opus)-4[-.]\d(?:$|[-.])/u.test(modelName)) return 200_000;
 
   if (normalized.startsWith('gpt-5.5')) return 1_050_000;
   if (normalized.startsWith('gpt-5.4') && !normalized.includes('mini') && !normalized.includes('nano')) return 1_050_000;

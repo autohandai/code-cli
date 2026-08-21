@@ -49,6 +49,7 @@ import { getContextWindow } from "../../utils/context.js";
 import {
   getProviderDefaultModel,
   getProviderModelIds,
+  getProviderModelOptions,
   getProviderRuntimeDefaultModel,
   mergeModelIds,
 } from "../../providers/modelCatalog.js";
@@ -102,6 +103,7 @@ import {
 type CloudProviderWithSettings =
   | "openai"
   | "openrouter"
+  | "anthropic"
   | "llmgateway"
   | "autohandai"
   | "azure"
@@ -162,6 +164,13 @@ export class ProviderConfigManager {
 
     if (provider === "autohandai") {
       return getAutohandAICloudModelContextWindow(model);
+    }
+
+    if (provider === "anthropic") {
+      const catalogModel = getProviderModelOptions("anthropic").find(
+        (entry) => entry.id === model,
+      );
+      if (catalogModel?.contextWindow) return catalogModel.contextWindow;
     }
 
     return getContextWindow(model);
@@ -487,6 +496,7 @@ export class ProviderConfigManager {
     return [
       "openai",
       "openrouter",
+      "anthropic",
       "llmgateway",
       "azure",
       "zai",
@@ -504,6 +514,7 @@ export class ProviderConfigManager {
 
     return [
       "openrouter",
+      "anthropic",
       "openai",
       "llmgateway",
       "azure",
@@ -582,6 +593,7 @@ export class ProviderConfigManager {
 
     if (
       provider === "openrouter" ||
+      provider === "anthropic" ||
       provider === "llmgateway" ||
       provider === "zai" ||
       provider === "sakana" ||
@@ -619,6 +631,9 @@ export class ProviderConfigManager {
         break;
       case "openrouter":
         await this.configureOpenRouter();
+        break;
+      case "anthropic":
+        await this.configureAnthropic();
         break;
       case "ollama":
         await this.configureOllama();
@@ -895,6 +910,82 @@ export class ProviderConfigManager {
       // Cancellation is now handled inline
       throw error;
     }
+  }
+
+  /**
+   * Configure Anthropic's native Messages API (API key + catalog model).
+   */
+  private async configureAnthropic(): Promise<void> {
+    console.log(chalk.cyan(t("providers.wizard.anthropic.title")));
+    console.log(
+      chalk.gray(
+        t("providers.config.apiKeyUrl", {
+          url: t("providers.wizard.anthropic.apiKeyUrl"),
+        }) + "\n",
+      ),
+    );
+
+    const apiKey = await showPassword({
+      title: t("providers.config.enterApiKey", {
+        provider: t("providers.anthropic"),
+      }),
+      placeholder: t("ui.apiKeyPlaceholder"),
+      validate: (value: string) => {
+        if (!value?.trim()) return t("providers.config.apiKeyRequired");
+        if (value.trim().length < 10) return t("providers.config.apiKeyTooShort");
+        return true;
+      },
+    });
+
+    if (!apiKey) {
+      console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+      return;
+    }
+
+    const catalogModels = getProviderModelOptions("anthropic");
+    const defaultModel = getProviderDefaultModel("anthropic", "claude-sonnet-5");
+    const result = await showModal({
+      title: t("providers.config.selectModel"),
+      options: catalogModels.map((entry) => ({
+        label: entry.displayName ?? entry.id,
+        value: entry.id,
+        description: entry.description,
+      })),
+      initialIndex: Math.max(
+        0,
+        catalogModels.findIndex((entry) => entry.id === defaultModel),
+      ),
+    });
+
+    if (!result) {
+      console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+      return;
+    }
+
+    const model = result.value as string;
+    const contextWindow = await this.resolveContextWindow("anthropic", model);
+    this.runtime.config.anthropic = {
+      apiKey: apiKey.trim(),
+      baseUrl: "https://api.anthropic.com",
+      model,
+      contextWindow,
+    };
+    this.runtime.config.provider = "anthropic";
+    this.runtime.options.model = model;
+    await saveConfig(this.runtime.config);
+    this.resetLlmClient("anthropic", model);
+    this.updateContextWindow(contextWindow);
+    this.resetContextPercent();
+    this.emitStatus();
+
+    console.log(
+      chalk.green(
+        "\n✓ " +
+          t("providers.config.configuredSuccessfully", {
+            provider: t("providers.anthropic"),
+          }),
+      ),
+    );
   }
 
   /**
@@ -1627,6 +1718,7 @@ export class ProviderConfigManager {
       if (
         provider === "openai" ||
         provider === "openrouter" ||
+        provider === "anthropic" ||
         provider === "llmgateway" ||
         provider === "azure" ||
         provider === "zai" ||
@@ -3046,6 +3138,7 @@ export class ProviderConfigManager {
         autohandai: "https://api.autohand.ai/keys",
         openai: "https://platform.openai.com/api-keys",
         openrouter: "https://openrouter.ai/keys",
+        anthropic: "https://console.anthropic.com/settings/keys",
         llmgateway: "https://llmgateway.io/dashboard",
         azure: "https://ai.azure.com",
         zai: "https://z.ai/api-keys",
@@ -3122,6 +3215,30 @@ export class ProviderConfigManager {
         }
 
         newModel = result.value as string;
+      } else if (provider === "anthropic") {
+        const models = getProviderModelOptions("anthropic");
+        const result = await showModal({
+          title: t("providers.config.selectModel"),
+          options: models.map((entry) => ({
+            label: entry.displayName ?? entry.id,
+            value: entry.id,
+            description: entry.description,
+          })),
+          initialIndex: Math.max(
+            0,
+            models.findIndex((entry) => entry.id === currentModel),
+          ),
+          allowCustomInput: true,
+        });
+
+        if (!result) {
+          console.log(
+            chalk.gray("\n" + t("providers.config.settingsChangeCancelled")),
+          );
+          return;
+        }
+
+        newModel = (result.value as string).trim();
       } else if (provider === "autohandai") {
         const modelOptions: ModalOption[] = AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS.map((model) => ({
           label: model.label,
@@ -3411,6 +3528,7 @@ export class ProviderConfigManager {
             ? "https://chatgpt.com/backend-api/codex"
             : "https://api.openai.com/v1",
         openrouter: "https://openrouter.ai/api/v1",
+        anthropic: "https://api.anthropic.com",
         llmgateway: "https://api.llmgateway.io/v1",
         autohandai: AUTOHAND_AI_DEFAULT_BASE_URL,
         zai: ZAI_DEFAULT_BASE_URL,
@@ -3453,6 +3571,13 @@ export class ProviderConfigManager {
         };
       } else if (provider === "openrouter") {
         this.runtime.config.openrouter = {
+          apiKey: newApiKey,
+          baseUrl,
+          model: newModel,
+          contextWindow,
+        };
+      } else if (provider === "anthropic") {
+        this.runtime.config.anthropic = {
           apiKey: newApiKey,
           baseUrl,
           model: newModel,
@@ -3653,7 +3778,7 @@ export class ProviderConfigManager {
    * Validate API key by making a test request to the provider
    */
   private async validateApiKey(
-    provider: "openai" | "openrouter" | "llmgateway" | "azure" | "zai" | "sakana" | "xai" | "cerebras" | "nvidia" | "deepseek" | "autohandai",
+    provider: "openai" | "openrouter" | "anthropic" | "llmgateway" | "azure" | "zai" | "sakana" | "xai" | "cerebras" | "nvidia" | "deepseek" | "autohandai",
     apiKey: string,
   ): Promise<{ valid: boolean; error?: string; hint?: string }> {
     // Azure keys can't be easily validated without resource/deployment info
@@ -3665,6 +3790,7 @@ export class ProviderConfigManager {
       const baseUrlMap = {
         openai: "https://api.openai.com/v1",
         openrouter: "https://openrouter.ai/api/v1",
+        anthropic: "https://api.anthropic.com",
         llmgateway: "https://api.llmgateway.io/v1",
         autohandai: AUTOHAND_AI_DEFAULT_BASE_URL,
         zai: ZAI_DEFAULT_BASE_URL,
@@ -3677,10 +3803,18 @@ export class ProviderConfigManager {
       const baseUrl = baseUrlMap[provider];
 
       // Make a simple API call to validate the key
-      const response = await fetch(`${baseUrl}/models`, {
+      const validationUrl = provider === "anthropic"
+        ? `${baseUrl}/v1/models`
+        : `${baseUrl}/models`;
+      const response = await fetch(validationUrl, {
         method: "GET",
         headers: {
-          Authorization: `Bearer ${apiKey}`,
+          ...(provider === "anthropic"
+            ? {
+                "x-api-key": apiKey,
+                "anthropic-version": "2023-06-01",
+              }
+            : { Authorization: `Bearer ${apiKey}` }),
           "Content-Type": "application/json",
           ...(provider === "llmgateway" && {
             "x-source": "Autohand Code CLI",
@@ -3710,6 +3844,7 @@ export class ProviderConfigManager {
       const keyUrlMap = {
         openai: "https://platform.openai.com/api-keys",
         openrouter: "https://openrouter.ai/keys",
+        anthropic: "https://console.anthropic.com/settings/keys",
         llmgateway: "https://llmgateway.io/dashboard",
         autohandai: "https://api.autohand.ai/keys",
         zai: "https://z.ai/api-keys",
@@ -3887,6 +4022,9 @@ export class ProviderConfigManager {
       openrouter:
         this.runtime.config.openrouter ??
         (this.runtime.config.openrouter = { apiKey: "", model }),
+      anthropic:
+        this.runtime.config.anthropic ??
+        (this.runtime.config.anthropic = { apiKey: "", model }),
       autohandai:
         this.runtime.config.autohandai ??
         (this.runtime.config.autohandai = {

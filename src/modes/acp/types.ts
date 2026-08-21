@@ -463,6 +463,7 @@ function hasProviderModel(value: unknown): value is { model: string } {
 function isBuiltInProviderName(value: string): value is BuiltInProviderName {
   return [
     "openrouter",
+    "anthropic",
     "ollama",
     "llamacpp",
     "openai",
@@ -493,11 +494,15 @@ export function parseAvailableModels(config: LoadedConfig): string[] {
     models.push(providerConfig.model);
   }
 
+  const catalogProvider = isBuiltInProviderName(providerName) && providerName !== "autohandai"
+    ? providerName
+    : "openrouter";
+  const catalogModels = getProviderModelIds(catalogProvider);
   return mergeModelIds(
     models,
     isAutohandInferenceEnabled(config)
-      ? ["fantail", "moa", ...getProviderModelIds("openrouter")]
-      : getProviderModelIds("openrouter"),
+      ? ["fantail", "moa", ...catalogModels]
+      : catalogModels,
   );
 }
 

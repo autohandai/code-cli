@@ -218,6 +218,8 @@ describe("modelCapabilities", () => {
       expect(await modelSupportsImages("anthropic/claude-4-sonnet")).toBe(true);
       expect(await modelSupportsImages("anthropic/claude-3-opus")).toBe(true);
       expect(await modelSupportsImages("anthropic/claude-4-sonnet")).toBe(true);
+      expect(await modelSupportsImages("claude-sonnet-5")).toBe(true);
+      expect(await modelSupportsImages("claude-fable-5")).toBe(true);
     });
 
     it("returns true for GPT-4o models", async () => {
@@ -384,6 +386,8 @@ describe("supportsVision (ImageManager)", () => {
     expect(supportsVision("anthropic/claude-4-sonnet")).toBe(true);
     expect(supportsVision("anthropic/claude-3.7-sonnet")).toBe(true);
     expect(supportsVision("anthropic/claude-opus-4")).toBe(true);
+    expect(supportsVision("claude-sonnet-5")).toBe(true);
+    expect(supportsVision("claude-fable-5")).toBe(true);
   });
 
   it("returns true for GPT-4o and variants", () => {

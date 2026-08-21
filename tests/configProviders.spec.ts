@@ -89,6 +89,30 @@ describe('getProviderConfig', () => {
     expect(result!.apiKey).toBe('test');
   });
 
+  it('returns Anthropic settings with the Messages API base URL when configured', () => {
+    const cfg: AutohandConfig = {
+      provider: 'anthropic',
+      anthropic: { apiKey: 'test-anthropic-key', model: 'claude-sonnet-5' }
+    };
+
+    const result = getProviderConfig(cfg);
+
+    expect(result).toEqual(expect.objectContaining({
+      apiKey: 'test-anthropic-key',
+      baseUrl: 'https://api.anthropic.com',
+      model: 'claude-sonnet-5'
+    }));
+  });
+
+  it('returns null when Anthropic config has no API key', () => {
+    const cfg: AutohandConfig = {
+      provider: 'anthropic',
+      anthropic: { apiKey: '', model: 'claude-sonnet-5' }
+    };
+
+    expect(getProviderConfig(cfg)).toBeNull();
+  });
+
   it('returns default base url for ollama when missing', () => {
     const cfg: AutohandConfig = {
       provider: 'ollama',

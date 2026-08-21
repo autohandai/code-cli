@@ -23,6 +23,8 @@ describe("modelCatalog", () => {
   });
 
   it("loads bundled provider models from src/providers/models.json", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "autohand-bundled-models-"));
+    process.env.AUTOHAND_HOME = dir;
     const {
       getBundledModelCatalogPath,
       getProviderDefaultModel,
@@ -47,10 +49,29 @@ describe("modelCatalog", () => {
       "grok-4.20-reasoning",
     ]));
     expect(getProviderDefaultModel("autohandai")).toBe("fantail");
+    expect(getProviderDefaultModel("anthropic")).toBe("claude-sonnet-5");
+    expect(getProviderModelIds("anthropic")).toEqual(expect.arrayContaining([
+      "claude-sonnet-5",
+      "claude-opus-5",
+      "claude-fable-5",
+      "claude-opus-4-8",
+      "claude-haiku-4-5",
+    ]));
+    expect(getProviderDefaultModel("openrouter")).toBe("anthropic/claude-sonnet-5");
+    expect(getProviderModelIds("openrouter")).toEqual(expect.arrayContaining([
+      "anthropic/claude-sonnet-5",
+      "anthropic/claude-opus-5",
+      "anthropic/claude-fable-5",
+      "anthropic/claude-opus-4.8",
+      "anthropic/claude-haiku-4.5",
+    ]));
+    expect(getProviderModelIds("openrouter")).not.toContain("anthropic/claude-5-sonnet");
+    expect(getProviderModelIds("openrouter")).not.toContain("anthropic/claude-5-opus");
     expect(getProviderModelOptions("autohandai")).toEqual([
       expect.objectContaining({ id: "fantail", contextWindow: 64_000, maxTokens: 16_000 }),
       expect.objectContaining({ id: "moa", contextWindow: 1_000_000, maxTokens: 262_144 }),
     ]);
+    rmSync(dir, { recursive: true, force: true });
   });
 
   it("keeps runtime defaults separate from user-facing defaults when needed", async () => {
@@ -64,6 +85,7 @@ describe("modelCatalog", () => {
     const { getProviderDefaultModel, getProviderModelIds } = await importCatalog();
     const providers = [
       "openrouter",
+      "anthropic",
       "ollama",
       "llamacpp",
       "openai",
@@ -121,6 +143,40 @@ describe("modelCatalog", () => {
         id: "nvidia/new-catalog-model",
         displayName: "New Catalog Model",
       });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("normalizes invalid Claude 5 aliases from an older downloaded catalog", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "autohand-models-"));
+    const overridePath = join(dir, "models.json");
+    writeFileSync(
+      overridePath,
+      JSON.stringify({
+        providers: {
+          openrouter: {
+            defaultModel: "anthropic/claude-5-sonnet",
+            models: [
+              "anthropic/claude-5-sonnet",
+              "anthropic/claude-5-opus",
+            ],
+          },
+        },
+      }),
+    );
+    process.env.AUTOHAND_MODELS_CATALOG = overridePath;
+
+    try {
+      const { getProviderDefaultModel, getProviderModelIds } = await importCatalog();
+
+      expect(getProviderDefaultModel("openrouter")).toBe("anthropic/claude-sonnet-5");
+      expect(getProviderModelIds("openrouter")).toEqual(expect.arrayContaining([
+        "anthropic/claude-sonnet-5",
+        "anthropic/claude-opus-5",
+      ]));
+      expect(getProviderModelIds("openrouter")).not.toContain("anthropic/claude-5-sonnet");
+      expect(getProviderModelIds("openrouter")).not.toContain("anthropic/claude-5-opus");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

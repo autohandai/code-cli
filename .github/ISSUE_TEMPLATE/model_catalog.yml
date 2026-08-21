@@ -16,6 +16,7 @@ body:
       options:
         - autohandai
         - openrouter
+        - anthropic
         - ollama
         - openai
         - llmgateway

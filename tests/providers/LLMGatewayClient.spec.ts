@@ -197,6 +197,55 @@ describe('LLMGatewayClient', () => {
       );
     });
 
+    it('repairs turn shapes that upstream Claude models reject', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          id: 'test-id',
+          choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }]
+        })
+      });
+      global.fetch = fetchMock;
+
+      const client = new LLMGatewayClient({
+        apiKey: 'test-key',
+        model: 'anthropic/claude-haiku-4.5'
+      });
+
+      await client.complete({
+        messages: [
+          { role: 'user', content: 'go' },
+          { role: 'assistant', content: '   ' },
+          {
+            role: 'assistant',
+            content: '',
+            tool_calls: [
+              { id: 'call_a', type: 'function', function: { name: 'read_file', arguments: '{}' } },
+              { id: 'call_b', type: 'function', function: { name: 'list_tree', arguments: '{}' } }
+            ]
+          },
+          { role: 'tool', tool_call_id: 'call_a', content: '' }
+        ]
+      });
+
+      const payload = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
+        messages: Array<{ role: string; content?: unknown; tool_call_id?: string }>;
+      };
+      expect(payload.messages.map((message) => message.role)).toEqual([
+        'user',
+        'assistant',
+        'tool',
+        'tool',
+      ]);
+      expect(payload.messages[1]?.content).toBeNull();
+      expect(payload.messages[2]).toEqual(expect.objectContaining({
+        tool_call_id: 'call_a',
+        content: '(no output)',
+      }));
+      expect(payload.messages[3]).toEqual(expect.objectContaining({ tool_call_id: 'call_b' }));
+      expect(payload.messages[3]?.content).toBeTruthy();
+    });
+
     it('preserves orphaned tool observations as API-valid system context', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,

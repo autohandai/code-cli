@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 const PROVIDER_DEFAULTS = {
   autohandai: { api: "openai-completions", baseUrl: "https://api.autohand.ai/v1", contextWindow: 64000 },
   openrouter: { api: "openai-completions", baseUrl: "https://openrouter.ai/api/v1", contextWindow: 131072 },
+  anthropic: { api: "anthropic-messages", baseUrl: "https://api.anthropic.com", contextWindow: 1000000 },
   ollama: { api: "openai-completions", baseUrl: "http://127.0.0.1:11434/v1", contextWindow: 131072 },
   llamacpp: { api: "openai-completions", baseUrl: "http://127.0.0.1:8080/v1", contextWindow: 131072 },
   openai: { api: "openai-responses", baseUrl: "https://api.openai.com/v1", contextWindow: 400000 },
