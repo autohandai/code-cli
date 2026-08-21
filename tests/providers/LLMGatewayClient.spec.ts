@@ -332,6 +332,12 @@ describe('LLMGatewayClient', () => {
       const originalTimeZone = process.env.TZ;
       process.env.TZ = 'Pacific/Auckland';
       const resetAt = Math.floor(Date.now() / 1000) + 2 * 60 * 60 + 30 * 60;
+      // Rendered in the configured zone, so a UTC fallback would be 12 hours off.
+      const expectedResetTime = new Intl.DateTimeFormat(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+        timeZone: 'Pacific/Auckland',
+      }).format(new Date(resetAt * 1000));
       global.fetch = vi.fn().mockResolvedValue({
         ok: false,
         status: 429,
@@ -363,11 +369,71 @@ describe('LLMGatewayClient', () => {
         })).rejects.toMatchObject({
           code: 'rate_limited',
           retryable: false,
-          message: expect.stringMatching(
-            /5-hour request quota reached\.[\s\S]*Resets .+ \(Pacific\/Auckland\) · in 2h 30m\.[\s\S]*Upgrade your Autohand Code plan for more usage: https:\/\/console\.autohand\.ai\/upgrade\/\?from=cli&tier=pro/,
-          ),
+          message: [
+            'Autohand AI 5-hour request quota reached.',
+            "You've used all your requests in this 5-hour window.",
+            `Resets ${expectedResetTime} (Pacific/Auckland) \u00b7 in 2h 30m.`,
+            'Upgrade your Autohand Code plan for more usage: https://console.autohand.ai/upgrade/?from=cli&tier=pro',
+          ].join('\n'),
         });
         expect(global.fetch).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+        if (originalTimeZone === undefined) {
+          delete process.env.TZ;
+        } else {
+          process.env.TZ = originalTimeZone;
+        }
+      }
+    });
+
+    it('falls back to the runtime time zone when TZ is not a usable zone', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-08-14T00:00:00.000Z'));
+      const originalTimeZone = process.env.TZ;
+      process.env.TZ = 'Definitely/NotAZone';
+      const resetAt = Math.floor(Date.now() / 1000) + 45 * 60;
+      const fallbackFormatter = new Intl.DateTimeFormat(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+      const expectedZone = fallbackFormatter.resolvedOptions().timeZone;
+      const expectedResetTime = fallbackFormatter.format(new Date(resetAt * 1000));
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        headers: new Headers(),
+        json: () => Promise.resolve({
+          error: {
+            type: 'rate_limited',
+            message: "You've used all your requests in this 5-hour window.",
+            scope: 'window_5h',
+            resetAt,
+          },
+        }),
+      });
+
+      const client = new LLMGatewayClient(
+        { apiKey: 'test-key', model: 'fantail' },
+        { maxRetries: 3, retryDelay: 0 },
+        {
+          serviceName: 'Autohand AI',
+          credentialName: 'Autohand AI API key',
+          accountName: 'Autohand AI account',
+        },
+      );
+
+      try {
+        const failure = await client
+          .complete({ messages: [{ role: 'user', content: 'Hello' }] })
+          .then(() => undefined, (error: unknown) => error as Error);
+
+        expect(failure).toBeInstanceOf(Error);
+        const message = failure?.message ?? '';
+        expect(message).toContain(`Resets ${expectedResetTime} (${expectedZone ?? 'local time'})`);
+        expect(message).toContain('\u00b7 in 45m.');
+        expect(message).not.toContain('Definitely/NotAZone');
+        expect(message).not.toContain('undefined');
       } finally {
         vi.useRealTimers();
         if (originalTimeZone === undefined) {
