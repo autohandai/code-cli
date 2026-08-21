@@ -292,6 +292,9 @@ export class SubAgent {
             if (assistantToolCalls.length) {
                 assistantMessage.tool_calls = assistantToolCalls;
             }
+            if (completion.reasoningBlocks?.length) {
+                assistantMessage.reasoningBlocks = completion.reasoningBlocks;
+            }
             this.conversation.addMessage(assistantMessage);
 
             if (payload.thought) {

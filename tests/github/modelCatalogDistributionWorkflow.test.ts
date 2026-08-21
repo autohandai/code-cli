@@ -46,6 +46,13 @@ describe("model catalog distribution automation", () => {
           provider: "autohandai",
         }),
       });
+      expect(catalog.anthropic["claude-sonnet-5"]).toEqual(expect.objectContaining({
+        api: "anthropic-messages",
+        baseUrl: "https://api.anthropic.com",
+        contextWindow: 1_000_000,
+        maxTokens: 128_000,
+        provider: "anthropic",
+      }));
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

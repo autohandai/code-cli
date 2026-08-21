@@ -64,6 +64,44 @@ describe('ReactLoopRunner composer status', () => {
     expect(llmComplete.mock.calls[0]?.[0]?.promptCache?.key).not.toContain('session-123');
   });
 
+  it('preserves provider reasoning blocks on the stored assistant turn', async () => {
+    const parser = new ReactionParser();
+    const reasoningBlocks = [{ type: 'thinking', thinking: '', signature: 'sig-1' }];
+    const llmComplete = vi.fn().mockResolvedValue({
+      id: 'final-response',
+      created: 1,
+      content: '{"finalResponse":"Done."}',
+      reasoningBlocks,
+      raw: {},
+    });
+    const host = createReactLoopTestHost(llmComplete, parser);
+
+    await runAgentReactLoop(host, new AbortController());
+
+    expect(host.conversation.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ role: 'assistant', reasoningBlocks }),
+    );
+  });
+
+  it('omits reasoning blocks from the assistant turn when the provider reports none', async () => {
+    const parser = new ReactionParser();
+    const llmComplete = vi.fn().mockResolvedValue({
+      id: 'final-response',
+      created: 1,
+      content: '{"finalResponse":"Done."}',
+      raw: {},
+    });
+    const host = createReactLoopTestHost(llmComplete, parser);
+
+    await runAgentReactLoop(host, new AbortController());
+
+    const assistantTurn = (host.conversation.addMessage as ReturnType<typeof vi.fn>).mock.calls
+      .map((call) => call[0])
+      .find((message) => message.role === 'assistant');
+    expect(assistantTurn).toBeDefined();
+    expect(assistantTurn).not.toHaveProperty('reasoningBlocks');
+  });
+
   it('omits prompt cache affinity when no session is active', async () => {
     const parser = new ReactionParser();
     const llmComplete = vi.fn().mockResolvedValue({

@@ -21,6 +21,7 @@ import {
   classifyInferenceDestination,
   createAnswerOnlyRuntimeProfile,
   inspectBlueprintRuntime,
+  inspectAuthenticationState,
   inspectBlueprintCliIdentity,
   parseBlueprintAnswerEnvelope,
   runBlueprintAnswer,
@@ -166,6 +167,14 @@ describe('Blueprint answer-only contract', () => {
       expected: { kind: 'hosted', provider: 'openrouter', origin: 'https://openrouter.ai' },
     },
     {
+      name: 'Anthropic',
+      config: {
+        provider: 'anthropic',
+        anthropic: { model: 'claude-sonnet-5', apiKey: 'secret' },
+      },
+      expected: { kind: 'hosted', provider: 'anthropic', origin: 'https://api.anthropic.com' },
+    },
+    {
       name: 'custom provider',
       config: {
         provider: 'custom:private',
@@ -197,6 +206,17 @@ describe('Blueprint answer-only contract', () => {
     expected: ReturnType<typeof classifyInferenceDestination>;
   }>)('classifies $name without exposing endpoint paths or credentials', ({ config, expected }) => {
     expect(classifyInferenceDestination(config)).toEqual(expected);
+  });
+
+  it('reports Anthropic API key state', () => {
+    expect(inspectAuthenticationState({
+      provider: 'anthropic',
+      anthropic: { model: 'claude-sonnet-5', apiKey: 'sk-ant-key' },
+    } as AutohandConfig)).toBe('configured');
+    expect(inspectAuthenticationState({
+      provider: 'anthropic',
+      anthropic: { model: 'claude-sonnet-5', apiKey: '' },
+    } as AutohandConfig)).toBe('missing');
   });
 
   it('reports passive runtime facts from config without constructing a provider', async () => {

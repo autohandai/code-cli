@@ -39,6 +39,7 @@ interface ModelCatalog {
 
 const PROVIDERS: readonly BuiltInProviderName[] = [
   "openrouter",
+  "anthropic",
   "ollama",
   "llamacpp",
   "openai",
@@ -143,6 +144,46 @@ function normalizeProviderCatalog(value: unknown): ProviderModelCatalog | undefi
   return catalog;
 }
 
+/**
+ * OpenRouter model IDs that Autohand once shipped but that the API rejects as
+ * malformed. Kept as a single source of truth so persisted configs, saved
+ * sessions, remote catalogs, and outbound requests all resolve identically.
+ */
+const OPENROUTER_MODEL_ALIASES: Readonly<Record<string, string>> = {
+  "anthropic/claude-5-sonnet": "anthropic/claude-sonnet-5",
+  "anthropic/claude-5-opus": "anthropic/claude-opus-5",
+};
+
+export function normalizeOpenRouterModelId(model: string): string {
+  return OPENROUTER_MODEL_ALIASES[model] ?? model;
+}
+
+function normalizeProviderModelAliases(
+  provider: BuiltInProviderName,
+  catalog: ProviderModelCatalog,
+): ProviderModelCatalog {
+  if (provider !== "openrouter") {
+    return catalog;
+  }
+
+  const normalizeModelId = normalizeOpenRouterModelId;
+  return {
+    ...(catalog.defaultModel
+      ? { defaultModel: normalizeModelId(catalog.defaultModel) }
+      : {}),
+    ...(catalog.runtimeDefaultModel
+      ? { runtimeDefaultModel: normalizeModelId(catalog.runtimeDefaultModel) }
+      : {}),
+    models: mergeModelOptions(
+      catalog.models.map((entry) => ({
+        ...entry,
+        id: normalizeModelId(entry.id),
+      })),
+      [],
+    ),
+  };
+}
+
 function normalizePiProviderCatalog(value: unknown): ProviderModelCatalog | undefined {
   if (!isRecord(value)) {
     return undefined;
@@ -184,7 +225,7 @@ function normalizeCatalog(value: unknown): ModelCatalog {
       ? normalizeProviderCatalog(providerValue)
       : normalizePiProviderCatalog(providerValue);
     if (normalized) {
-      catalog.providers[provider] = normalized;
+      catalog.providers[provider] = normalizeProviderModelAliases(provider, normalized);
     }
   }
 

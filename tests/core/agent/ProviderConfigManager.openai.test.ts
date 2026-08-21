@@ -74,6 +74,7 @@ vi.mock("../../../src/i18n/index.js", () => ({
       "providers.autohandai": "Autohand AI",
       "providers.deepseek": "DeepSeek",
       "providers.openrouter": "OpenRouter",
+      "providers.anthropic": "Anthropic",
       "providers.openai": "OpenAI",
       "providers.ollama": "Ollama",
       "providers.azure": "Azure OpenAI",
@@ -241,6 +242,72 @@ describe("ProviderConfigManager openai auth mode", () => {
       { label: "glm-5.1", value: "glm-5.1" },
     ]);
     expect(runtime.config.provider).toBe("zai");
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+
+  it("configures Anthropic with the native model catalog", async () => {
+    mockShowPassword.mockResolvedValueOnce("sk-ant-test-key-long-enough");
+    mockShowModal.mockResolvedValueOnce({ value: "claude-sonnet-5" });
+
+    await (manager as any).configureAnthropic();
+
+    expect(runtime.config.anthropic).toEqual({
+      apiKey: "sk-ant-test-key-long-enough",
+      baseUrl: "https://api.anthropic.com",
+      model: "claude-sonnet-5",
+      contextWindow: 1_000_000,
+    });
+    expect(mockShowModal.mock.calls[0][0].options).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "Claude Sonnet 5", value: "claude-sonnet-5" }),
+      expect.objectContaining({ label: "Claude Opus 5", value: "claude-opus-5" }),
+    ]));
+    expect(runtime.config.provider).toBe("anthropic");
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+
+  it("validates Anthropic keys with native authentication headers", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: [] }), { status: 200 }),
+    );
+
+    const result = await (manager as any).validateApiKey(
+      "anthropic",
+      "sk-ant-test-key-long-enough",
+    );
+
+    expect(result).toEqual({ valid: true });
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://api.anthropic.com/v1/models",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "x-api-key": "sk-ant-test-key-long-enough",
+          "anthropic-version": expect.any(String),
+        }),
+      }),
+    );
+    expect(fetchSpy.mock.calls[0]?.[1]?.headers).not.toHaveProperty("Authorization");
+  });
+
+  it("changes models for an already configured Anthropic provider", async () => {
+    runtime.config.provider = "anthropic";
+    runtime.config.anthropic = {
+      apiKey: "sk-ant-test-key-long-enough",
+      baseUrl: "https://api.anthropic.com",
+      model: "claude-sonnet-5",
+    };
+    runtime.options.model = "claude-sonnet-5";
+    mockShowModal
+      .mockResolvedValueOnce({ value: "model" })
+      .mockResolvedValueOnce({ value: "claude-opus-5" });
+
+    await manager.changeProviderModel("anthropic");
+
+    expect(runtime.config.anthropic).toEqual(expect.objectContaining({
+      apiKey: "sk-ant-test-key-long-enough",
+      baseUrl: "https://api.anthropic.com",
+      model: "claude-opus-5",
+      contextWindow: 1_000_000,
+    }));
     expect(mockSaveConfig).toHaveBeenCalledOnce();
   });
 

@@ -2967,6 +2967,74 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(restartedSession);
   });
 
+  it('persists an Anthropic provider selection and restores it after restart', async () => {
+    const selectedModel = 'claude-sonnet-5';
+    const apiKey = 'sk-ant-tuistory-key-long-enough';
+    const authServer = await createMockAuthServer();
+    mockAuthServers.push(authServer);
+    const state = await createTempAutohandHome({
+      config: {
+        provider: 'openrouter',
+      },
+    });
+    tempStates.push(state);
+    const launchWithPersistedConfig = (): Promise<Session> => trackSession(
+      launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        env: {
+          AUTOHAND_API_URL: authServer.baseUrl,
+          AUTOHAND_AUTH_URL: authServer.baseUrl,
+          AUTOHAND_AUTH_API_URL: `${authServer.baseUrl}/api/auth`,
+        },
+        waitForDataTimeout: 15_000,
+      })
+    );
+    const session = await launchWithPersistedConfig();
+
+    await waitForComposer(session);
+    await session.type('/model');
+    await session.press('enter');
+    await session.waitForText('What would you like to change?', { timeout: 10_000 });
+    await session.press('3');
+    await session.waitForText('Choose an LLM provider', { timeout: 10_000 });
+    await selectModalOptionByLabel(session, 'Anthropic');
+    await session.waitForText('Enter your Anthropic API key', { timeout: 10_000 });
+    await session.type(apiKey);
+    await session.press('enter');
+    await session.waitForText('Select a model', { timeout: 10_000 });
+    await selectModalOptionByLabel(session, 'Claude Sonnet 5');
+    await session.waitForText('Anthropic configured successfully!', { timeout: 10_000 });
+    const screen = await session.text({
+      timeout: 10_000,
+      waitFor: (text) => text.includes(`autohand (Anthropic, ${selectedModel})`),
+      trimEnd: true,
+    });
+    expect(screen).toContain(`autohand (Anthropic, ${selectedModel})`);
+
+    await exitInteractive(session);
+
+    const savedConfig = await fs.readJson(state.configPath) as {
+      provider?: string;
+      anthropic?: { apiKey?: string; model?: string };
+    };
+    expect(savedConfig.provider).toBe('anthropic');
+    expect(savedConfig.anthropic).toEqual(expect.objectContaining({
+      apiKey,
+      model: selectedModel,
+    }));
+
+    const restartedSession = await launchWithPersistedConfig();
+    await waitForComposer(restartedSession);
+    const restartedScreen = await restartedSession.text({
+      timeout: 10_000,
+      waitFor: (text) => text.includes(`autohand (Anthropic, ${selectedModel})`),
+      trimEnd: true,
+    });
+    expect(restartedScreen).toContain(`autohand (Anthropic, ${selectedModel})`);
+    await exitInteractive(restartedSession);
+  });
+
   it('persists an Autohand AI provider selection and restores it after restart', async () => {
     const selectedModel = 'fantail';
     const authServer = await createMockAuthServer();

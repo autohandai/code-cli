@@ -25,24 +25,49 @@
       ]
     },
     "openrouter": {
-      "defaultModel": "anthropic/claude-5-sonnet",
-      "runtimeDefaultModel": "anthropic/claude-5-sonnet",
+      "defaultModel": "anthropic/claude-sonnet-5",
+      "runtimeDefaultModel": "anthropic/claude-sonnet-5",
       "models": [
         { "id": "openrouter/auto", "displayName": "OpenRouter Auto" },
-        { "id": "anthropic/claude-sonnet-4-20250514", "displayName": "Claude Sonnet 4" },
-        { "id": "anthropic/claude-4-sonnet", "displayName": "Claude 4 Sonnet" },
-        { "id": "anthropic/claude-3-opus", "displayName": "Claude 3 Opus" },
-        { "id": "anthropic/claude-3-5-sonnet-20241022", "displayName": "Claude 3.5 Sonnet" },
+        { "id": "anthropic/claude-opus-5-fast", "displayName": "Claude Opus 5 (Fast)", "contextWindow": 1000000, "maxTokens": 128000, "reasoningEffort": "high" },
+        { "id": "anthropic/claude-opus-5", "displayName": "Claude Opus 5", "contextWindow": 1000000, "maxTokens": 128000, "reasoningEffort": "high" },
+        { "id": "anthropic/claude-sonnet-5", "displayName": "Claude Sonnet 5", "contextWindow": 1000000, "maxTokens": 128000, "reasoningEffort": "high" },
+        { "id": "anthropic/claude-fable-5", "displayName": "Claude Fable 5", "contextWindow": 1000000, "maxTokens": 128000, "reasoningEffort": "high" },
+        { "id": "anthropic/claude-opus-4.8-fast", "displayName": "Claude Opus 4.8 (Fast)", "contextWindow": 1000000, "maxTokens": 128000, "reasoningEffort": "high" },
+        { "id": "anthropic/claude-opus-4.8", "displayName": "Claude Opus 4.8", "contextWindow": 1000000, "maxTokens": 128000, "reasoningEffort": "high" },
+        { "id": "anthropic/claude-opus-4.7-fast", "displayName": "Claude Opus 4.7 (Fast)", "contextWindow": 1000000, "maxTokens": 128000, "reasoningEffort": "high" },
+        { "id": "anthropic/claude-opus-4.7", "displayName": "Claude Opus 4.7", "contextWindow": 1000000, "maxTokens": 128000, "reasoningEffort": "high" },
+        { "id": "anthropic/claude-sonnet-4.6", "displayName": "Claude Sonnet 4.6", "contextWindow": 1000000, "maxTokens": 64000, "reasoningEffort": "high" },
+        { "id": "anthropic/claude-opus-4.6", "displayName": "Claude Opus 4.6", "contextWindow": 1000000, "maxTokens": 128000, "reasoningEffort": "high" },
+        { "id": "anthropic/claude-opus-4.5", "displayName": "Claude Opus 4.5", "contextWindow": 200000, "reasoningEffort": "high" },
+        { "id": "anthropic/claude-haiku-4.5", "displayName": "Claude Haiku 4.5", "contextWindow": 200000, "maxTokens": 64000 },
+        { "id": "anthropic/claude-sonnet-4.5", "displayName": "Claude Sonnet 4.5", "contextWindow": 1000000, "reasoningEffort": "high" },
+        { "id": "anthropic/claude-opus-4.1", "displayName": "Claude Opus 4.1", "contextWindow": 200000 },
         { "id": "openai/gpt-4o", "displayName": "GPT-4o" },
         { "id": "openai/gpt-5", "displayName": "GPT-5" },
         { "id": "google/gemini-3.0-pro", "displayName": "Gemini 3.0 Pro" },
         { "id": "google/gemini-pro-1.5", "displayName": "Gemini Pro 1.5" },
         { "id": "deepseek/deepseek-v4", "displayName": "DeepSeek V4" },
-        { "id": "anthropic/claude-5-sonnet", "displayName": "Claude 5 Sonnet" },
-        { "id": "anthropic/claude-5-opus", "displayName": "Claude 5 Opus" },
         { "id": "x-ai/grok-4.5", "displayName": "Grok 4.5" },
         { "id": "x-ai/grok-2-latest", "displayName": "Grok 2 Latest" },
         { "id": "meta-llama/llama-3.1-70b-instruct", "displayName": "Llama 3.1 70B Instruct" }
+      ]
+    },
+    "anthropic": {
+      "defaultModel": "claude-sonnet-5",
+      "runtimeDefaultModel": "claude-sonnet-5",
+      "models": [
+        { "id": "claude-opus-5", "displayName": "Claude Opus 5", "contextWindow": 1000000, "maxTokens": 128000, "reasoningEffort": "high" },
+        { "id": "claude-sonnet-5", "displayName": "Claude Sonnet 5", "contextWindow": 1000000, "maxTokens": 128000, "reasoningEffort": "high" },
+        { "id": "claude-fable-5", "displayName": "Claude Fable 5", "contextWindow": 1000000, "maxTokens": 128000, "reasoningEffort": "high" },
+        { "id": "claude-opus-4-8", "displayName": "Claude Opus 4.8", "contextWindow": 1000000, "maxTokens": 128000, "reasoningEffort": "high" },
+        { "id": "claude-opus-4-7", "displayName": "Claude Opus 4.7", "contextWindow": 1000000, "maxTokens": 128000, "reasoningEffort": "high" },
+        { "id": "claude-sonnet-4-6", "displayName": "Claude Sonnet 4.6", "contextWindow": 1000000, "maxTokens": 64000, "reasoningEffort": "high" },
+        { "id": "claude-opus-4-6", "displayName": "Claude Opus 4.6", "contextWindow": 1000000, "maxTokens": 128000, "reasoningEffort": "high" },
+        { "id": "claude-haiku-4-5", "displayName": "Claude Haiku 4.5", "contextWindow": 200000, "maxTokens": 64000 },
+        { "id": "claude-opus-4-5", "displayName": "Claude Opus 4.5", "contextWindow": 200000, "reasoningEffort": "high" },
+        { "id": "claude-sonnet-4-5", "displayName": "Claude Sonnet 4.5", "contextWindow": 1000000, "reasoningEffort": "high" },
+        { "id": "claude-opus-4-1", "displayName": "Claude Opus 4.1", "contextWindow": 200000 }
       ]
     },
     "ollama": {

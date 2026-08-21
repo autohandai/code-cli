@@ -48,6 +48,14 @@ describe('context/tokenizer', () => {
   describe('getContextWindow', () => {
     it('returns known model context windows', () => {
       expect(getContextWindow('anthropic/claude-4-sonnet')).toBe(200_000);
+      expect(getContextWindow('anthropic/claude-sonnet-5')).toBe(1_000_000);
+      expect(getContextWindow('claude-sonnet-5')).toBe(1_000_000);
+      expect(getContextWindow('claude-fable-5')).toBe(1_000_000);
+      expect(getContextWindow('claude-haiku-4-5')).toBe(200_000);
+      expect(getContextWindow('claude-sonnet-4-5')).toBe(1_000_000);
+      expect(getContextWindow('anthropic/claude-sonnet-4.5')).toBe(1_000_000);
+      expect(getContextWindow('claude-opus-4-5')).toBe(200_000);
+      expect(getContextWindow('claude-opus-4-1')).toBe(200_000);
       expect(getContextWindow('openai/gpt-5.5')).toBe(1_050_000);
       expect(getContextWindow('gpt-5.5-pro')).toBe(1_050_000);
       expect(getContextWindow('openai/gpt-5.4')).toBe(1_050_000);

@@ -722,6 +722,11 @@ export async function runAgentReactLoop(
       if (assistantToolCalls.length) {
         assistantMessage.tool_calls = assistantToolCalls;
       }
+      // Anthropic validates thinking-block ordering and signatures on replay,
+      // so provider-native reasoning rides along with the assistant turn.
+      if (completion.reasoningBlocks?.length) {
+        assistantMessage.reasoningBlocks = completion.reasoningBlocks;
+      }
       host.conversation.addMessage(assistantMessage);
       await host.saveAssistantMessage(completion.content, payload.toolCalls);
       host.updateContextUsage(host.conversation.history(), tools);

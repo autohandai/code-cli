@@ -167,4 +167,25 @@ describe('getProviderConfig', () => {
       await fs.remove(tempDir);
     }
   });
+
+  it('migrates the invalid Claude 5 OpenRouter model IDs shipped by older releases', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
+    const configPath = path.join(tempDir, 'config.json');
+
+    await fs.writeJson(configPath, {
+      provider: 'openrouter',
+      openrouter: {
+        apiKey: 'sk-or-valid-key',
+        model: 'anthropic/claude-5-sonnet',
+      },
+    });
+
+    try {
+      const config = await loadConfig(configPath);
+
+      expect(config.openrouter?.model).toBe('anthropic/claude-sonnet-5');
+    } finally {
+      await fs.remove(tempDir);
+    }
+  });
 });

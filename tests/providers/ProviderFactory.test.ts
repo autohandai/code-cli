@@ -24,6 +24,7 @@ describe("ProviderFactory", () => {
 
       expect(providers).not.toContain("autohandai");
       expect(providers).toContain("openrouter");
+      expect(providers).toContain("anthropic");
       expect(providers).toContain("ollama");
       expect(providers).toContain("openai");
       expect(providers).toContain("llamacpp");
@@ -65,6 +66,7 @@ describe("ProviderFactory", () => {
         "sakana",
         "nvidia",
         "openrouter",
+        "anthropic",
         "openai",
         "ollama",
         "llmgateway",
@@ -104,6 +106,27 @@ describe("ProviderFactory", () => {
       const provider = ProviderFactory.create(config);
 
       expect(provider.getName()).toBe("openai");
+    });
+
+    it("should create AnthropicProvider when anthropic is configured", () => {
+      const config: AutohandConfig = {
+        provider: "anthropic",
+        anthropic: {
+          apiKey: "test-anthropic-key",
+          model: "claude-sonnet-5",
+        },
+      };
+
+      const provider = ProviderFactory.create(config);
+
+      expect(provider.getName()).toBe("anthropic");
+      expect(provider.getCapabilities?.()).toEqual({ nativeToolCalling: true });
+    });
+
+    it("should return UnconfiguredProvider when anthropic config is missing", () => {
+      const provider = ProviderFactory.create({ provider: "anthropic" });
+
+      expect(provider.getName()).toBe("unconfigured");
     });
 
     it("should create LlamaCppProvider when llamacpp is configured", () => {
@@ -280,6 +303,10 @@ describe("ProviderFactory", () => {
   describe("isValidProvider()", () => {
     it("should return true for openrouter", () => {
       expect(ProviderFactory.isValidProvider("openrouter")).toBe(true);
+    });
+
+    it("should return true for anthropic", () => {
+      expect(ProviderFactory.isValidProvider("anthropic")).toBe(true);
     });
 
     it("should return true for autohandai", () => {

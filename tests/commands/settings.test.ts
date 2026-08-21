@@ -285,6 +285,23 @@ describe('setConfigSetting', () => {
     expect(config.openrouter.apiKey).toBe('sk-openrouter');
   });
 
+  it('sets Anthropic provider config through the shared provider key parser', () => {
+    const config = createMockConfig();
+
+    expect(setConfigSetting(config, 'anthropic.apiKey', 'sk-ant-key')).toEqual({
+      key: 'anthropic.apiKey',
+      value: 'sk-ant-key',
+    });
+    expect(setConfigSetting(config, 'anthropic_model', 'claude-sonnet-5')).toEqual({
+      key: 'anthropic.model',
+      value: 'claude-sonnet-5',
+    });
+    expect(config.anthropic).toEqual({
+      apiKey: 'sk-ant-key',
+      model: 'claude-sonnet-5',
+    });
+  });
+
   it('sets provider API keys from space-separated config keys', () => {
     const config = createMockConfig();
 

@@ -25,6 +25,7 @@ const SAFE_PROVIDER_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/u;
 const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 const BUILT_IN_PROVIDERS = new Set([
   "openrouter",
+  "anthropic",
   "ollama",
   "llamacpp",
   "openai",

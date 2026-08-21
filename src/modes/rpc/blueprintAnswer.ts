@@ -338,6 +338,8 @@ function configuredProviderEndpoint(
         ?? `http://localhost:${config.mlx?.port || 8080}`;
     case 'openrouter':
       return config.openrouter?.baseUrl ?? 'https://openrouter.ai/api/v1';
+    case 'anthropic':
+      return config.anthropic?.baseUrl ?? 'https://api.anthropic.com';
     case 'openai':
       if (config.openai?.baseUrl) return config.openai.baseUrl;
       return config.openai?.authMode === 'chatgpt'
@@ -398,6 +400,7 @@ export function classifyInferenceDestination(
   if (!endpoint) {
     const knownHosted = new Set([
       'openrouter',
+      'anthropic',
       'openai',
       'llmgateway',
       'azure',
@@ -472,6 +475,8 @@ export function inspectAuthenticationState(config: AutohandConfig): Authenticati
       return nonEmpty(config.vertexai?.authToken) ? 'configured' : 'missing';
     case 'openrouter':
       return nonEmpty(config.openrouter?.apiKey) ? 'configured' : 'missing';
+    case 'anthropic':
+      return nonEmpty(config.anthropic?.apiKey) ? 'configured' : 'missing';
     case 'llmgateway':
       return nonEmpty(config.llmgateway?.apiKey) ? 'configured' : 'missing';
     case 'zai':

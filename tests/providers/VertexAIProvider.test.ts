@@ -351,6 +351,60 @@ describe("VertexAIProvider", () => {
       expect(calledUrl).toContain("publishers/anthropic/models/claude-opus-4-7:streamRawPredict");
     });
 
+    it("sends native Anthropic message shape rather than OpenAI chat shape", async () => {
+      const provider = createProvider("anthropic/claude-opus-4-7", { maxRetries: 0 });
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => ({
+          id: "msg_shape",
+          type: "message",
+          role: "assistant",
+          content: [{ type: "text", text: "ok" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 10, output_tokens: 5 },
+        }),
+        text: async () => "",
+      });
+
+      await provider.complete({
+        messages: [
+          { role: "system", content: "You are a coding agent." },
+          { role: "user", content: "inspect" },
+          {
+            role: "assistant",
+            content: "",
+            tool_calls: [{
+              id: "toolu_1",
+              type: "function",
+              function: { name: "read_file", arguments: '{"path":"a.ts"}' },
+            }],
+          },
+          { role: "tool", tool_call_id: "toolu_1", content: "contents" },
+        ],
+        temperature: 0.2,
+      });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+      expect(body.anthropic_version).toBe("vertex-2023-10-16");
+      expect(body.system).toBe("You are a coding agent.");
+      expect(body.messages).toEqual([
+        { role: "user", content: "inspect" },
+        {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "toolu_1", name: "read_file", input: { path: "a.ts" } }],
+        },
+        {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "contents" }],
+        },
+      ]);
+      expect(body.messages.some((message: { role: string }) => message.role === "system")).toBe(false);
+      // Opus 4.7 rejects sampling parameters.
+      expect(body).not.toHaveProperty("temperature");
+    });
+
     it("routes gemini models to OpenAI-compatible endpoint", async () => {
       const provider = createProvider("google/gemini-1.5-pro", { maxRetries: 0 });
       mockFetch.mockResolvedValue({

@@ -83,6 +83,55 @@ describe("BedrockProvider", () => {
     vi.restoreAllMocks();
   });
 
+  it("never sends empty Converse content blocks", async () => {
+    mockRuntimeSend.mockResolvedValueOnce({
+      output: { message: { role: "assistant", content: [{ text: "ok" }] } },
+      stopReason: "end_turn",
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    });
+
+    const { BedrockProvider } = await import("../../src/providers/BedrockProvider.js");
+    const provider = new BedrockProvider({
+      model: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+      region: "us-east-1",
+      authMode: "aws-credentials",
+      profile: "enterprise-prod",
+    });
+
+    await provider.complete({
+      messages: [
+        { role: "user", content: "go" },
+        { role: "assistant", content: "   " },
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [{
+            id: "tooluse_a",
+            type: "function",
+            function: { name: "read_file", arguments: "{}" },
+          }],
+        },
+        { role: "tool", tool_call_id: "tooluse_a", content: "" },
+      ],
+    });
+
+    const command = mockRuntimeSend.mock.calls[0][0] as { input: Record<string, unknown> };
+    const messages = command.input.messages as Array<{ role: string; content: unknown[] }>;
+    expect(messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+    for (const message of messages) {
+      expect(message.content.length).toBeGreaterThan(0);
+      for (const block of message.content as Array<Record<string, unknown>>) {
+        if (typeof block.text === "string") {
+          expect(block.text.trim()).not.toBe("");
+        }
+      }
+    }
+    const toolResult = (messages[2].content[0] as {
+      toolResult: { content: Array<{ text: string }> };
+    }).toolResult;
+    expect(toolResult.content[0]?.text.trim()).not.toBe("");
+  });
+
   it("maps Autohand messages, tools, and tool results to Bedrock Converse", async () => {
     mockRuntimeSend.mockResolvedValueOnce({
       output: {

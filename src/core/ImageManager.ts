@@ -304,6 +304,7 @@ export const VISION_MODELS = [
   'claude-sonnet-4',
   'claude-opus-4',
   'claude-opus-4-7',
+  'claude-fable-5',
   'gpt-4-vision',
   'gpt-4o',
   'gpt-4o-mini',
@@ -346,7 +347,7 @@ export function supportsVision(model: string): boolean {
   }
 
   // Claude 3+ and 4+ all support vision
-  if (/claude-[3-9]/.test(lowerModel) || /claude-(sonnet|opus)-[4-9]/.test(lowerModel)) {
+  if (/claude-[3-9]/.test(lowerModel) || /claude-(fable|sonnet|opus)-[4-9]/.test(lowerModel)) {
     return true;
   }
 

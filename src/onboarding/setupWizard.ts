@@ -36,7 +36,7 @@ import {
   recommendAutohandAILocalModels,
 } from '../providers/autohandAILocalSetup.js';
 import { runWithProgress } from '../ui/ink/components/SetupProgress.js';
-import { getProviderDefaultModel } from '../providers/modelCatalog.js';
+import { getProviderDefaultModel, getProviderModelOptions } from '../providers/modelCatalog.js';
 import { authenticateOpenAIChatGPT, isChatGPTAuthExpired } from '../providers/openaiAuth.js';
 import {
   authenticateXAIOAuth,
@@ -664,6 +664,26 @@ export class SetupWizard {
 
     if (provider === 'llamacpp') {
       this.state.model = defaultModel;
+      return this.state.model;
+    }
+
+    if (provider === 'anthropic') {
+      const models = getProviderModelOptions('anthropic');
+      const result = await showModal({
+        title: t('providers.config.selectModel'),
+        options: models.map((entry) => ({
+          label: entry.displayName ?? entry.id,
+          value: entry.id,
+          description: entry.description,
+        })),
+        initialIndex: Math.max(0, models.findIndex((entry) => entry.id === defaultModel)),
+      });
+
+      if (!result) {
+        return null;
+      }
+
+      this.state.model = result.value as string;
       return this.state.model;
     }
 
@@ -1837,8 +1857,17 @@ export class SetupWizard {
     console.log(chalk.gray('\n  ' + t('setup.apiKeyValidation.validating')));
 
     try {
-      const response = await fetch(`${baseUrl}/models`, {
-        headers: { Authorization: `Bearer ${this.state.apiKey}` },
+      const validationUrl = this.state.provider === 'anthropic'
+        ? `${baseUrl}/v1/models`
+        : `${baseUrl}/models`;
+      const headers = this.state.provider === 'anthropic'
+        ? {
+            'x-api-key': this.state.apiKey,
+            'anthropic-version': '2023-06-01',
+          }
+        : { Authorization: `Bearer ${this.state.apiKey}` };
+      const response = await fetch(validationUrl, {
+        headers,
         signal: AbortSignal.timeout(10000)
       });
 
@@ -2358,7 +2387,7 @@ export class SetupWizard {
   // Helper methods
 
   private requiresApiKey(provider: ProviderName): boolean {
-    return provider === 'autohandai' || provider === 'openrouter' || provider === 'llmgateway' || provider === 'zai' || provider === 'sakana' || provider === 'vertexai' || provider === 'xai' || provider === 'cerebras' || provider === 'nvidia' || provider === 'deepseek';
+    return provider === 'autohandai' || provider === 'openrouter' || provider === 'anthropic' || provider === 'llmgateway' || provider === 'zai' || provider === 'sakana' || provider === 'vertexai' || provider === 'xai' || provider === 'cerebras' || provider === 'nvidia' || provider === 'deepseek';
   }
 
   private getProviderDisplayName(provider: ProviderName): string {
@@ -2372,6 +2401,7 @@ export class SetupWizard {
   private getApiKeyUrl(provider: ProviderName): string {
     const urls: Record<string, string> = {
       openrouter: t('providers.wizard.openrouter.apiKeyUrl'),
+      anthropic: t('providers.wizard.anthropic.apiKeyUrl'),
       autohandai: t('providers.wizard.autohandai.apiKeyUrl'),
       openai: t('providers.wizard.openai.apiKeyUrl'),
       llmgateway: t('providers.wizard.llmgateway.apiKeyUrl'),
@@ -2399,6 +2429,7 @@ export class SetupWizard {
   private getDefaultBaseUrl(provider: ProviderName): string {
     const urls: Record<string, string> = {
       openrouter: 'https://openrouter.ai/api/v1',
+      anthropic: 'https://api.anthropic.com',
       autohandai: this.state.autohandAIPlan === 'local' ? 'http://localhost:8080' : AUTOHAND_AI_DEFAULT_BASE_URL,
       openai: 'https://api.openai.com/v1',
       ollama: 'http://localhost:11434',

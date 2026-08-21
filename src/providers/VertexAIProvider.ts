@@ -15,6 +15,15 @@ import type {
 import type { LLMProvider, LLMProviderCapabilities } from "./LLMProvider.js";
 import { getGcloudAccessToken, clearGcloudTokenCache } from "../utils/gcloudAuth.js";
 import { ApiError, classifyApiError, type ApiErrorCode } from "./errors.js";
+import {
+  toAnthropicMessages,
+  toAnthropicTools,
+  toAnthropicToolChoice,
+} from "./anthropicMessages.js";
+import {
+  anthropicModelSupportsTemperature,
+  normalizeAnthropicModelKey,
+} from "./anthropicModels.js";
 import { normalizeLLMUsage } from "./usage.js";
 import { getProviderModelIds } from "./modelCatalog.js";
 
@@ -251,25 +260,37 @@ export class VertexAIProvider implements LLMProvider {
       const modelId = extractAnthropicModelId(model);
       url = `https://${this.endpoint}/v1/projects/${this.projectId}/locations/${this.region}/publishers/anthropic/models/${modelId}:streamRawPredict`;
 
+      // Vertex's Claude endpoint speaks the native Messages API, not the
+      // OpenAI chat shape: system prompts are a top-level field, tool calls and
+      // results are content blocks, and blank blocks are rejected.
+      const converted = toAnthropicMessages(request.messages);
+      const modelKey = normalizeAnthropicModelKey(modelId);
+
       payload = {
         anthropic_version: "vertex-2023-10-16",
-        messages: sanitizeMessages(request.messages),
+        messages: converted.messages,
         max_tokens: request.maxTokens ?? 16000,
         stream: request.stream ?? false,
       };
 
-      // Add optional parameters
-      if (request.temperature !== undefined) {
+      if (converted.system) {
+        payload.system = converted.system;
+      }
+
+      // Claude 5, Opus 4.7, and Opus 4.8 reject sampling parameters outright.
+      if (request.temperature !== undefined && anthropicModelSupportsTemperature(modelKey)) {
         payload.temperature = request.temperature;
       }
 
       // Add function calling support if tools are provided
       if (request.tools && request.tools.length > 0) {
-        payload.tools = request.tools.map((tool: FunctionDefinition) => ({
-          name: tool.name,
-          description: tool.description,
-          input_schema: tool.parameters ?? { type: "object", properties: {} },
-        }));
+        payload.tools = toAnthropicTools(request.tools);
+        if (request.toolChoice) {
+          const toolChoice = toAnthropicToolChoice(request.toolChoice);
+          if (toolChoice) {
+            payload.tool_choice = toolChoice;
+          }
+        }
       }
     } else {
       // OpenAI-compatible endpoint

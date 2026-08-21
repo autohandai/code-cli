@@ -59,6 +59,7 @@ const SETTING_KEY_ALIASES: Record<string, string> = {
 
 const CONFIG_PROVIDER_NAMES: readonly BuiltInProviderName[] = [
   'openrouter',
+  'anthropic',
   'ollama',
   'llamacpp',
   'openai',

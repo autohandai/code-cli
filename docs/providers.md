@@ -8,6 +8,7 @@ Autohand supports multiple LLM providers, giving you flexibility to choose betwe
 - [Provider Comparison](#provider-comparison)
 - [Cloud Providers](#cloud-providers)
   - [OpenRouter](#openrouter)
+  - [Anthropic](#anthropic)
   - [OpenAI](#openai)
   - [LLM Gateway](#llm-gateway)
   - [DeepSeek](#deepseek)
@@ -54,6 +55,7 @@ Bundled provider model choices live in `src/providers/models.json` and packaged 
 | --------------- | ----- | ----------- | ------- | ----------------------------------------------- |
 | **Autohand AI** | Cloud/Local | Account, API key, or local | Low | Fantail ultra-fast coding, Moa thinking, or local MLX coding models |
 | **OpenRouter**  | Cloud | Pay-per-use | Low     | Access to 100+ models, recommended default      |
+| **Anthropic**   | Cloud | Pay-per-use | Low     | Native Claude Messages API and tool use         |
 | **OpenAI**      | Cloud | Pay-per-use | Low     | Direct OpenAI access, GPT-5, o3 models          |
 | **LLM Gateway** | Cloud | Pay-per-use | Low     | Unified API for multiple providers              |
 | **DeepSeek**    | Cloud | Pay-per-use | Low     | DeepSeek V4 Flash and V4 Pro models             |
@@ -150,11 +152,14 @@ OpenRouter provides a unified API to access 100+ models from various providers (
 }
 ```
 
-**Popular Models:**
+**Current Anthropic Models:**
 | Model | Description |
 |-------|-------------|
-| `your-modelcard-id-here` | Best balance of speed and capability |
-| `anthropic/claude-5-opus` | Most capable Claude model |
+| `anthropic/claude-sonnet-5` | Claude Sonnet 5 |
+| `anthropic/claude-opus-5` | Claude Opus 5 |
+| `anthropic/claude-fable-5` | Claude Fable 5 |
+| `anthropic/claude-opus-4.8` | Claude Opus 4.8 |
+| `anthropic/claude-haiku-4.5` | Claude Haiku 4.5 |
 | `openai/gpt-5` | OpenAI's flagship model |
 | `google/gemini-3.0-pro` | Google's latest model |
 | `meta-llama/llama-3.1-70b-instruct` | Open-source alternative |
@@ -162,8 +167,51 @@ OpenRouter provides a unified API to access 100+ models from various providers (
 **Switching Models:**
 
 ```
-/model anthropic/claude-5-opus
+/model anthropic/claude-opus-5
 ```
+
+**Claude models through OpenRouter:** OpenRouter forwards requests to Anthropic
+largely unchanged, so Anthropic's stricter validation applies. Autohand omits
+`temperature` for the Claude 5 family and Opus 4.7/4.8 (which reject sampling
+parameters), requests extended thinking through OpenRouter's `reasoning` field,
+and repairs turn shapes that Anthropic rejects — blank turns, blank tool
+results, and tool calls or results orphaned by context compaction. When an
+upstream provider does reject a request, the provider's own error text is now
+included rather than only OpenRouter's generic "Provider returned error".
+
+---
+
+### Anthropic
+
+The native Anthropic provider uses the official TypeScript SDK and the Messages API rather than routing Claude requests through the OpenAI-compatible provider layer. Native system prompts, images, tool calls, tool results, structured output, adaptive thinking, and Anthropic usage fields are translated at the provider boundary.
+
+1. Create a key in the [Anthropic Console](https://console.anthropic.com/settings/keys).
+2. Run `autohand --setup` or select Anthropic from `/model`.
+3. Choose a model from the bundled and remotely updated catalog.
+
+```json
+{
+  "provider": "anthropic",
+  "anthropic": {
+    "apiKey": "sk-ant-your-key-here",
+    "baseUrl": "https://api.anthropic.com",
+    "model": "claude-sonnet-5",
+    "contextWindow": 1000000
+  }
+}
+```
+
+Current catalog choices include `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5`, `claude-opus-4-8`, `claude-sonnet-4-6`, and `claude-haiku-4-5`. Use the unprefixed model IDs for the native provider; use `anthropic/...` IDs only with OpenRouter.
+
+**Request behavior:**
+
+- Anthropic rejects unsupported parameters with a `400` rather than ignoring them, so Autohand gates each optional parameter on the selected model. `temperature` is dropped for the Claude 5 family and Opus 4.7/4.8, `output_config.effort` is clamped to `high` on Opus 4.5/4.6 and omitted for models without effort support, and `thinking` is omitted entirely for models where thinking is always on.
+- Prompt caching is on by default. The stable prefix (tools, system prompt, and prior turns) is cached automatically; check `/usage` for cache read and write counts.
+- Thinking blocks are captured from each response and replayed unchanged on the following request. Anthropic validates their ordering and signatures, so they are never edited or reconstructed.
+- Only the leading system messages become the top-level `system` prompt. Later system notes stay in conversation order as `<system-reminder>` blocks so the cached prefix is not invalidated mid-session.
+- Requests use a 10-minute floor for the client timeout because the Anthropic SDK applies `network.timeout` to the whole request, not just the response headers. A larger `network.timeout` is honored; a smaller one is not.
+
+See Anthropic's [model overview](https://platform.claude.com/docs/en/about-claude/models/overview) and [TypeScript Messages API](https://platform.claude.com/docs/en/api/typescript/messages/create) for the upstream contracts.
 
 ---
 
@@ -238,8 +286,8 @@ LLM Gateway provides a unified API for multiple LLM providers with a single inte
 | `gpt-5` | OpenAI |
 | `gpt-5-mini` | OpenAI |
 | `gpt-4-turbo` | OpenAI |
-| `claude-5-sonnet` | Anthropic |
-| `claude-5-haiku` | Anthropic |
+| `claude-sonnet-5` | Anthropic |
+| `claude-haiku-4-5` | Anthropic |
 | `gemini-3.0-pro` | Google |
 | `gemini-3.0-flash` | Google |
 
@@ -608,7 +656,7 @@ Use the `/model` command to switch providers or models:
 ```
 /model                           # List available models
 /model gpt-5                     # Switch to GPT-5
-/model anthropic/claude-5-opus   # Switch to Claude Opus
+/model anthropic/claude-opus-5   # Switch OpenRouter to Claude Opus 5
 ```
 
 When you pick `openai`, Autohand now lets you choose between `API key` and `ChatGPT account` authentication.
@@ -627,10 +675,10 @@ Update `~/.autohand/config.json`:
 
 ```json
 {
-  "provider": "llmgateway",
-  "llmgateway": {
-    "apiKey": "your-key",
-    "model": "claude-5-sonnet"
+  "provider": "anthropic",
+  "anthropic": {
+    "apiKey": "sk-ant-your-key",
+    "model": "claude-sonnet-5"
   }
 }
 ```
