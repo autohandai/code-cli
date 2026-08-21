@@ -21,9 +21,11 @@ import { t } from '../../i18n/index.js';
 import type { AnnouncementLineState } from '../../ui/ink/AgentUI.js';
 import type { AgentUILineExtensions } from '../../ui/ink/AgentUI.js';
 import {
+  buildPlanSegment,
   mergeLineExtensions,
   type LineExtension,
 } from '../../ui/ink/StatusLine.js';
+import type { PlanSummary } from '../../billing/planSummary.js';
 import { createQueuedAgentInstruction } from './PostTurnActionCoordinator.js';
 
 export interface AgentUIRuntimeHost {
@@ -43,6 +45,25 @@ export function buildPeerLineExtension(peerCount: number): LineExtension | undef
       text: `⚉ ${peerCount} ${peerCount === 1 ? 'peer' : 'peers'}`,
       color: 'warning',
     }],
+  };
+}
+
+/**
+ * Puts the account plan on the status line. Merged into the status slot rather
+ * than replacing it, so it sits beside the session's own segments.
+ */
+export function withPlanLineExtension(
+  configured: AgentUILineExtensions | undefined,
+  plan: PlanSummary | null | undefined,
+): AgentUILineExtensions | undefined {
+  const segment = buildPlanSegment(plan ?? undefined);
+  if (!segment) {
+    return configured;
+  }
+
+  return {
+    ...configured,
+    status: mergeLineExtensions(configured?.status, { segments: [segment] }),
   };
 }
 

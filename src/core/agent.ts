@@ -10,6 +10,10 @@ import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import { FileActionManager } from '../actions/filesystem.js';
 import { getProviderConfig, saveConfig } from '../config.js';
 import { getAuthClient } from '../auth/index.js';
+import { planSummaryFromEntitlement, type PlanSummary } from '../billing/planSummary.js';
+
+/** Slow on purpose: the plan changes rarely and this must not add load. */
+const ACCOUNT_PLAN_REFRESH_MS = 5 * 60 * 1000;
 import { safePrompt } from '../utils/prompt.js';
 import { maybeOfferAutohandAISwitch } from '../commands/login.js';
 import { getFeatureState, isAwsBedrockProviderEnabled } from '../features/featureRegistry.js';
@@ -199,6 +203,7 @@ import {
   addAgentUIToolOutputs,
   buildAgentSpinnerStatusText,
   withPeerLineExtension,
+  withPlanLineExtension,
   cleanupAgentUI,
   clearAgentComposerInput,
   ensureAgentSpinnerRunning,
@@ -405,6 +410,9 @@ export class AutohandAgent {
   private shellSuggestionProvider!: ShellSuggestionProvider;
   private instructionRunner!: InstructionRunner;
   private sessionDiffStatsTracker?: SessionDiffStatsTracker;
+  /** Account plan shown on the status line; refreshed so upgrades appear mid-session. */
+  private accountPlan: PlanSummary | null = null;
+  private accountPlanTimer?: ReturnType<typeof setInterval>;
   private activeAgentHeartbeat: ActiveAgentHeartbeat | null = null;
   private readonly peerAwareness: PeerAwarenessManager;
   private currentPeerToolName?: string;
@@ -606,6 +614,7 @@ export class AutohandAgent {
   }
 
   async runInteractive(initialInstruction?: string): Promise<void> {
+    this.startAccountPlanRefresh();
     return runAgentInteractive(this, initialInstruction);
   }
 
@@ -1442,6 +1451,48 @@ export class AutohandAgent {
   /**
    * Sync the active provider and model into the Ink status line.
    */
+  /**
+   * Re-read the account plan and put it back on the status line. Runs at startup and
+   * on a slow timer, so an upgrade made in the console shows up without a restart.
+   * Never throws: the plan is decoration, not something worth interrupting a session for.
+   */
+  private async refreshAccountPlan(): Promise<void> {
+    const token = this.runtime.config.auth?.token;
+    if (!token) {
+      this.accountPlan = null;
+      return;
+    }
+
+    try {
+      const entitlement = await getAuthClient().fetchEntitlement(token);
+      const next = planSummaryFromEntitlement(entitlement);
+      const changed =
+        next?.tier !== this.accountPlan?.tier ||
+        next?.interval !== this.accountPlan?.interval;
+      this.accountPlan = next;
+      if (changed) {
+        this.syncProviderModelStatusLine();
+      }
+    } catch {
+      // Leave the last known plan in place rather than blanking the status line.
+    }
+  }
+
+  private startAccountPlanRefresh(): void {
+    if (this.accountPlanTimer) return;
+    void this.refreshAccountPlan();
+    this.accountPlanTimer = setInterval(() => {
+      void this.refreshAccountPlan();
+    }, ACCOUNT_PLAN_REFRESH_MS);
+    this.accountPlanTimer.unref?.();
+  }
+
+  private stopAccountPlanRefresh(): void {
+    if (!this.accountPlanTimer) return;
+    clearInterval(this.accountPlanTimer);
+    this.accountPlanTimer = undefined;
+  }
+
   private syncProviderModelStatusLine(provider: ProviderName = this.activeProvider): void {
     const providerSettings = getProviderConfig(this.runtime.config, provider);
     const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
@@ -1451,14 +1502,17 @@ export class AutohandAgent {
         : provider;
     this.ui?.setProviderModel?.(providerLabel, model);
     const statusLineSettings = getConfigStatusLineSettings(this.runtime.config);
-    this.inkRenderer?.setConfiguredLineExtensions?.(withPeerLineExtension(buildStatusLineExtension({
-      settings: statusLineSettings,
-      workspaceRoot: this.runtime.workspaceRoot,
-      homeDir: os.homedir(),
-      gitLabel: resolveStatusLineGitLabel(this as unknown as StatusLineGitLabelHost),
-      sessionDiffStats: this.sessionDiffStatsTracker?.getStats(),
-      sessionHasFileChanges: this.filesModifiedThisSession === true,
-    }), this.peerAwareness.getPeers().length));
+    this.inkRenderer?.setConfiguredLineExtensions?.(withPlanLineExtension(
+      withPeerLineExtension(buildStatusLineExtension({
+        settings: statusLineSettings,
+        workspaceRoot: this.runtime.workspaceRoot,
+        homeDir: os.homedir(),
+        gitLabel: resolveStatusLineGitLabel(this as unknown as StatusLineGitLabelHost),
+        sessionDiffStats: this.sessionDiffStatsTracker?.getStats(),
+        sessionHasFileChanges: this.filesModifiedThisSession === true,
+      }), this.peerAwareness.getPeers().length),
+      this.accountPlan,
+    ));
     this.inkRenderer?.setShowModeLabel?.(statusLineSettings.showModeLabel);
   }
 
@@ -1515,6 +1569,7 @@ export class AutohandAgent {
    * flicker between back-to-back turns.
    */
   private cleanupUI(keepInkAlive = false): void {
+    this.stopAccountPlanRefresh();
     return cleanupAgentUI(this, keepInkAlive);
   }
 
@@ -2478,6 +2533,7 @@ export class AutohandAgent {
   private availableProviders(): ProviderName[] {
     const providers: ProviderName[] = [];
     if (this.runtime.config.openrouter) providers.push('openrouter');
+    if (this.runtime.config.anthropic) providers.push('anthropic');
     if (this.runtime.config.ollama) providers.push('ollama');
     if (this.runtime.config.llamacpp) providers.push('llamacpp');
     if (this.runtime.config.openai) providers.push('openai');
