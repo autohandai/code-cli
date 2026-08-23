@@ -466,4 +466,94 @@ describe('OpenRouterClient', () => {
       expect((error as ApiError).retryable).toBe(false);
     }
   });
+
+  // OpenRouter's 402 responses distinguish a genuinely empty account from a
+  // request whose max_tokens exceeds what the remaining credits can still
+  // cover ("You requested up to 16000 tokens, but can only afford 1355").
+  // Sub-agents hit the second case constantly because they omit maxTokens and
+  // inherit the 16k default; failing the whole delegation with a scary
+  // "check your balance" message wastes credits the account actually has.
+  describe('402 affordable-budget downgrade', () => {
+    function affordableBudget402(affordable: number): Response {
+      return jsonResponse({
+        error: {
+          message:
+            'This request requires more credits, or fewer max_tokens. '
+            + `You requested up to 16000 tokens, but can only afford ${affordable}. `
+            + 'To increase, visit https://openrouter.ai/settings/credits and upgrade to '
+            + 'a paid account which has higher limits.',
+          code: 402,
+          metadata: {},
+        },
+      }, { status: 402 });
+    }
+
+    function emptyBalance402(): Response {
+      return jsonResponse({
+        error: {
+          message: 'Insufficient credits in your account to run this request.',
+          code: 402,
+          metadata: {},
+        },
+      }, { status: 402 });
+    }
+
+    it('retries once with the affordable max_tokens and succeeds', async () => {
+      const client = new OpenRouterClient({
+        apiKey: 'valid-key',
+        model: 'openai/gpt-4',
+      }, { maxRetries: 0 });
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(affordableBudget402(1355))
+        .mockResolvedValueOnce(jsonResponse({
+          id: 'gen-1',
+          created: 0,
+          choices: [{ message: { content: 'hi back' }, finish_reason: 'stop' }],
+        }));
+
+      const response = await client.complete({
+        messages: [{ role: 'user', content: 'hi' }],
+      });
+
+      expect(response.content).toBe('hi back');
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+      const firstBody = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+      const secondBody = JSON.parse(fetchSpy.mock.calls[1][1]?.body as string);
+      expect(firstBody.max_tokens).toBe(16000);
+      expect(secondBody.max_tokens).toBe(1355);
+    });
+
+    it('keeps the payment_required failure when the 402 body names no affordable budget', async () => {
+      const client = new OpenRouterClient({
+        apiKey: 'valid-key',
+        model: 'openai/gpt-4',
+      }, { maxRetries: 0 });
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(emptyBalance402());
+
+      await expect(client.complete({
+        messages: [{ role: 'user', content: 'hi' }],
+      })).rejects.toMatchObject({ code: 'payment_required' });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('surfaces the billing error when the downgraded retry also fails', async () => {
+      const client = new OpenRouterClient({
+        apiKey: 'valid-key',
+        model: 'openai/gpt-4',
+      }, { maxRetries: 0 });
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(affordableBudget402(1355))
+        .mockResolvedValueOnce(emptyBalance402());
+
+      await expect(client.complete({
+        messages: [{ role: 'user', content: 'hi' }],
+      })).rejects.toMatchObject({ code: 'payment_required' });
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+  });
 });
