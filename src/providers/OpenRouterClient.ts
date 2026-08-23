@@ -145,6 +145,22 @@ function withOpenRouterMessage(error: ApiError): ApiError {
  * failures instead, so map the ones they classify as retryable directly
  * rather than losing that signal.
  */
+/**
+ * OpenRouter rejects requests whose `max_tokens` exceeds what the remaining
+ * account credits can still cover with a 402 whose body names the affordable
+ * budget ("You requested up to 16000 tokens, but can only afford 1355").
+ * The account is not empty — the request was just too large — so the client
+ * retries once with the named budget instead of failing the turn.
+ */
+function extractAffordableMaxTokens(errorDetail: string): number | undefined {
+  const match = errorDetail.match(/can only afford\s+(\d+)/i);
+  if (!match) {
+    return undefined;
+  }
+  const affordable = Number(match[1]);
+  return Number.isFinite(affordable) && affordable > 0 ? affordable : undefined;
+}
+
 const OPENROUTER_TRANSIENT_ERROR_TYPES: Partial<Record<string, { code: ApiErrorCode; message: string }>> = {
   provider_unavailable: {
     code: 'server_error',
@@ -264,7 +280,7 @@ export class OpenRouterClient {
     }
 
     // Validate payload size before sending
-    const payloadJson = JSON.stringify(payload);
+    let payloadJson = JSON.stringify(payload);
     const payloadSizeBytes = payloadJson.length;
     const maxPayloadSize = 5 * 1024 * 1024; // 5MB safety limit
 
@@ -281,6 +297,7 @@ export class OpenRouterClient {
     }
 
     let lastError: Error | null = null;
+    let downgradedToAffordableBudget = false;
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       try {
@@ -293,6 +310,26 @@ export class OpenRouterClient {
         return response;
       } catch (error) {
         lastError = error as Error;
+
+        // A 402 naming an affordable budget means credits remain but the
+        // requested max_tokens was too large for them. Resend once with the
+        // named budget instead of failing the turn; the downgrade does not
+        // consume a retry attempt.
+        if (!downgradedToAffordableBudget && error instanceof ApiError) {
+          const affordable = extractAffordableMaxTokens(error.rawDetail ?? '');
+          if (
+            error.code === 'payment_required'
+            && affordable !== undefined
+            && typeof payload.max_tokens === 'number'
+            && affordable < payload.max_tokens
+          ) {
+            downgradedToAffordableBudget = true;
+            payload.max_tokens = affordable;
+            payloadJson = JSON.stringify(payload);
+            attempt--;
+            continue;
+          }
+        }
 
         // Don't retry if user cancelled or if it's a non-retryable error
         if (this.isNonRetryableError(error as Error)) {
