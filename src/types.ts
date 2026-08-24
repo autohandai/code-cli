@@ -330,6 +330,8 @@ export interface AgentSettings {
   maxIterations?: number;
   /** Enable request queue - allow typing while agent works (default: true) */
   enableRequestQueue?: boolean;
+  /** Switch the session into auto mode while a goal is active (default: true) */
+  goalAutoMode?: boolean;
   /** End authenticated interactive sessions after an idle timeout (default: true) */
   idleLogoutEnabled?: boolean;
   /** Milliseconds of inactivity before ending an authenticated session (default: 14400000 — 4 hours) */

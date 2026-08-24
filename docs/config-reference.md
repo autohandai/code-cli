@@ -900,6 +900,7 @@ Control agent behavior and iteration limits.
     "enableRequestQueue": true,
     "toolSelectionCache": true,
     "autoMemory": true,
+    "goalAutoMode": true,
     "idleLogoutEnabled": true,
     "idleTimeoutMs": 14400000,
     "debug": false
@@ -913,6 +914,7 @@ Control agent behavior and iteration limits.
 | `enableRequestQueue` | boolean | `true`  | Allow users to type and queue requests while agent is working                  |
 | `toolSelectionCache` | boolean | `true`  | Cache local per-turn tool schema selection for equivalent tool-selection input |
 | `autoMemory`         | boolean | `true`  | Extract and save durable user/project memories after completed interactive turns, including evidence-backed lessons from failures and cancellations |
+| `goalAutoMode`       | boolean | `true`  | Put the session in auto mode while a goal is active (autonomous turns, no tool approval prompts) |
 | `idleLogoutEnabled`  | boolean | `true`  | End authenticated interactive sessions after the idle timeout                  |
 | `idleTimeoutMs`      | number  | `14400000` | Milliseconds of inactivity before ending an authenticated session (4 hours)   |
 | `debug`              | boolean | `false` | Enable verbose debug output (logs agent internal state to stderr)              |
@@ -964,6 +966,23 @@ To keep authenticated long-running agent sessions alive while they wait for work
 For a single process, use `autohand --no-idle-logout` or set `AUTOHAND_NO_IDLE_LOGOUT=1`.
 
 Set `idleTimeoutMs` to a positive duration in milliseconds to change the idle period. The default is `14400000` (4 hours); invalid values fall back to the default.
+
+### Goals and auto mode
+
+A goal is a standing instruction to keep working, so starting one switches the
+session into auto mode: the agent drives its own turns and stops asking for tool
+approval until the goal is complete. Setting a new goal while one is active
+queues it, and the queue advances automatically as each goal completes.
+
+To keep the normal turn-by-turn loop while goals are active:
+
+```json
+{
+  "agent": {
+    "goalAutoMode": false
+  }
+}
+```
 
 An idle timeout ends the interactive session and exits; it does not sign you
 out. Your credential is stored in the shared `~/.autohand` config, so revoking
