@@ -134,6 +134,8 @@ export interface AgentUIState {
   provider?: string;
   /** Current LLM model name */
   model?: string;
+  /** Account plan label shown next to the autohand name (e.g. 'Free', 'Pro', 'Max'). */
+  planLabel?: string;
   /** Optional extension points for the fixed status/help lines. */
   lineExtensions?: AgentUILineExtensions;
   /** Built-in status-line settings rendered separately from extension-provided line extensions. */
@@ -2042,6 +2044,7 @@ export function AgentUI({
         contextTokens={state.contextTokens}
         provider={state.provider}
         model={state.model}
+        planLabel={state.planLabel}
         lineExtensions={effectiveLineExtensions}
         configuredLineExtensions={effectiveConfiguredLineExtensions}
         runtimeLineExtensions={effectiveRuntimeLineExtensions}
@@ -2539,6 +2542,7 @@ interface HelpLineSectionProps {
   contextTokens?: ContextTokenDisplay;
   provider?: string;
   model?: string;
+  planLabel?: string;
   lineExtension?: LineExtension;
   interactionMode?: InteractionMode;
   showModeLabel?: boolean;
@@ -2550,6 +2554,7 @@ const HelpLineSection = memo(function HelpLineSection({
   contextTokens,
   provider,
   model,
+  planLabel,
   lineExtension,
   interactionMode = 'default',
   showModeLabel = true,
@@ -2564,9 +2569,10 @@ const HelpLineSection = memo(function HelpLineSection({
     ? `${Math.round(contextPercent)}% context left`
     : '';
 
-  // Format provider/model display
+  // Format provider/model display with optional account plan label
+  const namePrefix = planLabel ? `autohand ${planLabel}` : 'autohand';
   const providerDisplay = provider
-    ? `autohand (${t(`providers.${provider}`) ?? provider}${model ? `, ${model}` : ''})`
+    ? `${namePrefix} (${t(`providers.${provider}`) ?? provider}${model ? `, ${model}` : ''})`
     : '';
   const glyphColor = INTERACTION_MODE_GLYPH_COLOR[interactionMode];
   const modeLabel = interactionMode !== 'default' && showModeLabel
@@ -2589,6 +2595,7 @@ const HelpLineSection = memo(function HelpLineSection({
          prev.contextTokens?.total === next.contextTokens?.total &&
          prev.provider === next.provider &&
          prev.model === next.model &&
+         prev.planLabel === next.planLabel &&
          prev.interactionMode === next.interactionMode &&
          prev.showModeLabel === next.showModeLabel &&
          prev.lineExtension === next.lineExtension;
@@ -2700,6 +2707,7 @@ interface FixedBottomProps {
   contextTokens?: ContextTokenDisplay;
   provider?: string;
   model?: string;
+  planLabel?: string;
   lineExtensions?: AgentUILineExtensions;
   configuredLineExtensions?: AgentUILineExtensions;
   runtimeLineExtensions?: AgentUILineExtensions;
@@ -2796,6 +2804,7 @@ const FixedBottom = memo(function FixedBottom({
   contextTokens,
   provider,
   model,
+  planLabel,
   lineExtensions,
   configuredLineExtensions,
   runtimeLineExtensions,
@@ -2870,6 +2879,7 @@ const FixedBottom = memo(function FixedBottom({
         contextTokens={contextTokens}
         provider={provider}
         model={model}
+        planLabel={planLabel}
         interactionMode={interactionMode}
         showModeLabel={showModeLabel}
         lineExtension={mergeLineExtensions(

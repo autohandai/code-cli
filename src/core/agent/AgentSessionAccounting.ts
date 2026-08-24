@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import { getProviderConfig } from '../../config.js';
 import { AUTH_CONFIG } from '../../constants.js';
+import { getFeatureState } from '../../features/featureRegistry.js';
 import type { SessionMessage } from '../../session/types.js';
 import type {
   AgentOutputEvent,
@@ -121,7 +122,8 @@ export function isAgentIdleLogoutEnabled(
   env: IdleLogoutEnv = process.env,
 ): boolean {
   if (runtime.options.idleLogout === false) return false;
-  if (runtime.config.agent?.idleLogoutEnabled === false) return false;
+  // Experimental: idle logout stays off unless explicitly enabled via config.
+  if (getFeatureState(runtime.config, 'idle_logout')?.enabled !== true) return false;
   if (isTruthyEnvValue(env.AUTOHAND_NO_IDLE_LOGOUT?.toLowerCase())) return false;
   return true;
 }

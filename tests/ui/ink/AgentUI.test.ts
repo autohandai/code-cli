@@ -1244,6 +1244,85 @@ describe('AgentUI layout stability', () => {
   });
 });
 
+describe('AgentUI plan label in help line', () => {
+  function renderWithPlanLabel(planLabel?: string) {
+    const state = {
+      ...createInitialUIState(),
+      provider: 'openrouter',
+      model: 'fantail',
+      planLabel,
+    };
+    return render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+          }),
+        ),
+      ),
+    );
+  }
+
+  it('shows the plan label next to the autohand name in the help line', async () => {
+    const instance = renderWithPlanLabel('Free');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const frame = stripAnsi(instance.lastFrame() ?? '');
+    expect(frame).toContain('autohand Free (OpenRouter, fantail)');
+    cleanup();
+  });
+
+  it('shows the plan label for Pro', async () => {
+    const instance = renderWithPlanLabel('Pro');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const frame = stripAnsi(instance.lastFrame() ?? '');
+    expect(frame).toContain('autohand Pro (OpenRouter, fantail)');
+    cleanup();
+  });
+
+  it('shows the plan label for Max', async () => {
+    const instance = renderWithPlanLabel('Max');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const frame = stripAnsi(instance.lastFrame() ?? '');
+    expect(frame).toContain('autohand Max (OpenRouter, fantail)');
+    cleanup();
+  });
+
+  it('omits the plan label when no plan is set', async () => {
+    const instance = renderWithPlanLabel(undefined);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const frame = stripAnsi(instance.lastFrame() ?? '');
+    expect(frame).toContain('autohand (OpenRouter, fantail)');
+    expect(frame).not.toContain('autohand Free');
+    expect(frame).not.toContain('autohand Pro');
+    expect(frame).not.toContain('autohand Max');
+    cleanup();
+  });
+
+  it('does not render a standalone plan line above the composer', async () => {
+    const instance = renderWithPlanLabel('Free');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const frame = stripAnsi(instance.lastFrame() ?? '');
+    const lines = frame.split('\n');
+    const standaloneFreeLines = lines.filter(
+      (line) => line.trim() === 'Free' || line.trim() === 'Free · Monthly' || line.trim() === 'Free · Annual',
+    );
+    expect(standaloneFreeLines, frame).toHaveLength(0);
+    cleanup();
+  });
+});
+
 describe('AgentUI queued instruction panel', () => {
   function renderWorkingQueue(options: {
     queuedInstructions?: string[];
