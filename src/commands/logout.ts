@@ -64,7 +64,7 @@ export async function logout(ctx: LogoutContext): Promise<string | null> {
     auth: undefined,
   };
 
-  await saveConfig(updatedConfig);
+  await saveConfig(updatedConfig, { writeAuth: true });
 
   console.log();
   console.log(chalk.green(t('commands.logout.success')));

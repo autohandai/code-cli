@@ -299,10 +299,13 @@ describe('logout command', () => {
 
     expect(mockAuthClient.logout).toHaveBeenCalledWith('existing-token');
     expect(mockSession.save).toHaveBeenCalled();
+    // Signing out is an explicit auth write, so it opts out of the
+    // shared-config preservation that keeps other terminal tabs signed in.
     expect(saveConfig).toHaveBeenCalledWith(
       expect.objectContaining({
         auth: undefined,
-      })
+      }),
+      { writeAuth: true }
     );
     expect(consoleOutput.some((line) => line.includes('Successfully logged out'))).toBe(true);
     expect(exitSpy).toHaveBeenCalledWith(0);
@@ -332,7 +335,8 @@ describe('logout command', () => {
     await logout({ config: mockConfig });
 
     expect(saveConfig).toHaveBeenCalledWith(
-      expect.objectContaining({ auth: undefined })
+      expect.objectContaining({ auth: undefined }),
+      { writeAuth: true }
     );
     expect(exitSpy).toHaveBeenCalledWith(0);
 
@@ -361,10 +365,13 @@ describe('logout command', () => {
     await logout({ config: mockConfig });
 
     // Should still save config with auth cleared
+    // Signing out is an explicit auth write, so it opts out of the
+    // shared-config preservation that keeps other terminal tabs signed in.
     expect(saveConfig).toHaveBeenCalledWith(
       expect.objectContaining({
         auth: undefined,
-      })
+      }),
+      { writeAuth: true }
     );
     expect(consoleOutput.some((line) => line.includes('Successfully logged out'))).toBe(true);
     expect(exitSpy).toHaveBeenCalledWith(0);

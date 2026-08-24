@@ -697,7 +697,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
     "toolSelectionCache": true,
     "autoMemory": true,
     "idleLogoutEnabled": true,
-    "idleTimeoutMs": 3600000,
+    "idleTimeoutMs": 14400000,
     "debug": false
   }
 }
@@ -709,7 +709,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | `toolSelectionCache` | логическое | `true` | Кэшировать локальный выбор схемы инструмента для каждого оборота для эквивалентного ввода выбора инструмента |
 | `autoMemory` | логическое | `true` | Извлечение и сохранение долговременной памяти пользователя/проекта после завершённых интерактивных ходов, включая подтверждённые выводы из сбоев и отмен |
 | `idleLogoutEnabled` | логическое | `true` | Выход из интерактивных сеансов с проверкой подлинности по истечении времени простоя |
-| `idleTimeoutMs` | номер | `3600000` | Миллисекунды бездействия до выхода из сеанса с проверкой подлинности (60 минут) |
+| `idleTimeoutMs` | номер | `14400000` | Миллисекунды бездействия до выхода из сеанса с проверкой подлинности (4 часа) |
 | `debug` | логическое | `false` | Включить подробный вывод отладки (внутреннее состояние агента регистрируется в stderr) |
 
 ## Обнаружение параллельных сеансов
@@ -754,7 +754,7 @@ Autohand не отправляет каждую полную схему инст
 ```
 Для одного процесса используйте `autohand --no-idle-logout` или установите `AUTOHAND_NO_IDLE_LOGOUT=1`.
 
-Установите `idleTimeoutMs` в положительное значение в миллисекундах, чтобы изменить период бездействия. Значение по умолчанию — `3600000` (60 минут); недопустимые значения заменяются значением по умолчанию.
+Установите `idleTimeoutMs` в положительное значение в миллисекундах, чтобы изменить период бездействия. Значение по умолчанию — `14400000` (4 часа); недопустимые значения заменяются значением по умолчанию.
 
 ### Режим отладки
 
@@ -1632,7 +1632,7 @@ autohand --no-browser       # Start with browser bridge disabled
     "enableRequestQueue": true,
     "toolSelectionCache": true,
     "idleLogoutEnabled": true,
-    "idleTimeoutMs": 3600000,
+    "idleTimeoutMs": 14400000,
     "debug": false
   },
   "permissions": {
@@ -1717,7 +1717,7 @@ agent:
   enableRequestQueue: true
   toolSelectionCache: true
   idleLogoutEnabled: true
-  idleTimeoutMs: 3600000
+  idleTimeoutMs: 14400000
   debug: false
 
 permissions:
@@ -1811,7 +1811,7 @@ maxIterations = 100
 enableRequestQueue = true
 toolSelectionCache = true
 idleLogoutEnabled = true
-idleTimeoutMs = 3600000
+idleTimeoutMs = 14400000
 debug = false
 
 [permissions]

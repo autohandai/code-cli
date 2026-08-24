@@ -378,7 +378,7 @@ Kontrol perilaku agent dan batas iterasi.
     "maxIterations": 100,
     "enableRequestQueue": true,
     "idleLogoutEnabled": true,
-    "idleTimeoutMs": 3600000,
+    "idleTimeoutMs": 14400000,
     "debug": false
   }
 }
@@ -389,7 +389,7 @@ Kontrol perilaku agent dan batas iterasi.
 | `maxIterations`      | number  | `100`   | Maksimum iterasi alat per permintaan pengguna sebelum berhenti         |
 | `enableRequestQueue` | boolean | `true`  | Izinkan pengguna mengetik dan mengantre permintaan saat agent bekerja |
 | `idleLogoutEnabled`  | boolean | `true`  | Keluar dari sesi interaktif terautentikasi setelah batas waktu tidak aktif |
-| `idleTimeoutMs`      | number  | `3600000` | Milidetik tidak aktif sebelum keluar dari sesi terautentikasi (60 menit) |
+| `idleTimeoutMs`      | number  | `14400000` | Milidetik tidak aktif sebelum keluar dari sesi terautentikasi (4 jam) |
 | `debug`              | boolean | `false` | Aktifkan output debug verbose (log status internal agent ke stderr)     |
 
 ## Kesadaran sesi bersamaan
@@ -406,7 +406,7 @@ Kontrol perilaku agent dan batas iterasi.
 | --- | --- | --- | --- |
 | `awareness` | string | `"warn"` | `passive` menampilkan sesi lain, `warn` juga memperingatkan mutasi Git dan tabrakan file yang berisiko, dan `coordinate` meminta konfirmasi sebelum menulis path yang diklaim sesi aktif lain |
 
-Atur `idleLogoutEnabled` ke `false` untuk menonaktifkan logout saat tidak aktif. Untuk mengubah periodenya, atur `idleTimeoutMs` ke durasi positif dalam milidetik. Nilai default adalah `3600000` (60 menit); nilai yang tidak valid menggunakan default.
+Atur `idleLogoutEnabled` ke `false` untuk menonaktifkan logout saat tidak aktif. Untuk mengubah periodenya, atur `idleTimeoutMs` ke durasi positif dalam milidetik. Nilai default adalah `14400000` (4 jam); nilai yang tidak valid menggunakan default.
 
 ### Mode Debug
 
@@ -1127,7 +1127,7 @@ Untuk pengalaman interaktif yang lebih tepat, gunakan `/learn` dalam sesi.
     "maxIterations": 100,
     "enableRequestQueue": true,
     "idleLogoutEnabled": true,
-    "idleTimeoutMs": 3600000,
+    "idleTimeoutMs": 14400000,
     "debug": false
   },
   "permissions": {
@@ -1228,7 +1228,7 @@ agent:
   maxIterations: 100
   enableRequestQueue: true
   idleLogoutEnabled: true
-  idleTimeoutMs: 3600000
+  idleTimeoutMs: 14400000
   debug: false
 
 permissions:

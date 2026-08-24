@@ -1304,9 +1304,53 @@ function normalizeBedrockProviderConfig(
   };
 }
 
-export async function saveConfig(config: LoadedConfig): Promise<void> {
+export interface SaveConfigOptions {
+  /**
+   * Write the in-memory `auth` block. Defaults to false, which keeps whatever
+   * credential is already on disk.
+   *
+   * The config file is shared by every terminal tab, and a long-lived tab still
+   * holds the credential it loaded at startup. Without this, an incidental save
+   * — a model switch, a settings change — rewrites the file with that stale
+   * credential and signs the newer tab out. Only sign-in, sign-out, and startup
+   * validation actually mean to change auth, so only they pass `writeAuth`.
+   */
+  writeAuth?: boolean;
+}
+
+/** Read just the persisted `auth` block, tolerating a missing or corrupt file. */
+async function readPersistedAuth(
+  configPath: string,
+): Promise<{ present: boolean; auth?: LoadedConfig["auth"] }> {
+  try {
+    const parsed = await parseConfigFile(configPath);
+    if (parsed && typeof parsed === "object" && "auth" in parsed) {
+      return { present: true, auth: (parsed as AutohandConfig).auth };
+    }
+    return { present: false };
+  } catch {
+    return { present: false };
+  }
+}
+
+export async function saveConfig(
+  config: LoadedConfig,
+  options: SaveConfigOptions = {},
+): Promise<void> {
   const { configPath, ...data } = config;
   delete (data as Partial<LoadedConfig>).isNewConfig;
+
+  if (!options.writeAuth) {
+    const persisted = await readPersistedAuth(configPath);
+    if (persisted.present) {
+      if (persisted.auth) {
+        (data as AutohandConfig).auth = persisted.auth;
+      } else {
+        delete (data as Partial<AutohandConfig>).auth;
+      }
+    }
+  }
+
   await fs.ensureDir(path.dirname(configPath));
 
   if (isYamlFile(configPath)) {

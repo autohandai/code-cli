@@ -92,7 +92,10 @@ export async function goal(ctx: SlashCommandContext, args: string[] = []): Promi
     default: {
       const resolved = await manager.resolveObjective(input);
       if (!resolved.ok) return chalk.yellow(resolved.message);
-      const created = await manager.createGoal(resolved.input, { replace: false });
+      // Setting a goal while one is active queues it rather than refusing, so
+      // the objectives run back to back. This matches the goal tool and the RPC
+      // surface, which have always used createOrQueueGoal.
+      const created = await manager.createOrQueueGoal({ ...resolved.input, source: 'command' });
       if (created.ok && created.goal) {
         await emitGoalWrittenCompleted(ctx, created.goal, 'slash');
         queueGoalContinuation(ctx, created.goal.objective);

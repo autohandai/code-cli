@@ -22,8 +22,8 @@ function createRuntime(overrides: Partial<AgentRuntime> = {}): AgentRuntime {
 }
 
 describe('AUTH_CONFIG.idleTimeoutMs', () => {
-  it('defaults to 60 minutes in milliseconds', () => {
-    expect(AUTH_CONFIG.idleTimeoutMs).toBe(60 * 60 * 1000);
+  it('defaults to 4 hours in milliseconds', () => {
+    expect(AUTH_CONFIG.idleTimeoutMs).toBe(4 * 60 * 60 * 1000);
   });
 
   it('is a positive number', () => {

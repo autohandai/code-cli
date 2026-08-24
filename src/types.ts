@@ -330,9 +330,9 @@ export interface AgentSettings {
   maxIterations?: number;
   /** Enable request queue - allow typing while agent works (default: true) */
   enableRequestQueue?: boolean;
-  /** Log out authenticated interactive sessions after idle timeout (default: true) */
+  /** End authenticated interactive sessions after an idle timeout (default: true) */
   idleLogoutEnabled?: boolean;
-  /** Milliseconds of inactivity before logging out an authenticated session (default: 3600000) */
+  /** Milliseconds of inactivity before ending an authenticated session (default: 14400000 — 4 hours) */
   idleTimeoutMs?: number;
   /** Maximum session failure retries before giving up (default: 3) */
   sessionRetryLimit?: number;

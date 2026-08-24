@@ -697,7 +697,7 @@ Comportamento dell'agente di controllo e limiti di iterazione.
     "toolSelectionCache": true,
     "autoMemory": true,
     "idleLogoutEnabled": true,
-    "idleTimeoutMs": 3600000,
+    "idleTimeoutMs": 14400000,
     "debug": false
   }
 }
@@ -709,7 +709,7 @@ Comportamento dell'agente di controllo e limiti di iterazione.
 | `toolSelectionCache` | booleano | `true` | Memorizza nella cache la selezione dello schema dello strumento locale per turno per l'input di selezione dello strumento equivalente |
 | `autoMemory` | booleano | `true` | Estrai e salva memorie durevoli di utenti/progetti dopo i turni interattivi completati, incluse lezioni supportate da prove tratte da errori e annullamenti |
 | `idleLogoutEnabled` | booleano | `true` | Disconnettersi dalle sessioni interattive autenticate dopo il timeout di inattività |
-| `idleTimeoutMs` | numero | `3600000` | Millisecondi di inattività prima di disconnettere una sessione autenticata (60 minuti) |
+| `idleTimeoutMs` | numero | `14400000` | Millisecondi di inattività prima di disconnettere una sessione autenticata (4 ore) |
 | `debug` | booleano | `false` | Abilita output di debug dettagliato (registra lo stato interno dell'agente su stderr) |
 
 ## Consapevolezza delle sessioni simultanee
@@ -754,7 +754,7 @@ Per mantenere attive le sessioni autenticate dell'agente di lunga durata mentre 
 ```
 Per un singolo processo, utilizzare `autohand --no-idle-logout` o impostare `AUTOHAND_NO_IDLE_LOGOUT=1`.
 
-Imposta `idleTimeoutMs` su una durata positiva in millisecondi per modificare il periodo di inattività. Il valore predefinito è `3600000` (60 minuti); i valori non validi utilizzano il valore predefinito.
+Imposta `idleTimeoutMs` su una durata positiva in millisecondi per modificare il periodo di inattività. Il valore predefinito è `14400000` (4 ore); i valori non validi utilizzano il valore predefinito.
 
 ### Modalità di debug
 
@@ -1632,7 +1632,7 @@ autohand --no-browser       # Start with browser bridge disabled
     "enableRequestQueue": true,
     "toolSelectionCache": true,
     "idleLogoutEnabled": true,
-    "idleTimeoutMs": 3600000,
+    "idleTimeoutMs": 14400000,
     "debug": false
   },
   "permissions": {
@@ -1717,7 +1717,7 @@ agent:
   enableRequestQueue: true
   toolSelectionCache: true
   idleLogoutEnabled: true
-  idleTimeoutMs: 3600000
+  idleTimeoutMs: 14400000
   debug: false
 
 permissions:
@@ -1811,7 +1811,7 @@ maxIterations = 100
 enableRequestQueue = true
 toolSelectionCache = true
 idleLogoutEnabled = true
-idleTimeoutMs = 3600000
+idleTimeoutMs = 14400000
 debug = false
 
 [permissions]

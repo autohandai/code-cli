@@ -400,6 +400,17 @@ function attemptKill(pid: number, signal: NodeJS.Signals): boolean {
  * by BackgroundProcessRegistry (see src/core/agent/BackgroundProcessRegistry.ts).
  * Never throws — a process that's already gone is treated as already stopped.
  */
+const KILL_POLL_INTERVAL_MS = 25;
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function killProcessGroup(
   pid: number,
   gracePeriodMs: number = DEFAULT_KILL_GRACE_PERIOD_MS,
@@ -410,12 +421,24 @@ export async function killProcessGroup(
   }
 
   await new Promise<void>((resolve) => {
-    const timer = setTimeout(() => {
-      // Grace period elapsed; escalate to SIGKILL regardless of outcome.
-      attemptKill(pid, 'SIGKILL');
-      resolve();
-    }, gracePeriodMs);
-    timer.unref?.();
+    const deadline = Date.now() + gracePeriodMs;
+    // Deliberately not unref'd. This runs on the shutdown path, and an unref'd
+    // timer does not hold the event loop open — the CLI would exit before the
+    // SIGKILL was ever delivered, orphaning any detached child that ignored
+    // SIGTERM. Polling for exit keeps the common case fast, so staying ref'd
+    // costs milliseconds rather than the whole grace period.
+    const timer = setInterval(() => {
+      if (!isProcessAlive(pid)) {
+        clearInterval(timer);
+        resolve();
+        return;
+      }
+      if (Date.now() >= deadline) {
+        clearInterval(timer);
+        attemptKill(pid, 'SIGKILL');
+        resolve();
+      }
+    }, KILL_POLL_INTERVAL_MS);
   });
 }
 

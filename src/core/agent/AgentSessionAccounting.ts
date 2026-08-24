@@ -1,13 +1,11 @@
 import chalk from 'chalk';
-import { getAuthClient } from '../../auth/index.js';
-import { getProviderConfig, saveConfig } from '../../config.js';
+import { getProviderConfig } from '../../config.js';
 import { AUTH_CONFIG } from '../../constants.js';
 import type { SessionMessage } from '../../session/types.js';
 import type {
   AgentOutputEvent,
   AgentRuntime,
   AgentStatusSnapshot,
-  LoadedConfig,
   ProviderName,
   TokenUsageStatus,
   TurnUsage,
@@ -284,38 +282,47 @@ export async function flushScheduledAgentSessionSnapshot(
   await host.sessionSyncPromise?.catch(() => {});
 }
 
+/**
+ * End an interactive session that has gone idle.
+ *
+ * The session ends and the CLI exits, but the account credential is left
+ * untouched. `~/.autohand/config.json` is global: revoking the token or
+ * clearing `auth` here would sign the user out of every other terminal tab and
+ * every later run, which is not what an idle *session* timeout should mean.
+ * Signing out remains an explicit `/logout`.
+ */
+/** Idle windows are hours now, so minutes alone read poorly past the first one. */
+function formatIdleDuration(elapsedMs: number): string {
+  const totalMinutes = Math.max(1, Math.round(elapsedMs / 60_000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${totalMinutes} minute${totalMinutes === 1 ? '' : 's'}`;
+  const hourPart = `${hours} hour${hours === 1 ? '' : 's'}`;
+  return minutes === 0 ? hourPart : `${hourPart} ${minutes} minute${minutes === 1 ? '' : 's'}`;
+}
+
 export async function forceAgentIdleLogout(host: AgentSessionAccountingHost): Promise<void> {
-  const idleMinutes = Math.round((Date.now() - host.lastActivityAt) / 60_000);
   console.log();
-  console.log(chalk.yellow(`Session idle for ${idleMinutes} minutes \u2014 logging out for security.`));
-  console.log(chalk.gray('Run autohand again to start a new session.'));
-
-  if (host.runtime.config.auth?.token) {
-    const authClient = getAuthClient();
-    try {
-      await authClient.logout(host.runtime.config.auth.token);
-    } catch {
-      // Server logout failed, but we still clear local token.
-    }
-
-    const updatedConfig: LoadedConfig = {
-      ...host.runtime.config,
-      auth: undefined,
-    };
-    try {
-      await saveConfig(updatedConfig);
-    } catch {
-      // Ignore save errors during idle logout.
-    }
-  }
+  console.log(chalk.yellow(`Session idle for ${formatIdleDuration(Date.now() - host.lastActivityAt)} \u2014 ending this session.`));
+  console.log(chalk.gray('You are still signed in.'));
 
   const session = host.sessionManager.getCurrentSession();
+  const sessionId = session?.metadata.sessionId;
   if (session) {
     try {
-      await host.sessionManager.closeSession('Idle timeout \u2014 auto logout');
+      await host.sessionManager.closeSession('Idle timeout \u2014 session ended');
     } catch {
       // Ignore session save errors during forced logout.
     }
+  }
+
+  // Closing the session above clears it from the manager, so the generic
+  // teardown below can no longer report it. Print where the work went and how
+  // to pick it back up before handing off.
+  if (sessionId) {
+    console.log();
+    console.log(formatSessionSaved(sessionId));
+    console.log(formatResumeHint(sessionId));
   }
 
   await host.closeSession();

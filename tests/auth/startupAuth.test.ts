@@ -37,7 +37,9 @@ describe('validateAuthOnStartup', () => {
 
     await expect(validateAuthOnStartup(config)).resolves.toBeUndefined();
     expect(config.auth).toBeUndefined();
-    expect(saveConfig).toHaveBeenCalledWith(config);
+    // Clearing a server-rejected credential is an intentional auth write, so it
+    // must opt out of the shared-config preservation that protects other tabs.
+    expect(saveConfig).toHaveBeenCalledWith(config, { writeAuth: true });
   });
 
   it('keeps locally cached auth on network validation errors', async () => {

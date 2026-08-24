@@ -406,7 +406,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
     "maxIterations": 100,
     "enableRequestQueue": true,
     "idleLogoutEnabled": true,
-    "idleTimeoutMs": 3600000,
+    "idleTimeoutMs": 14400000,
     "debug": false
   }
 }
@@ -417,7 +417,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | `maxIterations`      | number  | `100`    | रुकने से पहले प्रति यूजर रिक्वेस्ट अधिकतम टूल इटरेशन                      |
 | `enableRequestQueue` | boolean | `true`   | एजेंट के काम करते समय यूजर्स को रिक्वेस्ट टाइप और क्यू करने की अनुमति दें |
 | `idleLogoutEnabled`  | boolean | `true`   | इनएक्टिविटी टाइमआउट के बाद प्रमाणित इंटरैक्टिव सेशन से लॉग आउट करें       |
-| `idleTimeoutMs`      | number  | `3600000` | प्रमाणित सेशन को लॉग आउट करने से पहले इनएक्टिविटी के मिलीसेकंड (60 मिनट) |
+| `idleTimeoutMs`      | number  | `14400000` | प्रमाणित सेशन को लॉग आउट करने से पहले इनएक्टिविटी के मिलीसेकंड (4 घंटे) |
 | `debug`              | boolean | `false`  | विस्तृत डीबग आउटपुट सक्षम करें (एजेंट के इंटरनल स्टेट लॉग्स को stderr पर) |
 
 ## समवर्ती सेशन जागरूकता
@@ -434,7 +434,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | --- | --- | --- | --- |
 | `awareness` | string | `"warn"` | `passive` अन्य सेशन दिखाता है, `warn` जोखिमपूर्ण Git और फ़ाइल टकराव की चेतावनी भी देता है, और `coordinate` किसी अन्य सक्रिय सेशन द्वारा दावा किए गए पथ पर लिखने से पहले पुष्टि मांगता है |
 
-इनएक्टिविटी लॉगआउट बंद करने के लिए `idleLogoutEnabled` को `false` पर सेट करें। अवधि बदलने के लिए `idleTimeoutMs` को मिलीसेकंड में धनात्मक मान पर सेट करें। डिफ़ॉल्ट `3600000` (60 मिनट) है; अमान्य मान डिफ़ॉल्ट का उपयोग करते हैं।
+इनएक्टिविटी लॉगआउट बंद करने के लिए `idleLogoutEnabled` को `false` पर सेट करें। अवधि बदलने के लिए `idleTimeoutMs` को मिलीसेकंड में धनात्मक मान पर सेट करें। डिफ़ॉल्ट `14400000` (4 घंटे) है; अमान्य मान डिफ़ॉल्ट का उपयोग करते हैं।
 
 ### डीबग मोड
 
@@ -1155,7 +1155,7 @@ autohand --auto-skill
     "maxIterations": 100,
     "enableRequestQueue": true,
     "idleLogoutEnabled": true,
-    "idleTimeoutMs": 3600000
+    "idleTimeoutMs": 14400000
   },
   "permissions": {
     "mode": "interactive",
@@ -1213,7 +1213,7 @@ agent:
   maxIterations: 100
   enableRequestQueue: true
   idleLogoutEnabled: true
-  idleTimeoutMs: 3600000
+  idleTimeoutMs: 14400000
 
 permissions:
   mode: interactive

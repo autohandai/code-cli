@@ -122,8 +122,8 @@ export const AUTH_CONFIG = {
   pollInterval: 2000,
   authTimeout: 5 * 60 * 1000,
   sessionExpiryDays: 30,
-  /** Idle timeout in ms before forcing logout (60 minutes) */
-  idleTimeoutMs: 60 * 60 * 1000,
+  /** Inactivity window before an interactive session ends itself (4 hours) */
+  idleTimeoutMs: 4 * 60 * 60 * 1000,
 } as const;
 
 /**

@@ -406,7 +406,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
     "maxIterations": 100,
     "enableRequestQueue": true,
     "idleLogoutEnabled": true,
-    "idleTimeoutMs": 3600000,
+    "idleTimeoutMs": 14400000,
     "debug": false
   }
 }
@@ -417,7 +417,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | `maxIterations`      | number  | `100`  | 停止前每个用户请求的最大工具迭代次数 |
 | `enableRequestQueue` | boolean | `true` | 允许用户在代理工作时输入和排队请求   |
 | `idleLogoutEnabled`  | boolean | `true` | 空闲超时后退出已认证的交互式会话     |
-| `idleTimeoutMs`      | number  | `3600000` | 退出已认证会话前允许的空闲毫秒数（60 分钟） |
+| `idleTimeoutMs`      | number  | `14400000` | 退出已认证会话前允许的空闲毫秒数（4 小时） |
 | `debug`              | boolean | `false` | 启用详细调试输出（将代理内部状态日志记录到 stderr） |
 
 ## 并发会话感知
@@ -434,7 +434,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | --- | --- | --- | --- |
 | `awareness` | string | `"warn"` | `passive` 显示其他会话，`warn` 还会警告有风险的 Git 操作和文件冲突，`coordinate` 会在写入其他活跃会话已声明的路径前请求确认 |
 
-将 `idleLogoutEnabled` 设为 `false` 可禁用空闲退出。要更改空闲时长，请将 `idleTimeoutMs` 设为正的毫秒值。默认值为 `3600000`（60 分钟）；无效值会回退到默认值。
+将 `idleLogoutEnabled` 设为 `false` 可禁用空闲退出。要更改空闲时长，请将 `idleTimeoutMs` 设为正的毫秒值。默认值为 `14400000`（4 小时）；无效值会回退到默认值。
 
 ### 调试模式
 
@@ -1155,7 +1155,7 @@ autohand --auto-skill
     "maxIterations": 100,
     "enableRequestQueue": true,
     "idleLogoutEnabled": true,
-    "idleTimeoutMs": 3600000,
+    "idleTimeoutMs": 14400000,
     "debug": false
   },
   "permissions": {
@@ -1256,7 +1256,7 @@ agent:
   maxIterations: 100
   enableRequestQueue: true
   idleLogoutEnabled: true
-  idleTimeoutMs: 3600000
+  idleTimeoutMs: 14400000
   debug: false
 
 permissions:

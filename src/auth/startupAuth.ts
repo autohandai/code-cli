@@ -21,7 +21,7 @@ export async function validateAuthOnStartup(config: LoadedConfig): Promise<AuthU
     if (expiresAt < new Date()) {
       config.auth = undefined;
       try {
-        await saveConfig(config);
+        await saveConfig(config, { writeAuth: true });
       } catch {
         // Ignore save errors during startup.
       }
@@ -42,7 +42,7 @@ export async function validateAuthOnStartup(config: LoadedConfig): Promise<AuthU
 
     config.auth = undefined;
     try {
-      await saveConfig(config);
+      await saveConfig(config, { writeAuth: true });
     } catch {
       // Ignore save errors during startup.
     }

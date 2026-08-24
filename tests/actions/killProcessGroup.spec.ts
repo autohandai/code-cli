@@ -59,6 +59,52 @@ describe('killProcessGroup', () => {
     }
   });
 
+  it('kills a process that ignores SIGTERM instead of leaving it orphaned', async () => {
+    mkdirSync(testDir, { recursive: true });
+    try {
+      const result = await runCommand(
+        nodeShellCommand("process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"),
+        [],
+        testDir,
+        { shell: true, background: true },
+      );
+      const pid = result.backgroundPid!;
+      expect(() => process.kill(pid, 0)).not.toThrow();
+
+      await killProcessGroup(pid, 100);
+      await waitForProcessExit(pid);
+
+      expect(() => process.kill(pid, 0)).toThrow();
+    } finally {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns as soon as the process is gone rather than burning the whole grace period', async () => {
+    mkdirSync(testDir, { recursive: true });
+    try {
+      const result = await runCommand(
+        nodeShellCommand('setInterval(() => {}, 1000)'),
+        [],
+        testDir,
+        { shell: true, background: true },
+      );
+      const pid = result.backgroundPid!;
+
+      // A long grace period must not become a long shutdown: waiting it out on
+      // every kill is what pushes teardown past its deadline and strands the
+      // remaining processes.
+      const startedAt = Date.now();
+      await killProcessGroup(pid, 10_000);
+      const elapsed = Date.now() - startedAt;
+
+      expect(elapsed).toBeLessThan(3_000);
+      await waitForProcessExit(pid);
+    } finally {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
   it('does not throw when the process is already gone', async () => {
     // A PID essentially guaranteed not to exist.
     await expect(killProcessGroup(999_999, 10)).resolves.toBeUndefined();
