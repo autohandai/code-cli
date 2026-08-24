@@ -219,8 +219,66 @@ function truncateToolCallDetail(value: string, maxLength = 160): string {
   return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
 }
 
+type ToolArgs = ToolCallRequest['args'];
+
+function getNumberArg(args: ToolArgs | undefined, key: string): number | undefined {
+  const value = args?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function joinDetailParts(parts: Array<string | undefined>): string {
+  return parts.filter((part): part is string => Boolean(part && part.length > 0)).join(' · ');
+}
+
+/**
+ * Per-tool argument summaries for the spinner status line. Without these, tools
+ * whose arguments are neither a path, command, query, nor URL fall through to a
+ * raw `JSON.stringify(args)` dump — which is how `sleep` used to render as
+ * `sleep {"reason":"...","seconds":180}`.
+ */
+const TOOL_DETAIL_FORMATTERS: Record<string, (args: ToolArgs | undefined) => string> = {
+  sleep: (args) => {
+    const seconds = getNumberArg(args, 'seconds');
+    return joinDetailParts([seconds === undefined ? undefined : `${seconds}s`, getStringArg(args, 'reason')]);
+  },
+  task_list: (args) => joinDetailParts([getStringArg(args, 'status'), getStringArg(args, 'owner')]),
+  task_get: (args) => getStringArg(args, 'task_id') ?? '',
+  task_stop: (args) => getStringArg(args, 'task_id') ?? '',
+  task_output: (args) => getStringArg(args, 'task_id') ?? '',
+  task_update: (args) => {
+    const id = getStringArg(args, 'task_id');
+    const status = getStringArg(args, 'status');
+    if (!id) return status ?? '';
+    return status ? `${id} → ${status}` : id;
+  },
+  create_task: (args) => getStringArg(args, 'subject') ?? '',
+  add_teammate: (args) => getStringArg(args, 'name') ?? '',
+  todo_write: (args) => {
+    const tasks = args?.tasks;
+    if (!Array.isArray(tasks)) return '';
+    return `${tasks.length} task${tasks.length === 1 ? '' : 's'}`;
+  },
+};
+
+/** Scalar-only summary. Nested objects and arrays must never reach the status line. */
+function formatScalarArgs(args: NonNullable<ToolArgs>): string {
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(args)) {
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      parts.push(`${key}=${value}`);
+    }
+  }
+  return parts.join(', ');
+}
+
 export function formatToolCallLogDetail(call: ToolCallRequest): string {
   const args = call.args;
+
+  const humanize = TOOL_DETAIL_FORMATTERS[call.tool];
+  if (humanize) {
+    return truncateToolCallDetail(humanize(args));
+  }
+
   const path = getStringArg(args, 'path') ?? getStringArg(args, 'file') ?? getStringArg(args, 'cwd');
   if (path) {
     return truncateToolCallDetail(path);
@@ -246,7 +304,7 @@ export function formatToolCallLogDetail(call: ToolCallRequest): string {
     return '';
   }
 
-  return truncateToolCallDetail(JSON.stringify(args));
+  return truncateToolCallDetail(formatScalarArgs(args));
 }
 
 export interface ToolCallLogLine {

@@ -37,6 +37,7 @@ import { createToolsRegistry } from '../toolsRegistry.js';
 import type { AgentRuntime, HookEvent, ToolActionOutcome } from '../../types.js';
 import { AgentDelegator } from '../agents/AgentDelegator.js';
 import { attachTeamActivityBridge, enableAutomaticCoordinationMode } from './TeamActivityBridge.js';
+import { buildTeamTaskPayload, taskToolTruncatesDescriptions } from '../teams/taskPayload.js';
 import { ErrorLogger } from '../errorLogger.js';
 import { MemoryManager } from '../../memory/MemoryManager.js';
 import type { CapabilityUsageInput } from '../../memory/types.js';
@@ -1148,11 +1149,16 @@ export function initializeAgentDependencies(
             });
             // Auto-assign to idle teammates
             host.teamManager.tryAssignIdleTeammate();
-            result = `Task ${task.id}: "${task.subject}" created (status: ${task.status})`;
+            result = buildTeamTaskPayload({
+              tasks: [task],
+              headline: `Task ${task.id}: "${task.subject}" created (status: ${task.status})`,
+              truncateDescriptions: taskToolTruncatesDescriptions(action.type),
+            });
           } else if (action.type === 'task_get') {
             const task = host.teamManager.tasks.getTask(action.task_id);
             if (task) {
-              result = JSON.stringify(task, null, 2);
+              // The one full-detail view: every other task tool truncates descriptions.
+              result = buildTeamTaskPayload({ tasks: [task] });
             } else {
               const error = `Task "${action.task_id}" not found.`;
               outcome = { success: false, kind: 'validation', error, output: error };
@@ -1162,7 +1168,12 @@ export function initializeAgentDependencies(
               .listTasks()
               .filter((task: any) => !action.status || task.status === action.status)
               .filter((task: any) => !action.owner || task.owner === action.owner);
-            result = JSON.stringify(filtered, null, 2);
+            // Listings show status; full descriptions stay available via task_get.
+            result = buildTeamTaskPayload({
+              tasks: filtered,
+              filter: { status: action.status, owner: action.owner },
+              truncateDescriptions: taskToolTruncatesDescriptions(action.type),
+            });
           } else if (action.type === 'task_update') {
             const task = host.teamManager.tasks.updateTask(action.task_id, {
               subject: action.subject,
@@ -1170,7 +1181,11 @@ export function initializeAgentDependencies(
               blockedBy: action.blocked_by,
               status: action.status,
             });
-            result = `Task ${task.id} updated.\n${JSON.stringify(task, null, 2)}`;
+            result = buildTeamTaskPayload({
+              tasks: [task],
+              headline: `Task ${task.id} updated.`,
+              truncateDescriptions: taskToolTruncatesDescriptions(action.type),
+            });
           } else if (action.type === 'task_stop') {
             const existingTask = host.teamManager.tasks.getTask(action.task_id);
             if (!existingTask) {
@@ -1190,11 +1205,19 @@ export function initializeAgentDependencies(
                   // Best-effort notification only; task state update is authoritative.
                 }
               }
-              result = `Task ${task.id} stopped and returned to pending.\n${JSON.stringify(task, null, 2)}`;
+              result = buildTeamTaskPayload({
+                tasks: [task],
+                headline: `Task ${task.id} stopped and returned to pending.`,
+                truncateDescriptions: taskToolTruncatesDescriptions(action.type),
+              });
             }
           } else if (action.type === 'task_output') {
             const task = host.teamManager.tasks.setTaskOutput(action.task_id, action.output);
-            result = `Task ${task.id} output updated.\n${JSON.stringify(task, null, 2)}`;
+            result = buildTeamTaskPayload({
+              tasks: [task],
+              headline: `Task ${task.id} output updated.`,
+              truncateDescriptions: taskToolTruncatesDescriptions(action.type),
+            });
           } else if (action.type === 'skill') {
             outcome = host.handleSkillTool(action);
           } else if (action.type === 'sleep') {
