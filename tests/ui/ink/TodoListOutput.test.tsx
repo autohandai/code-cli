@@ -46,12 +46,40 @@ describe('TodoListOutput', () => {
   it('marks in-progress tasks distinctly from completed ones', () => {
     const { lastFrame } = renderWithTheme(<TodoListOutput output={JSON.stringify({ tasks })} />);
     const frame = lastFrame();
-    // Completed marker
-    expect(frame).toContain('✓');
-    // In-progress marker
-    expect(frame).toContain('•');
-    // Pending marker
-    expect(frame).toContain('○');
+    // Standardized glyph vocabulary, shared with the team task panel.
+    expect(frame).toContain('■'); // completed
+    expect(frame).toContain('▣'); // in progress
+    expect(frame).toContain('□'); // pending
+  });
+
+  it('groups tasks by status with active work first', () => {
+    const { lastFrame } = renderWithTheme(<TodoListOutput output={JSON.stringify({ tasks })} />);
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('in progress');
+    expect(frame).toContain('pending');
+    expect(frame).toContain('completed');
+    expect(frame.indexOf('in progress')).toBeLessThan(frame.indexOf('pending'));
+    expect(frame.indexOf('pending')).toBeLessThan(frame.indexOf('completed'));
+  });
+
+  it('collapses long todo lists instead of flooding the terminal', () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({
+      title: `Todo number ${i}`,
+      status: i < 3 ? ('in_progress' as const) : ('completed' as const),
+    }));
+    const { lastFrame } = renderWithTheme(<TodoListOutput output={JSON.stringify({ tasks: many })} />);
+    const frame = lastFrame() ?? '';
+
+    expect(frame).toContain('Todo number 0');
+    expect(frame).toContain('+8 completed');
+    expect(frame).not.toContain('Todo number 19');
+  });
+
+  it('renders the summary line when present', () => {
+    const { lastFrame } = renderWithTheme(
+      <TodoListOutput output={JSON.stringify({ tasks, summary: 'Updated task list: 50% complete (2/4)' })} />,
+    );
+    expect(lastFrame()).toContain('Updated task list: 50% complete (2/4)');
   });
 
   it('falls back to plain text when payload is not valid todo JSON', () => {

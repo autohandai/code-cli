@@ -13,6 +13,36 @@ import { renderTerminalMarkdown } from '../../core/immediateCommandRouter.js';
 import { stripAnsiCodes } from '../displayUtils.js';
 import { parseWorkspaceChangeSet } from '../../core/agent/WorkspaceChangeCapture.js';
 import { TodoListOutput } from './TodoListOutput.js';
+import { TeamTaskListOutput } from './TeamTaskListOutput.js';
+
+/** Tools whose JSON results are painted as panels instead of printed verbatim. */
+const TEAM_TASK_TOOLS = new Set([
+  'task_list',
+  'task_get',
+  'create_task',
+  'task_update',
+  'task_stop',
+  'task_output',
+]);
+
+/**
+ * Shared by the live and <Static> renderers so a tool only has to be routed once.
+ * Returns null when the tool has no dedicated panel.
+ */
+function specialToolRenderer(tool: string, output: string, success: boolean): React.ReactElement | null {
+  if (tool === 'workspace_changes') {
+    return <WorkspaceChangesOutput output={output} />;
+  }
+  if (tool === 'todo_write') {
+    return <TodoListOutput output={output} />;
+  }
+  // Failed task calls return a plain message ("Task ... not found."), which
+  // belongs in the standard error box rather than an empty panel.
+  if (success && TEAM_TASK_TOOLS.has(tool)) {
+    return <TeamTaskListOutput output={output} />;
+  }
+  return null;
+}
 
 export interface ToolOutputEntry {
   id: string;
@@ -428,12 +458,9 @@ function ToolOutputComponent({ entry }: ToolOutputProps) {
 
   const renderedOutput = output ? renderTerminalMarkdown(output) : '';
 
-  if (tool === 'workspace_changes') {
-    return <WorkspaceChangesOutput output={output} />;
-  }
-
-  if (tool === 'todo_write') {
-    return <TodoListOutput output={output} />;
+  const special = specialToolRenderer(tool, output, success);
+  if (special) {
+    return special;
   }
 
   return (
@@ -481,12 +508,9 @@ function ToolOutputStaticComponent({ entry }: ToolOutputProps) {
 
   const renderedOutput = output ? renderTerminalMarkdown(output) : '';
 
-  if (tool === 'workspace_changes') {
-    return <WorkspaceChangesOutput output={output} />;
-  }
-
-  if (tool === 'todo_write') {
-    return <TodoListOutput output={output} />;
+  const special = specialToolRenderer(tool, output, success);
+  if (special) {
+    return special;
   }
 
   return (
