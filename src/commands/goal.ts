@@ -96,7 +96,11 @@ export async function goal(ctx: SlashCommandContext, args: string[] = []): Promi
       // the objectives run back to back. This matches the goal tool and the RPC
       // surface, which have always used createOrQueueGoal.
       const created = await manager.createOrQueueGoal({ ...resolved.input, source: 'command' });
-      if (created.ok && created.goal) {
+      // When the objective is queued behind a running goal, the result still
+      // reports that running goal. Only nudge the agent when a goal actually
+      // started, or the active goal gets a duplicate continuation each time.
+      const startedNow = created.ok && created.goal && !created.queued?.length;
+      if (startedNow && created.goal) {
         await emitGoalWrittenCompleted(ctx, created.goal, 'slash');
         queueGoalContinuation(ctx, created.goal.objective);
       }
@@ -158,8 +162,20 @@ async function handleQueue(manager: GoalManager, rest: string): Promise<string> 
   return formatMutation(await manager.enqueueGoalBlock(rest, 'command'));
 }
 
+/**
+ * A goal is a standing instruction to keep working, so starting one puts the
+ * session in auto mode: the agent drives its own turns and stops asking for
+ * tool approval until the goal is done. Set `agent.goalAutoMode: false` to keep
+ * the normal turn-by-turn loop.
+ */
+function isGoalAutoModeEnabled(ctx: SlashCommandContext): boolean {
+  return ctx.config?.agent?.goalAutoMode !== false;
+}
+
 function queueGoalContinuation(ctx: SlashCommandContext, objective: string): void {
-  ctx.setInteractionMode?.('automode');
+  if (isGoalAutoModeEnabled(ctx)) {
+    ctx.setInteractionMode?.('automode');
+  }
   ctx.queueInstruction?.(buildGoalContinuationInstruction(objective));
 }
 

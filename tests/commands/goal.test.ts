@@ -118,6 +118,24 @@ describe('/goal command', () => {
     expect(snapshot.goal?.objective).toBe('ship the auth fix');
     expect(snapshot.queue.map((entry) => entry.objective))
       .toEqual(['then update the changelog']);
+    // Queueing must not re-nudge the goal that is already running.
+    expect(queued).toEqual([]);
+  });
+
+  it('puts the session in auto mode when a goal starts', async () => {
+    await goal(ctx, ['ship', 'the', 'auth', 'fix']);
+
+    expect(ctx.setInteractionMode).toHaveBeenCalledWith('automode');
+  });
+
+  it('leaves the interaction mode alone when goal auto mode is disabled', async () => {
+    ctx.config.agent = { ...(ctx.config.agent ?? {}), goalAutoMode: false };
+
+    await goal(ctx, ['ship', 'the', 'auth', 'fix']);
+
+    expect(ctx.setInteractionMode).not.toHaveBeenCalled();
+    // The goal still runs; only the mode switch is opted out of.
+    expect(queued.join('\n')).toContain('ship the auth fix');
   });
 
   it('starts the queued objective automatically when the active goal completes', async () => {
