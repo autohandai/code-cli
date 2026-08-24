@@ -259,6 +259,14 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     configPath: 'telemetry.enabled',
     defaultEnabled: false,
   },
+  {
+    id: 'idle_logout',
+    label: 'Idle logout',
+    description: 'End authenticated interactive sessions after an idle timeout.',
+    stage: 'experimental',
+    configPath: 'agent.idleLogoutEnabled',
+    defaultEnabled: false,
+  },
 ] as const;
 
 export function isAwsBedrockProviderEnabled(config?: Pick<LoadedConfig, 'features'> | null): boolean {

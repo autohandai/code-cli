@@ -59,21 +59,35 @@ describe('Idle timeout logic', () => {
     expect(idleMs >= idleTimeoutMs).toBe(true);
   });
 
-  it('forces idle logout for authenticated sessions beyond the threshold by default', () => {
+  it('does not force idle logout by default (experimental, disabled)', () => {
     const now = 1_000_000;
     const lastActivityAt = now - AUTH_CONFIG.idleTimeoutMs;
 
-    expect(shouldForceAgentIdleLogout(createRuntime(), lastActivityAt, now)).toBe(true);
+    expect(shouldForceAgentIdleLogout(createRuntime(), lastActivityAt, now)).toBe(false);
   });
 
-  it('uses the configured agent idle timeout', () => {
+  it('forces idle logout when explicitly enabled via config', () => {
+    const now = 1_000_000;
+    const lastActivityAt = now - AUTH_CONFIG.idleTimeoutMs;
+    const runtime = createRuntime({
+      config: {
+        configPath: '/tmp/autohand-config.json',
+        auth: { token: 'token' },
+        agent: { idleLogoutEnabled: true },
+      },
+    });
+
+    expect(shouldForceAgentIdleLogout(runtime, lastActivityAt, now)).toBe(true);
+  });
+
+  it('uses the configured agent idle timeout when enabled', () => {
     const now = 10_000_000;
     const configuredIdleTimeoutMs = 90 * 60 * 1000;
     const runtime = createRuntime({
       config: {
         configPath: '/tmp/autohand-config.json',
         auth: { token: 'token' },
-        agent: { idleTimeoutMs: configuredIdleTimeoutMs },
+        agent: { idleLogoutEnabled: true, idleTimeoutMs: configuredIdleTimeoutMs },
       },
     });
 
@@ -85,13 +99,13 @@ describe('Idle timeout logic', () => {
     ).toBe(true);
   });
 
-  it('falls back to the default timeout when the configured value is invalid', () => {
+  it('falls back to the default timeout when the configured value is invalid (enabled)', () => {
     const now = 10_000_000;
     const runtime = createRuntime({
       config: {
         configPath: '/tmp/autohand-config.json',
         auth: { token: 'token' },
-        agent: { idleTimeoutMs: 0 },
+        agent: { idleLogoutEnabled: true, idleTimeoutMs: 0 },
       },
     });
 
