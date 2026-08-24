@@ -420,7 +420,7 @@ Controle o comportamento do agente e limites de iteração.
     "maxIterations": 100,
     "enableRequestQueue": true,
     "idleLogoutEnabled": true,
-    "idleTimeoutMs": 3600000,
+    "idleTimeoutMs": 14400000,
     "debug": false
   }
 }
@@ -431,7 +431,7 @@ Controle o comportamento do agente e limites de iteração.
 | `maxIterations`      | number  | `100`   | Máximo de iterações de ferramentas por solicitação do usuário antes de parar       |
 | `enableRequestQueue` | boolean | `true`  | Permitir que usuários digitem e enfileirem solicitações enquanto o agente trabalha |
 | `idleLogoutEnabled`  | boolean | `true`  | Encerrar sessões interativas autenticadas após o tempo limite de inatividade        |
-| `idleTimeoutMs`      | number  | `3600000` | Milissegundos de inatividade antes de encerrar uma sessão autenticada (60 minutos) |
+| `idleTimeoutMs`      | number  | `14400000` | Milissegundos de inatividade antes de encerrar uma sessão autenticada (4 horas) |
 | `debug`              | boolean | `false` | Habilitar output de debug detalhado (logs do estado interno do agente para stderr)   |
 
 ## Consciência de sessões simultâneas
@@ -448,7 +448,7 @@ Controle o comportamento do agente e limites de iteração.
 | --- | --- | --- | --- |
 | `awareness` | string | `"warn"` | `passive` mostra outras sessões, `warn` também alerta sobre operações Git e colisões de arquivos arriscadas, e `coordinate` pede confirmação antes de gravar um caminho reivindicado por outra sessão ativa |
 
-Defina `idleLogoutEnabled` como `false` para desativar o logout por inatividade. Para alterar o período, defina `idleTimeoutMs` como uma duração positiva em milissegundos. O padrão é `3600000` (60 minutos); valores inválidos usam o padrão.
+Defina `idleLogoutEnabled` como `false` para desativar o logout por inatividade. Para alterar o período, defina `idleTimeoutMs` como uma duração positiva em milissegundos. O padrão é `14400000` (4 horas); valores inválidos usam o padrão.
 
 ### Modo Debug
 
@@ -1171,7 +1171,7 @@ Para uma experiência interativa mais precisa, use `/learn` dentro de uma sessã
     "maxIterations": 100,
     "enableRequestQueue": true,
     "idleLogoutEnabled": true,
-    "idleTimeoutMs": 3600000,
+    "idleTimeoutMs": 14400000,
     "debug": false
   },
   "permissions": {
@@ -1272,7 +1272,7 @@ agent:
   maxIterations: 100
   enableRequestQueue: true
   idleLogoutEnabled: true
-  idleTimeoutMs: 3600000
+  idleTimeoutMs: 14400000
   debug: false
 
 permissions:

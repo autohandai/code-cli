@@ -79,9 +79,8 @@ describe('file mutation tools diff display', () => {
     expect(block).toContain('context?.toolCallId');
   });
 
-  it('todo_write calls notifyFileModified', () => {
+  it('todo_write does not call notifyFileModified (todos are agent state, not workspace edits)', () => {
     const block = extractCaseBlock('todo_write');
-    expect(block).toContain('notifyFileModified');
-    expect(block).toContain('context?.toolCallId');
+    expect(block).not.toContain('notifyFileModified');
   });
 });

@@ -12,6 +12,7 @@ import { hexToRgb } from '../theme/Theme.js';
 import { renderTerminalMarkdown } from '../../core/immediateCommandRouter.js';
 import { stripAnsiCodes } from '../displayUtils.js';
 import { parseWorkspaceChangeSet } from '../../core/agent/WorkspaceChangeCapture.js';
+import { TodoListOutput } from './TodoListOutput.js';
 
 export interface ToolOutputEntry {
   id: string;
@@ -431,6 +432,10 @@ function ToolOutputComponent({ entry }: ToolOutputProps) {
     return <WorkspaceChangesOutput output={output} />;
   }
 
+  if (tool === 'todo_write') {
+    return <TodoListOutput output={output} />;
+  }
+
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Box>
@@ -478,6 +483,10 @@ function ToolOutputStaticComponent({ entry }: ToolOutputProps) {
 
   if (tool === 'workspace_changes') {
     return <WorkspaceChangesOutput output={output} />;
+  }
+
+  if (tool === 'todo_write') {
+    return <TodoListOutput output={output} />;
   }
 
   return (

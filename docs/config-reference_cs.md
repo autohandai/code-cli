@@ -715,7 +715,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
     "toolSelectionCache": true,
     "autoMemory": true,
     "idleLogoutEnabled": true,
-    "idleTimeoutMs": 3600000,
+    "idleTimeoutMs": 14400000,
     "debug": false
   }
 }
@@ -727,7 +727,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | `toolSelectionCache` | booleovský | `true` | Uložte do mezipaměti místní výběr schématu nástroje na otočení pro ekvivalentní vstup pro výběr nástroje |
 | `autoMemory` | booleovský | `true` | Extrahujte a uložte trvalé uživatelské/projektové vzpomínky po dokončených interaktivních tazích, včetně podložených poučení ze selhání a zrušení |
 | `idleLogoutEnabled` | booleovský | `true` | Odhlaste ověřené interaktivní relace po vypršení časového limitu nečinnosti |
-| `idleTimeoutMs` | číslo | `3600000` | Milisekundy nečinnosti před odhlášením ověřené relace (60 minut) |
+| `idleTimeoutMs` | číslo | `14400000` | Milisekundy nečinnosti před odhlášením ověřené relace (4 hodiny) |
 | `debug` | booleovský | `false` | Povolit podrobný výstup ladění (protokoluje interní stav agenta do stderr) |
 
 ## Povědomí o souběžných relacích
@@ -772,7 +772,7 @@ Chcete-li udržet ověřené dlouhotrvající relace agentů naživu, zatímco �
 ```
 Pro jeden proces použijte `autohand --no-idle-logout` nebo nastavte `AUTOHAND_NO_IDLE_LOGOUT=1`.
 
-Chcete-li změnit dobu nečinnosti, nastavte `idleTimeoutMs` na kladnou dobu v milisekundách. Výchozí hodnota je `3600000` (60 minut); neplatné hodnoty použijí výchozí nastavení.
+Chcete-li změnit dobu nečinnosti, nastavte `idleTimeoutMs` na kladnou dobu v milisekundách. Výchozí hodnota je `14400000` (4 hodiny); neplatné hodnoty použijí výchozí nastavení.
 
 ### Režim ladění
 
@@ -1650,7 +1650,7 @@ autohand --no-browser       # Start with browser bridge disabled
     "enableRequestQueue": true,
     "toolSelectionCache": true,
     "idleLogoutEnabled": true,
-    "idleTimeoutMs": 3600000,
+    "idleTimeoutMs": 14400000,
     "debug": false
   },
   "permissions": {
@@ -1735,7 +1735,7 @@ agent:
   enableRequestQueue: true
   toolSelectionCache: true
   idleLogoutEnabled: true
-  idleTimeoutMs: 3600000
+  idleTimeoutMs: 14400000
   debug: false
 
 permissions:
@@ -1829,7 +1829,7 @@ maxIterations = 100
 enableRequestQueue = true
 toolSelectionCache = true
 idleLogoutEnabled = true
-idleTimeoutMs = 3600000
+idleTimeoutMs = 14400000
 debug = false
 
 [permissions]

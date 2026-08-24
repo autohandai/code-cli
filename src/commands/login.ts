@@ -277,7 +277,7 @@ export async function login(ctx: LoginContext): Promise<string | null> {
         },
       }, pollResult.token);
 
-      await saveConfig(updatedConfig);
+      await saveConfig(updatedConfig, { writeAuth: true });
 
       console.log();
       console.log(chalk.green(t('commands.login.success', { email: pollResult.user.name || pollResult.user.email })));

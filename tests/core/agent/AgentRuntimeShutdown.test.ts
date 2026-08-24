@@ -103,6 +103,20 @@ describe('AutohandAgent runtime resource shutdown', () => {
     expect(internals.sessionManager.closeSession).not.toHaveBeenCalled();
   });
 
+  it('terminates registered background processes so none outlive the CLI', async () => {
+    const killAll = vi.fn().mockResolvedValue(undefined);
+    const agent = createShutdownAgent({ backgroundProcessRegistry: { killAll } });
+
+    await agent.shutdownRuntimeResources();
+
+    expect(killAll).toHaveBeenCalledOnce();
+    // The grace period must stay inside the shutdown deadline, or teardown is
+    // abandoned mid-kill and the remaining processes are orphaned.
+    const [gracePeriodMs] = killAll.mock.calls[0] as [number];
+    expect(gracePeriodMs).toBeGreaterThan(0);
+    expect(gracePeriodMs).toBeLessThan(2_500);
+  });
+
   it('starts all cleanup concurrently and applies one absolute deadline', async () => {
     vi.useFakeTimers();
     const uiStop = vi.fn(() => new Promise<void>(() => {}));

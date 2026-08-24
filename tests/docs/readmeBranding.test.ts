@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { AUTH_CONFIG } from '../../src/constants.js';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -108,7 +109,9 @@ describe('README branding', () => {
 
       expect(configReference).toContain('| `idleLogoutEnabled`');
       expect(configReference).toContain('| `idleTimeoutMs`');
-      expect(configReference).toContain('"idleTimeoutMs": 3600000');
+      // Derived from the shipped default so the docs cannot drift away from it.
+      expect(configReference, configReferencePath)
+        .toContain(`"idleTimeoutMs": ${AUTH_CONFIG.idleTimeoutMs}`);
     }
   });
 

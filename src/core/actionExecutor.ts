@@ -2755,9 +2755,9 @@ export class ActionExecutor {
         // So we replace the entire todo list instead of merging
         const allTodos = normalizedTasks;
 
-        // Write back
+        // Write back. Todos are agent state, not workspace edits: never surface
+        // todos.json as a modified file or the TUI renders a JSON diff.
         await this.files.writeFile(todoPath, JSON.stringify(allTodos, null, 2));
-        this.notifyFileModified(todoPath, 'modify', context?.toolCallId);
         // Display summary with progress bar
         const total = allTodos.length;
 
@@ -2811,7 +2811,16 @@ export class ActionExecutor {
 
         console.log(`${outputLines.join('\n')}\n`);
 
-        return `Updated task list: ${percent}% complete (${completed}/${total})`;
+        // Structured payload lets the Ink TUI render a real task panel
+        // instead of treating this like plain tool output text.
+        const summary = `Updated task list: ${percent}% complete (${completed}/${total})`;
+        return JSON.stringify({
+          tasks: allTodos.map((task: Record<string, unknown>) => ({
+            title: titleOf(task),
+            status: typeof task.status === 'string' ? task.status : 'pending',
+          })),
+          summary,
+        });
       }
       case 'save_memory': {
         if (!this.memoryManager) {

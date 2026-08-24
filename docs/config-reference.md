@@ -901,7 +901,7 @@ Control agent behavior and iteration limits.
     "toolSelectionCache": true,
     "autoMemory": true,
     "idleLogoutEnabled": true,
-    "idleTimeoutMs": 3600000,
+    "idleTimeoutMs": 14400000,
     "debug": false
   }
 }
@@ -913,8 +913,8 @@ Control agent behavior and iteration limits.
 | `enableRequestQueue` | boolean | `true`  | Allow users to type and queue requests while agent is working                  |
 | `toolSelectionCache` | boolean | `true`  | Cache local per-turn tool schema selection for equivalent tool-selection input |
 | `autoMemory`         | boolean | `true`  | Extract and save durable user/project memories after completed interactive turns, including evidence-backed lessons from failures and cancellations |
-| `idleLogoutEnabled`  | boolean | `true`  | Log out authenticated interactive sessions after the idle timeout              |
-| `idleTimeoutMs`      | number  | `3600000` | Milliseconds of inactivity before logging out an authenticated session (60 minutes) |
+| `idleLogoutEnabled`  | boolean | `true`  | End authenticated interactive sessions after the idle timeout                  |
+| `idleTimeoutMs`      | number  | `14400000` | Milliseconds of inactivity before ending an authenticated session (4 hours)   |
 | `debug`              | boolean | `false` | Enable verbose debug output (logs agent internal state to stderr)              |
 
 ## Concurrent Session Awareness
@@ -963,7 +963,12 @@ To keep authenticated long-running agent sessions alive while they wait for work
 
 For a single process, use `autohand --no-idle-logout` or set `AUTOHAND_NO_IDLE_LOGOUT=1`.
 
-Set `idleTimeoutMs` to a positive duration in milliseconds to change the idle period. The default is `3600000` (60 minutes); invalid values fall back to the default.
+Set `idleTimeoutMs` to a positive duration in milliseconds to change the idle period. The default is `14400000` (4 hours); invalid values fall back to the default.
+
+An idle timeout ends the interactive session and exits; it does not sign you
+out. Your credential is stored in the shared `~/.autohand` config, so revoking
+it would sign you out of every other terminal tab and every later run. Signing
+out stays an explicit `/logout`.
 
 ### Debug Mode
 
@@ -1929,7 +1934,7 @@ autohand --no-browser       # Start with browser bridge disabled
     "enableRequestQueue": true,
     "toolSelectionCache": true,
     "idleLogoutEnabled": true,
-    "idleTimeoutMs": 3600000,
+    "idleTimeoutMs": 14400000,
     "debug": false
   },
   "permissions": {
@@ -2016,7 +2021,7 @@ agent:
   enableRequestQueue: true
   toolSelectionCache: true
   idleLogoutEnabled: true
-  idleTimeoutMs: 3600000
+  idleTimeoutMs: 14400000
   debug: false
 
 permissions:
@@ -2112,7 +2117,7 @@ maxIterations = 100
 enableRequestQueue = true
 toolSelectionCache = true
 idleLogoutEnabled = true
-idleTimeoutMs = 3600000
+idleTimeoutMs = 14400000
 debug = false
 
 [permissions]
@@ -2202,7 +2207,7 @@ These flags override config file settings:
 | `--unrestricted`              | No approval prompts                                                                            |
 | `--restricted`                | Deny dangerous operations                                                                      |
 | `--permissions`               | Display current permission settings and exit                                                   |
-| `--no-idle-logout`            | Disable authenticated idle logout for long-running agent sessions                              |
+| `--no-idle-logout`            | Keep authenticated sessions alive past the idle timeout for long-running agents                |
 | `--yolo [pattern]`            | Auto-approve tool calls matching pattern (e.g., `allow:read,write` or `deny:delete`)           |
 | `--timeout <seconds>`         | Timeout in seconds for auto-approve mode                                                       |
 

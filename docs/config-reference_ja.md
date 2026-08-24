@@ -419,7 +419,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
     "maxIterations": 100,
     "enableRequestQueue": true,
     "idleLogoutEnabled": true,
-    "idleTimeoutMs": 3600000,
+    "idleTimeoutMs": 14400000,
     "debug": false
   }
 }
@@ -430,7 +430,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | `maxIterations`      | number  | `100`      | 停止前のユーザーリクエストあたりの最大ツール反復回数                       |
 | `enableRequestQueue` | boolean | `true`     | エージェント作業中にユーザーがリクエストを入力してキューに入れることを許可 |
 | `idleLogoutEnabled`  | boolean | `true`     | アイドルタイムアウト後に認証済みの対話型セッションからログアウト           |
-| `idleTimeoutMs`      | number  | `3600000`  | 認証済みセッションをログアウトするまでの非アクティブ時間（ミリ秒、60分）   |
+| `idleTimeoutMs`      | number  | `14400000`  | 認証済みセッションをログアウトするまでの非アクティブ時間（ミリ秒、4時間）   |
 | `debug`              | boolean | `false`    | 詳細なデバッグ出力を有効化（エージェント内部状態をstderrにログ）           |
 
 ## 同時セッションの認識
@@ -447,7 +447,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 | --- | --- | --- | --- |
 | `awareness` | string | `"warn"` | `passive` は他のセッションを表示し、`warn` は危険な Git 操作とファイル競合も警告し、`coordinate` は別の稼働中セッションが要求したパスへ書き込む前に確認します |
 
-アイドル時のログアウトを無効にするには、`idleLogoutEnabled` を `false` に設定します。期間を変更するには、`idleTimeoutMs` に正のミリ秒値を設定します。デフォルトは `3600000`（60分）で、無効な値はデフォルトに戻ります。
+アイドル時のログアウトを無効にするには、`idleLogoutEnabled` を `false` に設定します。期間を変更するには、`idleTimeoutMs` に正のミリ秒値を設定します。デフォルトは `14400000`（4時間）で、無効な値はデフォルトに戻ります。
 
 ### デバッグモード
 
@@ -1146,7 +1146,7 @@ share:
     "maxIterations": 100,
     "enableRequestQueue": true,
     "idleLogoutEnabled": true,
-    "idleTimeoutMs": 3600000,
+    "idleTimeoutMs": 14400000,
     "debug": false
   },
   "permissions": {
@@ -1226,7 +1226,7 @@ agent:
   maxIterations: 100
   enableRequestQueue: true
   idleLogoutEnabled: true
-  idleTimeoutMs: 3600000
+  idleTimeoutMs: 14400000
   debug: false
 
 permissions:

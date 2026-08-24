@@ -50,6 +50,13 @@ import { validateMobileCommandInvocationForWorkspace } from '../../mobile/Mobile
 
 const execFileAsync = promisify(execFile);
 const RUNTIME_RESOURCE_SHUTDOWN_TIMEOUT_MS = 2_500;
+/**
+ * Grace period given to a background process between SIGTERM and SIGKILL during
+ * teardown. Deliberately well inside RUNTIME_RESOURCE_SHUTDOWN_TIMEOUT_MS: if
+ * the kill outlives the shutdown deadline the cleanup is abandoned mid-flight
+ * and detached children are orphaned.
+ */
+const BACKGROUND_PROCESS_KILL_GRACE_MS = 1_000;
 const COMMAND_FINALIZATION_TIMEOUT_MS = 2_500;
 const COMMAND_HOOK_KILL_GRACE_PERIOD_MS = 100;
 
@@ -672,7 +679,7 @@ export async function shutdownAgentRuntimeResources(host: AgentLifecycleHost): P
       if (host.teamManager) cleanupTasks.push(callResourceCleanup(() => host.teamManager.shutdown()));
       if (host.mcpManager) cleanupTasks.push(callResourceCleanup(() => host.mcpManager.disconnectAll()));
       if (host.backgroundProcessRegistry) {
-        cleanupTasks.push(callResourceCleanup(() => host.backgroundProcessRegistry.killAll()));
+        cleanupTasks.push(callResourceCleanup(() => host.backgroundProcessRegistry.killAll(BACKGROUND_PROCESS_KILL_GRACE_MS)));
       }
       if (host.initReady) cleanupTasks.push(callResourceCleanup(() => host.initReady));
       if (Array.isArray(host.turnMemoryReflectionQueue)) {

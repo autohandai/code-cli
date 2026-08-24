@@ -932,6 +932,20 @@ describe('ActionExecutor', () => {
       expect(result).toContain('50%');
     });
 
+    it('does not report todos.json as a modified workspace file', async () => {
+      const readFile = vi.fn().mockRejectedValue(new Error('not found'));
+      const writeFile = vi.fn().mockResolvedValue(undefined);
+      const onFileModified = vi.fn();
+      const executor = createExecutor({ readFile, writeFile }, { onFileModified });
+
+      await executor.execute({
+        type: 'todo_write',
+        tasks: [{ id: '1', title: 'Task 1', status: 'pending' }]
+      } as any);
+
+      expect(onFileModified).not.toHaveBeenCalled();
+    });
+
     it('replaces entire task list (does not merge)', async () => {
       // Note: todo_write now replaces the entire list instead of merging
       // The LLM sends a COMPLETE updated list, not incremental updates
