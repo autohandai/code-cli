@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it } from 'vitest';
-import type { LoadedConfig } from '../../src/types.js';
+import type { LoadedConfig } from '../../../src/types.js';
 
 function baseConfig(overrides: Partial<LoadedConfig> = {}): LoadedConfig {
   return {
@@ -32,7 +32,7 @@ function cloudMoaConfig(overrides: Partial<LoadedConfig> = {}): LoadedConfig {
 
 describe('applyAutohandAIModelTierPolicy', () => {
   it('switches moa to fantail for a free-tier account on the autohandai cloud plan', async () => {
-    const { applyAutohandAIModelTierPolicy } = await import('../../src/core/agent/AutohandAIModelTierPolicy.js');
+    const { applyAutohandAIModelTierPolicy } = await import('../../../src/core/agent/AutohandAIModelTierPolicy.js');
 
     const result = applyAutohandAIModelTierPolicy(cloudMoaConfig(), 'free');
 
@@ -42,27 +42,36 @@ describe('applyAutohandAIModelTierPolicy', () => {
   });
 
   it('drops the Moa-only reasoningEffort when switching', async () => {
-    const { applyAutohandAIModelTierPolicy } = await import('../../src/core/agent/AutohandAIModelTierPolicy.js');
+    const { applyAutohandAIModelTierPolicy } = await import('../../../src/core/agent/AutohandAIModelTierPolicy.js');
 
     const result = applyAutohandAIModelTierPolicy(cloudMoaConfig(), 'free');
 
     expect(result.config.autohandai?.reasoningEffort).toBeUndefined();
   });
 
-  it('corrects runtime.options.model when it shadows the persisted moa selection', async () => {
-    const { applyAutohandAIModelTierPolicy } = await import('../../src/core/agent/AutohandAIModelTierPolicy.js');
+  it('reports the model the active session must switch to', async () => {
+    const { applyAutohandAIModelTierPolicy } = await import('../../../src/core/agent/AutohandAIModelTierPolicy.js');
 
-    const config = cloudMoaConfig();
-    config.options = { model: 'moa' } as LoadedConfig['options'];
-
-    const result = applyAutohandAIModelTierPolicy(config, 'free');
+    const result = applyAutohandAIModelTierPolicy(cloudMoaConfig(), 'free');
 
     expect(result.switched).toBe(true);
-    expect(result.config.options?.model).toBe('fantail');
+    // runtime.options.model shadows the persisted selection for the active
+    // session and lives on AgentRuntime, not on the config, so the caller
+    // applies it there.
+    expect(result.resolvedModel).toBe('fantail');
+  });
+
+  it('reports no model switch when the policy does not apply', async () => {
+    const { applyAutohandAIModelTierPolicy } = await import('../../../src/core/agent/AutohandAIModelTierPolicy.js');
+
+    const result = applyAutohandAIModelTierPolicy(cloudMoaConfig(), 'pro');
+
+    expect(result.switched).toBe(false);
+    expect(result.resolvedModel).toBeUndefined();
   });
 
   it('leaves paid-tier accounts on moa untouched', async () => {
-    const { applyAutohandAIModelTierPolicy } = await import('../../src/core/agent/AutohandAIModelTierPolicy.js');
+    const { applyAutohandAIModelTierPolicy } = await import('../../../src/core/agent/AutohandAIModelTierPolicy.js');
 
     const config = cloudMoaConfig();
 
@@ -74,7 +83,7 @@ describe('applyAutohandAIModelTierPolicy', () => {
   });
 
   it('leaves an unknown tier untouched (fail open, server still enforces)', async () => {
-    const { applyAutohandAIModelTierPolicy } = await import('../../src/core/agent/AutohandAIModelTierPolicy.js');
+    const { applyAutohandAIModelTierPolicy } = await import('../../../src/core/agent/AutohandAIModelTierPolicy.js');
 
     const config = cloudMoaConfig();
 
@@ -85,7 +94,7 @@ describe('applyAutohandAIModelTierPolicy', () => {
   });
 
   it('is a no-op when the free account already runs fantail', async () => {
-    const { applyAutohandAIModelTierPolicy } = await import('../../src/core/agent/AutohandAIModelTierPolicy.js');
+    const { applyAutohandAIModelTierPolicy } = await import('../../../src/core/agent/AutohandAIModelTierPolicy.js');
 
     const config = baseConfig({
       provider: 'autohandai',
@@ -106,7 +115,7 @@ describe('applyAutohandAIModelTierPolicy', () => {
   });
 
   it('ignores non-autohandai providers entirely', async () => {
-    const { applyAutohandAIModelTierPolicy } = await import('../../src/core/agent/AutohandAIModelTierPolicy.js');
+    const { applyAutohandAIModelTierPolicy } = await import('../../../src/core/agent/AutohandAIModelTierPolicy.js');
 
     const config = baseConfig({
       provider: 'openrouter',
@@ -128,7 +137,7 @@ describe('applyAutohandAIModelTierPolicy', () => {
   });
 
   it('ignores the autohandai local plan (local MLX models are tier-agnostic)', async () => {
-    const { applyAutohandAIModelTierPolicy } = await import('../../src/core/agent/AutohandAIModelTierPolicy.js');
+    const { applyAutohandAIModelTierPolicy } = await import('../../../src/core/agent/AutohandAIModelTierPolicy.js');
 
     const config = baseConfig({
       provider: 'autohandai',
@@ -147,7 +156,7 @@ describe('applyAutohandAIModelTierPolicy', () => {
   });
 
   it('matches the namespaced autohandai/moa model id too', async () => {
-    const { applyAutohandAIModelTierPolicy } = await import('../../src/core/agent/AutohandAIModelTierPolicy.js');
+    const { applyAutohandAIModelTierPolicy } = await import('../../../src/core/agent/AutohandAIModelTierPolicy.js');
 
     const config = cloudMoaConfig();
     config.autohandai = { ...config.autohandai!, model: 'autohandai/moa' };
@@ -159,7 +168,7 @@ describe('applyAutohandAIModelTierPolicy', () => {
   });
 
   it('is idempotent: a second pass on the switched config is a no-op', async () => {
-    const { applyAutohandAIModelTierPolicy } = await import('../../src/core/agent/AutohandAIModelTierPolicy.js');
+    const { applyAutohandAIModelTierPolicy } = await import('../../../src/core/agent/AutohandAIModelTierPolicy.js');
 
     const first = applyAutohandAIModelTierPolicy(cloudMoaConfig(), 'free');
     const second = applyAutohandAIModelTierPolicy(first.config, 'free');
@@ -171,7 +180,7 @@ describe('applyAutohandAIModelTierPolicy', () => {
 
 describe('resolveAutohandAIModelForTier', () => {
   it('returns fantail only for the free tier + moa + autohandai cloud combination', async () => {
-    const { resolveAutohandAIModelForTier } = await import('../../src/core/agent/AutohandAIModelTierPolicy.js');
+    const { resolveAutohandAIModelForTier } = await import('../../../src/core/agent/AutohandAIModelTierPolicy.js');
 
     expect(resolveAutohandAIModelForTier({ provider: 'autohandai', plan: 'cloud', model: 'moa', tier: 'free' })).toBe('fantail');
     expect(resolveAutohandAIModelForTier({ provider: 'autohandai', plan: 'cloud', model: 'autohandai/moa', tier: 'free' })).toBe('fantail');

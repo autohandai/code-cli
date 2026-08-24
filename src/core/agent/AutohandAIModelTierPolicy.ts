@@ -60,6 +60,13 @@ export interface AutohandAIModelTierPolicyResult {
   switched: boolean;
   /** The model the account was running before the policy applied. */
   previousModel?: string;
+  /**
+   * The model the account must now run. `runtime.options.model` shadows the
+   * persisted selection for the active session and lives on `AgentRuntime`, not
+   * on the config, so the caller applies this there — leave it pointing at Moa
+   * and the very next turn would still use the old model.
+   */
+  resolvedModel?: string;
 }
 
 /**
@@ -98,13 +105,7 @@ export function applyAutohandAIModelTierPolicy(
     delete nextSettings.reasoningEffort;
   }
 
-  let next: LoadedConfig = { ...config, autohandai: nextSettings };
+  const next: LoadedConfig = { ...config, autohandai: nextSettings };
 
-  // runtime.options.model shadows the persisted selection for the active session;
-  // leave it pointing at moa and the very next turn would still use the old model.
-  if (next.options && isMoaModel(next.options.model)) {
-    next = { ...next, options: { ...next.options, model: resolved } };
-  }
-
-  return { config: next, switched: true, previousModel };
+  return { config: next, switched: true, previousModel, resolvedModel: resolved };
 }
