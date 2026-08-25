@@ -275,6 +275,238 @@ function Remove-ExistingInstallation {
     Write-Host ""
 }
 
+$USER_ENVIRONMENT_SUBKEY = "Environment"
+
+function Get-UpdatedUserPath {
+    # Pure decision helper: given the raw user PATH and the directory to add, return the
+    # value that should be written, or $null when the directory is already listed.
+    # Append-only by construction - it can never drop, reorder, or rewrite an existing
+    # entry, which is what makes a PATH wipe unrepresentable rather than merely unlikely.
+    param(
+        [AllowNull()][AllowEmptyString()][string]$CurrentPath,
+        [Parameter(Mandatory = $true)][string]$InstallPath
+    )
+
+    $target = $InstallPath.Trim().TrimEnd('\', '/')
+    if ([string]::IsNullOrWhiteSpace($target)) {
+        throw "Refusing to add an empty directory to PATH"
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($CurrentPath)) {
+        foreach ($entry in $CurrentPath.Split(';')) {
+            # Compared literally, never with -like: install directories may legitimately
+            # contain wildcard characters such as [ and ].
+            $normalized = $entry.Trim().Trim('"').Trim().TrimEnd('\', '/')
+            if ([string]::IsNullOrWhiteSpace($normalized)) {
+                continue
+            }
+            if ($normalized -ieq $target) {
+                return $null
+            }
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($CurrentPath)) {
+        return $target
+    }
+
+    if ($CurrentPath.EndsWith(';')) {
+        return "$CurrentPath$target"
+    }
+
+    return "$CurrentPath;$target"
+}
+
+function Get-RawUserPath {
+    # Reads HKCU\Environment\PATH verbatim. [Environment]::GetEnvironmentVariable('PATH',
+    # 'User') expands REG_EXPAND_SZ values, so reading through it and writing the result
+    # back would bake %LOCALAPPDATA%\Microsoft\WindowsApps into a literal path and demote
+    # the value to REG_SZ, breaking winget/wt and every other execution alias.
+    param([string]$SubKeyName = $USER_ENVIRONMENT_SUBKEY)
+
+    $missing = [pscustomobject]@{
+        Exists = $false
+        Value  = ""
+        Kind   = [Microsoft.Win32.RegistryValueKind]::ExpandString
+    }
+
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($SubKeyName, $false)
+    if ($null -eq $key) {
+        return $missing
+    }
+
+    try {
+        $value = $key.GetValue(
+            "PATH",
+            $null,
+            [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames
+        )
+        if ($null -eq $value) {
+            return $missing
+        }
+
+        $kind = $key.GetValueKind("PATH")
+        if ($kind -ne [Microsoft.Win32.RegistryValueKind]::String) {
+            $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
+        }
+
+        return [pscustomobject]@{
+            Exists = $true
+            Value  = [string]$value
+            Kind   = $kind
+        }
+    }
+    finally {
+        $key.Dispose()
+    }
+}
+
+function Set-RawUserPath {
+    # Writes the value back with its original kind. setx is deliberately not used: it
+    # truncates PATH at 1024 characters.
+    param(
+        [Parameter(Mandatory = $true)][string]$Value,
+        [AllowNull()][object]$Kind,
+        [string]$SubKeyName = $USER_ENVIRONMENT_SUBKEY
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        throw "Refusing to write an empty user PATH"
+    }
+
+    $valueKind = if ($null -eq $Kind) {
+        [Microsoft.Win32.RegistryValueKind]::ExpandString
+    } else {
+        [Microsoft.Win32.RegistryValueKind]$Kind
+    }
+
+    $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($SubKeyName)
+    if ($null -eq $key) {
+        throw "Unable to open HKCU\$SubKeyName for writing"
+    }
+
+    try {
+        $key.SetValue("PATH", $Value, $valueKind)
+    }
+    finally {
+        $key.Dispose()
+    }
+}
+
+function Save-UserPathBackup {
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Value,
+        [Parameter(Mandatory = $true)][string]$BackupDirectory
+    )
+
+    if (-not (Test-Path -LiteralPath $BackupDirectory)) {
+        New-Item -ItemType Directory -Path $BackupDirectory -Force | Out-Null
+    }
+
+    $backupPath = Join-Path $BackupDirectory ("user-path-backup-" + (Get-Date).ToString("yyyyMMdd-HHmmss") + ".txt")
+    [System.IO.File]::WriteAllText($backupPath, $Value, [System.Text.Encoding]::UTF8)
+    return $backupPath
+}
+
+function Send-EnvironmentChangeNotification {
+    # Best effort: lets Explorer and already-open shells re-read the environment block.
+    try {
+        if (-not ("Autohand.NativeMethods" -as [type])) {
+            Add-Type -Namespace Autohand -Name NativeMethods -MemberDefinition @"
+[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+"@
+        }
+
+        $result = [UIntPtr]::Zero
+        [void][Autohand.NativeMethods]::SendMessageTimeout(
+            [IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, "Environment", 0x0002, 5000, [ref]$result
+        )
+    }
+    catch {
+        # Non-fatal: the value is already stored, new terminals will pick it up.
+    }
+}
+
+function Show-ManualPathInstructions {
+    param([Parameter(Mandatory = $true)][string]$InstallPath)
+
+    # Single self-contained statement, guarded on the existing value. The previous
+    # installer printed a two-line recipe whose second line wiped HKCU\Environment\PATH
+    # when it ran without the first, so nothing here may depend on earlier input.
+    $manualCommand = '$existing = [Environment]::GetEnvironmentVariable(''PATH'',''User''); if ($existing) { [Environment]::SetEnvironmentVariable(''PATH'', "$existing;<INSTALL_DIR>", ''User'') }'
+
+    Write-Host ""
+    Write-Host "Add Autohand to your PATH manually" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  Run this as a single line - it appends, and does nothing if the existing" -ForegroundColor Gray
+    Write-Host "  value cannot be read:" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "   $($manualCommand.Replace('<INSTALL_DIR>', $InstallPath))"
+    Write-Host ""
+    Write-Host "  Or for the current session only:" -ForegroundColor Gray
+    Write-Host "   `$env:PATH += `";$InstallPath`""
+    Write-Host ""
+}
+
+function Add-AutohandToUserPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$InstallPath,
+        [string]$BackupDirectory,
+        [string]$SubKeyName = $USER_ENVIRONMENT_SUBKEY
+    )
+
+    if ([string]::IsNullOrWhiteSpace($BackupDirectory)) {
+        # Someone repairing a damaged environment may not have LOCALAPPDATA either, and
+        # losing the backup is the one failure this function cannot afford.
+        $BackupDirectory = if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+            $InstallPath
+        } else {
+            Join-Path $env:LOCALAPPDATA "autohand"
+        }
+    }
+
+    try {
+        $current = Get-RawUserPath -SubKeyName $SubKeyName
+    }
+    catch {
+        Write-Error-Custom "Could not read your user PATH: $($_.Exception.Message)"
+        Show-ManualPathInstructions -InstallPath $InstallPath
+        return
+    }
+
+    $updated = Get-UpdatedUserPath -CurrentPath $current.Value -InstallPath $InstallPath
+    if ($null -eq $updated) {
+        Write-Success "$InstallPath is already on your user PATH"
+        return
+    }
+
+    # Defense in depth. This installer only ever appends, so a shorter result means the
+    # logic above is broken - and a bug here costs people their environment.
+    if ($updated.Length -lt $current.Value.Length) {
+        Write-Error-Custom "Refusing to update PATH: the computed value would shorten your user PATH."
+        Show-ManualPathInstructions -InstallPath $InstallPath
+        return
+    }
+
+    try {
+        $backupPath = Save-UserPathBackup -Value $current.Value -BackupDirectory $BackupDirectory
+        Set-RawUserPath -Value $updated -Kind $current.Kind -SubKeyName $SubKeyName
+    }
+    catch {
+        Write-Error-Custom "Could not update your user PATH: $($_.Exception.Message)"
+        Show-ManualPathInstructions -InstallPath $InstallPath
+        return
+    }
+
+    $env:PATH = "$env:PATH;$InstallPath"
+    Send-EnvironmentChangeNotification
+
+    Write-Success "Added $InstallPath to your user PATH"
+    Write-Host "  Previous PATH saved to: $backupPath" -ForegroundColor Gray
+    Write-Host "  Open a new terminal for the change to take effect." -ForegroundColor Gray
+}
+
 function Claim-PathWideAgentAlias {
     # agent is a generic name other AI CLIs also claim. Reclaim it in every
     # writable PATH directory other than our own install path, so "agent"
@@ -387,6 +619,8 @@ function Install-Autohand {
     if (-not (Test-Path $installPath)) {
         New-Item -ItemType Directory -Path $installPath -Force | Out-Null
     }
+    # Resolve before anything records it so a relative -InstallDir never reaches PATH.
+    $installPath = (Resolve-Path -LiteralPath $installPath).Path
     $binaryPath = Join-Path $installPath $BINARY_NAME
     $compatBinaryPath = Join-Path $installPath $COMPAT_BINARY_NAME
     $agentAliasPath = Join-Path $installPath $AGENT_ALIAS_NAME
@@ -474,25 +708,7 @@ function Install-Autohand {
 
     Write-Step "Installing to $installPath"
 
-    # Add to PATH if not already present
-    $currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
-    if ($currentPath -notlike "*$installPath*") {
-        Write-Host ""
-        Write-Host "Next steps" -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host "1) Add to PATH (run in PowerShell as Administrator or for current user):"
-        Write-Host ""
-        Write-Host "   # For current user only:" -ForegroundColor Gray
-        Write-Host "   `$userPath = [Environment]::GetEnvironmentVariable('PATH', 'User')"
-        Write-Host "   [Environment]::SetEnvironmentVariable('PATH', `"`$userPath;$installPath`", 'User')"
-        Write-Host ""
-        Write-Host "   # Or add to current session only:" -ForegroundColor Gray
-        Write-Host "   `$env:PATH += `";$installPath`""
-        Write-Host ""
-        Write-Host "2) Restart your terminal or run:"
-        Write-Host "   refreshenv  (if using Chocolatey)"
-        Write-Host ""
-    }
+    Add-AutohandToUserPath -InstallPath $installPath
 
     Write-Host ""
     Write-Success "Autohand CLI installed successfully!"
