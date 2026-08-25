@@ -1988,13 +1988,6 @@ export function AgentUI({
 
   return (
     <Box flexDirection="column">
-      {interactionModeIndicator && (
-        <Box>
-          <Text color={colors.accent} bold>{interactionModeIndicator}</Text>
-          <Text color={colors.muted}> {interactionModeDescription}</Text>
-        </Box>
-      )}
-
       {liveCommandItems.map((item) => (
         <LiveCommandBlock key={item.id} entry={item} />
       ))}
@@ -2078,6 +2071,8 @@ export function AgentUI({
         showShortcuts={showShortcuts}
         interactionMode={interactionMode}
         showModeLabel={state.showModeLabel ?? true}
+        modeIndicator={interactionModeIndicator}
+        modeDescription={interactionModeDescription}
       />
     </Box>
   );
@@ -2323,6 +2318,10 @@ interface StatusSectionProps {
   contextTokens?: ContextTokenDisplay;
   provider?: string;
   model?: string;
+  /** Bracketed mode indicator (e.g. "[AUTO]"); empty in default mode. */
+  modeIndicator?: string;
+  /** Human-readable description paired with the bracketed indicator. */
+  modeDescription?: string;
   lineExtension?: LineExtension;
 }
 
@@ -2392,6 +2391,8 @@ const StatusSection = memo(function StatusSection({
   contextTokens,
   provider,
   model,
+  modeIndicator,
+  modeDescription,
   lineExtension,
 }: StatusSectionProps) {
   const { colors } = useTheme();
@@ -2424,6 +2425,16 @@ const StatusSection = memo(function StatusSection({
         teamActivity={teamActivity}
         lineExtension={lineExtension}
       />
+
+      {/* Below the status line: rendering it above the dynamic output region
+          flushes it into scrollback on every repaint once tool output exceeds
+          the viewport. */}
+      {modeIndicator ? (
+        <Box>
+          <Text color={colors.accent} bold>{modeIndicator}</Text>
+          <Text color={colors.muted}> {modeDescription}</Text>
+        </Box>
+      ) : null}
 
       {/* Info section - either queue or completion stats, stable position */}
       {showQueue && (
@@ -2460,6 +2471,8 @@ const StatusSection = memo(function StatusSection({
          prev.teamPanelVisible === next.teamPanelVisible &&
          prev.provider === next.provider &&
          prev.model === next.model &&
+         prev.modeIndicator === next.modeIndicator &&
+         prev.modeDescription === next.modeDescription &&
          prev.lineExtension === next.lineExtension;
 });
 
@@ -2729,6 +2742,10 @@ interface FixedBottomProps {
   interactionMode?: InteractionMode;
   /** Whether to show the mode word (PLAN/YOLO/AUTO) next to the glyph. */
   showModeLabel?: boolean;
+  /** Bracketed mode indicator (e.g. "[AUTO]"); empty in default mode. */
+  modeIndicator?: string;
+  /** Human-readable description paired with the bracketed indicator. */
+  modeDescription?: string;
 }
 
 interface ComposerCursorIntent {
@@ -2821,6 +2838,8 @@ const FixedBottom = memo(function FixedBottom({
   showShortcuts,
   interactionMode,
   showModeLabel,
+  modeIndicator,
+  modeDescription,
 }: FixedBottomProps) {
   const composerCursorIntent = useUserDrivenComposerCursor(isWorking, input, cursorOffset);
 
@@ -2849,6 +2868,8 @@ const FixedBottom = memo(function FixedBottom({
         contextTokens={contextTokens}
         provider={provider}
         model={model}
+        modeIndicator={modeIndicator}
+        modeDescription={modeDescription}
         lineExtension={mergeLineExtensions(
           configuredLineExtensions?.status,
           lineExtensions?.status,

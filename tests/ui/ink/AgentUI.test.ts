@@ -316,6 +316,46 @@ describe('AgentUI interaction mode shortcut', () => {
     expect(onCycleInteractionMode).toHaveBeenCalledTimes(4);
   });
 
+  it('renders the bracketed mode indicator below the status line so busy turns cannot flood scrollback', async () => {
+    const { lastFrame } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state: {
+              ...createInitialUIState(),
+              isWorking: true,
+              status: 'Working... (esc to interrupt)',
+            },
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+            getInteractionMode: () => 'automode',
+          })
+        )
+      )
+    );
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const frame = stripAnsi(lastFrame() ?? '');
+
+    // The indicator must still be visible while working...
+    expect(frame).toContain('[AUTO]');
+    expect(frame).toContain('Interactive auto mode active');
+    expect(frame).toContain('Working... (esc to interrupt)');
+
+    // ...but anchored BELOW the status line in the stable bottom section.
+    // Rendering it above the dynamic output region makes Ink flush it into
+    // scrollback on every repaint once tool output exceeds the viewport,
+    // duplicating "[AUTO] Interactive auto mode active" dozens of times.
+    const statusIndex = frame.indexOf('Working... (esc to interrupt)');
+    const indicatorIndex = frame.indexOf('[AUTO]');
+    expect(indicatorIndex).toBeGreaterThan(statusIndex);
+  });
+
   it('colors the mode glyph per mode, labels it, and hides it in default mode', async () => {
     const modes = ['plan', 'yolo', 'automode', 'default'] as const;
     let currentMode: typeof modes[number] = 'default';
