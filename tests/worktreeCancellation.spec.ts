@@ -9,10 +9,38 @@ import os from 'node:os';
 import path from 'node:path';
 import { WorktreeManager, type WorktreeInfo } from '../src/actions/worktree.js';
 
-async function waitForFile(filePath: string): Promise<void> {
-  await vi.waitFor(async () => {
+/**
+ * Spawning a shell, exec'ing node, and writing the marker takes ~40ms idle and
+ * ~165ms under heavy load. The generous ceiling exists to bound pathology, not
+ * normal variance: vi.waitFor returns the moment the file appears, so a large
+ * timeout costs nothing when the machine is healthy and removes a false failure
+ * when a full parallel suite stalls the box.
+ */
+const CHILD_START_TIMEOUT_MS = 30_000;
+
+/**
+ * Races the marker file against the run itself. runParallel records a spawn
+ * failure as a failed result and moves on to the next worktree, so without this
+ * race a failed spawn surfaces as a bare ENOENT on the marker and looks
+ * identical to a slow machine.
+ */
+async function waitForFile(filePath: string, run: Promise<unknown>): Promise<void> {
+  const marker = path.basename(filePath);
+  const settledEarly = run.then(
+    (value) => {
+      throw new Error(`runParallel resolved before "${marker}" appeared: ${JSON.stringify(value)}`);
+    },
+    (error: unknown) => {
+      const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      throw new Error(`runParallel rejected before "${marker}" appeared: ${reason}`);
+    },
+  );
+
+  const appeared = vi.waitFor(async () => {
     await expect(fs.access(filePath)).resolves.toBeUndefined();
-  }, { timeout: 2_000, interval: 10 });
+  }, { timeout: CHILD_START_TIMEOUT_MS, interval: 10 });
+
+  await Promise.race([appeared, settledEarly]);
 }
 
 function worktreeInfo(worktreePath: string, branch: string): WorktreeInfo {
@@ -58,7 +86,7 @@ describe('WorktreeManager cancellation', () => {
       timeout: 30_000,
       signal: controller.signal,
     });
-    await waitForFile(startedFile);
+    await waitForFile(startedFile, run);
     controller.abort();
 
     await expect(run).rejects.toMatchObject({ name: 'AbortError' });
@@ -67,6 +95,6 @@ describe('WorktreeManager cancellation', () => {
     const childPid = Number(await fs.readFile(startedFile, 'utf8'));
     await vi.waitFor(() => {
       expect(() => process.kill(childPid, 0)).toThrow();
-    }, { timeout: 2_000, interval: 10 });
+    }, { timeout: CHILD_START_TIMEOUT_MS, interval: 10 });
   });
 });
