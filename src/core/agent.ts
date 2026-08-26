@@ -343,7 +343,7 @@ export class AutohandAgent {
     '/agents-new', '/agents new', '/resume', '/theme', '/language',
     '/model', '/skills', '/skills install', '/skills-install',
     '/skills new', '/skills-new', '/mcp', '/mcp install', '/mcp-install',
-    '/experiments', '/squad', '/publish-research',
+    '/experiments', '/squad', '/publish-research', '/peers',
   ]);
 
   private contextWindow!: number;

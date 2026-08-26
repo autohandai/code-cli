@@ -1648,6 +1648,10 @@ export function initializeAgentDependencies(
       },
       mcpManager: host.mcpManager,
       backgroundProcessRegistry: host.backgroundProcessRegistry,
+      // /peers reads its manager from here. The action executor gets its own
+      // reference above; omitting it here left the command reporting peer
+      // awareness as unavailable while peer warnings were firing normally.
+      peerAwareness: host.peerAwareness,
       llm: host.llm,
       workspaceRoot: runtime.workspaceRoot,
       get model() {

@@ -452,7 +452,10 @@
         "title": "Configuración NVIDIA AI Cloud",
         "apiKeyUrl": "https://build.nvidia.com/api-key",
         "enterModel": "Selecciona un modelo NVIDIA"
-      }
+      },
+      "groupAutohand": "Autohand AI",
+      "groupThirdParty": "Proveedores externos",
+      "groupCustom": "Proveedores personalizados"
     }
   },
   "startup": {

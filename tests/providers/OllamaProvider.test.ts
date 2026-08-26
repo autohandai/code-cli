@@ -823,4 +823,260 @@ describe('OllamaProvider', () => {
             consoleSpy.mockRestore();
         });
     });
+
+    // -----------------------------------------------------------------------
+    // Thinking / reasoning capture.
+    //
+    // Ollama >= 0.9 returns provider-native reasoning in `message.thinking`,
+    // separate from `message.content`. For thinking-capable models (verified
+    // against orcarouter/Qwen3.8-27B-Uncensored on Ollama 0.32.15) reasoning is
+    // enabled by default, and on a tool-calling turn `content` comes back EMPTY
+    // while all of the model's reasoning lands in `thinking`. Dropping that
+    // field means the CLI renders no thinking at all for local models.
+    // -----------------------------------------------------------------------
+    describe('thinking capture', () => {
+        it('captures message.thinking from a non-streaming response', async () => {
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                json: async () => ({
+                    message: {
+                        role: 'assistant',
+                        content: '391',
+                        thinking: '17*23 = 17*20 + 17*3 = 340 + 51 = 391',
+                    },
+                    created_at: '2024-11-21T10:30:00Z',
+                    done: true,
+                }),
+            });
+
+            const response = await provider.complete({
+                messages: [{ role: 'user', content: 'What is 17*23?' }],
+            });
+
+            expect(response.reasoning).toBe('17*23 = 17*20 + 17*3 = 340 + 51 = 391');
+            expect(response.content).toBe('391');
+        });
+
+        it('captures thinking when a tool-calling turn returns empty content', async () => {
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                json: async () => ({
+                    message: {
+                        role: 'assistant',
+                        content: '',
+                        thinking: 'The user wants me to read the file package.json in the workspace.',
+                        tool_calls: [
+                            {
+                                id: 'call_trlv40g3',
+                                function: { name: 'read_file', arguments: { path: 'package.json' } },
+                            },
+                        ],
+                    },
+                    created_at: '2024-11-21T10:30:00Z',
+                    done: true,
+                }),
+            });
+
+            const response = await provider.complete({
+                messages: [{ role: 'user', content: 'Read package.json' }],
+                tools: [{ name: 'read_file', description: 'Read a file', parameters: { type: 'object', properties: {} } }],
+            });
+
+            expect(response.reasoning).toBe('The user wants me to read the file package.json in the workspace.');
+            expect(response.toolCalls).toHaveLength(1);
+            expect(response.finishReason).toBe('tool_calls');
+        });
+
+        it('preserves the tool call id returned by Ollama instead of synthesizing one', async () => {
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                json: async () => ({
+                    message: {
+                        role: 'assistant',
+                        content: '',
+                        tool_calls: [
+                            {
+                                id: 'call_trlv40g3',
+                                function: { name: 'read_file', arguments: { path: 'package.json' } },
+                            },
+                        ],
+                    },
+                    created_at: '2024-11-21T10:30:00Z',
+                    done: true,
+                }),
+            });
+
+            const response = await provider.complete({
+                messages: [{ role: 'user', content: 'Read package.json' }],
+            });
+
+            expect(response.toolCalls?.[0].id).toBe('call_trlv40g3');
+        });
+
+        it('still synthesizes a tool call id when Ollama omits one', async () => {
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                json: async () => ({
+                    message: {
+                        role: 'assistant',
+                        content: '',
+                        tool_calls: [
+                            { function: { name: 'read_file', arguments: { path: 'package.json' } } },
+                        ],
+                    },
+                    created_at: '2024-11-21T10:30:00Z',
+                    done: true,
+                }),
+            });
+
+            const response = await provider.complete({
+                messages: [{ role: 'user', content: 'Read package.json' }],
+            });
+
+            expect(response.toolCalls?.[0].id).toMatch(/^ollama-tool-/);
+        });
+
+        it('accumulates streamed thinking deltas into reasoning', async () => {
+            const mockStream = new ReadableStream({
+                start(controller) {
+                    const encoder = new TextEncoder();
+                    controller.enqueue(encoder.encode(
+                        '{"message":{"role":"assistant","content":"","thinking":"17"},"created_at":"2024-11-21T10:30:00Z","done":false}\n'
+                    ));
+                    controller.enqueue(encoder.encode(
+                        '{"message":{"role":"assistant","content":"","thinking":" × 23"},"created_at":"2024-11-21T10:30:00Z","done":false}\n'
+                    ));
+                    controller.enqueue(encoder.encode(
+                        '{"message":{"role":"assistant","content":"391"},"created_at":"2024-11-21T10:30:01Z","done":true}\n'
+                    ));
+                    controller.close();
+                }
+            });
+
+            global.fetch = vi.fn().mockResolvedValue({ ok: true, body: mockStream });
+
+            const response = await provider.complete({
+                messages: [{ role: 'user', content: 'What is 17*23?' }],
+                stream: true,
+            });
+
+            expect(response.reasoning).toBe('17 × 23');
+            expect(response.content).toBe('391');
+            expect(response.finishReason).toBe('stop');
+        });
+
+        it('captures tool calls from a streaming response', async () => {
+            const mockStream = new ReadableStream({
+                start(controller) {
+                    const encoder = new TextEncoder();
+                    controller.enqueue(encoder.encode(
+                        '{"message":{"role":"assistant","content":"","thinking":"I should read it."},"created_at":"2024-11-21T10:30:00Z","done":false}\n'
+                    ));
+                    controller.enqueue(encoder.encode(
+                        '{"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_abc","function":{"name":"read_file","arguments":{"path":"package.json"}}}]},"created_at":"2024-11-21T10:30:01Z","done":true}\n'
+                    ));
+                    controller.close();
+                }
+            });
+
+            global.fetch = vi.fn().mockResolvedValue({ ok: true, body: mockStream });
+
+            const response = await provider.complete({
+                messages: [{ role: 'user', content: 'Read package.json' }],
+                stream: true,
+            });
+
+            expect(response.toolCalls).toHaveLength(1);
+            expect(response.toolCalls?.[0].id).toBe('call_abc');
+            expect(response.toolCalls?.[0].function.name).toBe('read_file');
+            expect(response.toolCalls?.[0].function.arguments).toBe('{"path":"package.json"}');
+            expect(response.finishReason).toBe('tool_calls');
+        });
+
+        it('reports usage from a streaming response', async () => {
+            const mockStream = new ReadableStream({
+                start(controller) {
+                    controller.enqueue(new TextEncoder().encode(
+                        '{"message":{"role":"assistant","content":"hi"},"created_at":"2024-11-21T10:30:00Z","done":true,"prompt_eval_count":12,"eval_count":5}\n'
+                    ));
+                    controller.close();
+                }
+            });
+
+            global.fetch = vi.fn().mockResolvedValue({ ok: true, body: mockStream });
+
+            const response = await provider.complete({
+                messages: [{ role: 'user', content: 'hi' }],
+                stream: true,
+            });
+
+            expect(response.usage?.promptTokens).toBe(12);
+            expect(response.usage?.completionTokens).toBe(5);
+        });
+
+        it('omits reasoning entirely when the model returns no thinking', async () => {
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                json: async () => ({
+                    message: { role: 'assistant', content: '4' },
+                    created_at: '2024-11-21T10:30:00Z',
+                    done: true,
+                }),
+            });
+
+            const response = await provider.complete({
+                messages: [{ role: 'user', content: 'What is 2+2?' }],
+            });
+
+            expect(response.reasoning).toBeUndefined();
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // thinkingLevel plumbing.
+    //
+    // Ollama turns reasoning on by default for thinking-capable models, so the
+    // CLI's `/thinking none` control must explicitly send `think: false`.
+    // `think: true` is never forced: models without the thinking capability
+    // reject the parameter outright.
+    // -----------------------------------------------------------------------
+    describe('thinkingLevel', () => {
+        const bodyOf = (): Record<string, unknown> =>
+            JSON.parse((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+
+        beforeEach(() => {
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                json: async () => ({
+                    message: { role: 'assistant', content: 'ok' },
+                    created_at: '2024-11-21T10:30:00Z',
+                    done: true,
+                }),
+            });
+        });
+
+        it('sends think:false when thinking is disabled', async () => {
+            await provider.complete({
+                messages: [{ role: 'user', content: 'hi' }],
+                thinkingLevel: 'none',
+            });
+
+            expect(bodyOf().think).toBe(false);
+        });
+
+        it('does not send think for the default thinking level', async () => {
+            await provider.complete({
+                messages: [{ role: 'user', content: 'hi' }],
+                thinkingLevel: 'normal',
+            });
+
+            expect('think' in bodyOf()).toBe(false);
+        });
+
+        it('does not send think when no thinking level is provided', async () => {
+            await provider.complete({ messages: [{ role: 'user', content: 'hi' }] });
+
+            expect('think' in bodyOf()).toBe(false);
+        });
+    });
 });

@@ -14,6 +14,7 @@ import {
   type ModalOption,
 } from "../../ui/ink/components/Modal.js";
 import { ProviderFactory } from "../../providers/ProviderFactory.js";
+import { buildProviderSelectionOptions } from "../../ui/providerSelectionOptions.js";
 import { OPENAI_MODELS } from "../../providers/OpenAIProvider.js";
 import {
   installLlamaCpp,
@@ -197,44 +198,20 @@ export class ProviderConfigManager {
   private async promptProviderSelection(): Promise<void> {
     // Use ProviderFactory to get platform-aware list (includes MLX on Apple Silicon).
     const allProviders = ProviderFactory.getProviderNames(this.runtime.config);
-    type OrderedProviderChoice = ModalOption & { sortName: string };
-    const providerChoices: OrderedProviderChoice[] = allProviders
-      .map((name) => {
-        const isConfigured = this.isProviderConfigured(name);
-        const indicator = isConfigured ? chalk.green("●") : chalk.red("○");
-        const displayName = this.getProviderDisplayName(name);
-        const sortName = displayName.toLocaleLowerCase();
-        const current =
-          name === this.getActiveProvider()
-            ? chalk.cyan(" (" + t("providers.config.current") + ")")
-            : "";
-        const siliconNote =
-          name === "mlx"
-            ? chalk.gray(" (" + t("providers.config.appleSilicon") + ")")
-            : "";
-        const hostedNote =
-          this.isHostedProvider(name)
-            ? chalk.gray(" (" + t("providers.config.hosted") + ")")
-            : "";
-        return {
-          label: `${indicator} ${displayName}${current}${siliconNote}${hostedNote}`,
-          sortName,
-          value: name,
-        };
-      })
-      .sort((left, right) =>
-        left.sortName.localeCompare(right.sortName, undefined, {
-          sensitivity: "base",
-        }),
-      );
 
-    const options: ModalOption[] = providerChoices.map((providerChoice) => ({
-      label: providerChoice.label,
-      value: providerChoice.value,
-    }));
-    options.push({
-      label: chalk.cyan("+ " + t("providers.config.newProvider")),
-      value: "new-custom-provider",
+    const options = buildProviderSelectionOptions({
+      providers: allProviders,
+      sortKey: (name) => this.getProviderDisplayName(name),
+      toOption: (name) => ({
+        label: this.buildProviderChoiceLabel(name),
+        value: name,
+      }),
+      customGroupExtras: [
+        {
+          label: chalk.cyan("+ " + t("providers.config.newProvider")),
+          value: "new-custom-provider",
+        },
+      ],
     });
 
     const result = await showModal({
@@ -273,7 +250,44 @@ export class ProviderConfigManager {
       return;
     }
 
+    // A configured hosted Autohand AI plan only ever needs a different model
+    // here; credentials stay reachable through the provider settings menu.
+    if (
+      selectedProvider === "autohandai" &&
+      this.runtime.config.autohandai?.plan !== "local"
+    ) {
+      const currentSettings = getProviderConfig(this.runtime.config, selectedProvider);
+      await this.changeCloudProviderSettings(
+        selectedProvider,
+        this.runtime.options.model ?? currentSettings?.model ?? "",
+        currentSettings,
+        "model",
+      );
+      return;
+    }
+
     await this.changeProviderModel(selectedProvider);
+  }
+
+  private buildProviderChoiceLabel(provider: ProviderName): string {
+    const indicator = this.isProviderConfigured(provider)
+      ? chalk.green("●")
+      : chalk.red("○");
+    const displayName = this.getProviderDisplayName(provider);
+    const current =
+      provider === this.getActiveProvider()
+        ? chalk.cyan(" (" + t("providers.config.current") + ")")
+        : "";
+    const appleSilicon = t("providers.config.appleSilicon");
+    const siliconNote =
+      provider === "mlx" && !displayName.includes(appleSilicon)
+        ? chalk.gray(" (" + appleSilicon + ")")
+        : "";
+    const hostedNote = this.isHostedProvider(provider)
+      ? chalk.gray(" (" + t("providers.config.hosted") + ")")
+      : "";
+
+    return `${indicator} ${displayName}${current}${siliconNote}${hostedNote}`;
   }
 
   private async promptConfiguredProviderSettings(

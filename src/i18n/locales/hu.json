@@ -534,6 +534,9 @@
     },
     "config": {
       "chooseProvider": "Válasszon egy LLM szolgáltatót",
+      "groupAutohand": "Autohand AI",
+      "groupThirdParty": "Harmadik féltől származó szolgáltatók",
+      "groupCustom": "Egyéni szolgáltatók",
       "cancelled": "Konfiguráció megszakítva.",
       "notConfigured": "{{provider}} még nincs konfigurálva. Állítsuk be!",
       "configuredSuccessfully": "{{provider}} sikeresen konfigurálva!",

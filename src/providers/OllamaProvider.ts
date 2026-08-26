@@ -33,6 +33,8 @@ interface OllamaTagsResponse {
 }
 
 interface OllamaToolCall {
+    /** Ollama >= 0.12 returns a stable call id; older builds omit it. */
+    id?: string;
     function: {
         name: string;
         arguments: Record<string, unknown>;
@@ -50,6 +52,13 @@ interface OllamaChatResponse {
     message?: {
         role: string;
         content: string;
+        /**
+         * Provider-native reasoning. Ollama >= 0.9 streams and returns model
+         * thinking here, separate from `content`; on a tool-calling turn
+         * `content` is empty and everything the model reasoned about lives in
+         * this field.
+         */
+        thinking?: string;
         tool_calls?: OllamaToolCall[];
     };
     created_at: string;
@@ -150,6 +159,13 @@ export class OllamaProvider implements LLMProvider {
 
         if (request.temperature !== undefined) {
             body.options = { temperature: request.temperature };
+        }
+
+        // Ollama enables reasoning by default on thinking-capable models, so
+        // only an explicit opt-out needs to travel on the wire. `think: true`
+        // is never forced: models without the capability reject the parameter.
+        if (request.thinkingLevel === 'none') {
+            body.think = false;
         }
 
         // Add function calling support if tools are provided and not disabled
@@ -262,30 +278,8 @@ export class OllamaProvider implements LLMProvider {
         const data = await response.json() as OllamaChatResponse;
         const message = data.message ?? { role: 'assistant', content: '' };
 
-        // Parse tool calls if present (Ollama returns arguments as object, not string)
-        let toolCalls: LLMToolCall[] | undefined;
-        if (message.tool_calls && Array.isArray(message.tool_calls)) {
-            toolCalls = message.tool_calls.map((tc: OllamaToolCall, index: number) => {
-                let argumentsStr: string;
-                try {
-                    // Ollama returns arguments as object, convert to JSON string for consistency
-                    argumentsStr = JSON.stringify(tc.function.arguments);
-                } catch (error) {
-                    // If JSON.stringify fails (e.g., circular references), fallback to string representation
-                    console.warn('Failed to stringify tool call arguments, using fallback:', error);
-                    argumentsStr = String(tc.function.arguments);
-                }
-                
-                return {
-                    id: `ollama-tool-${Date.now()}-${index}`,
-                    type: 'function' as const,
-                    function: {
-                        name: tc.function.name,
-                        arguments: argumentsStr
-                    }
-                };
-            });
-        }
+        const toolCalls = this.mapToolCalls(message.tool_calls);
+        const reasoning = message.thinking?.trim() || undefined;
 
         const usage = normalizeLLMUsage({
             prompt_tokens: data.prompt_eval_count,
@@ -297,10 +291,44 @@ export class OllamaProvider implements LLMProvider {
             created: Math.floor(new Date(data.created_at).getTime() / 1000),
             content: message.content,
             toolCalls,
+            ...(reasoning ? { reasoning } : {}),
             finishReason: toolCalls?.length ? 'tool_calls' : 'stop',
             usage,
             raw: data
         };
+    }
+
+    /**
+     * Convert Ollama tool calls into the provider-agnostic shape.
+     *
+     * Ollama returns `arguments` as an object rather than a JSON string, and
+     * only newer builds supply a call `id` — a synthesized id keeps tool
+     * results correlatable on older ones.
+     */
+    private mapToolCalls(toolCalls: OllamaToolCall[] | undefined): LLMToolCall[] | undefined {
+        if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+            return undefined;
+        }
+
+        return toolCalls.map((tc: OllamaToolCall, index: number) => {
+            let argumentsStr: string;
+            try {
+                argumentsStr = JSON.stringify(tc.function.arguments);
+            } catch (error) {
+                // JSON.stringify can throw on circular references — never lose the call over it.
+                console.warn('Failed to stringify tool call arguments, using fallback:', error);
+                argumentsStr = String(tc.function.arguments);
+            }
+
+            return {
+                id: tc.id || `ollama-tool-${Date.now()}-${index}`,
+                type: 'function' as const,
+                function: {
+                    name: tc.function.name,
+                    arguments: argumentsStr
+                }
+            };
+        });
     }
 
     /**
@@ -519,6 +547,8 @@ export class OllamaProvider implements LLMProvider {
 
         const decoder = new TextDecoder();
         let fullContent = '';
+        let fullThinking = '';
+        let toolCalls: LLMToolCall[] | undefined;
         let lastData: OllamaChatResponse | null = null;
         let streamEndedWithDone = false;
 
@@ -529,7 +559,7 @@ export class OllamaProvider implements LLMProvider {
 
                 if ('timedOut' in chunkResult) {
                     // Stream timed out mid-response
-                    if (fullContent) {
+                    if (fullContent || fullThinking) {
                         // Return partial content with finishReason: 'length'
                         return {
                             id: `ollama-${Date.now()}`,
@@ -537,6 +567,8 @@ export class OllamaProvider implements LLMProvider {
                                 ? Math.floor(new Date(lastData.created_at).getTime() / 1000)
                                 : Math.floor(Date.now() / 1000),
                             content: fullContent,
+                            ...(fullThinking.trim() ? { reasoning: fullThinking.trim() } : {}),
+                            ...(toolCalls ? { toolCalls } : {}),
                             finishReason: 'length',
                             raw: lastData
                         };
@@ -565,6 +597,12 @@ export class OllamaProvider implements LLMProvider {
                     try {
                         const data: OllamaChatResponse = JSON.parse(line);
                         fullContent += data.message?.content ?? '';
+                        // Thinking arrives as its own delta stream, disjoint from content.
+                        fullThinking += data.message?.thinking ?? '';
+                        const chunkToolCalls = this.mapToolCalls(data.message?.tool_calls);
+                        if (chunkToolCalls) {
+                            toolCalls = [...(toolCalls ?? []), ...chunkToolCalls];
+                        }
                         lastData = data;
                         // Ollama signals completion via the JSON "done" field
                         if (data.done) {
@@ -584,7 +622,14 @@ export class OllamaProvider implements LLMProvider {
         }
 
         // If stream closed without done:true it means it ended abruptly
-        const finishReason = streamEndedWithDone ? 'stop' : 'length';
+        const finishReason = streamEndedWithDone
+            ? (toolCalls?.length ? 'tool_calls' : 'stop')
+            : 'length';
+        const reasoning = fullThinking.trim() || undefined;
+        const usage = normalizeLLMUsage({
+            prompt_tokens: lastData?.prompt_eval_count,
+            completion_tokens: lastData?.eval_count,
+        });
 
         return {
             id: `ollama-${Date.now()}`,
@@ -592,7 +637,10 @@ export class OllamaProvider implements LLMProvider {
                 ? Math.floor(new Date(lastData.created_at).getTime() / 1000)
                 : Math.floor(Date.now() / 1000),
             content: fullContent,
+            ...(toolCalls ? { toolCalls } : {}),
+            ...(reasoning ? { reasoning } : {}),
             finishReason,
+            ...(usage ? { usage } : {}),
             raw: lastData
         };
     }

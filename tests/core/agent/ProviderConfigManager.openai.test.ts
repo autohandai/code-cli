@@ -588,7 +588,7 @@ describe("ProviderConfigManager openai auth mode", () => {
     expect(providerOptions.some((option: { value: string }) => option.value === "bedrock")).toBe(false);
   });
 
-  it("shows providers in /model in alphabetical order by display name", async () => {
+  it("shows /model providers grouped as Autohand AI, third-party, then custom, alphabetical within each section", async () => {
     runtime.config.provider = "openrouter";
     runtime.config.openrouter = undefined;
     runtime.config.features = {
@@ -622,18 +622,36 @@ describe("ProviderConfigManager openai auth mode", () => {
     const options = mockShowModal.mock.calls[0][0].options as Array<{
       value: string;
       label: string;
+      header?: string;
     }>;
-    const visibleLabels = options
-      .filter((option) => option.value !== "new-custom-provider")
-      .map((option) =>
-        option.label
-          .replace(/^[○●]\s*/, "")
-          .replace(/\s+\([^)]+\)/g, "")
-          .trim(),
+    const cleanLabel = (label: string) =>
+      label
+        .replace(/^[○●]\s*/, "")
+        .replace(/\s+\([^)]+\)/g, "")
+        .trim();
+    const isSortedAlphabetically = (labels: string[]) =>
+      labels.every(
+        (label, index) =>
+          index === 0 ||
+          labels[index - 1].localeCompare(label, undefined, { sensitivity: "base" }) <= 0,
       );
-    expect(visibleLabels).toEqual([...visibleLabels].sort((left, right) =>
-      left.localeCompare(right, undefined, { sensitivity: "base" }),
-    ));
+
+    expect(options[0].value).toBe("autohandai");
+    expect(options[0].header).toBe("providers.config.groupAutohand");
+    expect(options[1].header).toBe("providers.config.groupThirdParty");
+
+    const thirdParty = options.filter(
+      (option) =>
+        option.value !== "autohandai" &&
+        option.value !== "new-custom-provider" &&
+        !option.value.startsWith("custom:"),
+    );
+    const custom = options.filter((option) => option.value.startsWith("custom:"));
+
+    expect(isSortedAlphabetically(thirdParty.map((option) => cleanLabel(option.label)))).toBe(true);
+    expect(custom.map((option) => cleanLabel(option.label))).toEqual(["Alpha AI", "Zeta AI"]);
+    expect(custom[0].header).toBe("providers.config.groupCustom");
+    expect(options[options.length - 1].value).toBe("new-custom-provider");
   });
 
   it("opens custom provider settings when selecting a configured custom provider from /model list", async () => {

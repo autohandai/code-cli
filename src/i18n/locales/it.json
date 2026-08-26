@@ -456,7 +456,10 @@
     },
     "config": {
       "selectReasoningEffort": "Seleziona il livello di ragionamento",
-      "reasoningEffortLabel": "Livello di ragionamento: {{level}}"
+      "reasoningEffortLabel": "Livello di ragionamento: {{level}}",
+      "groupAutohand": "Autohand AI",
+      "groupThirdParty": "Provider di terze parti",
+      "groupCustom": "Provider personalizzati"
     }
   },
   "startup": {

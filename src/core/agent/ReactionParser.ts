@@ -58,6 +58,21 @@ export class ReactionParser {
    * while falling back to JSON parsing for providers without native support.
    */
   parseAssistantResponse(completion: LLMResponse): AssistantReactPayload {
+    const payload = this.parseAssistantResponseContent(completion);
+
+    // Providers that return reasoning outside of `content` (Ollama's
+    // `message.thinking`) leave nothing for the thought to be parsed from —
+    // on a tool-calling turn `content` is empty entirely. Fall back to the
+    // provider's reasoning so local thinking models still surface a thought.
+    const reasoning = completion.reasoning?.trim();
+    if (reasoning && !payload.thought) {
+      return { ...payload, thought: reasoning };
+    }
+
+    return payload;
+  }
+
+  private parseAssistantResponseContent(completion: LLMResponse): AssistantReactPayload {
     if (completion.toolCalls?.length) {
       let thought: string | undefined;
       let reflection: string | undefined;

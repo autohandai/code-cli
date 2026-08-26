@@ -658,7 +658,11 @@ export class SlashCommandHandler {
         }
         case '/peers': {
           const { peers } = await import('../commands/peers.js');
-          return peers({ peerAwareness: this.ctx.peerAwareness });
+          return peers({
+            peerAwareness: this.ctx.peerAwareness,
+            onBeforeModal: this.ctx.onBeforeModal,
+            onAfterModal: this.ctx.onAfterModal,
+          });
         }
         case '/message': {
           const { message } = await import('../commands/message.js');

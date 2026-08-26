@@ -534,6 +534,9 @@
     },
     "config": {
       "chooseProvider": "Zvolte poskytovatele LLM",
+      "groupAutohand": "Autohand AI",
+      "groupThirdParty": "Poskytovatelé třetích stran",
+      "groupCustom": "Vlastní poskytovatelé",
       "cancelled": "Konfigurace zrušena.",
       "notConfigured": "{{provider}} není nakonfigurován ještě. Nastavme to!",
       "configuredSuccessfully": "{{provider}} úspěšně nakonfigurován!",

@@ -38,7 +38,11 @@ describe('config CLI subcommands', () => {
     const result = spawnSync(process.execPath, runnerArgs, {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 25_000,
+      // A cold CLI boot through the tsx loader costs ~4s idle, so the old 25s
+      // cap left barely a 6x margin and a full parallel proof run exhausted it.
+      // The per-test timeouts below are raised to match, since vitest's 30s
+      // default would otherwise fire before this one and report a vaguer error.
+      timeout: 90_000,
       env: {
         ...process.env,
         AUTOHAND_HOME: tmpDir,
@@ -58,7 +62,7 @@ describe('config CLI subcommands', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('Usage: autohand config set <key> <value>');
     expect(result.stdout).not.toContain('Unhandled Rejection');
-  });
+  }, 120_000);
 
   it('sets provider API keys without echoing the raw secret', () => {
     const result = runCli('config set openrouter.apiKey sk-openrouter-secret');
@@ -67,7 +71,7 @@ describe('config CLI subcommands', () => {
     expect(result.stdout).toContain('Set openrouter.apiKey = ****');
     expect(result.stdout).not.toContain('sk-openrouter-secret');
     expect(fs.readJsonSync(configPath).openrouter.apiKey).toBe('sk-openrouter-secret');
-  });
+  }, 120_000);
 
   it('accepts underscore provider API key aliases without echoing the raw secret', () => {
     const result = runCli('config set openrouter_api_key sk-openrouter-secret');
@@ -76,7 +80,7 @@ describe('config CLI subcommands', () => {
     expect(result.stdout).toContain('Set openrouter.apiKey = ****');
     expect(result.stdout).not.toContain('sk-openrouter-secret');
     expect(fs.readJsonSync(configPath).openrouter.apiKey).toBe('sk-openrouter-secret');
-  });
+  }, 120_000);
 
   it('prints invalid config parse errors without unhandled rejection reporting', async () => {
     await fs.writeFile(configPath, '{ provider: openrouter');
@@ -86,5 +90,5 @@ describe('config CLI subcommands', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('Failed to parse config');
     expect(result.stdout).not.toContain('Unhandled Rejection');
-  });
+  }, 120_000);
 });

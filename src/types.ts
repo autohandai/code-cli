@@ -1280,6 +1280,13 @@ export interface LLMResponse {
   usage?: LLMUsage;
   /** Provider-native reasoning blocks that must be replayed on the next request */
   reasoningBlocks?: ProviderReasoningBlock[];
+  /**
+   * Human-readable reasoning text surfaced for display, when the provider
+   * returns reasoning separately from `content` (e.g. Ollama's
+   * `message.thinking`). Unlike `reasoningBlocks` this is never replayed back
+   * to the provider — it exists so the CLI can show the model's thinking.
+   */
+  reasoning?: string;
   raw: unknown;
 }
 
