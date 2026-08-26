@@ -13,9 +13,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mkdirSync, rmSync } from 'node:fs';
 
+/**
+ * Guards against a detached process that never reports, nothing more. The three
+ * tests using the default finish in 35-87ms idle, so the old 10s ceiling bounded
+ * normal variance instead of pathology and failed under a full parallel proof
+ * run. Promise.race settles the moment completion resolves, so a healthy run is
+ * unaffected by the larger budget; it stays under vitest's 30s testTimeout so a
+ * genuine hang still reports this message rather than a generic timeout.
+ */
 async function waitForDetachedCompletion<T>(
   completion: Promise<T>,
-  timeoutMs = 10_000,
+  timeoutMs = 25_000,
 ): Promise<T> {
   let timeoutId: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {

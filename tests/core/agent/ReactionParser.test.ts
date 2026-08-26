@@ -479,4 +479,89 @@ describe('ReactionParser', () => {
 
     expect(result).toEqual({ reflection: 'standalone reflection' });
   });
+
+  // Providers that return reasoning separately from content (Ollama's
+  // `message.thinking`) leave `content` empty on a tool-calling turn. Without a
+  // fallback the CLI renders no thinking at all for local thinking models.
+  describe('provider-native reasoning fallback', () => {
+    it('uses reasoning as the thought when a tool-calling turn has empty content', () => {
+      const completion: LLMResponse = {
+        id: 'resp-ollama-1',
+        created: 1,
+        content: '',
+        reasoning: 'The user wants me to read package.json in the workspace.',
+        toolCalls: [
+          {
+            id: 'call_trlv40g3',
+            type: 'function',
+            function: { name: 'read_file', arguments: '{"path":"package.json"}' },
+          },
+        ],
+        raw: {},
+      };
+
+      const result = parser.parseAssistantResponse(completion);
+
+      expect(result.thought).toBe('The user wants me to read package.json in the workspace.');
+      expect(result.toolCalls).toEqual([
+        { id: 'call_trlv40g3', tool: 'read_file', args: { path: 'package.json' } },
+      ]);
+    });
+
+    it('uses reasoning as the thought when a plain answer carries no thought', () => {
+      const completion: LLMResponse = {
+        id: 'resp-ollama-2',
+        created: 1,
+        content: '391',
+        reasoning: '17*23 = 340 + 51 = 391',
+        raw: {},
+      };
+
+      const result = parser.parseAssistantResponse(completion);
+
+      expect(result.thought).toBe('17*23 = 340 + 51 = 391');
+      expect(result.finalResponse).toBe('391');
+    });
+
+    it('prefers an explicit thought in content over provider reasoning', () => {
+      const completion: LLMResponse = {
+        id: 'resp-ollama-3',
+        created: 1,
+        content: '{"thought": "Explicit thought"}',
+        reasoning: 'Native reasoning',
+        toolCalls: [
+          {
+            id: 'call-1',
+            type: 'function',
+            function: { name: 'read_file', arguments: '{"path":"a.txt"}' },
+          },
+        ],
+        raw: {},
+      };
+
+      const result = parser.parseAssistantResponse(completion);
+
+      expect(result.thought).toBe('Explicit thought');
+    });
+
+    it('leaves thought undefined when there is no reasoning and no content', () => {
+      const completion: LLMResponse = {
+        id: 'resp-ollama-4',
+        created: 1,
+        content: '',
+        toolCalls: [
+          {
+            id: 'call-1',
+            type: 'function',
+            function: { name: 'read_file', arguments: '{"path":"a.txt"}' },
+          },
+        ],
+        raw: {},
+      };
+
+      const result = parser.parseAssistantResponse(completion);
+
+      expect(result.thought).toBeUndefined();
+    });
+  });
 });

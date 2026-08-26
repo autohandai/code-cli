@@ -534,6 +534,9 @@
     },
     "config": {
       "chooseProvider": "Escolha um provedor LLM",
+      "groupAutohand": "Autohand AI",
+      "groupThirdParty": "Provedores de terceiros",
+      "groupCustom": "Provedores personalizados",
       "cancelled": "Configuração cancelada.",
       "notConfigured": "{{provider}} ainda não está configurado. Vamos configurá-lo!",
       "configuredSuccessfully": "{{provider}} configurado com sucesso!",

@@ -452,7 +452,10 @@
     },
     "config": {
       "selectReasoningEffort": "तर्क स्तर चुनें",
-      "reasoningEffortLabel": "तर्क स्तर: {{level}}"
+      "reasoningEffortLabel": "तर्क स्तर: {{level}}",
+      "groupAutohand": "Autohand AI",
+      "groupThirdParty": "तृतीय-पक्ष प्रदाता",
+      "groupCustom": "कस्टम प्रदाता"
     }
   },
   "startup": {

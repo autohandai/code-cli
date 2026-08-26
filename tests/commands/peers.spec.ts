@@ -3,7 +3,7 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ActiveAgentRecord } from '../../src/session/ActiveAgentRegistry.js';
 import type { PeerAwarenessManager } from '../../src/session/peers/PeerAwarenessManager.js';
 
@@ -61,32 +61,56 @@ function peer(sessionId: string): ActiveAgentRecord {
 }
 
 describe('/peers command', () => {
+  // Call history accumulates across tests otherwise, so a later "was never
+  // called" assertion would see an earlier test's call.
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('forwards the peer awareness manager from the slash command context', async () => {
     const manager = { getPeers: () => [peer('peer-1')] } as unknown as PeerAwarenessManager;
     mockPeers.mockResolvedValueOnce('PEERS_OUTPUT');
-    const handler = await createHandler(createContext(manager));
+    const ctx = createContext(manager);
+    const handler = await createHandler(ctx);
 
     const result = await handler.handle('/peers');
 
     expect(mockPeers).toHaveBeenCalledTimes(1);
-    expect(mockPeers).toHaveBeenCalledWith({ peerAwareness: manager });
+    // The peers screen owns the alternate buffer, so the handler must hand the
+    // modal hooks through: without them the main Composer keeps racing the
+    // screen for stdin and the session can exit after the screen closes.
+    expect(mockPeers).toHaveBeenCalledWith({
+      peerAwareness: manager,
+      onBeforeModal: ctx.onBeforeModal,
+      onAfterModal: ctx.onAfterModal,
+    });
     expect(result).toBe('PEERS_OUTPUT');
   });
 
   it('renders peer cards from the manager snapshot', async () => {
-    const { peers } = await import('../../src/commands/peers.js');
+    // vi.mock replaces this module for the handler test above, so the real
+    // implementation has to be pulled in explicitly. Its own import of
+    // PeerFormatter still resolves to the mock.
+    const { peers } = await vi.importActual<typeof import('../../src/commands/peers.js')>(
+      '../../src/commands/peers.js',
+    );
     const manager = {
       getPeers: () => [peer('peer-1'), peer('peer-2')],
     } as unknown as PeerAwarenessManager;
+    // A concrete return value: without one the mock yields undefined and the
+    // output assertion below passes even when peers() returns nothing.
+    mockFormatPeerCards.mockReturnValueOnce('RENDERED_PEER_CARDS');
 
     const output = await peers({ peerAwareness: manager });
 
     expect(mockFormatPeerCards).toHaveBeenCalledWith([peer('peer-1'), peer('peer-2')]);
-    expect(output).toBe(mockFormatPeerCards.mock.results[0]?.value);
+    expect(output).toBe('RENDERED_PEER_CARDS');
   });
 
   it('reports availability instead of rendering when peer awareness is off', async () => {
-    const { peers } = await import('../../src/commands/peers.js');
+    const { peers } = await vi.importActual<typeof import('../../src/commands/peers.js')>(
+      '../../src/commands/peers.js',
+    );
 
     const output = await peers({});
 

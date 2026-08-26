@@ -443,7 +443,10 @@
     },
     "config": {
       "selectReasoningEffort": "Выберите уровень рассуждения",
-      "reasoningEffortLabel": "Уровень рассуждения: {{level}}"
+      "reasoningEffortLabel": "Уровень рассуждения: {{level}}",
+      "groupAutohand": "Autohand AI",
+      "groupThirdParty": "Сторонние провайдеры",
+      "groupCustom": "Пользовательские провайдеры"
     }
   },
   "startup": {

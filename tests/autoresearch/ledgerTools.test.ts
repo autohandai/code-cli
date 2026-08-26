@@ -50,9 +50,13 @@ afterEach(async () => {
 describe('ledger-backed autoresearch tools', { timeout: 120_000 }, () => {
   let workspaceRoot: string;
 
+  // createRepository spawns five git subprocesses and takes ~1.1s idle. The
+  // global 30s hookTimeout left only a 26x margin, which a full parallel proof
+  // run exhausted; the tests in this file already allow 120s for the same class
+  // of work, so the setup that feeds them gets the same allowance.
   beforeEach(async () => {
     workspaceRoot = await createRepository();
-  });
+  }, 120_000);
 
   it('captures a three-sample zero-diff baseline during initialization', async () => {
     const initialized = await initExperiment(workspaceRoot, {

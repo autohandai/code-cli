@@ -817,6 +817,9 @@
     },
     "config": {
       "chooseProvider": "Choose an LLM provider",
+      "groupAutohand": "Autohand AI",
+      "groupThirdParty": "Third-party providers",
+      "groupCustom": "Custom providers",
       "newProvider": "New provider...",
       "cancelled": "Configuration cancelled.",
       "notConfigured": "{{provider}} is not configured yet. Let's set it up!",

@@ -534,6 +534,9 @@
     },
     "config": {
       "chooseProvider": "Bir LLM sağlayıcısı seçin",
+      "groupAutohand": "Autohand AI",
+      "groupThirdParty": "Üçüncü taraf sağlayıcılar",
+      "groupCustom": "Özel sağlayıcılar",
       "cancelled": "Yapılandırma iptal edildi.",
       "notConfigured": "{{provider}} henüz yapılandırılmamış. Şimdi kurulum yapalım!",
       "configuredSuccessfully": "{{provider}} başarıyla yapılandırıldı!",

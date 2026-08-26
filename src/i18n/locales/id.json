@@ -96,5 +96,12 @@
     "hu": "Magyar (Hungaria)",
     "hi": "हिन्दी (Hindi)",
     "id": "Bahasa Indonesia (Indonesian)"
+  },
+  "providers": {
+    "config": {
+      "groupAutohand": "Autohand AI",
+      "groupThirdParty": "Penyedia pihak ketiga",
+      "groupCustom": "Penyedia kustom"
+    }
   }
 }

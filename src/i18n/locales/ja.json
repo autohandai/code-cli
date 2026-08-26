@@ -534,6 +534,9 @@
     },
     "config": {
       "chooseProvider": "LLMプロバイダーを選択",
+      "groupAutohand": "Autohand AI",
+      "groupThirdParty": "サードパーティプロバイダー",
+      "groupCustom": "カスタムプロバイダー",
       "cancelled": "設定をキャンセルしました。",
       "notConfigured": "{{provider}}はまだ設定されていません。設定しましょう！",
       "configuredSuccessfully": "{{provider}}の設定に成功しました！",

@@ -534,6 +534,9 @@
     },
     "config": {
       "chooseProvider": "LLM-Anbieter wählen",
+      "groupAutohand": "Autohand AI",
+      "groupThirdParty": "Drittanbieter",
+      "groupCustom": "Eigene Anbieter",
       "cancelled": "Konfiguration abgebrochen.",
       "notConfigured": "{{provider}} ist noch nicht konfiguriert. Lassen Sie uns das einrichten!",
       "configuredSuccessfully": "{{provider}} erfolgreich konfiguriert!",

@@ -25,6 +25,12 @@ export interface ModalOption {
   description?: string;
   /** Optional preview text shown in a side panel or tooltip */
   preview?: string;
+  /**
+   * Section heading rendered above this option. Set it on the first option of a
+   * group to split a long list into labelled sections; headings are decoration
+   * only, so numbering, navigation, and shortcuts stay on the options themselves.
+   */
+  header?: string;
   /** Initial checked state for multiSelect mode */
   checked?: boolean;
   /** Whether the option is disabled (cannot be selected) */
@@ -655,10 +661,21 @@ function Modal(props: ModalProps) {
       ? choices.slice(windowStart, windowEnd)
       : choices;
 
+    // A scrolled viewport can start below a section heading, so the topmost row
+    // inherits the heading of the group it belongs to and keeps the list legible.
+    const inheritedHeader = (index: number): string | undefined => {
+      for (let i = index; i >= 0; i--) {
+        const header = choices[i]?.header;
+        if (header) return header;
+      }
+      return undefined;
+    };
+
     const items = visibleChoices.map((choice, vi) => {
       const i = needsScroll ? windowStart + vi : vi;
       const isSelected = i === cursor;
       const isDisabled = choice.disabled;
+      const header = vi === 0 ? inheritedHeader(i) : choice.header;
 
       let color: ColorToken | undefined;
       if (isDisabled) {
@@ -673,6 +690,8 @@ function Modal(props: ModalProps) {
 
       return (
         <Box key={`${choice.value}-${i}`} flexDirection="column">
+          {header && vi > 0 && <Text> </Text>}
+          {header && <Text>{theme.fg('muted', header)}</Text>}
           <Text>
             {theme.fg(color ?? 'text', `${isSelected ? '\u25b8 ' : '  '}${checkbox}${i + 1}. ${choice.label}${isDisabled ? ' (disabled)' : ''}`)}
           </Text>

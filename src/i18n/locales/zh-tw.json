@@ -534,6 +534,9 @@
     },
     "config": {
       "chooseProvider": "選擇一個 LLM 提供者",
+      "groupAutohand": "Autohand AI",
+      "groupThirdParty": "第三方供應商",
+      "groupCustom": "自訂供應商",
       "cancelled": "設定已取消。",
       "notConfigured": "{{provider}} 尚未配置。讓我們設定它！",
       "configuredSuccessfully": "{{provider}} 已成功配置！",

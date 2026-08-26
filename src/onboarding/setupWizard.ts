@@ -16,6 +16,8 @@ import { join } from 'path';
 import type { AutohandAIAuthMode, AutohandAIPlan, AutohandConfig, LoadedConfig, ProviderName, BuiltInProviderName, AzureSettings, AzureAuthMethod, PermissionMode, SearchProvider, ReasoningEffort, OpenAIAuthMode, OpenAIChatGPTAuth, OpenAISettings, XAIAuthMode, XAIOAuthAuth, XAISettings, VertexAISettings, BedrockSettings, BedrockApiMode, BedrockAuthMode } from '../types.js';
 import { getProviderConfig } from '../config.js';
 import { ProviderFactory } from '../providers/ProviderFactory.js';
+import { getCustomProviderConfig } from '../providers/customProviders.js';
+import { buildProviderSelectionOptions } from '../ui/providerSelectionOptions.js';
 import { ZAI_MODELS, ZAI_DEFAULT_BASE_URL } from '../providers/ZaiProvider.js';
 import { SAKANA_MODELS, SAKANA_DEFAULT_BASE_URL } from '../providers/SakanaProvider.js';
 import { VERTEX_AI_CODING_MODELS } from '../providers/VertexAIProvider.js';
@@ -430,18 +432,22 @@ export class SetupWizard {
 
     const providers = ProviderFactory.getProviderNames(this.existingConfig);
 
-    const options: ModalOption[] = providers.map(p => ({
-      label: this.getProviderDisplayName(p),
-      value: p,
-      description: this.getProviderHint(p)
-    }));
+    const options: ModalOption[] = buildProviderSelectionOptions({
+      providers,
+      sortKey: (provider) => this.getProviderDisplayName(provider),
+      toOption: (provider) => ({
+        label: this.getProviderDisplayName(provider),
+        value: provider,
+        description: this.getProviderHint(provider)
+      })
+    });
 
     // Only pre-select if there's a valid existing provider with API key
     const hasValidExistingProvider = this.existingConfig?.provider && this.isProviderConfigured(this.existingConfig.provider);
 
     let initialIndex = 0;
     if (hasValidExistingProvider) {
-      initialIndex = providers.indexOf(this.existingConfig!.provider!);
+      initialIndex = options.findIndex(option => option.value === this.existingConfig!.provider!);
     }
 
     const result = await showModal({
@@ -2391,10 +2397,18 @@ export class SetupWizard {
   }
 
   private getProviderDisplayName(provider: ProviderName): string {
-    return t(`providers.${provider}`);
+    return ProviderFactory.getRuntimeProviderDisplayName(provider)
+      ?? getCustomProviderConfig(this.existingConfig, provider)?.displayName
+      ?? t(`providers.${provider}`);
   }
 
   private getProviderHint(provider: ProviderName): string {
+    const customProvider = getCustomProviderConfig(this.existingConfig, provider);
+    // baseUrl is optional on ProviderSettings, so a custom provider saved
+    // without one falls back to the localized hint rather than showing blank.
+    if (customProvider?.baseUrl) {
+      return customProvider.baseUrl;
+    }
     return t(`providers.hints.${provider}`);
   }
 
