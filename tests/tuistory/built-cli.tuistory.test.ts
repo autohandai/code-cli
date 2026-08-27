@@ -79,6 +79,13 @@ function latestStableRepositoryVersion(): string {
   return tag.slice(1);
 }
 
+/**
+ * A selectable modal row: optional cursor, then its 1-9 shortcut. Section
+ * headings share a list with the options but carry neither, so matching on this
+ * is what separates a real option from the heading above it.
+ */
+const MODAL_OPTION_ROW = /^\s*(?:▸\s*)?([1-9])\.\s/u;
+
 function isModalNumericShortcut(value: string | undefined): value is ModalNumericShortcut {
   return value !== undefined && MODAL_NUMERIC_SHORTCUTS.has(value);
 }
@@ -3069,10 +3076,13 @@ describe('interactive built CLI Tuistory tests', () => {
     await session.press('3');
     await session.waitForText('Choose an LLM provider', { timeout: 10_000 });
     const providerScreen = await session.text({ trimEnd: true });
+    // The provider list renders an "Autohand AI" section heading above the
+    // option itself, so match the numbered row rather than the first line that
+    // happens to mention the provider.
     const autohandAILine = providerScreen
       .split('\n')
-      .find((line) => line.includes('Autohand AI'));
-    const autohandAIShortcut = autohandAILine?.match(/^\s*(?:▸\s*)?([1-9])\.\s/)?.[1];
+      .find((line) => line.includes('Autohand AI') && MODAL_OPTION_ROW.test(line));
+    const autohandAIShortcut = autohandAILine?.match(MODAL_OPTION_ROW)?.[1];
     expect(isModalNumericShortcut(autohandAIShortcut), providerScreen).toBe(true);
     if (!isModalNumericShortcut(autohandAIShortcut)) {
       throw new Error('The visible Autohand AI option does not expose a numeric shortcut');
