@@ -68,7 +68,7 @@ describe("modelCatalog", () => {
     expect(getProviderModelIds("openrouter")).not.toContain("anthropic/claude-5-sonnet");
     expect(getProviderModelIds("openrouter")).not.toContain("anthropic/claude-5-opus");
     expect(getProviderModelOptions("autohandai")).toEqual([
-      expect.objectContaining({ id: "fantail", contextWindow: 64_000, maxTokens: 16_000 }),
+      expect.objectContaining({ id: "fantail", contextWindow: 262_144, maxTokens: 16_000 }),
       expect.objectContaining({ id: "moa", contextWindow: 1_000_000, maxTokens: 262_144 }),
     ]);
     rmSync(dir, { recursive: true, force: true });

@@ -28,7 +28,7 @@ describe("standalone model catalog binary", () => {
 
       const fantail = getProviderModelOptions("autohandai")
         .find((model) => model.id === "fantail");
-      if (fantail?.contextWindow !== 64_000 || fantail.maxTokens !== 16_000) {
+      if (fantail?.contextWindow !== 262_144 || fantail.maxTokens !== 16_000) {
         throw new Error("Standalone binary is missing required Fantail metadata.");
       }
       console.log("catalog-ok");
