@@ -85,6 +85,18 @@ describe('ResponseCompletionClassifier', () => {
       'Promise to answer later',
       'I now have a comprehensive understanding of the repository. Let me provide a clear summary to the user.',
     ],
+    [
+      'Reflection that ends on an unexecuted read',
+      [
+        "I need to stop and reflect on what I've gathered so far before proceeding.",
+        '',
+        'I was trying to read the actual implementation files but the tool calls were blocked.',
+        'I need to read `src/commands/agents.ts` and `src/core/agents/AgentDelegator.ts` implementation',
+        'before I can plan the "kill/stop" feature.',
+        '',
+        'Let me try reading those files now.',
+      ].join('\n'),
+    ],
   ])('classifies %s as invalid deferred action', (_name, response) => {
     const result = classifyResponseCompletion({ response });
 

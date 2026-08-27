@@ -129,6 +129,7 @@ import {
   type ReactLoopControl,
   type ReactLoopResult,
 } from './agent/ReactLoopRunner.js';
+import { DEFAULT_RESPONSE_COMPLETION_HOOKS } from './agent/ResponseCompletionClassifier.js';
 import { initializeAgentDependencies, type AgentDependencyHost } from './agent/AgentDependencyComposer.js';
 import {
   InstructionRunner,
@@ -1220,6 +1221,7 @@ export class AutohandAgent {
       get contextPercentLeft() { return agent.contextPercentLeft; },
       conversation: agent.conversation,
       get inkRenderer() { return agent.inkRenderer as AgentReactLoopHost['inkRenderer']; },
+      responseCompletionHooks: DEFAULT_RESPONSE_COMPLETION_HOOKS,
       get lastAssistantResponseForNotification() { return agent.lastAssistantResponseForNotification; },
       set lastAssistantResponseForNotification(value) { agent.lastAssistantResponseForNotification = value; },
       llm: agent.llm,

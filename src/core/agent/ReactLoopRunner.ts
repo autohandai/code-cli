@@ -531,8 +531,13 @@ export async function runAgentReactLoop(
         }
       }
 
+      // Set whenever the loop deliberately removes tools for a recovery turn:
+      // the assistant physically cannot emit a tool call, so announcing a next
+      // step is narration rather than a deferred action worth rejecting.
+      let toolsWithheldForRecovery = false;
       if (loopGuard.isForcingFinalResponse()) {
         tools = [];
+        toolsWithheldForRecovery = true;
       }
 
       // Use ContextOrchestrator for smart auto-compaction
@@ -571,6 +576,7 @@ export async function runAgentReactLoop(
         if (!integrity.ok) {
           loopGuard.forceFinalResponse();
           tools = [];
+          toolsWithheldForRecovery = true;
           const integrityNote =
             '[Tool Result Integrity] One or more prior tool results were not available in the outbound provider payload. ' +
             'Tools have been disabled for this recovery response. Do not retry the calls; explain the integrity failure ' +
@@ -715,7 +721,7 @@ export async function runAgentReactLoop(
         completion,
         payload,
         cleanupModelResponse: host.cleanupModelResponse,
-        responseCompletionHooks: host.responseCompletionHooks,
+        responseCompletionHooks: toolsWithheldForRecovery ? undefined : host.responseCompletionHooks,
       });
 
       if (turnOutcome.type === 'repair') {
@@ -858,18 +864,8 @@ export async function runAgentReactLoop(
         continue;
       }
 
-      if (reflectionDecision.type === 'force_final' && payload.toolCalls?.length) {
-        loopGuard.forceFinalResponse();
-        await recordRejectedNativeToolCalls(
-          payload.toolCalls,
-          'Tool call not executed: repeated missing reflection forced a final response.',
-        );
-        host.conversation.addSystemNote(
-          '[Critical Reflection Guard] The assistant attempted another tool call without analyzing prior results. ' +
-          'The call was not executed. Do not call tools again; provide a finalResponse from the available evidence.'
-        );
-        expectedOutboundToolResultIds = currentAssistantToolCallIds;
-        continue;
+      if (reflectionDecision.type === 'proceed_unreflected' && debugMode) {
+        host.writeDebugLine('[AGENT DEBUG] Reflection guard exhausted its reminder; letting the tool call proceed');
       }
 
       if (payload.toolCalls && payload.toolCalls.length > 0) {

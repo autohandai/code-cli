@@ -329,19 +329,6 @@ export class SubAgent {
                     continue;
                 }
 
-                if (reflectionDecision.type === 'force_final') {
-                    loopGuard.forceFinalResponse();
-                    this.recordRejectedNativeToolCalls(
-                        payload.toolCalls,
-                        'Tool call not executed: repeated missing reflection forced a final response.',
-                    );
-                    this.conversation.addSystemNote(
-                        '[Critical Reflection Guard] Another tool call was attempted without analyzing prior results. '
-                        + 'The call was not executed. Do not call tools again; provide the final answer.'
-                    );
-                    continue;
-                }
-
                 const decision = loopGuard.observeCalls(payload.toolCalls);
                 if (decision.type !== 'allow') {
                     this.recordRejectedNativeToolCalls(
