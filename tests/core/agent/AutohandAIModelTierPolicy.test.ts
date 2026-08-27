@@ -38,7 +38,7 @@ describe('applyAutohandAIModelTierPolicy', () => {
 
     expect(result.switched).toBe(true);
     expect(result.config.autohandai?.model).toBe('fantail');
-    expect(result.config.autohandai?.contextWindow).toBe(64000);
+    expect(result.config.autohandai?.contextWindow).toBe(262144);
   });
 
   it('drops the Moa-only reasoningEffort when switching', async () => {
@@ -104,7 +104,7 @@ describe('applyAutohandAIModelTierPolicy', () => {
         accountToken: 'ahc_token',
         baseUrl: 'https://api.autohand.ai/v1',
         model: 'fantail',
-        contextWindow: 64000,
+        contextWindow: 262144,
       },
     });
 

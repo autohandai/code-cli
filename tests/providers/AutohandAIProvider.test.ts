@@ -35,7 +35,7 @@ describe("AutohandAIProvider", () => {
 
     await expect(provider.listModels()).resolves.toEqual([...AUTOHAND_AI_CLOUD_MODELS]);
     expect(AUTOHAND_AI_CLOUD_MODELS).toEqual(["fantail", "moa"]);
-    expect(AUTOHAND_AI_DEFAULT_CONTEXT_WINDOW).toBe(64_000);
+    expect(AUTOHAND_AI_DEFAULT_CONTEXT_WINDOW).toBe(262_144);
     expect(AUTOHAND_AI_MOA_CONTEXT_WINDOW).toBe(1_000_000);
   });
 

@@ -382,7 +382,7 @@ describe("ProviderConfigManager openai auth mode", () => {
       apiKey: "ah-api-key-long-enough",
       baseUrl: "https://api.autohand.ai/v1",
       model: "fantail",
-      contextWindow: 64000,
+      contextWindow: 262144,
     });
     expect(runtime.config.provider).toBe("autohandai");
     expect(mockSaveConfig).toHaveBeenCalledOnce();
