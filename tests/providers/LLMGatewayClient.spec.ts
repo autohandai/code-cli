@@ -54,6 +54,100 @@ describe('LLMGatewayClient', () => {
     });
   });
 
+  /**
+   * Regression, 2026-08-26: Autohand AI sessions failed with `Request timed out` and no
+   * output. The abort budget guards time to response headers, and a non-streaming
+   * completion sends none until it has generated the whole answer — which a reasoning
+   * model does not do in the 30s `network.timeout` allows.
+   */
+  describe('request timeout budget', () => {
+    const settings: LLMGatewaySettings = {
+      apiKey: 'test-key',
+      model: 'moa',
+      baseUrl: 'https://api.autohand.ai/v1'
+    };
+    const networkSettings: NetworkSettings = {
+      maxRetries: 0,
+      retryDelay: 1,
+      timeout: 30000
+    };
+
+    const budgetFor = async (stream: boolean): Promise<number> => {
+      const delays: number[] = [];
+      const realSetTimeout = globalThis.setTimeout;
+      vi.spyOn(globalThis, 'setTimeout').mockImplementation(
+        ((fn: () => void, ms?: number) => {
+          if (typeof ms === 'number') delays.push(ms);
+          return realSetTimeout(fn, ms);
+        }) as unknown as typeof globalThis.setTimeout
+      );
+
+      const sse = [
+        'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',
+        'data: [DONE]\n\n'
+      ].join('');
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(sse));
+            controller.close();
+          }
+        }),
+        json: () => Promise.resolve({
+          id: 'test-id',
+          created: Date.now(),
+          choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }]
+        })
+      });
+
+      const client = new LLMGatewayClient(settings, networkSettings);
+      await client.complete({ messages: [{ role: 'user', content: 'Hello' }], stream });
+      return Math.max(...delays);
+    };
+
+    it('gives a non-streaming completion the generation budget, not network.timeout', async () => {
+      expect(await budgetFor(false)).toBe(300_000);
+    });
+
+    it('leaves a streaming request on network.timeout, which only guards time to headers', async () => {
+      expect(await budgetFor(true)).toBe(30000);
+    });
+  });
+
+  describe('timeout retries', () => {
+    const settings: LLMGatewaySettings = {
+      apiKey: 'test-key',
+      model: 'moa',
+      baseUrl: 'https://api.autohand.ai/v1'
+    };
+
+    const attemptsUntilTimeout = async (stream: boolean): Promise<number> => {
+      const fetchMock = vi.fn().mockRejectedValue(
+        Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
+      );
+      global.fetch = fetchMock;
+
+      const client = new LLMGatewayClient(settings, {
+        maxRetries: 2,
+        retryDelay: 1,
+        timeout: 30000
+      });
+      await expect(
+        client.complete({ messages: [{ role: 'user', content: 'Hello' }], stream })
+      ).rejects.toThrow(/timed out|did not arrive/);
+      return fetchMock.mock.calls.length;
+    };
+
+    it('does not retry a non-streaming timeout, which would only spend the budget again', async () => {
+      expect(await attemptsUntilTimeout(false)).toBe(1);
+    });
+
+    it('still retries a streaming timeout, where nothing arrived at all', async () => {
+      expect(await attemptsUntilTimeout(true)).toBe(3);
+    });
+  });
+
   describe('setDefaultModel', () => {
     it('should update the default model', () => {
       const settings: LLMGatewaySettings = {

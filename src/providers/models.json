@@ -7,8 +7,8 @@
         {
           "id": "fantail",
           "displayName": "Fantail",
-          "description": "Ultra-fast coding model with tool calls and 64k input context",
-          "contextWindow": 64000,
+          "description": "Ultra-fast coding model with tool calls and 256k input context",
+          "contextWindow": 262144,
           "maxTokens": 16000,
           "toolCalls": true
         },

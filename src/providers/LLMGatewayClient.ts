@@ -50,6 +50,23 @@ const DEFAULT_MAX_RETRIES = 3;
 const MAX_ALLOWED_RETRIES = 5;
 const DEFAULT_RETRY_DELAY = 1000;
 const DEFAULT_TIMEOUT = 30000;
+/**
+ * The timeout guards time to response headers, not the whole exchange — it is cleared as
+ * soon as `fetch` resolves. A streaming response sends headers the moment the upstream
+ * starts, so `network.timeout` is a fair budget for it. A non-streaming one sends nothing
+ * until the entire completion has been generated, so the budget has to cover generation.
+ *
+ * At 30s it did not. On 2026-08-26 that aborted Autohand AI sessions mid-answer and then
+ * retried them three times over — ~2 min burned per turn, `Request timed out`, no output.
+ * Measured against api.autohand.ai on 2026-08-27, 4000 completion tokens took 35.6s on
+ * `moa` (~112 tok/s) and 100.3s on `fantail` (~40 tok/s), and the agent loop asks for
+ * `maxTokens: 16000` — so 30s was never a plausible budget for the answers it requests.
+ *
+ * 5 min matches the ceiling the inference Worker sets on itself (`limits.cpu_ms`). It
+ * still does not cover 16000 tokens at fantail's rate: the fix for that is to stream the
+ * agent loop's completions, after which this budget only has to cover time to headers.
+ */
+const COMPLETION_TIMEOUT = 300_000;
 
 export interface LLMGatewayCompatibleErrorLabels {
   serviceName: string;
@@ -399,7 +416,7 @@ export class LLMGatewayClient {
       const timeoutController = new AbortController();
       const timeoutId = setTimeout(
         () => timeoutController.abort(),
-        this.timeout
+        isStreaming ? this.timeout : Math.max(this.timeout, COMPLETION_TIMEOUT)
       );
 
       // Combine user signal with timeout
@@ -425,13 +442,19 @@ export class LLMGatewayClient {
         throw new ApiError("Request cancelled.", "cancelled", 0, false);
       }
 
-      // Timeout
+      // Timeout. Retrying is only worth it for a streaming request, where nothing arrived
+      // within a budget that only ever had to cover time to headers. A non-streaming one
+      // timed out because generating the answer took longer than the budget allows, and
+      // re-sending identical work just spends that budget again — three retries is how a
+      // 30s abort became ~2 min of dead time per turn on 2026-08-26.
       if (err.name === "AbortError") {
         throw new ApiError(
-          `Request timed out. The ${this.errorLabels.serviceName} service may be experiencing high load.`,
+          isStreaming
+            ? `Request timed out. The ${this.errorLabels.serviceName} service may be experiencing high load.`
+            : `The ${this.errorLabels.serviceName} response did not arrive within ${Math.round(Math.max(this.timeout, COMPLETION_TIMEOUT) / 1000)}s. Try a smaller request, or a model that answers faster.`,
           "timeout",
           0,
-          true,
+          isStreaming,
         );
       }
 
