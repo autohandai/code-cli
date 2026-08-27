@@ -785,7 +785,8 @@ export function AgentUI({
   const inputRef = useRef(input);
   inputRef.current = input;
   const composerLayoutRef = useRef<ComposerOutputLayout | null>(null);
-  const pendingMouseClickRef = useRef<SgrMouseInput | null>(null);
+  const pendingMouseClickRef = useRef<{ input: SgrMouseInput; at: number } | null>(null);
+  const pendingMouseClickExpiryMs = 2_000;
   const handleComposerLayoutChange = useCallback((layout: ComposerOutputLayout | null) => {
     composerLayoutRef.current = layout;
   }, []);
@@ -1303,7 +1304,10 @@ export function AgentUI({
           && mouseInput.button === 'left'
           && composerLayoutRef.current
         ) {
-          pendingMouseClickRef.current = mouseInput;
+          pendingMouseClickRef.current = {
+            input: mouseInput,
+            at: Date.now(),
+          };
           stdout.write(REQUEST_CURSOR_POSITION);
         }
         return;
@@ -1314,11 +1318,15 @@ export function AgentUI({
         const pendingClick = pendingMouseClickRef.current;
         const layout = composerLayoutRef.current;
         pendingMouseClickRef.current = null;
-        if (!pendingClick || !layout) {
+        if (
+          !pendingClick
+          || !layout
+          || Date.now() - pendingClick.at > pendingMouseClickExpiryMs
+        ) {
           return;
         }
 
-        const clickedCell = resolveComposerClickPosition(pendingClick, terminalCursor, layout);
+        const clickedCell = resolveComposerClickPosition(pendingClick.input, terminalCursor, layout);
         if (!clickedCell) {
           return;
         }
@@ -1338,6 +1346,11 @@ export function AgentUI({
         setCtrlCCount(0);
         return;
       }
+
+      // Any other input while a click is pending means the DSR reply was lost
+      // (tmux without passthrough, a repaint racing the query). Drop the stale
+      // click so a later CPR-shaped report cannot hijack the caret.
+      pendingMouseClickRef.current = null;
     }
 
     const pasteResult = consumeInkBracketedPasteInput(char, pasteStateRef.current);
