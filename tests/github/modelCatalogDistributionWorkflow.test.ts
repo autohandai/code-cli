@@ -36,7 +36,7 @@ describe("model catalog distribution automation", () => {
         fantail: expect.objectContaining({
           api: "openai-completions",
           baseUrl: "https://api.autohand.ai/v1",
-          contextWindow: 64_000,
+          contextWindow: 262_144,
           maxTokens: 16_000,
           provider: "autohandai",
         }),

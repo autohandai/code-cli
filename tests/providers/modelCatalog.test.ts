@@ -203,7 +203,7 @@ describe("modelCatalog", () => {
       expect(getProviderModelOptions("autohandai")[0]).toEqual(expect.objectContaining({
         id: "fantail",
         displayName: "Custom Fantail",
-        contextWindow: 64_000,
+        contextWindow: 262_144,
         maxTokens: 16_000,
         toolCalls: true,
       }));

@@ -25,7 +25,7 @@ describe('getProviderConfig', () => {
     expect(result!.baseUrl).toBe('https://api.autohand.ai/v1');
     expect(result!.model).toBe('fantail');
     expect(result!.apiKey).toBe('ah-test-key');
-    expect(result!.contextWindow).toBe(64000);
+    expect(result!.contextWindow).toBe(262144);
   });
 
   it('replaces a stale persisted Fantail context window with the catalog contract', () => {
@@ -41,7 +41,7 @@ describe('getProviderConfig', () => {
       },
     });
 
-    expect(result?.contextWindow).toBe(64000);
+    expect(result?.contextWindow).toBe(262144);
   });
 
   it('returns null when autohandai sdk/api-key cloud config has no API key', () => {
