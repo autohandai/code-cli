@@ -1535,6 +1535,47 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(session.getRawOutput()).toContain('\x1b[?1006l\x1b[?1000l');
   });
 
+  it('does not let a stale composer click hijack the caret after the DSR reply is lost', async () => {
+    const session = await launchInteractive({
+      config: {
+        ui: {
+          promptSuggestions: false,
+        },
+      },
+    });
+
+    await waitForComposer(session);
+    await session.type('hello');
+    await session.text({
+      timeout: 5_000,
+      waitFor: (text) => composerLineIncludes(text, 'hello'),
+      trimEnd: true,
+    });
+
+    // Click, but the terminal never answers the DSR query (e.g. tmux without
+    // passthrough). The user keeps typing instead.
+    await session.click('llo');
+    expect(session.getRawOutput()).toContain('\x1b[6n');
+    await session.type('Y');
+    await session.waitIdle();
+
+    // A late CPR-shaped report must not reposition the caret.
+    const [terminalCursorColumn, terminalCursorRow] = session.getTerminalData().cursor;
+    session.writeRaw(`\x1b[${terminalCursorRow + 1};${terminalCursorColumn + 1}R`);
+    await session.waitIdle();
+    await session.type('X');
+
+    const screen = await session.text({
+      timeout: 5_000,
+      waitFor: (text) => composerLineIncludes(text, 'helloYX'),
+      trimEnd: true,
+    });
+
+    expect(screen).toContain('helloYX');
+
+    await exitInteractive(session);
+  });
+
   it('keeps multiline, large paste, and image paste placeholders intact in the real prompt', async () => {
     const session = await launchInteractive({
       config: {

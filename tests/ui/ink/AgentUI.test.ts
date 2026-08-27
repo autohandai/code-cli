@@ -147,6 +147,78 @@ describe('AgentUI TextBuffer integration helpers', () => {
     expect(stripAnsi(instance.lastFrame() ?? '')).toContain('❯ heXllo');
   });
 
+  it('does not swallow wheel input when mouse composer cursor is enabled', async () => {
+    const instance = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state: { ...createInitialUIState(), currentInput: 'hello' },
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+            mouseComposerCursor: true,
+          }),
+        ),
+      ),
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const frame = stripAnsi(instance.lastFrame() ?? '');
+    const contentRow = frame.split('\n').findIndex((line) => line.includes('❯ hello')) + 1;
+    expect(contentRow).toBeGreaterThan(0);
+
+    // A wheel-up SGR report must not be consumed as a click, and must not
+    // prevent subsequent keyboard input from reaching the composer.
+    instance.stdin.write(`\x1b[<64;5;${contentRow}M`);
+    instance.stdin.write('X');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(stripAnsi(instance.lastFrame() ?? '')).toContain('❯ helloX');
+  });
+
+  it('expires a pending composer click when the cursor report never arrives', async () => {
+    const instance = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state: { ...createInitialUIState(), currentInput: 'hello' },
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+            mouseComposerCursor: true,
+          }),
+        ),
+      ),
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const frame = stripAnsi(instance.lastFrame() ?? '');
+    const contentRow = frame.split('\n').findIndex((line) => line.includes('❯ hello')) + 1;
+    expect(contentRow).toBeGreaterThan(0);
+
+    // Press without the terminal answering the DSR query (e.g. tmux without
+    // passthrough). A later CPR-shaped report must not reposition the caret.
+    instance.stdin.write(`\x1b[<0;5;${contentRow}M`);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    // The DSR reply never arrives; the user keeps typing. The pending click
+    // must not hijack a later CPR-shaped report.
+    instance.stdin.write('Y');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    instance.stdin.write(`\x1b[${contentRow};8R`);
+    instance.stdin.write('X');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(stripAnsi(instance.lastFrame() ?? '')).toContain('❯ helloYX');
+  });
+
   it('supports multiline cursor offsets', () => {
     const buffer = new TextBuffer(20, 10, 'hello\nworld');
 
