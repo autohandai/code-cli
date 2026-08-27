@@ -30,7 +30,7 @@ export interface ToolLoopResultDecision {
 export type ToolReflectionDecision =
   | { type: 'allow' }
   | { type: 'require_reflection' }
-  | { type: 'force_final' }
+  | { type: 'proceed_unreflected' }
   | { type: 'integrity_failure' };
 
 export interface ToolLoopGuardOptions {
@@ -204,9 +204,14 @@ export class ToolReflectionGuard {
       return { type: 'require_reflection' };
     }
 
+    // The reminder was already delivered once. Blocking again would strand the
+    // turn: the assistant loses tool access, cannot perform the work it just
+    // announced, and the user gets a progress note instead of an answer.
+    // Repetition and blind retries stay covered by ToolLoopGuard and the
+    // tool-result integrity check, so step aside and let the work proceed.
     this.awaitingReflection = false;
     this.violationCount = 0;
-    return { type: 'force_final' };
+    return { type: 'proceed_unreflected' };
   }
 }
 

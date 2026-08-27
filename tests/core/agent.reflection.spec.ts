@@ -14,6 +14,10 @@ import { AutohandAgent } from '../../src/core/agent.js';
 import { ReactionParser } from '../../src/core/agent/ReactionParser.js';
 import { runAgentReactLoop } from '../../src/core/agent/ReactLoopRunner.js';
 import { ToolReflectionGuard } from '../../src/core/agent/ToolLoopPolicy.js';
+import {
+  DEFAULT_RESPONSE_COMPLETION_HOOKS,
+  type ResponseCompletionHook,
+} from '../../src/core/agent/ResponseCompletionClassifier.js';
 import type {
   AgentRuntime,
   AssistantReactPayload,
@@ -45,7 +49,10 @@ function createNativeToolCall(id: string, name = 'read_file', args: Record<strin
   };
 }
 
-function createReactLoopHarness(completions: LLMResponse[]) {
+function createReactLoopHarness(
+  completions: LLMResponse[],
+  harnessOptions: { responseCompletionHooks?: readonly ResponseCompletionHook[] } = {},
+) {
   const parser = createParser();
   const messages: LLMMessage[] = [{ role: 'user', content: 'check reflection' }];
   const systemNotes: string[] = [];
@@ -69,6 +76,9 @@ function createReactLoopHarness(completions: LLMResponse[]) {
 
   const host = {
     activeProvider: 'openai' as const,
+    ...(harnessOptions.responseCompletionHooks
+      ? { responseCompletionHooks: harnessOptions.responseCompletionHooks }
+      : {}),
     autoReportManager: { reportError: vi.fn(async () => {}) },
     consecutiveCancellations: 0,
     contextOrchestrator: {
@@ -383,7 +393,7 @@ describe('Reflection loop guard logic', () => {
     expect(needsReflection).toBe(false);
   });
 
-  it('forces a final response after the reflection violation limit is exceeded', () => {
+  it('stops blocking after one reminder instead of stranding the turn', () => {
     const guard = new ToolReflectionGuard();
     const payload: AssistantReactPayload = {
       toolCalls: [{ tool: 'read_file', args: { path: 'a.ts' } }]
@@ -391,7 +401,21 @@ describe('Reflection loop guard logic', () => {
     guard.expectReflection();
 
     expect(guard.evaluate(payload)).toEqual({ type: 'require_reflection' });
-    expect(guard.evaluate(payload)).toEqual({ type: 'force_final' });
+    expect(guard.evaluate(payload)).toEqual({ type: 'proceed_unreflected' });
+  });
+
+  it('resets after standing down so a later reminder still fires once', () => {
+    const guard = new ToolReflectionGuard();
+    const payload: AssistantReactPayload = {
+      toolCalls: [{ tool: 'read_file', args: { path: 'a.ts' } }]
+    };
+
+    guard.expectReflection();
+    expect(guard.evaluate(payload)).toEqual({ type: 'require_reflection' });
+    expect(guard.evaluate(payload)).toEqual({ type: 'proceed_unreflected' });
+
+    guard.expectReflection();
+    expect(guard.evaluate(payload)).toEqual({ type: 'require_reflection' });
   });
 
   it('does not trigger guard on first iteration (no prior tool results)', () => {
@@ -505,7 +529,7 @@ describe('Reflection guard integration', () => {
     expect(emittedMessages).toContain('Stopped after reminder.');
   });
 
-  it('forces a tool-free response after a second unreflected follow-up attempt', async () => {
+  it('blocks the follow-up call once and then lets the next attempt through', async () => {
     const { host, systemNotes, executedCalls, emittedMessages, complete } = createReactLoopHarness([
       {
         content: 'Initial lookup',
@@ -517,19 +541,20 @@ describe('Reflection guard integration', () => {
       },
       {
         content: 'still short',
-        toolCalls: [createNativeToolCall('call_3', 'read_file', { path: 'blocked-twice.ts' })],
+        toolCalls: [createNativeToolCall('call_3', 'read_file', { path: 'allowed-after-reminder.ts' })],
       },
       {
-        content: '{"finalResponse":"Stopped after two missing reflections."}',
+        content: '{"finalResponse":"Finished after one reflection reminder."}',
       },
     ]);
 
     await runAgentReactLoop(host, new AbortController());
 
-    expect(executedCalls.map((call) => call.id)).toEqual(['call_1']);
-    expect(systemNotes.some((note) => note.startsWith('[Critical Reflection Guard]'))).toBe(true);
-    expect(complete.mock.calls[3]?.[0]?.tools).toBeUndefined();
-    expect(emittedMessages).toContain('Stopped after two missing reflections.');
+    expect(executedCalls.map((call) => call.id)).toEqual(['call_1', 'call_3']);
+    expect(systemNotes.some((note) => note.startsWith('[Reflection Required]'))).toBe(true);
+    expect(systemNotes.some((note) => note.startsWith('[Critical Reflection Guard]'))).toBe(false);
+    expect(complete.mock.calls[3]?.[0]?.tools).toBeDefined();
+    expect(emittedMessages).toContain('Finished after one reflection reminder.');
   });
 
   it('treats a missing-tool-output reflection as an integrity failure instead of re-running tools', async () => {
@@ -632,5 +657,142 @@ describe('System prompt includes reflection instructions', () => {
     expect(prompt).toContain('Reflect Before Acting');
     expect(prompt).toContain('reflection');
     expect(prompt).toContain('Reason + Reflect + Act');
+  });
+});
+
+/* ── Regression: reflection guard must not strand a turn ──── */
+
+/**
+ * Reported symptom: the agent printed a reflection ending in "Let me try
+ * reading those files now." and then stopped, never reading anything.
+ *
+ * Two independent defects produced it:
+ *  1. The reflection guard escalated to a permanent tool ban, so the assistant
+ *     could no longer act even after it produced the reflection it was asked
+ *     for.
+ *  2. `responseCompletionHooks` was never wired onto the real react-loop host,
+ *     so an announced-but-unexecuted action was rendered as the final answer
+ *     instead of being rejected and retried.
+ */
+describe('Reflection guard dead-end regression', () => {
+  it('lets the assistant keep working after a second unreflected tool call', async () => {
+    const { host, systemNotes, executedCalls, emittedMessages, complete } = createReactLoopHarness([
+      {
+        content: 'Initial lookup',
+        toolCalls: [createNativeToolCall('call_1', 'read_file', { path: 'first.ts' })],
+      },
+      {
+        content: 'short',
+        toolCalls: [createNativeToolCall('call_2', 'read_file', { path: 'reminded.ts' })],
+      },
+      {
+        content: 'still short',
+        toolCalls: [createNativeToolCall('call_3', 'read_file', { path: 'recovered.ts' })],
+      },
+      {
+        content: '{"finalResponse":"Both files read."}',
+      },
+    ]);
+
+    await runAgentReactLoop(host, new AbortController());
+
+    expect(executedCalls.map((call) => call.args?.path)).toEqual(['first.ts', 'recovered.ts']);
+    expect(systemNotes.some((note) => note.startsWith('[Reflection Required]'))).toBe(true);
+    expect(systemNotes.some((note) => note.startsWith('[Critical Reflection Guard]'))).toBe(false);
+    expect(complete.mock.calls[2]?.[0]?.tools).toBeDefined();
+    expect(emittedMessages).toContain('Both files read.');
+  });
+
+  it('does not ban tools for the rest of the turn once a reminder is ignored', async () => {
+    const { host, complete, emittedMessages } = createReactLoopHarness([
+      {
+        content: 'Initial lookup',
+        toolCalls: [createNativeToolCall('call_1', 'read_file', { path: 'first.ts' })],
+      },
+      {
+        content: 'short',
+        toolCalls: [createNativeToolCall('call_2', 'read_file', { path: 'reminded.ts' })],
+      },
+      {
+        content: 'still short',
+        toolCalls: [createNativeToolCall('call_3', 'read_file', { path: 'recovered.ts' })],
+      },
+      {
+        content: '{"reflection":"Both files described the delegator.","thought":"Now I can answer."}',
+        toolCalls: [createNativeToolCall('call_4', 'read_file', { path: 'follow-up.ts' })],
+      },
+      {
+        content: '{"finalResponse":"Answered after recovering."}',
+      },
+    ]);
+
+    await runAgentReactLoop(host, new AbortController());
+
+    for (const call of complete.mock.calls) {
+      expect(call[0]?.tools).toBeDefined();
+    }
+    expect(emittedMessages).toContain('Answered after recovering.');
+  });
+
+  it('rejects an announced-but-unexecuted action instead of presenting it as the answer', async () => {
+    const announcement = [
+      "I need to stop and reflect on what I've gathered so far before proceeding.",
+      '',
+      'I was trying to read the actual implementation files but the tool calls were blocked.',
+      'I need to read `src/commands/agents.ts` and `src/core/agents/AgentDelegator.ts` implementation',
+      'before I can plan the "kill/stop" feature.',
+      '',
+      'Let me try reading those files now.',
+    ].join('\n');
+
+    const { host, systemNotes, executedCalls, emittedMessages } = createReactLoopHarness(
+      [
+        { content: announcement },
+        {
+          content: 'Reading the delegator now.',
+          toolCalls: [createNativeToolCall('call_1', 'read_file', { path: 'AgentDelegator.ts' })],
+        },
+        { content: '{"finalResponse":"`/agents` delegates through AgentDelegator."}' },
+      ],
+      { responseCompletionHooks: DEFAULT_RESPONSE_COMPLETION_HOOKS },
+    );
+
+    await runAgentReactLoop(host, new AbortController());
+
+    expect(systemNotes.some((note) => note.includes('announced an action but emitted no tool calls'))).toBe(true);
+    expect(executedCalls.map((call) => call.args?.path)).toEqual(['AgentDelegator.ts']);
+    expect(emittedMessages).toContain('`/agents` delegates through AgentDelegator.');
+    expect(emittedMessages).not.toContain(announcement);
+  });
+
+  it('does not police announced actions on a turn where tools were withheld', async () => {
+    const { host, systemNotes, emittedMessages } = createReactLoopHarness(
+      [
+        {
+          content: 'Initial lookup',
+          toolCalls: [createNativeToolCall('call_1', 'read_file', { path: 'same.ts' })],
+        },
+        {
+          content: '{"reflection":"The previous tool outputs weren\'t visible in my context.","thought":"I should retry."}',
+          toolCalls: [createNativeToolCall('call_2', 'read_file', { path: 'same.ts' })],
+        },
+        { content: 'I need to read the file again before I can answer.' },
+      ],
+      { responseCompletionHooks: DEFAULT_RESPONSE_COMPLETION_HOOKS },
+    );
+
+    await runAgentReactLoop(host, new AbortController());
+
+    expect(systemNotes.some((note) => note.startsWith('[Tool Result Integrity]'))).toBe(true);
+    expect(systemNotes.some((note) => note.includes('announced an action but emitted no tool calls'))).toBe(false);
+    expect(emittedMessages).toContain('I need to read the file again before I can answer.');
+  });
+
+  it('wires the response-completion hooks onto the real react-loop host', () => {
+    const agent = createMinimalAgent();
+    const host = agent.createReactLoopHost();
+
+    expect(host.responseCompletionHooks).toEqual(DEFAULT_RESPONSE_COMPLETION_HOOKS);
+    expect(host.responseCompletionHooks.length).toBeGreaterThan(0);
   });
 });
