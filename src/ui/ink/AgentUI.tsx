@@ -63,6 +63,13 @@ import {
 } from './mouseInput.js';
 
 /**
+ * A pending composer click is only valid while we await the terminal's DSR
+ * cursor-position reply. If that reply is delayed beyond this window, a later
+ * CPR-shaped report must not reposition the caret from a stale click.
+ */
+const PENDING_MOUSE_CLICK_EXPIRY_MS = 2_000;
+
+/**
  * Fixed, theme-independent colors for the status-line mode glyph — these must
  * stay legible on any light/dark theme, so they deliberately bypass useTheme().
  */
@@ -786,7 +793,6 @@ export function AgentUI({
   inputRef.current = input;
   const composerLayoutRef = useRef<ComposerOutputLayout | null>(null);
   const pendingMouseClickRef = useRef<{ input: SgrMouseInput; at: number } | null>(null);
-  const pendingMouseClickExpiryMs = 2_000;
   const handleComposerLayoutChange = useCallback((layout: ComposerOutputLayout | null) => {
     composerLayoutRef.current = layout;
   }, []);
@@ -1321,7 +1327,7 @@ export function AgentUI({
         if (
           !pendingClick
           || !layout
-          || Date.now() - pendingClick.at > pendingMouseClickExpiryMs
+          || Date.now() - pendingClick.at > PENDING_MOUSE_CLICK_EXPIRY_MS
         ) {
           return;
         }
@@ -2000,6 +2006,11 @@ export function AgentUI({
     : getInteractionModeDescription(interactionMode);
 
   return (
+    <Box flexDirection="column">
+      {/* Mode indicator rendered at top so it stays visible and never scrolls into scrollback */}
+      {interactionModeIndicator && <Text>{interactionModeIndicator}</Text>}
+    </Box>
+    <Box flexDirection="column">
     <Box flexDirection="column">
       {liveCommandItems.map((item) => (
         <LiveCommandBlock key={item.id} entry={item} />
