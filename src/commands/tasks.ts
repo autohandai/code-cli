@@ -31,7 +31,7 @@ export async function tasks(ctx: TasksCommandContext): Promise<string | null> {
   }
 
   const model = buildTaskPanelModel(normalizeTaskPanelRows(ctx.teamManager.tasks.listTasks()), {
-    maxRows: Number.MAX_SAFE_INTEGER,
+    maxRows: 100,
   });
 
   return renderTaskPanelText(model);
