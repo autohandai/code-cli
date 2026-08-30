@@ -123,7 +123,7 @@ export function isAgentIdleLogoutEnabled(
 ): boolean {
   if (runtime.options.idleLogout === false) return false;
   // Experimental: idle logout stays off unless explicitly enabled via config.
-  if (getFeatureState(runtime.config, 'idle_logout')?.enabled !== true) return false;
+  if (getFeatureState(runtime.config, 'idle_logout')?.enabled !== false) return false;
   if (isTruthyEnvValue(env.AUTOHAND_NO_IDLE_LOGOUT?.toLowerCase())) return false;
   return true;
 }
