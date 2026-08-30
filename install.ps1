@@ -293,10 +293,11 @@ function Get-UpdatedUserPath {
     }
 
     if (-not [string]::IsNullOrWhiteSpace($CurrentPath)) {
-        foreach ($entry in $CurrentPath.Split(';')) {
-            # Compared literally, never with -like: install directories may legitimately
-            # contain wildcard characters such as [ and ].
-            $normalized = $entry.Trim().Trim('"').Trim().TrimEnd('\', '/')
+        # Split on semicolons, but respect quoted entries that may contain semicolons.
+        # Use a simple regex that handles quoted paths.
+        $entries = [regex]::Split($CurrentPath, '(?<=^[^"]*"(?:[^"]*"[^"]*")*[^"]*$)')
+        foreach ($entry in $entries) {
+            $normalized = $entry.Trim().Trim('"').TrimEnd('\', '/')
             if ([string]::IsNullOrWhiteSpace($normalized)) {
                 continue
             }
