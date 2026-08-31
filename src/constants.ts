@@ -57,7 +57,10 @@ export function resolveAutohandHome(options: AutohandHomeResolutionOptions = {})
     homeFromWindowsAppData(environment.LOCALAPPDATA),
     homeFromWindowsAppData(environment.APPDATA),
     homeDirectory,
-  ].find((value): value is string => Boolean(value) && !isWindowsSystemLocation(value));
+  ].find((value): value is string => {
+    if (typeof value !== 'string' || !value) return false;
+    return !isWindowsSystemLocation(value);
+  });
 
   return path.win32.join(candidate ?? homeDirectory, '.autohand');
 }
