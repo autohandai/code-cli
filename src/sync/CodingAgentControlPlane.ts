@@ -8,7 +8,13 @@ import crypto from 'node:crypto';
 import fs from 'fs-extra';
 
 import { AUTOHAND_FILES, AUTOHAND_HOME } from '../constants.js';
-import { getNestedValue, SETTING_CATEGORIES, SETTINGS_REGISTRY } from '../commands/settings.js';
+import {
+  getNestedValue,
+  setNestedValue,
+  SETTING_CATEGORIES,
+  SETTINGS_REGISTRY,
+  type SettingDef,
+} from '../commands/settings.js';
 import { saveConfig } from '../config.js';
 import { t } from '../i18n/index.js';
 import type { LoadedConfig, McpServerConfigEntry } from '../types.js';
@@ -46,6 +52,15 @@ export type CodingAgentSettingsSnapshot = {
   config: Record<string, unknown>;
 };
 
+export type CodingAgentSettingsProfile = {
+  id: string;
+  name: string;
+  settings: Record<string, string | number | boolean>;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type ConnectorStateResponse = {
   success?: boolean;
   revision?: number;
@@ -61,6 +76,12 @@ type ConnectorMutationResponse = {
 
 type ControlPlaneResponse = {
   success?: boolean;
+  error?: string;
+};
+
+type SettingsProfilesResponse = {
+  success?: boolean;
+  profiles?: CodingAgentSettingsProfile[];
   error?: string;
 };
 
@@ -151,6 +172,21 @@ export class CodingAgentControlPlaneClient {
       },
     );
     if (!payload.success) throw new Error(payload.error || 'Coding Agent settings snapshot upload failed');
+  }
+
+  async pullSettingsProfiles(
+    authToken: string,
+    signal?: AbortSignal,
+  ): Promise<CodingAgentSettingsProfile[]> {
+    const payload = await this.request<SettingsProfilesResponse>(
+      '/v1/coding-agent/cli/settings-profiles',
+      authToken,
+      { method: 'GET', signal },
+    );
+    if (!payload.success || !Array.isArray(payload.profiles)) {
+      throw new Error(payload.error || 'Coding Agent settings profile sync response was invalid');
+    }
+    return payload.profiles;
   }
 
   private async request<T>(
@@ -258,6 +294,47 @@ export function createCodingAgentSettingsSnapshot(config: LoadedConfig, deviceId
   };
 }
 
+function acceptsProfileValue(setting: SettingDef, value: unknown): value is string | number | boolean {
+  if (setting.type === 'password') return false;
+  if (setting.type === 'boolean') return typeof value === 'boolean';
+  if (setting.type === 'number') return typeof value === 'number' && Number.isFinite(value);
+  if (setting.type === 'enum') return typeof value === 'string' && Boolean(setting.enumValues?.includes(value));
+  return typeof value === 'string';
+}
+
+/**
+ * Applies a server-selected profile only through the same public registry that
+ * backs `/settings` and `autohand config set`. Unknown and credential-bearing
+ * keys cannot reach a local config file through this path.
+ */
+export function applyCodingAgentSettingsProfile(
+  config: LoadedConfig,
+  profile: CodingAgentSettingsProfile,
+): { changed: boolean; appliedKeys: string[] } {
+  const settingsByKey = new Map(SETTINGS_REGISTRY.map((setting) => [setting.key, setting]));
+  const appliedKeys: string[] = [];
+  for (const [key, value] of Object.entries(profile.settings)) {
+    const setting = settingsByKey.get(key);
+    if (!setting || !acceptsProfileValue(setting, value)) continue;
+    if (Object.is(getNestedValue(config as unknown as Record<string, unknown>, key), value)) continue;
+    setNestedValue(config as unknown as Record<string, unknown>, key, value);
+    appliedKeys.push(key);
+  }
+  return { changed: appliedKeys.length > 0, appliedKeys };
+}
+
+export async function applyDefaultCodingAgentSettingsProfileOnLogin(
+  config: LoadedConfig,
+  authToken: string,
+): Promise<CodingAgentSettingsProfile | null> {
+  const profiles = await new CodingAgentControlPlaneClient(config).pullSettingsProfiles(authToken);
+  const profile = profiles.find((candidate) => candidate.isDefault);
+  if (!profile) return null;
+  const applied = applyCodingAgentSettingsProfile(config, profile);
+  if (applied.changed) await saveConfig(config);
+  return profile;
+}
+
 export function applyManagedConnectors(
   config: LoadedConfig,
   revision: number,
@@ -296,6 +373,12 @@ export async function syncCodingAgentControlPlane(
 ): Promise<CodingAgentControlPlaneSyncResult> {
   const deviceId = await getOrCreateCodingAgentDeviceId();
   const client = new CodingAgentControlPlaneClient(config);
+  // Settings profiles are an additive control-plane feature. Do not make an
+  // existing connector sync unavailable while a client is talking to an older
+  // API deployment or lacks access to profiles.
+  const settingsProfilesPromise = client
+    .pullSettingsProfiles(authToken, options.signal)
+    .catch(() => [] as CodingAgentSettingsProfile[]);
   for (const server of config.mcp?.servers || []) {
     if (server.managedConnectorId || (server.transport !== 'http' && server.transport !== 'stdio')) {
       continue;
@@ -307,14 +390,21 @@ export async function syncCodingAgentControlPlane(
       if (!message.includes('already exists')) throw error;
     }
   }
-  const state = await client.pullConnectors(authToken, deviceId, options.signal);
+  const [state, settingsProfiles] = await Promise.all([
+    client.pullConnectors(authToken, deviceId, options.signal),
+    settingsProfilesPromise,
+  ]);
+  const defaultProfile = settingsProfiles.find((profile) => profile.isDefault);
+  const profileApplied = defaultProfile
+    ? applyCodingAgentSettingsProfile(config, defaultProfile)
+    : { changed: false, appliedKeys: [] };
   const applied = applyManagedConnectors(config, state.revision, state.connectors);
-  if (applied.changed) await saveConfig(config);
+  if (applied.changed || profileApplied.changed) await saveConfig(config);
   await client.uploadSettingsSnapshot(
     authToken,
     createCodingAgentSettingsSnapshot(config, deviceId),
     options.signal,
   );
   await client.acknowledgeConnectors(authToken, deviceId, state.revision, options.signal);
-  return { changed: applied.changed, mcp: config.mcp, revision: state.revision };
+  return { changed: applied.changed || profileApplied.changed, mcp: config.mcp, revision: state.revision };
 }

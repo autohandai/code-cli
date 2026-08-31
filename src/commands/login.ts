@@ -281,6 +281,19 @@ export async function login(ctx: LoginContext): Promise<string | null> {
 
       await saveConfig(updatedConfig, { writeAuth: true });
 
+      // Profiles are independent from generic file sync. A user who chooses a
+      // default profile in Console receives it on the next successful sign-in,
+      // even when settings sync is disabled for this machine.
+      try {
+        const { applyDefaultCodingAgentSettingsProfileOnLogin } = await import('../sync/CodingAgentControlPlane.js');
+        const profile = await applyDefaultCodingAgentSettingsProfileOnLogin(updatedConfig, pollResult.token);
+        if (profile) {
+          console.log(chalk.dim(`Applied Coding Agent settings profile: ${profile.name}`));
+        }
+      } catch {
+        // Login remains successful when the optional control plane is offline.
+      }
+
       console.log();
       console.log(chalk.green(t('commands.login.success', { email: pollResult.user.name || pollResult.user.email })));
 
