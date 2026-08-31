@@ -47,7 +47,9 @@ const createMockRuntime = (overrides: Partial<AgentRuntime> = {}): AgentRuntime 
   ...overrides
 } as AgentRuntime);
 
-function createExecutor() {
+function createExecutor(options: {
+  onActivityTodosUpdated?: ReturnType<typeof vi.fn>;
+} = {}) {
   return new ActionExecutor({
     runtime: createMockRuntime(),
     files: mockFileActionManager as any,
@@ -55,6 +57,7 @@ function createExecutor() {
     confirmDangerousAction: vi.fn().mockResolvedValue(true),
     onAskFollowup: vi.fn(),
     onToolOutput: undefined,
+    onActivityTodosUpdated: options.onActivityTodosUpdated,
     onFileModified: undefined,
     onReviewHook: undefined,
     onTodoUpdate: undefined,
@@ -321,6 +324,34 @@ describe('actionExecutor input validation', () => {
 
 
   describe('todo_write', () => {
+    it('publishes the complete normalized task list to the sticky activity surface', async () => {
+      const onActivityTodosUpdated = vi.fn();
+      executor = createExecutor({ onActivityTodosUpdated });
+
+      await executor.execute({
+        type: 'todo_write',
+        tasks: [
+          { content: 'Inspect the current layout', status: 'completed' as const, activeForm: 'Inspecting the current layout' },
+          { content: 'Keep active work visible', status: 'in_progress' as const, activeForm: 'Keeping active work visible' },
+        ],
+      } as any);
+
+      expect(onActivityTodosUpdated).toHaveBeenCalledWith([
+        expect.objectContaining({
+          title: 'Inspect the current layout',
+          content: 'Inspect the current layout',
+          status: 'completed',
+          activeForm: 'Inspecting the current layout',
+        }),
+        expect.objectContaining({
+          title: 'Keep active work visible',
+          content: 'Keep active work visible',
+          status: 'in_progress',
+          activeForm: 'Keeping active work visible',
+        }),
+      ]);
+    });
+
     it('accepts tasks without id field (LLM sends {content, status, activeForm})', async () => {
       const action = {
         type: 'todo_write',

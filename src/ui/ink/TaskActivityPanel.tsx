@@ -25,8 +25,10 @@ export interface ActivityItem {
 
 export interface TaskActivityPanelProps {
   items: ActivityItem[];
-  /** Max rows to show before collapsing (default 6). */
+  /** Max plan rows to show before collapsing (default 4). */
   maxVisible?: number;
+  /** Current terminal height so small viewports retain the plan summary and active row. */
+  terminalRows?: number;
 }
 
 const STATUS_ORDER: Record<ActivityItemStatus, number> = {
@@ -65,16 +67,15 @@ export function summarizeActivity(items: ActivityItem[]): {
   return { total: items.length, done, inProgress, open, failed };
 }
 
-/** Pick visible rows: in-progress first, then pending/failed, then completed. */
+/** Pick visible rows: active work first while preserving authored order within each status. */
 export function selectVisibleActivityItems(
   items: ActivityItem[],
-  maxVisible = 6,
+  maxVisible = 4,
 ): { visible: ActivityItem[]; hiddenPending: number; hiddenCompleted: number } {
-  const sorted = [...items].sort((a, b) => {
-    const byStatus = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
-    if (byStatus !== 0) return byStatus;
-    return a.label.localeCompare(b.label);
-  });
+  const sorted = items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => STATUS_ORDER[a.item.status] - STATUS_ORDER[b.item.status] || a.index - b.index)
+    .map(({ item }) => item);
 
   if (sorted.length <= maxVisible) {
     return { visible: sorted, hiddenPending: 0, hiddenCompleted: 0 };
@@ -102,50 +103,75 @@ export function statusGlyph(status: ActivityItemStatus): string {
   }
 }
 
-function TaskActivityPanelComponent({ items, maxVisible = 6 }: TaskActivityPanelProps) {
+function formatHiddenItems(hiddenPending: number, hiddenCompleted: number): string {
+  return [
+    hiddenPending > 0 ? `${hiddenPending} pending` : null,
+    hiddenCompleted > 0 ? `${hiddenCompleted} completed` : null,
+  ].filter((value): value is string => value !== null).join(', ');
+}
+
+export function getTaskActivityMaxVisible(terminalRows: number | undefined): number {
+  const rows = terminalRows ?? 24;
+  return Math.max(1, Math.min(4, rows - 14));
+}
+
+function TaskActivityPanelComponent({ items, maxVisible, terminalRows }: TaskActivityPanelProps) {
   const { colors, theme } = useTheme();
-  const summary = useMemo(() => summarizeActivity(items), [items]);
-  const selection = useMemo(
-    () => selectVisibleActivityItems(items, maxVisible),
-    [items, maxVisible],
+  const effectiveMaxVisible = maxVisible ?? getTaskActivityMaxVisible(terminalRows);
+  const todos = useMemo(() => items.filter((item) => item.kind === 'todo'), [items]);
+  const workers = useMemo(() => items.filter((item) => item.kind === 'subagent'), [items]);
+  const todoSummary = useMemo(() => summarizeActivity(todos), [todos]);
+  const todoSelection = useMemo(
+    () => selectVisibleActivityItems(todos, effectiveMaxVisible),
+    [todos, effectiveMaxVisible],
   );
+  const workerSelection = useMemo(() => selectVisibleActivityItems(workers, 2), [workers]);
 
   if (items.length === 0) {
     return null;
   }
 
-  const openCount = summary.open + summary.inProgress;
-  const header = `${summary.total} task${summary.total === 1 ? '' : 's'} (${summary.done} done, ${summary.inProgress} in progress, ${openCount} open${summary.failed > 0 ? `, ${summary.failed} failed` : ''})`;
+  const todoHeader = `Task plan · ${todoSummary.done}/${todoSummary.total} complete · ${todoSummary.inProgress} active · ${todoSummary.open} queued${todoSummary.failed > 0 ? ` · ${todoSummary.failed} failed` : ''}`;
+  const workerSummary = summarizeActivity(workers);
+  const workerHeader = `Workers · ${workerSummary.inProgress} running${workerSummary.open > 0 ? ` · ${workerSummary.open} queued` : ''}${workerSummary.failed > 0 ? ` · ${workerSummary.failed} failed` : ''}`;
+
+  const renderItem = (item: ActivityItem) => {
+    const glyph = statusGlyph(item.status);
+    const color =
+      item.status === 'completed'
+        ? colors.success
+        : item.status === 'in_progress'
+          ? colors.warning
+          : item.status === 'failed'
+            ? colors.error
+            : colors.muted;
+    const detail = item.detail ? theme.fg('muted', ` · ${item.detail}`) : '';
+    return (
+      <Box key={item.id} gap={1} width="100%">
+        <Text color={color}>{glyph}</Text>
+        <Text wrap="truncate">
+          {item.kind === 'subagent' ? '🤖 ' : ''}
+          {item.label}
+          {detail}
+        </Text>
+      </Box>
+    );
+  };
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <Text color={colors.muted}>{header}</Text>
-      {selection.visible.map((item) => {
-        const glyph = statusGlyph(item.status);
-        const color =
-          item.status === 'completed'
-            ? colors.success
-            : item.status === 'in_progress'
-              ? colors.warning
-              : item.status === 'failed'
-                ? colors.error
-                : colors.muted;
-        const kindPrefix = item.kind === 'subagent' ? '🤖 ' : '';
-        const detail = item.detail ? theme.fg('muted', ` · ${item.detail}`) : '';
-        return (
-          <Box key={item.id} gap={1}>
-            <Text color={color}>{glyph}</Text>
-            <Text>
-              {kindPrefix}
-              {item.label}
-              {detail}
-            </Text>
-          </Box>
-        );
-      })}
-      {(selection.hiddenPending > 0 || selection.hiddenCompleted > 0) && (
+      {todos.length > 0 && <Text color={colors.muted}>{todoHeader}</Text>}
+      {todoSelection.visible.map(renderItem)}
+      {(todoSelection.hiddenPending > 0 || todoSelection.hiddenCompleted > 0) && (
         <Text color={colors.dim}>
-          {`  … +${selection.hiddenPending} pending, ${selection.hiddenCompleted} completed`}
+          {`  … +${formatHiddenItems(todoSelection.hiddenPending, todoSelection.hiddenCompleted)}`}
+        </Text>
+      )}
+      {workers.length > 0 && <Text color={colors.muted}>{workerHeader}</Text>}
+      {workerSelection.visible.map(renderItem)}
+      {(workerSelection.hiddenPending > 0 || workerSelection.hiddenCompleted > 0) && (
+        <Text color={colors.dim}>
+          {`  … +${formatHiddenItems(workerSelection.hiddenPending, workerSelection.hiddenCompleted)}`}
         </Text>
       )}
     </Box>

@@ -87,7 +87,7 @@ import { RemoteFeatureFlagManager } from '../../features/RemoteFeatureFlagManage
 import { getAnnouncementManager } from '../../announcements/AnnouncementManager.js';
 import { getAuthClient } from '../../auth/index.js';
 import { syncAgentAnnouncementLine } from './AgentUIRuntime.js';
-import { formatSubAgentActivityLabel } from '../../ui/ink/TaskActivityPanel.js';
+import { activityItemsFromTodos, formatSubAgentActivityLabel } from '../../ui/ink/TaskActivityPanel.js';
 import { getFeatureState } from '../../features/featureRegistry.js';
 import { SpecialistOrchestrator } from '../agents/SpecialistOrchestrator.js';
 import { isGoalFeatureEnabled, resolveGoalFeatureEnabled } from '../../goals/feature.js';
@@ -644,6 +644,13 @@ export function initializeAgentDependencies(
       onLiveCommandFinish: (id, success, error) =>
         host.inkRenderer?.finishLiveCommand(id, success, error),
       onLiveCommandRemove: (id) => host.inkRenderer?.removeLiveCommand(id),
+      onActivityTodosUpdated: (todos) => {
+        if (!host.inkRenderer?.setTodoActivityItems) {
+          return false;
+        }
+        host.inkRenderer.setTodoActivityItems(activityItemsFromTodos(todos));
+        return true;
+      },
       onRequestDirectoryAccess: async (path, reason) => host.requestDirectoryAccess(path, reason),
       onMetaToolCreated: () => {
         host.toolManager?.replaceRuntimeMetaTools(host.toolsRegistry.toToolDefinitions());

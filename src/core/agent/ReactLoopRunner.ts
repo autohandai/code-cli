@@ -359,6 +359,15 @@ function normalizeWorkspaceChangePath(value: string): string {
   return value.replaceAll('\\', '/').replace(/^\.\//, '');
 }
 
+const INTERNAL_TASK_STATE_PATH = '.autohand/agents/tasks/todos.json';
+
+export function excludeInternalTaskStateChanges(changeSet: WorkspaceChangeSet): WorkspaceChangeSet {
+  const files = changeSet.files.filter(
+    (file) => normalizeWorkspaceChangePath(file.path) !== INTERNAL_TASK_STATE_PATH,
+  );
+  return files.length === changeSet.files.length ? changeSet : { ...changeSet, files };
+}
+
 function getToolCallFilePath(call: ToolCallRequest | undefined): string | null {
   const pathValue = getStringArg(call?.args, 'path') ?? getStringArg(call?.args, 'file_path');
   if (pathValue) return normalizeWorkspaceChangePath(pathValue);
@@ -974,6 +983,9 @@ export async function runAgentReactLoop(
             if (!host.inkRenderer || !displayToolOutput) {
               return;
             }
+            if (result.tool === 'todo_write' && result.success) {
+              return;
+            }
             if (deferDiffPreview && workspaceChangeCapture && isFileDiffPreview(result)) {
               deferredDiffResults.push({ result, call, thought: resultThought });
               return;
@@ -1090,8 +1102,11 @@ export async function runAgentReactLoop(
           }
 
           if (host.inkRenderer && displayToolOutput) {
+            const visibleWorkspaceChanges = workspaceChanges
+              ? excludeInternalTaskStateChanges(workspaceChanges)
+              : null;
             const changedPaths = new Set(
-              workspaceChanges?.files.map((file) => normalizeWorkspaceChangePath(file.path)) ?? []
+              visibleWorkspaceChanges?.files.map((file) => normalizeWorkspaceChangePath(file.path)) ?? []
             );
             for (const deferred of deferredDiffResults) {
               const filePath = getToolCallFilePath(deferred.call);
@@ -1099,8 +1114,8 @@ export async function runAgentReactLoop(
                 renderToolResult(deferred.result, deferred.call, deferred.thought, false);
               }
             }
-            if (workspaceChanges && workspaceChanges.files.length > 0) {
-              host.inkRenderer.addWorkspaceChanges?.(workspaceChanges);
+            if (visibleWorkspaceChanges && visibleWorkspaceChanges.files.length > 0) {
+              host.inkRenderer.addWorkspaceChanges?.(visibleWorkspaceChanges);
             }
           }
 

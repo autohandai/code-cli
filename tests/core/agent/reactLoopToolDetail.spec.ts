@@ -5,8 +5,12 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { formatToolCallLogDetail } from '../../../src/core/agent/ReactLoopRunner.js';
+import {
+  excludeInternalTaskStateChanges,
+  formatToolCallLogDetail,
+} from '../../../src/core/agent/ReactLoopRunner.js';
 import type { ToolCallRequest } from '../../../src/types.js';
+import type { WorkspaceChangeSet } from '../../../src/core/agent/WorkspaceChangeCapture.js';
 
 function call(tool: string, args: Record<string, unknown>): ToolCallRequest {
   return { tool, args } as unknown as ToolCallRequest;
@@ -75,6 +79,37 @@ describe('formatToolCallLogDetail — humanized tool arguments', () => {
     expect(formatToolCallLogDetail(call('add_teammate', { name: 'auth-security', agent_name: 'code-reviewer' }))).toBe(
       'auth-security',
     );
+  });
+});
+
+describe('excludeInternalTaskStateChanges', () => {
+  it('does not render todo state files as user workspace changes', () => {
+    const changeSet: WorkspaceChangeSet = {
+      omittedFiles: 0,
+      files: [
+        {
+          path: '.autohand/agents/tasks/todos.json',
+          kind: 'added',
+          additions: 23,
+          deletions: 0,
+          binary: false,
+          patch: '+[]',
+        },
+        {
+          path: 'src/ui/ink/TaskActivityPanel.tsx',
+          kind: 'modified',
+          additions: 3,
+          deletions: 1,
+          binary: false,
+          patch: '@@',
+        },
+      ],
+    };
+
+    expect(excludeInternalTaskStateChanges(changeSet)).toEqual({
+      omittedFiles: 0,
+      files: [changeSet.files[1]],
+    });
   });
 });
 
