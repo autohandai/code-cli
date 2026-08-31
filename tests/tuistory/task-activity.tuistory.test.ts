@@ -1,0 +1,119 @@
+/**
+ * @license
+ * Copyright 2026 Autohand AI LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { afterEach, describe, expect, it } from 'vitest';
+import type { Session } from 'tuistory';
+import {
+  createMockOpenRouterSequenceServer,
+  createTempAutohandHome,
+  exitInteractive,
+  launchBuiltAutohand,
+  type MockOpenRouterServer,
+  type TuistoryTempState,
+} from './helpers/autohandTuistory.js';
+
+const sessions: Session[] = [];
+const states: TuistoryTempState[] = [];
+const servers: MockOpenRouterServer[] = [];
+
+function activeViewportText(session: Session): string {
+  const data = session.getTerminalData();
+  return data.lines
+    .slice(Math.max(0, data.lines.length - data.rows))
+    .map((line) => line.spans.map((span) => span.text).join(''))
+    .join('\n');
+}
+
+async function waitForActiveViewport(session: Session, predicate: (viewport: string) => boolean): Promise<string> {
+  const deadline = Date.now() + 20_000;
+  let viewport = '';
+  while (Date.now() < deadline) {
+    viewport = activeViewportText(session);
+    if (predicate(viewport)) {
+      return viewport;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  }
+  expect(predicate(viewport), viewport).toBe(true);
+  return viewport;
+}
+
+afterEach(async () => {
+  for (const session of sessions.splice(0)) session.close();
+  await Promise.all(servers.splice(0).map((server) => server.close()));
+  await Promise.all(states.splice(0).map((state) => state.cleanup()));
+});
+
+describe('interactive task activity', () => {
+  it('keeps the active plan above the composer after tool output fills and resizes the terminal', async () => {
+    const server = await createMockOpenRouterSequenceServer([
+      JSON.stringify({
+        thought: 'Create the plan, then produce enough output to fill the terminal.',
+        toolCalls: [
+          {
+            tool: 'todo_write',
+            args: {
+              tasks: [
+                { content: 'Inspect the active terminal layout', activeForm: 'Inspecting the active terminal layout', status: 'completed' },
+                { content: 'Keep task progress in the composer window', activeForm: 'Keeping task progress in the composer window', status: 'in_progress' },
+                { content: 'Validate the resized terminal', activeForm: 'Validating the resized terminal', status: 'pending' },
+              ],
+            },
+          },
+          {
+            tool: 'shell',
+            args: {
+              command: 'for index in $(seq 1 40); do echo task-activity-log-$index; done',
+            },
+          },
+        ],
+      }),
+      JSON.stringify({ toolCalls: [], finalResponse: 'TASK_ACTIVITY_TURN_COMPLETE' }),
+    ], 4_000);
+    servers.push(server);
+
+    const state = await createTempAutohandHome({
+      config: {
+        openrouter: { baseUrl: server.baseUrl },
+        agent: { maxIterations: 4, sessionRetryLimit: 0 },
+        ui: { promptSuggestions: false },
+      },
+    });
+    states.push(state);
+
+    const session = await launchBuiltAutohand([
+      '--path', state.workspaceRoot,
+      '--config', state.configPath,
+      '--y',
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      cols: 80,
+      rows: 18,
+      waitForDataTimeout: 15_000,
+    });
+    sessions.push(session);
+
+    await session.waitForText('❯', { timeout: 20_000 });
+    await session.type('Show a plan while you inspect the terminal.');
+    await session.press('enter');
+    await session.waitForText('Task plan · 1/3 complete · 1 active · 1 queued', { timeout: 30_000 });
+    await session.resize({ cols: 72, rows: 14 });
+
+    const viewport = await waitForActiveViewport(
+      session,
+      (text) => text.includes('Task plan · 1/3 complete · 1 active · 1 queued')
+        && text.includes('Keeping task progress in the composer window')
+        && text.includes('❯'),
+    );
+
+    expect(viewport.indexOf('Keeping task progress in the composer window')).toBeLessThan(viewport.lastIndexOf('❯'));
+    expect(viewport).not.toContain('📋 Task Progress:');
+    expect(viewport).not.toContain('Updated task list:');
+
+    await exitInteractive(session);
+  }, 60_000);
+});

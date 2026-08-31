@@ -2038,6 +2038,7 @@ export function AgentUI({
       <FixedBottom
         announcement={state.announcement}
         terminalColumns={windowSize.columns ?? process.stdout.columns ?? 80}
+        terminalRows={windowSize.rows}
         isWorking={state.isWorking}
         status={state.status}
         elapsed={state.elapsed}
@@ -2323,6 +2324,7 @@ const CompletionHistoryMessage = memo(function CompletionHistoryMessage({
  * Memoized to prevent re-renders when only input changes
  */
 interface StatusSectionProps {
+  terminalRows?: number;
   isWorking: boolean;
   status: string;
   elapsed: string;
@@ -2396,6 +2398,7 @@ const QueuedInstructionsPanel = memo(function QueuedInstructionsPanel({
 ));
 
 const StatusSection = memo(function StatusSection({
+  terminalRows,
   isWorking,
   status,
   elapsed,
@@ -2424,7 +2427,7 @@ const StatusSection = memo(function StatusSection({
   return (
     <>
       {/* Grouped todos + sub-agent runs — sticky above the spinner/status line */}
-      {showActivity && <TaskActivityPanel items={activityItems} />}
+      {showActivity && <TaskActivityPanel items={activityItems} terminalRows={terminalRows} />}
 
       {teamPanelVisible && teamActivity?.team && (
         <TeamPanel team={teamActivity.team} tasks={teamActivity.tasks} />
@@ -2474,6 +2477,7 @@ const StatusSection = memo(function StatusSection({
 }, (prev, next) => {
   // Only re-render if status-related props change
   return prev.isWorking === next.isWorking &&
+         prev.terminalRows === next.terminalRows &&
          prev.status === next.status &&
          prev.elapsed === next.elapsed &&
          prev.tokens === next.tokens &&
@@ -2721,6 +2725,7 @@ const SkillMentionWrapper = memo(function SkillMentionWrapper({
 interface FixedBottomProps {
   announcement?: AnnouncementLineState;
   terminalColumns: number;
+  terminalRows?: number;
   isWorking: boolean;
   status: string;
   elapsed: string;
@@ -2822,6 +2827,7 @@ function useUserDrivenComposerCursor(
 const FixedBottom = memo(function FixedBottom({
   announcement,
   terminalColumns,
+  terminalRows,
   isWorking,
   status,
   elapsed,
@@ -2873,6 +2879,7 @@ const FixedBottom = memo(function FixedBottom({
         />
       ) : null}
       <StatusSection
+        terminalRows={terminalRows}
         isWorking={isWorking}
         status={status}
         elapsed={elapsed}

@@ -1897,6 +1897,50 @@ describe('AgentUI Ctrl+C behavior', () => {
   });
 });
 
+describe('AgentUI task activity layout', () => {
+  it('keeps the live task plan above the status line and composer', () => {
+    const state = {
+      ...createInitialUIState(),
+      isWorking: true,
+      status: 'Reviewing tool output...',
+      chatMessages: [
+        { role: 'tool' as const, tool: 'shell', success: true, content: Array.from({ length: 40 }, (_, index) => `log-${index + 1}`).join('\n') },
+      ],
+      activityItems: [
+        { id: 'active', kind: 'todo' as const, label: 'Keeping active task progress visible', status: 'in_progress' as const },
+        { id: 'queued', kind: 'todo' as const, label: 'Writing terminal coverage', status: 'pending' as const },
+      ],
+    };
+
+    const { lastFrame } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+            enableQueueInput: true,
+          }),
+        ),
+      ),
+    );
+
+    const frame = stripAnsi(lastFrame() ?? '');
+    const planIndex = frame.indexOf('Task plan · 0/2 complete · 1 active · 1 queued');
+    const statusIndex = frame.indexOf('Reviewing tool output...');
+    const composerIndex = frame.lastIndexOf('❯');
+
+    expect(planIndex).toBeGreaterThan(-1);
+    expect(statusIndex).toBeGreaterThan(planIndex);
+    expect(composerIndex).toBeGreaterThan(statusIndex);
+  });
+});
+
 // =========================================================================
 // Regression: Composer must accept input when idle (isWorking=false).
 // The useInput handler had an early return at line 473 that blocked ALL

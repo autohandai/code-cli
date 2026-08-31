@@ -211,7 +211,7 @@ export interface ActionExecutorOptions {
     content?: string;
     status?: string;
     activeForm?: string;
-  }>) => void;
+  }>) => boolean | void;
   /** Registry of currently running background shell processes, for /ps and /stop. */
   backgroundProcessRegistry?: BackgroundProcessRegistry;
   /** Concurrent sessions sharing this workspace. */
@@ -360,6 +360,7 @@ export class ActionExecutor {
     this.onLiveCommandFinish = deps.onLiveCommandFinish;
     this.onLiveCommandRemove = deps.onLiveCommandRemove;
     this.onMetaToolCreated = deps.onMetaToolCreated;
+    this.onActivityTodosUpdated = deps.onActivityTodosUpdated;
     this.backgroundProcessRegistry = deps.backgroundProcessRegistry;
     this.peerAwareness = deps.peerAwareness;
     this.onPeerWarning = deps.onPeerWarning;
@@ -2758,12 +2759,15 @@ export class ActionExecutor {
         // Write back. Todos are agent state, not workspace edits: never surface
         // todos.json as a modified file or the TUI renders a JSON diff.
         await this.files.writeFile(todoPath, JSON.stringify(allTodos, null, 2));
+        const activitySurfaceHandled = this.onActivityTodosUpdated?.(allTodos) === true;
         // Display summary with progress bar
         const total = allTodos.length;
 
         if (total === 0) {
-          console.log(chalk.dim('\n📋 Task list cleared'));
-          console.log();
+          if (!activitySurfaceHandled) {
+            console.log(chalk.dim('\n📋 Task list cleared'));
+            console.log();
+          }
           return 'Task list cleared (0 tasks)';
         }
 
@@ -2809,7 +2813,9 @@ export class ActionExecutor {
           }
         }
 
-        console.log(`${outputLines.join('\n')}\n`);
+        if (!activitySurfaceHandled) {
+          console.log(`${outputLines.join('\n')}\n`);
+        }
 
         // Structured payload lets the Ink TUI render a real task panel
         // instead of treating this like plain tool output text.
