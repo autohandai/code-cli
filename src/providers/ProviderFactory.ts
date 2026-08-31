@@ -214,11 +214,13 @@ export class ProviderFactory {
                 return new BedrockProvider(config.bedrock);
 
             case 'openrouter':
-            default:
                 if (!config.openrouter) {
                     return new UnconfiguredProvider('openrouter');
                 }
                 return new OpenRouterProvider(config.openrouter);
+
+            default:
+                return new UnconfiguredProvider(providerName);
         }
     }
 

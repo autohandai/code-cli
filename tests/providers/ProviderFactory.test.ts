@@ -298,6 +298,18 @@ describe("ProviderFactory", () => {
 
       expect(provider.getName()).toBe("openrouter");
     });
+
+    it("does not silently fall back to OpenRouter for an unknown configured provider", () => {
+      const provider = ProviderFactory.create({
+        provider: "retired-provider",
+        openrouter: {
+          apiKey: "test-key",
+          model: "anthropic/claude-4-sonnet",
+        },
+      } as unknown as AutohandConfig);
+
+      expect(provider.getName()).toBe("unconfigured");
+    });
   });
 
   describe("isValidProvider()", () => {
