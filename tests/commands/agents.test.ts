@@ -3,9 +3,10 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { formatActiveAgents, handler } from '../../src/commands/agents.js';
 import type { ActiveAgentRecord } from '../../src/session/ActiveAgentRegistry.js';
+import type { LoadedConfig } from '../../src/types.js';
 
 describe('/agents command', () => {
   it('formats the empty active agents state with the definitions hint', () => {
@@ -66,6 +67,55 @@ describe('/agents command', () => {
     const output = await handler(['--once'], { registry: registry as any });
 
     expect(output).toContain('static12');
+  });
+
+  it('saves an Autohand AI default provider and model for future teammates', async () => {
+    const config: LoadedConfig = {
+      configPath: '/tmp/autohand.json',
+      provider: 'autohandai',
+      autohandai: { plan: 'cloud', model: 'fantail' },
+    };
+    const persistConfig = vi.fn().mockResolvedValue(undefined);
+
+    const output = await handler(['provider'], {
+      config,
+      chooseTeamProvider: vi.fn().mockResolvedValue('autohandai'),
+      chooseTeamModel: vi.fn().mockResolvedValue('fantail'),
+      confirmTeamModelSelection: vi.fn().mockResolvedValue(true),
+      persistConfig,
+    });
+
+    expect(config.teams).toEqual({
+      defaultProvider: 'autohandai',
+      defaultModel: 'fantail',
+    });
+    expect(persistConfig).toHaveBeenCalledWith(config);
+    expect(output).toContain('Autohand AI · fantail');
+  });
+
+  it('saves a named sub-agent exception without replacing the team default', async () => {
+    const config: LoadedConfig = {
+      configPath: '/tmp/autohand.json',
+      provider: 'autohandai',
+      autohandai: { plan: 'cloud', model: 'fantail' },
+      teams: { defaultProvider: 'autohandai', defaultModel: 'fantail' },
+    };
+
+    await handler(['provider', 'reviewer'], {
+      config,
+      chooseTeamProvider: vi.fn().mockResolvedValue('anthropic'),
+      chooseTeamModel: vi.fn().mockResolvedValue('claude-sonnet-5'),
+      confirmTeamModelSelection: vi.fn().mockResolvedValue(true),
+      persistConfig: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(config.teams).toEqual({
+      defaultProvider: 'autohandai',
+      defaultModel: 'fantail',
+      agentModelOverrides: {
+        reviewer: { provider: 'anthropic', model: 'claude-sonnet-5' },
+      },
+    });
   });
 });
 

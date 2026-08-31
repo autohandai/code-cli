@@ -93,6 +93,22 @@ describe('TeammateProcess', () => {
     expect(args).toContain('claude-sonnet');
   });
 
+  it('should include the selected provider in spawn args', () => {
+    const args = TeammateProcess.buildSpawnArgs({
+      teamName: 'test',
+      name: 'worker',
+      agentName: 'researcher',
+      leadSessionId: 'sess',
+      provider: 'autohandai',
+      model: 'fantail',
+    });
+
+    expect(args).toContain('--provider');
+    expect(args).toContain('autohandai');
+    expect(args).toContain('--model');
+    expect(args).toContain('fantail');
+  });
+
   it('should include optional workspace path in spawn args', () => {
     const args = TeammateProcess.buildSpawnArgs({
       teamName: 'test',

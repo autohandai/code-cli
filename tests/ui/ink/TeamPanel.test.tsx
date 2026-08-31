@@ -62,6 +62,26 @@ describe('TeamPanel', () => {
     expect(output).toContain('writer');
   });
 
+  it('shows each teammate\'s effective provider and model', () => {
+    const assignedTeam: Team = {
+      ...mockTeam,
+      members: [
+        {
+          name: 'researcher',
+          agentName: 'researcher',
+          pid: 100,
+          status: 'working',
+          provider: 'autohandai',
+          model: 'fantail',
+        },
+      ],
+    };
+
+    const { lastFrame } = renderWithTheme(<TeamPanel team={assignedTeam} tasks={mockTasks} />);
+
+    expect(lastFrame()).toContain('autohandai · fantail');
+  });
+
   it('shows the exit code for a failed teammate process', () => {
     const failedTeam: Team = {
       ...mockTeam,

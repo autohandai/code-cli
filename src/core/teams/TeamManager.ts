@@ -7,8 +7,9 @@
 import { TeammateProcess } from './TeammateProcess.js';
 import { TaskManager } from './TaskManager.js';
 import type { HookContext } from '../HookManager.js';
-import type { HookEvent } from '../../types.js';
+import type { HookEvent, ProviderName } from '../../types.js';
 import type { Team, TeamActivitySnapshot } from './types.js';
+import type { TeamModelAssignmentSource } from './TeamModelPolicy.js';
 
 interface TeamManagerOptions {
   leadSessionId: string;
@@ -22,7 +23,9 @@ interface TeamManagerOptions {
 interface AddTeammateOptions {
   name: string;
   agentName: string;
+  provider?: ProviderName;
   model?: string;
+  modelSource?: TeamModelAssignmentSource;
   requestedRole?: string;
   agentSource?: string;
 }
@@ -133,7 +136,9 @@ export class TeamManager {
       name: opts.name,
       agentName: opts.agentName,
       leadSessionId: this.opts.leadSessionId,
+      provider: opts.provider,
       model: opts.model,
+      modelSource: opts.modelSource,
       requestedRole: opts.requestedRole,
       agentSource: opts.agentSource,
       workspacePath: this.opts.workspacePath,

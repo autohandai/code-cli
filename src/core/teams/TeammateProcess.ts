@@ -7,13 +7,17 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { MessageRouter } from './MessageRouter.js';
 import type { TeamMember, TeamMemberStatus, TeamTask } from './types.js';
+import type { ProviderName } from '../../types.js';
+import type { TeamModelAssignmentSource } from './TeamModelPolicy.js';
 
 interface TeammateSpawnOptions {
   teamName: string;
   name: string;
   agentName: string;
   leadSessionId: string;
+  provider?: ProviderName;
   model?: string;
+  modelSource?: TeamModelAssignmentSource;
   workspacePath?: string;
   configPath?: string;
   requestedRole?: string;
@@ -86,6 +90,7 @@ export class TeammateProcess {
       '--agent', opts.agentName,
       '--lead-session', opts.leadSessionId,
     ];
+    if (opts.provider) args.push('--provider', opts.provider);
     if (opts.model) args.push('--model', opts.model);
     if (opts.workspacePath) args.push('--path', opts.workspacePath);
     if (opts.configPath) args.push('--config', opts.configPath);
@@ -103,6 +108,8 @@ export class TeammateProcess {
       AUTOHAND_TEAMMATE_NAME: opts.name,
       AUTOHAND_TEAMMATE_AGENT: opts.agentName,
       AUTOHAND_TEAM_LEAD_SESSION_ID: opts.leadSessionId,
+      ...(opts.provider ? { AUTOHAND_TEAM_PROVIDER: opts.provider } : {}),
+      ...(opts.model ? { AUTOHAND_TEAM_MODEL: opts.model } : {}),
       ...(opts.requestedRole ? { AUTOHAND_TEAM_REQUESTED_ROLE: opts.requestedRole } : {}),
       ...(opts.agentSource ? { AUTOHAND_TEAM_AGENT_SOURCE: opts.agentSource } : {}),
     };
@@ -256,7 +263,9 @@ export class TeammateProcess {
       pid: this.pid,
       status: this._status,
       ...(this._status === 'shutdown' ? { exitCode: this.exitCode ?? null } : {}),
+      provider: this.opts.provider,
       model: this.opts.model,
+      modelSource: this.opts.modelSource,
       requestedRole: this.opts.requestedRole,
       agentSource: this.opts.agentSource,
     };

@@ -173,7 +173,7 @@ export class SlashCommandHandler {
           const { handler } = await import('../commands/agents.js');
           await this.ctx.onBeforeModal?.();
           try {
-            const output = await handler(args);
+            const output = await handler(args, { config: this.ctx.config });
             if (output) {
               console.log(output);
             }

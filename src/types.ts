@@ -798,6 +798,12 @@ export interface HookResponse {
   additionalContext?: string;
 }
 
+/** Saved provider/model exception for a named sub-agent definition. */
+export interface TeamAgentModelOverride {
+  provider?: ProviderName;
+  model?: string;
+}
+
 /** Team coordination settings */
 export interface TeamSettings {
   /** Enable team features (default: true) */
@@ -806,6 +812,12 @@ export interface TeamSettings {
   teammateMode?: 'auto' | 'in-process' | 'tmux';
   /** Maximum simultaneous teammates (default: 5) */
   maxTeammates?: number;
+  /** Provider used for teammates when no member-specific assignment is supplied. */
+  defaultProvider?: ProviderName;
+  /** Model used for teammates when no member-specific assignment is supplied. */
+  defaultModel?: string;
+  /** Provider/model exceptions keyed by registered sub-agent name. */
+  agentModelOverrides?: Record<string, TeamAgentModelOverride>;
 }
 
 export interface ChromeConfigSettings {
@@ -1526,7 +1538,7 @@ export type AgentAction =
   | { type: 'install_specialist_roster'; plan_id: string; agent_names: string[] }
   // Team coordination tools
   | { type: 'create_team'; name: string }
-  | { type: 'add_teammate'; name: string; agent_name: string; model?: string; requested_role?: string; agent_source?: string }
+  | { type: 'add_teammate'; name: string; agent_name: string; provider?: ProviderName; model?: string; requested_role?: string; agent_source?: string }
   | { type: 'create_task'; subject: string; description: string; blocked_by?: string[] }
   | { type: 'task_get'; task_id: string }
   | { type: 'task_list'; status?: 'pending' | 'in_progress' | 'completed'; owner?: string }

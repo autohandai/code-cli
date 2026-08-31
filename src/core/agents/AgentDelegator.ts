@@ -5,15 +5,19 @@
  */
 
 import chalk from 'chalk';
-import { AgentRegistry } from './AgentRegistry.js';
+import { AgentRegistry, type AgentDefinition } from './AgentRegistry.js';
 import { SubAgent, type SubAgentOptions } from './SubAgent.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
 import { ActionExecutor } from '../actionExecutor.js';
 import type { ClientContext, LoadedConfig, ToolActionOutcome } from '../../types.js';
 import type { ToolAuthorizationOptions, ToolDefinition, ToolManagerOptions } from '../toolManager.js';
+import type { TeamModelAssignment } from '../teams/TeamModelPolicy.js';
 
 /** Default maximum delegation depth to prevent infinite loops */
 const DEFAULT_MAX_DEPTH = 3;
+
+export type SubagentAssignmentResolver = (definition: AgentDefinition) => TeamModelAssignment;
+export type SubagentProviderFactory = (assignment: TeamModelAssignment) => LLMProvider;
 
 type ParallelDelegationResult =
     | { success: true; text: string }
@@ -34,6 +38,12 @@ export interface SubagentStartContext {
     subagentType: string;
     /** Delegated task text */
     task: string;
+    /** Provider selected for this execution when an explicit assignment was resolved. */
+    provider?: string;
+    /** Model selected for this execution when an explicit assignment was resolved. */
+    model?: string;
+    /** Why the provider/model pair was selected. */
+    modelSource?: TeamModelAssignment['source'];
 }
 
 /** Context passed to the subagent-stop hook callback */
@@ -65,6 +75,10 @@ export interface DelegatorOptions {
     confirmApproval?: ToolManagerOptions['confirmApproval'];
     /** Resolve the current runtime tool set for extension-aware agent allowlists. */
     getToolDefinitions?: () => ToolDefinition[];
+    /** Resolve the provider/model pair for one in-process sub-agent. */
+    resolveSubagentAssignment?: SubagentAssignmentResolver;
+    /** Create an isolated LLM client for a resolved sub-agent assignment. */
+    createSubagentProvider?: SubagentProviderFactory;
 }
 
 export class AgentDelegator {
@@ -78,6 +92,8 @@ export class AgentDelegator {
     private readonly authorization?: ToolAuthorizationOptions;
     private readonly confirmApproval?: ToolManagerOptions['confirmApproval'];
     private readonly getToolDefinitions?: () => ToolDefinition[];
+    private readonly resolveSubagentAssignment?: SubagentAssignmentResolver;
+    private readonly createSubagentProvider?: SubagentProviderFactory;
     private subagentCounter = 0;
 
     constructor(
@@ -95,6 +111,8 @@ export class AgentDelegator {
         this.authorization = options.authorization;
         this.confirmApproval = options.confirmApproval;
         this.getToolDefinitions = options.getToolDefinitions;
+        this.resolveSubagentAssignment = options.resolveSubagentAssignment;
+        this.createSubagentProvider = options.createSubagentProvider;
     }
 
     private generateSubagentId(): string {
@@ -129,18 +147,37 @@ export class AgentDelegator {
             authorization: this.authorization,
             confirmApproval: this.confirmApproval,
             getToolDefinitions: this.getToolDefinitions,
+            resolveSubagentAssignment: this.resolveSubagentAssignment,
+            createSubagentProvider: this.createSubagentProvider,
         };
 
         const subagentId = this.generateSubagentId();
         const startTime = Date.now();
-        const agent = new SubAgent(agentConfig, this.llm, this.actionExecutor, subAgentOptions);
-
-        await this.onSubagentStart?.({
+        const assignment = this.resolveSubagentAssignment?.(agentConfig);
+        const agent = new SubAgent(
+            agentConfig,
+            assignment && this.createSubagentProvider
+                ? this.createSubagentProvider(assignment)
+                : this.llm,
+            this.actionExecutor,
+            {
+                ...subAgentOptions,
+                ...(assignment ? { model: assignment.model } : {}),
+            },
+        );
+        const startContext: SubagentStartContext = {
             subagentId,
             subagentName: agentName,
             subagentType: agentConfig.source ?? 'user',
             task,
-        });
+            ...(assignment ? {
+                provider: assignment.provider,
+                model: assignment.model,
+                modelSource: assignment.source,
+            } : {}),
+        };
+
+        await this.onSubagentStart?.(startContext);
 
         try {
             const result = await agent.run(task);
@@ -148,10 +185,7 @@ export class AgentDelegator {
             // Fire subagent-stop hook on success
             if (this.onSubagentStop) {
                 await this.onSubagentStop({
-                    subagentId,
-                    subagentName: agentName,
-                    subagentType: agentConfig.source ?? 'user',
-                    task,
+                    ...startContext,
                     success: true,
                     duration: Date.now() - startTime
                 });
@@ -164,10 +198,7 @@ export class AgentDelegator {
             // Fire subagent-stop hook on failure
             if (this.onSubagentStop) {
                 await this.onSubagentStop({
-                    subagentId,
-                    subagentName: agentName,
-                    subagentType: agentConfig.source ?? 'user',
-                    task,
+                    ...startContext,
                     success: false,
                     error: errorMessage,
                     duration: Date.now() - startTime
@@ -208,6 +239,8 @@ export class AgentDelegator {
             authorization: this.authorization,
             confirmApproval: this.confirmApproval,
             getToolDefinitions: this.getToolDefinitions,
+            resolveSubagentAssignment: this.resolveSubagentAssignment,
+            createSubagentProvider: this.createSubagentProvider,
         };
 
         const promises = tasks.map(async ({ agent_name, task }): Promise<ParallelDelegationResult> => {
@@ -224,14 +257,31 @@ export class AgentDelegator {
 
             const subagentId = this.generateSubagentId();
             const startTime = Date.now();
-            const agent = new SubAgent(agentConfig, this.llm, this.actionExecutor, subAgentOptions);
-
-            await this.onSubagentStart?.({
+            const assignment = this.resolveSubagentAssignment?.(agentConfig);
+            const agent = new SubAgent(
+                agentConfig,
+                assignment && this.createSubagentProvider
+                    ? this.createSubagentProvider(assignment)
+                    : this.llm,
+                this.actionExecutor,
+                {
+                    ...subAgentOptions,
+                    ...(assignment ? { model: assignment.model } : {}),
+                },
+            );
+            const startContext: SubagentStartContext = {
                 subagentId,
                 subagentName: agent_name,
                 subagentType: agentConfig.source ?? 'user',
                 task,
-            });
+                ...(assignment ? {
+                    provider: assignment.provider,
+                    model: assignment.model,
+                    modelSource: assignment.source,
+                } : {}),
+            };
+
+            await this.onSubagentStart?.(startContext);
 
             try {
                 const result = await agent.run(task);
@@ -239,10 +289,7 @@ export class AgentDelegator {
                 // Fire subagent-stop hook on success
                 if (this.onSubagentStop) {
                     await this.onSubagentStop({
-                        subagentId,
-                        subagentName: agent_name,
-                        subagentType: agentConfig.source ?? 'user',
-                        task,
+                        ...startContext,
                         success: true,
                         duration: Date.now() - startTime
                     });
@@ -255,10 +302,7 @@ export class AgentDelegator {
                 // Fire subagent-stop hook on failure
                 if (this.onSubagentStop) {
                     await this.onSubagentStop({
-                        subagentId,
-                        subagentName: agent_name,
-                        subagentType: agentConfig.source ?? 'user',
-                        task,
+                        ...startContext,
                         success: false,
                         error: errorMessage,
                         duration: Date.now() - startTime
@@ -305,6 +349,14 @@ export class AgentDelegator {
 
     public getRuntimeToolDefinitions(): (() => ToolDefinition[]) | undefined {
         return this.getToolDefinitions;
+    }
+
+    public getSubagentAssignmentResolver(): SubagentAssignmentResolver | undefined {
+        return this.resolveSubagentAssignment;
+    }
+
+    public getSubagentProviderFactory(): SubagentProviderFactory | undefined {
+        return this.createSubagentProvider;
     }
 
     /**

@@ -2402,6 +2402,7 @@ Autohand provides a rich set of slash commands for interactive use. Type `/` in 
 | Command       | Description                                           |
 | ------------- | ----------------------------------------------------- |
 | `/agents`     | List available sub-agents                             |
+| `/agents provider [agent]` | Choose and confirm the provider/model default for new teammates, or an override for one sub-agent definition |
 | `/agents-new` | Create a new agent via wizard                         |
 | `/squad`      | Open/manage the standalone Autohand Squad runtime     |
 | `/team`       | Manage team for parallel work                         |

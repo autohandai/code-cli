@@ -8,33 +8,47 @@ import chalk from 'chalk';
 import readline from 'node:readline';
 import { t } from '../i18n/index.js';
 import { AgentRegistry } from '../core/agents/AgentRegistry.js';
-import { loadConfig } from '../config.js';
+import { getProviderConfig, loadConfig, saveConfig } from '../config.js';
+import { getProviderModelOptions } from '../providers/modelCatalog.js';
+import { ProviderFactory } from '../providers/ProviderFactory.js';
 import { ActiveAgentRegistry, type ActiveAgentRecord } from '../session/ActiveAgentRegistry.js';
 import { sanitizeAnnouncementText } from '../announcements/AnnouncementContent.js';
+import { showConfirm, showModal } from '../ui/ink/components/Modal.js';
+import type { BuiltInProviderName, LoadedConfig, ProviderName } from '../types.js';
 
 export const metadata = {
     command: '/agents',
     description: t('commands.agents.description'),
     implemented: true,
     subcommands: [
+        { name: 'provider [agent]', description: 'set the default provider/model or an agent-specific override' },
         { name: 'definitions', description: 'list configured sub-agent definitions' },
         { name: 'new', description: 'create a new sub-agent from a description' },
     ],
     prd: 'prd/sub_agents_architecture.md'
 };
 
-interface AgentsCommandDeps {
+export interface AgentsCommandDeps {
     registry?: ActiveAgentRegistry;
     input?: NodeJS.ReadStream;
     output?: NodeJS.WriteStream;
+    config?: LoadedConfig;
+    chooseTeamProvider?: (config: LoadedConfig) => Promise<ProviderName | null>;
+    chooseTeamModel?: (config: LoadedConfig, provider: ProviderName) => Promise<string | null>;
+    confirmTeamModelSelection?: (assignment: { provider: ProviderName; model: string; agentName?: string }) => Promise<boolean>;
+    persistConfig?: (config: LoadedConfig) => Promise<void>;
 }
 
 const DEFINITION_SUBCOMMANDS = new Set(['definitions', 'defs', 'list-definitions']);
+const TEAM_PROVIDER_SUBCOMMANDS = new Set(['provider', 'model']);
 
 export async function handler(args: string[] = [], deps: AgentsCommandDeps = {}): Promise<string | null> {
     const subcommand = args.find((arg) => !arg.startsWith('-'))?.toLowerCase();
     if (subcommand && DEFINITION_SUBCOMMANDS.has(subcommand)) {
         return listAgentDefinitions();
+    }
+    if (subcommand && TEAM_PROVIDER_SUBCOMMANDS.has(subcommand)) {
+        return configureTeamModelAssignment(args, deps);
     }
 
     const registry = deps.registry ?? new ActiveAgentRegistry();
@@ -48,6 +62,99 @@ export async function handler(args: string[] = [], deps: AgentsCommandDeps = {})
 
     await renderLiveActiveAgents(registry, input, output);
     return null;
+}
+
+async function configureTeamModelAssignment(
+    args: string[],
+    deps: AgentsCommandDeps,
+): Promise<string> {
+    const agentName = args[1]?.trim() || undefined;
+    const config = deps.config ?? await loadConfig(undefined, process.cwd());
+    const provider = await (deps.chooseTeamProvider ?? promptForConfiguredTeamProvider)(config);
+    if (!provider) return 'Team model selection cancelled.';
+
+    const model = await (deps.chooseTeamModel ?? promptForTeamModel)(config, provider);
+    if (!model) return 'Team model selection cancelled.';
+
+    const assignment = { provider, model, ...(agentName ? { agentName } : {}) };
+    const confirmed = await (deps.confirmTeamModelSelection ?? promptForTeamModelConfirmation)(assignment);
+    if (!confirmed) return 'Team model selection cancelled.';
+
+    if (agentName) {
+        config.teams = {
+            ...config.teams,
+            agentModelOverrides: {
+                ...config.teams?.agentModelOverrides,
+                [agentName]: { provider, model },
+            },
+        };
+    } else {
+        config.teams = {
+            ...config.teams,
+            defaultProvider: provider,
+            defaultModel: model,
+        };
+    }
+    await (deps.persistConfig ?? saveConfig)(config);
+
+    const scope = agentName ? `for ${agentName}` : 'for future teammates';
+    return `Saved ${scope}: ${formatProviderAssignment(provider, model)}.`;
+}
+
+async function promptForConfiguredTeamProvider(config: LoadedConfig): Promise<ProviderName | null> {
+    const configuredProviders = ProviderFactory.getProviderNames(config)
+        .filter((provider) => Boolean(getProviderConfig(config, provider)?.model));
+    if (configuredProviders.length === 0) {
+        return null;
+    }
+
+    const choice = await showModal({
+        title: 'Choose the provider for your agent team',
+        options: configuredProviders.map((provider) => ({
+            label: formatProviderAssignment(provider, getProviderConfig(config, provider)?.model ?? ''),
+            value: provider,
+            description: provider === config.provider ? 'Active session provider' : 'Configured provider',
+        })),
+    });
+    return choice?.value as ProviderName | undefined ?? null;
+}
+
+async function promptForTeamModel(config: LoadedConfig, provider: ProviderName): Promise<string | null> {
+    const currentModel = getProviderConfig(config, provider)?.model;
+    const catalogModels = getProviderModelOptions(provider as BuiltInProviderName).map((entry) => entry.id);
+    const models = [...new Set([currentModel, ...catalogModels].filter((model): model is string => Boolean(model)))];
+    if (models.length === 0) return null;
+
+    const choice = await showModal({
+        title: `Choose a model for ${formatProviderName(provider)}`,
+        options: models.map((model) => ({
+            label: model,
+            value: model,
+            description: model === currentModel ? 'Currently configured' : undefined,
+        })),
+    });
+    return choice?.value ?? null;
+}
+
+async function promptForTeamModelConfirmation(
+    assignment: { provider: ProviderName; model: string; agentName?: string },
+): Promise<boolean> {
+    const scope = assignment.agentName
+        ? `the ${assignment.agentName} sub-agent`
+        : 'new teammates by default';
+    return showConfirm({
+        title: `Use ${formatProviderAssignment(assignment.provider, assignment.model)} for ${scope}?`,
+        confirmText: 'Save assignment',
+        cancelText: 'Cancel',
+    });
+}
+
+function formatProviderAssignment(provider: ProviderName, model: string): string {
+    return `${formatProviderName(provider)} · ${model}`;
+}
+
+function formatProviderName(provider: ProviderName): string {
+    return provider === 'autohandai' ? 'Autohand AI' : provider;
 }
 
 export async function listAgentDefinitions(): Promise<string> {

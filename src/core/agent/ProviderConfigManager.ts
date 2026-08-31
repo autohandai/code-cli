@@ -4188,6 +4188,8 @@ export class ProviderConfigManager {
       authorization: this.getDelegator()?.getAuthorizationOptions(),
       confirmApproval: this.getDelegator()?.getConfirmApproval(),
       getToolDefinitions: this.getDelegator()?.getRuntimeToolDefinitions(),
+      resolveSubagentAssignment: this.getDelegator()?.getSubagentAssignmentResolver(),
+      createSubagentProvider: this.getDelegator()?.getSubagentProviderFactory(),
     });
     this.setDelegator(newDelegator);
     this.setActiveProvider(provider);

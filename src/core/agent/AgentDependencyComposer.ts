@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { FileActionManager } from '../../actions/filesystem.js';
 import { saveConfig, getProviderConfig } from '../../config.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
+import { ProviderFactory } from '../../providers/ProviderFactory.js';
 import { getOpenRouterModelContextWindow } from '../../providers/modelCapabilities.js';
 import { promptInterrupt, promptNotify } from '../../ui/inputPrompt.js';
 import { isShellCommand, parseShellCommand } from '../../ui/shellCommand.js';
@@ -56,6 +57,7 @@ import { PermissionManager } from '../../permissions/PermissionManager.js';
 import { HookManager } from '../HookManager.js';
 import { TeamManager } from '../teams/TeamManager.js';
 import type { TeamMember, TeamTask } from '../teams/types.js';
+import { resolveTeamModelAssignment } from '../teams/TeamModelPolicy.js';
 import { RepeatManager } from '../RepeatManager.js';
 import { intervalToCron, shorthandToHuman, shorthandToMs } from '../../commands/repeat.js';
 import { ActivityIndicator } from '../../ui/activityIndicator.js';
@@ -697,6 +699,26 @@ export function initializeAgentDependencies(
       authorization: toolAuthorization,
       confirmApproval: (message, context) => host.confirmDangerousAction(message, context),
       getToolDefinitions: () => host.toolManager?.listDefinitions() ?? [],
+      resolveSubagentAssignment: (definition) => {
+        const provider = host.activeProvider ?? runtime.config.provider ?? 'openrouter';
+        const model = runtime.options.model
+          ?? getProviderConfig(runtime.config, provider)?.model
+          ?? 'unconfigured';
+        return resolveTeamModelAssignment({
+          config: runtime.config,
+          active: { provider, model },
+          agentName: definition.name,
+          agentModel: definition.model,
+        });
+      },
+      createSubagentProvider: (assignment) => {
+        const subagentProvider = ProviderFactory.create({
+          ...runtime.config,
+          provider: assignment.provider,
+        });
+        subagentProvider.setModel(assignment.model);
+        return subagentProvider;
+      },
       onSubagentStart: async (context) => {
         enableAutomaticCoordinationMode({
           isInteractive: !runtime.isCommandMode && !runtime.isRpcMode,
@@ -710,7 +732,9 @@ export function initializeAgentDependencies(
           kind: 'subagent',
           label: formatSubAgentActivityLabel(context.subagentName, context.task),
           status: 'in_progress',
-          detail: context.subagentType,
+          detail: context.provider && context.model
+            ? `${context.provider} · ${context.model}`
+            : context.subagentType,
         });
       },
       onSubagentStop: async (context) => {
@@ -922,6 +946,7 @@ export function initializeAgentDependencies(
           properties: {
             name: { type: 'string', description: 'Friendly name for this teammate' },
             agent_name: { type: 'string', description: 'Agent definition to use (from Available Agents)' },
+            provider: { type: 'string', description: 'Optional provider override paired with the model override' },
             model: { type: 'string', description: 'Optional LLM model override' },
             requested_role: { type: 'string', description: 'Original requested specialist role' },
             agent_source: { type: 'string', description: 'Resolved agent source, such as session, catalog, extension, or builtin' }
@@ -1133,14 +1158,30 @@ export function initializeAgentDependencies(
               ].join('\n');
             }
           } else if (action.type === 'add_teammate') {
+            const { AgentRegistry } = await import('../agents/AgentRegistry.js');
+            const registry = AgentRegistry.getInstance();
+            const agentDefinition = registry.getAgent(action.agent_name);
+            const activeProvider = host.activeProvider ?? host.runtime.config.provider ?? 'openrouter';
+            const activeModel = host.runtime.options.model
+              ?? getProviderConfig(host.runtime.config, activeProvider)?.model
+              ?? 'unconfigured';
+            const assignment = resolveTeamModelAssignment({
+              config: host.runtime.config,
+              active: { provider: activeProvider, model: activeModel },
+              override: { provider: action.provider, model: action.model },
+              agentName: action.agent_name,
+              agentModel: agentDefinition?.model,
+            });
             host.teamManager.addTeammate({
               name: action.name,
               agentName: action.agent_name,
-              model: action.model,
+              provider: assignment.provider,
+              model: assignment.model,
+              modelSource: assignment.source,
               requestedRole: action.requested_role,
               agentSource: action.agent_source,
             });
-            result = `Teammate "${action.name}" added (agent: ${action.agent_name}). Process spawning.`;
+            result = `Teammate "${action.name}" added (agent: ${action.agent_name}; ${assignment.provider} · ${assignment.model}). Process spawning.`;
           } else if (action.type === 'create_task') {
             const task = host.teamManager.tasks.createTask({
               subject: action.subject,

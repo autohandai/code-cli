@@ -1257,6 +1257,7 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
       properties: {
         name: { type: 'string', description: 'Human-readable teammate name' },
         agent_name: { type: 'string', description: 'Registered agent name to run' },
+        provider: { type: 'string', description: 'Optional provider override for that teammate' },
         model: { type: 'string', description: 'Optional model override for that teammate' },
         requested_role: { type: 'string', description: 'Original requested specialist role' },
         agent_source: { type: 'string', description: 'Resolved agent source' }

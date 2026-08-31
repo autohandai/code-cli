@@ -62,7 +62,7 @@ export const TeamPanel = memo(({ team, tasks }: TeamPanelProps) => {
             <Text>{member.name}</Text>
             <Text>{theme.fg(
               'muted',
-              `(${member.agentName}${member.status === 'shutdown' ? `; exit ${member.exitCode ?? 'unknown'}` : ''})`,
+              `(${member.agentName}${member.provider && member.model ? ` · ${member.provider} · ${member.model}` : member.model ? ` · ${member.model}` : ''}${member.status === 'shutdown' ? `; exit ${member.exitCode ?? 'unknown'}` : ''})`,
             )}</Text>
           </Box>
         ))}
