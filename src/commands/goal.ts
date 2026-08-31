@@ -99,7 +99,7 @@ export async function goal(ctx: SlashCommandContext, args: string[] = []): Promi
       // When the objective is queued behind a running goal, the result still
       // reports that running goal. Only nudge the agent when a goal actually
       // started, or the active goal gets a duplicate continuation each time.
-      if (created.ok && created.goal) {
+      if (created.ok && !created.queued?.length && created.goal) {
         await emitGoalWrittenCompleted(ctx, created.goal, 'slash');
         queueGoalContinuation(ctx, created.goal.objective);
       }
