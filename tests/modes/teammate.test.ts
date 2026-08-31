@@ -250,6 +250,31 @@ describe("teammate executeTask", () => {
     expect(loadConfigMock).toHaveBeenCalledWith("/tmp/team-config.json", "/tmp/workspace");
   });
 
+  it("loads registered agent definitions before resolving a headless teammate", async () => {
+    const { AgentRegistry } = await import("../../src/core/agents/AgentRegistry.js");
+    const registry = AgentRegistry.getInstance();
+    registry.loadAgents.mockClear();
+
+    await executeTask(
+      {
+        teamName: "test",
+        name: "worker",
+        agentName: "tester",
+        leadSessionId: "sess-registry",
+      },
+      {
+        id: "task-registry",
+        subject: "Load agent",
+        description: "Use the registered tester agent.",
+        status: "in_progress",
+        blockedBy: [],
+        createdAt: "",
+      },
+    );
+
+    expect(registry.loadAgents).toHaveBeenCalledOnce();
+  });
+
   it("runs SubAgent and returns result", async () => {
     const result = await executeTask(
       {
@@ -355,6 +380,33 @@ describe("teammate executeTask", () => {
       },
     );
     expect(mockProvider.setModel).toHaveBeenCalledWith("custom-model");
+  });
+
+  it("creates the teammate provider selected by the lead", async () => {
+    const { ProviderFactory } = await import("../../src/providers/ProviderFactory.js");
+    const createMock = ProviderFactory.create as ReturnType<typeof vi.fn>;
+    createMock.mockClear();
+
+    await executeTask(
+      {
+        teamName: "test",
+        name: "worker",
+        agentName: "tester",
+        leadSessionId: "sess-provider",
+        provider: "autohandai",
+        model: "fantail",
+      },
+      {
+        id: "task-provider",
+        subject: "Use Fantail",
+        description: "Use the team provider assignment.",
+        status: "in_progress",
+        blockedBy: [],
+        createdAt: "",
+      },
+    );
+
+    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ provider: "autohandai" }));
   });
 
   it("discovers extension agents and tools before starting the teammate sub-agent", async () => {

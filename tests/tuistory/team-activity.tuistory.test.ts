@@ -116,7 +116,7 @@ describe('interactive team activity', () => {
     const baseUrl = await createTeamSequenceServer();
     const state = await createTempAutohandHome({
       config: {
-        openrouter: { baseUrl },
+        openrouter: { baseUrl, model: 'openai/gpt-4o-mini' },
         agent: { maxIterations: 6, sessionRetryLimit: 0 },
         ui: { promptSuggestions: false },
         features: { automaticSpecialists: false },
@@ -151,7 +151,9 @@ describe('interactive team activity', () => {
 
     await session.press(['ctrl', 't']);
     await session.waitForText('Team: team-e2e', { timeout: 10_000 });
-    expect(await session.text({ immediate: true })).toContain('Review authentication');
+    const expandedTeam = await session.text({ immediate: true });
+    expect(expandedTeam).toContain('Review authentication');
+    expect(expandedTeam).toContain('openrouter · openai/gpt-4o-mini');
 
     await session.press(['ctrl', 't']);
     await session.type('/team view');

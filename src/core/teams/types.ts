@@ -17,7 +17,9 @@ export const TeamMemberSchema = z.object({
   pid: z.number().int().nonnegative(),
   status: TeamMemberStatusSchema,
   exitCode: z.number().int().nullable().optional(),
+  provider: z.string().min(1).optional(),
   model: z.string().optional(),
+  modelSource: z.enum(['member-override', 'environment', 'agent-override', 'team-default', 'agent-definition', 'active-session']).optional(),
   requestedRole: z.string().min(1).optional(),
   agentSource: z.string().min(1).optional(),
 });

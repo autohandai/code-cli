@@ -265,6 +265,7 @@ program
   .addOption(new Option('--name <name>').hideHelp())
   .addOption(new Option('--agent <name>').hideHelp())
   .addOption(new Option('--lead-session <id>').hideHelp())
+  .addOption(new Option('--provider <provider>').hideHelp())
   .option('--teammate-mode <mode>', 'Legacy team display preference; live team view stays in the lead terminal')
   .option('--worktree [name]', 'Run session in isolated git worktree (optional name)')
   .option('--tmux', 'Launch in a dedicated tmux session (implies --worktree)')

@@ -7,7 +7,7 @@
 import path from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import type { ToolDefinition } from '../core/toolManager.js';
-import type { AgentRuntime } from '../types.js';
+import type { AgentRuntime, ProviderName } from '../types.js';
 import { MessageRouter } from '../core/teams/MessageRouter.js';
 import type { TeamTask } from '../core/teams/types.js';
 import { checkWorkspaceSafety } from '../startup/workspaceSafety.js';
@@ -18,6 +18,7 @@ export interface TeammateOptions {
   name: string;
   agentName: string;
   leadSessionId: string;
+  provider?: ProviderName;
   model?: string;
   workspacePath?: string;
   configPath?: string;
@@ -83,7 +84,9 @@ async function executeTaskWithEnvironment(
   // Load config and create provider
   const workspacePath = opts.workspacePath || process.cwd();
   const config = await loadConfig(opts.configPath, workspacePath);
-  const provider = ProviderFactory.create(config);
+  const provider = ProviderFactory.create(
+    opts.provider ? { ...config, provider: opts.provider } : config,
+  );
   if (opts.model) provider.setModel(opts.model);
 
   const runtime: AgentRuntime = {
@@ -104,6 +107,8 @@ async function executeTaskWithEnvironment(
 
   // Resolve the agent only after standalone and extension registries are loaded.
   const registry = AgentRegistry.getInstance();
+  registry.configureExternalAgents(config.externalAgents);
+  await registry.loadAgents();
   const agentDef = registry.getAgent(opts.agentName);
   if (!agentDef) {
     return `Error: Agent "${opts.agentName}" not found in registry.`;
@@ -291,6 +296,7 @@ export function parseTeammateOptions(argv: string[]): TeammateOptions | null {
     name,
     agentName,
     leadSessionId,
+    provider: getArg('--provider') as ProviderName | undefined,
     model: getArg('--model'),
     workspacePath: getArg('--path'),
     configPath: getArg('--config'),

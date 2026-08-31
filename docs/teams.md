@@ -28,7 +28,9 @@ Enable and configure teams in `~/.autohand/config.json`:
 {
   "teams": {
     "enabled": true,
-    "maxTeammates": 5
+    "maxTeammates": 5,
+    "defaultProvider": "autohandai",
+    "defaultModel": "fantail"
   }
 }
 ```
@@ -39,6 +41,24 @@ Enable and configure teams in `~/.autohand/config.json`:
 |--------|------|---------|-------------|
 | `enabled` | boolean | `true` | Enable or disable team features |
 | `maxTeammates` | number | `5` | Maximum number of simultaneous teammates |
+| `defaultProvider` | string | Active session provider | Provider used for new teammates when no higher-priority assignment applies |
+| `defaultModel` | string | Active session model | Model used with `defaultProvider` for new teammates |
+| `agentModelOverrides.<agentName>.provider` | string | - | Provider override for one registered sub-agent definition |
+| `agentModelOverrides.<agentName>.model` | string | - | Model override paired with that provider |
+
+Use `/agents provider` to choose and confirm the saved default from the
+providers already configured on this machine. Use `/agents provider <agent>` to
+save a narrower override for one sub-agent definition. Both commands present a
+provider picker, a model picker, and a final confirmation before updating the
+configuration.
+
+At launch, an explicit teammate assignment wins over `SUB_AGENTS_PROVIDER` /
+`SUB_AGENTS_MODEL`, then an agent-specific override, the saved team default,
+the model named by the agent definition, and finally the lead session's active
+provider and model. Invalid environment provider ids are ignored. The provider
+and model are always resolved as a pair, so a model selected for Autohand AI is
+not silently sent through another provider. Autohand AI is selectable when its
+inference feature is enabled and it is configured for the current session.
 
 `teams.teammateMode` and `--teammate-mode` remain accepted for compatibility.
 The supported live view is rendered in the lead terminal for both normal launches
@@ -163,7 +183,8 @@ The expanded `TeamPanel` renders inline in the lead terminal and shows:
 
 - **Header** -- Team name with an active/inactive indicator.
 - **Task list** -- Progress count (N/M done) and each task with its status icon, subject, and assigned owner.
-- **Teammate list** -- Each teammate with a status icon, name, and agent type.
+- **Teammate list** -- Each teammate with a status icon, name, agent type, and
+  its effective provider and model while it is working.
 
 Creating a team from the default interactive editing mode also changes the
 session to **AUTO** so teammates can proceed without approval prompts. An
@@ -275,12 +296,14 @@ A teammate child process follows this lifecycle:
 
 1. **Spawn** -- The lead spawns a new Node.js process with `--mode teammate` and passes team metadata as CLI flags:
    ```
-   autohand --mode teammate --team <teamName> --name <name> --agent <agentName> --lead-session <sessionId> [--model <model>] [--path <workspacePath>] [--config <configPath>]
+   autohand --mode teammate --team <teamName> --name <name> --agent <agentName> --lead-session <sessionId> [--provider <provider>] [--model <model>] [--path <workspacePath>] [--config <configPath>]
    ```
    The child process inherits the current environment plus
    `AUTOHAND_TEAMMATE`, `AUTOHAND_TEAM_NAME`, `AUTOHAND_TEAMMATE_NAME`,
    `AUTOHAND_TEAMMATE_AGENT`, and `AUTOHAND_TEAM_LEAD_SESSION_ID`. Resolved
-   teammates also receive `AUTOHAND_TEAM_REQUESTED_ROLE` and
+   provider and model values are also exposed as `AUTOHAND_TEAM_PROVIDER` and
+   `AUTOHAND_TEAM_MODEL`; resolved teammates also receive
+   `AUTOHAND_TEAM_REQUESTED_ROLE` and
    `AUTOHAND_TEAM_AGENT_SOURCE` when available. During a task,
    `AUTOHAND_TEAM_TASK_ID`, `AUTOHAND_TEAM_TASK_SUBJECT`, and
    `AUTOHAND_TEAM_TASK_OWNER` are scoped to that execution.

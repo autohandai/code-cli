@@ -8,6 +8,7 @@ import { AgentDelegator } from '../../../src/core/agents/AgentDelegator.js';
 import { AgentRegistry } from '../../../src/core/agents/AgentRegistry.js';
 import type { ActionExecutor } from '../../../src/core/actionExecutor.js';
 import type { LLMProvider } from '../../../src/providers/LLMProvider.js';
+import type { TeamModelAssignment } from '../../../src/core/teams/TeamModelPolicy.js';
 
 function createDelegator(): AgentDelegator {
   return new AgentDelegator(
@@ -125,6 +126,71 @@ describe('AgentDelegator typed outcomes', () => {
       expect(onSubagentStart.mock.invocationCallOrder[0]).toBeLessThan(
         onSubagentStop.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
       );
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('runs an in-process subagent with its resolved provider and model assignment', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const registry = AgentRegistry.getInstance();
+    vi.spyOn(registry, 'loadAgents').mockResolvedValue();
+    vi.spyOn(registry, 'getAgent').mockReturnValue({
+      name: 'repo-reader',
+      description: 'Repository reader',
+      systemPrompt: 'Inspect repositories.',
+      tools: ['read_file'],
+      path: '/tmp/repo-reader.md',
+      source: 'builtin',
+    });
+    const primaryComplete = vi.fn().mockResolvedValue({ content: 'Primary called.' });
+    const assignedComplete = vi.fn().mockResolvedValue({ content: 'Assignment applied.' });
+    const assignedProvider = {
+      getName: () => 'autohandai',
+      complete: assignedComplete,
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: vi.fn().mockResolvedValue([]),
+      isAvailable: vi.fn().mockResolvedValue(true),
+      setModel: vi.fn(),
+    } satisfies LLMProvider;
+    const assignment: TeamModelAssignment = {
+      provider: 'autohandai',
+      model: 'fantail',
+      source: 'team-default',
+    };
+    const createSubagentProvider = vi.fn().mockReturnValue(assignedProvider);
+    const onSubagentStart = vi.fn().mockResolvedValue(undefined);
+    const delegator = new AgentDelegator(
+      {
+        getName: () => 'openrouter',
+        complete: primaryComplete,
+        getCapabilities: () => ({ nativeToolCalling: true }),
+        listModels: vi.fn().mockResolvedValue([]),
+        isAvailable: vi.fn().mockResolvedValue(true),
+        setModel: vi.fn(),
+      } satisfies LLMProvider,
+      { executeForTool: vi.fn() } as unknown as ActionExecutor,
+      {
+        resolveSubagentAssignment: vi.fn().mockReturnValue(assignment),
+        createSubagentProvider,
+        onSubagentStart,
+      },
+    );
+
+    try {
+      await expect(delegator.delegateTaskForTool('repo-reader', 'Inspect package.json')).resolves.toMatchObject({
+        success: true,
+        output: 'Assignment applied.',
+      });
+
+      expect(createSubagentProvider).toHaveBeenCalledWith(assignment);
+      expect(primaryComplete).not.toHaveBeenCalled();
+      expect(assignedComplete.mock.calls[0]?.[0]).toMatchObject({ model: 'fantail' });
+      expect(onSubagentStart).toHaveBeenCalledWith(expect.objectContaining({
+        provider: 'autohandai',
+        model: 'fantail',
+        modelSource: 'team-default',
+      }));
     } finally {
       logSpy.mockRestore();
     }

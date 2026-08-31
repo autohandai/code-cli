@@ -18,7 +18,11 @@ import {
 } from '../toolManager.js';
 import { ToolFilter } from '../toolFilter.js';
 import { ActionExecutor } from '../actionExecutor.js';
-import { AgentDelegator } from './AgentDelegator.js';
+import {
+    AgentDelegator,
+    type SubagentAssignmentResolver,
+    type SubagentProviderFactory,
+} from './AgentDelegator.js';
 import type { ClientContext, LLMMessage, LoadedConfig, ToolCallRequest } from '../../types.js';
 import { isGoalFeatureEnabled } from '../../goals/feature.js';
 import { ReactionParser } from '../agent/ReactionParser.js';
@@ -48,6 +52,12 @@ export interface SubAgentOptions {
     confirmApproval?: ToolManagerOptions['confirmApproval'];
     /** Resolve the current runtime tool set, including extension-owned tools. */
     getToolDefinitions?: () => ToolDefinition[];
+    /** Model selected by the parent delegation policy for this execution. */
+    model?: string;
+    /** Propagate provider/model resolution through nested delegation. */
+    resolveSubagentAssignment?: SubagentAssignmentResolver;
+    /** Propagate isolated provider creation through nested delegation. */
+    createSubagentProvider?: SubagentProviderFactory;
 }
 
 /** Tool definitions for delegation (added only if sub-agent can delegate further) */
@@ -145,6 +155,8 @@ export class SubAgent {
                 authorization: options.authorization,
                 confirmApproval: options.confirmApproval,
                 getToolDefinitions: options.getToolDefinitions,
+                resolveSubagentAssignment: options.resolveSubagentAssignment,
+                createSubagentProvider: options.createSubagentProvider,
             });
         }
 
@@ -269,7 +281,7 @@ export class SubAgent {
 
             const completion = await this.llm.complete({
                 messages: this.conversation.history(),
-                model: this.config.model,
+                model: this.options.model ?? this.config.model,
                 temperature: 0.2,
                 tools: requestTools,
                 toolChoice: requestTools ? 'auto' : undefined
