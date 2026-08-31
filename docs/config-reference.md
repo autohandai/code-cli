@@ -255,9 +255,12 @@ Requires `features.autohand_inference: true` or `AUTOHAND_FEATURE_AUTOHAND_INFER
 | `reasoningEffort` | `"medium"`, `"high"`, or `"xhigh"` | Moa Cloud | `"high"` during setup | Moa thinking effort level |
 
 Cloud model context and output limits come from the active `models.json` catalog. The catalog is authoritative over stale persisted `contextWindow` values, so existing Fantail configurations automatically adopt its 256k input window and 16k output ceiling without requiring users to rewrite `~/.autohand/config.json`.
+
 | `port`           | number                     | Local    | `8080`                        | Local MLX server port                                     |
 | `localModelPath` | string                     | No       | -                             | Downloaded local coding model path                        |
 | `serverCommand`  | string                     | No       | -                             | Local server start command                                |
+
+Cloud configurations persisted with a retired model ID are automatically migrated to `fantail` before a request is sent. Cloud mode currently accepts only the catalog's `fantail` and `moa` IDs.
 
 ### `openrouter`
 
@@ -494,6 +497,8 @@ OpenAI can also use your ChatGPT subscription via Autohand's built-in OpenAI sig
 | `model`         | string | Yes                    | -                           | Model name (e.g., `gpt-5.4`, `gpt-5.4-mini`)                              |
 | `contextWindow` | number | No                     | Auto                        | Exact model context window. Set this to override stale local assumptions. |
 | `chatgptAuth`   | object | Yes for `chatgpt` mode | -                           | Stored ChatGPT/Codex auth tokens and account id                           |
+
+When using direct API-key authentication with a `gpt-5.6*` model, Chat Completions does not permit non-`none` `reasoning_effort` alongside function tools. Autohand automatically sends `reasoning_effort: "none"` for those tool turns.
 
 ### `mlx`
 
