@@ -2007,11 +2007,6 @@ export function AgentUI({
 
   return (
     <Box flexDirection="column">
-      {/* Mode indicator rendered at top so it stays visible and never scrolls into scrollback */}
-      {interactionModeIndicator && <Text>{interactionModeIndicator}</Text>}
-    </Box>
-    <Box flexDirection="column">
-    <Box flexDirection="column">
       {liveCommandItems.map((item) => (
         <LiveCommandBlock key={item.id} entry={item} />
       ))}
