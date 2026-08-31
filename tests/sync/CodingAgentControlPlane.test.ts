@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  applyCodingAgentSettingsProfile,
   applyManagedConnectors,
   createCodingAgentSettingsSnapshot,
 } from '../../src/sync/CodingAgentControlPlane.js';
@@ -82,5 +83,36 @@ describe('Coding Agent control plane', () => {
       }),
     ]);
     expect(applied.servers.some((server) => server.name === 'old-remote')).toBe(false);
+  });
+
+  it('applies only registered non-secret profile settings to the local config', () => {
+    const config = {
+      configPath: '/tmp/autohand/config.json',
+      ui: { showThinking: true },
+      permissions: { mode: 'interactive' },
+      search: { braveApiKey: 'local-secret' },
+    } as LoadedConfig;
+
+    const applied = applyCodingAgentSettingsProfile(config, {
+      id: 'profile-1',
+      name: 'Focused review',
+      settings: {
+        'ui.showThinking': false,
+        'permissions.mode': 'restricted',
+        'search.braveApiKey': 'blocked-at-the-client',
+        'unknown.option': true,
+      },
+      isDefault: true,
+      createdAt: '2026-08-31T00:00:00.000Z',
+      updatedAt: '2026-08-31T00:00:00.000Z',
+    });
+
+    expect(applied).toMatchObject({
+      changed: true,
+      appliedKeys: ['ui.showThinking', 'permissions.mode'],
+    });
+    expect(config.ui?.showThinking).toBe(false);
+    expect(config.permissions?.mode).toBe('restricted');
+    expect(config.search?.braveApiKey).toBe('local-secret');
   });
 });

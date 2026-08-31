@@ -46,6 +46,8 @@ export { SyncService, createSyncService } from './SyncService.js';
 export type { SyncServiceOptions } from './SyncService.js';
 export {
   applyManagedConnectors,
+  applyCodingAgentSettingsProfile,
+  applyDefaultCodingAgentSettingsProfileOnLogin,
   CodingAgentControlPlaneClient,
   createCodingAgentSettingsSnapshot,
   getOrCreateCodingAgentDeviceId,
