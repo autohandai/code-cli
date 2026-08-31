@@ -50,6 +50,30 @@ describe("AutohandAIProvider", () => {
     expect(provider.getCapabilities()).toEqual({ nativeToolCalling: true });
   });
 
+  it("migrates a retired cloud model name to Fantail before sending a request", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        id: "autohand-response",
+        created: 123,
+        choices: [{ message: { content: "hello" }, finish_reason: "stop" }],
+      }),
+    });
+    globalThis.fetch = fetchMock as typeof globalThis.fetch;
+
+    const provider = new AutohandAIProvider({
+      plan: "cloud",
+      authMode: "api-key",
+      apiKey: "test-autohand-key",
+      model: "sonnet",
+    });
+
+    await provider.complete({ messages: [{ role: "user", content: "hi" }] });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as { model?: string };
+    expect(body.model).toBe("fantail");
+  });
+
   it("uses the Autohand AI cloud chat completions endpoint with API key auth and temperature 0.1", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
