@@ -9,6 +9,8 @@
 import React, { memo, useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
+import { buildTaskPanelModel, type TaskPanelRow } from '../taskPanelModel.js';
+import { TaskPanel } from './TaskPanel.js';
 
 export type ActivityItemStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 export type ActivityItemKind = 'todo' | 'subagent';
@@ -118,11 +120,18 @@ export function getTaskActivityMaxVisible(terminalRows: number | undefined): num
 function TaskActivityPanelComponent({ items, maxVisible, terminalRows }: TaskActivityPanelProps) {
   const { colors, theme } = useTheme();
   const effectiveMaxVisible = maxVisible ?? getTaskActivityMaxVisible(terminalRows);
+  const compactTodos = terminalRows !== undefined && terminalRows < 20;
   const todos = useMemo(() => items.filter((item) => item.kind === 'todo'), [items]);
   const workers = useMemo(() => items.filter((item) => item.kind === 'subagent'), [items]);
-  const todoSummary = useMemo(() => summarizeActivity(todos), [todos]);
-  const todoSelection = useMemo(
-    () => selectVisibleActivityItems(todos, effectiveMaxVisible),
+  const todoModel = useMemo(
+    () => buildTaskPanelModel(
+      todos.map((item): TaskPanelRow => ({
+        title: item.label,
+        status: item.status,
+        blockedBy: [],
+      })),
+      { maxRows: effectiveMaxVisible },
+    ),
     [todos, effectiveMaxVisible],
   );
   const workerSelection = useMemo(() => selectVisibleActivityItems(workers, 2), [workers]);
@@ -131,7 +140,6 @@ function TaskActivityPanelComponent({ items, maxVisible, terminalRows }: TaskAct
     return null;
   }
 
-  const todoHeader = `Task plan · ${todoSummary.done}/${todoSummary.total} complete · ${todoSummary.inProgress} active · ${todoSummary.open} queued${todoSummary.failed > 0 ? ` · ${todoSummary.failed} failed` : ''}`;
   const workerSummary = summarizeActivity(workers);
   const workerHeader = `Workers · ${workerSummary.inProgress} running${workerSummary.open > 0 ? ` · ${workerSummary.open} queued` : ''}${workerSummary.failed > 0 ? ` · ${workerSummary.failed} failed` : ''}`;
 
@@ -159,14 +167,8 @@ function TaskActivityPanelComponent({ items, maxVisible, terminalRows }: TaskAct
   };
 
   return (
-    <Box flexDirection="column" marginBottom={1}>
-      {todos.length > 0 && <Text color={colors.muted}>{todoHeader}</Text>}
-      {todoSelection.visible.map(renderItem)}
-      {(todoSelection.hiddenPending > 0 || todoSelection.hiddenCompleted > 0) && (
-        <Text color={colors.dim}>
-          {`  … +${formatHiddenItems(todoSelection.hiddenPending, todoSelection.hiddenCompleted)}`}
-        </Text>
-      )}
+    <Box flexDirection="column" marginBottom={workers.length > 0 ? 1 : 0}>
+      {todos.length > 0 && <TaskPanel model={todoModel} compact={compactTodos} />}
       {workers.length > 0 && <Text color={colors.muted}>{workerHeader}</Text>}
       {workerSelection.visible.map(renderItem)}
       {(workerSelection.hiddenPending > 0 || workerSelection.hiddenCompleted > 0) && (

@@ -14,10 +14,10 @@ import {
 } from '../../../src/ui/ink/TaskActivityPanel.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 
-function renderPanel(items: ActivityItem[], maxVisible?: number) {
+function renderPanel(items: ActivityItem[], maxVisible?: number, terminalRows?: number) {
   return render(
     <ThemeProvider>
-      <TaskActivityPanel items={items} maxVisible={maxVisible} />
+      <TaskActivityPanel items={items} maxVisible={maxVisible} terminalRows={terminalRows} />
     </ThemeProvider>,
   );
 }
@@ -28,7 +28,7 @@ describe('TaskActivityPanel', () => {
     expect(getTaskActivityMaxVisible(18)).toBe(4);
   });
 
-  it('keeps the active authored plan ahead of queued work and separates workers', () => {
+  it('renders sticky todos with the shared task-panel treatment used by /tasks', () => {
     const { lastFrame } = renderPanel([
       { id: 'done', kind: 'todo', label: 'Inspect the existing layout', status: 'completed' },
       { id: 'queue-first', kind: 'todo', label: 'Write the failing terminal test', status: 'pending' },
@@ -38,11 +38,30 @@ describe('TaskActivityPanel', () => {
     ], 3);
 
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('Task plan · 1/4 complete · 1 active · 2 queued');
+    expect(frame).toContain('Tasks');
+    expect(frame).toContain('1/4 done');
+    expect(frame).toContain('25%');
+    expect(frame).toContain('in progress · 1');
+    expect(frame).toContain('pending · 2');
     expect(frame).toContain('Workers · 1 running');
     expect(frame.indexOf('Keep task progress visible')).toBeLessThan(frame.indexOf('Write the failing terminal test'));
     expect(frame.indexOf('Write the failing terminal test')).toBeLessThan(frame.indexOf('Validate the full proof gate'));
     expect(frame).not.toContain('Inspect the existing layout');
     expect(frame).toContain('… +1 completed');
+    expect(frame).not.toContain('Task plan ·');
+  });
+
+  it('keeps the shared task treatment within three rows in a short terminal', () => {
+    const { lastFrame } = renderPanel([
+      { id: 'done', kind: 'todo', label: 'Inspect the existing layout', status: 'completed' },
+      { id: 'active', kind: 'todo', label: 'Keep task progress visible', status: 'in_progress' },
+      { id: 'queued', kind: 'todo', label: 'Validate terminal dimensions', status: 'pending' },
+    ], undefined, 14);
+
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('Tasks');
+    expect(frame).toContain('1/3 done');
+    expect(frame).toContain('Keep task progress visible');
+    expect(frame.split('\n').filter(Boolean)).toHaveLength(3);
   });
 });

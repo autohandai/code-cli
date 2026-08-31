@@ -1931,11 +1931,12 @@ describe('AgentUI task activity layout', () => {
     );
 
     const frame = stripAnsi(lastFrame() ?? '');
-    const planIndex = frame.indexOf('Task plan · 0/2 complete · 1 active · 1 queued');
+    const planIndex = frame.indexOf('Tasks');
     const statusIndex = frame.indexOf('Reviewing tool output...');
     const composerIndex = frame.lastIndexOf('❯');
 
     expect(planIndex).toBeGreaterThan(-1);
+    expect(frame).toContain('0/2 done');
     expect(statusIndex).toBeGreaterThan(planIndex);
     expect(composerIndex).toBeGreaterThan(statusIndex);
   });

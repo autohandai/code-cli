@@ -71,6 +71,21 @@ describe('interactive task activity', () => {
           },
         ],
       }),
+      JSON.stringify({
+        thought: 'The terminal inspection is complete; advance the visible plan.',
+        toolCalls: [
+          {
+            tool: 'todo_write',
+            args: {
+              tasks: [
+                { content: 'Inspect the active terminal layout', activeForm: 'Inspecting the active terminal layout', status: 'completed' },
+                { content: 'Keep task progress in the composer window', activeForm: 'Keeping task progress in the composer window', status: 'completed' },
+                { content: 'Validate the resized terminal', activeForm: 'Validating the resized terminal', status: 'in_progress' },
+              ],
+            },
+          },
+        ],
+      }),
       JSON.stringify({ toolCalls: [], finalResponse: 'TASK_ACTIVITY_TURN_COMPLETE' }),
     ], 4_000);
     servers.push(server);
@@ -100,17 +115,20 @@ describe('interactive task activity', () => {
     await session.waitForText('❯', { timeout: 20_000 });
     await session.type('Show a plan while you inspect the terminal.');
     await session.press('enter');
-    await session.waitForText('Task plan · 1/3 complete · 1 active · 1 queued', { timeout: 30_000 });
+    await session.waitForText('1/3 done', { timeout: 30_000 });
     await session.resize({ cols: 72, rows: 14 });
+    await session.waitForText('2/3 done', { timeout: 30_000 });
 
     const viewport = await waitForActiveViewport(
       session,
-      (text) => text.includes('Task plan · 1/3 complete · 1 active · 1 queued')
-        && text.includes('Keeping task progress in the composer window')
+      (text) => text.includes('Tasks')
+        && text.includes('2/3 done')
+        && text.includes('Validating the resized terminal')
         && text.includes('❯'),
     );
 
-    expect(viewport.indexOf('Keeping task progress in the composer window')).toBeLessThan(viewport.lastIndexOf('❯'));
+    expect(viewport.indexOf('Validating the resized terminal')).toBeLessThan(viewport.lastIndexOf('❯'));
+    expect(viewport).not.toContain('Task plan ·');
     expect(viewport).not.toContain('📋 Task Progress:');
     expect(viewport).not.toContain('Updated task list:');
 
