@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { OllamaProvider } from '../../src/providers/OllamaProvider';
-import type { ProviderSettings, NetworkSettings } from '../../src/types';
+import type { LLMMessage, ProviderSettings, NetworkSettings } from '../../src/types';
 import { ApiError } from '../../src/providers/errors';
 
 describe('OllamaProvider', () => {
@@ -162,6 +162,32 @@ describe('OllamaProvider', () => {
                     body: expect.stringContaining('llama3.2:latest')
                 })
             );
+        });
+
+        it('serializes multimodal history to string content before calling Ollama', async () => {
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                json: async () => ({
+                    message: { content: 'I cannot inspect images.' },
+                    created_at: '2024-11-21T10:30:00Z',
+                }),
+            });
+            const messages = [{
+                role: 'user' as const,
+                content: [
+                    { type: 'text' as const, text: 'Describe this image.' },
+                    { type: 'image_url' as const, image_url: { url: 'data:image/png;base64,AA==' } },
+                ],
+            }] as unknown as LLMMessage[];
+
+            await provider.complete({ messages });
+
+            const requestBody = JSON.parse((fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.body as string) as {
+                messages: Array<{ content: unknown }>;
+            };
+            expect(requestBody.messages[0]?.content).toEqual(expect.any(String));
+            expect(requestBody.messages[0]?.content).toContain('Describe this image.');
+            expect(requestBody.messages[0]?.content).toContain('Image input omitted');
         });
 
         it('handles bare Ollama chat responses without a message wrapper', async () => {

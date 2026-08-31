@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LLMGatewayClient } from '../../src/providers/LLMGatewayClient.js';
-import type { LLMGatewaySettings, NetworkSettings } from '../../src/types.js';
+import type { LLMGatewaySettings, LLMMessage, NetworkSettings } from '../../src/types.js';
 
 describe('LLMGatewayClient', () => {
   let originalFetch: typeof global.fetch;
@@ -380,6 +380,38 @@ describe('LLMGatewayClient', () => {
           content: '[Recovered Tool Result: read_file]\norphan result',
         },
       ]);
+    });
+
+    it('serializes multimodal history to text for the text-only Autohand AI gateway', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          id: 'test-id',
+          choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }]
+        })
+      });
+      global.fetch = fetchMock;
+
+      const client = new LLMGatewayClient({
+        apiKey: 'test-key',
+        model: 'fantail',
+      });
+      const messages = [{
+        role: 'user' as const,
+        content: [
+          { type: 'text' as const, text: 'Describe this image.' },
+          { type: 'image_url' as const, image_url: { url: 'data:image/png;base64,AA==' } },
+        ],
+      }] as unknown as LLMMessage[];
+
+      await client.complete({ messages });
+
+      const payload = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
+        messages: Array<{ content: unknown }>;
+      };
+      expect(payload.messages[0]?.content).toEqual(expect.any(String));
+      expect(payload.messages[0]?.content).toContain('Describe this image.');
+      expect(payload.messages[0]?.content).toContain('Image input omitted');
     });
 
     it('should throw friendly error on 401 authentication failure', async () => {

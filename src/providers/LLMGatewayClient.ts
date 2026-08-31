@@ -14,7 +14,7 @@ import type {
   NvidiaChatTemplateKwargs,
 } from "../types.js";
 import { ApiError, classifyApiError } from "./errors.js";
-import { normalizeOutboundMessages } from "./messagePayload.js";
+import { normalizeOutboundMessages, toTextOnlyContent } from "./messagePayload.js";
 import { normalizeLLMUsage } from "./usage.js";
 
 /**
@@ -34,12 +34,13 @@ import { normalizeLLMUsage } from "./usage.js";
  */
 function sanitizeMessages(messages: LLMMessage[]): Record<string, unknown>[] {
   return normalizeOutboundMessages(messages, {
+    transformContent: toTextOnlyContent,
     orphanedToolResults: "recover",
     recoverOrphanedToolResult: (message) => {
       const label = message.name ? `: ${message.name}` : "";
       return {
         role: "system",
-        content: `[Recovered Tool Result${label}]\n${message.content}`,
+        content: `[Recovered Tool Result${label}]\n${toTextOnlyContent(message.content)}`,
       };
     },
   });
