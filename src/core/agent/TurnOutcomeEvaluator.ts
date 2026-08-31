@@ -88,7 +88,7 @@ export function evaluateAssistantTurn(input: TurnOutcomeInput): TurnOutcome {
   const toolCalls = payload.toolCalls ?? [];
   const { response, usedThoughtAsResponse } = extractUsableResponse(input);
 
-  if (completion.finishReason === 'length' && !payload.finalResponse) {
+  if (completion.finishReason === 'length') {
     return {
       type: 'repair',
       reason: 'truncated_response',

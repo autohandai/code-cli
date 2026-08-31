@@ -89,6 +89,19 @@ describe('TurnOutcomeEvaluator', () => {
     });
   });
 
+  it('repairs a truncated response even when its partial text parses as finalResponse', () => {
+    const result = evaluate({
+      completion: { content: 'The implementation is almost complete', finishReason: 'length' },
+      payload: { finalResponse: 'The implementation is almost complete' },
+    });
+
+    expect(result).toMatchObject({
+      type: 'repair',
+      reason: 'truncated_response',
+      saveAssistantMessage: false,
+    });
+  });
+
   it('finishes deferred-sounding prose by default', () => {
     const result = evaluate({
       completion: {
