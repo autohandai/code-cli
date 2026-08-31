@@ -820,7 +820,7 @@ describe('ReactLoopRunner composer status', () => {
     }
   });
 
-  it('bounds repeated invalid deferred responses and reports telemetry', async () => {
+  it('recovers from repeated invalid deferred responses without auto-reporting the turn', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const parser = new ReactionParser();
     const addSystemNote = vi.fn();
@@ -839,6 +839,12 @@ describe('ReactLoopRunner composer status', () => {
         id: 'deferred-2',
         created: 2,
         content: 'SITREP:\n- Status: blocked by no-tool constraint.\n- Next: inspect the React loop.',
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'deferred-recovery',
+        created: 3,
+        content: 'The React loop needs a final-answer recovery after repeated deferred responses.',
         raw: {},
       });
 
@@ -864,24 +870,13 @@ describe('ReactLoopRunner composer status', () => {
     try {
       await runAgentReactLoop(host, new AbortController());
 
-      expect(llmComplete).toHaveBeenCalledTimes(2);
-      expect(addSystemNote).toHaveBeenCalledTimes(1);
-      expect(reportError).toHaveBeenCalledWith(
-        expect.any(Error),
-        expect.objectContaining({
-          errorType: 'invalid_deferred_action',
-          model: 'test-model',
-          provider: 'openai',
-          context: expect.objectContaining({
-            excerpt: expect.stringContaining('blocked by no-tool constraint'),
-            reason: 'blocked_without_tools',
-            responseCompletionKind: 'invalid_deferred_action',
-          }),
-        }),
-      );
+      expect(llmComplete).toHaveBeenCalledTimes(3);
+      expect(addSystemNote).toHaveBeenCalledTimes(2);
+      expect(addSystemNote).toHaveBeenLastCalledWith(expect.stringContaining('Tools are unavailable for this recovery response'));
+      expect(reportError).not.toHaveBeenCalled();
       expect(emitOutput).toHaveBeenCalledWith({
         type: 'message',
-        content: 'SITREP:\n- Status: blocked by no-tool constraint.\n- Next: inspect the React loop.',
+        content: 'The React loop needs a final-answer recovery after repeated deferred responses.',
       });
       expect(emitOutput).not.toHaveBeenCalledWith({
         type: 'message',
