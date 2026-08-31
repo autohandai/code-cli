@@ -3,20 +3,12 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import os from 'node:os';
-import path from 'node:path';
+import { resolveAutohandHome } from '../constants.js';
 
 export type ChildProcessEnv = NodeJS.ProcessEnv;
 
 function hasOwnEnvKey(env: NodeJS.ProcessEnv | Record<string, string | undefined>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(env, key);
-}
-
-function resolveAutohandHome(env: NodeJS.ProcessEnv): string {
-  const configuredHome = env.AUTOHAND_HOME?.trim();
-  return configuredHome && configuredHome.length > 0
-    ? configuredHome
-    : path.join(os.homedir(), '.autohand');
 }
 
 /**
@@ -37,7 +29,7 @@ export function buildAutohandChildProcessEnv(
     ...overrides,
   };
 
-  env.AUTOHAND_HOME = resolveAutohandHome(env);
+  env.AUTOHAND_HOME = resolveAutohandHome({ environment: env });
 
   if (!hasOwnEnvKey(overrides, 'CODEX_HOME')) {
     env.CODEX_HOME = env.AUTOHAND_CODEX_COMPAT_HOME?.trim() || env.AUTOHAND_HOME;

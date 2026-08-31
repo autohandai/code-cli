@@ -8,12 +8,66 @@
 import os from 'node:os';
 import path from 'node:path';
 
+export interface AutohandHomeResolutionOptions {
+  environment?: Record<string, string | undefined>;
+  homeDirectory?: string;
+  platform?: NodeJS.Platform;
+}
+
+function isWindowsSystemLocation(candidate: string): boolean {
+  const normalized = path.win32.normalize(candidate).replaceAll('/', '\\').toLowerCase();
+  return /^(?:[a-z]:)?\\windows(?:\\|$)/u.test(normalized);
+}
+
+function homeFromWindowsAppData(appData: string | undefined): string | undefined {
+  if (!appData) return undefined;
+  const normalized = path.win32.normalize(appData);
+  const directoryName = path.win32.basename(normalized).toLowerCase();
+  if (directoryName !== 'local' && directoryName !== 'roaming') return undefined;
+  const appDataDirectory = path.win32.dirname(normalized);
+  if (path.win32.basename(appDataDirectory).toLowerCase() !== 'appdata') return undefined;
+  return path.win32.dirname(appDataDirectory);
+}
+
+/**
+ * Resolve a writable per-user state directory without trusting a Windows
+ * service working directory that was misreported as the user home.
+ */
+export function resolveAutohandHome(options: AutohandHomeResolutionOptions = {}): string {
+  const environment = options.environment ?? process.env;
+  const platform = options.platform ?? process.platform;
+  const homeDirectory = options.homeDirectory ?? os.homedir();
+  const pathForPlatform = platform === 'win32' ? path.win32 : path;
+  const configured = environment.AUTOHAND_HOME?.trim();
+
+  if (configured && (platform !== 'win32' || !isWindowsSystemLocation(configured))) {
+    return configured;
+  }
+
+  if (platform !== 'win32') {
+    return pathForPlatform.join(homeDirectory, '.autohand');
+  }
+
+  const driveHome = environment.HOMEDRIVE && environment.HOMEPATH
+    ? path.win32.join(environment.HOMEDRIVE, environment.HOMEPATH)
+    : undefined;
+  const candidate = [
+    environment.USERPROFILE,
+    driveHome,
+    homeFromWindowsAppData(environment.LOCALAPPDATA),
+    homeFromWindowsAppData(environment.APPDATA),
+    homeDirectory,
+  ].find((value): value is string => Boolean(value) && !isWindowsSystemLocation(value));
+
+  return path.win32.join(candidate ?? homeDirectory, '.autohand');
+}
+
 /**
  * Base directory for all Autohand user data and configuration.
  * Default: ~/.autohand/
  * Override: Set AUTOHAND_HOME environment variable
  */
-export const AUTOHAND_HOME = process.env.AUTOHAND_HOME || path.join(os.homedir(), '.autohand');
+export const AUTOHAND_HOME = resolveAutohandHome();
 
 /**
  * Subdirectory paths within AUTOHAND_HOME
