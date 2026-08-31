@@ -40,7 +40,7 @@ interface InstructionIntentDetector {
 }
 
 interface InstructionProviderConfigManager {
-  promptModelSelection(): Promise<void>;
+  promptModelSelection(): Promise<boolean>;
 }
 
 interface InstructionSessionManager {
@@ -461,7 +461,12 @@ export class InstructionRunner {
       if (error instanceof ProviderNotConfiguredError) {
         host.cleanupUI();
         console.log(chalk.yellow(`\nNo provider is configured yet. Let's set one up!\n`));
-        await host.providerConfigManager.promptModelSelection();
+        const providerConfigured = await host.providerConfigManager.promptModelSelection();
+        if (!providerConfigured) {
+          console.log(chalk.yellow('Provider setup was cancelled. Configure a provider with /model, then retry your request.'));
+          recordReflectionFailure('provider', 'Provider setup was cancelled before a provider was configured');
+          return false;
+        }
         // After configuration, retry the instruction
         deepResearch.deferFinalization = true;
         reflectionSuperseded = true;
