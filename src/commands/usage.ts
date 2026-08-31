@@ -502,6 +502,7 @@ function accountQuotaUsageRows(entitlement: AccountEntitlement | null): UsageLim
     quotaWindowUsageRow('5-hour quota', quota.window5h),
     ...(quota.window24h ? [quotaWindowUsageRow('24-hour quota', quota.window24h)] : []),
     quotaWindowUsageRow('Weekly quota', quota.week),
+    ...(quota.month ? [quotaWindowUsageRow('Monthly quota', quota.month)] : []),
   ];
 }
 
@@ -668,13 +669,23 @@ function formatPeriodTabs(period: UsageActivityPeriod): string {
     .join(theme.muted(' · '));
 }
 
-function formatUsageActivityDashboard(data: UsageActivityData, entitlement: AccountEntitlement | null): string {
+function formatUsageActivityDashboard(
+  data: UsageActivityData,
+  entitlement: AccountEntitlement | null,
+  provider: string | undefined,
+): string {
   const theme = createCommandTheme();
   const heatmap = data.period === 'daily' ? renderDailyHeatmap(data) : renderLinearHeatmap(data);
+  const quotaRows = provider === 'autohandai' ? accountQuotaUsageRows(entitlement) : null;
   return [
     theme.accent(`/usage ${data.period}`),
     '',
     ...(entitlement ? [formatAccountPlanSummary(entitlement), ''] : []),
+    ...(quotaRows ? [
+      theme.bold('Quota windows'),
+      ...quotaRows.map((row) => formatUsageLimitRow(row, 18)),
+      '',
+    ] : []),
     `${theme.bold('Token activity')}   ${theme.muted(data.rangeLabel)}`,
     formatActivitySummary(data),
     '',
@@ -697,7 +708,7 @@ export async function usage(ctx: SlashCommandContext, args: string[] = []): Prom
       gatherUsageActivityData(ctx, period),
       resolveAccountEntitlement(ctx),
     ]);
-    return formatUsageActivityDashboard(activity, entitlement);
+    return formatUsageActivityDashboard(activity, entitlement, ctx.provider);
   }
 
   if (!isUsageV2Enabled(ctx)) {

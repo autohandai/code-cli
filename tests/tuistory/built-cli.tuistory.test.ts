@@ -2788,6 +2788,8 @@ describe('interactive built CLI Tuistory tests', () => {
     });
 
     await waitForComposer(session);
+    await session.waitForText('Autohand (Pro) (Autohand AI, moa)', { timeout: 10_000 });
+    expect(session.readAll()).not.toContain('Pro · Monthly');
     await session.type('/status');
     await session.press('enter');
     await session.waitForText('(tab to cycle)', { timeout: 10_000 });
@@ -2809,6 +2811,8 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(output).toContain('120 used / 1K');
     expect(output).toContain('Weekly quota:');
     expect(output).toContain('120 used / 7K');
+    expect(output).toContain('Monthly quota:');
+    expect(output).toContain('480 used / 21K');
     expect(output).not.toContain('autohandai:              not reported by provider');
     await session.press('escape');
     await waitForComposer(session);

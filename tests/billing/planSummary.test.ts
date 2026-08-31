@@ -17,6 +17,21 @@ describe('plan summary', () => {
     expect(planSummaryFromEntitlement({ tier: 'enterprise' })?.label).toBe('Enterprise');
   });
 
+  it('formats the plan label that appears beside Autohand in the composer', async () => {
+    const { formatComposerPlanLabel } = await import('../../src/billing/planSummary.js');
+
+    expect(formatComposerPlanLabel({ tier: 'free', label: 'Free', interval: null })).toBe('Free');
+    expect(formatComposerPlanLabel({ tier: 'pro', label: 'Pro', interval: 'month' })).toBe('Pro');
+    expect(formatComposerPlanLabel({ tier: 'max', label: 'Max', interval: 'year' })).toBe('Max');
+    expect(formatComposerPlanLabel({
+      tier: 'team',
+      label: 'Team',
+      accountName: 'Launch Team',
+      interval: 'month',
+    })).toBe('Launch Team');
+    expect(formatComposerPlanLabel({ tier: 'enterprise', label: 'Enterprise', interval: 'year' })).toBeUndefined();
+  });
+
   it('carries the billing cycle when the API reports one', async () => {
     const { planSummaryFromEntitlement } = await import('../../src/billing/planSummary.js');
 

@@ -41,6 +41,7 @@ export class InkUIManager extends BaseUIManager implements UIManager {
   private readonly options: InkUIManagerOptions;
   private inputWaiter: ((input: string) => void) | null = null;
   private providerModel: { provider: string; model: string } | null = null;
+  private planLabel: string | undefined;
 
   constructor(options: InkUIManagerOptions) {
     super();
@@ -70,6 +71,7 @@ export class InkUIManager extends BaseUIManager implements UIManager {
     if (this.providerModel) {
       this.inkRenderer.setProviderModel(this.providerModel.provider, this.providerModel.model);
     }
+    this.inkRenderer.setPlanLabel(this.planLabel);
     this.inkRenderer.start();
   }
 
@@ -101,6 +103,11 @@ export class InkUIManager extends BaseUIManager implements UIManager {
   setProviderModel(provider: string, model: string): void {
     this.providerModel = { provider, model };
     this.inkRenderer?.setProviderModel(provider, model);
+  }
+
+  setPlanLabel(planLabel: string | undefined): void {
+    this.planLabel = planLabel;
+    this.inkRenderer?.setPlanLabel(planLabel);
   }
 
   setFinalResponse(response: string): void {

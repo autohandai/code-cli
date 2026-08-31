@@ -49,11 +49,13 @@ export interface AccountQuota {
   window5h: AccountQuotaWindow | null;
   window24h: AccountQuotaWindow | null;
   week: AccountQuotaWindow | null;
+  month: AccountQuotaWindow | null;
   message?: string;
 }
 
 export interface AccountEntitlement {
   tier: string;
+  accountName?: string;
   freeRemaining: number | null;
   /** How the subscription renews; null when free or the price is unrecognised. */
   interval?: 'month' | 'year' | null;
@@ -137,7 +139,8 @@ function parseAccountQuota(value: unknown): AccountQuota | undefined {
   const window5h = parseAccountQuotaWindow(value.window5h);
   const window24h = value.window24h === undefined ? null : parseAccountQuotaWindow(value.window24h);
   const week = parseAccountQuotaWindow(value.week);
-  if (window5h === undefined || window24h === undefined || week === undefined) return undefined;
+  const month = value.month === undefined ? null : parseAccountQuotaWindow(value.month);
+  if (window5h === undefined || window24h === undefined || week === undefined || month === undefined) return undefined;
   if (value.available && (window5h === null || week === null)) return undefined;
   const message = isSafeText(value.message) ? value.message : undefined;
   return {
@@ -145,6 +148,7 @@ function parseAccountQuota(value: unknown): AccountQuota | undefined {
     window5h,
     window24h,
     week,
+    month,
     ...(message ? { message } : {}),
   };
 }
@@ -595,6 +599,9 @@ export class AuthClient {
       const entitlement = isRecord(data) && isRecord(data.entitlement) ? data.entitlement : undefined;
       const tier = entitlement?.tier;
       if (typeof tier !== 'string') return null;
+      const directAccountName = isSafeText(entitlement?.accountName) ? entitlement.accountName.trim() : undefined;
+      const accountName = directAccountName
+        ?? (tier === 'team' ? await this.fetchActiveAccountName(token) : undefined);
       const freeRemaining = entitlement?.freeRemaining;
       const limits = parseAccountEntitlementLimits(entitlement?.limits);
       const quota = parseAccountQuota(entitlement?.quota);
@@ -603,6 +610,7 @@ export class AuthClient {
       const cycle = interval === 'month' || interval === 'year' ? interval : null;
       return {
         tier,
+        ...(accountName ? { accountName } : {}),
         freeRemaining: typeof freeRemaining === 'number' ? freeRemaining : null,
         // Omitted rather than null when unknown, matching the other optional fields.
         ...(cycle ? { interval: cycle } : {}),
@@ -612,6 +620,55 @@ export class AuthClient {
     } catch {
       clearTimeout(timeoutId);
       return null;
+    }
+  }
+
+  private async fetchActiveAccountName(token: string): Promise<string | undefined> {
+    const accountsUrl = this.getAccountsUrl();
+    if (!accountsUrl) return undefined;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    try {
+      const response = await fetch(accountsUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Cookie': `auth_session=${token}`,
+        },
+        signal: controller.signal,
+      });
+      if (!response.ok) return undefined;
+
+      const payload: unknown = await response.json();
+      if (!isRecord(payload) || !isSafeText(payload.activeAccountId) || !Array.isArray(payload.accounts)) {
+        return undefined;
+      }
+
+      for (const candidate of payload.accounts) {
+        if (!isRecord(candidate) || !isRecord(candidate.account)) continue;
+        if (candidate.account.id !== payload.activeAccountId) continue;
+        return isSafeText(candidate.account.name) ? candidate.account.name.trim() : undefined;
+      }
+      return undefined;
+    } catch {
+      return undefined;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  private getAccountsUrl(): string | undefined {
+    try {
+      const url = new URL(this.baseUrl);
+      const authPath = url.pathname.replace(/\/+$/, '');
+      if (!authPath.endsWith('/auth')) return undefined;
+      url.pathname = `${authPath.slice(0, -'/auth'.length)}/accounts`;
+      url.search = '';
+      url.hash = '';
+      return url.toString();
+    } catch {
+      return undefined;
     }
   }
 

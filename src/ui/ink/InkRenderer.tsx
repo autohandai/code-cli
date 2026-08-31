@@ -1014,6 +1014,10 @@ export class InkRenderer {
     this.updateState({ provider, model });
   }
 
+  setPlanLabel(planLabel: string | undefined): void {
+    this.updateState({ planLabel });
+  }
+
   setAnnouncement(announcement: AnnouncementLineState | undefined): void {
     this.updateState({ announcement });
   }
