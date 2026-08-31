@@ -102,7 +102,7 @@ describe('login command', () => {
     expect(consoleOutput.some((line) => line.includes('cancelled'))).toBe(true);
   });
 
-  it('initiates device auth flow when not logged in', async () => {
+  it('initiates device auth flow and stores durable credentials without session expiry metadata', async () => {
     const mockConfig: LoadedConfig = {
       configPath: '/home/user/.autohand/config.json',
     };
@@ -120,7 +120,7 @@ describe('login command', () => {
         .mockResolvedValueOnce({ status: 'pending' })
         .mockResolvedValue({
           status: 'authorized',
-          token: 'new-token',
+          token: 'ahc_durable-device-credential',
           user: { id: 'user-1', email: 'new@example.com', name: 'New User' },
         }),
     };
@@ -133,6 +133,14 @@ describe('login command', () => {
 
     expect(mockAuthClient.initiateDeviceAuth).toHaveBeenCalled();
     expect(consoleOutput.some((line) => line.includes('ABC-123'))).toBe(true);
+    const [savedConfig] = (saveConfig as ReturnType<typeof vi.fn>).mock.calls[0] ?? [];
+    expect(savedConfig).toEqual(expect.objectContaining({
+      auth: {
+        token: 'ahc_durable-device-credential',
+        user: { id: 'user-1', email: 'new@example.com', name: 'New User' },
+      },
+    }));
+    expect(savedConfig.auth).not.toHaveProperty('expiresAt');
   }, 10000); // Extended timeout
 
   it('handles device auth failure', async () => {

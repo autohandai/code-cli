@@ -8,6 +8,7 @@ import { t } from '../i18n/index.js';
 import { safePrompt } from '../utils/prompt.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import { getAuthClient } from '../auth/index.js';
+import { isDurableAuthCredential } from '../auth/credentialType.js';
 import { saveConfig } from '../config.js';
 import { AUTH_CONFIG } from '../constants.js';
 import type { LoadedConfig } from '../types.js';
@@ -264,16 +265,17 @@ export async function login(ctx: LoginContext): Promise<string | null> {
       // Clear the waiting line
       process.stdout.write('\r' + ' '.repeat(20) + '\r');
 
-      // Calculate expiry date
-      const expiresAt = new Date(Date.now() + AUTH_CONFIG.sessionExpiryDays * 24 * 60 * 60 * 1000).toISOString();
-
       // Save to config
       const updatedConfig: LoadedConfig = applyPostLoginProviderDefault({
         ...config,
         auth: {
           token: pollResult.token,
           user: pollResult.user,
-          expiresAt,
+          ...(!isDurableAuthCredential(pollResult.token) && {
+            expiresAt: new Date(
+              Date.now() + AUTH_CONFIG.sessionExpiryDays * 24 * 60 * 60 * 1000,
+            ).toISOString(),
+          }),
         },
       }, pollResult.token);
 

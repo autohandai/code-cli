@@ -197,6 +197,23 @@ describe('ensureAuthenticated', () => {
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
+  it('keeps a durable device credential when obsolete session metadata is expired', async () => {
+    const mockConfig: LoadedConfig = {
+      configPath: '/tmp/config.json',
+      auth: {
+        token: 'ahc_durable-device-credential',
+        user: { id: 'u1', email: 'test@example.com', name: 'Test' },
+        expiresAt: new Date(Date.now() - 86400000).toISOString(),
+      },
+    };
+
+    const result = await ensureAuthenticated(mockConfig);
+
+    expect(result.auth?.token).toBe('ahc_durable-device-credential');
+    expect(showModal).not.toHaveBeenCalled();
+    expect(mockLogin).not.toHaveBeenCalled();
+  });
+
   it('starts device login when no token exists', async () => {
     const mockConfig: LoadedConfig = {
       configPath: '/tmp/config.json',
