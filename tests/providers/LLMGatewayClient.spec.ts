@@ -469,6 +469,39 @@ describe('LLMGatewayClient', () => {
       })).rejects.toMatchObject({ code: 'rate_limited' });
     });
 
+    it('retries an Autohand AI upstream provider failure reported as code 2005', async () => {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 400,
+          headers: new Headers(),
+          json: () => Promise.resolve([{ code: 2005, message: 'Failed to get response from provider' }]),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({
+            id: 'retry-success',
+            choices: [{ message: { role: 'assistant', content: 'Recovered.' }, finish_reason: 'stop' }],
+          }),
+        });
+      global.fetch = fetchMock;
+
+      const client = new LLMGatewayClient(
+        { apiKey: 'test-key', model: 'fantail' },
+        { maxRetries: 1, retryDelay: 0 },
+        {
+          serviceName: 'Autohand AI',
+          credentialName: 'Autohand AI API key',
+          accountName: 'Autohand AI account',
+        },
+      );
+
+      await expect(client.complete({
+        messages: [{ role: 'user', content: 'Hello' }],
+      })).resolves.toMatchObject({ content: 'Recovered.' });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
     it('recommends a paid plan when Autohand AI quota is exhausted', async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-08-14T00:00:00.000Z'));

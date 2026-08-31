@@ -105,6 +105,21 @@ function coerceErrorDetail(value: unknown): string {
   return "";
 }
 
+function isTransientUpstreamProviderFailure(detail: string): boolean {
+  try {
+    const body = JSON.parse(detail) as unknown;
+    if (!Array.isArray(body)) return false;
+    return body.some((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+      const record = entry as Record<string, unknown>;
+      return (record.code === 2005 || record.code === "2005")
+        && record.message === "Failed to get response from provider";
+    });
+  } catch {
+    return false;
+  }
+}
+
 interface StructuredGatewayError {
   type?: string;
   message?: string;
@@ -595,7 +610,7 @@ export class LLMGatewayClient {
         ? body as Record<string, unknown>
         : undefined;
       errorDetail = structuredError?.message
-        ?? (coerceErrorDetail(bodyRecord?.error) || coerceErrorDetail(bodyRecord?.message));
+        ?? (coerceErrorDetail(bodyRecord?.error) || coerceErrorDetail(bodyRecord?.message) || coerceErrorDetail(body));
     } catch {
       // Fallback to raw text if JSON parsing fails
       try {
@@ -603,6 +618,17 @@ export class LLMGatewayClient {
       } catch {
         // Ignore
       }
+    }
+
+    if (isTransientUpstreamProviderFailure(errorDetail)) {
+      return new ApiError(
+        `${buildFriendlyErrors(this.errorLabels).server_error}\n${errorDetail}`,
+        "server_error",
+        status,
+        true,
+        undefined,
+        errorDetail,
+      );
     }
 
     if (this.errorLabels.serviceName === "Autohand AI" && structuredError?.type === "model_not_available") {
