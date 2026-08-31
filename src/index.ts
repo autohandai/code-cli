@@ -207,6 +207,22 @@ async function loadConfigForMcpScope(scopeInput?: string): Promise<{ config: Loa
   return { config: await loadConfig(projectConfigPath, process.cwd()), scope };
 }
 
+async function syncAccountManagedMcpConfig(
+  config: LoadedConfig,
+  scope: McpConfigScope,
+): Promise<void> {
+  if (scope !== 'user' || !config.auth?.token || config.sync?.enabled === false) {
+    return;
+  }
+  try {
+    const { syncCodingAgentControlPlane } = await import('./sync/CodingAgentControlPlane.js');
+    await syncCodingAgentControlPlane(config, config.auth.token);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(chalk.yellow(`Saved locally. Connector sync will retry when Code is running: ${message}`));
+  }
+}
+
 import { normalizeMcpCommandForConfig } from './mcp/commandNormalization.js';
 import type { CLIOptions, AgentRuntime } from './types.js';
 import type { AutohandAgent } from './core/agent.js';
@@ -821,6 +837,7 @@ mcpCmd
         if (wasAutoConnectDisabled || wasMcpDisabled) {
           existing.autoConnect = true;
           await saveConfig(config);
+          await syncAccountManagedMcpConfig(config, scope);
 
           const reenabledParts: string[] = [];
           if (wasMcpDisabled) reenabledParts.push('MCP support');
@@ -849,6 +866,7 @@ mcpCmd
       }
       existing.autoConnect = true;
       await saveConfig(config);
+      await syncAccountManagedMcpConfig(config, scope);
       console.log(chalk.green(`Updated "${name}" in ${scope} config (${newServer.transport}: ${displayTarget})`));
       console.log(chalk.gray('Server will use the new settings on next start.'));
       process.exit(0);
@@ -857,6 +875,7 @@ mcpCmd
     config.mcp.servers.push(newServer);
 
     await saveConfig(config);
+    await syncAccountManagedMcpConfig(config, scope);
     console.log(chalk.green(`Added "${name}" to ${scope} config (${newServer.transport}: ${displayTarget})`));
     console.log(chalk.gray('Server will auto-connect when you start autohand.'));
     process.exit(0);
@@ -887,8 +906,55 @@ mcpCmd
 
     config.mcp!.servers!.splice(serverIndex, 1);
     await saveConfig(config);
+    await syncAccountManagedMcpConfig(config, scope);
     console.log(chalk.green(`Removed "${name}" from ${scope} config.`));
     process.exit(0);
+  });
+
+mcpCmd
+  .command('connect <name>')
+  .description('Enable automatic connection for a configured MCP server')
+  .option('-s, --scope <scope>', 'Config scope: user | project', 'user')
+  .action(async (name: string, options: { scope?: string }) => {
+    try {
+      const { config, scope } = await loadConfigForMcpScope(options.scope);
+      const server = config.mcp?.servers?.find((item) => item.name === name);
+      if (!server) {
+        console.log(chalk.yellow(`Server "${name}" not found in ${scope} config.`));
+        process.exit(1);
+      }
+      server.autoConnect = true;
+      await saveConfig(config);
+      await syncAccountManagedMcpConfig(config, scope);
+      console.log(chalk.green(`Enabled automatic connection for "${name}" in ${scope} config.`));
+      process.exit(0);
+    } catch (error) {
+      console.log(chalk.red(error instanceof Error ? error.message : String(error)));
+      process.exit(1);
+    }
+  });
+
+mcpCmd
+  .command('disconnect <name>')
+  .description('Disable automatic connection for a configured MCP server')
+  .option('-s, --scope <scope>', 'Config scope: user | project', 'user')
+  .action(async (name: string, options: { scope?: string }) => {
+    try {
+      const { config, scope } = await loadConfigForMcpScope(options.scope);
+      const server = config.mcp?.servers?.find((item) => item.name === name);
+      if (!server) {
+        console.log(chalk.yellow(`Server "${name}" not found in ${scope} config.`));
+        process.exit(1);
+      }
+      server.autoConnect = false;
+      await saveConfig(config);
+      await syncAccountManagedMcpConfig(config, scope);
+      console.log(chalk.green(`Disabled automatic connection for "${name}" in ${scope} config.`));
+      process.exit(0);
+    } catch (error) {
+      console.log(chalk.red(error instanceof Error ? error.message : String(error)));
+      process.exit(1);
+    }
   });
 
 mcpCmd
@@ -946,6 +1012,7 @@ mcpCmd
     const manager = new McpClientManager();
     const { mcpInstall } = await import('./commands/mcp-install.js');
     const result = await mcpInstall({ mcpManager: manager, config }, serverName);
+    await syncAccountManagedMcpConfig(config, options.scope === 'project' ? 'project' : 'user');
     if (result) console.log(result);
     await manager.disconnectAll().catch(() => {});
     process.exit(0);
@@ -1518,6 +1585,10 @@ async function runCLI(options: CLIOptions): Promise<void> {
                 const { promptNotify } = await import('./ui/inputPrompt.js');
                 promptNotify(chalk.yellow(message));
               }
+            },
+            onControlPlaneMcpApplied: async (mcp) => {
+              config.mcp = mcp;
+              await agentHolder.current?.applyManagedMcpSettings(mcp);
             },
           });
         },

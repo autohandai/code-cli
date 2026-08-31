@@ -500,6 +500,10 @@ export interface McpServerConfigEntry {
   headers?: Record<string, string>;
   /** Whether to auto-connect on startup (default: true) */
   autoConnect?: boolean;
+  /** Account-scoped connector ID assigned by the Autohand Console control plane. */
+  managedConnectorId?: string;
+  /** Last connector revision applied from the Autohand Console control plane. */
+  managedConnectorRevision?: number;
 }
 
 // ============ Community MCP Registry Types ============

@@ -93,7 +93,7 @@ export async function mcp(ctx: McpCommandContext, args: string[] = []): Promise<
       return handleConnect(mcpManager, config, args.slice(1));
 
     case 'disconnect':
-      return handleDisconnect(mcpManager, args.slice(1));
+      return handleDisconnect(mcpManager, config, args.slice(1));
 
     case 'list':
     case 'tools':
@@ -179,11 +179,18 @@ async function showInteractiveList(
         } catch {
           // Ignore disconnect errors
         }
+        const serverConfig = config?.mcp?.servers?.find((s) => s.name === serverName);
+        if (serverConfig && config) {
+          serverConfig.autoConnect = false;
+          await saveConfig(config);
+        }
       } else {
         // Connect - find config for this server
         const serverConfig = config?.mcp?.servers?.find((s) => s.name === serverName);
-        if (serverConfig) {
+        if (serverConfig && config) {
           try {
+            serverConfig.autoConnect = true;
+            await saveConfig(config);
             await manager.connect(serverConfig);
           } catch {
             // Error state will be reflected in the list
@@ -224,12 +231,14 @@ async function handleConnect(
   }
 
   const serverConfig = config?.mcp?.servers?.find(s => s.name === serverName);
-  if (!serverConfig) {
+  if (!config || !serverConfig) {
     return `Server "${serverName}" not found in config. Use /mcp add to add it first.`;
   }
 
   try {
     console.log(chalk.cyan(t('commands.mcp.connecting')));
+    serverConfig.autoConnect = true;
+    await saveConfig(config);
     await manager.connect(serverConfig);
     const tools = manager.getToolsForServer(serverName);
     return `Connected to ${serverName} (${tools.length} tools available)`;
@@ -243,6 +252,7 @@ async function handleConnect(
  */
 async function handleDisconnect(
   manager: McpClientManager,
+  config: LoadedConfig | undefined,
   args: string[]
 ): Promise<string> {
   const serverName = args[0];
@@ -252,6 +262,11 @@ async function handleDisconnect(
 
   try {
     await manager.disconnect(serverName);
+    const serverConfig = config?.mcp?.servers?.find((server) => server.name === serverName);
+    if (serverConfig && config) {
+      serverConfig.autoConnect = false;
+      await saveConfig(config);
+    }
     return `Disconnected from ${serverName}`;
   } catch (error) {
     return `Failed to disconnect from ${serverName}: ${error instanceof Error ? error.message : 'Unknown error'}`;
