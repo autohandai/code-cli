@@ -732,26 +732,13 @@ export async function runAgentReactLoop(
             continue;
           }
 
-          host.autoReportManager.reportError(
-            new Error(`Invalid deferred finalResponse without tool calls: ${turnOutcome.telemetry?.reason ?? 'unknown'}`),
-            {
-              errorType: 'invalid_deferred_action',
-              model: host.runtime.options.model,
-              provider: host.activeProvider,
-              conversationLength: host.conversation.history().length,
-              context: {
-                responseCompletionKind: 'invalid_deferred_action',
-                reason: turnOutcome.telemetry?.reason ?? 'unknown',
-                excerpt: turnOutcome.telemetry?.excerpt ?? '',
-              },
-            }
-          ).catch(() => {});
-
-          renderFinalResponse(turnOutcome.rejectedResponse || 'The model stopped before providing a usable answer. Please retry the request.', {
-            thought: payload.thought,
-            usedThoughtAsResponse: false,
-          });
-          return { status: 'completed' };
+          loopGuard.forceFinalResponse();
+          host.conversation.addSystemNote(
+            '[System] RECOVERY: You twice announced an action without emitting a tool call. ' +
+            'Tools are unavailable for this recovery response. Do not narrate another action, progress update, ' +
+            'or next step; provide the best complete final answer from the evidence already available.',
+          );
+          continue;
         }
 
         if (turnOutcome.reason === 'empty_no_tool_response') {
