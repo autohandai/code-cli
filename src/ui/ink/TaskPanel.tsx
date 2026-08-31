@@ -20,6 +20,8 @@ export interface TaskPanelProps {
   note?: string;
   /** Rendered below the panel as supplied by the tool, e.g. the todo summary. */
   summary?: string;
+  /** Preserve the task-panel visual language in a fixed region with only a few terminal rows. */
+  compact?: boolean;
 }
 
 const STATUS_COLOR_KEY: Record<TaskPanelStatus, 'success' | 'warning' | 'muted' | 'error'> = {
@@ -36,7 +38,7 @@ function padId(id: string | undefined, width: number): string {
   return `${(id ?? '').padEnd(width)} `;
 }
 
-export function TaskPanel({ model, headline, note, summary }: TaskPanelProps) {
+export function TaskPanel({ model, headline, note, summary, compact = false }: TaskPanelProps) {
   const { colors } = useTheme();
 
   if (model.total === 0) {
@@ -53,6 +55,37 @@ export function TaskPanel({ model, headline, note, summary }: TaskPanelProps) {
     .reduce((widest, row) => Math.max(widest, row.id?.length ?? 0), 0);
   // Aligns under the title: two leading spaces + glyph + space, then the id column.
   const subIndent = ' '.repeat(4 + (idWidth ? idWidth + 1 : 0));
+
+  if (compact) {
+    return (
+      <Box flexDirection="column" marginBottom={1}>
+        {headline ? <Text color={colors.toolOutput}>{headline}</Text> : null}
+
+        <Box>
+          <Text bold> Tasks </Text>
+          <Text color={colors.success}>{model.bar}</Text>
+          <Text color={colors.muted}>{` ${model.done}/${model.total} done · ${model.percent}%`}</Text>
+        </Box>
+
+        {model.groups.flatMap((group) => group.rows.map((row, index) => (
+          <Box key={`${group.status}-${row.id ?? index}`}>
+            <Text color={colors.muted}>{` ${group.label} · `}</Text>
+            <Text color={colors[STATUS_COLOR_KEY[row.status]]}>{`${taskStatusGlyph(row.status)} `}</Text>
+            <Text
+              color={row.status === 'pending' ? colors.muted : colors.toolOutput}
+              wrap="truncate"
+            >
+              {row.title}
+            </Text>
+          </Box>
+        )))}
+
+        {model.hiddenLabel ? <Text color={colors.muted}>{`  … ${model.hiddenLabel}`}</Text> : null}
+        {note ? <Text color={colors.muted}>{` ${note}`}</Text> : null}
+        {summary ? <Text color={colors.muted}>{` ${summary}`}</Text> : null}
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="column" marginBottom={1}>
