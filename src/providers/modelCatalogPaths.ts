@@ -4,11 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { resolveAutohandHome } from "../constants.js";
 
 export function getAutohandHomePath(): string {
-  return resolve(process.env.AUTOHAND_HOME ?? join(homedir(), ".autohand"));
+  return resolve(resolveAutohandHome());
 }
 
 export function getUserModelCatalogPath(): string {
