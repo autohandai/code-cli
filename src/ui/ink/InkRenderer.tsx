@@ -354,6 +354,7 @@ export class InkRenderer {
   private options: InkRendererOptions;
   private toolIdCounter = 0;
   private wrapperRef: React.RefObject<AgentUIWrapperHandle | null>;
+  private notificationContentsByKey = new Map<string, string>();
   /** Pending live command output buffers (accumulated between flushes) */
   private pendingLiveOutput = new Map<string, { stdout: string; stderr: string }>();
   /** Timer for throttling live command output flushes */
@@ -671,6 +672,30 @@ export class InkRenderer {
     });
   }
 
+  upsertNotification(key: string, message: string): void {
+    const content = message.trim();
+    if (!content) {
+      return;
+    }
+
+    const previousContent = this.notificationContentsByKey.get(key);
+    if (previousContent === content) {
+      return;
+    }
+
+    const previousIndex = previousContent === undefined
+      ? -1
+      : this.state.notifications.lastIndexOf(previousContent);
+    const notifications = previousIndex === -1
+      ? [...this.state.notifications, content]
+      : this.state.notifications.map((notification, index) =>
+        index === previousIndex ? content : notification,
+      );
+
+    this.notificationContentsByKey.set(key, content);
+    this.updateState({ notifications });
+  }
+
   setChatMessages(messages: ChatLogMessage[]): void {
     this.updateState({
       chatMessages: messages,
@@ -805,6 +830,7 @@ export class InkRenderer {
       announcement: this.state.announcement,
     };
     this.queuedInstructionEntries = [];
+    this.notificationContentsByKey.clear();
     this.state = newState;
     if (this.wrapperRef.current) {
       this.wrapperRef.current.updateState(newState);
@@ -1416,6 +1442,7 @@ export class InkRenderer {
       announcement: this.state.announcement,
     };
     this.queuedInstructionEntries = [];
+    this.notificationContentsByKey.clear();
     this.state = newState;
 
     // Use React state update if wrapper is mounted
