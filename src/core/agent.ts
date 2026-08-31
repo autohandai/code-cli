@@ -57,6 +57,7 @@ import type {
   ToolOutputChunk,
   ToolActionOutcome,
   TurnUsage,
+  McpSettings,
 } from '../types.js';
 
 import { AgentDelegator } from './agents/AgentDelegator.js';
@@ -2182,6 +2183,20 @@ export class AutohandAgent {
    */
   async connectAcpMcpServers(configs: McpServerConfig[]): Promise<void> {
     return connectAgentAcpMcpServers(this, configs);
+  }
+
+  /**
+   * Apply account-managed MCP changes pulled by the background sync service.
+   * This replaces the active connection set so disabled or deleted connectors
+   * stop exposing their tools during the same CLI session.
+   */
+  async applyManagedMcpSettings(mcp: McpSettings | undefined): Promise<void> {
+    this.runtime.config.mcp = mcp;
+    await this.mcpManager.disconnectAll();
+    if (mcp?.enabled !== false) {
+      await this.mcpManager.connectAll(mcp?.servers ?? []);
+    }
+    this.syncMcpTools();
   }
 
   /**

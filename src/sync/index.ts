@@ -44,3 +44,10 @@ export { SyncApiClient, getSyncApiClient, resetSyncApiClient } from './SyncApiCl
 // Service
 export { SyncService, createSyncService } from './SyncService.js';
 export type { SyncServiceOptions } from './SyncService.js';
+export {
+  applyManagedConnectors,
+  CodingAgentControlPlaneClient,
+  createCodingAgentSettingsSnapshot,
+  getOrCreateCodingAgentDeviceId,
+  syncCodingAgentControlPlane,
+} from './CodingAgentControlPlane.js';

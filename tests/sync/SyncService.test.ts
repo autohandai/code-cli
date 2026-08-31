@@ -18,6 +18,12 @@ import { MemoryEventLog } from '../../src/memory/MemoryEventLog.js';
 // Mock the constants module
 vi.mock('../../src/constants.js', () => ({
   AUTOHAND_HOME: '/tmp/autohand-test',
+  AUTOHAND_FILES: {
+    configJson: '/tmp/autohand-test/config.json',
+    configToml: '/tmp/autohand-test/config.toml',
+    configYaml: '/tmp/autohand-test/config.yaml',
+    configYml: '/tmp/autohand-test/config.yml',
+  },
 }));
 
 describe('SyncService', () => {

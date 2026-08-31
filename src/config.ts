@@ -22,7 +22,7 @@ import type {
   BedrockAuthMode,
   AutohandAISettings,
 } from "./types.js";
-import { AUTOHAND_FILES } from "./constants.js";
+import { AUTOHAND_FILES, AUTOHAND_HOME } from "./constants.js";
 import { isAutohandInferenceEnabled } from "./featureFlags.js";
 import { autoInitTheme, configureThemeSources, themeExists } from "./ui/theme/index.js";
 import { loadLocalProjectSettings, type LocalProjectSettings } from "./permissions/localProjectPermissions.js";
@@ -977,6 +977,22 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
             `mcp.servers[].url is required for ${server.transport} transport in ${configPath}`,
           );
         }
+        if (
+          server.managedConnectorId !== undefined &&
+          (typeof server.managedConnectorId !== "string" || server.managedConnectorId.length === 0)
+        ) {
+          throw new Error(
+            `mcp.servers[].managedConnectorId must be a non-empty string in ${configPath}`,
+          );
+        }
+        if (
+          server.managedConnectorRevision !== undefined &&
+          (!Number.isInteger(server.managedConnectorRevision) || server.managedConnectorRevision < 0)
+        ) {
+          throw new Error(
+            `mcp.servers[].managedConnectorRevision must be a non-negative integer in ${configPath}`,
+          );
+        }
       }
     }
   }
@@ -1360,5 +1376,15 @@ export async function saveConfig(
     await fs.writeFile(configPath, stringifyTomlObject(data as Record<string, unknown>), "utf8");
   } else {
     await fs.writeJson(configPath, data, { spaces: 2 });
+  }
+
+  // A signed-in client synchronizes its account-managed MCP connectors and the
+  // safe settings snapshot after user-level configuration changes. The import is
+  // intentionally deferred so config loading remains usable in bare and test
+  // contexts that do not initialize the background sync runtime.
+  if (configPath.startsWith(path.join(AUTOHAND_HOME, path.sep))) {
+    void import('./sync/runtimeSyncService.js')
+      .then(({ scheduleBackgroundSync }) => scheduleBackgroundSync())
+      .catch(() => {});
   }
 }

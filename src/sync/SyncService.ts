@@ -9,6 +9,11 @@
 import fs from 'fs-extra';
 import path from 'node:path';
 import { AUTOHAND_HOME } from '../constants.js';
+import { loadConfig } from '../config.js';
+import type { McpSettings } from '../types.js';
+import {
+  syncCodingAgentControlPlane,
+} from './CodingAgentControlPlane.js';
 import { SyncApiClient, getSyncApiClient } from './SyncApiClient.js';
 import { encryptConfig, decryptConfig, computeHash } from './encryption.js';
 import {
@@ -82,6 +87,8 @@ export interface SyncServiceOptions {
   onEvent?: (event: SyncEvent) => void;
   /** Callback when authentication fails (401 error) */
   onAuthFailure?: () => void;
+  /** Refresh live MCP clients after Console-managed connector changes are applied. */
+  onControlPlaneMcpApplied?: (mcp: McpSettings | undefined) => Promise<void> | void;
 }
 
 interface SyncState {
@@ -130,6 +137,7 @@ export class SyncService {
   private readonly client: SyncApiClient;
   private readonly onEvent: (event: SyncEvent) => void;
   private readonly onAuthFailure: (() => void) | undefined;
+  private readonly onControlPlaneMcpApplied: ((mcp: McpSettings | undefined) => Promise<void> | void) | undefined;
   private readonly basePath: string;
 
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -149,6 +157,7 @@ export class SyncService {
     this.client = options.apiClient || getSyncApiClient();
     this.onEvent = options.onEvent || (() => {});
     this.onAuthFailure = options.onAuthFailure;
+    this.onControlPlaneMcpApplied = options.onControlPlaneMcpApplied;
     this.basePath = AUTOHAND_HOME;
   }
 
@@ -402,6 +411,13 @@ export class SyncService {
       });
       this.assertOperationActive(context);
 
+      // Connector configuration and safe settings metadata live on a dedicated
+      // account-scoped control plane. They deliberately do not share the generic
+      // encrypted file sync manifest because Console needs a redacted, structured
+      // view while connector credentials must remain unavailable to the browser.
+      await this.syncCodingAgentControlPlane(context);
+      this.assertOperationActive(context);
+
       const result: SyncResult = {
         success: true,
         uploaded,
@@ -441,6 +457,23 @@ export class SyncService {
         error: errorMessage,
         duration: Date.now() - startTime,
       };
+    }
+  }
+
+  private async syncCodingAgentControlPlane(context: SyncOperationContext): Promise<void> {
+    // Account-managed connectors belong to the user's global Coding Agent
+    // configuration. Project and test sync roots must remain file-sync only.
+    if (path.resolve(this.basePath) !== path.resolve(AUTOHAND_HOME)) return;
+    const config = await loadConfig(path.join(this.basePath, 'config.json'));
+    this.assertOperationActive(context);
+    if (!config.auth?.token) return;
+    const result = await syncCodingAgentControlPlane(config, this.authToken, {
+      signal: context.signal,
+    });
+    this.assertOperationActive(context);
+    if (result.changed) {
+      await this.onControlPlaneMcpApplied?.(result.mcp);
+      this.assertOperationActive(context);
     }
   }
 
