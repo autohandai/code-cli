@@ -8,6 +8,23 @@ import { describe, expect, it } from 'vitest';
 import { InkRenderer } from '../../../src/ui/ink/InkRenderer.js';
 
 describe('InkRenderer live command blocks', () => {
+  it('replaces a keyed notification instead of stacking prior peer notices', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    renderer.addNotification('A background sync completed.');
+    renderer.upsertNotification('peer-join', '1 other session joined this project · /peers');
+    renderer.upsertNotification('peer-join', '2 other sessions joined this project · /peers');
+
+    expect(renderer.getState().notifications).toEqual([
+      'A background sync completed.',
+      '2 other sessions joined this project · /peers',
+    ]);
+  });
+
   it('replaces a queued instruction without changing queue order', () => {
     const renderer = new InkRenderer({
       onInstruction: () => {},

@@ -2842,16 +2842,23 @@ export class AutohandAgent {
     this.notifyUser(warning.message);
   }
 
+  private notifyPeerJoin(peerCount: number): void {
+    const count = Math.max(1, peerCount);
+    const message = `${count} other session${count === 1 ? '' : 's'} joined this project · /peers`;
+    if (this.inkRenderer) {
+      this.inkRenderer.upsertNotification('peer-join', message);
+      return;
+    }
+    this.notifyUser(message);
+  }
+
   private async refreshPeerAwareness(): Promise<void> {
     const refresh = await this.peerAwareness.refresh();
     for (const warning of refresh.warnings) {
       this.emitPeerWarning(warning);
     }
-    for (const peer of refresh.joined) {
-      this.emitPeerWarning({
-        kind: 'repo-drift',
-        message: `Another session joined this project (${peer.model}, ${(peer.activity?.phase ?? peer.status).replace(/_/gu, ' ')}).`,
-      });
+    if (refresh.joined.length > 0) {
+      this.notifyPeerJoin(this.peerAwareness.getPeers().length);
     }
     this.syncProviderModelStatusLine();
   }
