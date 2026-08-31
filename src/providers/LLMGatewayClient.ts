@@ -610,8 +610,9 @@ export class LLMGatewayClient {
       const bodyRecord = body && typeof body === "object" && !Array.isArray(body)
         ? body as Record<string, unknown>
         : undefined;
+      const arrayDetail = Array.isArray(body) ? coerceErrorDetail(body) : "";
       errorDetail = structuredError?.message
-        ?? (coerceErrorDetail(bodyRecord?.error) || coerceErrorDetail(bodyRecord?.message) || coerceErrorDetail(body));
+        ?? (coerceErrorDetail(bodyRecord?.error) || coerceErrorDetail(bodyRecord?.message) || arrayDetail);
     } catch {
       // Fallback to raw text if JSON parsing fails
       try {
