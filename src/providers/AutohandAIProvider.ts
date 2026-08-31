@@ -70,6 +70,10 @@ export const AUTOHAND_AI_LOCAL_MODELS = [
   ...AUTOHAND_AI_LOCAL_CODING_MODEL_FALLBACKS.map((model) => model.id),
 ];
 
+function resolveAutohandAICloudModel(model: string | undefined): string {
+  return model && AUTOHAND_AI_CLOUD_MODELS.includes(model) ? model : "fantail";
+}
+
 export function getAutohandAICloudModelContextWindow(model: string): number {
   return AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS.find((definition) => definition.id === model)
     ?.contextWindow ?? AUTOHAND_AI_DEFAULT_CONTEXT_WINDOW;
@@ -106,12 +110,14 @@ export class AutohandAIProvider implements LLMProvider {
     private readonly config: AutohandAISettings,
     networkSettings?: NetworkSettings,
   ) {
-    this.model = config.model || "fantail";
+    this.model = config.plan === "local"
+      ? config.model || AUTOHAND_AI_LOCAL_MODELS[0] || "mlx-model"
+      : resolveAutohandAICloudModel(config.model);
 
     if (config.plan === "local") {
       this.localProvider = new MLXProvider(
         {
-          model: config.model || AUTOHAND_AI_LOCAL_MODELS[0],
+          model: this.model,
           baseUrl: config.baseUrl,
           port: config.port,
           contextWindow: config.contextWindow ?? AUTOHAND_AI_MOA_CONTEXT_WINDOW,
@@ -151,9 +157,9 @@ export class AutohandAIProvider implements LLMProvider {
   }
 
   setModel(model: string): void {
-    this.model = model;
-    this.localProvider?.setModel(model);
-    this.cloudClient?.setDefaultModel(model);
+    this.model = this.localProvider ? model : resolveAutohandAICloudModel(model);
+    this.localProvider?.setModel(this.model);
+    this.cloudClient?.setDefaultModel(this.model);
   }
 
   async listModels(): Promise<string[]> {
@@ -189,13 +195,13 @@ export class AutohandAIProvider implements LLMProvider {
       throw new Error("Autohand AI provider is not configured.");
     }
 
-    const targetModel = request.model ?? this.model;
+    const targetModel = resolveAutohandAICloudModel(request.model ?? this.model);
     return this.cloudClient.complete({
       ...request,
       model: targetModel,
       maxTokens: resolveAutohandAIMaxTokens(targetModel, request.maxTokens),
       temperature: request.temperature ?? 0.1,
-      ...(this.model === "moa" && this.config.reasoningEffort
+      ...(targetModel === "moa" && this.config.reasoningEffort
         ? {
             chatTemplateKwargs: {
               ...request.chatTemplateKwargs,
