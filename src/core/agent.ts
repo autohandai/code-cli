@@ -10,7 +10,11 @@ import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import { FileActionManager } from '../actions/filesystem.js';
 import { getProviderConfig, saveConfig } from '../config.js';
 import { getAuthClient } from '../auth/index.js';
-import { planSummaryFromEntitlement, type PlanSummary } from '../billing/planSummary.js';
+import {
+  formatComposerPlanLabel,
+  planSummaryFromEntitlement,
+  type PlanSummary,
+} from '../billing/planSummary.js';
 
 /** Slow on purpose: the plan changes rarely and this must not add load. */
 const ACCOUNT_PLAN_REFRESH_MS = 5 * 60 * 1000;
@@ -204,7 +208,6 @@ import {
   addAgentUIToolOutputs,
   buildAgentSpinnerStatusText,
   withPeerLineExtension,
-  withPlanLineExtension,
   cleanupAgentUI,
   clearAgentComposerInput,
   ensureAgentSpinnerRunning,
@@ -1470,7 +1473,8 @@ export class AutohandAgent {
       const next = planSummaryFromEntitlement(entitlement);
       const changed =
         next?.tier !== this.accountPlan?.tier ||
-        next?.interval !== this.accountPlan?.interval;
+        next?.interval !== this.accountPlan?.interval ||
+        next?.accountName !== this.accountPlan?.accountName;
       this.accountPlan = next;
       if (changed) {
         this.syncProviderModelStatusLine();
@@ -1503,18 +1507,16 @@ export class AutohandAgent {
         ? providerSettings.displayName
         : provider;
     this.ui?.setProviderModel?.(providerLabel, model);
+    this.ui?.setPlanLabel?.(formatComposerPlanLabel(this.accountPlan));
     const statusLineSettings = getConfigStatusLineSettings(this.runtime.config);
-    this.inkRenderer?.setConfiguredLineExtensions?.(withPlanLineExtension(
-      withPeerLineExtension(buildStatusLineExtension({
-        settings: statusLineSettings,
-        workspaceRoot: this.runtime.workspaceRoot,
-        homeDir: os.homedir(),
-        gitLabel: resolveStatusLineGitLabel(this as unknown as StatusLineGitLabelHost),
-        sessionDiffStats: this.sessionDiffStatsTracker?.getStats(),
-        sessionHasFileChanges: this.filesModifiedThisSession === true,
-      }), this.peerAwareness.getPeers().length),
-      this.accountPlan,
-    ));
+    this.inkRenderer?.setConfiguredLineExtensions?.(withPeerLineExtension(buildStatusLineExtension({
+      settings: statusLineSettings,
+      workspaceRoot: this.runtime.workspaceRoot,
+      homeDir: os.homedir(),
+      gitLabel: resolveStatusLineGitLabel(this as unknown as StatusLineGitLabelHost),
+      sessionDiffStats: this.sessionDiffStatsTracker?.getStats(),
+      sessionHasFileChanges: this.filesModifiedThisSession === true,
+    }), this.peerAwareness.getPeers().length));
     this.inkRenderer?.setShowModeLabel?.(statusLineSettings.showModeLabel);
   }
 

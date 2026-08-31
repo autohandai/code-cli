@@ -21,6 +21,7 @@ export interface UIManager {
   setStatus(status: string): void;
   setWorking(working: boolean, message?: string): void;
   setProviderModel?(provider: string, model: string): void;
+  setPlanLabel?(planLabel: string | undefined): void;
   setFinalResponse(response: string): void;
   addUserMessage(text: string): void;
   addToolOutput(tool: string, success: boolean, output: string): void;

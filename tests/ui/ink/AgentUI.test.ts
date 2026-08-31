@@ -1382,12 +1382,12 @@ describe('AgentUI plan label in help line', () => {
     );
   }
 
-  it('shows the plan label next to the autohand name in the help line', async () => {
+  it('shows Free in parentheses next to Autohand in the help line', async () => {
     const instance = renderWithPlanLabel('Free');
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     const frame = stripAnsi(instance.lastFrame() ?? '');
-    expect(frame).toContain('autohand Free (OpenRouter, fantail)');
+    expect(frame).toContain('Autohand (Free) (OpenRouter, fantail)');
     cleanup();
   });
 
@@ -1396,7 +1396,7 @@ describe('AgentUI plan label in help line', () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     const frame = stripAnsi(instance.lastFrame() ?? '');
-    expect(frame).toContain('autohand Pro (OpenRouter, fantail)');
+    expect(frame).toContain('Autohand (Pro) (OpenRouter, fantail)');
     cleanup();
   });
 
@@ -1405,7 +1405,16 @@ describe('AgentUI plan label in help line', () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     const frame = stripAnsi(instance.lastFrame() ?? '');
-    expect(frame).toContain('autohand Max (OpenRouter, fantail)');
+    expect(frame).toContain('Autohand (Max) (OpenRouter, fantail)');
+    cleanup();
+  });
+
+  it('shows the active team name in parentheses next to Autohand', async () => {
+    const instance = renderWithPlanLabel('Launch Team');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const frame = stripAnsi(instance.lastFrame() ?? '');
+    expect(frame).toContain('Autohand (Launch Team) (OpenRouter, fantail)');
     cleanup();
   });
 
@@ -1414,10 +1423,10 @@ describe('AgentUI plan label in help line', () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
 
     const frame = stripAnsi(instance.lastFrame() ?? '');
-    expect(frame).toContain('autohand (OpenRouter, fantail)');
-    expect(frame).not.toContain('autohand Free');
-    expect(frame).not.toContain('autohand Pro');
-    expect(frame).not.toContain('autohand Max');
+    expect(frame).toContain('Autohand (OpenRouter, fantail)');
+    expect(frame).not.toContain('Autohand (Free)');
+    expect(frame).not.toContain('Autohand (Pro)');
+    expect(frame).not.toContain('Autohand (Max)');
     cleanup();
   });
 

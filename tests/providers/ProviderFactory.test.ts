@@ -249,6 +249,41 @@ describe("ProviderFactory", () => {
       expect(provider.getName()).toBe("autohandai");
     });
 
+    it("prefers the current Autohand sign-in token over a stale provider-local account token", async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: 'autohand-response',
+          created: 123,
+          choices: [{ message: { content: 'hello' }, finish_reason: 'stop' }],
+        }),
+      } as Response);
+      try {
+        const provider = ProviderFactory.create({
+          features: { autohand_inference: true },
+          provider: 'autohandai',
+          auth: { token: 'current-auth-token' },
+          autohandai: {
+            plan: 'cloud',
+            authMode: 'account',
+            accountToken: 'stale-provider-token',
+            model: 'fantail',
+          },
+        });
+
+        await provider.complete({ messages: [{ role: 'user', content: 'hi' }] });
+
+        expect(fetchSpy).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.objectContaining({
+            headers: expect.objectContaining({ Authorization: 'Bearer current-auth-token' }),
+          }),
+        );
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
     it("should return UnconfiguredProvider for autohandai when autohand_inference is disabled", () => {
       const config: AutohandConfig = {
         provider: "autohandai",

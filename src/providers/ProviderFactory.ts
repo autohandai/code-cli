@@ -120,7 +120,7 @@ export class ProviderFactory {
                 }
                 return new AutohandAIProvider({
                     ...config.autohandai,
-                    accountToken: config.autohandai.accountToken ?? config.auth?.token,
+                    accountToken: config.auth?.token ?? config.autohandai.accountToken,
                 }, config.network);
 
             case 'ollama':

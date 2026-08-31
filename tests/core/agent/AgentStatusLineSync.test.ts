@@ -16,6 +16,10 @@ interface StatusLineSyncAgent {
 describe('AutohandAgent status-line synchronization', () => {
   it('preserves workspace, branch, and session-line fields while syncing the provider', () => {
     const setConfiguredLineExtensions = vi.fn<(extensions: AgentUILineExtensions | undefined) => void>();
+    const ui = {
+      setProviderModel: vi.fn(),
+      setPlanLabel: vi.fn(),
+    };
     const workspaceRoot = `${homedir()}/Documents/autohand/demo/temp`;
     const agent = Object.assign(Object.create(AutohandAgent.prototype), {
       activeProvider: 'openrouter',
@@ -34,9 +38,7 @@ describe('AutohandAgent status-line synchronization', () => {
         options: {},
         workspaceRoot,
       },
-      ui: {
-        setProviderModel: vi.fn(),
-      },
+      ui,
       inkRenderer: {
         setConfiguredLineExtensions,
       },
@@ -50,6 +52,7 @@ describe('AutohandAgent status-line synchronization', () => {
         getStats: () => ({ added: 611, removed: 0 }),
       },
       filesModifiedThisSession: true,
+      accountPlan: { tier: 'max', label: 'Max', interval: 'month' },
       peerAwareness: {
         getPeers: () => [],
       },
@@ -64,5 +67,7 @@ describe('AutohandAgent status-line synchronization', () => {
       'PR #123',
       '+611 lines',
     ]);
+    expect(extension?.status?.segments?.map((segment) => segment.id) ?? []).not.toContain('plan');
+    expect(ui.setPlanLabel).toHaveBeenCalledWith('Max');
   });
 });

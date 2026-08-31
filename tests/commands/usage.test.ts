@@ -172,6 +172,33 @@ describe('/usage command', () => {
           perSeat: false,
           models: ['fantail', 'moa'],
         },
+        quota: {
+          available: true,
+          window5h: {
+            used: 12,
+            remaining: 238,
+            limit: 250,
+            resetAt: '2026-09-01T06:00:00.000Z',
+          },
+          window24h: {
+            used: 120,
+            remaining: 880,
+            limit: 1000,
+            resetAt: '2026-09-02T01:00:00.000Z',
+          },
+          week: {
+            used: 120,
+            remaining: 6880,
+            limit: 7000,
+            resetAt: '2026-09-07T01:00:00.000Z',
+          },
+          month: {
+            used: 480,
+            remaining: 20_520,
+            limit: 21_000,
+            resetAt: '2026-10-01T00:00:00.000Z',
+          },
+        },
       })),
     }));
 
@@ -183,6 +210,14 @@ describe('/usage command', () => {
     expect(output).toContain('1K requests / minute');
     expect(output).toContain('500K uncached input tokens / minute');
     expect(output).toContain('80K output tokens / minute');
+    expect(output).toContain('5-hour quota:');
+    expect(output).toContain('12 used / 250');
+    expect(output).toContain('24-hour quota:');
+    expect(output).toContain('120 used / 1K');
+    expect(output).toContain('Weekly quota:');
+    expect(output).toContain('120 used / 7K');
+    expect(output).toContain('Monthly quota:');
+    expect(output).toContain('480 used / 21K');
     expect(output).toContain('Token activity');
   });
 

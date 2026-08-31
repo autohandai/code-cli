@@ -977,6 +977,12 @@ export async function createMockAuthServer(
               limit: 7000,
               resetAt: '2026-08-17T01:00:00.000Z',
             },
+            month: {
+              used: 480,
+              remaining: 20_520,
+              limit: 21_000,
+              resetAt: '2026-09-01T00:00:00.000Z',
+            },
           },
         },
       }));

@@ -74,6 +74,7 @@ describe('AuthClient.fetchEntitlement', () => {
       new Response(JSON.stringify({
         entitlement: {
           tier: 'pro',
+          accountName: 'Launch Team',
           freeRemaining: null,
           limits: {
             displayName: 'Autohand Code Pro',
@@ -107,6 +108,12 @@ describe('AuthClient.fetchEntitlement', () => {
               limit: 7000,
               resetAt: '2026-08-17T01:00:00.000Z',
             },
+            month: {
+              used: 480,
+              remaining: 20_520,
+              limit: 21_000,
+              resetAt: '2026-09-01T00:00:00.000Z',
+            },
           },
         },
       }), { status: 200 }),
@@ -114,6 +121,7 @@ describe('AuthClient.fetchEntitlement', () => {
 
     await expect(client.fetchEntitlement('pro-token')).resolves.toEqual({
       tier: 'pro',
+      accountName: 'Launch Team',
       freeRemaining: null,
       limits: {
         displayName: 'Autohand Code Pro',
@@ -147,8 +155,47 @@ describe('AuthClient.fetchEntitlement', () => {
           limit: 7000,
           resetAt: '2026-08-17T01:00:00.000Z',
         },
+        month: {
+          used: 480,
+          remaining: 20_520,
+          limit: 21_000,
+          resetAt: '2026-09-01T00:00:00.000Z',
+        },
       },
     });
+  });
+
+  it('resolves the active Team account name from the authenticated accounts endpoint', async () => {
+    const client = new AuthClient({ baseUrl: 'https://api.autohand.ai/v1/auth', timeout: 5000 });
+
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        entitlement: {
+          tier: 'team',
+          freeRemaining: null,
+        },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        activeAccountId: 'team-123',
+        accounts: [{
+          account: {
+            id: 'team-123',
+            name: 'Launch Team',
+          },
+        }],
+      }), { status: 200 }));
+
+    await expect(client.fetchEntitlement('team-token')).resolves.toMatchObject({
+      tier: 'team',
+      accountName: 'Launch Team',
+    });
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(
+      2,
+      'https://api.autohand.ai/v1/accounts',
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer team-token' }),
+      }),
+    );
   });
 
   it('accepts the pre-rollout entitlement contract without a 24-hour quota', async () => {

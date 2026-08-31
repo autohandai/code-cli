@@ -1725,8 +1725,8 @@ export function initializeAgentDependencies(
       getContextWindow: () => host.contextWindow,
       getAccountEntitlement: () => {
         const autohand = runtime.config.autohandai;
-        const token = autohand?.accountToken
-          ?? runtime.config.auth?.token
+        const token = runtime.config.auth?.token
+          ?? autohand?.accountToken
           ?? (autohand?.authMode === 'api-key' ? autohand.apiKey : undefined);
         return token ? getAuthClient().fetchEntitlement(token) : Promise.resolve(null);
       },

@@ -2601,8 +2601,8 @@ const HelpLineSection = memo(function HelpLineSection({
     ? `${Math.round(contextPercent)}% context left`
     : '';
 
-  // Format provider/model display with optional account plan label
-  const namePrefix = planLabel ? `autohand ${planLabel}` : 'autohand';
+  // Format provider/model display with an optional account plan label.
+  const namePrefix = planLabel ? `Autohand (${planLabel})` : 'Autohand';
   const providerDisplay = provider
     ? `${namePrefix} (${t(`providers.${provider}`) ?? provider}${model ? `, ${model}` : ''})`
     : '';

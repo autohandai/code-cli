@@ -14,6 +14,7 @@ import { CommunitySkillsCache } from '../../../src/skills/CommunitySkillsCache.j
 import { GitHubRegistryFetcher } from '../../../src/skills/GitHubRegistryFetcher.js';
 import * as communityInstaller from '../../../src/skills/communityInstaller.js';
 import { getPlanModeManager } from '../../../src/commands/plan.js';
+import { getAuthClient } from '../../../src/auth/index.js';
 import type {
   AgentAction,
   AgentOutputEvent,
@@ -77,7 +78,7 @@ function createAgent(
   options: AgentRuntime['options'] = {},
   permissionMode: 'interactive' | 'unrestricted' = 'unrestricted',
   automaticSpecialists = false,
-): { agent: AutohandAgent; internals: AgentOutcomeInternals } {
+): { agent: AutohandAgent; internals: AgentOutcomeInternals; runtime: AgentRuntime } {
   const llm = {
     generate: vi.fn(),
     generateStream: vi.fn(),
@@ -103,6 +104,7 @@ function createAgent(
   return {
     agent,
     internals: agent as unknown as AgentOutcomeInternals,
+    runtime,
   };
 }
 
@@ -110,6 +112,32 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getPlanModeManager().restore({ enabled: false, plan: null, phase: 'planning' });
+  });
+
+  it('uses the current sign-in token for account entitlement before a stale provider-local token', async () => {
+    const { agent, runtime } = createAgent();
+    runtime.config.auth = {
+      token: 'current-auth-token',
+      user: { id: 'user-1', email: 'user@example.com', name: 'Test User' },
+    };
+    runtime.config.autohandai = {
+      plan: 'cloud',
+      authMode: 'account',
+      accountToken: 'stale-provider-token',
+      model: 'fantail',
+    };
+    const fetchEntitlement = vi.spyOn(getAuthClient(), 'fetchEntitlement').mockResolvedValue({
+      tier: 'pro',
+      freeRemaining: null,
+    });
+
+    const slashHandler = (agent as unknown as {
+      slashHandler: { ctx: { getAccountEntitlement: () => Promise<unknown> } };
+    }).slashHandler;
+    await slashHandler.ctx.getAccountEntitlement();
+
+    expect(fetchEntitlement).toHaveBeenCalledWith('current-auth-token');
+    fetchEntitlement.mockRestore();
   });
 
   it('uses one typed failure for telemetry, post-tool hooks, output, and manager result', async () => {

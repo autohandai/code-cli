@@ -17,6 +17,7 @@ function createRenderer() {
     setStatus: vi.fn(),
     setWorking: vi.fn(),
     setProviderModel: vi.fn(),
+    setPlanLabel: vi.fn(),
     setFinalResponse: vi.fn(),
     addUserMessage: vi.fn(),
     addToolOutput: vi.fn(),
@@ -31,7 +32,7 @@ function createRenderer() {
 }
 
 describe('InkUIManager', () => {
-  it('starts one renderer through the public manager API and seeds provider/model first', async () => {
+  it('starts one renderer through the public manager API and seeds provider, model, and plan first', async () => {
     const renderer = createRenderer();
     const rendererFactory = vi.fn((_options: InkRendererOptions) => renderer);
     const manager = new InkUIManager({
@@ -42,6 +43,7 @@ describe('InkUIManager', () => {
     } as InkUIManagerOptions);
 
     manager.setProviderModel('openrouter', 'anthropic/claude-sonnet-4.5');
+    manager.setPlanLabel('Pro');
     await manager.start();
     await manager.start();
 
@@ -51,6 +53,10 @@ describe('InkUIManager', () => {
       'anthropic/claude-sonnet-4.5'
     );
     expect(renderer.setProviderModel.mock.invocationCallOrder[0]).toBeLessThan(
+      renderer.start.mock.invocationCallOrder[0]
+    );
+    expect(renderer.setPlanLabel).toHaveBeenCalledWith('Pro');
+    expect(renderer.setPlanLabel.mock.invocationCallOrder[0]).toBeLessThan(
       renderer.start.mock.invocationCallOrder[0]
     );
     expect(renderer.start).toHaveBeenCalledTimes(1);

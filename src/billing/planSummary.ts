@@ -10,6 +10,7 @@ export interface PlanSummary {
   tier: string;
   label: string;
   interval: PlanInterval;
+  accountName?: string;
 }
 
 const TIER_LABELS: Record<string, string> = {
@@ -34,7 +35,7 @@ function readInterval(value: unknown): PlanInterval {
  * guessing at a tier the customer may not be on.
  */
 export function planSummaryFromEntitlement(
-  entitlement: { tier?: unknown; interval?: unknown } | null | undefined,
+  entitlement: { tier?: unknown; interval?: unknown; accountName?: unknown } | null | undefined,
 ): PlanSummary | null {
   const tier = entitlement?.tier;
   if (typeof tier !== 'string' || tier.length === 0) return null;
@@ -42,7 +43,11 @@ export function planSummaryFromEntitlement(
   // Free has no subscription, so it can never have a renewal cycle.
   const interval = tier === 'free' ? null : readInterval(entitlement?.interval);
 
-  return { tier, label: labelForTier(tier), interval };
+  const accountName = typeof entitlement?.accountName === 'string' && entitlement.accountName.trim().length > 0
+    ? entitlement.accountName.trim()
+    : undefined;
+
+  return { tier, label: labelForTier(tier), interval, ...(accountName ? { accountName } : {}) };
 }
 
 /** One line describing the plan, e.g. "Pro · Monthly". */
@@ -51,4 +56,10 @@ export function formatPlan(plan: PlanSummary | null | undefined): string | null 
   if (plan.interval === 'year') return `${plan.label} · Annual`;
   if (plan.interval === 'month') return `${plan.label} · Monthly`;
   return plan.label;
+}
+
+/** The optional account label shown after the Autohand product name in the composer. */
+export function formatComposerPlanLabel(plan: PlanSummary | null | undefined): string | undefined {
+  if (!plan || plan.tier === 'enterprise') return undefined;
+  return plan.tier === 'team' ? plan.accountName || plan.label : plan.label;
 }
