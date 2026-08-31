@@ -17,6 +17,40 @@ import type { LLMMessage } from "../types.js";
 export const EMPTY_TOOL_RESULT_PLACEHOLDER = "(no output)";
 export const UNANSWERED_TOOL_CALL_PLACEHOLDER =
   "Tool result unavailable — this call was dropped from the conversation history.";
+export const OMITTED_IMAGE_INPUT_PLACEHOLDER =
+  "[Image input omitted because this provider does not support image inputs.]";
+
+/**
+ * Convert OpenAI-style multimodal content into the string-only form required
+ * by local and gateway transports that do not accept image content parts.
+ */
+export function toTextOnlyContent(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  const parts: string[] = [];
+  for (const part of content) {
+    if (!part || typeof part !== "object" || !("type" in part)) {
+      continue;
+    }
+
+    if (part.type === "text" && "text" in part && typeof part.text === "string") {
+      parts.push(part.text);
+      continue;
+    }
+
+    if (part.type === "image_url") {
+      parts.push(OMITTED_IMAGE_INPUT_PLACEHOLDER);
+    }
+  }
+
+  return parts.join("\n");
+}
 
 export interface NormalizeOutboundMessagesOptions {
   /**

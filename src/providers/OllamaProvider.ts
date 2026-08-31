@@ -15,6 +15,7 @@ import type {
     FunctionDefinition,
 } from '../types.js';
 import { ApiError, classifyApiError } from './errors.js';
+import { toTextOnlyContent } from './messagePayload.js';
 import { normalizeLLMUsage } from './usage.js';
 import {
     getProviderRuntimeDefaultModel,
@@ -427,7 +428,7 @@ export class OllamaProvider implements LLMProvider {
         return messages.map((msg) => {
             const mapped: Record<string, unknown> = {
                 role: msg.role,
-                content: msg.content ?? '',
+                content: toTextOnlyContent(msg.content),
             };
 
             if (msg.name) {
@@ -469,7 +470,7 @@ export class OllamaProvider implements LLMProvider {
     private sanitizeMessagesForToollessMode(messages: Array<LLMMessage | Record<string, unknown>>): Record<string, unknown>[] {
         return messages.map((msg) => {
             const role = typeof msg.role === 'string' ? msg.role : 'user';
-            const content = typeof msg.content === 'string' ? msg.content : '';
+            const content = toTextOnlyContent(msg.content);
             const name = typeof msg.name === 'string' ? msg.name : undefined;
             const toolCalls = Array.isArray(msg.tool_calls) ? msg.tool_calls : undefined;
 

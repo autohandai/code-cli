@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import type { ProviderSettings, LLMRequest, NetworkSettings } from '../../src/types';
+import type { ProviderSettings, LLMMessage, LLMRequest, NetworkSettings } from '../../src/types';
 import { ApiError } from '../../src/providers/errors';
 
 // Use vi.hoisted to ensure the mock is created before vi.mock hoists
@@ -496,6 +496,48 @@ describe('MLXProvider', () => {
             expect(callBody.messages[1].role).toBe('user');
             expect(callBody.messages[2].role).toBe('assistant');
             expect(callBody.messages[3].role).toBe('user');
+        });
+
+        it('serializes multimodal history to string content before calling MLX', async () => {
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                json: async () => ({
+                    id: 'mlx-123',
+                    created: 1700000000,
+                    choices: [{
+                        index: 0,
+                        message: { role: 'assistant', content: 'I cannot inspect images.' },
+                        finish_reason: 'stop',
+                    }],
+                }),
+            });
+            const messages = [{
+                role: 'user' as const,
+                content: [
+                    { type: 'text' as const, text: 'Describe this image.' },
+                    { type: 'image_url' as const, image_url: { url: 'data:image/png;base64,AA==' } },
+                ],
+            }] as unknown as LLMMessage[];
+
+            await provider.complete({ messages });
+
+            const requestBody = JSON.parse((fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.body as string) as {
+                messages: Array<{ content: unknown }>;
+            };
+            expect(requestBody.messages[0]?.content).toEqual(expect.any(String));
+            expect(requestBody.messages[0]?.content).toContain('Describe this image.');
+            expect(requestBody.messages[0]?.content).toContain('Image input omitted');
+        });
+
+        it('preserves a malformed MLX response body in the diagnostic error', async () => {
+            const noRetryProvider = new MLXProvider(config, { maxRetries: 0 });
+            global.fetch = vi.fn().mockResolvedValue(
+                new Response('MLX backend exited while generating', { status: 200 }),
+            );
+
+            await expect(noRetryProvider.complete({
+                messages: [{ role: 'user', content: 'Hello' }],
+            })).rejects.toThrow('Raw: MLX backend exited while generating');
         });
 
         // -----------------------------------------------------------------------

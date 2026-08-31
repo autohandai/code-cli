@@ -8,6 +8,7 @@ import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, LLMToolCall, LLMUsage, ProviderSettings, NetworkSettings, FunctionDefinition } from '../types.js';
 import { isMLXSupported } from '../utils/platform.js';
 import { ApiError, classifyApiError } from './errors.js';
+import { toTextOnlyContent } from './messagePayload.js';
 import {
     getProviderModelIds,
     getProviderRuntimeDefaultModel,
@@ -145,7 +146,7 @@ export class MLXProvider implements LLMProvider {
             messages: request.messages.map((msg) => {
                 const mapped: Record<string, unknown> = {
                     role: msg.role,
-                    content: msg.content
+                    content: toTextOnlyContent(msg.content)
                 };
                 if (msg.name) mapped.name = msg.name;
                 if (msg.role === 'tool' && msg.tool_call_id) mapped.tool_call_id = msg.tool_call_id;
@@ -253,6 +254,7 @@ export class MLXProvider implements LLMProvider {
             throw await this.buildApiError(response);
         }
 
+        const responseBody = typeof response.clone === 'function' ? response.clone() : undefined;
         let data: MLXChatResponse;
         try {
             data = await response.json() as MLXChatResponse;
@@ -260,15 +262,17 @@ export class MLXProvider implements LLMProvider {
             // MLX server returned non-JSON or malformed JSON
             let rawBody = '';
             try {
-                rawBody = await response.text();
+                rawBody = responseBody ? await responseBody.text() : '';
             } catch {
                 // ignore
             }
             throw new ApiError(
                 `MLX server returned an invalid response. The model may have crashed or returned malformed output. Raw: ${rawBody.slice(0, 500)}`,
-                'invalid_request',
+                'server_error',
                 response.status,
-                false,
+                true,
+                undefined,
+                rawBody,
             );
         }
         const choice = data.choices[0];
