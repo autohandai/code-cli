@@ -59,11 +59,11 @@ describe('Idle timeout logic', () => {
     expect(idleMs >= idleTimeoutMs).toBe(true);
   });
 
-  it('does not force idle logout by default (experimental, disabled)', () => {
+  it('forces idle logout by default after the timeout', () => {
     const now = 1_000_000;
     const lastActivityAt = now - AUTH_CONFIG.idleTimeoutMs;
 
-    expect(shouldForceAgentIdleLogout(createRuntime(), lastActivityAt, now)).toBe(false);
+    expect(shouldForceAgentIdleLogout(createRuntime(), lastActivityAt, now)).toBe(true);
   });
 
   it('forces idle logout when explicitly enabled via config', () => {

@@ -265,7 +265,7 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     description: 'End authenticated interactive sessions after an idle timeout.',
     stage: 'experimental',
     configPath: 'agent.idleLogoutEnabled',
-    defaultEnabled: false,
+    defaultEnabled: true,
   },
 ] as const;
 
