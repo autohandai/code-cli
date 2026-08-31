@@ -59,4 +59,25 @@ describe('validateAuthOnStartup', () => {
     expect(config.auth?.token).toBe('valid-local-token');
     expect(saveConfig).not.toHaveBeenCalled();
   });
+
+  it('validates a durable device credential and clears obsolete session expiry metadata', async () => {
+    const user = { id: 'user-1', email: 'user@example.com' };
+    const config: LoadedConfig = {
+      configPath: '/tmp/config.json',
+      auth: {
+        token: 'ahc_durable-device-credential',
+        user,
+        expiresAt: new Date(Date.now() - 86400000).toISOString(),
+      },
+    };
+    const validateSession = vi.fn().mockResolvedValue({ authenticated: true, user });
+    (getAuthClient as ReturnType<typeof vi.fn>).mockReturnValue({ validateSession });
+
+    await expect(validateAuthOnStartup(config)).resolves.toEqual(user);
+
+    expect(validateSession).toHaveBeenCalledWith('ahc_durable-device-credential');
+    expect(config.auth?.token).toBe('ahc_durable-device-credential');
+    expect(config.auth).not.toHaveProperty('expiresAt');
+    expect(saveConfig).toHaveBeenCalledWith(config, { writeAuth: true });
+  });
 });

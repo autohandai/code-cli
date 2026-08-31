@@ -6,6 +6,7 @@
 import { saveConfig } from '../config.js';
 import type { AuthUser, LoadedConfig } from '../types.js';
 import { getAuthClient } from './index.js';
+import { isDurableAuthCredential } from './credentialType.js';
 
 /**
  * Validate auth token on startup.
@@ -16,7 +17,7 @@ export async function validateAuthOnStartup(config: LoadedConfig): Promise<AuthU
     return undefined;
   }
 
-  if (config.auth.expiresAt) {
+  if (config.auth.expiresAt && !isDurableAuthCredential(config.auth.token)) {
     const expiresAt = new Date(config.auth.expiresAt);
     if (expiresAt < new Date()) {
       config.auth = undefined;
@@ -37,6 +38,16 @@ export async function validateAuthOnStartup(config: LoadedConfig): Promise<AuthU
       if (result.user && config.auth) {
         config.auth.user = result.user;
       }
+
+      if (config.auth?.expiresAt && isDurableAuthCredential(config.auth.token)) {
+        delete config.auth.expiresAt;
+        try {
+          await saveConfig(config, { writeAuth: true });
+        } catch {
+          // Ignore save errors during startup.
+        }
+      }
+
       return config.auth?.user;
     }
 

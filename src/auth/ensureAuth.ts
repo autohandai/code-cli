@@ -7,6 +7,7 @@
  */
 import chalk from 'chalk';
 import { AuthClient } from './AuthClient.js';
+import { isDurableAuthCredential } from './credentialType.js';
 import { loadConfig } from '../config.js';
 import { showModal } from '../ui/ink/components/Modal.js';
 import { getTerminalColumns, renderAutohandLogo } from '../utils/asciiArt.js';
@@ -204,6 +205,10 @@ export async function checkAuthenticated(config: LoadedConfig): Promise<boolean>
  * Check if the token is expired based on local expiry date.
  */
 function isTokenExpiredLocally(config: LoadedConfig): boolean {
+  if (config.auth?.token && isDurableAuthCredential(config.auth.token)) {
+    return false;
+  }
+
   if (!config.auth?.expiresAt) {
     return false;
   }
