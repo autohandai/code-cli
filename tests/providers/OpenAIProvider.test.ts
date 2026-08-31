@@ -97,6 +97,41 @@ describe('OpenAIProvider', () => {
     expect(sentBody.prompt_cache_key).toBeUndefined();
   });
 
+  it('disables Chat Completions reasoning for GPT-5.6 tool calls', async () => {
+    const gpt56Provider = new OpenAIProvider({
+      baseUrl: 'http://localhost:9999',
+      apiKey: 'test-key',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'high',
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        id: 'chat-gpt-5.6-tools',
+        created: 1234567890,
+        choices: [{
+          message: { role: 'assistant', content: 'OK' },
+          finish_reason: 'stop',
+        }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    );
+
+    await gpt56Provider.complete({
+      messages: [{ role: 'user', content: 'Read package.json.' }],
+      tools: [{
+        name: 'read_file',
+        description: 'Read a file',
+        parameters: { type: 'object', properties: {} },
+      }],
+    });
+
+    const sentBody = JSON.parse(fetchSpy.mock.calls[0]?.[1]?.body as string) as {
+      reasoning_effort?: string;
+      tools?: unknown[];
+    };
+    expect(sentBody.reasoning_effort).toBe('none');
+    expect(sentBody.tools).toHaveLength(1);
+  });
+
   describe('error handling', () => {
     it('throws ApiError with classifyApiError for non-ok responses', async () => {
       vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(

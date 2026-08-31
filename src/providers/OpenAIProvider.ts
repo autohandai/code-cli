@@ -183,6 +183,10 @@ const OPENAI_CHATGPT_FRIENDLY_MESSAGES: Partial<Record<ApiErrorCode, string>> = 
         'The request timed out. The ChatGPT Codex service may be experiencing high load.',
 };
 
+function mustDisableChatCompletionReasoningForTools(model: string, hasTools: boolean): boolean {
+    return hasTools && /^gpt-5\.6(?:$|[-_.])/iu.test(model);
+}
+
 export class OpenAIProvider implements LLMProvider {
     private baseUrl: string;
     private apiKey: string;
@@ -238,8 +242,10 @@ export class OpenAIProvider implements LLMProvider {
             return this.completeWithResponsesApi(request);
         }
 
+        const model = request.model || this.model;
+        const hasTools = Boolean(request.tools?.length);
         const body: Record<string, unknown> = {
-            model: request.model || this.model,
+            model,
             messages: request.messages.map((msg: OpenAIProviderMessage) => {
                 const mapped: Record<string, unknown> = {
                     role: msg.role === 'system' ? 'system' : msg.role === 'user' ? 'user' : msg.role === 'tool' ? 'tool' : 'assistant',
@@ -262,14 +268,16 @@ export class OpenAIProvider implements LLMProvider {
             temperature: request.temperature || 0.7,
             // Newer OpenAI models (gpt-5.x, o-series) require max_completion_tokens
             // instead of max_tokens. Use the correct parameter based on model.
-            ...(this.usesMaxCompletionTokens(request.model || this.model)
+            ...(this.usesMaxCompletionTokens(model)
                 ? { max_completion_tokens: request.maxTokens }
                 : { max_tokens: request.maxTokens })
         };
 
         // Add reasoning effort when configured (with runtime validation)
         if (this.reasoningEffort && VALID_REASONING_EFFORTS.has(this.reasoningEffort)) {
-            body.reasoning_effort = this.reasoningEffort;
+            body.reasoning_effort = mustDisableChatCompletionReasoningForTools(model, hasTools)
+                ? 'none'
+                : this.reasoningEffort;
         }
 
         // Add function calling support if tools are provided
