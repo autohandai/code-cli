@@ -180,15 +180,17 @@ export class ProviderConfigManager {
   /**
    * Prompt user to select and configure an LLM provider
    */
-  async promptModelSelection(): Promise<void> {
+  async promptModelSelection(): Promise<boolean> {
     try {
       const activeProvider = this.getActiveProvider();
       if (activeProvider && this.isProviderConfigured(activeProvider)) {
         await this.promptConfiguredProviderSettings(activeProvider);
-        return;
+        return this.isProviderConfigured(this.getActiveProvider());
       }
 
       await this.promptProviderSelection();
+      const selectedProvider = this.getActiveProvider();
+      return Boolean(selectedProvider && this.isProviderConfigured(selectedProvider));
     } catch (error) {
       // Re-throw unexpected errors (cancellation is now handled inline)
       throw error;

@@ -14,6 +14,7 @@ import {
   shouldUsePassiveAgentSessionRetry,
 } from '../../../src/core/agent/InputTurnCoordinator.js';
 import { ApiError, classifyApiError } from '../../../src/providers/errors.js';
+import { ProviderNotConfiguredError } from '../../../src/providers/ProviderFactory.js';
 
 function overrideStreamTTY(
   stream: NodeJS.ReadStream | NodeJS.WriteStream,
@@ -134,6 +135,27 @@ describe('InstructionRunner command mode UI', () => {
     expect(host.initializeUI).not.toHaveBeenCalled();
     expect(host.runReactLoop).not.toHaveBeenCalled();
     expect(host.isInstructionActive).toBe(false);
+  });
+
+  it('stops after provider setup is cancelled instead of recursively rerunning the instruction', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const host = createHost();
+    host.runReactLoop = vi.fn(async () => {
+      throw new ProviderNotConfiguredError('retired-provider');
+    });
+    host.providerConfigManager.promptModelSelection = vi.fn(async () => false);
+
+    try {
+      await expect(new InstructionRunner(host).run('inspect the project')).resolves.toBe(false);
+
+      expect(host.providerConfigManager.promptModelSelection).toHaveBeenCalledOnce();
+      expect(host.runInstruction).not.toHaveBeenCalled();
+      expect(host.runReactLoop).toHaveBeenCalledOnce();
+    } finally {
+      errorSpy.mockRestore();
+      logSpy.mockRestore();
+    }
   });
 
   it('links an in-flight external abort and removes its listener after settlement', async () => {

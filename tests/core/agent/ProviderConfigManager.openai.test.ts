@@ -716,7 +716,7 @@ describe("ProviderConfigManager openai auth mode", () => {
 
     mockShowModal.mockResolvedValueOnce(null);
 
-    await manager.promptModelSelection();
+    const configured = await manager.promptModelSelection();
 
     const options = mockShowModal.mock.calls[0][0].options;
     expect(options.some((option: { label: string }) => option.label.includes("Z.ai"))).toBe(true);
@@ -726,6 +726,7 @@ describe("ProviderConfigManager openai auth mode", () => {
     expect(autohandOption?.label).not.toContain("(hosted)");
     expect(options.some((option: { label: string }) => option.label.includes("LLM Gateway"))).toBe(true);
     expect(options.some((option: { label: string }) => option.label.includes("DeepSeek"))).toBe(true);
+    expect(configured).toBe(false);
   });
 
   it("shows a configured custom provider as the current provider in the provider list", async () => {
