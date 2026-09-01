@@ -48,6 +48,74 @@ afterEach(async () => {
 });
 
 describe('interactive task activity', () => {
+  it('finishes the visible plan and keeps the final summary above the composer', async () => {
+    const server = await createMockOpenRouterSequenceServer([
+      JSON.stringify({
+        thought: 'Create a five-step plan and start the validation.',
+        toolCalls: [
+          {
+            tool: 'todo_write',
+            args: {
+              tasks: [
+                { content: 'Set up the task-view test', activeForm: 'Setting up the task-view test', status: 'completed' },
+                { content: 'Stream the first harmless output batch', activeForm: 'Streaming the first harmless output batch', status: 'completed' },
+                { content: 'Update the visible task progress', activeForm: 'Updating the visible task progress', status: 'completed' },
+                { content: 'Verify the completion surface', activeForm: 'Verifying the completion surface', status: 'completed' },
+                { content: 'Report the task-view result', activeForm: 'Reporting the task-view result', status: 'in_progress' },
+              ],
+            },
+          },
+        ],
+      }),
+      JSON.stringify({
+        toolCalls: [],
+        finalResponse: 'TASK_ACTIVITY_FINAL_SUMMARY: The task-view check completed successfully.',
+      }),
+    ], 4_000);
+    servers.push(server);
+
+    const state = await createTempAutohandHome({
+      config: {
+        openrouter: { baseUrl: server.baseUrl },
+        agent: { maxIterations: 3, sessionRetryLimit: 0 },
+        ui: { promptSuggestions: false },
+      },
+    });
+    states.push(state);
+
+    const session = await launchBuiltAutohand([
+      '--path', state.workspaceRoot,
+      '--config', state.configPath,
+      '--y',
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      cols: 100,
+      rows: 30,
+      waitForDataTimeout: 15_000,
+    });
+    sessions.push(session);
+
+    await session.waitForText('❯', { timeout: 20_000 });
+    await session.type('Run the task-view completion check.');
+    await session.press('enter');
+    await session.waitForText('4/5 done', { timeout: 30_000 });
+
+    const viewport = await waitForActiveViewport(
+      session,
+      (text) => text.includes('5/5 done')
+        && text.includes('TASK_ACTIVITY_FINAL_SUMMARY')
+        && text.includes('All 5 tasks completed')
+        && text.includes('Completed in')
+        && text.includes('❯'),
+    );
+
+    expect(viewport).toContain('100%');
+    expect(viewport).not.toContain('in progress · 1');
+
+    await exitInteractive(session);
+  }, 60_000);
+
   it('keeps the active plan above the composer after tool output fills and resizes the terminal', async () => {
     const server = await createMockOpenRouterSequenceServer([
       JSON.stringify({

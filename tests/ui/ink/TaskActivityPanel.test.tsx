@@ -64,4 +64,13 @@ describe('TaskActivityPanel', () => {
     expect(frame).toContain('Keep task progress visible');
     expect(frame.split('\n').filter(Boolean)).toHaveLength(3);
   });
+
+  it('renders a task-complete summary once every visible todo is completed', () => {
+    const { lastFrame } = renderPanel([
+      { id: 'first', kind: 'todo', label: 'Verify the first task', status: 'completed' },
+      { id: 'second', kind: 'todo', label: 'Report the result', status: 'completed' },
+    ]);
+
+    expect(lastFrame()).toContain('All 2 tasks completed');
+  });
 });

@@ -142,6 +142,9 @@ function TaskActivityPanelComponent({ items, maxVisible, terminalRows }: TaskAct
 
   const workerSummary = summarizeActivity(workers);
   const workerHeader = `Workers · ${workerSummary.inProgress} running${workerSummary.open > 0 ? ` · ${workerSummary.open} queued` : ''}${workerSummary.failed > 0 ? ` · ${workerSummary.failed} failed` : ''}`;
+  const todoSummary = todoModel.total > 0 && todoModel.done === todoModel.total
+    ? `All ${todoModel.total} tasks completed`
+    : undefined;
 
   const renderItem = (item: ActivityItem) => {
     const glyph = statusGlyph(item.status);
@@ -168,7 +171,7 @@ function TaskActivityPanelComponent({ items, maxVisible, terminalRows }: TaskAct
 
   return (
     <Box flexDirection="column" marginBottom={workers.length > 0 ? 1 : 0}>
-      {todos.length > 0 && <TaskPanel model={todoModel} compact={compactTodos} />}
+      {todos.length > 0 && <TaskPanel model={todoModel} compact={compactTodos} summary={todoSummary} />}
       {workers.length > 0 && <Text color={colors.muted}>{workerHeader}</Text>}
       {workerSelection.visible.map(renderItem)}
       {(workerSelection.hiddenPending > 0 || workerSelection.hiddenCompleted > 0) && (
