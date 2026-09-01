@@ -1211,6 +1211,14 @@ export class AutohandAgent {
     return runAgentReactLoop(this.createReactLoopHost(), abortController, control);
   }
 
+  private beginTodoActivityTurn(): void {
+    this.actionExecutor?.beginTodoActivityTurn();
+  }
+
+  private async completeTodoActivityForSuccessfulTurn(): Promise<boolean> {
+    return this.actionExecutor?.completeTodoActivityForSuccessfulTurn() ?? false;
+  }
+
   private createReactLoopHost(): AgentReactLoopHost {
     const agent = this;
 

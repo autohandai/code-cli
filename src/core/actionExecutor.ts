@@ -130,6 +130,17 @@ import {
   type ReadStateStore,
 } from './agent/ReadSessionLedger.js';
 
+interface ActivityTodo {
+  id?: string;
+  title?: string;
+  content?: string;
+  status?: string;
+  activeForm?: string;
+  [key: string]: unknown;
+}
+
+const TODO_ACTIVITY_STATE_PATH = '.autohand/agents/tasks/todos.json';
+
 /** Response from permission-request hook */
 export interface PermissionHookResponse {
   /** Decision from hook */
@@ -205,13 +216,7 @@ export interface ActionExecutorOptions {
   onLiveCommandRemove?: (id: string) => void;
   onMetaToolCreated?: (definition: MetaToolDefinition) => void;
   /** Push todo_write tasks into the sticky Ink activity panel. */
-  onActivityTodosUpdated?: (todos: Array<{
-    id?: string;
-    title?: string;
-    content?: string;
-    status?: string;
-    activeForm?: string;
-  }>) => boolean | void;
+  onActivityTodosUpdated?: (todos: ActivityTodo[]) => boolean | void;
   /** Registry of currently running background shell processes, for /ps and /stop. */
   backgroundProcessRegistry?: BackgroundProcessRegistry;
   /** Concurrent sessions sharing this workspace. */
@@ -327,6 +332,7 @@ export class ActionExecutor {
   private readonly readSessionLedger: ReadSessionLedger;
   private readonly securityScanner: SecurityScanner;
   private readonly searchCache: Map<string, string> = new Map();
+  private todoActivityForCurrentTurn: ActivityTodo[] | null = null;
   private fffSearchProviderPromise: Promise<FFFSearchProvider> | null = null;
   private fffSearchWorkspaceRoot: string | null = null;
   private fffSearchIdleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -370,6 +376,35 @@ export class ActionExecutor {
       resolveStatefulReadMode(this.runtime.config) === 'enforce',
     );
     this.securityScanner = new SecurityScanner();
+  }
+
+  beginTodoActivityTurn(): void {
+    this.todoActivityForCurrentTurn = null;
+  }
+
+  async completeTodoActivityForSuccessfulTurn(): Promise<boolean> {
+    const todos = this.todoActivityForCurrentTurn;
+    if (!todos) {
+      return false;
+    }
+
+    let changed = false;
+    const completedTodos = todos.map((todo) => {
+      if (todo.status !== 'pending' && todo.status !== 'in_progress') {
+        return todo;
+      }
+      changed = true;
+      return { ...todo, status: 'completed' };
+    });
+
+    if (!changed) {
+      return false;
+    }
+
+    await this.files.writeFile(TODO_ACTIVITY_STATE_PATH, JSON.stringify(completedTodos, null, 2));
+    this.todoActivityForCurrentTurn = completedTodos;
+    this.onActivityTodosUpdated?.(completedTodos);
+    return true;
   }
 
   private createGoalManager(): GoalManager {
@@ -2719,7 +2754,7 @@ export class ActionExecutor {
         return `No changes needed for ${action.file_path} (content identical)`;
       }
       case 'todo_write': {
-        const todoPath = '.autohand/agents/tasks/todos.json';
+        const todoPath = TODO_ACTIVITY_STATE_PATH;
 
         // Validate tasks is an array
         if (!Array.isArray(action.tasks)) {
@@ -2754,11 +2789,12 @@ export class ActionExecutor {
         });
         // For todo_write, the LLM sends the COMPLETE updated list, not incremental updates
         // So we replace the entire todo list instead of merging
-        const allTodos = normalizedTasks;
+        const allTodos: ActivityTodo[] = normalizedTasks;
 
         // Write back. Todos are agent state, not workspace edits: never surface
         // todos.json as a modified file or the TUI renders a JSON diff.
         await this.files.writeFile(todoPath, JSON.stringify(allTodos, null, 2));
+        this.todoActivityForCurrentTurn = allTodos;
         const activitySurfaceHandled = this.onActivityTodosUpdated?.(allTodos) === true;
         // Display summary with progress bar
         const total = allTodos.length;

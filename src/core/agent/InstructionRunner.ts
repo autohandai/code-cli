@@ -158,6 +158,8 @@ export interface AgentInstructionHost {
   recordTurnFailure?(message: string): void;
   emitOutput(event: AgentOutputEvent): void;
   printCompletionSummary(regionsStillActive: boolean, succeeded?: boolean): void;
+  beginTodoActivityTurn?(): void;
+  completeTodoActivityForSuccessfulTurn?(): Promise<boolean>;
   scheduleTurnMemoryReflection(outcome: TurnMemoryReflectionOutcome): void;
   writeDebugLine?(message: string): void;
 }
@@ -279,6 +281,7 @@ export class InstructionRunner {
 
     // Initialize task-level tracking
     host.taskStartedAt = Date.now();
+    host.beginTodoActivityTurn?.();
     host.totalTokensUsed = 0;
     host.currentTurnActualUsage = {
       kind: 'unavailable',
@@ -451,6 +454,9 @@ export class InstructionRunner {
         }
       }
       success = await finalizeResearchForTurn(success);
+      if (success) {
+        await host.completeTodoActivityForSuccessfulTurn?.();
+      }
     } catch (error) {
       success = false;
       if (abortController.signal.aborted) {
@@ -535,6 +541,9 @@ export class InstructionRunner {
             host.sessionRetryCount = 0;
             success = true;
             success = await finalizeResearchForTurn(success);
+            if (success) {
+              await host.completeTodoActivityForSuccessfulTurn?.();
+            }
             return success;
           } catch (retryError) {
             err = retryError instanceof Error ? retryError : new Error(String(retryError));

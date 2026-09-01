@@ -324,6 +324,36 @@ describe('actionExecutor input validation', () => {
 
 
   describe('todo_write', () => {
+    it('persists the current turn\'s unfinished todos as completed when the turn succeeds', async () => {
+      const onActivityTodosUpdated = vi.fn();
+      executor = createExecutor({ onActivityTodosUpdated });
+
+      await executor.execute({
+        type: 'todo_write',
+        tasks: [
+          { content: 'Verify the task panel', status: 'completed' as const, activeForm: 'Verifying the task panel' },
+          { content: 'Report the task result', status: 'in_progress' as const, activeForm: 'Reporting the task result' },
+        ],
+      } as any);
+
+      onActivityTodosUpdated.mockClear();
+      mockFileActionManager.writeFile.mockClear();
+
+      await expect(executor.completeTodoActivityForSuccessfulTurn()).resolves.toBe(true);
+
+      expect(JSON.parse(mockFileActionManager.writeFile.mock.calls[0]![1])).toEqual([
+        expect.objectContaining({ content: 'Verify the task panel', status: 'completed' }),
+        expect.objectContaining({ content: 'Report the task result', status: 'completed' }),
+      ]);
+      expect(onActivityTodosUpdated).toHaveBeenCalledWith([
+        expect.objectContaining({ content: 'Verify the task panel', status: 'completed' }),
+        expect.objectContaining({ content: 'Report the task result', status: 'completed' }),
+      ]);
+
+      executor.beginTodoActivityTurn();
+      await expect(executor.completeTodoActivityForSuccessfulTurn()).resolves.toBe(false);
+    });
+
     it('publishes the complete normalized task list to the sticky activity surface', async () => {
       const onActivityTodosUpdated = vi.fn();
       executor = createExecutor({ onActivityTodosUpdated });
