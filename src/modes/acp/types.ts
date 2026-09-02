@@ -328,34 +328,24 @@ export interface AcpMode {
  */
 export const DEFAULT_ACP_MODES: AcpMode[] = [
   {
-    id: "interactive",
-    name: "Interactive",
-    description: "Default mode with approval prompts for risky actions",
+    id: "default",
+    name: "Ask",
+    description: "Ask before actions that need approval",
   },
   {
-    id: "full-access",
-    name: "Full Access",
-    description: "Auto-approve all actions within the workspace",
+    id: "plan",
+    name: "Plan",
+    description: "Inspect and plan without making changes",
   },
   {
-    id: "unrestricted",
-    name: "Unrestricted",
-    description: "Skip all approval prompts (use with caution)",
+    id: "yolo",
+    name: "YOLO",
+    description: "Auto-approve actions without interruption",
   },
   {
-    id: "auto-mode",
-    name: "Auto Mode",
-    description: "Autonomous multi-step execution loop",
-  },
-  {
-    id: "restricted",
-    name: "Restricted",
-    description: "Deny all dangerous operations automatically",
-  },
-  {
-    id: "dry-run",
-    name: "Dry Run",
-    description: "Preview actions without applying changes",
+    id: "automode",
+    name: "Auto",
+    description: "Run an interactive autonomous workflow",
   },
 ];
 
@@ -478,41 +468,44 @@ function isBuiltInProviderName(value: string): value is BuiltInProviderName {
     "nvidia",
     "deepseek",
     "bedrock",
+    "autohandai",
   ].includes(value);
 }
 
 export function parseAvailableModels(config: LoadedConfig): string[] {
   const models: string[] = [];
 
-  // Add current model
   const providerName = config.provider ?? "openrouter";
   const providerConfig = (config as unknown as Record<string, unknown>)[providerName];
+  const catalogProvider = providerName === "autohandai" && !isAutohandInferenceEnabled(config)
+    ? "openrouter"
+    : isBuiltInProviderName(providerName)
+      ? providerName
+      : "openrouter";
+  const catalogModels = getProviderModelIds(catalogProvider);
+
+  // A configured model is useful for custom providers, but Autohand AI must
+  // only expose models its own catalog supports. A stale persisted selection
+  // cannot become a selectable model for a provider that will reject it.
   if (
     hasProviderModel(providerConfig) &&
-    (providerName !== "autohandai" || isAutohandInferenceEnabled(config))
+    (providerName !== "autohandai" || (
+      isAutohandInferenceEnabled(config) &&
+      catalogModels.includes(providerConfig.model)
+    ))
   ) {
     models.push(providerConfig.model);
   }
-
-  const catalogProvider = isBuiltInProviderName(providerName) && providerName !== "autohandai"
-    ? providerName
-    : "openrouter";
-  const catalogModels = getProviderModelIds(catalogProvider);
-  return mergeModelIds(
-    models,
-    isAutohandInferenceEnabled(config)
-      ? ["fantail", "moa", ...catalogModels]
-      : catalogModels,
-  );
+  return mergeModelIds(models, catalogModels);
 }
 
 /**
  * Resolve the default mode ID based on config.
  */
 export function resolveDefaultMode(config?: LoadedConfig): string {
-  if (config?.permissions?.mode === "unrestricted") return "unrestricted";
-  if (config?.permissions?.mode === "restricted") return "restricted";
-  return "interactive";
+  if (config?.permissions?.mode === "unrestricted") return "yolo";
+  if (config?.permissions?.mode === "restricted") return "plan";
+  return "default";
 }
 
 /**

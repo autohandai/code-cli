@@ -2046,6 +2046,20 @@ export class AutohandAgent {
    */
   applyAcpMode(modeId: string): void {
     if (this.interactionModeController) {
+      if (
+        modeId === 'default' ||
+        modeId === 'plan' ||
+        modeId === 'yolo' ||
+        modeId === 'automode'
+      ) {
+        this.setInteractionMode(modeId);
+        this.baseYesMode = this.runtime.options.yes === true;
+        this.baseUnrestrictedMode = this.runtime.options.unrestricted === true;
+        this.baseRestrictedMode = this.runtime.options.restricted === true;
+        this.baseDryRunMode = this.runtime.options.dryRun === true;
+        this.basePermissionMode = this.permissionManager.getMode();
+        return;
+      }
       this.setInteractionMode('default');
     }
     applyAgentAcpMode(this, modeId);

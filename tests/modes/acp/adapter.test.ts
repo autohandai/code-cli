@@ -417,15 +417,10 @@ describe("AutohandAcpAdapter", () => {
       const result = await adapter.newSession(makeNewSessionRequest());
 
       expect(result.modes).toBeDefined();
-      expect(result.modes!.availableModes).toHaveLength(6);
+      expect(result.modes!.availableModes).toHaveLength(4);
 
       const modeIds = result.modes!.availableModes.map((m: any) => m.id);
-      expect(modeIds).toContain("interactive");
-      expect(modeIds).toContain("full-access");
-      expect(modeIds).toContain("unrestricted");
-      expect(modeIds).toContain("auto-mode");
-      expect(modeIds).toContain("restricted");
-      expect(modeIds).toContain("dry-run");
+      expect(modeIds).toEqual(["default", "plan", "yolo", "automode"]);
     });
 
     it("returns available models including popular models", async () => {
@@ -1148,16 +1143,16 @@ describe("AutohandAcpAdapter", () => {
 
       const result = await adapter.setSessionMode({
         sessionId: session.sessionId,
-        modeId: "unrestricted",
+        modeId: "yolo",
       } as any);
 
       expect(result).toEqual({});
-      expect(mockAgent.applyAcpMode).toHaveBeenCalledWith("unrestricted");
+      expect(mockAgent.applyAcpMode).toHaveBeenCalledWith("yolo");
       expect(connection.sessionUpdate).toHaveBeenCalledWith({
         sessionId: session.sessionId,
         update: {
           sessionUpdate: "current_mode_update",
-          currentModeId: "unrestricted",
+          currentModeId: "yolo",
         },
       });
 
@@ -1182,7 +1177,7 @@ describe("AutohandAcpAdapter", () => {
       await expect(
         adapter.setSessionMode({
           sessionId: "nonexistent",
-          modeId: "unrestricted",
+          modeId: "yolo",
         } as any),
       ).rejects.toThrow();
     });

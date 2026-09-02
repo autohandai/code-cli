@@ -93,6 +93,22 @@ describe('createPermissionBridge', () => {
   // -------------------------------------------------------------------------
 
   describe('auto-approve modes', () => {
+    it.each(['yolo', 'automode'])(
+      'Autohand mode "%s" auto-approves',
+      async (modeId) => {
+        const bridge = createPermissionBridge({
+          connection,
+          sessionId: 'sess-1',
+          modeId,
+        });
+
+        await expect(
+          bridge.confirmAction('Run command', { tool: 'run_command' }),
+        ).resolves.toEqual({ decision: 'allow_once' });
+        expect(connection.requestPermission).not.toHaveBeenCalled();
+      },
+    );
+
     it('mode "unrestricted" auto-approves (returns allow_once)', async () => {
       const bridge = createPermissionBridge({
         connection,

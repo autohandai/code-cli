@@ -188,19 +188,12 @@ describe("DEFAULT_ACP_COMMANDS", () => {
 // ===========================================================================
 
 describe("DEFAULT_ACP_MODES", () => {
-  it("has exactly 6 modes", () => {
-    expect(DEFAULT_ACP_MODES).toHaveLength(6);
-  });
-
-  it("has the correct mode IDs in order", () => {
-    const ids = DEFAULT_ACP_MODES.map((m) => m.id);
-    expect(ids).toEqual([
-      "interactive",
-      "full-access",
-      "unrestricted",
-      "auto-mode",
-      "restricted",
-      "dry-run",
+  it("exposes Autohand's four interaction modes in order", () => {
+    expect(DEFAULT_ACP_MODES).toEqual([
+      expect.objectContaining({ id: "default", name: "Ask" }),
+      expect.objectContaining({ id: "plan", name: "Plan" }),
+      expect.objectContaining({ id: "yolo", name: "YOLO" }),
+      expect.objectContaining({ id: "automode", name: "Auto" }),
     ]);
   });
 
@@ -368,14 +361,24 @@ describe("parseAvailableModels()", () => {
     expect(models).toContain("deepseek/deepseek-v4");
   });
 
-  it("includes Fantail and Moa when autohand_inference is enabled", () => {
+  it("does not add Autohand AI models to another provider's picker", () => {
     const config = makeConfig({
       features: { autohand_inference: true },
     });
     const models = parseAvailableModels(config);
 
-    expect(models).toContain("fantail");
-    expect(models).toContain("moa");
+    expect(models).not.toContain("fantail");
+    expect(models).not.toContain("moa");
+  });
+
+  it("returns only the Autohand AI catalog for an Autohand AI session", () => {
+    const config = makeConfig({
+      provider: "autohandai",
+      features: { autohand_inference: true },
+      autohandai: { model: "fantail" },
+    });
+
+    expect(parseAvailableModels(config)).toEqual(["fantail", "moa"]);
   });
 
   it("places the configured model first when it exists", () => {
@@ -444,28 +447,28 @@ describe("parseAvailableModels()", () => {
 // ===========================================================================
 
 describe("resolveDefaultMode()", () => {
-  it('returns "interactive" when config is undefined', () => {
-    expect(resolveDefaultMode(undefined)).toBe("interactive");
+  it('returns "default" when config is undefined', () => {
+    expect(resolveDefaultMode(undefined)).toBe("default");
   });
 
-  it('returns "interactive" when permissions.mode is not set', () => {
+  it('returns "default" when permissions.mode is not set', () => {
     const config = makeConfig();
-    expect(resolveDefaultMode(config)).toBe("interactive");
+    expect(resolveDefaultMode(config)).toBe("default");
   });
 
-  it('returns "unrestricted" when permissions.mode is "unrestricted"', () => {
+  it('returns "yolo" when permissions.mode is "unrestricted"', () => {
     const config = makeConfig({ permissions: { mode: "unrestricted" } });
-    expect(resolveDefaultMode(config)).toBe("unrestricted");
+    expect(resolveDefaultMode(config)).toBe("yolo");
   });
 
-  it('returns "restricted" when permissions.mode is "restricted"', () => {
+  it('returns "plan" when permissions.mode is "restricted"', () => {
     const config = makeConfig({ permissions: { mode: "restricted" } });
-    expect(resolveDefaultMode(config)).toBe("restricted");
+    expect(resolveDefaultMode(config)).toBe("plan");
   });
 
-  it('returns "interactive" for other permission modes', () => {
+  it('returns "default" for other permission modes', () => {
     const config = makeConfig({ permissions: { mode: "interactive" } });
-    expect(resolveDefaultMode(config)).toBe("interactive");
+    expect(resolveDefaultMode(config)).toBe("default");
   });
 });
 

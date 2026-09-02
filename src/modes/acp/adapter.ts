@@ -325,10 +325,10 @@ export class AutohandAcpAdapter implements Agent {
       workspaceRoot,
       options: {
         bare: this.cliOptions.bare,
-        yes: modeId === 'unrestricted' || modeId === 'full-access',
-        unrestricted: modeId === 'unrestricted',
-        restricted: modeId === 'restricted',
-        dryRun: modeId === 'dry-run',
+        yes: modeId === 'yolo' || modeId === 'automode',
+        unrestricted: modeId === 'yolo' || modeId === 'automode',
+        restricted: false,
+        dryRun: false,
         contextCompact: true, // Default enabled; ACP config can toggle via applyAcpConfigOption
       },
       isRpcMode: true,
@@ -338,6 +338,7 @@ export class AutohandAcpAdapter implements Agent {
     const files = new FileActionManager(workspaceRoot);
     const agent = new AutohandAgent(provider, files, runtime);
     await agent.initializeForRPC();
+    agent.applyAcpMode(modeId);
 
     const state: AcpSessionState = {
       sessionId,
