@@ -104,6 +104,9 @@ vi.mock("../../../src/i18n/index.js", () => ({
       "providers.custom.configureReasoningEffort": "Configure reasoning effort?",
       "providers.custom.modelRequired": "Model ID is required",
       "providers.autohandaiPlan.detectModels": "Detecting local coding models",
+      "providers.autohandaiPlan.choose": "Choose an Autohand plan",
+      "providers.autohandaiPlan.cloud": "Hosted",
+      "providers.autohandaiPlan.local": "Local",
       "providers.autohandaiPlan.selectLocalModel": "Choose a local coding model",
       "providers.autohandaiPlan.selectMoaEffort": "Choose Moa thinking effort",
     };
@@ -479,6 +482,70 @@ describe("ProviderConfigManager openai auth mode", () => {
       expect.any(Function),
     );
     expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+
+  it("switches a configured Autohand Cloud provider to Local directly from /model", async () => {
+    const localModel = {
+      id: "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit",
+      label: "Qwen2.5 Coder 7B",
+      description: "Fast local coding model",
+      source: "llmfit",
+    };
+    runtime.config.provider = "autohandai";
+    runtime.config.auth = { token: "account-session-token" };
+    runtime.config.autohandai = {
+      plan: "cloud",
+      authMode: "account",
+      accountToken: "account-session-token",
+      baseUrl: "https://api.autohand.ai/v1",
+      model: "fantail",
+      contextWindow: 262_144,
+    };
+    runtime.options.model = "fantail";
+    mockEnsureAutohandAILocalDependencies.mockResolvedValueOnce({
+      ok: true,
+      probe: { baseUrl: "http://127.0.0.1:8080", port: 8080 },
+    });
+    mockRecommendAutohandAILocalModels.mockResolvedValueOnce([localModel]);
+    mockEnsureAutohandAILocalRuntime.mockResolvedValueOnce({
+      ok: true,
+      model: localModel,
+      baseUrl: "http://127.0.0.1:8080",
+      port: 8080,
+      serverCommand: `mlx_lm.server --model ${localModel.id} --port 8080`,
+    });
+    mockShowModal
+      .mockResolvedValueOnce({ value: "plan" })
+      .mockResolvedValueOnce({ value: "local" })
+      .mockResolvedValueOnce({ value: localModel.id });
+
+    try {
+      await manager.promptModelSelection();
+
+      expect(mockShowModal.mock.calls[0][0]).toMatchObject({
+        title: "What would you like to change?",
+        options: expect.arrayContaining([
+          expect.objectContaining({
+            label: "Choose an Autohand plan",
+            value: "plan",
+          }),
+        ]),
+      });
+      expect(mockShowModal.mock.calls[1][0]).toMatchObject({
+        title: "Choose an Autohand plan",
+        options: expect.arrayContaining([
+          expect.objectContaining({ label: "Hosted", value: "cloud" }),
+          expect.objectContaining({ label: "Local", value: "local" }),
+        ]),
+      });
+      expect(runtime.config.autohandai).toEqual(expect.objectContaining({
+        plan: "local",
+        model: localModel.id,
+        baseUrl: "http://127.0.0.1:8080",
+      }));
+    } finally {
+      mockShowModal.mockReset();
+    }
   });
 
   it("uses the configured Ollama base URL when selecting local models", async () => {

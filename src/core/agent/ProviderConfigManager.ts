@@ -319,6 +319,10 @@ export class ProviderConfigManager {
       await this.promptProviderSelection();
       return;
     }
+    if (provider === "autohandai" && action === "plan") {
+      await this.configureAutohandAI();
+      return;
+    }
     if (action === "remove" && isCustomProviderName(provider)) {
       await this.removeCustomProvider(provider);
       return;
@@ -476,6 +480,14 @@ export class ProviderConfigManager {
       return [
         { label: t("providers.config.changeModelOnly"), value: "model" },
         { label: "Change Bedrock API mode, region, auth, or endpoint", value: "bedrock" },
+        { label: t("providers.config.changeProvider"), value: "provider" },
+      ];
+    }
+
+    if (provider === "autohandai") {
+      return [
+        { label: t("providers.config.changeModelOnly"), value: "model" },
+        { label: t("providers.autohandaiPlan.choose"), value: "plan" },
         { label: t("providers.config.changeProvider"), value: "provider" },
       ];
     }
