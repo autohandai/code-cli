@@ -48,7 +48,7 @@ afterEach(async () => {
 });
 
 describe('interactive task activity', () => {
-  it('finishes the visible plan and keeps the final summary above the composer', async () => {
+  it('removes completed task activity when the final turn reaches the composer', async () => {
     const server = await createMockOpenRouterSequenceServer([
       JSON.stringify({
         thought: 'Create a five-step plan and start the validation.',
@@ -103,15 +103,16 @@ describe('interactive task activity', () => {
 
     const viewport = await waitForActiveViewport(
       session,
-      (text) => text.includes('5/5 done')
-        && text.includes('TASK_ACTIVITY_FINAL_SUMMARY')
-        && text.includes('All 5 tasks completed')
+      (text) => text.includes('TASK_ACTIVITY_FINAL_SUMMARY')
         && text.includes('Completed in')
-        && text.includes('❯'),
+        && text.includes('❯')
+        && !text.includes('Tasks')
+        && !text.includes('All 5 tasks completed'),
     );
 
-    expect(viewport).toContain('100%');
-    expect(viewport).not.toContain('in progress · 1');
+    expect(viewport).not.toContain('5/5 done');
+    expect(viewport).not.toContain('100%');
+    expect(viewport).not.toContain('Report the task-view result');
 
     await exitInteractive(session);
   }, 60_000);

@@ -376,6 +376,10 @@ export function setAgentComposerIdle(host: AgentUIRuntimeHost): void {
     host.ui?.setWorking(false);
   }
 
+export function clearAgentActivityForCompletedTurn(host: AgentUIRuntimeHost): void {
+    host.inkRenderer?.clearActivityItems?.();
+  }
+
 export function clearAgentComposerInput(host: AgentUIRuntimeHost): void {
     host.inkRenderer?.clearInput();
     host.ui?.clearInput();

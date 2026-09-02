@@ -86,6 +86,28 @@ describe('InkRenderer live command blocks', () => {
     ]);
   });
 
+  it('clears completed todo and worker activity after final turn completion', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    renderer.setTodoActivityItems([
+      { id: 'todo-1', kind: 'todo', label: 'Review the final task', status: 'completed' },
+    ]);
+    renderer.upsertActivityItem({
+      id: 'worker-1',
+      kind: 'subagent',
+      label: 'reviewer: validate the result',
+      status: 'completed',
+    });
+
+    renderer.clearActivityItems();
+
+    expect(renderer.getState().activityItems).toEqual([]);
+  });
+
   it('records grouped parallel tool output as a single batch chat message', () => {
     const renderer = new InkRenderer({
       onInstruction: () => {},
