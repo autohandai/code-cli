@@ -95,6 +95,48 @@ describe('autohandai local setup', () => {
     expect(probe.mlxServerInstalled).toBe(true);
   });
 
+  it('flags an outdated llmfit install for upgrade to the supported release', async () => {
+    mockRunCommand.mockImplementation(async (cmd: string, args: string[]) => {
+      if (cmd === 'which') return { code: 0, stdout: '/opt/homebrew/bin/tool\n', stderr: '' };
+      if (cmd === 'uv' && args[0] === 'tool' && args[1] === 'list') {
+        return { code: 0, stdout: 'mlx-lm v0.31.3\n', stderr: '' };
+      }
+      if (cmd === 'llmfit' && args[0] === '--version') {
+        return { code: 0, stdout: 'llmfit 0.9.30\n', stderr: '' };
+      }
+      return { code: 0, stdout: '', stderr: '' };
+    });
+
+    const probe = await probeAutohandAILocalEnvironment('/repo');
+
+    expect(probe.llmfitInstalled).toBe(false);
+    expect(probe.installPlan?.llmfit.label).toContain('llmfit');
+    expect(mockRunCommand).toHaveBeenCalledWith(
+      'llmfit',
+      ['--version'],
+      '/repo',
+      expect.objectContaining({ env: expect.any(Object) }),
+    );
+  });
+
+  it('accepts llmfit when the installed version meets the supported release', async () => {
+    mockRunCommand.mockImplementation(async (cmd: string, args: string[]) => {
+      if (cmd === 'which') return { code: 0, stdout: '/opt/homebrew/bin/tool\n', stderr: '' };
+      if (cmd === 'uv' && args[0] === 'tool' && args[1] === 'list') {
+        return { code: 0, stdout: 'mlx-lm v0.31.3\n', stderr: '' };
+      }
+      if (cmd === 'llmfit' && args[0] === '--version') {
+        return { code: 0, stdout: 'llmfit 1.1.12\n', stderr: '' };
+      }
+      return { code: 0, stdout: '', stderr: '' };
+    });
+
+    const probe = await probeAutohandAILocalEnvironment('/repo');
+
+    expect(probe.llmfitInstalled).toBe(true);
+    expect(probe.installPlan).toBeUndefined();
+  });
+
   it('pins the mlx-lm version in the install plan for deterministic installs', async () => {
     // uv is available; mlx server and llmfit are missing.
     mockRunCommand.mockImplementation(async (cmd: string, args: string[]) => {
@@ -109,6 +151,41 @@ describe('autohandai local setup', () => {
     // A pinned version keeps every install reproducible instead of drifting to
     // whatever mlx-lm happens to be latest.
     expect(mlx!.args.join(' ')).toMatch(/mlx-lm==\d+\.\d+\.\d+/);
+  });
+
+  it('forces pipx to replace an outdated mlx-lm tool with the pinned version', async () => {
+    mockRunCommand.mockImplementation(async (cmd: string, args: string[]) => {
+      if (cmd === 'which' && args[0] === 'mlx_lm.server') {
+        return { code: 0, stdout: '/opt/homebrew/bin/mlx_lm.server\n', stderr: '' };
+      }
+      if (cmd === 'which' && args[0] === 'llmfit') {
+        return { code: 0, stdout: '/opt/homebrew/bin/llmfit\n', stderr: '' };
+      }
+      if (cmd === 'which' && args[0] === 'uv') {
+        return { code: 1, stdout: '', stderr: '' };
+      }
+      if (cmd === 'which' && args[0] === 'pipx') {
+        return { code: 0, stdout: '/opt/homebrew/bin/pipx\n', stderr: '' };
+      }
+      if (cmd === 'which' && args[0] === 'curl') {
+        return { code: 0, stdout: '/usr/bin/curl\n', stderr: '' };
+      }
+      if (cmd === 'pipx' && args[0] === 'list') {
+        return { code: 0, stdout: 'mlx-lm 0.20.0\n', stderr: '' };
+      }
+      if (cmd === 'llmfit' && args[0] === '--version') {
+        return { code: 0, stdout: 'llmfit 1.1.12\n', stderr: '' };
+      }
+      return { code: 1, stdout: '', stderr: '' };
+    });
+
+    const probe = await probeAutohandAILocalEnvironment('/repo');
+
+    expect(probe.installPlan?.mlxServer).toEqual({
+      command: 'pipx',
+      args: ['install', '--force', 'mlx-lm==0.31.3'],
+      label: 'pipx install --force mlx-lm==0.31.3',
+    });
   });
 
   it('uses llmfit recommendations and keeps coding-focused MLX models only', async () => {
@@ -224,6 +301,24 @@ describe('autohandai local setup', () => {
     // wizard never blocks on a sudo password prompt it cannot capture under Ink.
     expect(script).toContain('--local');
     expect(`${llmfit!.command} ${script} ${llmfit!.label}`).not.toContain('sudo');
+  });
+
+  it('upgrades llmfit to the supported release through the pip fallback', async () => {
+    mockRunCommand.mockImplementation(async (cmd: string, args: string[]) => {
+      if (cmd === 'which' && args[0] === 'curl') {
+        return { code: 1, stdout: '', stderr: '' };
+      }
+      return { code: 1, stdout: '', stderr: '' };
+    });
+
+    const probe = await probeAutohandAILocalEnvironment('/repo');
+    const llmfit = probe.installPlan?.llmfit;
+
+    expect(llmfit).toEqual({
+      command: 'python3',
+      args: ['-m', 'pip', 'install', '--user', '--upgrade', 'llmfit>=1.1.12'],
+      label: 'python3 -m pip install --user --upgrade llmfit>=1.1.12',
+    });
   });
 
   it('runs llmfit with the user-local bin directory on PATH so a sudo-free install resolves', async () => {

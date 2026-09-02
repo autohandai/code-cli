@@ -90,6 +90,8 @@ const STARTUP_TIMEOUT_MS = 120_000;
 // to whatever mlx-lm is latest. Bump deliberately after validating a new release.
 const MLX_LM_PINNED_VERSION = '0.31.3';
 const MLX_LM_SPEC = `mlx-lm==${MLX_LM_PINNED_VERSION}`;
+const LLMFIT_MINIMUM_VERSION = '1.1.12';
+const LLMFIT_SPEC = `llmfit>=${LLMFIT_MINIMUM_VERSION}`;
 const CODING_MODEL_PATTERN = /(code|coder|coding|codestral|devstral|starcoder|qwen|deepseek)/i;
 
 export const AUTOHAND_AI_LOCAL_CODING_MODEL_FALLBACKS: AutohandAILocalModel[] = [
@@ -189,6 +191,36 @@ async function getInstalledMlxLmVersion(cwd: string): Promise<string | undefined
   return undefined;
 }
 
+function parseLlmfitVersion(output: string): string | undefined {
+  return output.match(/\bllmfit\s+v?(\d+\.\d+\.\d+)\b/i)?.[1];
+}
+
+function isVersionAtLeast(version: string, minimum: string): boolean {
+  const installedParts = version.split('.').map(Number);
+  const minimumParts = minimum.split('.').map(Number);
+
+  for (let index = 0; index < 3; index += 1) {
+    const installed = installedParts[index] ?? 0;
+    const required = minimumParts[index] ?? 0;
+    if (installed !== required) return installed > required;
+  }
+
+  return true;
+}
+
+async function getInstalledLlmfitVersion(cwd: string): Promise<string | undefined> {
+  try {
+    const result = await runCommand('llmfit', ['--version'], cwd, {
+      timeout: 10_000,
+      env: localRuntimeEnv(),
+    });
+    if (result.code !== 0) return undefined;
+    return parseLlmfitVersion([result.stdout, result.stderr].filter(Boolean).join('\n'));
+  } catch {
+    return undefined;
+  }
+}
+
 async function getMlxInstallCommand(cwd: string): Promise<AutohandAILocalInstallCommand> {
   if (await commandExists('uv', cwd)) {
     return {
@@ -201,8 +233,8 @@ async function getMlxInstallCommand(cwd: string): Promise<AutohandAILocalInstall
   if (await commandExists('pipx', cwd)) {
     return {
       command: 'pipx',
-      args: ['install', MLX_LM_SPEC],
-      label: `pipx install ${MLX_LM_SPEC}`,
+      args: ['install', '--force', MLX_LM_SPEC],
+      label: `pipx install --force ${MLX_LM_SPEC}`,
     };
   }
 
@@ -229,8 +261,8 @@ async function getLlmfitInstallCommand(cwd: string): Promise<AutohandAILocalInst
 
   return {
     command: 'python3',
-    args: ['-m', 'pip', 'install', '--user', 'llmfit'],
-    label: 'python3 -m pip install --user llmfit',
+    args: ['-m', 'pip', 'install', '--user', '--upgrade', LLMFIT_SPEC],
+    label: `python3 -m pip install --user --upgrade ${LLMFIT_SPEC}`,
   };
 }
 
@@ -343,7 +375,7 @@ export async function probeAutohandAILocalEnvironment(
     };
   }
 
-  const [mlxServerBinary, llmfitInstalled, running] = await Promise.all([
+  const [mlxServerBinary, llmfitBinary, running] = await Promise.all([
     commandExists('mlx_lm.server', cwd),
     commandExists('llmfit', cwd),
     probeAutohandAILocalServer(baseUrl),
@@ -357,6 +389,14 @@ export async function probeAutohandAILocalEnvironment(
     const installedVersion = await getInstalledMlxLmVersion(cwd);
     if (installedVersion && installedVersion !== MLX_LM_PINNED_VERSION) {
       mlxServerInstalled = false;
+    }
+  }
+
+  let llmfitInstalled = llmfitBinary;
+  if (llmfitBinary) {
+    const installedVersion = await getInstalledLlmfitVersion(cwd);
+    if (installedVersion && !isVersionAtLeast(installedVersion, LLMFIT_MINIMUM_VERSION)) {
+      llmfitInstalled = false;
     }
   }
 
