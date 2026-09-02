@@ -25,10 +25,8 @@ export interface PermissionBridgeOptions {
  * Routes permission requests through the ACP protocol directly (no HTTP roundtrip).
  *
  * Mode-aware behavior:
- * - 'unrestricted' / 'full-access': auto-approves all actions
- * - 'restricted': auto-denies all dangerous actions
- * - 'interactive' (default): prompts Zed UI via ACP requestPermission
- * - 'dry-run': auto-denies (preview only)
+ * - 'yolo' / 'automode': auto-approves all actions
+ * - 'default' and 'plan': prompt through ACP requestPermission
  */
 export function createPermissionBridge(options: PermissionBridgeOptions) {
   const { connection, sessionId } = options;
@@ -50,7 +48,13 @@ export function createPermissionBridge(options: PermissionBridgeOptions) {
     context?: { tool?: string; command?: string; path?: string; args?: string[] }
   ): Promise<PermissionPromptResult> => {
     // Auto-approve modes
-    if (modeId === 'unrestricted' || modeId === 'full-access' || modeId === 'auto-mode') {
+    if (
+      modeId === 'yolo' ||
+      modeId === 'automode' ||
+      modeId === 'unrestricted' ||
+      modeId === 'full-access' ||
+      modeId === 'auto-mode'
+    ) {
       return { decision: 'allow_once' };
     }
 

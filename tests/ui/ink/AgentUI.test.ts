@@ -180,7 +180,7 @@ describe('AgentUI TextBuffer integration helpers', () => {
     expect(stripAnsi(instance.lastFrame() ?? '')).toContain('❯ helloX');
   });
 
-  it('expires a pending composer click when the cursor report never arrives', async () => {
+  it('drops a pending composer click when the cursor report never arrives', async () => {
     const instance = render(
       React.createElement(
         I18nProvider,
