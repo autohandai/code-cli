@@ -210,6 +210,7 @@ import {
   buildAgentSpinnerStatusText,
   withPeerLineExtension,
   cleanupAgentUI,
+  clearAgentActivityForCompletedTurn,
   clearAgentComposerInput,
   ensureAgentSpinnerRunning,
   executeAgentImmediateShellCommand,
@@ -1217,6 +1218,10 @@ export class AutohandAgent {
 
   private async completeTodoActivityForSuccessfulTurn(): Promise<boolean> {
     return this.actionExecutor?.completeTodoActivityForSuccessfulTurn() ?? false;
+  }
+
+  private clearActivityForCompletedTurn(): void {
+    return clearAgentActivityForCompletedTurn(this);
   }
 
   private createReactLoopHost(): AgentReactLoopHost {

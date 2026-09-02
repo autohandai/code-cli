@@ -223,6 +223,23 @@ describe('InstructionRunner command mode UI', () => {
     expect(host.scheduleTurnMemoryReflection).toHaveBeenCalledWith({ status: 'succeeded' });
   });
 
+  it('clears sticky activity after a successful turn reaches final completion', async () => {
+    const host = createHost();
+    const completeTodoActivityForSuccessfulTurn = vi.fn(async () => true);
+    const clearActivityForCompletedTurn = vi.fn();
+    const activityHost = host as AgentInstructionHost & {
+      completeTodoActivityForSuccessfulTurn: () => Promise<boolean>;
+      clearActivityForCompletedTurn: () => void;
+    };
+    activityHost.completeTodoActivityForSuccessfulTurn = completeTodoActivityForSuccessfulTurn;
+    activityHost.clearActivityForCompletedTurn = clearActivityForCompletedTurn;
+
+    await expect(new InstructionRunner(activityHost).run('finish the active task')).resolves.toBe(true);
+
+    expect(completeTodoActivityForSuccessfulTurn).toHaveBeenCalledOnce();
+    expect(clearActivityForCompletedTurn).toHaveBeenCalledOnce();
+  });
+
   it('keeps the Ink renderer mounted while running quality checks after an implementation turn', async () => {
     const host = createHost();
     const inkRenderer = {
@@ -253,6 +270,10 @@ describe('InstructionRunner command mode UI', () => {
 
   it('marks the turn failed when project quality checks fail', async () => {
     const host = createHost();
+    const clearActivityForCompletedTurn = vi.fn();
+    (host as AgentInstructionHost & {
+      clearActivityForCompletedTurn: () => void;
+    }).clearActivityForCompletedTurn = clearActivityForCompletedTurn;
     host.runtime = {
       ...host.runtime,
       options: {},
@@ -270,6 +291,7 @@ describe('InstructionRunner command mode UI', () => {
 
     expect(result).toBe(false);
     expect(host.stopUI).toHaveBeenCalledWith(true, 'Quality checks failed');
+    expect(clearActivityForCompletedTurn).not.toHaveBeenCalled();
     expect(host.printCompletionSummary).toHaveBeenCalledWith(false, false);
     expect(host.scheduleTurnMemoryReflection).toHaveBeenCalledWith({
       status: 'failed',

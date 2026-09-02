@@ -160,6 +160,7 @@ export interface AgentInstructionHost {
   printCompletionSummary(regionsStillActive: boolean, succeeded?: boolean): void;
   beginTodoActivityTurn?(): void;
   completeTodoActivityForSuccessfulTurn?(): Promise<boolean>;
+  clearActivityForCompletedTurn?(): void;
   scheduleTurnMemoryReflection(outcome: TurnMemoryReflectionOutcome): void;
   writeDebugLine?(message: string): void;
 }
@@ -456,6 +457,7 @@ export class InstructionRunner {
       success = await finalizeResearchForTurn(success);
       if (success) {
         await host.completeTodoActivityForSuccessfulTurn?.();
+        host.clearActivityForCompletedTurn?.();
       }
     } catch (error) {
       success = false;
@@ -543,6 +545,7 @@ export class InstructionRunner {
             success = await finalizeResearchForTurn(success);
             if (success) {
               await host.completeTodoActivityForSuccessfulTurn?.();
+              host.clearActivityForCompletedTurn?.();
             }
             return success;
           } catch (retryError) {
