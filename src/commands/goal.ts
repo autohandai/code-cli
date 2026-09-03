@@ -194,6 +194,10 @@ function formatMutation(result: GoalMutationResult): string {
   if (result.started) {
     lines.push(`Started queue item: ${result.started.queueId}`);
   }
+  if (result.abandoned) {
+    lines.push('');
+    lines.push(`Abandoned previous goal (owner session no longer active): ${result.abandoned.objective}`);
+  }
   if (result.completedRun?.length && result.queue.length === 0) {
     lines.push('');
     lines.push(formatCompletedRun(result.completedRun));

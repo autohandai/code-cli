@@ -361,7 +361,7 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/ide`             | Open in IDE                                                                      |
 | `/history`         | View command history                                                             |
 | `/mcp`             | Manage MCP servers                                                               |
-| `/mcp install`     | Install community MCP servers                                                    |
+| `/mcp install`     | Install validated Official MCP Registry servers (stdio and HTTP)                |
 | `/team`            | Manage team collaboration                                                        |
 | `/tasks`           | List team tasks                                                                  |
 | `/message`         | Send team message                                                                |

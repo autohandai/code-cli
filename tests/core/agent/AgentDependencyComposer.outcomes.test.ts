@@ -15,6 +15,7 @@ import { GitHubRegistryFetcher } from '../../../src/skills/GitHubRegistryFetcher
 import * as communityInstaller from '../../../src/skills/communityInstaller.js';
 import { getPlanModeManager } from '../../../src/commands/plan.js';
 import { getAuthClient } from '../../../src/auth/index.js';
+import * as communityMcpInstaller from '../../../src/commands/mcp-install.js';
 import type {
   AgentAction,
   AgentOutputEvent,
@@ -60,6 +61,10 @@ interface AgentOutcomeInternals {
   teamManager: {
     getTeam: ReturnType<typeof vi.fn>;
     shutdown: ReturnType<typeof vi.fn>;
+    createTeam?: ReturnType<typeof vi.fn>;
+    addTeammate?: ReturnType<typeof vi.fn>;
+    tasks?: { createTask: ReturnType<typeof vi.fn> };
+    tryAssignIdleTeammate?: ReturnType<typeof vi.fn>;
   };
   mcpManager: {
     callTool: ReturnType<typeof vi.fn>;
@@ -356,6 +361,69 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
     expect(result).toMatchObject({ success: true });
   });
 
+  it('discovers community MCP servers without executing catalog configuration', async () => {
+    const { internals } = createAgent();
+    const findServers = vi.spyOn(communityMcpInstaller, 'findCommunityMcpServers').mockResolvedValue([{
+      id: 'filesystem',
+      name: 'Filesystem',
+      description: 'Read approved files.',
+      category: 'developer-tools',
+      transport: 'stdio',
+      requiredArgs: ['directory'],
+      requiredEnvironmentVariables: [],
+    }]);
+
+    const [result] = await internals.toolManager.execute([{
+      tool: 'find_mcp_servers',
+      args: { query: 'file access' },
+    }]);
+
+    expect(findServers).toHaveBeenCalledWith('file access', undefined, undefined);
+    expect(result).toMatchObject({ success: true });
+    expect(result.output).toContain('filesystem');
+    findServers.mockRestore();
+  });
+
+  it('approval-gates catalog MCP installation and refreshes tools after connection', async () => {
+    const { agent, internals } = createAgent({}, 'interactive');
+    const confirmApproval = vi.fn().mockResolvedValue({ decision: 'allow_once' });
+    agent.setConfirmationCallback(confirmApproval);
+    const syncMcpTools = vi.fn();
+    (internals as unknown as { syncMcpTools: () => void }).syncMcpTools = syncMcpTools;
+    const resolveServer = vi.spyOn(communityMcpInstaller, 'resolveCommunityMcpServer').mockResolvedValue({
+      id: 'filesystem',
+      name: 'Filesystem',
+      description: 'Read approved files.',
+      category: 'developer-tools',
+      transport: 'stdio',
+      command: 'npx',
+      directory: 'developer-tools/filesystem',
+      files: ['README.md'],
+    });
+    const installServer = vi.spyOn(communityMcpInstaller, 'installCommunityMcpServer').mockResolvedValue({
+      success: true,
+      connected: true,
+      message: 'MCP server "Filesystem" installed and connected (1 tools available).',
+    });
+
+    const [result] = await internals.toolManager.execute([{
+      tool: 'install_mcp_server',
+      args: { server_id: 'filesystem', required_args: ['/workspace'] },
+    }]);
+
+    expect(confirmApproval).toHaveBeenCalledOnce();
+    expect(resolveServer).toHaveBeenCalledWith('filesystem');
+    expect(installServer).toHaveBeenCalledWith(
+      expect.objectContaining({ mcpManager: internals.mcpManager }),
+      expect.objectContaining({ id: 'filesystem' }),
+      { requiredArgs: ['/workspace'], overwrite: undefined },
+    );
+    expect(syncMcpTools).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({ success: true, output: expect.stringContaining('installed and connected') });
+    resolveServer.mockRestore();
+    installServer.mockRestore();
+  });
+
   it('exposes only the high-level specialist tool to the model when the feature is enabled', () => {
     const enabled = createAgent({}, 'unrestricted', true).internals.toolManager;
     const disabled = createAgent({}, 'unrestricted', false).internals.toolManager;
@@ -368,6 +436,33 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
       .toContain('install_specialist_roster');
     expect(disabled.listAllDefinitions().map((definition) => definition.name))
       .not.toContain('orchestrate_specialists');
+  });
+
+  it('exposes compose_team as a model-visible team composition tool', () => {
+    const enabled = createAgent({}, 'unrestricted', true).internals.toolManager;
+    expect(enabled.listDefinitions().map((definition) => definition.name))
+      .toContain('compose_team');
+  });
+
+  it('composes a team from a task objective with a ranked roster and task graph', async () => {
+    const { internals } = createAgent({}, 'unrestricted', true);
+    internals.teamManager = {
+      getTeam: vi.fn().mockReturnValue(null),
+      shutdown: vi.fn().mockResolvedValue(undefined),
+      createTeam: vi.fn().mockReturnValue({ name: 'composed-team', status: 'active', members: [] }),
+      addTeammate: vi.fn().mockReturnValue({}),
+      tasks: { createTask: vi.fn().mockReturnValue({ id: 'task-1', subject: 'Testing: add tests for the auth middleware' }) },
+      tryAssignIdleTeammate: vi.fn(),
+    } as unknown as AgentOutcomeInternals['teamManager'];
+
+    const [result] = await internals.toolManager.execute([{
+      tool: 'compose_team',
+      args: { objective: 'add tests for the auth middleware', team_name: 'composed-team' },
+    }]);
+
+    expect(result.success).toBe(true);
+    expect(result.output).toContain('Recommended roster');
+    expect(result.output).toContain('composed-team');
   });
 
   it('runs model-discovered specialists through the high-level tool', async () => {

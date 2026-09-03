@@ -78,6 +78,16 @@ describe('ToolManager', () => {
     expect(names.has('send_team_message')).toBe(true);
   });
 
+  it('exposes catalog-only MCP discovery and approval-gated installation tools', () => {
+    const findMcpServers = defaultToolDefinition('find_mcp_servers');
+    const installMcpServer = defaultToolDefinition('install_mcp_server');
+
+    expect(findMcpServers.parameters?.required).toEqual(['query']);
+    expect(installMcpServer.parameters?.required).toEqual(['server_id']);
+    expect(installMcpServer.requiresApproval).toBe(true);
+    expect(installMcpServer.approvalMessage).toContain('third-party');
+  });
+
   it('keeps internal tools executable without exposing them to the model', async () => {
     const executor = vi.fn().mockResolvedValue(successfulOutcome('installed'));
     const manager = new ToolManager({

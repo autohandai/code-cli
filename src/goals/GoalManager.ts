@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import fs from 'fs-extra';
 import path from 'node:path';
 import { PROJECT_DIR_NAME } from '../constants.js';
+import { ActiveAgentRegistry } from '../session/ActiveAgentRegistry.js';
 import { parseQueueBlockItems } from './queueBlockParser.js';
 import { listGoalTemplateMetadata, resolveGoalTemplateByName, resolveGoalTemplateInvocation } from './templates.js';
 import type {
@@ -26,6 +27,12 @@ const MAX_OBJECTIVE_LENGTH = 80_000;
 
 export interface GoalManagerOptions {
   sessionId?: string;
+  /**
+   * Liveness probe for the session that owns the active goal. Defaults to the
+   * active-agent heartbeat registry, which prunes records for dead PIDs and
+   * stale heartbeats. Used to abandon goals whose owning session is gone.
+   */
+  isSessionAlive?: (sessionId: string) => Promise<boolean>;
 }
 
 export function buildGoalContinuationInstruction(objective: string): string {
@@ -38,12 +45,14 @@ export function buildGoalContinuationInstruction(objective: string): string {
 
 export class GoalManager {
   private readonly sessionId?: string;
+  private readonly isSessionAlive: (sessionId: string) => Promise<boolean>;
 
   constructor(
     private readonly workspaceRoot: string,
     options: GoalManagerOptions = {},
   ) {
     this.sessionId = options.sessionId?.trim() || undefined;
+    this.isSessionAlive = options.isSessionAlive ?? defaultSessionLivenessProbe;
   }
 
   async getSnapshot(): Promise<GoalSnapshot> {
@@ -54,6 +63,9 @@ export class GoalManager {
 
   async getSessionSnapshot(): Promise<GoalSessionSnapshot> {
     const snapshot = await this.getSnapshot();
+    const ownerAlive = snapshot.activeSessionId
+      ? await this.isSessionAlive(snapshot.activeSessionId)
+      : undefined;
     const publicSnapshot: Omit<GoalSnapshot, 'activeSessionId'> = {
       version: snapshot.version,
       goal: snapshot.goal,
@@ -83,10 +95,13 @@ export class GoalManager {
         status: snapshot.goal.status,
         createdAt: snapshot.goal.createdAt,
         updatedAt: snapshot.goal.updatedAt,
+        ownerAlive,
       },
       message: [
         'A persistent goal exists for this workspace but is not attached to the current session.',
-        'Do not continue it from this turn. Use /goal to inspect it or /goal resume to explicitly attach it.',
+        ownerAlive
+          ? 'The owning session is still active. Do not continue it from this turn. Use /goal to inspect it or /goal resume to explicitly attach it.'
+          : 'The owning session is no longer active. Creating a new goal will abandon it and start fresh work.',
       ].join(' '),
     };
   }
@@ -121,7 +136,7 @@ export class GoalManager {
     return { ok: false, message: resolution.error };
   }
 
-  async createGoal(input: GoalCreateInput, opts: { replace?: boolean } = {}): Promise<GoalMutationResult> {
+  async createGoal(input: GoalCreateInput, opts: { replace?: boolean; abandoned?: CompletedGoal } = {}): Promise<GoalMutationResult> {
     const snapshot = await this.readSnapshot();
     const validation = validateGoalInput(input);
     if (validation) return result(snapshot, false, validation);
@@ -151,16 +166,60 @@ export class GoalManager {
       activeSessionId: this.sessionId,
     };
     await this.writeSnapshot(next);
-    return result(next, true, snapshot.goal?.status === 'complete' ? 'Goal created; replaced completed goal.' : 'Goal created.');
+    const message = opts.abandoned
+      ? 'Abandoned previous goal (owner session no longer active). Goal created.'
+      : snapshot.goal?.status === 'complete' ? 'Goal created; replaced completed goal.' : 'Goal created.';
+    const created = result(next, true, message);
+    return opts.abandoned ? { ...created, abandoned: opts.abandoned } : created;
   }
 
   async createOrQueueGoal(input: GoalCreateInput & { source: QueuedGoal['source'] }): Promise<GoalMutationResult> {
     const snapshot = await this.readSnapshot();
     const current = snapshot.goal ? this.withLiveElapsed(snapshot.goal) : null;
     if (current && current.status !== 'complete' && current.status !== 'budgetLimited') {
+      const abandoned = await this.maybeAbandonDeadOwnerGoal(snapshot, current);
+      if (abandoned) {
+        return this.createGoal({ ...input, objective: input.objective }, { replace: true, abandoned });
+      }
       return this.enqueueGoal(input);
     }
     return this.createGoal(input);
+  }
+
+  /**
+   * When the active goal is owned by a session that is no longer alive, treat
+   * it as abandoned: move it into the completed history and clear the active
+   * slot so fresh work can start instead of queueing behind a zombie goal.
+   */
+  private async maybeAbandonDeadOwnerGoal(snapshot: GoalSnapshot, current: GoalState): Promise<CompletedGoal | null> {
+    if (!snapshot.activeSessionId || snapshot.activeSessionId === this.sessionId) {
+      return null;
+    }
+    if (current.status !== 'active') {
+      return null;
+    }
+    let ownerAlive: boolean;
+    try {
+      ownerAlive = await this.isSessionAlive(snapshot.activeSessionId);
+    } catch {
+      // A failed liveness probe must never block goal creation; fall back to
+      // queueing behind the existing goal.
+      return null;
+    }
+    if (ownerAlive) {
+      return null;
+    }
+
+    const abandoned = buildCompletedGoal(current, Date.now());
+    const next: GoalSnapshot = {
+      ...snapshot,
+      goal: null,
+      completed: appendCompletedGoal(snapshot.completed, abandoned),
+      updatedAt: Date.now(),
+      activeSessionId: undefined,
+    };
+    await this.writeSnapshot(next);
+    return abandoned;
   }
 
   async updateGoal(input: GoalUpdateInput): Promise<GoalMutationResult> {
@@ -329,6 +388,28 @@ export class GoalManager {
     const snapshot = await this.readSnapshot();
     const current = snapshot.goal ? this.withLiveElapsed(snapshot.goal) : null;
     if (current && current.status !== 'complete' && current.status !== 'budgetLimited') {
+      const abandoned = await this.maybeAbandonDeadOwnerGoal(snapshot, current);
+      if (abandoned) {
+        const nextQueued = snapshot.queue[0];
+        if (!nextQueued) {
+          const updated: GoalSnapshot = {
+            ...snapshot,
+            goal: null,
+            completed: appendCompletedGoal(snapshot.completed, abandoned),
+            updatedAt: Date.now(),
+            activeSessionId: undefined,
+          };
+          await this.writeSnapshot(updated);
+          return { ...result(updated, true, 'Abandoned previous goal (owner session no longer active). No queued goals.'), abandoned };
+        }
+        const started = await this.startQueuedGoalFromSnapshot(
+          { ...snapshot, goal: null, completed: appendCompletedGoal(snapshot.completed, abandoned) },
+          nextQueued,
+        );
+        return { ...started, message: `Abandoned previous goal (owner session no longer active). ${started.message}`, abandoned };
+      }
+    }
+    if (current && current.status !== 'complete' && current.status !== 'budgetLimited') {
       return result({ ...snapshot, goal: current }, false, 'A non-terminal goal is already active. The queued goal was left in the queue.');
     }
     const nextQueued = snapshot.queue[0];
@@ -486,6 +567,12 @@ export class GoalManager {
   private isSnapshotAttachedToCurrentSession(snapshot: GoalSnapshot): boolean {
     return !this.sessionId || snapshot.activeSessionId === this.sessionId;
   }
+}
+
+async function defaultSessionLivenessProbe(sessionId: string): Promise<boolean> {
+  const registry = new ActiveAgentRegistry();
+  const active = await registry.listActive();
+  return active.some((record) => record.sessionId === sessionId);
 }
 
 function emptySnapshot(): GoalSnapshot {

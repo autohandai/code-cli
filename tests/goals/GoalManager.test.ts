@@ -155,4 +155,97 @@ describe('GoalManager', () => {
     expect(formatted).toContain('first goal');
     expect(formatted).toContain('second goal');
   });
+
+  it('abandons a goal whose owning session is no longer active and starts the new goal', async () => {
+    const priorSession = new GoalManager(workspaceRoot, { sessionId: 'session-prior' });
+    await priorSession.createGoal({ objective: 'stale prior goal' });
+    await priorSession.enqueueGoal({ objective: 'queued behind stale goal', source: 'tool' });
+
+    const currentSession = new GoalManager(workspaceRoot, {
+      sessionId: 'session-current',
+      isSessionAlive: async (sessionId) => sessionId !== 'session-prior',
+    });
+
+    const created = await currentSession.createOrQueueGoal({ objective: 'fresh goal', source: 'tool' });
+
+    expect(created.ok).toBe(true);
+    expect(created.message).toContain('Abandoned');
+    expect(created.goal?.objective).toBe('fresh goal');
+    expect(created.goal?.status).toBe('active');
+    expect(created.abandoned?.objective).toBe('stale prior goal');
+    expect(created.queue.map((item) => item.objective)).toEqual(['queued behind stale goal']);
+
+    const snapshot = await currentSession.getSnapshot();
+    expect(snapshot.activeSessionId).toBe('session-current');
+    expect(snapshot.completed.map((item) => item.objective)).toContain('stale prior goal');
+  });
+
+  it('still queues behind a goal whose owning session is alive', async () => {
+    const priorSession = new GoalManager(workspaceRoot, { sessionId: 'session-prior' });
+    await priorSession.createGoal({ objective: 'live prior goal' });
+
+    const currentSession = new GoalManager(workspaceRoot, {
+      sessionId: 'session-current',
+      isSessionAlive: async () => true,
+    });
+
+    const created = await currentSession.createOrQueueGoal({ objective: 'queued goal', source: 'tool' });
+
+    expect(created.ok).toBe(true);
+    expect(created.message).toContain('Queued goal.');
+    expect(created.goal?.objective).toBe('live prior goal');
+    expect(created.queue.map((item) => item.objective)).toEqual(['queued goal']);
+    expect(created.abandoned).toBeUndefined();
+  });
+
+  it('never abandons a goal owned by the current session', async () => {
+    const manager = new GoalManager(workspaceRoot, {
+      sessionId: 'session-current',
+      isSessionAlive: async () => false,
+    });
+    await manager.createGoal({ objective: 'my own goal' });
+
+    const created = await manager.createOrQueueGoal({ objective: 'second goal', source: 'tool' });
+
+    expect(created.ok).toBe(true);
+    expect(created.message).toContain('Queued goal.');
+    expect(created.goal?.objective).toBe('my own goal');
+    expect(created.abandoned).toBeUndefined();
+  });
+
+  it('starts the first queued goal after abandoning a dead-owner active goal', async () => {
+    const priorSession = new GoalManager(workspaceRoot, { sessionId: 'session-prior' });
+    await priorSession.createGoal({ objective: 'stale active goal' });
+    await priorSession.enqueueGoal({ objective: 'next queued goal', source: 'tool' });
+
+    const currentSession = new GoalManager(workspaceRoot, {
+      sessionId: 'session-current',
+      isSessionAlive: async (sessionId) => sessionId !== 'session-prior',
+    });
+
+    const started = await currentSession.startQueuedGoal();
+
+    expect(started.ok).toBe(true);
+    expect(started.goal?.objective).toBe('next queued goal');
+    expect(started.goal?.status).toBe('active');
+    expect(started.message).toContain('Abandoned');
+    expect(started.abandoned?.objective).toBe('stale active goal');
+    expect((await currentSession.getSnapshot()).queue).toEqual([]);
+  });
+
+  it('reports owner liveness on detached goal snapshots', async () => {
+    const priorSession = new GoalManager(workspaceRoot, { sessionId: 'session-prior' });
+    await priorSession.createGoal({ objective: 'stale goal' });
+
+    const currentSession = new GoalManager(workspaceRoot, {
+      sessionId: 'session-current',
+      isSessionAlive: async () => false,
+    });
+
+    const snapshot = await currentSession.getSessionSnapshot();
+
+    expect(snapshot.sessionAttachment).toBe('detached');
+    expect(snapshot.detachedGoal?.ownerAlive).toBe(false);
+    expect(snapshot.message).toContain('not attached to the current session');
+  });
 });

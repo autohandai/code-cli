@@ -524,6 +524,8 @@ export interface GitHubCommunityMcp {
   tags?: string[];
   transport: 'stdio' | 'sse' | 'http';
   command?: string;
+  /** Endpoint URL for HTTP and SSE transports. */
+  url?: string;
   args?: string[];
   envVars?: string[];
   requiredArgs?: string[];
@@ -1540,6 +1542,7 @@ export type AgentAction =
   | { type: 'delegate_parallel'; tasks: Array<{ agent_name: string; task: string }> }
   | { type: 'orchestrate_specialists'; objective: string; requested_roles: string[] }
   | { type: 'install_specialist_roster'; plan_id: string; agent_names: string[] }
+  | { type: 'compose_team'; objective: string; team_name?: string }
   // Team coordination tools
   | { type: 'create_team'; name: string }
   | { type: 'add_teammate'; name: string; agent_name: string; provider?: ProviderName; model?: string; requested_role?: string; agent_source?: string }
@@ -1576,6 +1579,9 @@ export type AgentAction =
   // Skills Discovery
   | { type: 'find_agent_skills'; query: string; category?: string; limit?: number }
   | { type: 'install_agent_skill'; name: string; scope?: 'project' | 'user'; activate?: boolean }
+  // Community MCP discovery and installation
+  | { type: 'find_mcp_servers'; query: string; category?: string; limit?: number }
+  | { type: 'install_mcp_server'; server_id: string; required_args?: string[]; overwrite?: boolean }
   // Sub-agent catalog
   | { type: 'find_sub_agents'; query: string; category?: string; limit?: number }
   | { type: 'install_sub_agent'; name: string; overwrite?: boolean }
