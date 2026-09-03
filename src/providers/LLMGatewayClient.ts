@@ -32,9 +32,12 @@ import { normalizeLLMUsage } from "./usage.js";
  * the gateway keeps its own recovery for orphaned tool observations so their
  * content stays in context instead of being dropped.
  */
-function sanitizeMessages(messages: LLMMessage[]): Record<string, unknown>[] {
+function sanitizeMessages(
+  messages: LLMMessage[],
+  supportsImageInput: boolean,
+): Record<string, unknown>[] {
   return normalizeOutboundMessages(messages, {
-    transformContent: toTextOnlyContent,
+    transformContent: supportsImageInput ? (content) => content : toTextOnlyContent,
     orphanedToolResults: "recover",
     recoverOrphanedToolResult: (message) => {
       const label = message.name ? `: ${message.name}` : "";
@@ -280,6 +283,7 @@ export class LLMGatewayClient {
   private readonly timeout: number;
   private readonly errorLabels: LLMGatewayCompatibleErrorLabels;
   private readonly reasoningEffort?: LLMGatewaySettings["reasoningEffort"];
+  private readonly supportsImageInput: boolean;
 
   constructor(
     settings: LLMGatewaySettings,
@@ -290,6 +294,7 @@ export class LLMGatewayClient {
     this.baseUrl = settings.baseUrl ?? DEFAULT_BASE_URL;
     this.defaultModel = settings.model;
     this.reasoningEffort = settings.reasoningEffort;
+    this.supportsImageInput = settings.supportsImageInput ?? false;
     this.errorLabels = errorLabels;
 
     // Network settings with sensible defaults and max limits
@@ -345,7 +350,7 @@ export class LLMGatewayClient {
     // Validate payload size before sending
     const payloadJson = JSON.stringify(payload);
     const payloadSizeBytes = payloadJson.length;
-    const maxPayloadSize = 5 * 1024 * 1024; // 5MB safety limit
+    const maxPayloadSize = 6 * 1024 * 1024; // Matches the inference Worker request limit.
 
     if (payloadSizeBytes > maxPayloadSize) {
       const sizeMB = (payloadSizeBytes / (1024 * 1024)).toFixed(2);
@@ -398,7 +403,7 @@ export class LLMGatewayClient {
   private buildPayload(request: LLMRequest): Record<string, unknown> {
     const payload: Record<string, unknown> = {
       model: request.model ?? this.defaultModel,
-      messages: sanitizeMessages(request.messages),
+      messages: sanitizeMessages(request.messages, this.supportsImageInput),
       temperature: request.temperature ?? 0.2,
       max_tokens: request.maxTokens ?? 16000,
       stream: request.stream ?? false,

@@ -128,6 +128,11 @@ export interface AnthropicSettings extends ProviderSettings {
 
 export interface LLMGatewaySettings extends ProviderSettings {
   apiKey: string;
+  /**
+   * Preserve OpenAI `image_url` content parts rather than flattening them to
+   * text. This is a transport capability, not a user-configurable setting.
+   */
+  supportsImageInput?: boolean;
 }
 
 export interface OpenAIChatGPTAuth {

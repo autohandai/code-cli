@@ -133,6 +133,7 @@ export class AutohandAIProvider implements LLMProvider {
       baseUrl: config.baseUrl ?? AUTOHAND_AI_DEFAULT_BASE_URL,
       model: this.model,
       contextWindow: config.contextWindow ?? getAutohandAICloudModelContextWindow(this.model),
+      supportsImageInput: true,
     };
     this.cloudClient = new LLMGatewayClient(effectiveConfig, networkSettings, {
       serviceName: "Autohand AI",

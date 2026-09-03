@@ -353,6 +353,7 @@ describe("parseAvailableModels()", () => {
 
     expect(models).not.toContain("fantail");
     expect(models).not.toContain("moa");
+    expect(models).not.toContain("auto");
     expect(models).toContain("your-modelcard-id-here");
     expect(models).toContain("your-modelcard-id-here");
     expect(models).toContain("openai/gpt-4o");
@@ -378,7 +379,7 @@ describe("parseAvailableModels()", () => {
       autohandai: { model: "fantail" },
     });
 
-    expect(parseAvailableModels(config)).toEqual(["fantail", "moa"]);
+    expect(parseAvailableModels(config)).toEqual(["fantail", "moa", "auto"]);
   });
 
   it("places the configured model first when it exists", () => {

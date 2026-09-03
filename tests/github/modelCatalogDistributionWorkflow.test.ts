@@ -45,6 +45,13 @@ describe("model catalog distribution automation", () => {
           maxTokens: 262_144,
           provider: "autohandai",
         }),
+        auto: expect.objectContaining({
+          api: "openai-completions",
+          baseUrl: "https://api.autohand.ai/v1",
+          contextWindow: 262_144,
+          maxTokens: 16_000,
+          provider: "autohandai",
+        }),
       });
       expect(catalog.anthropic["claude-sonnet-5"]).toEqual(expect.objectContaining({
         api: "anthropic-messages",

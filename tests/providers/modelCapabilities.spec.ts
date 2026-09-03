@@ -231,6 +231,8 @@ describe("modelCapabilities", () => {
     it("returns true for Autohand AI Cloud models", async () => {
       expect(await modelSupportsImages("fantail")).toBe(true);
       expect(await modelSupportsImages("autohandai/moa")).toBe(true);
+      expect(await modelSupportsImages("auto")).toBe(true);
+      expect(await modelSupportsImages("autohand/auto")).toBe(true);
     });
 
     it("returns true for Gemini models", async () => {
