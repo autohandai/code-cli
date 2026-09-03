@@ -95,6 +95,34 @@ describe('Resume Command', () => {
       expect(restoreSession).toHaveBeenCalledWith('test-session-id');
     });
 
+    it('hands the already loaded session to the restore path to avoid reading it twice', async () => {
+      const mockSession = {
+        metadata: {
+          sessionId: 'canonical-session-id',
+          projectPath: '/test/project',
+          createdAt: new Date().toISOString(),
+          summary: 'Test session',
+        },
+        getMessages: () => [],
+      };
+      const restoreLoadedSession = vi.fn().mockResolvedValue(undefined);
+      const restoreSession = vi.fn().mockResolvedValue(undefined);
+      const mockSessionManager = {
+        loadSession: vi.fn().mockResolvedValue(mockSession),
+        listSessions: vi.fn(),
+      };
+
+      await resume({
+        sessionManager: mockSessionManager as any,
+        args: ['canonical-session-id'],
+        restoreLoadedSession,
+        restoreSession,
+      });
+
+      expect(restoreLoadedSession).toHaveBeenCalledWith(mockSession);
+      expect(restoreSession).not.toHaveBeenCalled();
+    });
+
     it('shows clean assistant answers in the recent conversation preview', async () => {
       const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
       const mockSession = {

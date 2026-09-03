@@ -25,6 +25,7 @@ import {
   type LineExtension,
 } from '../../ui/ink/StatusLine.js';
 import { createQueuedAgentInstruction } from './PostTurnActionCoordinator.js';
+import { renderAgentSlashCommandResult } from './AgentCommandRuntime.js';
 
 export interface AgentUIRuntimeHost {
   [key: string]: any;
@@ -560,7 +561,7 @@ export async function handleAgentInkSubmittedInstruction(host: AgentUIRuntimeHos
       try {
         const result = await host.handleSlashCommand(command, args);
         if (result) {
-          host.inkRenderer?.addAssistantMessage?.(result);
+          renderAgentSlashCommandResult(host, command, result);
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

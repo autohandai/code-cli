@@ -51,6 +51,33 @@ const INTERACTIVE_SLASH_COMMANDS = new Set([
   '/squad', '/peers',
 ]);
 
+/** Operational command results that belong with the fixed composer controls. */
+const FIXED_COMPOSER_RESULT_COMMANDS = new Set(['/tasks', '/team', '/teams', '/squad']);
+
+export function shouldRenderSlashCommandResultInComposer(command: string): boolean {
+  return FIXED_COMPOSER_RESULT_COMMANDS.has(command);
+}
+
+/**
+ * Route selected operational results into the fixed bottom UI without changing
+ * the transcript behavior of every other slash command.
+ */
+export function renderAgentSlashCommandResult(
+  host: AgentCommandRuntimeHost,
+  command: string,
+  result: string,
+): boolean {
+  if (!host.inkRenderer?.isRunning?.()) {
+    return false;
+  }
+  if (shouldRenderSlashCommandResultInComposer(command)) {
+    host.inkRenderer.setCommandResult?.(command, result);
+  } else {
+    host.inkRenderer.addAssistantMessage?.(result);
+  }
+  return true;
+}
+
 export function applyAgentAcpMode(host: AgentCommandRuntimeHost, modeId: string): void {
     const unrestricted = modeId === 'unrestricted' || modeId === 'full-access' || modeId === 'auto-mode';
     const restricted = modeId === 'restricted' || modeId === 'dry-run';

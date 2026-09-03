@@ -166,6 +166,8 @@ export interface SlashCommandContext {
     clearScreen?: () => void;
     /** Restore an existing session into the active conversation and UI. */
     restoreSession?: (sessionId: string) => Promise<void>;
+    /** Restore an already loaded session without a duplicate disk read. */
+    restoreLoadedSession?: (session: Session) => Promise<void>;
 }
 
 export interface SlashCommandSubcommand {

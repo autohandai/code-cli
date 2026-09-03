@@ -179,7 +179,7 @@ Open or close the expanded view with:
 - **Ctrl+T** as the portable terminal shortcut.
 - **`/team view`** to open it explicitly.
 
-The expanded `TeamPanel` renders inline in the lead terminal and shows:
+The expanded `TeamPanel` renders below the fixed status line and above the composer, and shows:
 
 - **Header** -- Team name with an active/inactive indicator.
 - **Task list** -- Progress count (N/M done) and each task with its status icon, subject, and assigned owner.

@@ -5,6 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import {
+  renderAgentSlashCommandResult,
   parseAgentSlashCommand,
   runAgentSlashCommandWithInput,
 } from '../../../src/core/agent/AgentCommandRuntime.js';
@@ -37,6 +38,41 @@ describe('parseAgentSlashCommand', () => {
       command: '/handoff session',
       args: ['--queue'],
     });
+  });
+});
+
+describe('renderAgentSlashCommandResult', () => {
+  it.each(['/tasks', '/team', '/squad'])('pins %s below the status line', (command) => {
+    const setCommandResult = vi.fn();
+    const addAssistantMessage = vi.fn();
+    const host = {
+      inkRenderer: {
+        isRunning: () => true,
+        setCommandResult,
+        addAssistantMessage,
+      },
+    };
+
+    expect(renderAgentSlashCommandResult(host, command, `${command} output`)).toBe(true);
+    expect(setCommandResult).toHaveBeenCalledWith(command, `${command} output`);
+    expect(addAssistantMessage).not.toHaveBeenCalled();
+  });
+
+  it('keeps unrelated command results in transcript history', () => {
+    const setCommandResult = vi.fn();
+    const addAssistantMessage = vi.fn();
+    const host = {
+      inkRenderer: {
+        isRunning: () => true,
+        setCommandResult,
+        addAssistantMessage,
+      },
+    };
+
+    renderAgentSlashCommandResult(host, '/help', 'Help output');
+
+    expect(setCommandResult).not.toHaveBeenCalled();
+    expect(addAssistantMessage).toHaveBeenCalledWith('Help output');
   });
 });
 

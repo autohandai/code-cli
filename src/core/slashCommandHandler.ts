@@ -210,6 +210,7 @@ export class SlashCommandHandler {
             onBeforeModal: this.ctx.onBeforeModal,
             onAfterModal: this.ctx.onAfterModal,
             restoreSession: this.ctx.restoreSession,
+            restoreLoadedSession: this.ctx.restoreLoadedSession,
           });
         }
         case '/sessions': {
