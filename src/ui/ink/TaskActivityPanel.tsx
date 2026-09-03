@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Compact sticky panel for todo_write tasks and running sub-agents.
- * Renders above the status line so multi-step / multi-agent work stays visible.
+ * Renders below the status line and above the composer so multi-step work stays visible.
  */
 import React, { memo, useMemo } from 'react';
 import { Box, Text } from 'ink';

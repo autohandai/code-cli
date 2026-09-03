@@ -19,6 +19,7 @@ import {
   type AnnouncementLineState,
   type AgentUILineExtensions,
   type AgentUIState,
+  type CommandResultState,
   type ContextTokenDisplay,
   type TurnCompletionStatus,
 } from './AgentUI.js';
@@ -184,7 +185,7 @@ interface AgentUIWrapperProps {
   onEscape: () => void;
   onCtrlC: () => void;
   onDismissAnnouncement?: (id: string) => void;
-  onToggleLiveCommandExpanded: () => void;
+  onToggleLiveCommandExpanded: (id?: string) => void;
   onToggleTeamPanel: () => void;
   onInputChange: (input: string) => void;
   enableQueueInput?: boolean;
@@ -442,7 +443,7 @@ export class InkRenderer {
             onEscape={this.options.onEscape}
             onCtrlC={this.options.onCtrlC}
             onDismissAnnouncement={this.options.onDismissAnnouncement}
-            onToggleLiveCommandExpanded={() => this.toggleActiveLiveCommandExpanded()}
+            onToggleLiveCommandExpanded={(id) => this.toggleActiveLiveCommandExpanded(id)}
             onToggleTeamPanel={() => this.toggleTeamPanel()}
             onInputChange={this.handleInputChange}
             enableQueueInput={this.options.enableQueueInput}
@@ -602,6 +603,7 @@ export class InkRenderer {
     // When starting new work, clear completion stats
     if (isWorking) {
       updates.completionStats = null;
+      updates.commandResult = undefined;
     }
 
     this.updateState(updates);
@@ -659,6 +661,19 @@ export class InkRenderer {
     this.updateState({
       chatMessages: [...this.state.chatMessages, { role: 'assistant', content }],
     });
+  }
+
+  /**
+   * Keep high-frequency operational command results adjacent to the status
+   * line, rather than growing the transcript above the composer.
+   */
+  setCommandResult(command: string, output: string): void {
+    const content = output.trim();
+    if (!content) {
+      return;
+    }
+    const commandResult: CommandResultState = { command, output: content };
+    this.updateState({ commandResult });
   }
 
   addNotification(message: string): void {
@@ -989,15 +1004,19 @@ export class InkRenderer {
     });
   }
 
-  toggleActiveLiveCommandExpanded(): void {
-    let active = this.state.liveCommands[this.state.liveCommands.length - 1];
+  toggleActiveLiveCommandExpanded(commandId?: string): void {
+    let active = commandId
+      ? this.state.liveCommands.find((entry) => entry.id === commandId)
+      : this.state.liveCommands[this.state.liveCommands.length - 1];
     if (!active) {
       return;
     }
 
     if (this.pendingLiveOutput.has(active.id)) {
       this.flushLiveCommandOutput();
-      active = this.state.liveCommands[this.state.liveCommands.length - 1];
+      active = commandId
+        ? this.state.liveCommands.find((entry) => entry.id === commandId)
+        : this.state.liveCommands[this.state.liveCommands.length - 1];
       if (!active) {
         return;
       }
@@ -1273,7 +1292,7 @@ export class InkRenderer {
               onEscape={this.options.onEscape}
               onCtrlC={this.options.onCtrlC}
               onDismissAnnouncement={this.options.onDismissAnnouncement}
-              onToggleLiveCommandExpanded={() => this.toggleActiveLiveCommandExpanded()}
+              onToggleLiveCommandExpanded={(id) => this.toggleActiveLiveCommandExpanded(id)}
               onToggleTeamPanel={() => this.toggleTeamPanel()}
               onInputChange={this.handleInputChange}
               enableQueueInput={this.options.enableQueueInput}

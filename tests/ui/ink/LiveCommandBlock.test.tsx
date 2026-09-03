@@ -400,7 +400,7 @@ describe('AgentUI live command block', () => {
     expect(output).toContain('Plan, search, build anything');
   });
 
-  it('collapses long live command output by default and shows a Ctrl+O hint', () => {
+  it('collapses long live command output by default and shows keyboard and mouse expansion hints', () => {
     const entry = {
       id: 'cmd-1',
       command: '! bun run build',
@@ -422,7 +422,7 @@ describe('AgentUI live command block', () => {
     expect(output).toContain('line 16');
     expect(output).toContain('line 12');
     expect(output).not.toContain('line 11');
-    expect(output).toContain('Ctrl+O expand');
+    expect(output).toContain('click or Ctrl+O expand');
   });
 
   it('prioritizes stderr in the collapsed live command viewport', () => {

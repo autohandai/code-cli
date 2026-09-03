@@ -724,8 +724,8 @@ export class AutohandAgent {
     };
   }
 
-  private async restoreSessionState(sessionId: string) {
-    return restoreAgentSessionState(this, sessionId);
+  private async restoreSessionState(session: string | import('../session/SessionManager.js').Session) {
+    return restoreAgentSessionState(this, session);
   }
 
   async attachSession(sessionId: string): Promise<{ sessionId: string; model: string; workspaceRoot: string; messageCount: number }> {

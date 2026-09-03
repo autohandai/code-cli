@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import {
   parseCursorPositionReport,
   parseSgrMouseInput,
+  resolveMouseTargetClick,
   resolveComposerClickPosition,
 } from '../../../src/ui/ink/mouseInput.js';
 
@@ -70,5 +71,24 @@ describe('resolveComposerClickPosition', () => {
       visualColumn: 3,
       visualRow: 0,
     });
+  });
+
+  it('recognizes a click inside a measured live-command block', () => {
+    const click = parseSgrMouseInput('[<0;12;8M');
+    const cursor = parseCursorPositionReport('[12;8R');
+
+    expect(resolveMouseTargetClick(click!, cursor!, {
+      cursorX: 7,
+      cursorY: 6,
+      height: 3,
+      width: 20,
+      x: 0,
+      y: 5,
+    }, {
+      x: 4,
+      y: 1,
+      width: 18,
+      height: 4,
+    })).toBe(true);
   });
 });

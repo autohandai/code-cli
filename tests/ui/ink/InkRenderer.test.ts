@@ -316,6 +316,22 @@ describe('InkRenderer live command blocks', () => {
     renderer.finishLiveCommand(commandId, true);
   });
 
+  it('stores operational slash command results outside transcript history', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    renderer.setCommandResult('/tasks', 'Tasks [0/1 done]');
+
+    expect(renderer.getState().commandResult).toEqual({
+      command: '/tasks',
+      output: 'Tasks [0/1 done]',
+    });
+    expect(renderer.getState().chatMessages).toEqual([]);
+  });
+
   it('shows buffered live command output immediately when the user expands it', () => {
     const renderer = new InkRenderer({
       onInstruction: () => {},

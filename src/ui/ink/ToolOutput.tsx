@@ -3,8 +3,8 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { memo, useMemo } from 'react';
-import { Box, Text, useStdout } from 'ink';
+import React, { memo, useEffect, useMemo, useRef } from 'react';
+import { Box, Text, measureElement, useBoxMetrics, useStdout, type DOMElement } from 'ink';
 import { parsePatch } from 'diff';
 import { useTheme } from '../theme/ThemeContext.js';
 import type { ResolvedColors } from '../theme/types.js';
@@ -14,6 +14,7 @@ import { stripAnsiCodes } from '../displayUtils.js';
 import { parseWorkspaceChangeSet } from '../../core/agent/WorkspaceChangeCapture.js';
 import { TodoListOutput } from './TodoListOutput.js';
 import { TeamTaskListOutput } from './TeamTaskListOutput.js';
+import type { OutputLayout } from './mouseInput.js';
 
 /** Tools whose JSON results are painted as panels instead of printed verbatim. */
 const TEAM_TASK_TOOLS = new Set([
@@ -639,8 +640,16 @@ export function ToolOutputList({ entries, maxVisible = 50 }: ToolOutputListProps
   );
 }
 
-export function LiveCommandBlock({ entry }: { entry: LiveCommandEntry }) {
+export interface LiveCommandBlockProps {
+  entry: LiveCommandEntry;
+  /** Publishes the click target for this command while it is rendered live. */
+  onLayoutChange?: (layout: OutputLayout | null) => void;
+}
+
+export function LiveCommandBlock({ entry, onLayoutChange }: LiveCommandBlockProps) {
   const { colors } = useTheme();
+  const rootRef = useRef<DOMElement | null>(null);
+  const metrics = useBoxMetrics(rootRef);
   const { stdoutView, stderrView } = entry.isExpanded
     ? {
       stdoutView: { lines: getLines(entry.stdout), hiddenLineCount: 0 },
@@ -651,16 +660,25 @@ export function LiveCommandBlock({ entry }: { entry: LiveCommandEntry }) {
   const hint = entry.isExpanded ? 'Ctrl+O collapse' : 'Ctrl+O expand';
   const hasVisibleOutput = stdoutView.lines.length > 0 || stderrView.lines.length > 0;
 
+  useEffect(() => {
+    if (!onLayoutChange || !metrics.hasMeasured || !rootRef.current) {
+      return;
+    }
+    const { x, y, width, height } = measureElement(rootRef.current);
+    onLayoutChange({ x, y, width, height });
+    return () => onLayoutChange(null);
+  }, [entry.isExpanded, metrics.hasMeasured, metrics.height, metrics.left, metrics.top, metrics.width, onLayoutChange]);
+
   return (
-    <Box flexDirection="column" marginBottom={1}>
+    <Box ref={rootRef} flexDirection="column" marginBottom={1}>
       <Box>
         <Text color={colors.accent}>●</Text>
         <Text bold> Running {entry.command}</Text>
       </Box>
       {hiddenLineCount > 0 ? (
-        <Text color={colors.muted}>showing last {stdoutView.lines.length + stderrView.lines.length} lines · {hint}</Text>
+        <Text color={colors.muted}>showing last {stdoutView.lines.length + stderrView.lines.length} lines · click or {hint}</Text>
       ) : (
-        <Text color={colors.muted}>{hint}</Text>
+        <Text color={colors.muted}>click or {hint}</Text>
       )}
       <Box flexDirection="column" borderStyle="single" borderColor={colors.borderMuted} paddingX={1}>
         {hasVisibleOutput ? (

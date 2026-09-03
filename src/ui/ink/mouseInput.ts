@@ -37,6 +37,14 @@ export interface ComposerOutputLayout {
   y: number;
 }
 
+/** A measured Ink element that can receive a mouse click. */
+export interface OutputLayout {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface ComposerClickPosition {
   visualColumn: number;
   visualRow: number;
@@ -81,6 +89,31 @@ export function resolveComposerClickPosition(
     visualColumn: localColumn,
     visualRow: localRow - 1,
   };
+}
+
+/**
+ * Resolve a terminal mouse press against a measured Ink target using the
+ * composer cursor as the terminal-to-Ink coordinate anchor.
+ */
+export function resolveMouseTargetClick(
+  mouse: SgrMouseInput,
+  terminalCursor: TerminalCellPosition,
+  anchor: ComposerOutputLayout,
+  target: OutputLayout,
+): boolean {
+  if (mouse.action !== 'press' || mouse.button !== 'left') {
+    return false;
+  }
+
+  const outputOriginColumn = terminalCursor.column - anchor.cursorX;
+  const outputOriginRow = terminalCursor.row - anchor.cursorY;
+  const localColumn = mouse.column - outputOriginColumn - target.x;
+  const localRow = mouse.row - outputOriginRow - target.y;
+
+  return localColumn >= 0
+    && localColumn < target.width
+    && localRow >= 0
+    && localRow < target.height;
 }
 
 export function parseSgrMouseInput(input: string): SgrMouseInput | null {

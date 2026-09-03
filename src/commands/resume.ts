@@ -8,7 +8,7 @@ import { t } from '../i18n/index.js';
 import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import fs from 'fs-extra';
 import path from 'node:path';
-import type { SessionManager } from '../session/SessionManager.js';
+import type { Session, SessionManager } from '../session/SessionManager.js';
 import type { SessionMetadata, SessionMessage } from '../session/types.js';
 import { buildSessionChatLog, formatChatLogPreview } from '../session/chatLog.js';
 import { AUTOHAND_PATHS } from '../constants.js';
@@ -105,12 +105,14 @@ export async function resume(ctx: {
     onBeforeModal?: () => Promise<void> | void;
     onAfterModal?: () => Promise<void> | void;
     restoreSession?: (sessionId: string) => Promise<void>;
+    /** Reuses the session read for the preview when restoring the agent runtime. */
+    restoreLoadedSession?: (session: Session) => Promise<void>;
 }): Promise<string | null> {
     const sessionId = ctx.args[0];
 
     // If session ID provided directly, use it
     if (sessionId) {
-        return resumeSession(ctx.sessionManager, sessionId, ctx.restoreSession);
+        return resumeSession(ctx.sessionManager, sessionId, ctx.restoreSession, ctx.restoreLoadedSession);
     }
 
     // Otherwise, show interactive session picker filtered by current project
@@ -118,9 +120,18 @@ export async function resume(ctx: {
         const projectFilter = ctx.workspaceRoot
             ? { project: ctx.workspaceRoot }
             : undefined;
-        const allSessions = await ctx.sessionManager.listSessions(projectFilter);
+        const recentSessionManager = ctx.sessionManager as SessionManager & {
+            listRecentSessions?: SessionManager['listRecentSessions'];
+        };
+        const recentPage = recentSessionManager.listRecentSessions
+            ? await recentSessionManager.listRecentSessions(projectFilter, 20)
+            : (() => {
+                const sessions = ctx.sessionManager.listSessions(projectFilter);
+                return sessions.then((loadedSessions) => ({ sessions: loadedSessions.slice(0, 20), total: loadedSessions.length }));
+            })();
+        const { sessions: recentSessions, total: totalSessions } = await recentPage;
 
-        if (allSessions.length === 0) {
+        if (totalSessions === 0) {
             if (ctx.workspaceRoot) {
                 const projectName = path.basename(ctx.workspaceRoot);
                 console.log(chalk.gray(`\nNo sessions found for project "${projectName}".`));
@@ -135,20 +146,14 @@ export async function resume(ctx: {
         console.log(chalk.cyan(`\n${t('commands.sessions.selectPrompt')}\n`));
 
         // Build choices with titles
-        const choices: Array<{ name: string; message: string; hint: string }> = [];
+        const choices = await Promise.all(recentSessions.map(async (session) =>
+            formatSessionChoice(session, await getSessionTitle(session))
+        ));
 
-        // Load titles for recent sessions (limit to 20 for performance)
-        const recentSessions = allSessions.slice(0, 20);
-
-        for (const session of recentSessions) {
-            const title = await getSessionTitle(session);
-            choices.push(formatSessionChoice(session, title));
-        }
-
-        if (allSessions.length > 20) {
+        if (totalSessions > recentSessions.length) {
             choices.push({
                 name: '__more__',
-                message: chalk.gray(`... ${allSessions.length - 20} more sessions`),
+                message: chalk.gray(`... ${totalSessions - recentSessions.length} more sessions`),
                 hint: 'Use /sessions to see all'
             });
         }
@@ -181,7 +186,7 @@ export async function resume(ctx: {
             return null;
         }
 
-        return resumeSession(ctx.sessionManager, result.value, ctx.restoreSession);
+        return resumeSession(ctx.sessionManager, result.value, ctx.restoreSession, ctx.restoreLoadedSession);
 
     } catch (error) {
         // Handle unexpected errors
@@ -196,7 +201,8 @@ export async function resume(ctx: {
 async function resumeSession(
     sessionManager: SessionManager,
     sessionId: string,
-    restoreSession?: (sessionId: string) => Promise<void>
+    restoreSession?: (sessionId: string) => Promise<void>,
+    restoreLoadedSession?: (session: Session) => Promise<void>,
 ): Promise<string | null> {
     try {
         const session = await sessionManager.loadSession(sessionId);
@@ -231,7 +237,11 @@ async function resumeSession(
             console.log();
         }
 
-        await restoreSession?.(sessionId);
+        if (restoreLoadedSession) {
+            await restoreLoadedSession(session);
+        } else {
+            await restoreSession?.(session.metadata.sessionId);
+        }
 
         console.log(chalk.green('Session resumed. Continue typing to chat.\n'));
 

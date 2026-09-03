@@ -58,7 +58,9 @@ import {
   parseCursorPositionReport,
   parseSgrMouseInput,
   resolveComposerClickPosition,
+  resolveMouseTargetClick,
   type ComposerOutputLayout,
+  type OutputLayout,
   type SgrMouseInput,
 } from './mouseInput.js';
 
@@ -108,6 +110,12 @@ export interface AnnouncementLineState {
   text: string;
   hint: string;
   visible: boolean;
+}
+
+/** A slash-command result held in the fixed composer area until the next turn. */
+export interface CommandResultState {
+  command: string;
+  output: string;
 }
 
 export interface AgentUIState {
@@ -161,7 +169,7 @@ export interface AgentUIState {
   showModeLabel?: boolean;
   /**
    * Grouped multi-step / multi-agent activity (todo_write + sub-agents).
-   * Rendered sticky above the status line.
+   * Rendered sticky below the status line and above the composer.
    */
   activityItems?: ActivityItem[];
   /** Live background team state owned by TeamManager. */
@@ -170,6 +178,8 @@ export interface AgentUIState {
   teamPanelVisible: boolean;
   /** Highest-priority active CLI announcement rendered above status. */
   announcement?: AnnouncementLineState;
+  /** Compact command result placed below the status line instead of transcript history. */
+  commandResult?: CommandResultState;
 }
 
 export interface AgentUILineExtensions {
@@ -184,7 +194,7 @@ export interface AgentUIProps {
   onCtrlC: () => void;
   /** Dismiss the currently rendered announcement without changing composer input. */
   onDismissAnnouncement?: (id: string) => void;
-  onToggleLiveCommandExpanded?: () => void;
+  onToggleLiveCommandExpanded?: (id?: string) => void;
   /** Toggle the expanded live team view. */
   onToggleTeamPanel?: () => void;
   onInputChange?: (input: string) => void;
@@ -792,9 +802,17 @@ export function AgentUI({
   const inputRef = useRef(input);
   inputRef.current = input;
   const composerLayoutRef = useRef<ComposerOutputLayout | null>(null);
+  const liveCommandLayoutsRef = useRef(new Map<string, OutputLayout>());
   const pendingMouseClickRef = useRef<{ input: SgrMouseInput; at: number } | null>(null);
   const handleComposerLayoutChange = useCallback((layout: ComposerOutputLayout | null) => {
     composerLayoutRef.current = layout;
+  }, []);
+  const handleLiveCommandLayoutChange = useCallback((id: string, layout: OutputLayout | null) => {
+    if (layout) {
+      liveCommandLayoutsRef.current.set(id, layout);
+    } else {
+      liveCommandLayoutsRef.current.delete(id);
+    }
   }, []);
   const cursorOffsetRef = useRef(cursorOffset);
   cursorOffsetRef.current = cursorOffset;
@@ -1332,7 +1350,23 @@ export function AgentUI({
           return;
         }
 
+        const clickedLiveCommandId = [...liveCommandLayoutsRef.current.entries()]
+          .find(([, target]) => resolveMouseTargetClick(pendingClick.input, terminalCursor, layout, target))
+          ?.[0];
+        if (clickedLiveCommandId) {
+          onToggleLiveCommandExpandedRef.current?.(clickedLiveCommandId);
+          return;
+        }
+
         const clickedCell = resolveComposerClickPosition(pendingClick.input, terminalCursor, layout);
+        // Ink layout measurements can be stale across a scroll-region repaint.
+        // A click that is definitely outside the composer still belongs to the
+        // live command surface, so preserve the mouse affordance for the latest
+        // running subprocess rather than dropping that interaction.
+        if (!clickedCell && liveCommandsRef.current.length > 0) {
+          onToggleLiveCommandExpandedRef.current?.();
+          return;
+        }
         if (!clickedCell) {
           return;
         }
@@ -2008,7 +2042,11 @@ export function AgentUI({
   return (
     <Box flexDirection="column">
       {liveCommandItems.map((item) => (
-        <LiveCommandBlock key={item.id} entry={item} />
+        <LiveCommandBlock
+          key={item.id}
+          entry={item}
+          onLayoutChange={(layout) => handleLiveCommandLayoutChange(item.id, layout)}
+        />
       ))}
 
       <Static items={staticChatHistoryItems}>
@@ -2049,6 +2087,7 @@ export function AgentUI({
         activityItems={state.activityItems ?? []}
         teamActivity={state.teamActivity}
         teamPanelVisible={state.teamPanelVisible}
+        commandResult={state.commandResult}
         enableQueueInput={enableQueueInput}
         input={input}
         cursorOffset={cursorOffset}
@@ -2087,6 +2126,7 @@ export function AgentUI({
         nextPromptSuggestion={composerNextPromptSuggestion}
         inlineGhostSuffix={composerInlineGhostSuffix}
         mouseComposerCursor={mouseComposerCursor}
+        enableLiveCommandMouseControls={mouseComposerCursor && liveCommandItems.length > 0}
         onComposerLayoutChange={handleComposerLayoutChange}
         showShortcuts={showShortcuts}
         interactionMode={interactionMode}
@@ -2335,6 +2375,7 @@ interface StatusSectionProps {
   activityItems?: ActivityItem[];
   teamActivity?: TeamActivitySnapshot;
   teamPanelVisible: boolean;
+  commandResult?: CommandResultState;
   contextPercent?: number;
   contextTokens?: ContextTokenDisplay;
   provider?: string;
@@ -2397,6 +2438,24 @@ const QueuedInstructionsPanel = memo(function QueuedInstructionsPanel({
   prev.selectedQueueIndex === next.selectedQueueIndex
 ));
 
+const CommandResultPanel = memo(function CommandResultPanel({
+  commandResult,
+}: {
+  commandResult: CommandResultState;
+}) {
+  const { colors } = useTheme();
+
+  return (
+    <Box flexDirection="column" marginTop={1} marginBottom={1}>
+      <Text color={colors.accent} bold>{commandResult.command}</Text>
+      <MarkdownDiffContent content={commandResult.output} />
+    </Box>
+  );
+}, (previous, next) => (
+  previous.commandResult.command === next.commandResult.command
+  && previous.commandResult.output === next.commandResult.output
+));
+
 const StatusSection = memo(function StatusSection({
   terminalRows,
   isWorking,
@@ -2409,6 +2468,7 @@ const StatusSection = memo(function StatusSection({
   activityItems = [],
   teamActivity,
   teamPanelVisible,
+  commandResult,
   contextPercent,
   contextTokens,
   provider,
@@ -2426,13 +2486,6 @@ const StatusSection = memo(function StatusSection({
 
   return (
     <>
-      {/* Grouped todos + sub-agent runs — sticky above the spinner/status line */}
-      {showActivity && <TaskActivityPanel items={activityItems} terminalRows={terminalRows} />}
-
-      {teamPanelVisible && teamActivity?.team && (
-        <TeamPanel team={teamActivity.team} tasks={teamActivity.tasks} />
-      )}
-
       {/* Status line with spinner - always renders for stability */}
       <StatusLine
         isWorking={isWorking}
@@ -2447,6 +2500,13 @@ const StatusSection = memo(function StatusSection({
         teamActivity={teamActivity}
         lineExtension={lineExtension}
       />
+
+      {/* Keep interactive panels adjacent to the status line, before the composer. */}
+      {commandResult && <CommandResultPanel commandResult={commandResult} />}
+      {showActivity && <TaskActivityPanel items={activityItems} terminalRows={terminalRows} />}
+      {teamPanelVisible && teamActivity?.team && (
+        <TeamPanel team={teamActivity.team} tasks={teamActivity.tasks} />
+      )}
 
       {/* Below the status line: rendering it above the dynamic output region
           flushes it into scrollback on every repaint once tool output exceeds
@@ -2492,6 +2552,8 @@ const StatusSection = memo(function StatusSection({
          prev.activityItems === next.activityItems &&
          prev.teamActivity === next.teamActivity &&
          prev.teamPanelVisible === next.teamPanelVisible &&
+         prev.commandResult?.command === next.commandResult?.command &&
+         prev.commandResult?.output === next.commandResult?.output &&
          prev.provider === next.provider &&
          prev.model === next.model &&
          prev.modeIndicator === next.modeIndicator &&
@@ -2736,6 +2798,7 @@ interface FixedBottomProps {
   activityItems?: ActivityItem[];
   teamActivity?: TeamActivitySnapshot;
   teamPanelVisible: boolean;
+  commandResult?: CommandResultState;
   enableQueueInput: boolean;
   input: string;
   cursorOffset: number;
@@ -2759,6 +2822,8 @@ interface FixedBottomProps {
   nextPromptSuggestion?: string;
   inlineGhostSuffix?: string;
   mouseComposerCursor?: boolean;
+  /** Keep mouse tracking active while a live command exposes a click target. */
+  enableLiveCommandMouseControls: boolean;
   onComposerLayoutChange?: (layout: ComposerOutputLayout | null) => void;
   /** Whether the shortcuts help panel is visible */
   showShortcuts: boolean;
@@ -2838,6 +2903,7 @@ const FixedBottom = memo(function FixedBottom({
   activityItems = [],
   teamActivity,
   teamPanelVisible,
+  commandResult,
   enableQueueInput,
   input,
   cursorOffset,
@@ -2859,6 +2925,7 @@ const FixedBottom = memo(function FixedBottom({
   nextPromptSuggestion,
   inlineGhostSuffix,
   mouseComposerCursor,
+  enableLiveCommandMouseControls,
   onComposerLayoutChange,
   showShortcuts,
   interactionMode,
@@ -2890,6 +2957,7 @@ const FixedBottom = memo(function FixedBottom({
         activityItems={activityItems}
         teamActivity={teamActivity}
         teamPanelVisible={teamPanelVisible}
+        commandResult={commandResult}
         contextPercent={contextPercent}
         contextTokens={contextTokens}
         provider={provider}
@@ -2911,7 +2979,7 @@ const FixedBottom = memo(function FixedBottom({
         placeholderText={placeholderText}
         nextPromptSuggestion={nextPromptSuggestion}
         inlineGhostSuffix={inlineGhostSuffix}
-        enableHardwareCursor={composerCursorIntent.enabled}
+        enableHardwareCursor={composerCursorIntent.enabled || enableLiveCommandMouseControls}
         refreshHardwareCursor={composerCursorIntent.refreshOnParentRender}
         enableMouseCursor={mouseComposerCursor}
         onLayoutChange={onComposerLayoutChange}

@@ -1898,7 +1898,7 @@ describe('AgentUI Ctrl+C behavior', () => {
 });
 
 describe('AgentUI task activity layout', () => {
-  it('keeps the live task plan above the status line and composer', () => {
+  it('keeps the live task plan below the status line and above the composer', () => {
     const state = {
       ...createInitialUIState(),
       isWorking: true,
@@ -1937,9 +1937,51 @@ describe('AgentUI task activity layout', () => {
 
     expect(planIndex).toBeGreaterThan(-1);
     expect(frame).toContain('0/2 done');
-    expect(statusIndex).toBeGreaterThan(planIndex);
-    expect(composerIndex).toBeGreaterThan(statusIndex);
+    expect(planIndex).toBeGreaterThan(statusIndex);
+    expect(composerIndex).toBeGreaterThan(planIndex);
   });
+
+  it.each(['/tasks', '/team', '/squad'])(
+    'renders the %s result below the status line instead of in transcript history',
+    (command) => {
+      const state = {
+        ...createInitialUIState(),
+        isWorking: true,
+        status: 'Ready',
+        commandResult: {
+          command,
+          output: `${command} result`,
+        },
+      };
+
+      const { lastFrame } = render(
+        React.createElement(
+          I18nProvider,
+          null,
+          React.createElement(
+            ThemeProvider,
+            null,
+            React.createElement(AgentUI, {
+              state,
+              onInstruction: () => {},
+              onEscape: () => {},
+              onCtrlC: () => {},
+              enableQueueInput: true,
+            }),
+          ),
+        ),
+      );
+
+      const frame = stripAnsi(lastFrame() ?? '');
+      const statusIndex = frame.indexOf('Ready');
+      const resultIndex = frame.indexOf(`${command} result`);
+      const composerIndex = frame.lastIndexOf('❯');
+
+      expect(statusIndex).toBeGreaterThan(-1);
+      expect(resultIndex).toBeGreaterThan(statusIndex);
+      expect(composerIndex).toBeGreaterThan(resultIndex);
+    },
+  );
 });
 
 // =========================================================================

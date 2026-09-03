@@ -852,7 +852,7 @@ This lets you place the blinking composer cursor by clicking text, including wra
 autohand config set ui.mouseComposerCursor false
 ```
 
-Terminal mouse reporting can change native selection and scroll-wheel behavior. Mouse reporting is disabled while the agent owns the screen for active work and is always restored when Autohand exits. Terminal-specific modifier keys, commonly Shift, may bypass mouse reporting for native selection.
+Terminal mouse reporting can change native selection and scroll-wheel behavior. During active work, click a live command to expand or compact its output; clicks in the composer continue to position its cursor. Mouse reporting is always restored when Autohand exits. Terminal-specific modifier keys, commonly Shift, may bypass mouse reporting for native selection.
 
 ### Update Check
 

@@ -2266,7 +2266,7 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   }, 90_000);
 
-  it('streams and expands background shell output with Ctrl+O', async () => {
+  it('streams compact background shell output and expands it with a mouse click', async () => {
     const backgroundScript = [
       'let line = 1',
       'const parentPid = process.ppid',
@@ -2333,7 +2333,10 @@ describe('interactive built CLI Tuistory tests', () => {
     await session.waitForText('Ctrl+O expand', { timeout: 10_000 });
     expect(session.readAll()).not.toContain('background-line-01');
 
-    await session.press(['ctrl', 'o']);
+    await session.click('background-line-16');
+    expect(session.getRawOutput()).toContain('\x1b[6n');
+    const [terminalCursorColumn, terminalCursorRow] = session.getTerminalData().cursor;
+    session.writeRaw(`\x1b[${terminalCursorRow + 1};${terminalCursorColumn + 1}R`);
     await session.waitForText('Ctrl+O collapse', { timeout: 5_000 });
     await session.waitForText('background-line-01', { timeout: 5_000 });
     await session.waitForText('Background task started.', { timeout: 30_000 });

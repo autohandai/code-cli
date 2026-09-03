@@ -23,6 +23,7 @@ import type {
   SessionMetadata,
   SessionUsageMetadata,
 } from '../../session/types.js';
+import type { Session } from '../../session/SessionManager.js';
 import { renderTerminalMarkdown } from '../immediateCommandRouter.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { isShellCommand, parseShellCommand } from '../../ui/shellCommand.js';
@@ -35,7 +36,10 @@ import { BARE_SLASH_COMMANDS_DISABLED_MESSAGE } from '../../runtime/bareMode.js'
 import type { ImageManager } from '../ImageManager.js';
 import { SessionDiffStatsTracker } from '../SessionDiffStatsTracker.js';
 import { shouldForceAgentIdleLogout } from './AgentSessionAccounting.js';
-import { consumeAgentInkSubmittedInstructionEcho } from './AgentUIRuntime.js';
+import {
+  consumeAgentInkSubmittedInstructionEcho,
+} from './AgentUIRuntime.js';
+import { renderAgentSlashCommandResult } from './AgentCommandRuntime.js';
 import {
   createQueuedAgentInstruction,
   resolveActiveGoalContinuation,
@@ -233,7 +237,7 @@ export interface FreshAgentSessionHost {
   resetConversationContext(): Promise<void>;
   resetAgentStateForFreshSession(startedAt: number): void;
   injectSessionBootstrap(): Promise<void>;
-  restoreSessionState?(sessionId: string): Promise<FreshAgentSessionRecord>;
+  restoreSessionState?(sessionId: string | Session): Promise<FreshAgentSessionRecord>;
 }
 
 export async function startFreshAgentSession(
@@ -1164,8 +1168,10 @@ export async function runAgentCommandMode(
     }
   }
 
-export async function restoreAgentSessionState(host: AgentLifecycleHost, sessionId: string) {
-    const session = await host.sessionManager.loadSession(sessionId);
+export async function restoreAgentSessionState(host: AgentLifecycleHost, sessionOrId: string | Session) {
+    const session = typeof sessionOrId === 'string'
+      ? await host.sessionManager.loadSession(sessionOrId)
+      : sessionOrId;
 
     await host.resetConversationContext();
     await host.injectSessionBootstrap();
@@ -1603,9 +1609,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
                 `[DEBUG] After runSlashCommandWithInput: inkRenderer exists=${!!host.inkRenderer}, isRunning=${host.inkRenderer?.isRunning()}`,
                 host.writeDebugLine?.bind(host)
               );
-              if (handled !== null && host.inkRenderer?.isRunning()) {
-                host.inkRenderer.addAssistantMessage(handled);
-              } else if (handled !== null) {
+              if (handled !== null && !renderAgentSlashCommandResult(host, command, handled)) {
                 console.log(renderTerminalMarkdown(handled));
               }
               // Ensure the renderer is in idle state so the Composer accepts input

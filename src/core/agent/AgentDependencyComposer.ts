@@ -32,7 +32,7 @@ import { routeOutput } from '../immediateCommandRouter.js';
 import { SLASH_COMMANDS } from '../slashCommands.js';
 import { BARE_SLASH_COMMANDS_DISABLED_MESSAGE } from '../../runtime/bareMode.js';
 import { parseYoloPattern, buildPermissionSettingsFromYolo } from '../../permissions/yoloMode.js';
-import { SessionManager } from '../../session/SessionManager.js';
+import { SessionManager, type Session } from '../../session/SessionManager.js';
 import { ProjectManager } from '../../session/ProjectManager.js';
 import { createToolsRegistry } from '../toolsRegistry.js';
 import type { AgentRuntime, HookEvent, ToolActionOutcome } from '../../types.js';
@@ -1713,6 +1713,9 @@ export function initializeAgentDependencies(
       },
       restoreSession: async (sessionId: string) => {
         await host.restoreSessionState(sessionId);
+      },
+      restoreLoadedSession: async (session: Session) => {
+        await host.restoreSessionState(session);
       },
       undoFileMutation: () => host.files.undoLast(),
       removeLastTurn: () => host.conversation.removeLastTurn(),
