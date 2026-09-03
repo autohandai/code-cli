@@ -257,8 +257,11 @@ function quickVisionCheck(lowerModel: string): boolean {
   if (
     lowerModel === 'fantail' ||
     lowerModel === 'moa' ||
+    lowerModel === 'auto' ||
     lowerModel.startsWith('autohandai/fantail') ||
-    lowerModel.startsWith('autohandai/moa')
+    lowerModel.startsWith('autohandai/moa') ||
+    lowerModel.startsWith('autohandai/auto') ||
+    lowerModel.startsWith('autohand/auto')
   ) {
     return true;
   }

@@ -928,8 +928,8 @@ describe('LLMGatewayClient', () => {
       };
       const client = new LLMGatewayClient(settings);
 
-      // Create a message that exceeds 5MB
-      const largeContent = 'x'.repeat(6 * 1024 * 1024);
+      // Create a message that exceeds the inference gateway's 6 MiB limit.
+      const largeContent = 'x'.repeat(7 * 1024 * 1024);
 
       await expect(client.complete({
         messages: [{ role: 'user', content: largeContent }]

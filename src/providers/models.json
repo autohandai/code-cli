@@ -21,6 +21,16 @@
           "toolCalls": true,
           "reasoningEffort": "high",
           "reasoningEfforts": ["medium", "high", "xhigh"]
+        },
+        {
+          "id": "auto",
+          "displayName": "Auto",
+          "description": "Autohand router for text, coding, reasoning, tools, and screenshots",
+          "contextWindow": 262144,
+          "maxTokens": 16000,
+          "toolCalls": true,
+          "reasoningEffort": "high",
+          "reasoningEfforts": ["medium", "high", "xhigh"]
         }
       ]
     },

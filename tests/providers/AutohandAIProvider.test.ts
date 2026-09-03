@@ -25,7 +25,7 @@ describe("AutohandAIProvider", () => {
     vi.restoreAllMocks();
   });
 
-  it("exposes Fantail and Moa cloud models with the provider context contract", async () => {
+  it("exposes Auto, Fantail, and Moa cloud models with the provider context contract", async () => {
     const provider = new AutohandAIProvider({
       plan: "cloud",
       authMode: "api-key",
@@ -34,9 +34,35 @@ describe("AutohandAIProvider", () => {
     });
 
     await expect(provider.listModels()).resolves.toEqual([...AUTOHAND_AI_CLOUD_MODELS]);
-    expect(AUTOHAND_AI_CLOUD_MODELS).toEqual(["fantail", "moa"]);
+    expect(AUTOHAND_AI_CLOUD_MODELS).toEqual(["fantail", "moa", "auto"]);
     expect(AUTOHAND_AI_DEFAULT_CONTEXT_WINDOW).toBe(262_144);
     expect(AUTOHAND_AI_MOA_CONTEXT_WINDOW).toBe(1_000_000);
+  });
+
+  it("sends the singular Auto model to the Autohand gateway", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        id: "autohand-response",
+        created: 123,
+        choices: [{ message: { content: "hello" }, finish_reason: "stop" }],
+      }),
+    });
+    globalThis.fetch = fetchMock as typeof globalThis.fetch;
+
+    const provider = new AutohandAIProvider({
+      plan: "cloud",
+      authMode: "api-key",
+      apiKey: "test-autohand-key",
+      model: "auto",
+    });
+
+    await provider.complete({ messages: [{ role: "user", content: "hi" }] });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
+      model?: string;
+    };
+    expect(body.model).toBe("auto");
   });
 
   it("advertises native tool calling for Moa", () => {
@@ -128,6 +154,38 @@ describe("AutohandAIProvider", () => {
     expect(body.model).toBe("fantail");
     expect(body.temperature).toBe(0.1);
     expect(body.max_tokens).toBe(32);
+  });
+
+  it("preserves screenshot content parts for the Autohand cloud gateway", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        id: "autohand-response",
+        created: 123,
+        choices: [{ message: { content: "The button is disabled." }, finish_reason: "stop" }],
+      }),
+    });
+    globalThis.fetch = fetchMock as typeof globalThis.fetch;
+
+    const provider = new AutohandAIProvider({
+      plan: "cloud",
+      authMode: "api-key",
+      apiKey: "test-autohand-key",
+      model: "moa",
+    });
+    const parts = [
+      { type: "text", text: "What is wrong in this screenshot?" },
+      { type: "image_url", image_url: { url: "data:image/png;base64,AA==" } },
+    ];
+
+    await provider.complete({
+      messages: [{ role: "user", content: parts }] as unknown as Parameters<typeof provider.complete>[0]["messages"],
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
+      messages: Array<{ content: unknown }>;
+    };
+    expect(body.messages[0]?.content).toEqual(parts);
   });
 
   it("uses the logged-in account token for cloud account auth", async () => {
