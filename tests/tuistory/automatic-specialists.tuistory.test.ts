@@ -183,7 +183,7 @@ describe('automatic specialist orchestration', () => {
     expect(output).toContain('TEAM_LAUNCH_OK');
     expect(output).not.toContain('Agent not found');
     const providerContext = JSON.stringify(server.requests);
-    expect(providerContext).toContain('Teammate \\"security-reviewer\\" added (agent: security-auditor)');
+    expect(providerContext).toContain('Teammate \\"security-reviewer\\" added (agent: security-auditor;');
     expect(providerContext).toContain('requested: security');
     expect(providerContext).toContain('source: builtin');
   }, 90_000);
