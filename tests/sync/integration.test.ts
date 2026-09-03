@@ -6,14 +6,6 @@
  * Integration tests for sync feature
  */
 
-// Mock yoga-layout to prevent WASM loading issues in test environment
-// This must be at the top level before any imports
-vi.mock("yoga-layout", () => {
-  return {
-    loadYoga: () => Promise.resolve({}),
-  };
-});
-
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import fs from "fs-extra";
 import path from "path";
@@ -30,11 +22,12 @@ describe("Sync Integration", () => {
 
     // Set up mock for global fetch
     mockFetch = vi.fn();
-    (global as any).fetch = mockFetch;
+    vi.stubGlobal("fetch", mockFetch);
   });
 
   afterEach(async () => {
     await fs.remove(tempDir).catch(() => {});
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
