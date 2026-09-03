@@ -8,7 +8,7 @@ Autohand includes a built-in MCP client that connects to external MCP servers, e
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
 - [Slash Commands](#slash-commands)
-- [Community MCP Registry](#community-mcp-registry)
+- [Official MCP Registry](#official-mcp-registry)
 - [Tool Naming](#tool-naming)
 - [Non-Blocking Startup](#non-blocking-startup)
 - [Troubleshooting](#troubleshooting)
@@ -20,7 +20,8 @@ Autohand includes a built-in MCP client that connects to external MCP servers, e
 MCP is an open protocol for connecting AI agents to external tools. Autohand's MCP client supports:
 
 - **stdio transport** -- spawns a child process and communicates via JSON-RPC 2.0 over stdin/stdout
-- **SSE transport** -- connects to an HTTP server using Server-Sent Events (planned)
+- **Streamable HTTP transport** -- connects to an MCP endpoint using HTTP JSON-RPC
+- **SSE transport** -- not yet supported; use stdio or Streamable HTTP instead
 - **Automatic tool discovery** -- discovers and registers tools from connected servers
 - **Namespaced tools** -- MCP tools are prefixed to avoid collisions with built-in tools
 - **Non-blocking startup** -- servers connect in the background without delaying the prompt
@@ -30,13 +31,13 @@ MCP is an open protocol for connecting AI agents to external tools. Autohand's M
 
 ## Quick Start
 
-### Install from Community Registry
+### Install from the Official MCP Registry
 
-The fastest way to get started is installing a pre-configured server from the community registry:
+The fastest way to get started is installing a compatible server from the official MCP Registry:
 
 ```bash
-# In the Autohand REPL
-/mcp install filesystem
+# In the Autohand REPL, use an exact server ID returned by the registry
+/mcp install io.example/my-server
 ```
 
 This adds the server to your config and auto-connects it. You can also browse the full registry:
@@ -95,10 +96,10 @@ Restart Autohand and the server connects automatically in the background.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | string | Yes | Unique server identifier |
-| `transport` | `"stdio"` \| `"sse"` | Yes | Transport type |
+| `transport` | `"stdio"` \| `"http"` | Yes | Transport type |
 | `command` | string | Yes (stdio) | Command to start the server process |
 | `args` | string[] | No | Arguments for the command |
-| `url` | string | Yes (sse) | SSE endpoint URL |
+| `url` | string | Yes (http) | Streamable HTTP endpoint URL |
 | `env` | object | No | Environment variables passed to the server |
 | `autoConnect` | boolean | No | Auto-connect on startup (default: `true`) |
 
@@ -163,61 +164,46 @@ MCP Servers
 
 ---
 
-### `/mcp install` -- Community Registry Browser
+### `/mcp install` -- Official Registry Browser
 
-Browse and install pre-configured MCP servers from the community registry:
+Browse compatible MCP servers from the official MCP Registry. The browser shows the current catalog page; direct installation accepts an exact registry server ID:
 
 ```bash
 # Browse the full registry with categories
 /mcp install
 
 # Install a specific server directly
-/mcp install filesystem
+/mcp install io.example/my-server
 ```
 
 The interactive browser shows:
 
-- **Categories**: Developer Tools, Data & Databases, Web & APIs, Productivity, AI & Reasoning
-- **Featured servers** with ratings
 - **Search** with autocomplete
 - **Server details** before install (description, required env vars, required arguments)
 
-#### Available Servers
-
-| Server | Category | Description |
-|--------|----------|-------------|
-| filesystem | Developer Tools | Read, write, and manage files and directories |
-| github | Developer Tools | GitHub repos, issues, and PRs |
-| everything | Developer Tools | Reference MCP server for testing |
-| time | Developer Tools | Time and timezone tools |
-| postgres | Data & Databases | PostgreSQL database queries |
-| sqlite | Data & Databases | SQLite database operations |
-| brave-search | Web & APIs | Brave web search |
-| fetch | Web & APIs | Fetch and parse web pages |
-| puppeteer | Web & APIs | Browser automation with Puppeteer |
-| slack | Productivity | Slack messaging |
-| memory | AI & Reasoning | Persistent knowledge graph memory |
-| sequential-thinking | AI & Reasoning | Step-by-step reasoning |
+Only entries Autohand can configure safely are shown: Streamable HTTP endpoints without custom headers or URL variables, and npm stdio packages. SSE, custom-header, and URL-template entries remain unsupported until their configuration requirements have a safe user flow.
 
 #### Environment Variables
 
-Some servers require environment variables. When installing, Autohand prompts for any required values:
+Some servers require environment variables. Set them in the shell that launches Autohand before installing; the installer validates their presence but never copies their values into configuration files:
 
 ```bash
-/mcp install slack
-# Prompts for:
-#   SLACK_BOT_TOKEN: xoxb-your-token
-#   SLACK_TEAM_ID: T0YOUR_TEAM_ID
+export EXAMPLE_MCP_TOKEN='...'
+/mcp install io.example/my-server
 ```
 
 #### Required Arguments
 
-Servers like `filesystem` require path arguments:
+Some catalog entries require positional arguments:
 
 ```bash
-/mcp install filesystem
-# Prompts for: allowed directory path
+/mcp install io.example/my-server
+# Prompts for each required argument
 ```
+
+#### Agent Installation Tools
+
+The agent can search the complete catalog server-side with `find_mcp_servers`, then request `install_mcp_server` for an exact catalog ID. Installation always requires approval, accepts neither arbitrary commands nor secret values, and refreshes available MCP tools after a successful connection.
 
 ---
 

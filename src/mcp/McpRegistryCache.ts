@@ -12,6 +12,7 @@ import type {
   CommunityMcpRegistry,
   CachedMcpRegistry,
 } from '../types.js';
+import { validateCommunityMcpRegistry } from './McpRegistryFetcher.js';
 
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -61,7 +62,7 @@ export class McpRegistryCache {
    */
   async setRegistry(registry: CommunityMcpRegistry, etag?: string): Promise<void> {
     const cached: CachedMcpRegistry = {
-      registry,
+      registry: validateCommunityMcpRegistry(registry),
       fetchedAt: Date.now(),
       etag,
     };
@@ -98,7 +99,11 @@ export class McpRegistryCache {
         data.registry &&
         Array.isArray(data.registry.servers)
       ) {
-        return data as CachedMcpRegistry;
+        return {
+          fetchedAt: data.fetchedAt,
+          registry: validateCommunityMcpRegistry(data.registry),
+          ...(typeof data.etag === 'string' ? { etag: data.etag } : {}),
+        };
       }
 
       return null;

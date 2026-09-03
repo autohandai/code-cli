@@ -51,6 +51,11 @@ import { CommunitySkillsCache } from '../../skills/CommunitySkillsCache.js';
 import { GitHubRegistryFetcher } from '../../skills/GitHubRegistryFetcher.js';
 import { fetchRegistryWithFallback, installSkillWithSecurity } from '../../skills/communityInstaller.js';
 import { McpClientManager } from '../../mcp/McpClientManager.js';
+import {
+  findCommunityMcpServers,
+  installCommunityMcpServer,
+  resolveCommunityMcpServer,
+} from '../../commands/mcp-install.js';
 import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from '../../constants.js';
 import { createPersistentInput } from '../../ui/persistentInput.js';
 import { PermissionManager } from '../../permissions/PermissionManager.js';
@@ -946,6 +951,19 @@ export function initializeAgentDependencies(
         requiresApproval: false
       },
       {
+        name: 'compose_team',
+        description: 'Analyze a task, rank candidate sub-agents by role fit and repository context, and produce a recommended roster with a dependency-linked task graph. Feature-gated like automatic_specialists.',
+        parameters: {
+          type: 'object',
+          properties: {
+            objective: { type: 'string', description: 'The concrete objective the team should accomplish' },
+            team_name: { type: 'string', description: 'Optional short team name (e.g., "auth-refactor")' }
+          },
+          required: ['objective']
+        },
+        requiresApproval: false
+      },
+      {
         name: 'add_teammate',
         description: 'Spawn a teammate process using an agent definition. The agent_name must match one from the Available Agents list.',
         parameters: {
@@ -1148,10 +1166,22 @@ export function initializeAgentDependencies(
               const { ProjectProfiler } = await import('../teams/ProjectProfiler.js');
               const profiler = new ProjectProfiler(host.runtime.workspaceRoot);
               const profile = await profiler.analyze();
-              // List available agents
+              const { TeamComposer } = await import('../agents/TeamComposer.js');
+              const { analyzeTask } = await import('../agents/TaskAnalyzer.js');
               const { AgentRegistry } = await import('../agents/AgentRegistry.js');
               const registry = AgentRegistry.getInstance();
               await registry.loadAgents();
+              const request = analyzeTask(host.runtime.options.prompt ?? '', profile);
+              const composer = new TeamComposer({
+                registry,
+                profile,
+                maxTeammates: host.runtime.config.teams?.maxTeammates,
+              });
+              const composition = await composer.compose(request);
+              const roster = composition.selectedAgents.length > 0
+                ? `\nRecommended roster:\n${TeamComposer.formatRoster(composition)}`
+                : '';
+              // List available agents
               const agents = registry.getAllAgents().map(a => `  - ${a.name}: ${a.description}`).join('\n');
               const header = created
                 ? `Team "${team.name}" created.`
@@ -1160,8 +1190,56 @@ export function initializeAgentDependencies(
                 header,
                 `\nProject: ${profile.languages.join(', ')} | Frameworks: ${profile.frameworks.join(', ') || 'none'}`,
                 `Signals: ${profile.signals.map(s => `${s.type}(${s.severity})`).join(', ') || 'none'}`,
+                roster,
                 `\nAvailable agents:\n${agents || '  (none)'}`,
                 `\nNext: call add_teammate for each role, then create_task.`,
+              ].join('\n');
+            }
+          } else if (action.type === 'compose_team') {
+            const { TeamComposer } = await import('../agents/TeamComposer.js');
+            const { analyzeTask } = await import('../agents/TaskAnalyzer.js');
+            const { AgentRegistry } = await import('../agents/AgentRegistry.js');
+            const { ProjectProfiler } = await import('../teams/ProjectProfiler.js');
+            const registry = AgentRegistry.getInstance();
+            const profiler = new ProjectProfiler(host.runtime.workspaceRoot);
+            const profile = await profiler.analyze();
+            const request = analyzeTask(action.objective, profile);
+            const composer = new TeamComposer({
+              registry,
+              profile,
+              maxTeammates: host.runtime.config.teams?.maxTeammates,
+            });
+            const composition = await composer.compose(request);
+            const roster = TeamComposer.formatRoster(composition);
+            const teamName = action.team_name ?? 'composed-team';
+            let team = host.teamManager.getTeam();
+            if (team && team.name !== teamName) {
+              const error = `Team "${team.name}" is already active. Shut it down explicitly before composing "${teamName}".`;
+              outcome = { success: false, kind: 'validation', error, output: error };
+            } else {
+              if (!team) {
+                team = host.teamManager.createTeam(teamName);
+              }
+              for (const selected of composition.selectedAgents) {
+                host.teamManager.addTeammate({
+                  name: selected.agentName,
+                  agentName: selected.agentName,
+                  requestedRole: selected.requestedRole,
+                  agentSource: selected.source,
+                });
+              }
+              for (const task of composition.tasks) {
+                host.teamManager.tasks.createTask({
+                  subject: task.subject,
+                  description: task.description,
+                  blockedBy: task.blockedBy,
+                });
+              }
+              host.teamManager.tryAssignIdleTeammate();
+              result = [
+                roster,
+                `\nTeam "${teamName}" composed with ${composition.selectedAgents.length} members and ${composition.tasks.length} tasks.`,
+                `Unresolved roles: ${composition.unresolvedRoles.join(', ') || 'none'}`,
               ].join('\n');
             }
           } else if (action.type === 'add_teammate') {
@@ -1362,6 +1440,44 @@ export function initializeAgentDependencies(
             }
           } else if (action.type === 'exit_plan_mode') {
             outcome = await host.handleExitPlanMode((action as { summary?: string }).summary);
+          } else if (action.type === 'find_mcp_servers') {
+            const servers = await findCommunityMcpServers(
+              action.query,
+              action.category,
+              action.limit,
+            );
+            result = servers.length > 0
+              ? JSON.stringify(servers)
+              : 'No community MCP servers matched that search.';
+          } else if (action.type === 'install_mcp_server') {
+            const server = await resolveCommunityMcpServer(action.server_id);
+            if (!server) {
+              const error = `No community MCP server has the exact ID "${action.server_id}".`;
+              outcome = { success: false, kind: 'validation', error, output: error };
+            } else {
+              const installation = await installCommunityMcpServer(
+                {
+                  config: host.runtime.config,
+                  mcpManager: host.mcpManager,
+                },
+                server,
+                {
+                  requiredArgs: action.required_args,
+                  overwrite: action.overwrite,
+                },
+              );
+              if (!installation.success) {
+                outcome = {
+                  success: false,
+                  kind: installation.kind === 'validation' ? 'validation' : 'operational',
+                  error: installation.message,
+                  output: installation.message,
+                };
+              } else {
+                if (installation.connected) host.syncMcpTools();
+                result = installation.message;
+              }
+            }
           } else if (action.type === 'install_agent_skill') {
             const skillName = (action as { name: string }).name;
             if (!skillName) {

@@ -44,6 +44,13 @@ export interface CompletedGoal {
   completedAt: number;
 }
 
+/**
+ * Persistent goal state for a workspace.
+ *
+ * v1 stores a single active goal plus a shared queue. The `activeSessionId`
+ * field records which session is authorized to continue and account usage to
+ * the active goal; managers without a session are unscoped.
+ */
 export interface GoalSnapshot {
   version: 1;
   goal: GoalState | null;
@@ -58,7 +65,10 @@ export type GoalSessionAttachment = 'none' | 'unscoped' | 'attached' | 'detached
 
 export interface GoalSessionSnapshot extends Omit<GoalSnapshot, 'activeSessionId'> {
   sessionAttachment: GoalSessionAttachment;
-  detachedGoal?: Pick<GoalState, 'goalId' | 'status' | 'createdAt' | 'updatedAt'>;
+  detachedGoal?: Pick<GoalState, 'goalId' | 'status' | 'createdAt' | 'updatedAt'> & {
+    /** Whether the owning session is still alive (heartbeat registry). */
+    ownerAlive?: boolean;
+  };
   message?: string;
 }
 
@@ -87,6 +97,8 @@ export interface GoalMutationResult {
   started?: QueuedGoal;
   completed?: CompletedGoal;
   completedRun?: CompletedGoal[];
+  /** Goal pruned because its owning session is no longer alive. */
+  abandoned?: CompletedGoal;
   dequeued?: QueuedGoal;
   removed?: QueuedGoal;
 }

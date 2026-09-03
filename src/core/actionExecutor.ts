@@ -4663,6 +4663,7 @@ function formatGoalToolResult(result: {
   started?: unknown;
   completed?: unknown;
   completedRun?: unknown[];
+  abandoned?: unknown;
   dequeued?: unknown;
   removed?: unknown;
   telemetry?: unknown;
@@ -4676,6 +4677,7 @@ function formatGoalToolResult(result: {
     started: result.started,
     completed: result.completed,
     completedRun: result.completedRun,
+    abandoned: result.abandoned,
     dequeued: result.dequeued,
     removed: result.removed,
     telemetry: result.telemetry,

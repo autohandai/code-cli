@@ -122,6 +122,23 @@ describe('/goal command', () => {
     expect(queued).toEqual([]);
   });
 
+  it('abandons a dead-owner goal and starts the new objective instead of queueing', async () => {
+    await new GoalManager(workspaceRoot, { sessionId: 'session-prior' })
+      .createGoal({ objective: 'stale prior goal' });
+    queued.length = 0;
+
+    const message = await goal(ctx, ['fresh', 'objective']);
+
+    expect(message).toContain('Abandoned previous goal');
+    expect(message).toContain('stale prior goal');
+    const snapshot = await new GoalManager(workspaceRoot).getSnapshot();
+    expect(snapshot.goal?.objective).toBe('fresh objective');
+    expect(snapshot.activeSessionId).toBe('session-current');
+    expect(snapshot.completed.map((item) => item.objective)).toContain('stale prior goal');
+    expect(queued[0]).toContain('Active goal: fresh objective');
+    expect(ctx.setInteractionMode).toHaveBeenCalledWith('automode');
+  });
+
   it('puts the session in auto mode when a goal starts', async () => {
     await goal(ctx, ['ship', 'the', 'auth', 'fix']);
 

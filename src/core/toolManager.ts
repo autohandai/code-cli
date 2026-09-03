@@ -56,6 +56,7 @@ const SEQUENTIAL_TOOL_CATEGORIES = new Set<ToolCategory>([
 const SPECIALIST_BUILTIN_TOOL_NAMES = new Set<AgentAction['type']>([
   'orchestrate_specialists',
   'install_specialist_roster',
+  'compose_team',
 ]);
 
 export function shouldPromptForToolPermission(
@@ -1250,6 +1251,18 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
+    name: 'compose_team',
+    description: 'Analyze a task, rank candidate sub-agents by role fit and repository context, and produce a recommended roster with a dependency-linked task graph.',
+    parameters: {
+      type: 'object',
+      properties: {
+        objective: { type: 'string', description: 'The concrete objective the team should accomplish' },
+        team_name: { type: 'string', description: 'Optional short team name' }
+      },
+      required: ['objective']
+    }
+  },
+  {
     name: 'add_teammate',
     description: 'Add a teammate process to the active team using a registered agent.',
     parameters: {
@@ -1529,6 +1542,35 @@ Actions:
       },
       required: ['name'],
     },
+  },
+  // Official MCP Registry discovery
+  {
+    name: 'find_mcp_servers',
+    description: 'Search config-compatible entries in the Official MCP Registry. Returns exact server IDs and prerequisites without exposing executable configuration. Use this before requesting an MCP installation when the user has not named a server ID.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'MCP capability or server name to search for, such as "PostgreSQL" or "browser automation"' },
+        category: { type: 'string', description: 'Optional exact catalog category filter' },
+        limit: { type: 'number', description: 'Maximum results to return (default: 10, max: 20)' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'install_mcp_server',
+    description: 'Install one exact, config-compatible server from the Official MCP Registry. This saves catalog-controlled configuration and attempts to start or connect a third-party MCP server. It never accepts arbitrary commands, URLs, headers, or secret values.',
+    parameters: {
+      type: 'object',
+      properties: {
+        server_id: { type: 'string', description: 'Exact ID returned by find_mcp_servers or explicitly requested by the user' },
+        required_args: { type: 'array', description: 'Values for the catalog-declared required arguments, in catalog order', items: { type: 'string' } },
+        overwrite: { type: 'boolean', description: 'Replace an existing configuration with the same catalog server ID' },
+      },
+      required: ['server_id'],
+    },
+    requiresApproval: true,
+    approvalMessage: 'Allow the agent to install and connect this third-party Official MCP Registry server?',
   },
   // Sub-agent Catalog
   {

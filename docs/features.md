@@ -97,7 +97,7 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | `/skills install` | Install community skills |
 | `/skills new` | Create new skill |
 | `/mcp` | Interactive MCP server manager (toggle enable/disable) |
-| `/mcp install` | Browse and install community MCP servers |
+| `/mcp install` | Browse and install compatible Official MCP Registry entries (stdio and HTTP) |
 | `/share` | Share current session |
 | `/sync` | Sync settings |
 | `/add-dir` | Add directories to workspace |
@@ -260,7 +260,8 @@ effect immediately — no restart required.
 - [x] Server lifecycle management
 - [x] **Non-blocking startup**: servers connect in background without delaying the prompt
 - [x] **Interactive `/mcp` manager**: toggle servers on/off with arrow keys + space
-- [x] **`/mcp install`**: browse and install from community MCP registry (12 curated servers)
+- [x] **`/mcp install`**: browse and install validated stdio and HTTP entries from the Official MCP Registry
+- [x] **Agent MCP installation**: search the catalog and request approval-gated installation by exact server ID
 - [x] **`/mcp add/remove`**: manage servers from the command line
 - [x] **`/mcp list`**: view all tools from connected servers
 

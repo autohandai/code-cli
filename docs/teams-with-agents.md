@@ -91,6 +91,53 @@ Automatic specialist detection uses synchronous delegation. It never starts or
 queues `/squad`; Squad remains entitlement-gated and explicitly user-controlled.
 For durable dependency-linked work, create or reuse a named `/team` instead.
 
+### Task-Aware Discovery and Team Composition (Experimental)
+
+The `compose_team` tool (feature-gated alongside `automatic_specialists`) runs a
+single pipeline that turns a task into a ranked, dependency-linked team:
+
+```text
+Task + Repo (workspace)
+   │
+   ▼
+[1] TaskAnalyzer        — intent → required capabilities/roles
+   │
+   ▼
+[2] AgentDiscovery      — local registry + catalog, ranked by role fit AND repo context
+   │
+   ▼
+[3] TeamComposer        — select agents, assign roles, plan tasks + dependencies
+   │
+   ▼
+[4] TeamLauncher        — create_team + add_teammate + create_task
+```
+
+`compose_team` takes an `objective` (and an optional `team_name`), analyzes the
+task language for capability triggers (for example "write tests" → `testing`,
+"auth" → `security`, "refactor" → `code-cleaner`), unions them with the active
+repository profile (languages, frameworks, and signals such as `missing-tests`,
+`missing-docs`, `dead-code`, `lint-issues`, `stale-deps`, `security-concern`),
+and ranks candidate agents by role fit + repo affinity + tool coverage. The
+result is a recommended roster with match reasons and a phase-ordered task
+graph:
+
+```text
+Recommended roster for "add auth tests":
+  Testing → tester [builtin]  preferred Testing definition + missing-tests signal
+  Security → security-auditor [builtin]  preferred Security definition
+  Review → reviewer [builtin]  preferred Review definition
+Task graph:
+  task-1: Testing: add auth tests → tester
+  task-2: Security: add auth tests → security-auditor (blocked by: task-1)
+  task-3: Review: add auth tests → reviewer (blocked by: task-1, task-2)
+```
+
+`create_team` also auto-profiles the project and includes a recommended roster
+in its output when the current instruction implies capabilities. Catalog
+installs for unresolved roles still flow through the aggregate approval path;
+YOLO mode skips prompts. Composition is capped at `teams.maxTeammates` (default
+5) and never destroys a differently named active team.
+
 ### Discovering Agents from the Default Catalog
 
 When the built-in definitions do not cover a role, Autohand can search the

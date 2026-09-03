@@ -9,8 +9,16 @@ import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { ProjectProfile, ProjectSignal } from './types.js';
+import {
+  countSecretPatterns,
+  countUnreferencedExports,
+  parseLintOutput,
+  parseOutdatedJson,
+} from './profilerSignals.js';
 
 const execFileAsync = promisify(execFile);
+const MAX_SIGNAL_FILES = 200;
+const SIGNAL_TIMEOUT_MS = 5000;
 
 /**
  * ProjectProfiler scans a git repository to detect languages, frameworks,
@@ -125,7 +133,9 @@ export class ProjectProfiler {
   }
 
   /**
-   * Gather project signals: TODOs, missing docs, missing tests.
+   * Gather project signals: TODOs, missing docs, missing tests, dead code,
+   * lint issues, stale deps, and security concerns. All detection is bounded
+   * and failure-tolerant: a failed probe degrades to "no signal".
    */
   private async detectSignals(): Promise<ProjectSignal[]> {
     const signals: ProjectSignal[] = [];
@@ -159,7 +169,172 @@ export class ProjectProfiler {
       });
     }
 
+    const [deadCode, lintIssues, staleDeps, securityConcern] = await Promise.all([
+      this.detectDeadCode(),
+      this.detectLintIssues(),
+      this.detectStaleDeps(),
+      this.detectSecurityConcern(),
+    ]);
+    for (const signal of [deadCode, lintIssues, staleDeps, securityConcern]) {
+      if (signal) signals.push(signal);
+    }
+
     return signals;
+  }
+
+  /** Best-effort dead-code detection: exported symbols never referenced elsewhere. */
+  private async detectDeadCode(): Promise<ProjectSignal | undefined> {
+    try {
+      const files = await this.readSourceFiles();
+      const count = countUnreferencedExports(files);
+      if (count === 0) return undefined;
+      return {
+        type: 'dead-code',
+        severity: count > 10 ? 'high' : count > 3 ? 'medium' : 'low',
+        count,
+        locations: [...files.keys()].slice(0, 10),
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Best-effort lint detection: run the repo's lint script with a bounded timeout. */
+  private async detectLintIssues(): Promise<ProjectSignal | undefined> {
+    const pkgPath = path.join(this.repoRoot, 'package.json');
+    if (!(await fs.pathExists(pkgPath))) return undefined;
+    let lintScript: string | undefined;
+    try {
+      const pkg = await fs.readJson(pkgPath);
+      lintScript = pkg.scripts?.lint;
+    } catch {
+      return undefined;
+    }
+    if (typeof lintScript !== 'string' || !lintScript.trim()) return undefined;
+
+    try {
+      const { stdout, stderr } = await execFileAsync(
+        'bun',
+        ['run', 'lint'],
+        { cwd: this.repoRoot, encoding: 'utf-8', timeout: SIGNAL_TIMEOUT_MS },
+      );
+      const count = parseLintOutput(`${stdout}\n${stderr}`);
+      if (count === 0) return undefined;
+      return {
+        type: 'lint-issues',
+        severity: count > 20 ? 'high' : count > 5 ? 'medium' : 'low',
+        count,
+        locations: [],
+      };
+    } catch (error) {
+      // A failing lint script exits non-zero; parse its output for issues.
+      const output = error instanceof Error ? error.message : String(error);
+      const count = parseLintOutput(output);
+      if (count === 0) return undefined;
+      return {
+        type: 'lint-issues',
+        severity: count > 20 ? 'high' : count > 5 ? 'medium' : 'low',
+        count,
+        locations: [],
+      };
+    }
+  }
+
+  /** Best-effort stale-deps detection via bun outdated --json (bounded). */
+  private async detectStaleDeps(): Promise<ProjectSignal | undefined> {
+    const pkgPath = path.join(this.repoRoot, 'package.json');
+    if (!(await fs.pathExists(pkgPath))) return undefined;
+    try {
+      const { stdout } = await execFileAsync(
+        'bun',
+        ['outdated', '--json'],
+        { cwd: this.repoRoot, encoding: 'utf-8', timeout: SIGNAL_TIMEOUT_MS },
+      );
+      const count = parseOutdatedJson(stdout);
+      if (count === 0) return undefined;
+      return {
+        type: 'stale-deps',
+        severity: count > 10 ? 'high' : count > 3 ? 'medium' : 'low',
+        count,
+        locations: [],
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Best-effort security-concern detection: secret-like patterns in source files. */
+  private async detectSecurityConcern(): Promise<ProjectSignal | undefined> {
+    try {
+      const files = await this.readSourceFiles();
+      const count = countSecretPatterns(files);
+      if (count === 0) return undefined;
+      return {
+        type: 'security-concern',
+        severity: 'low',
+        count,
+        locations: [...files.keys()].slice(0, 10),
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Read up to MAX_SIGNAL_FILES tracked source files into a path → content map. */
+  private async readSourceFiles(): Promise<Map<string, string>> {
+    const files = new Map<string, string>();
+    const sourceExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.py', '.rs', '.go']);
+    let tracked: string[] = [];
+    try {
+      const { stdout } = await execFileAsync(
+        'git',
+        ['ls-files'],
+        { cwd: this.repoRoot, encoding: 'utf-8', timeout: SIGNAL_TIMEOUT_MS },
+      );
+      tracked = stdout
+        .trim()
+        .split('\n')
+        .filter((f) => f && sourceExtensions.has(path.extname(f)));
+    } catch {
+      // Not a git repo (or git unavailable): fall back to a bounded filesystem
+      // walk so the profiler still works in plain directories.
+      tracked = await this.walkSourceFiles(sourceExtensions);
+    }
+    for (const file of tracked.slice(0, MAX_SIGNAL_FILES)) {
+      try {
+        files.set(file, await fs.readFile(path.join(this.repoRoot, file), 'utf-8'));
+      } catch {
+        /* skip unreadable files */
+      }
+    }
+    return files;
+  }
+
+  /** Bounded recursive walk for source files when git ls-files is unavailable. */
+  private async walkSourceFiles(extensions: Set<string>): Promise<string[]> {
+    const results: string[] = [];
+    const ignored = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage']);
+    const visit = async (dir: string): Promise<void> => {
+      if (results.length >= MAX_SIGNAL_FILES) return;
+      let entries: fs.Dirent[];
+      try {
+        entries = await fs.readdir(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (results.length >= MAX_SIGNAL_FILES) return;
+        if (ignored.has(entry.name)) continue;
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          await visit(full);
+        } else if (entry.isFile() && extensions.has(path.extname(entry.name))) {
+          results.push(path.relative(this.repoRoot, full));
+        }
+      }
+    };
+    await visit(this.repoRoot);
+    return results;
   }
 
   /**
