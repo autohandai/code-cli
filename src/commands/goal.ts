@@ -6,7 +6,7 @@
 import chalk from 'chalk';
 import { buildGoalContinuationInstruction, GoalManager } from '../goals/GoalManager.js';
 import type { SlashCommand, SlashCommandContext } from '../core/slashCommandTypes.js';
-import type { GoalMutationResult, GoalSnapshot } from '../goals/types.js';
+import type { GoalMutationResult, GoalSessionSnapshot, GoalState } from '../goals/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, resolveGoalFeatureEnabled } from '../goals/feature.js';
 
 export const metadata: SlashCommand = {
@@ -15,6 +15,8 @@ export const metadata: SlashCommand = {
   implemented: true,
   subcommands: [
     { name: 'writer', description: 'Interview the user and draft a stronger goal before creating it' },
+    { name: 'view', description: 'Open the live goal queue view' },
+    { name: 'edit', description: 'Edit an active or queued goal by ID' },
     { name: 'queue', description: 'List queued goals or enqueue a goal' },
     { name: 'pause', description: 'Pause the current goal' },
     { name: 'resume', description: 'Resume a paused or queued goal' },
@@ -35,8 +37,13 @@ export async function goal(ctx: SlashCommandContext, args: string[] = []): Promi
   });
   const input = args.join(' ').trim();
   if (!input) {
-    const snapshot = await manager.getSnapshot();
-    if (!snapshot.goal && snapshot.queue.length === 0) {
+    const snapshot = await manager.getSessionSnapshot();
+    if (
+      !snapshot.goal
+      && snapshot.queue.length === 0
+      && snapshot.completed.length === 0
+      && snapshot.peers.length === 0
+    ) {
       return startGoalWriter(ctx);
     }
     return formatSnapshot(snapshot);
@@ -50,12 +57,24 @@ export async function goal(ctx: SlashCommandContext, args: string[] = []): Promi
     case 'write':
     case 'refine':
       return startGoalWriter(ctx, rest);
+    case 'view': {
+      ctx.onToggleGoalView?.(true);
+      return 'Opened the live goals view. Press Cmd+G or Ctrl+G to close it.';
+    }
+    case 'edit': {
+      const goalOrQueueId = restArgs[0];
+      const objective = restArgs.slice(1).join(' ').trim();
+      if (!goalOrQueueId || !objective) {
+        return 'Usage: /goal edit <goal-or-queue-id> <objective>';
+      }
+      return formatMutation(await manager.editGoalObjective(goalOrQueueId, objective));
+    }
     case 'queue':
       return handleQueue(manager, rest);
     case 'pause':
       return formatMutation(await manager.updateGoal({ status: 'paused' }));
     case 'resume': {
-      const snapshot = await manager.getSnapshot();
+      const snapshot = await manager.getSessionSnapshot();
       if (!snapshot.goal && snapshot.queue.length > 0) {
         const started = await manager.startQueuedGoal();
         if (started.ok && started.goal) {
@@ -115,7 +134,7 @@ export async function runGoalCli(workspaceRoot: string, rawInput?: string, confi
 
   const manager = new GoalManager(workspaceRoot);
   const input = rawInput?.trim() ?? '';
-  if (!input) return formatSnapshot(await manager.getSnapshot());
+  if (!input) return formatSnapshot(await manager.getSessionSnapshot());
 
   const args = input.match(/"[^"]*"|'[^']*'|\S+/g)?.map(unquote) ?? [];
   return goal({ workspaceRoot } as SlashCommandContext, args);
@@ -142,7 +161,7 @@ function startGoalWriter(ctx: SlashCommandContext, roughGoal?: string): string {
 
 async function emitGoalWrittenCompleted(
   ctx: SlashCommandContext,
-  goalState: NonNullable<GoalSnapshot['goal']>,
+  goalState: GoalState,
   source: string
 ): Promise<void> {
   await ctx.hookManager?.executeHooks('goal-written:completed', {
@@ -194,10 +213,6 @@ function formatMutation(result: GoalMutationResult): string {
   if (result.started) {
     lines.push(`Started queue item: ${result.started.queueId}`);
   }
-  if (result.abandoned) {
-    lines.push('');
-    lines.push(`Abandoned previous goal (owner session no longer active): ${result.abandoned.objective}`);
-  }
   if (result.completedRun?.length && result.queue.length === 0) {
     lines.push('');
     lines.push(formatCompletedRun(result.completedRun));
@@ -209,8 +224,13 @@ function formatMutation(result: GoalMutationResult): string {
   return lines.join('\n');
 }
 
-function formatSnapshot(snapshot: GoalSnapshot): string {
-  if (!snapshot.goal && snapshot.queue.length === 0 && snapshot.completed.length === 0) {
+function formatSnapshot(snapshot: GoalSessionSnapshot): string {
+  if (
+    !snapshot.goal
+    && snapshot.queue.length === 0
+    && snapshot.completed.length === 0
+    && snapshot.peers.length === 0
+  ) {
     return [
       'No goal is currently set.',
       'Use /goal <objective> to create one, or /goal queue <objective> to queue later work.',
@@ -227,10 +247,19 @@ function formatSnapshot(snapshot: GoalSnapshot): string {
     parts.push('');
     parts.push(formatCompletedRun(snapshot.completed));
   }
+  if (snapshot.peers.length > 0) {
+    parts.push('');
+    parts.push([
+      `Other active sessions (${snapshot.peers.length}):`,
+      ...snapshot.peers.map((peer) => (
+        `- ${peer.objective} (${peer.status}${peer.ownerAlive ? '' : ', session offline'})`
+      )),
+    ].join('\n'));
+  }
   return parts.join('\n');
 }
 
-function formatGoal(goalState: NonNullable<GoalSnapshot['goal']>): string {
+function formatGoal(goalState: GoalState): string {
   const lines = [
     `Goal: ${goalState.objective}`,
     `Status: ${goalState.status}`,
@@ -244,7 +273,7 @@ function formatGoal(goalState: NonNullable<GoalSnapshot['goal']>): string {
   return lines.join('\n');
 }
 
-function formatQueue(snapshot: Pick<GoalSnapshot, 'queue'>): string {
+function formatQueue(snapshot: Pick<GoalSessionSnapshot, 'queue'>): string {
   if (snapshot.queue.length === 0) return 'No queued goals.';
   return [
     `Queued goals (${snapshot.queue.length}):`,

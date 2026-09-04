@@ -124,6 +124,8 @@ export interface SlashCommandContext {
     teamManager?: TeamManager;
     /** Toggle the expanded live team activity view. */
     onToggleTeamView?: (visible: boolean) => void;
+    /** Toggle the expanded persistent goal queue view. */
+    onToggleGoalView?: (visible: boolean) => void;
     /** Peer awareness manager for /peers command */
     peerAwareness?: import('../session/peers/PeerAwarenessManager.js').PeerAwarenessManager;
     /** Repeat manager for /repeat recurring prompt scheduling */
