@@ -562,6 +562,22 @@ export class GoalManager {
     return peers;
   }
 
+  private result(snapshot: GoalSnapshot, ok: boolean, message: string, extras: Partial<GoalMutationResult> = {}): GoalMutationResult {
+    const goal = snapshot.goals[this.goalKey()] ?? null;
+    return {
+      ok,
+      goal,
+      queue: snapshot.queue,
+      message,
+      telemetry: goal ? {
+        timeRemainingSeconds: goal.timeBudgetSeconds !== undefined ? Math.max(0, goal.timeBudgetSeconds - goal.timeUsedSeconds) : undefined,
+        tokensRemaining: goal.tokenBudget !== undefined ? Math.max(0, goal.tokenBudget - goal.tokensUsed) : undefined,
+        completionFloorMet: floorMet(goal),
+      } : undefined,
+      ...extras,
+    };
+  }
+
   private async readSnapshot(): Promise<GoalSnapshot> {
     const filePath = this.statePath();
     if (!(await fs.pathExists(filePath))) {
@@ -587,15 +603,6 @@ export class GoalManager {
 
   private statePath(): string {
     return path.join(this.workspaceRoot, PROJECT_DIR_NAME, GOAL_STATE_FILE);
-  }
-
-  private result(
-    snapshot: GoalSnapshot,
-    ok: boolean,
-    message: string,
-    extras: Partial<GoalMutationResult> = {},
-  ): GoalMutationResult {
-    return result(snapshot, ok, message, extras, this.goalKey());
   }
 
   private withLiveElapsed(goal: GoalState): GoalState {
@@ -784,28 +791,6 @@ function applyOptionalPositiveInteger(value: number | null | undefined, apply: (
   if (!Number.isInteger(value) || value <= 0) return 'budget and floor values must be positive integers or null.';
   apply(value);
   return null;
-}
-
-function result(
-  snapshot: GoalSnapshot,
-  ok: boolean,
-  message: string,
-  extras: Partial<GoalMutationResult>,
-  key: string,
-): GoalMutationResult {
-  const goal = snapshot.goals[key] ?? null;
-  return {
-    ok,
-    goal,
-    queue: snapshot.queue,
-    message,
-    telemetry: goal ? {
-      timeRemainingSeconds: goal.timeBudgetSeconds !== undefined ? Math.max(0, goal.timeBudgetSeconds - goal.timeUsedSeconds) : undefined,
-      tokensRemaining: goal.tokenBudget !== undefined ? Math.max(0, goal.tokenBudget - goal.tokensUsed) : undefined,
-      completionFloorMet: floorMet(goal),
-    } : undefined,
-    ...extras,
-  };
 }
 
 function floorMet(goal: GoalState): boolean {
