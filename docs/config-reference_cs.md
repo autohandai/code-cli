@@ -2030,7 +2030,7 @@ Autohand poskytuje bohatou sadu příkazů lomítka pro interaktivní použití.
 | `/sessions` | Seznam minulých relací |
 | `/resume` | Obnovit předchozí relaci |
 | `/history` | Procházet historii relace pomocí stránkování |
-| `/undo` | Vrátit změny git a poslední kolo |
+| `/undo` | Vrátit poslední zaznamenanou změnu souboru provedenou agentem a poslední kolo |
 | `/export` | Exportovat relaci do markdown/JSON/HTML |
 | `/share` | Sdílet aktuální relaci |
 | `/status` | Zobrazit stav relace |

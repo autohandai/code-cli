@@ -2012,7 +2012,7 @@ Autohand fornisce un ricco set di comandi slash per l'uso interattivo. Digita `/
 | `/sessions` | Elenca le sessioni passate |
 | `/resume` | Riprendere una sessione precedente |
 | `/history` | Sfoglia la cronologia delle sessioni con l'impaginazione |
-| `/undo` | Ripristina le modifiche git e l'ultimo turno |
+| `/undo` | Annulla l'ultima modifica di file registrata dall'agente e l'ultimo turno |
 | `/export` | Esporta la sessione in markdown/JSON/HTML |
 | `/share` | Condividi la sessione corrente |
 | `/status` | Mostra lo stato della sessione |

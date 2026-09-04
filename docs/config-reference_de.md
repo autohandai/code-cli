@@ -2154,7 +2154,7 @@ Autohand bietet eine umfangreiche Reihe von Slash-Befehlen für die interaktive 
 | `/sessions`   | Vergangene Sitzungen auflisten                                    |
 | `/resume`     | Vorherige Sitzung fortsetzen                             |
 | `/history`    | Sitzungsverlauf mit Paginierung durchsuchen                |
-| `/undo`       | Git-Änderungen und letzten Turn rückgängig machen                      |
+| `/undo`       | Letzte aufgezeichnete Dateiänderung des Agenten und letzten Turn rückgängig machen |
 | `/export`     | Sitzung nach Markdown/JSON/HTML exportieren                  |
 | `/share`      | Aktuelle Sitzung teilen                                 |
 | `/status`     | Sitzungsstatus anzeigen                                   |

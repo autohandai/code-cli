@@ -311,7 +311,7 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/model`           | Switch LLM models                                                                |
 | `/new`             | Start fresh conversation                                                         |
 | `/clear`           | Clear conversation history                                                       |
-| `/undo`            | Revert last changes                                                              |
+| `/undo`            | Revert the last recorded agent file mutation and conversation turn               |
 | `/session`         | Show current session details                                                     |
 | `/sessions`        | List past sessions                                                               |
 | `/resume`          | Resume a previous session                                                        |

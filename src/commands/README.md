@@ -12,7 +12,7 @@ Each command is a separate TypeScript file that exports:
 
 | Command | File | Description |
 |---------|------|-------------|
-| `/undo` | `undo.ts` | Undo last file mutation |
+| `/undo` | `undo.ts` | Undo the last recorded agent file mutation |
 | `/model` | `model.ts` | Choose AI model |
 | `/new` | `new.ts` | Start new conversation |
 | `/init` | `init.ts` | Create AGENTS.md file |
