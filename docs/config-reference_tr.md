@@ -2012,7 +2012,7 @@ Autohand etkileşimli kullanım için zengin bir eğik çizgi komutları seti sa
 | `/sessions` | Geçmiş oturumları listele |
 | `/resume` | Önceki bir oturumu sürdürme |
 | `/history` | Sayfalandırmayla oturum geçmişine göz atın |
-| `/undo` | Git değişikliklerini geri alma ve son dönüş |
+| `/undo` | Ajanın kaydedilen son dosya değişikliğini ve son turu geri alma |
 | `/export` | Oturumu markdown/JSON/HTML'ye aktar |
 | `/share` | Geçerli oturumu paylaş |
 | `/status` | Oturum durumunu göster |

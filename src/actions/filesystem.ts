@@ -37,10 +37,36 @@ export const FILE_LIMITS = {
   MAX_UNDO_STACK: 100,
 };
 
-interface UndoEntry {
-  absolutePath: string;
-  previousContents: string;
+export class UndoStackEmptyError extends Error {
+  constructor() {
+    super('Undo stack is empty');
+    this.name = 'UndoStackEmptyError';
+  }
 }
+
+export class UnsafeUndoError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnsafeUndoError';
+  }
+}
+
+type UndoEntry =
+  | {
+      kind: 'restore-file';
+      absolutePath: string;
+      previousContents: string;
+      expectedContents: string | null;
+    }
+  | {
+      kind: 'remove-file';
+      absolutePath: string;
+      expectedContents: string;
+    }
+  | {
+      kind: 'unavailable';
+      reason: string;
+    };
 
 /**
  * Represents a batched change in preview mode
@@ -772,7 +798,14 @@ export class FileActionManager {
     if (this.undoStack.length >= FILE_LIMITS.MAX_UNDO_STACK) {
       this.undoStack.shift(); // Remove oldest entry
     }
-    this.undoStack.push({ absolutePath: filePath, previousContents: previous });
+    this.undoStack.push(exists
+      ? {
+          kind: 'restore-file',
+          absolutePath: filePath,
+          previousContents: previous,
+          expectedContents: contents,
+        }
+      : { kind: 'remove-file', absolutePath: filePath, expectedContents: contents });
 
     await fs.writeFile(filePath, contents, 'utf8');
   }
@@ -804,16 +837,48 @@ export class FileActionManager {
       return;
     }
 
-    this.undoStack.push({ absolutePath: filePath, previousContents: current });
+    this.undoStack.push({
+      kind: 'restore-file',
+      absolutePath: filePath,
+      previousContents: current,
+      expectedContents: updated,
+    });
     await fs.writeFile(filePath, updated, 'utf8');
   }
 
   async undoLast(): Promise<void> {
-    const entry = this.undoStack.pop();
+    const entry = this.undoStack.at(-1);
     if (!entry) {
-      throw new Error('Undo stack is empty');
+      throw new UndoStackEmptyError();
     }
+    if (entry.kind === 'unavailable') {
+      throw new UnsafeUndoError(entry.reason);
+    }
+    if (entry.kind === 'remove-file') {
+      if (await fs.pathExists(entry.absolutePath)) {
+        const currentContents = await fs.readFile(entry.absolutePath, 'utf8');
+        if (currentContents !== entry.expectedContents) {
+          throw new UnsafeUndoError('Cannot undo because the file changed after the agent mutation');
+        }
+      }
+      await fs.remove(entry.absolutePath);
+      this.undoStack.pop();
+      return;
+    }
+    if (entry.expectedContents !== null) {
+      if (!await fs.pathExists(entry.absolutePath)) {
+        throw new UnsafeUndoError('Cannot undo because the file changed after the agent mutation');
+      }
+      const currentContents = await fs.readFile(entry.absolutePath, 'utf8');
+      if (currentContents !== entry.expectedContents) {
+        throw new UnsafeUndoError('Cannot undo because the file changed after the agent mutation');
+      }
+    } else if (await fs.pathExists(entry.absolutePath)) {
+      throw new UnsafeUndoError('Cannot undo because the path changed after the agent mutation');
+    }
+    await fs.ensureDir(path.dirname(entry.absolutePath));
     await fs.writeFile(entry.absolutePath, entry.previousContents, 'utf8');
+    this.undoStack.pop();
   }
 
   search(query: string, relativePath?: string): SearchHit[] {
@@ -1237,10 +1302,17 @@ export class FileActionManager {
       return;
     }
 
-    this.undoStack.push({
-      absolutePath: fullPath,
-      previousContents
-    });
+    this.undoStack.push(stats.isFile()
+      ? {
+          kind: 'restore-file',
+          absolutePath: fullPath,
+          previousContents,
+          expectedContents: null,
+        }
+      : {
+          kind: 'unavailable',
+          reason: `Cannot undo directory deletion: ${relativePath}`,
+        });
     await fs.remove(fullPath);
   }
 

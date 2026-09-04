@@ -2012,7 +2012,7 @@ Az Autohand perjel parancsok gazdag készletét kínálja interaktív használat
 | `/sessions` | Korábbi munkamenetek listája |
 | `/resume` | Előző munkamenet folytatása |
 | `/history` | A munkamenet-előzmények böngészése oldalszámozással |
-| `/undo` | Git módosítások és utolsó forduló visszaállítása |
+| `/undo` | Az ügynök legutóbb rögzített fájlmódosításának és az utolsó körnek a visszavonása |
 | `/export` | Munkamenet exportálása markdown/JSON/HTML |
 | `/share` | Aktuális munkamenet megosztása |
 | `/status` | Munkamenet állapotának megjelenítése |

@@ -2381,11 +2381,13 @@ Autohand provides a rich set of slash commands for interactive use. Type `/` in 
 | `/sessions`   | List past sessions                                    |
 | `/resume`     | Resume a previous session                             |
 | `/history`    | Browse session history with pagination                |
-| `/undo`       | Revert git changes and last turn                      |
+| `/undo`       | Revert the last recorded agent file mutation and turn |
 | `/export`     | Export session to markdown/JSON/HTML                  |
 | `/share`      | Share current session                                 |
 | `/status`     | Show session status and the signed-in Autohand plan   |
 | `/usage`      | Show Autohand plan limits and project token activity  |
+
+`/undo` never resets or cleans the Git worktree. It preserves unrelated tracked and untracked work, and refuses to overwrite a file that changed after the recorded agent mutation.
 
 ### Model & Provider
 

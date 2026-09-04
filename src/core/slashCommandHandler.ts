@@ -224,7 +224,6 @@ export class SlashCommandHandler {
         case '/undo': {
           const { undo } = await import('../commands/undo.js');
           return undo({
-            workspaceRoot: this.ctx.workspaceRoot,
             undoFileMutation: this.ctx.undoFileMutation ?? (async () => {}),
             removeLastTurn: this.ctx.removeLastTurn ?? (() => {})
           });

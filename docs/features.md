@@ -65,7 +65,7 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | `/resume` | Resume a previous session |
 | `/new` | Start fresh conversation (with memory extraction) |
 | `/clear` | Clear conversation with automatic memory extraction |
-| `/undo` | Revert git changes and last turn |
+| `/undo` | Revert the last recorded agent file mutation and conversation turn |
 | `/memory` | View stored memories |
 | `/init` | Create `AGENTS.md` file |
 | `/agents` | List sub-agents |

@@ -4,65 +4,36 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
-import { spawnSync } from 'node:child_process';
+import { UndoStackEmptyError } from '../actions/filesystem.js';
 import { t } from '../i18n/index.js';
 
 export interface UndoCommandContext {
-    workspaceRoot: string;
     undoFileMutation: () => Promise<void>;
     removeLastTurn: () => void;
 }
 
 /**
- * Undo command - reverts git changes and removes last conversation turn
+ * Undo command - reverts the last agent-owned file mutation and conversation turn
  */
 export async function undo(ctx: UndoCommandContext): Promise<string | null> {
     console.log();
     console.log(chalk.bold.yellow('Undoing changes...'));
 
-    // 1. Get git status to see what changes exist
-    const statusResult = spawnSync('git', ['status', '--porcelain'], {
-        cwd: ctx.workspaceRoot,
-        encoding: 'utf8'
-    });
-
-    const hasGitChanges = statusResult.status === 0 && statusResult.stdout.trim().length > 0;
-
-    // 2. Revert all uncommitted git changes
-    if (hasGitChanges) {
-        // Restore tracked files
-        const checkoutResult = spawnSync('git', ['checkout', '--', '.'], {
-            cwd: ctx.workspaceRoot,
-            encoding: 'utf8'
-        });
-
-        if (checkoutResult.status === 0) {
-            console.log(chalk.green('  Reverted tracked file changes'));
-        }
-
-        // Clean untracked files (only if they were created in this session)
-        const cleanResult = spawnSync('git', ['clean', '-fd'], {
-            cwd: ctx.workspaceRoot,
-            encoding: 'utf8'
-        });
-
-        if (cleanResult.status === 0 && cleanResult.stdout.trim()) {
-            console.log(chalk.green('  Removed untracked files'));
-        }
-    } else {
-        console.log(chalk.gray('  ' + t('commands.undo.noChanges')));
-    }
-
-    // 3. Try to undo file mutations from the undo stack
+    // Revert only mutations recorded by the agent. Repository-wide Git cleanup
+    // would also destroy unrelated work that existed before the agent turn.
     try {
         await ctx.undoFileMutation();
         console.log(chalk.green('  ' + t('commands.undo.success', { file: 'last mutation' })));
-    } catch {
-        // No file mutations to undo, that's okay
-        console.log(chalk.gray('  ' + t('commands.undo.noChanges')));
+    } catch (error) {
+        if (error instanceof UndoStackEmptyError) {
+            console.log(chalk.gray('  ' + t('commands.undo.noChanges')));
+        } else {
+            const message = error instanceof Error ? error.message : String(error);
+            console.log(chalk.yellow(`  Undo stopped: ${message}`));
+            return null;
+        }
     }
 
-    // 4. Remove the last user turn from conversation
     ctx.removeLastTurn();
     console.log(chalk.green('  Removed last conversation turn'));
 
@@ -74,6 +45,6 @@ export async function undo(ctx: UndoCommandContext): Promise<string | null> {
 
 export const metadata = {
     command: '/undo',
-    description: 'revert git changes and remove last conversation turn',
+    description: 'revert the last agent file mutation and conversation turn',
     implemented: true
 };

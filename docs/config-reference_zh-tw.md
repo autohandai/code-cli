@@ -2012,7 +2012,7 @@ Autohand 提供了一組豐富的斜線命令供互動式使用。在 REPL 中�
 | `/sessions` |列出過去的會議 |
 | `/resume` |恢復之前的會話 |
 | `/history` |使用分頁瀏覽會話歷史記錄 |
-| `/undo` |復原 git 變更與上一回合 |
+| `/undo` | 復原代理程式上次記錄的檔案變更與上一回合 |
 | `/export` |將會話匯出為 markdown/JSON/HTML |
 | `/share` |分享目前會話 |
 | `/status` |顯示會話狀態 |
