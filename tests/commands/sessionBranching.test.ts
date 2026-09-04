@@ -32,6 +32,8 @@ describe('session branching commands', () => {
     });
 
     expect(output).toContain('experimental_fork');
+    expect(output).toContain('/experiments enable experimental_fork');
+    expect(output).not.toContain('/features');
     expect(sessionManager.branchSession).not.toHaveBeenCalled();
   });
 
@@ -77,6 +79,8 @@ describe('session branching commands', () => {
     });
 
     expect(output).toContain('experimental_clone');
+    expect(output).toContain('/experiments enable experimental_clone');
+    expect(output).not.toContain('/features');
     expect(sessionManager.branchSession).not.toHaveBeenCalled();
   });
 

@@ -1763,7 +1763,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
     if (agentLaunchMode === 'fork' && options.fork) {
         const forkEnabled = getFeatureState(config, 'experimental_fork')?.enabled === true;
         if (!forkEnabled) {
-          console.error(chalk.red('The --fork flag is behind experimental_fork. Run /features enable experimental_fork, then try again.'));
+          console.error(chalk.red('The --fork flag is behind experimental_fork. Run /experiments enable experimental_fork, then try again.'));
           process.exitCode = 1;
           return;
         }

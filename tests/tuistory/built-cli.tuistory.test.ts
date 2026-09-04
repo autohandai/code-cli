@@ -1280,6 +1280,90 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   }, 45_000);
 
+  it('enables goals, shows the chained goal queue, and edits a queued goal with the mouse', async () => {
+    const openRouterServer = await createMockOpenRouterSequenceServer([
+      JSON.stringify({
+        toolCalls: [],
+        finalResponse: 'FIRST_GOAL_TURN_IDLE',
+      }),
+    ]);
+    mockServers.push(openRouterServer);
+    const session = await launchInteractive({
+      config: {
+        openrouter: { baseUrl: openRouterServer.baseUrl },
+        agent: {
+          autoMemory: false,
+          goalAutoMode: false,
+          maxIterations: 2,
+          sessionRetryLimit: 0,
+        },
+        network: { maxRetries: 0, retryDelay: 0 },
+        ui: {
+          promptSuggestions: false,
+          showCompletionNotification: false,
+          terminalBell: false,
+        },
+      },
+    });
+
+    await waitForComposer(session);
+    await session.type('/experiments enable /goals');
+    await session.press('enter');
+    await session.waitForText('Enabled slash_goal.', { timeout: 5_000 });
+
+    await waitForComposer(session);
+    await session.type('/goal ship the first queue item');
+    await session.press('enter');
+    await session.waitForText('Goal created.', { timeout: 5_000 });
+    await session.waitForText('FIRST_GOAL_TURN_IDLE', { timeout: 15_000 });
+
+    await waitForComposer(session);
+    await session.type('/goal ship the second queue item');
+    await session.press('enter');
+    await session.waitForText('Queued goal.', { timeout: 5_000 });
+
+    await waitForComposer(session);
+    await session.type('/goal view');
+    await session.press('enter');
+    await session.waitForText('Goals · 2 total', { timeout: 5_000 });
+    await session.waitForText('ship the first queue item', { timeout: 5_000 });
+    await session.waitForText('ship the second queue item', { timeout: 5_000 });
+
+    const terminalData = session.getTerminalData();
+    const queueRow = terminalData.lines
+      .map((line, row) => ({
+        row,
+        text: line.spans.map((span) => span.text).join(''),
+      }))
+      .find((line) => line.text.includes('2. ship the second queue item queued'));
+    if (!queueRow) {
+      throw new Error('expected the queued goal row to be visible');
+    }
+    const viewportStart = Math.max(0, terminalData.totalLines - terminalData.rows);
+    expect(queueRow.row).toBeGreaterThanOrEqual(viewportStart);
+    await session.clickAt(
+      queueRow.text.indexOf('ship the second queue item'),
+      queueRow.row - viewportStart,
+    );
+    expect(session.getRawOutput()).toContain('\x1b[6n');
+    const [terminalCursorColumn, terminalCursorRow] = session.getTerminalData().cursor;
+    session.writeRaw(`\x1b[${terminalCursorRow + 1};${terminalCursorColumn + 1}R`);
+    await session.text({
+      timeout: 5_000,
+      waitFor: (text) => composerLineIncludes(text, 'ship the second queue item'),
+    });
+
+    await session.type(' after review');
+    await session.press('enter');
+    await session.waitForText('ship the second queue item after review', { timeout: 5_000 });
+
+    const output = session.readAll();
+    expect(output).toContain('Goals · 2 total');
+    expect(output).toContain('enter edit · click edit');
+
+    await exitInteractive(session);
+  }, 45_000);
+
   it('starts device auth from the startup auth gate', async () => {
     const state = await createTempAutohandHome({
       config: {

@@ -13,6 +13,7 @@ import type { SlashCommand } from '../core/slashCommandTypes.js';
 import type { SkillMentionInfo } from './mentionFilter.js';
 import type { ExtensionKeybinding } from '../extensions/ExtensionRuntimeHost.js';
 import type { AgentUILineExtensions } from './ink/AgentUI.js';
+import type { GoalEditRequest } from './ink/GoalPanel.js';
 import type { InteractionMode } from '../core/agent/InteractionModeController.js';
 
 export interface InkUIManagerOptions {
@@ -33,6 +34,7 @@ export interface InkUIManagerOptions {
   getInteractionMode?: () => InteractionMode;
   onCycleInteractionMode?: () => InteractionMode;
   mouseComposerCursor?: boolean;
+  onEditGoalObjective?: (request: GoalEditRequest) => void | Promise<void>;
   rendererFactory?: (options: InkRendererOptions) => InkRenderer;
 }
 

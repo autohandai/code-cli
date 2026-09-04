@@ -18,6 +18,7 @@ import {
   getTextBufferCursorOffset,
   handleInkTextBufferInput,
   isBareComposerTrigger,
+  isGoalViewShortcut,
   matchesExtensionKeybinding,
   isTeamViewShortcut,
   resolveInkHiddenPastes,
@@ -27,6 +28,7 @@ import { AgentUI, createInitialUIState } from '../../../src/ui/ink/AgentUI.js';
 import { I18nProvider } from '../../../src/ui/i18n/index.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import { getPromptBlockWidth } from '../../../src/ui/inputPrompt.js';
+import { GoalPanel } from '../../../src/ui/ink/GoalPanel.js';
 
 function stripAnsi(value: string): string {
   return value.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '');
@@ -86,6 +88,12 @@ describe('AgentUI TextBuffer integration helpers', () => {
     expect(isTeamViewShortcut('t', createInkKey())).toBe(false);
   });
 
+  it('recognizes Cmd+G and Ctrl+G as goal view shortcuts', () => {
+    expect(isGoalViewShortcut('g', createInkKey({ meta: true }))).toBe(true);
+    expect(isGoalViewShortcut('g', createInkKey({ ctrl: true }))).toBe(true);
+    expect(isGoalViewShortcut('g', createInkKey())).toBe(false);
+  });
+
   it('matches extension keybindings without claiming reserved composer controls', () => {
     expect(matchesExtensionKeybinding('k', createInkKey({ ctrl: true }), {
       key: 'ctrl+k',
@@ -101,6 +109,14 @@ describe('AgentUI TextBuffer integration helpers', () => {
     })).toBe(false);
     expect(matchesExtensionKeybinding('x', createInkKey({ ctrl: true }), {
       key: 'ctrl+x',
+      command: '/runtime-dashboard',
+    })).toBe(false);
+    expect(matchesExtensionKeybinding('g', createInkKey({ ctrl: true }), {
+      key: 'ctrl+g',
+      command: '/runtime-dashboard',
+    })).toBe(false);
+    expect(matchesExtensionKeybinding('g', createInkKey({ meta: true }), {
+      key: 'meta+g',
       command: '/runtime-dashboard',
     })).toBe(false);
   });
@@ -1572,6 +1588,126 @@ describe('AgentUI queued instruction panel', () => {
 
     expect(onEscape).not.toHaveBeenCalled();
     expect(stripAnsi(instance.lastFrame() ?? '')).not.toContain('› 1.');
+  });
+});
+
+describe('AgentUI persistent goals panel', () => {
+  it('reports measured layouts for clickable goal rows', async () => {
+    const onRowLayoutChange = vi.fn();
+    render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(GoalPanel, {
+            snapshot: {
+              version: 2,
+              goal: {
+                goalId: 'goal-active',
+                objective: 'ship the active goal',
+                status: 'active',
+                tokensUsed: 0,
+                timeUsedSeconds: 0,
+                createdAt: 1,
+                updatedAt: 1,
+              },
+              queue: [{
+                queueId: 'queue-next',
+                objective: 'ship the queued goal',
+                source: 'command',
+                createdAt: 2,
+              }],
+              completed: [],
+              updatedAt: 2,
+              sessionAttachment: 'attached',
+              peers: [],
+            },
+            selectedIndex: null,
+            onRowLayoutChange,
+          }),
+        ),
+      ),
+    );
+
+    await vi.waitFor(() => {
+      const activeLayouts = new Map<string, unknown>();
+      for (const [target, layout] of onRowLayoutChange.mock.calls) {
+        if (layout) {
+          activeLayouts.set(target.id, layout);
+        } else {
+          activeLayouts.delete(target.id);
+        }
+      }
+      expect([...activeLayouts.keys()]).toEqual(expect.arrayContaining(['goal-active', 'queue-next']));
+    });
+  });
+
+  it('navigates to a queued goal and submits an edited objective', async () => {
+    const onEditGoalObjective = vi.fn();
+    const state = {
+      ...createInitialUIState(),
+      goalPanelVisible: true,
+      goalActivity: {
+        version: 2 as const,
+        goal: {
+          goalId: 'goal-active',
+          objective: 'ship the active goal',
+          status: 'active' as const,
+          tokensUsed: 0,
+          timeUsedSeconds: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        queue: [{
+          queueId: 'queue-next',
+          objective: 'ship the queued goal',
+          source: 'command' as const,
+          createdAt: 2,
+        }],
+        completed: [],
+        updatedAt: 2,
+        sessionAttachment: 'attached' as const,
+        peers: [],
+      },
+    };
+    const instance = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+            onEditGoalObjective,
+          }),
+        ),
+      ),
+    );
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(stripAnsi(instance.lastFrame() ?? '')).toContain('Goals · 2 total');
+
+    instance.stdin.write('\x1b[B');
+    instance.stdin.write('\x1b[B');
+    instance.stdin.write('\r');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    expect(stripAnsi(instance.lastFrame() ?? '')).toContain('❯ ship the queued goal');
+
+    instance.stdin.write(' after review');
+    instance.stdin.write('\r');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    expect(onEditGoalObjective).toHaveBeenCalledWith({
+      id: 'queue-next',
+      kind: 'queued',
+      objective: 'ship the queued goal after review',
+    });
   });
 });
 

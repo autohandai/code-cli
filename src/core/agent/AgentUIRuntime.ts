@@ -26,6 +26,7 @@ import {
 } from '../../ui/ink/StatusLine.js';
 import { createQueuedAgentInstruction } from './PostTurnActionCoordinator.js';
 import { renderAgentSlashCommandResult } from './AgentCommandRuntime.js';
+import { GoalManager } from '../../goals/GoalManager.js';
 
 export interface AgentUIRuntimeHost {
   [key: string]: any;
@@ -276,6 +277,15 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
         getInteractionMode: () => host.getInteractionMode(),
         onCycleInteractionMode: () => host.cycleInteractionMode(),
         mouseComposerCursor: host.runtime?.config?.ui?.mouseComposerCursor !== false,
+        onEditGoalObjective: async (request) => {
+          const manager = host.goalActivityManager ?? new GoalManager(host.runtime.workspaceRoot, {
+            sessionId: host.sessionManager?.getCurrentSession?.()?.metadata?.sessionId,
+          });
+          const result = await manager.editGoalObjective(request.id, request.objective);
+          if (!result.ok) {
+            host.notifyUser(result.message ?? 'Goal edit failed.');
+          }
+        },
         skillsProvider: () =>
           host.skillsRegistry.listSkills().map((skill: { name: string; description?: string; isActive: boolean; source: string }) => ({
             name: skill.name,
@@ -319,6 +329,12 @@ export async function initializeAgentUI(host: AgentUIRuntimeHost, abortControlle
         syncAgentAnnouncementLine(host);
         if (host.teamActivitySnapshot) {
           host.inkRenderer?.setTeamActivity?.(host.teamActivitySnapshot);
+        }
+        if (host.goalActivityManager) {
+          host.goalActivitySnapshot = await host.goalActivityManager.getSessionSnapshot();
+        }
+        if (host.goalActivitySnapshot) {
+          host.inkRenderer?.setGoalActivity?.(host.goalActivitySnapshot);
         }
         
         // Ensure fallback spinner is NOT initialized when Ink is active

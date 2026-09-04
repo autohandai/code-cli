@@ -70,6 +70,37 @@ describe('GoalManager', () => {
     });
   });
 
+  it('acknowledges an unscoped legacy goal without exposing its objective to a fresh session', async () => {
+    const statePath = path.join(workspaceRoot, '.autohand', 'goals.local.json');
+    await fs.outputJson(statePath, {
+      version: 1,
+      goal: {
+        goalId: 'legacy-unscoped-goal',
+        objective: 'private prior-session objective',
+        status: 'active',
+        tokensUsed: 12,
+        timeUsedSeconds: 4,
+        createdAt: 100,
+        updatedAt: 200,
+      },
+      queue: [],
+      completed: [],
+      updatedAt: 200,
+    });
+
+    const snapshot = await new GoalManager(workspaceRoot, {
+      sessionId: 'session-current',
+    }).getSessionSnapshot();
+
+    expect(snapshot).toMatchObject({
+      goal: null,
+      peers: [],
+      sessionAttachment: 'none',
+    });
+    expect(snapshot.message).toContain('not attached to the current session');
+    expect(JSON.stringify(snapshot)).not.toContain('private prior-session objective');
+  });
+
   it('keeps a prior-session goal isolated until the current session creates its own', async () => {
     const priorSession = new GoalManager(workspaceRoot, { sessionId: 'session-prior' });
     await priorSession.createGoal({ objective: 'finish the prior report' });

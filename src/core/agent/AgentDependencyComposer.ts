@@ -96,6 +96,8 @@ import { activityItemsFromTodos, formatSubAgentActivityLabel } from '../../ui/in
 import { getFeatureState } from '../../features/featureRegistry.js';
 import { SpecialistOrchestrator } from '../agents/SpecialistOrchestrator.js';
 import { isGoalFeatureEnabled, resolveGoalFeatureEnabled } from '../../goals/feature.js';
+import { GoalManager } from '../../goals/GoalManager.js';
+import type { GoalSessionSnapshot } from '../../goals/types.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { SuggestionEngine } from '../SuggestionEngine.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
@@ -1658,6 +1660,13 @@ export function initializeAgentDependencies(
 
     host.sessionManager = new SessionManager();
     host.projectManager = new ProjectManager();
+    host.goalActivityManager = new GoalManager(runtime.workspaceRoot, {
+      getSessionId: () => host.sessionManager?.getCurrentSession?.()?.metadata?.sessionId,
+    });
+    host.goalActivityUnsubscribe = host.goalActivityManager.subscribe((snapshot: GoalSessionSnapshot) => {
+      host.goalActivitySnapshot = snapshot;
+      host.inkRenderer?.setGoalActivity?.(snapshot);
+    });
 
     // Ink 7 + React 19 is the default interactive UI. Do not let stale
     // config.ui.useInkRenderer values force the legacy composer.
@@ -1948,6 +1957,7 @@ export function initializeAgentDependencies(
       // Team manager for /team, /tasks, /message commands
       teamManager: host.teamManager,
       onToggleTeamView: (visible: boolean) => host.inkRenderer?.setTeamPanelVisible?.(visible),
+      onToggleGoalView: (visible: boolean) => host.inkRenderer?.setGoalPanelVisible?.(visible),
       // Repeat manager for /repeat recurring prompt scheduling
       repeatManager: host.repeatManager,
       // Queue an instruction to be sent to the LLM silently (e.g. /review)
