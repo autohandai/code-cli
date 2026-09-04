@@ -157,6 +157,43 @@ describe('AgentUI live command block', () => {
     expect(output).toContain('\u001b[38;2;244;67;54m  │ -const oldValue = true;');
   });
 
+  it('renders apply_patch output with theme diff colors', () => {
+    const originalChalkLevel = chalk.level;
+    let output = '';
+
+    try {
+      chalk.level = 3;
+
+      const { lastFrame } = render(
+        <I18nProvider>
+          <ThemeProvider>
+            <ToolOutputStatic
+              entry={{
+                id: 'tool-apply-patch',
+                tool: 'apply_patch',
+                success: true,
+                output: [
+                  'Added 1 line, removed 1 line',
+                  '   1 -  const oldValue = true;',
+                  '   1 +  const newValue = true;',
+                ].join('\n'),
+                timestamp: Date.now(),
+              }}
+            />
+          </ThemeProvider>
+        </I18nProvider>
+      );
+      output = lastFrame() ?? '';
+    } finally {
+      chalk.level = originalChalkLevel;
+    }
+
+    expect(output).toContain('\u001b[38;2;76;175;80m1 line');
+    expect(output).toContain('\u001b[38;2;244;67;54m1 line');
+    expect(output).toContain('\u001b[38;2;76;175;80m  │    1 +  const newValue = true;');
+    expect(output).toContain('\u001b[38;2;244;67;54m  │    1 -  const oldValue = true;');
+  });
+
   it('renders git diff chat history tool output with theme diff colors', () => {
     const originalChalkLevel = chalk.level;
     let output = '';

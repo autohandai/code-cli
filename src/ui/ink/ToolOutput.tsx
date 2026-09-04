@@ -90,7 +90,12 @@ function getLines(text: string): string[] {
 }
 
 function isDiffTool(tool: string): boolean {
-  return tool === 'git_diff' || tool === 'git_diff_range';
+  return tool === 'git_diff' || tool === 'git_diff_range' || tool === 'apply_patch';
+}
+
+function getNumberedDiffMarker(line: string): '+' | '-' | null {
+  const marker = line.trimStart().match(/^\d+\s+([+-])\s/u)?.[1];
+  return marker === '+' || marker === '-' ? marker : null;
 }
 
 function getDiffLineColor(
@@ -98,11 +103,12 @@ function getDiffLineColor(
   colors: ResolvedColors
 ): string {
   const trimmed = line.trimStart();
+  const numberedMarker = getNumberedDiffMarker(line);
 
-  if (trimmed.startsWith('+') && !trimmed.startsWith('+++')) {
+  if ((trimmed.startsWith('+') && !trimmed.startsWith('+++')) || numberedMarker === '+') {
     return colors.diffAdded;
   }
-  if (trimmed.startsWith('-') && !trimmed.startsWith('---')) {
+  if ((trimmed.startsWith('-') && !trimmed.startsWith('---')) || numberedMarker === '-') {
     return colors.diffRemoved;
   }
   if (
@@ -196,6 +202,7 @@ function renderThemedDiffLine(line: string, colors: ResolvedColors): string {
   }
 
   const trimmed = line.trimStart();
+  const numberedMarker = getNumberedDiffMarker(line);
 
   if (trimmed.startsWith('diff --git')) {
     return renderDiffGutter('┌', line, colors.accent);
@@ -212,10 +219,10 @@ function renderThemedDiffLine(line: string, colors: ResolvedColors): string {
   ) {
     return renderDiffGutter('│', line, colors.accent);
   }
-  if (trimmed.startsWith('+') && !trimmed.startsWith('+++')) {
+  if ((trimmed.startsWith('+') && !trimmed.startsWith('+++')) || numberedMarker === '+') {
     return renderDiffGutter('│', line, colors.diffAdded);
   }
-  if (trimmed.startsWith('-') && !trimmed.startsWith('---')) {
+  if ((trimmed.startsWith('-') && !trimmed.startsWith('---')) || numberedMarker === '-') {
     return renderDiffGutter('│', line, colors.diffRemoved);
   }
 
