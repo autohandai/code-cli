@@ -132,7 +132,7 @@ export interface ActiveAgentHeartbeatOptions {
   getSession: () => Session | null;
   getStatusSnapshot: () => ActiveAgentStatusSnapshot;
   getActivity?: () => ActiveAgentActivity | undefined;
-  onHeartbeat?: () => Promise<void> | void;
+  onHeartbeat?: (record: ActiveAgentRecord) => Promise<void> | void;
 }
 
 export class ActiveAgentHeartbeat {
@@ -141,6 +141,8 @@ export class ActiveAgentHeartbeat {
   private stopped = false;
   private stopPromise: Promise<void> | null = null;
   private readonly pendingUpdates = new Set<Promise<void>>();
+  private updateChain: Promise<void> = Promise.resolve();
+  private readonly registeredSessionIds = new Set<string>();
 
   constructor(
     private readonly registry: ActiveAgentRegistry,
@@ -168,25 +170,27 @@ export class ActiveAgentHeartbeat {
     const now = new Date().toISOString();
     const sessionId = session.metadata.sessionId;
     const activity = this.options.getActivity?.();
-    const updatePromise = this.writeUpdate({
-        version: 1,
-        pid: process.pid,
-        sessionId,
-        workspaceRoot: this.options.runtime.workspaceRoot,
-        projectName: path.basename(this.options.runtime.workspaceRoot),
-        provider: this.options.getProvider(),
-        model: snapshot.model,
-        mode: resolveActiveAgentMode(this.options.runtime),
-        status,
-        startedAt: session.metadata.createdAt,
-        updatedAt: now,
-        messageCount: session.metadata.messageCount,
-        contextPercent: snapshot.contextPercent,
-        tokensUsed: snapshot.tokensUsed,
-        tokensUsageStatus: snapshot.tokensUsageStatus,
-        sessionTokensUsed: snapshot.sessionTokensUsed,
-        ...(activity ? { activity } : {}),
-      }, sessionId);
+    const record: ActiveAgentRecord = {
+      version: 1,
+      pid: process.pid,
+      sessionId,
+      workspaceRoot: this.options.runtime.workspaceRoot,
+      projectName: path.basename(this.options.runtime.workspaceRoot),
+      provider: this.options.getProvider(),
+      model: snapshot.model,
+      mode: resolveActiveAgentMode(this.options.runtime),
+      status,
+      startedAt: session.metadata.createdAt,
+      updatedAt: now,
+      messageCount: session.metadata.messageCount,
+      contextPercent: snapshot.contextPercent,
+      tokensUsed: snapshot.tokensUsed,
+      tokensUsageStatus: snapshot.tokensUsageStatus,
+      sessionTokensUsed: snapshot.sessionTokensUsed,
+      ...(activity ? { activity } : {}),
+    };
+    const updatePromise = this.updateChain.then(() => this.writeUpdate(record));
+    this.updateChain = updatePromise.catch(() => {});
     this.pendingUpdates.add(updatePromise);
     void updatePromise.then(
       () => this.pendingUpdates.delete(updatePromise),
@@ -207,14 +211,22 @@ export class ActiveAgentHeartbeat {
     return this.stopPromise;
   }
 
-  private async writeUpdate(record: ActiveAgentRecord, sessionId: string): Promise<void> {
+  private async writeUpdate(record: ActiveAgentRecord): Promise<void> {
     await this.registry.write(record);
+    this.registeredSessionIds.add(record.sessionId);
     if (this.stopped) {
-      await this.registry.remove(sessionId).catch(() => {});
+      await this.removeRegisteredSessions();
       return;
     }
+
+    const priorSessionIds = [...this.registeredSessionIds]
+      .filter((sessionId) => sessionId !== record.sessionId);
+    await Promise.all(priorSessionIds.map(async (sessionId) => {
+      await this.registry.remove(sessionId);
+      this.registeredSessionIds.delete(sessionId);
+    }));
     try {
-      await this.options.onHeartbeat?.();
+      await this.options.onHeartbeat?.(record);
     } catch {
       // Peer awareness is advisory; a failed registry poll must not stop the heartbeat.
     }
@@ -222,10 +234,15 @@ export class ActiveAgentHeartbeat {
 
   private async finishStop(): Promise<void> {
     await Promise.allSettled([...this.pendingUpdates]);
-    const session = this.options.getSession();
-    if (session) {
-      await this.registry.remove(session.metadata.sessionId);
-    }
+    await this.removeRegisteredSessions();
+  }
+
+  private async removeRegisteredSessions(): Promise<void> {
+    const registeredSessionIds = [...this.registeredSessionIds];
+    await Promise.all(registeredSessionIds.map(async (sessionId) => {
+      await this.registry.remove(sessionId);
+      this.registeredSessionIds.delete(sessionId);
+    }));
   }
 }
 

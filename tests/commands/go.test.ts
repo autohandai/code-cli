@@ -655,7 +655,10 @@ describe('/handoff session command', () => {
       client,
     });
 
-    expect(stripAnsi(result || '')).toContain('experimental_handoff');
+    const output = stripAnsi(result || '');
+    expect(output).toContain('experimental_handoff');
+    expect(output).toContain('/experiments enable experimental_handoff');
+    expect(output).not.toContain('/features');
     expect(client.createPairing).not.toHaveBeenCalled();
   });
 

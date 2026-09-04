@@ -23,6 +23,7 @@ import {
   type ContextTokenDisplay,
   type TurnCompletionStatus,
 } from './AgentUI.js';
+import type { GoalEditRequest } from './GoalPanel.js';
 import type { LiveCommandEntry, ToolOutputEntry, ToolOutputBatchEntry, ToolOutputItem, BatchToolItem } from './ToolOutput.js';
 import type { SlashCommand } from '../../core/slashCommandTypes.js';
 import type { SkillMentionInfo } from '../mentionFilter.js';
@@ -40,6 +41,7 @@ import {
 } from '../../core/agent/WorkspaceChangeCapture.js';
 import type { InteractionMode } from '../../core/agent/InteractionModeController.js';
 import type { TeamActivitySnapshot } from '../../core/teams/types.js';
+import type { GoalSessionSnapshot } from '../../goals/types.js';
 import type { LineExtension, LineSegment } from './StatusLine.js';
 import {
   createSequencedQueuedWork,
@@ -73,6 +75,7 @@ export interface InkRendererOptions {
   getInteractionMode?: () => InteractionMode;
   onCycleInteractionMode?: () => InteractionMode;
   mouseComposerCursor?: boolean;
+  onEditGoalObjective?: (request: GoalEditRequest) => void | Promise<void>;
 }
 
 export interface SetWorkingOptions {
@@ -187,6 +190,8 @@ interface AgentUIWrapperProps {
   onDismissAnnouncement?: (id: string) => void;
   onToggleLiveCommandExpanded: (id?: string) => void;
   onToggleTeamPanel: () => void;
+  onToggleGoalPanel: () => void;
+  onEditGoalObjective?: (request: GoalEditRequest) => void | Promise<void>;
   onInputChange: (input: string) => void;
   enableQueueInput?: boolean;
   onImageDetected?: (data: Buffer, mimeType: string, filename?: string) => number;
@@ -219,6 +224,8 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       onDismissAnnouncement,
       onToggleLiveCommandExpanded,
       onToggleTeamPanel,
+      onToggleGoalPanel,
+      onEditGoalObjective,
       onInputChange,
       enableQueueInput,
       onImageDetected,
@@ -266,6 +273,8 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         onDismissAnnouncement={onDismissAnnouncement}
         onToggleLiveCommandExpanded={onToggleLiveCommandExpanded}
         onToggleTeamPanel={onToggleTeamPanel}
+        onToggleGoalPanel={onToggleGoalPanel}
+        onEditGoalObjective={onEditGoalObjective}
         onInputChange={handleInputChange}
         enableQueueInput={enableQueueInput}
         onImageDetected={onImageDetected}
@@ -445,6 +454,8 @@ export class InkRenderer {
             onDismissAnnouncement={this.options.onDismissAnnouncement}
             onToggleLiveCommandExpanded={(id) => this.toggleActiveLiveCommandExpanded(id)}
             onToggleTeamPanel={() => this.toggleTeamPanel()}
+            onToggleGoalPanel={() => this.toggleGoalPanel()}
+            onEditGoalObjective={this.options.onEditGoalObjective}
             onInputChange={this.handleInputChange}
             enableQueueInput={this.options.enableQueueInput}
             onImageDetected={this.options.onImageDetected}
@@ -715,6 +726,7 @@ export class InkRenderer {
     this.updateState({
       chatMessages: messages,
       staticChatMessageOffset: 0,
+      chatHistoryEpoch: this.state.chatHistoryEpoch + 1,
       userMessages: messages
         .filter((message) => message.role === 'user')
         .map((message) => message.content),
@@ -1110,6 +1122,18 @@ export class InkRenderer {
     this.setTeamPanelVisible(!this.state.teamPanelVisible);
   }
 
+  setGoalActivity(goalActivity: GoalSessionSnapshot): void {
+    this.updateState({ goalActivity });
+  }
+
+  setGoalPanelVisible(visible: boolean): void {
+    this.updateState({ goalPanelVisible: visible });
+  }
+
+  toggleGoalPanel(): void {
+    this.setGoalPanelVisible(!this.state.goalPanelVisible);
+  }
+
   /**
    * Replace all status/help line extension points.
    */
@@ -1294,6 +1318,8 @@ export class InkRenderer {
               onDismissAnnouncement={this.options.onDismissAnnouncement}
               onToggleLiveCommandExpanded={(id) => this.toggleActiveLiveCommandExpanded(id)}
               onToggleTeamPanel={() => this.toggleTeamPanel()}
+              onToggleGoalPanel={() => this.toggleGoalPanel()}
+              onEditGoalObjective={this.options.onEditGoalObjective}
               onInputChange={this.handleInputChange}
               enableQueueInput={this.options.enableQueueInput}
               onImageDetected={this.options.onImageDetected}

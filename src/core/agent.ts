@@ -2822,7 +2822,10 @@ export class AutohandAgent {
           claims: this.peerAwareness.getClaims(),
           headRef: this.peerAwareness.getRepoBaseline(),
         }),
-        onHeartbeat: () => this.refreshPeerAwareness(),
+        onHeartbeat: (record) => {
+          this.peerAwareness.setSessionId(record.sessionId);
+          return this.refreshPeerAwareness();
+        },
       },
     );
     this.activeAgentHeartbeat = heartbeat;

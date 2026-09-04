@@ -6,7 +6,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   resetFreshAgentSessionState,
+  restoreAgentSessionState,
   startFreshAgentSession,
+  type AgentLifecycleHost,
   type FreshAgentSessionHost,
   type FreshAgentSessionStateHost,
 } from '../../../src/core/agent/AgentLifecycleRunner.js';
@@ -307,6 +309,55 @@ describe('startFreshAgentSession', () => {
     expect(host.telemetryManager.endSession).not.toHaveBeenCalled();
     expect(host.syncFreshAgentSessionSnapshot).not.toHaveBeenCalled();
     expect(host.telemetryManager.startSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('restoreAgentSessionState', () => {
+  it('refreshes the session-scoped goal snapshot after the active session changes', async () => {
+    const goalSnapshot = {
+      version: 2 as const,
+      goal: null,
+      queue: [],
+      completed: [],
+      updatedAt: 1,
+      sessionAttachment: 'none' as const,
+      peers: [],
+    };
+    const getSessionSnapshot = vi.fn(async () => goalSnapshot);
+    const setGoalActivity = vi.fn();
+    const host = {
+      sessionManager: {
+        loadSession: vi.fn(async () => ({
+          metadata: { sessionId: 'branched-session' },
+          getMessages: () => [],
+        })),
+      },
+      resetConversationContext: vi.fn(async () => {}),
+      injectSessionBootstrap: vi.fn(async () => {}),
+      conversation: {
+        addSystemNote: vi.fn(),
+        addMessage: vi.fn(),
+        history: vi.fn(() => []),
+      },
+      injectProjectKnowledge: vi.fn(async () => {}),
+      updateContextUsage: vi.fn(),
+      restoredChatMessages: [],
+      inkRenderer: {
+        setChatMessages: vi.fn(),
+        setGoalActivity,
+      },
+      goalActivityManager: { getSessionSnapshot },
+      goalActivitySnapshot: undefined,
+    };
+
+    await restoreAgentSessionState(
+      host as unknown as AgentLifecycleHost,
+      'branched-session',
+    );
+
+    expect(getSessionSnapshot).toHaveBeenCalledOnce();
+    expect(host.goalActivitySnapshot).toBe(goalSnapshot);
+    expect(setGoalActivity).toHaveBeenCalledWith(goalSnapshot);
   });
 });
 

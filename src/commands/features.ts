@@ -20,6 +20,20 @@ export interface FeaturesCommandContext {
   interactive?: boolean;
 }
 
+const FEATURE_ID_ALIASES: Readonly<Record<string, string>> = {
+  '/goal': 'slash_goal',
+  '/goals': 'slash_goal',
+  goal: 'slash_goal',
+  goals: 'slash_goal',
+};
+
+function resolveFeatureId(featureId: string | undefined): string | undefined {
+  if (!featureId) {
+    return undefined;
+  }
+  return FEATURE_ID_ALIASES[featureId.toLowerCase()] ?? featureId;
+}
+
 function renderUsage(): string {
   return [
     'Usage: /experiments [list|status|enable|disable|refresh]',
@@ -44,14 +58,15 @@ export async function setFeatureEnabled(
   enabled: boolean,
   remoteSnapshot?: RemoteFeatureFlagSnapshot | null
 ): Promise<string> {
-  if (!featureId) {
+  const resolvedFeatureId = resolveFeatureId(featureId);
+  if (!resolvedFeatureId) {
     return renderUsage();
   }
 
   const snapshot = remoteSnapshot === undefined ? await loadRemoteFeatureFlags(config) : remoteSnapshot;
-  const result = setFeatureState(config, featureId, enabled, { remoteSnapshot: snapshot });
+  const result = setFeatureState(config, resolvedFeatureId, enabled, { remoteSnapshot: snapshot });
   if (!result.ok || !result.feature) {
-    return result.error ?? `Unknown feature "${featureId}".`;
+    return result.error ?? `Unknown feature "${resolvedFeatureId}".`;
   }
 
   await saveConfig(config);
@@ -163,7 +178,7 @@ export async function features(ctx: FeaturesCommandContext, args: string[] = [])
   }
 
   const subcommand = (args[0] ?? '').toLowerCase();
-  const featureId = args[1];
+  const featureId = resolveFeatureId(args[1]);
   const forceRefresh = subcommand === 'refresh';
   const remoteSnapshot = await loadRemoteFeatureFlags(required, {
     forceRefresh,
@@ -194,8 +209,8 @@ export async function features(ctx: FeaturesCommandContext, args: string[] = [])
       }
       return `Downloaded ${remoteSnapshot.flags.length} remote feature${remoteSnapshot.flags.length === 1 ? '' : 's'} from ${remoteSnapshot.environment}.`;
     default:
-      if (getFeatureState(required, subcommand, { remoteSnapshot })) {
-        return formatFeatureStatus(required, subcommand, { remoteSnapshot });
+      if (getFeatureState(required, resolveFeatureId(subcommand) ?? subcommand, { remoteSnapshot })) {
+        return formatFeatureStatus(required, resolveFeatureId(subcommand) ?? subcommand, { remoteSnapshot });
       }
       return renderUsage();
   }

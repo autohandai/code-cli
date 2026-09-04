@@ -91,6 +91,20 @@ describe('/experiments command', () => {
     expect(mockSaveConfig).toHaveBeenCalledWith(config);
   });
 
+  it.each(['/goal', '/goals', 'goal', 'goals'])(
+    'accepts %s as a user-facing alias for slash_goal',
+    async (featureAlias) => {
+      const { features } = await import('../../src/commands/features.js');
+      const config = makeConfig({ features: { slashGoal: false } });
+
+      const output = await features({ config }, ['enable', featureAlias]);
+
+      expect(output).toBe('Enabled slash_goal.');
+      expect(config.features?.slashGoal).toBe(true);
+      expect(mockSaveConfig).toHaveBeenCalledWith(config);
+    },
+  );
+
   it('lets users enable experimental_handoff without requiring restart', async () => {
     const { features } = await import('../../src/commands/features.js');
     const config = makeConfig({

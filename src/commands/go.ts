@@ -303,7 +303,7 @@ export async function handoffSession(ctx: HandoffSessionContext, args: string[] 
   const localDefault = ctx.config?.features?.experimentalHandoff === true;
   const enabled = ctx.isFeatureEnabled?.(HANDOFF_FLAG, localDefault) ?? localDefault;
   if (!enabled) {
-    return `The /handoff session command is behind ${HANDOFF_FLAG}. Run /features enable ${HANDOFF_FLAG}, then /handoff session again. No restart required.`;
+    return `The /handoff session command is behind ${HANDOFF_FLAG}. Run /experiments enable ${HANDOFF_FLAG}, then /handoff session again. No restart required.`;
   }
 
   await ctx.trackFeatureActivation?.(HANDOFF_FLAG, { surface: 'slash_command' });

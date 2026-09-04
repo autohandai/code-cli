@@ -8,6 +8,24 @@ import { describe, expect, it } from 'vitest';
 import { InkRenderer } from '../../../src/ui/ink/InkRenderer.js';
 
 describe('InkRenderer live command blocks', () => {
+  it('advances the static chat identity when session history is replaced', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    renderer.addUserMessage('/fork');
+    const initialEpoch = renderer.getState().chatHistoryEpoch;
+    renderer.setChatMessages([]);
+    renderer.addAssistantMessage('Forked session branch-id.');
+
+    expect(renderer.getState()).toMatchObject({
+      chatHistoryEpoch: initialEpoch + 1,
+      chatMessages: [{ role: 'assistant', content: 'Forked session branch-id.' }],
+    });
+  });
+
   it('replaces a keyed notification instead of stacking prior peer notices', () => {
     const renderer = new InkRenderer({
       onInstruction: () => {},

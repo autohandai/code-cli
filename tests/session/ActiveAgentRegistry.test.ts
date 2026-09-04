@@ -196,6 +196,33 @@ describe('ActiveAgentRegistry', () => {
     await heartbeat.stop();
   });
 
+  it('moves its registry record when the active session identity changes', async () => {
+    const registry = new ActiveAgentRegistry(tempRoot, { isPidAlive: () => true });
+    let session = createSession('session-before-branch');
+    const heartbeat = createHeartbeat(registry, () => session);
+
+    await heartbeat.update();
+    session = createSession('session-after-branch');
+    await heartbeat.update();
+
+    expect((await registry.listActive()).map((record) => record.sessionId)).toEqual([
+      'session-after-branch',
+    ]);
+    await heartbeat.stop();
+  });
+
+  it('removes the identity it registered when the session getter changes before stop', async () => {
+    const registry = new ActiveAgentRegistry(tempRoot, { isPidAlive: () => true });
+    let session = createSession('registered-session');
+    const heartbeat = createHeartbeat(registry, () => session);
+
+    await heartbeat.update();
+    session = createSession('unregistered-session');
+    await heartbeat.stop();
+
+    expect(await registry.listActive()).toEqual([]);
+  });
+
   it('runs peer polling on the same heartbeat update', async () => {
     const registry = new ActiveAgentRegistry(tempRoot, { isPidAlive: () => true });
     const session = new Session(tempRoot, {
@@ -228,7 +255,9 @@ describe('ActiveAgentRegistry', () => {
 
     await heartbeat.update();
 
-    expect(onHeartbeat).toHaveBeenCalledOnce();
+    expect(onHeartbeat).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'polling-session',
+    }));
     await heartbeat.stop();
   });
 });
@@ -253,4 +282,42 @@ function createRecord(overrides: Partial<ActiveAgentRecord> = {}): ActiveAgentRe
     sessionTokensUsed: 1234,
     ...overrides,
   };
+}
+
+function createSession(sessionId: string): Session {
+  return new Session(tempRootForSession(sessionId), {
+    sessionId,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    lastActiveAt: '2026-01-01T00:00:00.000Z',
+    projectPath: '/repo',
+    projectName: 'repo',
+    model: 'openai/gpt-4o-mini',
+    messageCount: 0,
+    status: 'active',
+  });
+}
+
+function tempRootForSession(sessionId: string): string {
+  return path.join('/tmp', sessionId);
+}
+
+function createHeartbeat(
+  registry: ActiveAgentRegistry,
+  getSession: () => Session,
+): ActiveAgentHeartbeat {
+  return new ActiveAgentHeartbeat(registry, {
+    runtime: {
+      config: {},
+      options: {},
+      workspaceRoot: '/repo',
+    } as AgentRuntime,
+    getProvider: () => 'openrouter',
+    getSession,
+    getStatusSnapshot: () => ({
+      model: 'openai/gpt-4o-mini',
+      workspace: '/repo',
+      contextPercent: 100,
+      tokensUsed: 0,
+    }),
+  });
 }

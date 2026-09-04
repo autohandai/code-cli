@@ -84,6 +84,14 @@ export class GoalManager {
     const key = this.goalKey();
     const goal = snapshot.goals[key] ?? null;
     const peers = await this.buildPeers(snapshot, key);
+    const hasDetachedUnscopedGoal = key !== UNKNOWN_SESSION_KEY
+      && snapshot.goals[UNKNOWN_SESSION_KEY] !== undefined;
+    let message: string | undefined;
+    if (peers.length > 0) {
+      message = 'No goal is attached to this session. Other sessions are running goals in this workspace; create your own with /goal <objective> to run concurrently.';
+    } else if (hasDetachedUnscopedGoal) {
+      message = 'A persisted goal exists but is not attached to the current session.';
+    }
 
     if (!goal) {
       return {
@@ -94,9 +102,7 @@ export class GoalManager {
         updatedAt: snapshot.updatedAt,
         sessionAttachment: key === UNKNOWN_SESSION_KEY ? 'unscoped' : 'none',
         peers,
-        message: peers.length > 0
-          ? 'No goal is attached to this session. Other sessions are running goals in this workspace; create your own with /goal <objective> to run concurrently.'
-          : undefined,
+        message,
       };
     }
     return {

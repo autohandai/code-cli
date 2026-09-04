@@ -657,6 +657,8 @@ export async function shutdownAgentRuntimeResources(host: AgentLifecycleHost): P
       host.announcementUnsubscribe = null;
       callResourceCleanupSync(host.teamActivityUnsubscribe ?? undefined);
       host.teamActivityUnsubscribe = null;
+      callResourceCleanupSync(host.goalActivityUnsubscribe ?? undefined);
+      host.goalActivityUnsubscribe = null;
 
       callResourceCleanupSync(() => host.repeatManager?.shutdown());
       host.persistentInputActiveTurn = false;
@@ -1210,6 +1212,10 @@ export async function restoreAgentSessionState(host: AgentLifecycleHost, session
     host.updateContextUsage(host.conversation.history());
     if (host.inkRenderer?.setChatMessages) {
       host.inkRenderer.setChatMessages(host.restoredChatMessages);
+    }
+    if (host.goalActivityManager?.getSessionSnapshot) {
+      host.goalActivitySnapshot = await host.goalActivityManager.getSessionSnapshot();
+      host.inkRenderer?.setGoalActivity?.(host.goalActivitySnapshot);
     }
     return session;
   }

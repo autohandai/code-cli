@@ -30,7 +30,7 @@ export const treeMetadata: SlashCommand = {
 
 export async function forkSession(ctx: SlashCommandContext, args: string[] = []): Promise<string> {
   if (!isEnabled(ctx, FORK_FLAG)) {
-    return `The /fork command is behind ${FORK_FLAG}. Run /features enable ${FORK_FLAG}, then /fork again. No restart required.`;
+    return `The /fork command is behind ${FORK_FLAG}. Run /experiments enable ${FORK_FLAG}, then /fork again. No restart required.`;
   }
 
   await ctx.trackFeatureActivation?.(FORK_FLAG, { surface: 'slash_command' });
@@ -52,7 +52,7 @@ export async function forkSession(ctx: SlashCommandContext, args: string[] = [])
 
 export async function cloneSession(ctx: SlashCommandContext, args: string[] = []): Promise<string> {
   if (!isEnabled(ctx, CLONE_FLAG)) {
-    return `The /clone command is behind ${CLONE_FLAG}. Run /features enable ${CLONE_FLAG}, then /clone again. No restart required.`;
+    return `The /clone command is behind ${CLONE_FLAG}. Run /experiments enable ${CLONE_FLAG}, then /clone again. No restart required.`;
   }
 
   await ctx.trackFeatureActivation?.(CLONE_FLAG, { surface: 'slash_command' });
@@ -81,7 +81,7 @@ export async function sessionTree(ctx: SlashCommandContext): Promise<string> {
 
 export async function forkSessionReference(ctx: SlashCommandContext, sourceReference: string): Promise<string> {
   if (!isEnabled(ctx, FORK_FLAG)) {
-    return `The --fork flag is behind ${FORK_FLAG}. Run /features enable ${FORK_FLAG}, then try again.`;
+    return `The --fork flag is behind ${FORK_FLAG}. Run /experiments enable ${FORK_FLAG}, then try again.`;
   }
 
   await ctx.trackFeatureActivation?.(FORK_FLAG, { surface: 'cli_flag' });
