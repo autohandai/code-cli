@@ -52,6 +52,41 @@ describe('/goal command', () => {
     expect(metadata.implemented).toBe(true);
     expect(metadata.subcommands?.map((item) => item.name)).toContain('queue');
     expect(metadata.subcommands?.map((item) => item.name)).toContain('writer');
+    expect(metadata.subcommands?.map((item) => item.name)).toContain('view');
+    expect(metadata.subcommands?.map((item) => item.name)).toContain('edit');
+  });
+
+  it('opens the live goals view without creating another goal', async () => {
+    const onToggleGoalView = vi.fn();
+    ctx.onToggleGoalView = onToggleGoalView;
+    await goal(ctx, ['first goal']);
+
+    const result = await goal(ctx, ['view']);
+
+    expect(result).toContain('Opened the live goals view');
+    expect(onToggleGoalView).toHaveBeenCalledWith(true);
+    const snapshot = await new GoalManager(workspaceRoot, {
+      sessionId: 'session-current',
+    }).getSessionSnapshot();
+    expect(snapshot.queue).toEqual([]);
+  });
+
+  it('edits a queued goal by ID without changing its queue position', async () => {
+    await goal(ctx, ['first goal']);
+    await goal(ctx, ['queue', 'second goal']);
+    const manager = new GoalManager(workspaceRoot, { sessionId: 'session-current' });
+    const before = await manager.getSessionSnapshot();
+    const queuedGoal = before.queue[0];
+    if (!queuedGoal) {
+      throw new Error('expected a queued goal');
+    }
+
+    const result = await goal(ctx, ['edit', queuedGoal.queueId, 'second goal after review']);
+
+    expect(result).toContain('Queued goal updated.');
+    expect((await manager.getSessionSnapshot()).queue).toMatchObject([
+      { queueId: queuedGoal.queueId, objective: 'second goal after review' },
+    ]);
   });
 
   it('starts the writer when /goal has no active goal or arguments', async () => {
@@ -79,8 +114,11 @@ describe('/goal command', () => {
     expect(result).toContain('finish release prep');
     expect(queued[0]).toContain('Active goal');
     expect(ctx.setInteractionMode).toHaveBeenCalledWith('automode');
-    expect((await new GoalManager(workspaceRoot).getSnapshot()).activeSessionId)
-      .toBe('session-current');
+    const snapshot = await new GoalManager(workspaceRoot, {
+      sessionId: 'session-current',
+    }).getSessionSnapshot();
+    expect(snapshot.goal?.objective).toBe('finish release prep');
+    expect(snapshot.sessionAttachment).toBe('attached');
     expect(hookEvents).toEqual([
       {
         event: 'goal-written:completed',
@@ -114,7 +152,9 @@ describe('/goal command', () => {
     const message = await goal(ctx, ['then', 'update', 'the', 'changelog']);
 
     expect(message).not.toContain('A goal already exists');
-    const snapshot = await new GoalManager(workspaceRoot).getSnapshot();
+    const snapshot = await new GoalManager(workspaceRoot, {
+      sessionId: 'session-current',
+    }).getSessionSnapshot();
     expect(snapshot.goal?.objective).toBe('ship the auth fix');
     expect(snapshot.queue.map((entry) => entry.objective))
       .toEqual(['then update the changelog']);
@@ -122,19 +162,24 @@ describe('/goal command', () => {
     expect(queued).toEqual([]);
   });
 
-  it('abandons a dead-owner goal and starts the new objective instead of queueing', async () => {
+  it('creates a concurrent goal instead of abandoning a dead-owner peer goal', async () => {
     await new GoalManager(workspaceRoot, { sessionId: 'session-prior' })
       .createGoal({ objective: 'stale prior goal' });
     queued.length = 0;
 
     const message = await goal(ctx, ['fresh', 'objective']);
 
-    expect(message).toContain('Abandoned previous goal');
-    expect(message).toContain('stale prior goal');
-    const snapshot = await new GoalManager(workspaceRoot).getSnapshot();
+    expect(message).toContain('Goal created');
+    expect(message).toContain('fresh objective');
+    const snapshot = await new GoalManager(workspaceRoot, {
+      sessionId: 'session-current',
+    }).getSessionSnapshot();
     expect(snapshot.goal?.objective).toBe('fresh objective');
-    expect(snapshot.activeSessionId).toBe('session-current');
-    expect(snapshot.completed.map((item) => item.objective)).toContain('stale prior goal');
+    expect(snapshot.peers).toHaveLength(1);
+    expect(snapshot.peers[0]).toMatchObject({
+      sessionId: 'session-prior',
+      objective: 'stale prior goal',
+    });
     expect(queued[0]).toContain('Active goal: fresh objective');
     expect(ctx.setInteractionMode).toHaveBeenCalledWith('automode');
   });
@@ -162,7 +207,9 @@ describe('/goal command', () => {
 
     await goal(ctx, ['complete']);
 
-    const snapshot = await new GoalManager(workspaceRoot).getSnapshot();
+    const snapshot = await new GoalManager(workspaceRoot, {
+      sessionId: 'session-current',
+    }).getSessionSnapshot();
     expect(snapshot.goal?.objective).toBe('then update the changelog');
     expect(snapshot.goal?.status).toBe('active');
     expect(snapshot.queue).toHaveLength(0);
@@ -211,17 +258,23 @@ describe('/goal command', () => {
     expect(ctx.setInteractionMode).toHaveBeenCalledWith('automode');
   });
 
-  it('attaches a prior-session active goal only after explicit resume', async () => {
+  it('does not resume a prior-session peer goal without an explicit goal of its own', async () => {
     await new GoalManager(workspaceRoot, { sessionId: 'session-prior' })
       .createGoal({ objective: 'continue deliberately' });
 
     const result = await goal(ctx, ['resume']);
 
-    expect(result).toContain('Goal: continue deliberately');
-    expect(queued).toHaveLength(1);
-    expect(queued[0]).toContain('Active goal: continue deliberately');
-    expect((await new GoalManager(workspaceRoot).getSnapshot()).activeSessionId)
-      .toBe('session-current');
+    expect(result).toContain('No goal exists for this session to update');
+    expect(queued).toHaveLength(0);
+    const snapshot = await new GoalManager(workspaceRoot, {
+      sessionId: 'session-current',
+    }).getSessionSnapshot();
+    expect(snapshot.goal).toBeNull();
+    expect(snapshot.peers).toHaveLength(1);
+    expect(snapshot.peers[0]).toMatchObject({
+      sessionId: 'session-prior',
+      objective: 'continue deliberately',
+    });
   });
 
   it('does not change interaction mode when pausing, clearing, or drafting a goal', async () => {

@@ -455,7 +455,7 @@ export class RPCAdapter {
 
   async handleGoalGet(): Promise<unknown> {
     if (!this.isGoalFeatureEnabled()) return this.goalFeatureDisabledResult();
-    return new GoalManager(this.workspace).getSnapshot();
+    return new GoalManager(this.workspace).getSessionSnapshot();
   }
 
   async handleGoalCreate(params: {

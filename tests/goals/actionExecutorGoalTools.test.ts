@@ -54,7 +54,7 @@ describe('goal tools', () => {
     expect(snapshot).toContain('tokenBudget');
   });
 
-  it('does not expose a prior-session goal objective through get_goal', async () => {
+  it('does not attach a prior-session goal to the current session through get_goal', async () => {
     currentSessionId = 'session-prior';
     await executor.execute({
       type: 'create_goal',
@@ -64,8 +64,12 @@ describe('goal tools', () => {
 
     const snapshot = await executor.execute({ type: 'get_goal' });
 
-    expect(snapshot).toContain('not attached to the current session');
-    expect(snapshot).not.toContain('old objective must remain dormant');
+    // The current session has no goal of its own; the prior session's goal is
+    // surfaced only as a peer so the agent stays aware without continuing it.
+    expect(snapshot).toContain('"goal": null');
+    expect(snapshot).toContain('"sessionAttachment": "none"');
+    expect(snapshot).toContain('"sessionId": "session-prior"');
+    expect(snapshot).toContain('old objective must remain dormant');
   });
 
   it('queues and starts goals through agent tools', async () => {

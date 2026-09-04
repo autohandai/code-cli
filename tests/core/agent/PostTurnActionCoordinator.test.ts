@@ -190,7 +190,8 @@ describe('post-turn active goal continuation', () => {
   });
 
   it('stops scheduling after the goal reaches a terminal state', async () => {
-    await new GoalManager(workspaceRoot).updateGoal({ status: 'complete' });
+    await new GoalManager(workspaceRoot, { sessionId: 'session-current' })
+      .updateGoal({ status: 'complete' });
 
     await expect(resolveActiveGoalContinuation(host, true)).resolves.toBeNull();
   });
