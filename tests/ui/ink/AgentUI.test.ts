@@ -2070,11 +2070,55 @@ describe('AgentUI task activity layout', () => {
     const planIndex = frame.indexOf('Tasks');
     const statusIndex = frame.indexOf('Reviewing tool output...');
     const composerIndex = frame.lastIndexOf('❯');
+    const helpIndex = frame.indexOf('100% context left');
 
     expect(planIndex).toBeGreaterThan(-1);
     expect(frame).toContain('0/2 done');
     expect(planIndex).toBeGreaterThan(statusIndex);
     expect(composerIndex).toBeGreaterThan(planIndex);
+    expect(helpIndex).toBeGreaterThan(composerIndex);
+  });
+
+  it('moves the live task plan up above status when configured', () => {
+    const state = {
+      ...createInitialUIState(),
+      isWorking: true,
+      status: 'Reviewing tool output...',
+      activityItems: [
+        { id: 'active', kind: 'todo' as const, label: 'Keeping active task progress visible', status: 'in_progress' as const },
+        { id: 'queued', kind: 'todo' as const, label: 'Writing terminal coverage', status: 'pending' as const },
+      ],
+    };
+
+    const { lastFrame } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+            enableQueueInput: true,
+            taskListPosition: 'up',
+          }),
+        ),
+      ),
+    );
+
+    const frame = stripAnsi(lastFrame() ?? '');
+    const planIndex = frame.indexOf('Tasks');
+    const statusIndex = frame.indexOf('Reviewing tool output...');
+    const composerIndex = frame.lastIndexOf('❯');
+    const helpIndex = frame.indexOf('100% context left');
+
+    expect(planIndex).toBeGreaterThan(-1);
+    expect(statusIndex).toBeGreaterThan(planIndex);
+    expect(composerIndex).toBeGreaterThan(statusIndex);
+    expect(helpIndex).toBeGreaterThan(composerIndex);
   });
 
   it.each(['/tasks', '/team', '/squad'])(

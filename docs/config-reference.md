@@ -679,6 +679,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
     "autoConfirm": false,
     "readFileCharLimit": 300,
     "silentToolOutput": false,
+    "taskListPosition": "above-composer",
     "activityVerbs": ["Compiling", "Parsing", "Reviewing"],
     "activityVerbsEnabled": true,
     "activitySymbol": "✳",
@@ -710,6 +711,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `autoConfirm`                | boolean | `false` | Skip confirmation prompts for safe operations                                                  |
 | `readFileCharLimit`          | number | `300`   | Max characters to display from read/find tool output (full content is still sent to the model) |
 | `silentToolOutput`           | boolean | `false` | Hide tool output blocks in the terminal while still preserving tool results for the model/session |
+| `taskListPosition`           | `"up"` or `"above-composer"` | `"above-composer"` | Place the live task list above the status line or directly above the composer |
 | `activityVerbs`              | string or string[] | built-in pool | Custom activity verb or verb pool for the working indicator, rendered as `Verb...` |
 | `activityVerbsEnabled`       | boolean | `true`  | Show rotating activity verbs like `Compiling...` while the agent is working |
 | `activitySymbol`             | string | `"✳"`   | Symbol shown before the activity verb in activity indicator output |
@@ -760,6 +762,17 @@ You can toggle silent tool output without editing the file:
 ```bash
 autohand config set silent_tool_output true
 autohand config set silent_tool_output false
+```
+
+### Task List Position
+
+Choose **UI & Display → Task list position** in `/settings`. `up` places live tasks above the working status line; `above-composer` keeps them directly above the composer and is the default.
+
+You can also set the position from the command line:
+
+```bash
+autohand config set task_list position up
+autohand config set task_list position above-composer
 ```
 
 You can toggle rotating activity verbs without editing the file:

@@ -140,6 +140,7 @@ function createDefaultConfig(): AutohandConfig {
       theme: "dark",
       autoConfirm: false,
       silentToolOutput: false,
+      taskListPosition: "above-composer",
       completionReportEnabled: true,
       activityVerbsEnabled: true,
       promptSuggestions: true,
@@ -781,6 +782,7 @@ function normalizeConfig(
         autoConfirm: config.dry_run ?? false,
         theme: "dark",
         silentToolOutput: false,
+        taskListPosition: "above-composer",
         completionReportEnabled: true,
         activityVerbsEnabled: true,
         promptSuggestions: true,
@@ -909,6 +911,14 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
       typeof config.ui.mouseComposerCursor !== "boolean"
     ) {
       throw new Error(`ui.mouseComposerCursor must be boolean in ${configPath}`);
+    }
+    const taskListPosition: unknown = config.ui.taskListPosition;
+    if (
+      taskListPosition !== undefined &&
+      taskListPosition !== "up" &&
+      taskListPosition !== "above-composer"
+    ) {
+      throw new Error(`ui.taskListPosition must be up or above-composer in ${configPath}`);
     }
     if (
       config.ui.completionReportEnabled !== undefined &&

@@ -203,6 +203,8 @@
         "autoConfirmDesc": "Skip confirmation prompts for tool actions",
         "silentToolOutput": "Silent tool output",
         "silentToolOutputDesc": "Hide tool output blocks in the terminal while preserving model context",
+        "taskListPosition": "Task list position",
+        "taskListPositionDesc": "Place active tasks above status or directly above the composer",
         "showThinking": "Show LLM thinking",
         "showThinkingDesc": "Display the model reasoning process",
         "terminalBell": "Terminal bell",
