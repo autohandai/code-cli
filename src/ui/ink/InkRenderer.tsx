@@ -42,6 +42,7 @@ import {
 import type { InteractionMode } from '../../core/agent/InteractionModeController.js';
 import type { TeamActivitySnapshot } from '../../core/teams/types.js';
 import type { GoalSessionSnapshot } from '../../goals/types.js';
+import type { TaskListPosition } from '../../types.js';
 import type { LineExtension, LineSegment } from './StatusLine.js';
 import {
   createSequencedQueuedWork,
@@ -75,6 +76,7 @@ export interface InkRendererOptions {
   getInteractionMode?: () => InteractionMode;
   onCycleInteractionMode?: () => InteractionMode;
   mouseComposerCursor?: boolean;
+  taskListPositionProvider?: () => TaskListPosition;
   onEditGoalObjective?: (request: GoalEditRequest) => void | Promise<void>;
 }
 
@@ -208,6 +210,7 @@ interface AgentUIWrapperProps {
   getInteractionMode?: () => InteractionMode;
   onCycleInteractionMode?: () => InteractionMode;
   mouseComposerCursor?: boolean;
+  taskListPosition: TaskListPosition;
 }
 
 /**
@@ -242,6 +245,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       getInteractionMode,
       onCycleInteractionMode,
       mouseComposerCursor,
+      taskListPosition,
     } = props;
 
     const [state, setState] = useState<AgentUIState>(initialState);
@@ -291,6 +295,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         getInteractionMode={getInteractionMode}
         onCycleInteractionMode={onCycleInteractionMode}
         mouseComposerCursor={mouseComposerCursor}
+        taskListPosition={taskListPosition}
       />
     );
   }
@@ -472,6 +477,7 @@ export class InkRenderer {
             getInteractionMode={this.options.getInteractionMode}
             onCycleInteractionMode={this.options.onCycleInteractionMode}
             mouseComposerCursor={this.options.mouseComposerCursor}
+            taskListPosition={this.options.taskListPositionProvider?.() ?? 'above-composer'}
           />
         </I18nProvider>
       </ThemeProvider>,
@@ -1336,6 +1342,7 @@ export class InkRenderer {
               getInteractionMode={this.options.getInteractionMode}
               onCycleInteractionMode={this.options.onCycleInteractionMode}
               mouseComposerCursor={this.options.mouseComposerCursor}
+              taskListPosition={this.options.taskListPositionProvider?.() ?? 'above-composer'}
             />
           </I18nProvider>
         </ThemeProvider>,

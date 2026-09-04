@@ -288,6 +288,8 @@ export interface StatusLineSettings {
   showModeLabel?: boolean;
 }
 
+export type TaskListPosition = 'up' | 'above-composer';
+
 export interface UISettings {
   /** Theme name: built-in, config-provided, Ghostty, or custom theme from ~/.autohand/themes/*.json */
   theme?: string;
@@ -298,6 +300,8 @@ export interface UISettings {
   readFileCharLimit?: number;
   /** Hide tool output blocks from terminal display while preserving transcript/model context (default: false) */
   silentToolOutput?: boolean;
+  /** Position of the active task list in the Ink composer area (default: above-composer). */
+  taskListPosition?: TaskListPosition;
   /** Show notification when work is completed (default: true) */
   showCompletionNotification?: boolean;
   /** Ask the model to include a concise completion report after action turns (default: true) */

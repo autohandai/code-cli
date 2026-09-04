@@ -131,6 +131,16 @@ describe('SETTINGS_REGISTRY', () => {
     });
   });
 
+  it('exposes task list placement as an above-composer-by-default UI setting', () => {
+    const setting = SETTINGS_REGISTRY.find(s => s.key === 'ui.taskListPosition');
+    expect(setting).toMatchObject({
+      category: 'ui',
+      type: 'enum',
+      enumValues: ['up', 'above-composer'],
+      defaultValue: 'above-composer',
+    });
+  });
+
   it('exposes status line as a UI setting routed to /statusline', () => {
     const setting = SETTINGS_REGISTRY.find(s => s.key === 'ui.statusLine');
     expect(setting).toMatchObject({
@@ -223,6 +233,18 @@ describe('setConfigSetting', () => {
       value: false,
     });
     expect(config.ui.activityVerbsEnabled).toBe(false);
+  });
+
+  it('maps task_list position to ui.taskListPosition', () => {
+    const config = createMockConfig();
+
+    const result = setConfigSetting(config, 'task_list position', 'up');
+
+    expect(result).toEqual({
+      key: 'ui.taskListPosition',
+      value: 'up',
+    });
+    expect(config.ui.taskListPosition).toBe('up');
   });
 
   it('maps sitrep to ui.completionReportEnabled', () => {
@@ -470,6 +492,21 @@ describe('settings command integration', () => {
     const config = createMockConfig();
     await settingsCmd({ config });
     expect(config.permissions.mode).toBe('unrestricted');
+    expect(mockSaveConfig).toHaveBeenCalled();
+  });
+
+  it('edits task list position and saves it through UI settings', async () => {
+    (mockShowModal as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ label: 'UI & Display', value: 'ui' })
+      .mockResolvedValueOnce({ label: 'Task list position', value: 'ui.taskListPosition' })
+      .mockResolvedValueOnce({ label: 'up', value: 'up' })
+      .mockResolvedValueOnce({ label: 'Back', value: '__back__' })
+      .mockResolvedValueOnce(null);
+    const config = createMockConfig();
+
+    await settingsCmd({ config });
+
+    expect(config.ui.taskListPosition).toBe('up');
     expect(mockSaveConfig).toHaveBeenCalled();
   });
 

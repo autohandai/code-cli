@@ -277,6 +277,8 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
         getInteractionMode: () => host.getInteractionMode(),
         onCycleInteractionMode: () => host.cycleInteractionMode(),
         mouseComposerCursor: host.runtime?.config?.ui?.mouseComposerCursor !== false,
+        taskListPositionProvider: () =>
+          host.runtime?.config?.ui?.taskListPosition ?? 'above-composer',
         onEditGoalObjective: async (request) => {
           const manager = host.goalActivityManager ?? new GoalManager(host.runtime.workspaceRoot, {
             sessionId: host.sessionManager?.getCurrentSession?.()?.metadata?.sessionId,

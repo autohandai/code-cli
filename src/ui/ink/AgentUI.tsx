@@ -48,6 +48,7 @@ import { renderTerminalMarkdown } from '../../core/immediateCommandRouter.js';
 import { buildFileMentionSuggestions } from '../mentionFilter.js';
 import { getContentDisplay } from '../displayUtils.js';
 import type { ChatLogMessage } from '../../session/chatLog.js';
+import type { TaskListPosition } from '../../types.js';
 import { formatCompactTokens } from '../../core/agent/AgentFormatter.js';
 import {
   getInteractionModeDescription,
@@ -239,6 +240,8 @@ export interface AgentUIProps {
   onCycleInteractionMode?: () => InteractionMode;
   /** Enable click-to-position composer input. */
   mouseComposerCursor?: boolean;
+  /** Place the task list above status or directly above the composer. */
+  taskListPosition?: TaskListPosition;
 }
 
 interface TextBufferKeyInfo {
@@ -761,6 +764,7 @@ export function AgentUI({
   getInteractionMode,
   onCycleInteractionMode,
   mouseComposerCursor = true,
+  taskListPosition = 'above-composer',
 }: AgentUIProps) {
   const { stdout } = useStdout();
   const { colors } = useTheme();
@@ -2308,6 +2312,7 @@ export function AgentUI({
         showModeLabel={state.showModeLabel ?? true}
         modeIndicator={interactionModeIndicator}
         modeDescription={interactionModeDescription}
+        taskListPosition={taskListPosition}
       />
     </Box>
   );
@@ -2563,6 +2568,7 @@ interface StatusSectionProps {
   modeIndicator?: string;
   /** Human-readable description paired with the bracketed indicator. */
   modeDescription?: string;
+  taskListPosition: TaskListPosition;
   lineExtension?: LineExtension;
 }
 
@@ -2658,6 +2664,7 @@ const StatusSection = memo(function StatusSection({
   model,
   modeIndicator,
   modeDescription,
+  taskListPosition,
   lineExtension,
 }: StatusSectionProps) {
   const { colors } = useTheme();
@@ -2669,6 +2676,10 @@ const StatusSection = memo(function StatusSection({
 
   return (
     <>
+      {showActivity && taskListPosition === 'up' ? (
+        <TaskActivityPanel items={activityItems} terminalRows={terminalRows} />
+      ) : null}
+
       {/* Status line with spinner - always renders for stability */}
       <StatusLine
         isWorking={isWorking}
@@ -2686,7 +2697,9 @@ const StatusSection = memo(function StatusSection({
 
       {/* Keep interactive panels adjacent to the status line, before the composer. */}
       {commandResult && <CommandResultPanel commandResult={commandResult} />}
-      {showActivity && <TaskActivityPanel items={activityItems} terminalRows={terminalRows} />}
+      {showActivity && taskListPosition === 'above-composer' ? (
+        <TaskActivityPanel items={activityItems} terminalRows={terminalRows} />
+      ) : null}
       {teamPanelVisible && teamActivity?.team && (
         <TeamPanel team={teamActivity.team} tasks={teamActivity.tasks} />
       )}
@@ -2752,6 +2765,7 @@ const StatusSection = memo(function StatusSection({
          prev.model === next.model &&
          prev.modeIndicator === next.modeIndicator &&
          prev.modeDescription === next.modeDescription &&
+         prev.taskListPosition === next.taskListPosition &&
          prev.lineExtension === next.lineExtension;
 });
 
@@ -3033,6 +3047,7 @@ interface FixedBottomProps {
   modeIndicator?: string;
   /** Human-readable description paired with the bracketed indicator. */
   modeDescription?: string;
+  taskListPosition: TaskListPosition;
 }
 
 interface ComposerCursorIntent {
@@ -3134,6 +3149,7 @@ const FixedBottom = memo(function FixedBottom({
   showModeLabel,
   modeIndicator,
   modeDescription,
+  taskListPosition,
 }: FixedBottomProps) {
   const composerCursorIntent = useUserDrivenComposerCursor(isWorking, input, cursorOffset);
 
@@ -3170,6 +3186,7 @@ const FixedBottom = memo(function FixedBottom({
         model={model}
         modeIndicator={modeIndicator}
         modeDescription={modeDescription}
+        taskListPosition={taskListPosition}
         lineExtension={mergeLineExtensions(
           configuredLineExtensions?.status,
           lineExtensions?.status,

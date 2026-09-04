@@ -7,6 +7,7 @@
  * Ensures the composer stays responsive after modal prompts and quality checks.
  */
 
+import React from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock ink's render before importing InkRenderer so the module-level
@@ -48,7 +49,17 @@ vi.mock('../../../src/ui/rawMode.js', () => ({
   RawModeInput: undefined,
 }));
 
+import { render as renderInk } from 'ink';
 import { InkRenderer } from '../../../src/ui/ink/InkRenderer.js';
+
+function lastRenderedTaskListPosition(): unknown {
+  const root = vi.mocked(renderInk).mock.calls.at(-1)?.[0] as React.ReactElement<{
+    children: React.ReactElement<{
+      children: React.ReactElement<{ taskListPosition?: unknown }>;
+    }>;
+  }> | undefined;
+  return root?.props.children.props.children.props.taskListPosition;
+}
 
 describe('InkRenderer pause/resume cycle', () => {
   let renderer: InkRenderer;
@@ -224,6 +235,25 @@ describe('InkRenderer pause/resume cycle', () => {
       expect(renderer.isRunning()).toBe(true);
       expect(rawMode).toBe(true);
     }
+  });
+
+  it('resolves task list placement again when a settings modal remounts the composer', async () => {
+    const placement = { current: 'above-composer' as const | 'up' };
+    renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+      taskListPositionProvider: () => placement.current,
+    });
+
+    renderer.start();
+    expect(lastRenderedTaskListPosition()).toBe('above-composer');
+
+    renderer.pause();
+    placement.current = 'up';
+    await renderer.resume();
+
+    expect(lastRenderedTaskListPosition()).toBe('up');
   });
 
   it('replays preserved chat messages after a modal while dropping legacy duplicate arrays', async () => {
