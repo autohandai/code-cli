@@ -109,7 +109,7 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | `/search` | Search codebase |
 | `/settings` | Interactive settings editor — browse categories, edit values inline |
 
-Persistent goal files survive between conversations, while execution and usage accounting stay attached to the session that created or resumed the goal. A new session can inspect old state with `/goal`, but it must run `/goal resume` before continuing that work.
+Persistent goal files survive between conversations, while execution and usage accounting stay attached to the session that created or resumed the goal. A new session never takes work from another live session. When only queued work remains and no live peer owns it, bare `/goal` starts the next item; `/goal resume` remains the explicit control for paused or queued work.
 
 ## Experiment Switches
 - [x] `autohand experiments list` prints a Codex-style table of feature id, lifecycle stage, and enabled state

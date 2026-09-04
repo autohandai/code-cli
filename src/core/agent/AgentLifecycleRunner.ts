@@ -1435,6 +1435,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
 
       try {
         let instruction: string | null = null;
+        let echoInTranscript: boolean | undefined;
         let postTurnAction: PendingPostTurnAction | undefined;
         let mobileTurn: MobileClaimedTurnContext | undefined;
         let mobileCommand: QueuedMobileComposerCommand | undefined;
@@ -1448,6 +1449,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         const nextQueuedWork = dequeueOldestQueuedWork(host);
         if (nextQueuedWork) {
           instruction = nextQueuedWork.queued.text ?? null;
+          echoInTranscript = nextQueuedWork.queued.echoInTranscript;
           postTurnAction = nextQueuedWork.queued.postTurnAction;
           mobileTurn = nextQueuedWork.queued.mobileTurn;
           mobileCommand = nextQueuedWork.queued.mobileCommand;
@@ -1696,9 +1698,17 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         }
 
         const turnStartTime = Date.now();
-        const turnSucceeded = mobileTurn
-          ? await host.runInstruction(instruction, { mobileTurn })
-          : await host.runInstruction(instruction);
+        let turnSucceeded: boolean;
+        if (mobileTurn) {
+          turnSucceeded = await host.runInstruction(instruction, {
+            mobileTurn,
+            ...(echoInTranscript === false ? { echoInTranscript: false } : {}),
+          });
+        } else if (echoInTranscript === false) {
+          turnSucceeded = await host.runInstruction(instruction, { echoInTranscript: false });
+        } else {
+          turnSucceeded = await host.runInstruction(instruction);
+        }
         if (postTurnAction) {
           const consumedAction = postTurnAction;
           postTurnAction = undefined;
@@ -1728,7 +1738,10 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
           turnSucceeded,
         );
         if (goalContinuation) {
-          host.pendingInkInstructions.push(createQueuedAgentInstruction({ text: goalContinuation }));
+          host.pendingInkInstructions.push(createQueuedAgentInstruction({
+            text: goalContinuation,
+            echoInTranscript: false,
+          }));
         }
         host.flushMcpStartupSummaryIfPending();
 

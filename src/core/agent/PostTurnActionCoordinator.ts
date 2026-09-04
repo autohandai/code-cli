@@ -27,6 +27,8 @@ export interface QueuedMobileComposerCommand {
 export interface QueuedAgentInstruction {
   sequence?: number;
   text?: string;
+  /** Whether this internal instruction should be echoed as a user transcript entry. */
+  echoInTranscript?: boolean;
   postTurnAction?: PendingPostTurnAction;
   mobileTurn?: MobileClaimedTurnContext;
   mobileCommand?: QueuedMobileComposerCommand;

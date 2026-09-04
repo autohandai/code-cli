@@ -370,7 +370,7 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/browser`         | Browser integration                                                              |
 | `/review`          | Code review                                                                      |
 
-Persistent goal data remains in the workspace across conversations, but execution does not silently transfer to a fresh session. Use `/goal` to inspect prior state and `/goal resume` to deliberately attach it to the current session.
+Persistent goal data remains in the workspace across conversations, but execution does not silently transfer work owned by another live session. Bare `/goal` inspects prior state and starts the next queued item when this session has no goal and no live peer owns the backlog. Use `/goal resume` to resume this session's paused goal or explicitly start queued work.
 
 Published CLI announcements appear as a cached launch block and a persistent line above the composer. Press `Ctrl+X` to dismiss the visible item, or use `/whatsnew` to review and dismiss all active announcements. Dismissal is per announcement; `--offline` keeps cached announcements visible without making announcement requests.
 

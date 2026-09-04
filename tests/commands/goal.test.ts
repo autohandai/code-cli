@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { goal, metadata } from '../../src/commands/goal.js';
 import type { SlashCommandContext } from '../../src/core/slashCommandTypes.js';
 import { GoalManager } from '../../src/goals/GoalManager.js';
+import { ActiveAgentRegistry } from '../../src/session/ActiveAgentRegistry.js';
 import type { HookEvent } from '../../src/types.js';
 
 describe('/goal command', () => {
@@ -182,6 +183,105 @@ describe('/goal command', () => {
     });
     expect(queued[0]).toContain('Active goal: fresh objective');
     expect(ctx.setInteractionMode).toHaveBeenCalledWith('automode');
+  });
+
+  it('starts a stranded queued goal from bare /goal without dumping its full objective', async () => {
+    const longObjective = [
+      'fix the failing Windows installer test and commit the repair',
+      'Process completed with exit code 1.',
+      'tests/windowsInstaller.spec.ts:208 AssertionError',
+      'FULL_FAILURE_TRANSCRIPT_MUST_NOT_RENDER',
+    ].join('\n');
+    const priorSession = new GoalManager(workspaceRoot, { sessionId: 'session-prior' });
+    await priorSession.createGoal({ objective: 'offline peer goal' });
+    await priorSession.enqueueGoal({ objective: longObjective, source: 'command' });
+
+    const result = await goal(ctx, []);
+
+    expect(result).toContain('Started queued goal.');
+    expect(result).toContain('fix the failing Windows installer test');
+    expect(result).not.toContain('FULL_FAILURE_TRANSCRIPT_MUST_NOT_RENDER');
+    expect(queued).toEqual([
+      expect.stringContaining('Active goal: fix the failing Windows installer test'),
+    ]);
+    expect(ctx.setInteractionMode).toHaveBeenCalledWith('automode');
+
+    const snapshot = await new GoalManager(workspaceRoot, {
+      sessionId: 'session-current',
+    }).getSessionSnapshot();
+    expect(snapshot.goal?.objective).toBe(longObjective);
+    expect(snapshot.queue).toEqual([]);
+    expect(snapshot.peers).toHaveLength(1);
+  });
+
+  it('leaves queued work untouched when another live session owns a goal', async () => {
+    const timestamp = new Date().toISOString();
+    vi.spyOn(ActiveAgentRegistry.prototype, 'listActive').mockResolvedValue([{
+      version: 1,
+      pid: process.pid,
+      sessionId: 'session-prior',
+      workspaceRoot,
+      projectName: 'goal-command-test',
+      provider: 'openrouter',
+      model: 'test-model',
+      mode: 'interactive',
+      status: 'working',
+      startedAt: timestamp,
+      updatedAt: timestamp,
+      messageCount: 0,
+      contextPercent: 0,
+      tokensUsed: 0,
+    }]);
+    const priorSession = new GoalManager(workspaceRoot, { sessionId: 'session-prior' });
+    await priorSession.createGoal({ objective: 'live peer goal' });
+    await priorSession.enqueueGoal({ objective: 'queued work', source: 'command' });
+
+    const result = await goal(ctx, []);
+
+    expect(result).toContain('Other active sessions (1)');
+    expect(result).toContain('Queued goals (1)');
+    expect(result).not.toContain('Started queued goal.');
+    expect(queued).toEqual([]);
+    const snapshot = await new GoalManager(workspaceRoot, {
+      sessionId: 'session-current',
+    }).getSessionSnapshot();
+    expect(snapshot.goal).toBeNull();
+    expect(snapshot.queue).toHaveLength(1);
+  });
+
+  it('keeps active, queued, completed, and peer objectives bounded in status output', async () => {
+    const objective = (label: string, tail: string): string => (
+      `${label} ${'detailed failure context '.repeat(12)}${tail}`
+    );
+    const activeObjective = objective('active objective', 'ACTIVE_TRANSCRIPT_TAIL');
+    const queuedObjective = objective('queued objective', 'QUEUED_TRANSCRIPT_TAIL');
+    const completedObjective = objective('completed objective', 'COMPLETED_TRANSCRIPT_TAIL');
+    const peerObjective = objective('offline peer objective', 'PEER_TRANSCRIPT_TAIL');
+
+    const completedSession = new GoalManager(workspaceRoot, { sessionId: 'session-completed' });
+    await completedSession.createGoal({ objective: completedObjective });
+    await completedSession.updateGoal({ status: 'complete' });
+    await new GoalManager(workspaceRoot, { sessionId: 'session-prior' })
+      .createGoal({ objective: peerObjective });
+    const currentSession = new GoalManager(workspaceRoot, { sessionId: 'session-current' });
+    await currentSession.createGoal({ objective: activeObjective });
+
+    const queuedResult = await goal(ctx, ['queue', queuedObjective]);
+    const statusResult = await goal(ctx, []);
+
+    expect(queuedResult).toContain('queued objective');
+    expect(queuedResult).not.toContain('QUEUED_TRANSCRIPT_TAIL');
+    expect(statusResult).toContain('active objective');
+    expect(statusResult).toContain('queued objective');
+    expect(statusResult).toContain('completed objective');
+    expect(statusResult).toContain('offline peer objective');
+    expect(statusResult).not.toMatch(/(?:ACTIVE|QUEUED|COMPLETED|PEER)_TRANSCRIPT_TAIL/u);
+
+    const snapshot = await currentSession.getSessionSnapshot();
+    expect(snapshot.goal?.objective).toBe(activeObjective);
+    expect(snapshot.queue[0]?.objective).toBe(queuedObjective);
+    expect(snapshot.completed[0]?.objective).toBe(completedObjective);
+    expect(snapshot.peers[0]?.objective).toBe(peerObjective);
   });
 
   it('puts the session in auto mode when a goal starts', async () => {

@@ -168,6 +168,8 @@ export interface AgentInstructionHost {
 export interface RunInstructionOptions {
   signal?: AbortSignal;
   mobileTurn?: MobileClaimedTurnContext;
+  /** Internal instructions still reach the model and session log when their terminal echo is hidden. */
+  echoInTranscript?: boolean;
   onStepFinish?: (step: AgentLoopStep) => boolean | Promise<boolean>;
 }
 
@@ -374,7 +376,9 @@ export class InstructionRunner {
 
     // Print user instruction AFTER persistent input is started so it
     // renders inside the scroll region (not overwritten by the fixed region).
-    host.printUserInstructionToChatLog(instruction);
+    if (options.echoInTranscript !== false) {
+      host.printUserInstructionToChatLog(instruction);
+    }
 
     // Only one input owner should handle interrupts:
     // InkRenderer, PersistentInput, or fallback ESC listener.

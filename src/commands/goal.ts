@@ -9,6 +9,8 @@ import type { SlashCommand, SlashCommandContext } from '../core/slashCommandType
 import type { GoalMutationResult, GoalSessionSnapshot, GoalState } from '../goals/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, resolveGoalFeatureEnabled } from '../goals/feature.js';
 
+const GOAL_OBJECTIVE_PREVIEW_LENGTH = 160;
+
 export const metadata: SlashCommand = {
   command: '/goal',
   description: 'Create, inspect, refine, pause, resume, complete, clear, and queue persistent goals',
@@ -38,6 +40,14 @@ export async function goal(ctx: SlashCommandContext, args: string[] = []): Promi
   const input = args.join(' ').trim();
   if (!input) {
     const snapshot = await manager.getSessionSnapshot();
+    const hasLivePeer = snapshot.peers.some((peer) => peer.ownerAlive);
+    if (!snapshot.goal && snapshot.queue.length > 0 && !hasLivePeer) {
+      const started = await manager.startQueuedGoal();
+      if (started.ok && started.goal) {
+        queueGoalContinuation(ctx, started.goal.objective);
+      }
+      return formatMutation(started);
+    }
     if (
       !snapshot.goal
       && snapshot.queue.length === 0
@@ -207,7 +217,7 @@ function formatMutation(result: GoalMutationResult): string {
     lines.push('');
     lines.push(`Queued ${result.queued.length} goal${result.queued.length === 1 ? '' : 's'}:`);
     for (const item of result.queued) {
-      lines.push(`- [${item.queueId}] ${item.objective}`);
+      lines.push(`- [${item.queueId}] ${formatObjectivePreview(item.objective)}`);
     }
   }
   if (result.started) {
@@ -252,7 +262,7 @@ function formatSnapshot(snapshot: GoalSessionSnapshot): string {
     parts.push([
       `Other active sessions (${snapshot.peers.length}):`,
       ...snapshot.peers.map((peer) => (
-        `- ${peer.objective} (${peer.status}${peer.ownerAlive ? '' : ', session offline'})`
+        `- ${formatObjectivePreview(peer.objective)} (${peer.status}${peer.ownerAlive ? '' : ', session offline'})`
       )),
     ].join('\n'));
   }
@@ -261,7 +271,7 @@ function formatSnapshot(snapshot: GoalSessionSnapshot): string {
 
 function formatGoal(goalState: GoalState): string {
   const lines = [
-    `Goal: ${goalState.objective}`,
+    `Goal: ${formatObjectivePreview(goalState.objective)}`,
     `Status: ${goalState.status}`,
     `ID: ${goalState.goalId}`,
     `Elapsed: ${formatDuration(goalState.timeUsedSeconds)}`,
@@ -277,15 +287,25 @@ function formatQueue(snapshot: Pick<GoalSessionSnapshot, 'queue'>): string {
   if (snapshot.queue.length === 0) return 'No queued goals.';
   return [
     `Queued goals (${snapshot.queue.length}):`,
-    ...snapshot.queue.map((item, index) => `${index + 1}. [${item.queueId}] ${item.objective}`),
+    ...snapshot.queue.map((item, index) => (
+      `${index + 1}. [${item.queueId}] ${formatObjectivePreview(item.objective)}`
+    )),
   ].join('\n');
 }
 
 function formatCompletedRun(completed: NonNullable<GoalMutationResult['completedRun']>): string {
   return [
     `Completed goals this session (${completed.length}):`,
-    ...completed.map((item, index) => `${index + 1}. ${item.objective}`),
+    ...completed.map((item, index) => `${index + 1}. ${formatObjectivePreview(item.objective)}`),
   ].join('\n');
+}
+
+function formatObjectivePreview(objective: string): string {
+  const normalized = objective.replace(/\s+/gu, ' ').trim();
+  if (normalized.length <= GOAL_OBJECTIVE_PREVIEW_LENGTH) {
+    return normalized;
+  }
+  return `${normalized.slice(0, GOAL_OBJECTIVE_PREVIEW_LENGTH - 1).trimEnd()}…`;
 }
 
 function formatDuration(seconds: number): string {
