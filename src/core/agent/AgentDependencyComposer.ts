@@ -1964,6 +1964,7 @@ export function initializeAgentDependencies(
       queueInstruction: (instruction: string, postTurnAction?: PendingPostTurnAction) => {
         host.pendingInkInstructions.push(createQueuedAgentInstruction({
           text: instruction,
+          echoInTranscript: false,
           ...(postTurnAction ? { postTurnAction } : {}),
         }));
       },

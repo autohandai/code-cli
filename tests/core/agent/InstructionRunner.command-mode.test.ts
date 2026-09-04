@@ -137,6 +137,23 @@ describe('InstructionRunner command mode UI', () => {
     expect(host.isInstructionActive).toBe(false);
   });
 
+  it('keeps a silent internal instruction out of the transcript without changing model context', async () => {
+    const host = createHost();
+    const instruction = 'Active goal: full objective that must remain available to the model';
+
+    await expect(new InstructionRunner(host).run(instruction, {
+      echoInTranscript: false,
+    })).resolves.toBe(true);
+
+    expect(host.printUserInstructionToChatLog).not.toHaveBeenCalled();
+    expect(host.buildUserMessage).toHaveBeenCalledWith(instruction);
+    expect(host.saveUserMessage).toHaveBeenCalledWith(instruction);
+    expect(host.conversation.addMessage).toHaveBeenCalledWith({
+      role: 'user',
+      content: instruction,
+    });
+  });
+
   it('stops after provider setup is cancelled instead of recursively rerunning the instruction', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});

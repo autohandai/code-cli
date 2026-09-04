@@ -26,7 +26,11 @@ describe('interactive post-turn lifecycle', () => {
     const host = {
       useInkRenderer: false,
       inkRenderer: null,
-      pendingInkInstructions: [{ text: 'complete the report', postTurnAction: action }],
+      pendingInkInstructions: [{
+        text: 'complete the report',
+        postTurnAction: action,
+        echoInTranscript: false,
+      }],
       shouldExit: false,
       persistentInputActiveTurn: false,
       persistentInput: {
@@ -81,6 +85,9 @@ describe('interactive post-turn lifecycle', () => {
       await runAgentInteractiveLoop(host);
 
       expect(host.runInstruction).toHaveBeenCalledOnce();
+      expect(host.runInstruction).toHaveBeenCalledWith('complete the report', {
+        echoInTranscript: false,
+      });
       expect(runPostTurnAction).toHaveBeenCalledOnce();
       expect(runPostTurnAction).toHaveBeenCalledWith(action, true);
       expect(host.pendingInkInstructions).toHaveLength(0);

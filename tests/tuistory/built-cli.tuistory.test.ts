@@ -1280,6 +1280,82 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   }, 45_000);
 
+  it('starts a stranded queued goal from bare /goal without dumping the failure transcript', async () => {
+    const queuedObjective = [
+      'fix the failing Windows installer test and commit the repair',
+      'Process completed with exit code 1.',
+      'tests/windowsInstaller.spec.ts:208 AssertionError',
+      'FULL_FAILURE_TRANSCRIPT_MUST_NOT_RENDER',
+    ].join('\n');
+    const openRouterServer = await createMockOpenRouterSequenceServer([
+      JSON.stringify({
+        toolCalls: [],
+        finalResponse: 'STRANDED_QUEUED_GOAL_STARTED',
+      }),
+    ]);
+    mockServers.push(openRouterServer);
+    const state = await createTempAutohandHome({
+      config: {
+        openrouter: { baseUrl: openRouterServer.baseUrl },
+        features: { slashGoal: true },
+        agent: {
+          autoMemory: false,
+          goalAutoMode: false,
+          maxIterations: 2,
+          sessionRetryLimit: 0,
+        },
+        network: { maxRetries: 0, retryDelay: 0 },
+        ui: {
+          promptSuggestions: false,
+          showCompletionNotification: false,
+          terminalBell: false,
+        },
+      },
+    });
+    tempStates.push(state);
+    const now = Date.now();
+    await fs.outputJson(path.join(state.workspaceRoot, '.autohand', 'goals.local.json'), {
+      version: 1,
+      goal: {
+        goalId: 'offline-peer-goal',
+        objective: 'work owned by an offline session',
+        status: 'active',
+        tokensUsed: 0,
+        timeUsedSeconds: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      queue: [{
+        queueId: 'queued-failing-test',
+        objective: queuedObjective,
+        source: 'command',
+        createdAt: now,
+      }],
+      completed: [],
+      updatedAt: now,
+      activeSessionId: 'offline-session',
+    });
+    const session = await trackSession(
+      launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        waitForDataTimeout: 15_000,
+      }),
+    );
+
+    await waitForComposer(session);
+    await session.type('/goal');
+    await session.press('enter');
+    await session.waitForText('Started queued goal.', { timeout: 5_000 });
+    await session.waitForText('STRANDED_QUEUED_GOAL_STARTED', { timeout: 15_000 });
+
+    const output = session.readAll();
+    expect(output).toContain('fix the failing Windows installer test');
+    expect(output).not.toContain('FULL_FAILURE_TRANSCRIPT_MUST_NOT_RENDER');
+
+    await exitInteractive(session);
+  }, 45_000);
+
   it('enables goals, shows the chained goal queue, and edits a queued goal with the mouse', async () => {
     const openRouterServer = await createMockOpenRouterSequenceServer([
       JSON.stringify({

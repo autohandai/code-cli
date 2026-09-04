@@ -991,6 +991,8 @@ A goal is a standing instruction to keep working, so starting one switches the
 session into auto mode: the agent drives its own turns and stops asking for tool
 approval until the goal is complete. Setting a new goal while one is active
 queues it, and the queue advances automatically as each goal completes.
+If a migration or interrupted session leaves queued work without a live owner,
+bare `/goal` starts the next item instead of leaving the backlog stranded.
 
 To keep the normal turn-by-turn loop while goals are active:
 
