@@ -96,15 +96,33 @@ describe('TaskManager', () => {
     expect(updated.completedAt).toBeDefined();
   });
 
-  it('should stop an in-progress task and return it to pending', () => {
+  it('stops an in-progress task without silently retrying cancelled work', () => {
     const task = tm.createTask({ subject: 'A', description: '' });
     tm.assignTask(task.id, 'worker');
 
     const stopped = tm.stopTask(task.id);
 
-    expect(stopped.status).toBe('pending');
-    expect(stopped.owner).toBeUndefined();
-    expect(stopped.completedAt).toBeUndefined();
+    expect(stopped.status).toBe('cancelled');
+    expect(stopped.owner).toBe('worker');
+    expect(stopped.completedAt).toBeDefined();
+    expect(tm.getAvailableTasks()).toEqual([]);
+  });
+
+  it('keeps dependent tasks blocked after a failure and supports an explicit retry', () => {
+    const task = tm.createTask({ subject: 'Verify', description: '' });
+    tm.createTask({ subject: 'Publish', description: '', blockedBy: [task.id] });
+    tm.assignTask(task.id, 'tester');
+
+    tm.updateTask(task.id, { status: 'failed', error: 'Provider unavailable' });
+
+    expect(tm.getTask(task.id)).toMatchObject({
+      status: 'failed', error: 'Provider unavailable', owner: 'tester',
+    });
+    expect(tm.getTask(task.id)?.completedAt).toBeDefined();
+    expect(tm.getAvailableTasks()).toEqual([]);
+    tm.releaseTask(task.id);
+    expect(tm.getTask(task.id)?.error).toBeUndefined();
+    expect(tm.getAvailableTasks().map((entry) => entry.id)).toEqual([task.id]);
   });
 
   it('should store task output without changing task status', () => {

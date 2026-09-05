@@ -6,6 +6,7 @@
 
 import { getProviderConfig } from '../../config.js';
 import { ProviderFactory } from '../../providers/ProviderFactory.js';
+import { getProviderModelIds } from '../../providers/modelCatalog.js';
 import type { AutohandConfig, ProviderName } from '../../types.js';
 
 export type TeamModelAssignmentSource =
@@ -118,6 +119,13 @@ export function resolveTeamModelAssignment(input: TeamModelAssignmentInput): Tea
   ];
 
   for (const candidate of candidates) {
+    if (candidate.source === 'agent-definition'
+      && active.provider === 'autohandai'
+      && input.config.autohandai?.plan !== 'local'
+      && candidate.model
+      && !getProviderModelIds('autohandai').includes(candidate.model)) {
+      continue;
+    }
     if (candidate.provider || candidate.model) {
       return resolveCandidate(input, candidate, active);
     }

@@ -7,6 +7,7 @@
 import chalk from 'chalk';
 import type { SlashCommand } from '../core/slashCommandTypes.js';
 import type { TeamManager } from '../core/teams/TeamManager.js';
+import { taskStatusGlyph } from '../ui/taskPanelModel.js';
 
 export const metadata: SlashCommand = {
   command: '/team',
@@ -41,6 +42,8 @@ export async function team(ctx: TeamCommandContext, args: string[]): Promise<str
       `  ${chalk.cyan('/team status')}         Show current team status`,
       `  ${chalk.cyan('/team shutdown')}       Shut down all teammates`,
       `  ${chalk.cyan('/team')}                Show this help`,
+      '',
+      `  ${chalk.cyan('/agents view')}         Inspect live agent runs, output, and cancellation`,
     ].join('\n');
   }
 
@@ -100,10 +103,12 @@ export async function team(ctx: TeamCommandContext, args: string[]): Promise<str
       if (tasks.length > 0) {
         lines.push('', chalk.bold('Tasks:'));
         for (const task of tasks) {
-          const icon = task.status === 'completed' ? chalk.green('✓') :
-                      task.status === 'in_progress' ? chalk.yellow('●') : chalk.gray('○');
+          const statusColor = task.status === 'completed' ? chalk.green :
+                              task.status === 'in_progress' ? chalk.yellow :
+                              task.status === 'failed' ? chalk.red : chalk.gray;
+          const icon = statusColor(taskStatusGlyph(task.status));
           const owner = task.owner ? chalk.gray(` [${task.owner}]`) : '';
-          lines.push(`  ${icon} ${task.subject}${owner}`);
+          lines.push(`  ${icon} ${task.subject} — ${statusColor(task.status)}${owner}`);
         }
       }
 

@@ -94,4 +94,44 @@ describe('resolveTeamModelAssignment', () => {
       source: 'agent-override',
     });
   });
+
+  it('inherits the active cloud model when catalogue metadata names another provider model', () => {
+    expect(resolveTeamModelAssignment({
+      config,
+      active: { provider: 'autohandai', model: 'moa' },
+      agentModel: 'gpt-5.4',
+      environment: {},
+    })).toEqual({ provider: 'autohandai', model: 'moa', source: 'active-session' });
+  });
+
+  it('preserves compatible catalogue models and explicit provider assignments', () => {
+    expect(resolveTeamModelAssignment({
+      config,
+      active: { provider: 'autohandai', model: 'moa' },
+      agentModel: 'fantail',
+      environment: {},
+    })).toEqual({ provider: 'autohandai', model: 'fantail', source: 'agent-definition' });
+    expect(resolveTeamModelAssignment({
+      config,
+      active: { provider: 'autohandai', model: 'moa' },
+      agentModel: 'gpt-5.4',
+      override: { provider: 'openai', model: 'gpt-5.4' },
+      environment: {},
+    })).toEqual({ provider: 'openai', model: 'gpt-5.4', source: 'member-override' });
+  });
+
+  it('preserves arbitrary local and other-provider catalogue models', () => {
+    expect(resolveTeamModelAssignment({
+      config: { ...config, autohandai: { plan: 'local', model: 'local-model' } },
+      active: { provider: 'autohandai', model: 'local-model' },
+      agentModel: 'custom-local-model',
+      environment: {},
+    })).toEqual({ provider: 'autohandai', model: 'custom-local-model', source: 'agent-definition' });
+    expect(resolveTeamModelAssignment({
+      config,
+      active: { provider: 'openrouter', model: 'openrouter/auto' },
+      agentModel: 'openai/gpt-5.4',
+      environment: {},
+    })).toEqual({ provider: 'openrouter', model: 'openai/gpt-5.4', source: 'agent-definition' });
+  });
 });

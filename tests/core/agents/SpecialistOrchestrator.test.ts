@@ -10,6 +10,7 @@ import type { AgentDelegator } from '../../../src/core/agents/AgentDelegator.js'
 import type { CatalogRegistry } from '../../../src/actions/subAgentsCatalog.js';
 import {
   detectSpecialistRequest,
+  createSpecialistRequest,
   SpecialistOrchestrator,
   type SpecialistPlan,
 } from '../../../src/core/agents/SpecialistOrchestrator.js';
@@ -91,6 +92,39 @@ describe('specialist intent detection', () => {
 });
 
 describe('SpecialistOrchestrator resolution', () => {
+  it('resolves an exact installed custom role without requiring a built-in taxonomy entry', async () => {
+    const orchestrator = new SpecialistOrchestrator(delegator(), {
+      registry: registryWith([agent('domain-owner', 'session')]),
+      offline: true,
+    });
+    const plan = await orchestrator.resolve(createSpecialistRequest('Inspect the domain contract', ['domain-owner']));
+
+    expect(plan.unresolvedRoles).toEqual([]);
+    expect(plan.selectedAgents).toEqual([expect.objectContaining({
+      requestedRole: 'domain-owner', agentName: 'domain-owner', source: 'session',
+    })]);
+  });
+  it('resolves the delivery lifecycle and cleanup aliases consistently without a catalogue request', async () => {
+    const orchestrator = new SpecialistOrchestrator(delegator(), {
+      registry: registryWith([
+        agent('requirements-translator', 'builtin'),
+        agent('software-architect', 'builtin'),
+        agent('implementer', 'builtin'),
+        agent('code-cleaner', 'builtin'),
+        agent('docs-writer', 'builtin'),
+        agent('todo-resolver', 'builtin'),
+      ]),
+      offline: true,
+    });
+    const plan = await orchestrator.resolve(createSpecialistRequest('Assess delivery readiness', [
+      'requirements', 'software architect', 'implementer', 'deslop', 'docs', 'todo',
+    ]));
+
+    expect(plan.unresolvedRoles).toEqual([]);
+    expect(plan.selectedAgents.map((selected) => selected.agentName)).toEqual([
+      'requirements-translator', 'software-architect', 'implementer', 'code-cleaner', 'docs-writer', 'todo-resolver',
+    ]);
+  });
   it('uses source precedence before role score and avoids duplicate agents', async () => {
     const orchestrator = new SpecialistOrchestrator(delegator(), {
       registry: registryWith([
@@ -239,6 +273,38 @@ describe('SpecialistOrchestrator resolution', () => {
 });
 
 describe('SpecialistOrchestrator execution', () => {
+  it.each(['parallel', 'serial'] as const)('forwards cancellation and stops later %s batches', async executionMode => {
+    const delegate = delegator();
+    const controller = new AbortController();
+    const execute = executionMode === 'parallel' ? delegate.delegateParallelForTool : delegate.delegateTaskForTool;
+    vi.mocked(execute).mockImplementation(async () => {
+      controller.abort();
+      return { success: false, kind: 'aborted', error: 'Cancelled' };
+    });
+    const orchestrator = new SpecialistOrchestrator(delegate, { registry: registryWith([]), maxParallel: 1, offline: true });
+    const plan: SpecialistPlan = {
+      objective: 'Review the repository', requestedRoles: ['one', 'two'],
+      selectedAgents: ['one', 'two'].map(role => ({ requestedRole: role, agentName: role, source: 'builtin', matchReason: 'fixture' })),
+      source: 'intent', matchReason: 'fixture', executionMode, unresolvedRoles: [],
+    };
+    await expect(orchestrator.execute(plan, { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(vi.mocked(execute).mock.calls[0].at(-1)).toEqual({ signal: controller.signal });
+  });
+
+  it('does not start any specialist when the parent was already cancelled', async () => {
+    const delegate = delegator();
+    const controller = new AbortController();
+    controller.abort();
+    const orchestrator = new SpecialistOrchestrator(delegate, { registry: registryWith([]), offline: true });
+    await expect(orchestrator.execute({
+      objective: 'Review', requestedRoles: ['reviewer'],
+      selectedAgents: [{ requestedRole: 'reviewer', agentName: 'reviewer', source: 'builtin', matchReason: 'fixture' }],
+      source: 'intent', matchReason: 'fixture', executionMode: 'serial', unresolvedRoles: [],
+    }, { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(delegate.delegateTaskForTool).not.toHaveBeenCalled();
+  });
+
   it('batches excess parallel roles instead of dropping them', async () => {
     const delegate = delegator();
     const orchestrator = new SpecialistOrchestrator(delegate, {
@@ -267,10 +333,10 @@ describe('SpecialistOrchestrator execution', () => {
     expect(delegate.delegateParallelForTool).toHaveBeenNthCalledWith(1, expect.arrayContaining([
       expect.objectContaining({ agent_name: 'one-agent' }),
       expect.objectContaining({ agent_name: 'two-agent' }),
-    ]));
+    ]), {});
     expect(delegate.delegateParallelForTool).toHaveBeenNthCalledWith(3, [
       expect.objectContaining({ agent_name: 'five-agent' }),
-    ]);
+    ], {});
   });
 
   it('routes later answers through the same interviewer until it reports completion', async () => {
@@ -288,7 +354,8 @@ describe('SpecialistOrchestrator execution', () => {
     await orchestrator.execute(plan);
     expect(orchestrator.hasActiveInterview()).toBe(true);
 
-    const continuation = await orchestrator.continueInterview('The primary user is an engineer.');
+    const controller = new AbortController();
+    const continuation = await orchestrator.continueInterview('The primary user is an engineer.', { signal: controller.signal });
 
     expect(continuation).not.toBeNull();
     expect(continuation?.plan.selectedAgents).toEqual([
@@ -297,10 +364,12 @@ describe('SpecialistOrchestrator execution', () => {
     expect(delegate.delegateTaskForTool).toHaveBeenLastCalledWith(
       'product-interviewer',
       expect.stringContaining('The primary user is an engineer.'),
+      { signal: controller.signal },
     );
     expect(delegate.delegateTaskForTool).toHaveBeenLastCalledWith(
       'product-interviewer',
       expect.stringContaining('Bring a product interviewer agent to clarify this feature.'),
+      { signal: controller.signal },
     );
     expect(orchestrator.hasActiveInterview()).toBe(false);
     expect(await orchestrator.continueInterview('An unrelated later answer.')).toBeNull();

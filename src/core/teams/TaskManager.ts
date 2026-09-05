@@ -12,12 +12,14 @@ interface CreateTaskInput {
   blockedBy?: string[];
 }
 
-interface UpdateTaskInput {
+export interface UpdateTaskInput {
   subject?: string;
   description?: string;
   blockedBy?: string[];
   status?: TaskStatus;
   output?: string;
+  error?: string;
+  cancelRequested?: boolean;
 }
 
 export class TaskManager {
@@ -63,11 +65,14 @@ export class TaskManager {
     });
   }
 
-  assignTask(id: string, owner: string): void {
+  assignTask(id: string, owner: string, runId?: string): void {
     const task = this.tasks.get(id);
     if (!task) throw new Error(`Task ${id} not found`);
     task.owner = owner;
     task.status = 'in_progress';
+    task.runId = runId;
+    task.output = undefined;
+    task.error = undefined;
     this.notifyChange();
   }
 
@@ -85,6 +90,8 @@ export class TaskManager {
     task.status = 'pending';
     task.owner = undefined;
     task.completedAt = undefined;
+    task.error = undefined;
+    task.cancelRequested = undefined;
     this.notifyChange();
   }
 
@@ -104,14 +111,21 @@ export class TaskManager {
     if (updates.output !== undefined) {
       task.output = updates.output;
     }
+    if (updates.error !== undefined) {
+      task.error = updates.error.slice(0, 4_000);
+    }
+    if (updates.cancelRequested !== undefined) task.cancelRequested = updates.cancelRequested;
 
-    if (updates.status === 'completed') {
-      task.status = 'completed';
+    if (updates.status === 'completed' || updates.status === 'failed' || updates.status === 'cancelled') {
+      task.status = updates.status;
       task.completedAt = new Date().toISOString();
+      task.cancelRequested = undefined;
     } else if (updates.status === 'pending') {
       task.status = 'pending';
       task.owner = undefined;
       task.completedAt = undefined;
+      task.error = undefined;
+      task.cancelRequested = undefined;
     } else if (updates.status === 'in_progress') {
       task.status = 'in_progress';
       task.completedAt = undefined;
@@ -122,10 +136,7 @@ export class TaskManager {
   }
 
   stopTask(id: string): TeamTask {
-    const task = this.tasks.get(id);
-    if (!task) throw new Error(`Task ${id} not found`);
-    this.releaseTask(id);
-    return this.tasks.get(id)!;
+    return this.updateTask(id, { status: 'cancelled' });
   }
 
   setTaskOutput(id: string, output: string): TeamTask {

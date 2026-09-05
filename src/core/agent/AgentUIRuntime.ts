@@ -142,6 +142,7 @@ function echoInkSubmittedInstructionImmediately(host: AgentUIRuntimeHost, text: 
 function isConcurrentSafeSlashCommand(text: string): boolean {
   const trimmed = text.trim();
   return /^\/deep-(?:research|search)\s+status\s*$/i.test(trimmed)
+    || /^\/(?:agents|squad)\s+view\s*$/i.test(trimmed)
     || /^\/ps\s*$/i.test(trimmed)
     || /^\/stop(?:\s+\S+)?\s*$/i.test(trimmed);
 }
@@ -288,6 +289,7 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
             host.notifyUser(result.message ?? 'Goal edit failed.');
           }
         },
+        onCancelAgentRun: (id) => host.agentRunStore?.requestCancel(id),
         skillsProvider: () =>
           host.skillsRegistry.listSkills().map((skill: { name: string; description?: string; isActive: boolean; source: string }) => ({
             name: skill.name,
@@ -331,6 +333,9 @@ export async function initializeAgentUI(host: AgentUIRuntimeHost, abortControlle
         syncAgentAnnouncementLine(host);
         if (host.teamActivitySnapshot) {
           host.inkRenderer?.setTeamActivity?.(host.teamActivitySnapshot);
+        }
+        if (host.agentRunStore) {
+          host.inkRenderer?.setAgentRuns?.(host.agentRunStore.getSnapshot());
         }
         if (host.goalActivityManager) {
           host.goalActivitySnapshot = await host.goalActivityManager.getSessionSnapshot();

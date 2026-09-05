@@ -9,7 +9,7 @@
  * painted three ways.
  */
 
-export type TaskPanelStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
+export type TaskPanelStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled';
 
 export interface TaskPanelRow {
   id?: string;
@@ -29,6 +29,7 @@ export interface TaskPanelModel {
   total: number;
   done: number;
   failed: number;
+  cancelled: number;
   percent: number;
   bar: string;
   groups: TaskPanelGroup[];
@@ -50,12 +51,13 @@ const DEFAULT_BAR_WIDTH = 20;
  * Active work sorts first because that is what an operator scans for; completed
  * work sorts last and is therefore the first thing dropped on overflow.
  */
-const GROUP_ORDER: readonly TaskPanelStatus[] = ['in_progress', 'pending', 'failed', 'completed'];
+const GROUP_ORDER: readonly TaskPanelStatus[] = ['in_progress', 'pending', 'failed', 'cancelled', 'completed'];
 
 const GROUP_LABEL: Record<TaskPanelStatus, string> = {
   in_progress: 'in progress',
   pending: 'pending',
   failed: 'failed',
+  cancelled: 'cancelled',
   completed: 'completed',
 };
 
@@ -64,6 +66,7 @@ const STATUS_GLYPH: Record<TaskPanelStatus, string> = {
   in_progress: '▣',
   pending: '□',
   failed: '✕',
+  cancelled: '⊘',
 };
 
 export function taskStatusGlyph(status: TaskPanelStatus): string {
@@ -75,7 +78,8 @@ export function taskGroupLabel(status: TaskPanelStatus): string {
 }
 
 function isTaskPanelStatus(value: unknown): value is TaskPanelStatus {
-  return value === 'pending' || value === 'in_progress' || value === 'completed' || value === 'failed';
+  return value === 'pending' || value === 'in_progress' || value === 'completed'
+    || value === 'failed' || value === 'cancelled';
 }
 
 function readString(source: Record<string, unknown>, ...keys: string[]): string | undefined {
@@ -144,6 +148,7 @@ export function buildTaskPanelModel(rows: TaskPanelRow[], options: TaskPanelOpti
   const total = rows.length;
   const done = rows.filter((row) => row.status === 'completed').length;
   const failed = rows.filter((row) => row.status === 'failed').length;
+  const cancelled = rows.filter((row) => row.status === 'cancelled').length;
   const percent = total === 0 ? 0 : Math.round((done / total) * 100);
 
   // Flatten in group order so slicing from the front naturally drops completed
@@ -162,6 +167,7 @@ export function buildTaskPanelModel(rows: TaskPanelRow[], options: TaskPanelOpti
     total,
     done,
     failed,
+    cancelled,
     percent,
     bar: renderProgressBar(percent, barWidth),
     groups,

@@ -78,6 +78,30 @@ describe('/squad command', () => {
   it('declares slash command metadata', () => {
     expect(metadata.command).toBe('/squad');
     expect(metadata.implemented).toBe(true);
+    expect(metadata.subcommands).toContainEqual(expect.objectContaining({ name: 'view' }));
+  });
+
+  it('opens recorded Squad runs without installing or launching the external runtime', async () => {
+    const onToggleAgentRunsView = vi.fn();
+    const fetchImpl = vi.fn();
+    const spawnProcess = spawnResult('must not launch');
+    await mkdir(path.join(squadHome, 'runs'), { recursive: true });
+    await writeFile(path.join(squadHome, 'runs', 'run.json'), JSON.stringify({
+      id: 'run-1', status: 'failed', prompt: 'Review the release', workspace: tempRoot,
+      createdAt: '2026-09-05T10:00:00Z', agentId: 'reviewer', exitCode: 1,
+    }));
+
+    const result = await runSquadCommand({ workspaceRoot: tempRoot, onToggleAgentRunsView }, ['view'], {
+      env: { AUTOHAND_SQUAD_HOME: squadHome }, fetchImpl, spawnProcess,
+    });
+
+    expect(result.code).toBe(0);
+    expect(result.output).toContain('independent sessions');
+    expect(result.output).toContain('failed');
+    expect(result.output).toContain('Review the release');
+    expect(onToggleAgentRunsView).toHaveBeenCalledWith(true, 'squad');
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(spawnProcess).not.toHaveBeenCalled();
   });
 
   it('keeps /squad as an open alias and supports management subcommands', () => {

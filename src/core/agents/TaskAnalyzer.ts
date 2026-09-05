@@ -14,10 +14,8 @@ import type { ProjectProfile, SignalType } from '../teams/types.js';
  * Capability taxonomy for task-aware sub-agent discovery.
  *
  * Each capability maps task-language triggers and repository affinity signals
- * to a specialist role. `aliases` mirror the role table in
- * SpecialistOrchestrator so explicit role extraction stays consistent; the
- * taxonomy adds `triggers` (task-language patterns) and `repoAffinity`
- * (profile signals/structure/languages/frameworks that boost the capability).
+ * to a specialist role. SpecialistOrchestrator consumes this same taxonomy
+ * so inferred and explicitly requested roles resolve consistently.
  */
 export interface CapabilityRepoAffinity {
   signals?: SignalType[];
@@ -70,9 +68,9 @@ export const CAPABILITY_DEFINITIONS: readonly CapabilityDefinition[] = [
   {
     id: 'code-cleaner',
     label: 'Code cleanup',
-    aliases: ['code cleaner', 'cleanup', 'clean up'],
+    aliases: ['code cleaner', 'cleanup', 'clean up', 'deslop'],
     triggers: [
-      /\b(refactor\w*|clean\s+up|dead\s+code|unused\s+\w+|redundant\w*|duplicate\w*)\b/i,
+      /\b(refactor\w*|clean\s+up|deslop|dead\s+code|unused\s+\w+|redundant\w*|duplicate\w*)\b/i,
     ],
     repoAffinity: { signals: ['dead-code', 'lint-issues'] },
     preferredAgents: ['code-cleaner'],
@@ -156,6 +154,30 @@ export const CAPABILITY_DEFINITIONS: readonly CapabilityDefinition[] = [
     ],
     repoAffinity: { frameworks: ['react', 'vue', 'angular', 'next'] },
     preferredAgents: ['ux-researcher', 'ux-designer'],
+  },
+  {
+    id: 'requirements-translator',
+    label: 'Requirements translation',
+    aliases: ['requirements translator', 'requirements-translator', 'requirements', 'acceptance criteria'],
+    triggers: [/\b(requirements|acceptance\s+criteria|user\s+journey|product\s+intent)\b/i],
+    repoAffinity: {},
+    preferredAgents: ['requirements-translator'],
+  },
+  {
+    id: 'software-architect',
+    label: 'Software architecture',
+    aliases: ['software architect', 'software-architect', 'system design', 'cto'],
+    triggers: [/\b(software\s+architect|system\s+design|cto|trust\s+boundaries|architecture\s+decision)\b/i],
+    repoAffinity: {},
+    preferredAgents: ['software-architect', 'planner'],
+  },
+  {
+    id: 'implementer',
+    label: 'Implementation',
+    aliases: ['implementer', 'implementation', 'software developer'],
+    triggers: [/\b(implement(?:ation)?|implementer|build|develop)\b/i],
+    repoAffinity: {},
+    preferredAgents: ['implementer'],
   },
   {
     id: 'product-interviewer',

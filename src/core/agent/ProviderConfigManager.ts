@@ -4206,15 +4206,10 @@ export class ProviderConfigManager {
     const delegatorContext =
       this.runtime.options.clientContext ??
       (this.runtime.options.restricted ? "restricted" : "cli");
-    const newDelegator = new AgentDelegator(newLlm, this.actionExecutor, {
+    const newDelegator = this.getDelegator()?.withProvider(newLlm) ?? new AgentDelegator(newLlm, this.actionExecutor, {
       clientContext: delegatorContext,
       maxDepth: 3,
       featureConfig: this.runtime.config,
-      authorization: this.getDelegator()?.getAuthorizationOptions(),
-      confirmApproval: this.getDelegator()?.getConfirmApproval(),
-      getToolDefinitions: this.getDelegator()?.getRuntimeToolDefinitions(),
-      resolveSubagentAssignment: this.getDelegator()?.getSubagentAssignmentResolver(),
-      createSubagentProvider: this.getDelegator()?.getSubagentProviderFactory(),
     });
     this.setDelegator(newDelegator);
     this.setActiveProvider(provider);

@@ -29,6 +29,7 @@ const STATUS_COLOR_KEY: Record<TaskPanelStatus, 'success' | 'warning' | 'muted' 
   in_progress: 'warning',
   pending: 'muted',
   failed: 'error',
+  cancelled: 'muted',
 };
 
 function padId(id: string | undefined, width: number): string {

@@ -1397,12 +1397,69 @@ describe("AutohandAcpAdapter", () => {
             _meta: {
               teamName: "release-readiness",
               taskId: "task-1",
+              taskStatus: "completed",
               owner: "planner",
             },
           }],
           _meta: {
             teamName: "release-readiness",
             memberCount: 1,
+          },
+        },
+      });
+    });
+
+    it.each([
+      { taskStatus: "pending", planStatus: "pending", prefix: "" },
+      { taskStatus: "in_progress", planStatus: "in_progress", prefix: "" },
+      { taskStatus: "completed", planStatus: "completed", prefix: "" },
+      { taskStatus: "failed", planStatus: "pending", prefix: "[failed] " },
+      { taskStatus: "cancelled", planStatus: "pending", prefix: "[cancelled] " },
+    ] as const)("preserves $taskStatus team tasks in ACP plan content and metadata", async ({ taskStatus, planStatus, prefix }) => {
+      const outputListener = mockAgent.setOutputListener.mock.calls[0][0];
+      connection.sessionUpdate.mockClear();
+
+      await outputListener({
+        type: "team_update",
+        teamActivity: {
+          team: {
+            name: "release-readiness",
+            createdAt: "2026-08-17T00:00:00.000Z",
+            leadSessionId: "lead-1",
+            status: "active",
+            members: [],
+          },
+          tasks: [undefined, "planner"].map((owner, index) => ({
+            id: `task-${index}`,
+            subject: "Plan the rollout",
+            description: "Produce the implementation sequence.",
+            status: taskStatus,
+            owner,
+            blockedBy: [],
+            createdAt: "2026-08-17T00:00:01.000Z",
+          })),
+        },
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(connection.sessionUpdate).toHaveBeenCalledExactlyOnceWith({
+        sessionId,
+        update: {
+          sessionUpdate: "plan",
+          entries: [undefined, "planner"].map((owner, index) => ({
+            content: `${prefix}Plan the rollout${owner ? ` → ${owner}` : ""}`,
+            priority: "medium",
+            status: planStatus,
+            _meta: {
+              teamName: "release-readiness",
+              taskId: `task-${index}`,
+              taskStatus,
+              ...(owner ? { owner } : {}),
+            },
+          })),
+          _meta: {
+            teamName: "release-readiness",
+            memberCount: 0,
           },
         },
       });

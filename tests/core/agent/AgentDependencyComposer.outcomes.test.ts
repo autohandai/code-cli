@@ -15,7 +15,14 @@ import { GitHubRegistryFetcher } from '../../../src/skills/GitHubRegistryFetcher
 import * as communityInstaller from '../../../src/skills/communityInstaller.js';
 import { getPlanModeManager } from '../../../src/commands/plan.js';
 import { getAuthClient } from '../../../src/auth/index.js';
+import * as configModule from '../../../src/config.js';
 import * as communityMcpInstaller from '../../../src/commands/mcp-install.js';
+import type { AgentRunStore } from '../../../src/core/agents/AgentRunStore.js';
+import type { SessionThreadBudget } from '../../../src/core/agents/SessionThreadBudget.js';
+import type { SlashCommandHandler } from '../../../src/core/slashCommandHandler.js';
+import type { SubagentStartContext, SubagentStopContext } from '../../../src/core/agents/AgentDelegator.js';
+import { TeamManager } from '../../../src/core/teams/TeamManager.js';
+import { TeammateProcess } from '../../../src/core/teams/TeammateProcess.js';
 import type {
   AgentAction,
   AgentOutputEvent,
@@ -26,6 +33,10 @@ import type {
 } from '../../../src/types.js';
 
 interface AgentOutcomeInternals {
+  activeAbortController?: AbortController;
+  agentRunStore: AgentRunStore;
+  sessionThreadBudget: SessionThreadBudget;
+  slashHandler: SlashCommandHandler;
   conversation: {
     addSystemNote: ReturnType<typeof vi.fn>;
   };
@@ -39,6 +50,7 @@ interface AgentOutcomeInternals {
     trackToolUse: ReturnType<typeof vi.fn>;
   };
   delegator: {
+    onSubagentStop?: (context: SubagentStopContext) => Promise<void>;
     delegateTask: ReturnType<typeof vi.fn>;
     delegateTaskForTool: ReturnType<typeof vi.fn>;
     onSubagentStart?: (context: {
@@ -117,6 +129,72 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getPlanModeManager().restore({ enabled: false, plan: null, phase: 'planning' });
+  });
+
+  it('brokers teammate authorization through live lead hooks without executing the tool', async () => {
+    const { agent, internals } = createAgent({ yes: true }, 'interactive');
+    const host = agent as unknown as { teamManager: TeamManager; sessionManager: { getCurrentSession(): unknown } };
+    const session = vi.spyOn(host.sessionManager, 'getCurrentSession').mockReturnValue({ metadata: { sessionId: 'lead-session' } });
+    let incoming: Parameters<TeammateProcess['spawn']>[0] = () => {};
+    let exited: Parameters<TeammateProcess['spawn']>[1] = () => {};
+    const spawn = vi.spyOn(TeammateProcess.prototype, 'spawn').mockImplementation((onMessage, onExit) => { incoming = onMessage; exited = onExit; });
+    const send = vi.spyOn(TeammateProcess.prototype, 'send').mockImplementation(() => {});
+    const execute = vi.spyOn(internals.actionExecutor, 'executeForTool');
+    internals.hookManager.executeHooks = vi.fn(async (event) => event === 'pre-tool' ? [{
+      hook: { event: 'pre-tool', command: 'lead-policy' }, success: true, duration: 0,
+      response: { decision: 'block', reason: 'Lead hook forbids this write' },
+    }] : []);
+    try {
+      host.teamManager.createTeam('auth-team');
+      host.teamManager.addTeammate({ name: 'worker', agentName: 'tester' });
+      incoming({ method: 'team.ready', params: {} });
+      const task = host.teamManager.tasks.createTask({ subject: 'Write', description: 'Write a file' });
+      host.teamManager.tryAssignIdleTeammate();
+      incoming({ method: 'team.authorizeTool', params: { requestId: 'request', taskId: task.id, runId: task.runId,
+        call: { id: 'write', tool: 'write_file', args: { path: 'a.txt', contents: 'x' } } } });
+      await vi.waitFor(() => expect(send).toHaveBeenCalledWith({ method: 'team.authorizationResult', params: {
+        requestId: 'request', result: { allowed: false, error: 'Lead hook forbids this write' },
+      } }));
+      expect(execute).not.toHaveBeenCalled();
+      expect(internals.hookManager.executeHooks.mock.calls.map(([event]) => event)).not.toContain('post-tool');
+    } finally {
+      exited(0);
+      session.mockRestore(); spawn.mockRestore(); send.mockRestore(); execute.mockRestore();
+    }
+  });
+
+  it('applies thread settings to the live config after a provider replaces it', async () => {
+    const { internals, runtime } = createAgent();
+    const originalConfig = runtime.config;
+    runtime.config = {
+      ...originalConfig,
+      provider: 'autohandai',
+      autohandai: { model: 'moa' },
+      features: {
+        ...originalConfig.features,
+        multi_agent_v2: { max_concurrent_threads_per_session: 4 },
+      },
+    };
+    const saveConfig = vi.spyOn(configModule, 'saveConfig').mockResolvedValue();
+
+    try {
+      const result = await internals.slashHandler.handle('/settings', ['max_agents', '1']);
+
+      expect(result).toContain('features.multi_agent_v2.max_concurrent_threads_per_session = 1');
+      expect(saveConfig).toHaveBeenCalledWith(expect.objectContaining({
+        provider: 'autohandai',
+        autohandai: { model: 'moa' },
+        features: expect.objectContaining({
+          multi_agent_v2: { max_concurrent_threads_per_session: 1 },
+        }),
+      }));
+      expect(runtime.config.features?.multi_agent_v2?.max_concurrent_threads_per_session).toBe(1);
+      expect(internals.sessionThreadBudget.maxThreads).toBe(1);
+      expect(() => internals.sessionThreadBudget.tryAcquire('disallowed-child')).toThrow('Delegation is disabled');
+      expect(originalConfig.features?.multi_agent_v2).toBeUndefined();
+    } finally {
+      saveConfig.mockRestore();
+    }
   });
 
   it('uses the current sign-in token for account entitlement before a stale provider-local token', async () => {
@@ -208,6 +286,7 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
     expect(internals.delegator.delegateTaskForTool).toHaveBeenCalledWith(
       'reviewer',
       'Review this change',
+      { signal: undefined },
     );
     expect(result).toEqual({
       tool: 'delegate_task',
@@ -215,6 +294,20 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
       kind: 'operational',
       error: 'Agent reviewer was not found.',
     });
+  });
+
+  it('forwards foreground cancellation through the delegation tool boundary', async () => {
+    const { internals } = createAgent();
+    const controller = new AbortController();
+    internals.delegator.delegateTaskForTool = vi.fn().mockResolvedValue({ success: true, output: 'Verified.' });
+    internals.hookManager.executeHooks = vi.fn().mockResolvedValue([]);
+    await internals.toolManager.execute([{
+      id: 'delegate-signal', tool: 'delegate_task', args: { agent_name: 'reviewer', task: 'Review source.' },
+    }], undefined, { signal: controller.signal });
+
+    expect(internals.delegator.delegateTaskForTool).toHaveBeenCalledWith(
+      'reviewer', 'Review source.', { signal: controller.signal },
+    );
   });
 
   it('switches default interactive sessions to auto mode when a subagent starts', async () => {
@@ -235,6 +328,29 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
       label: 'reviewer: Review the authentication flow',
       status: 'in_progress',
       detail: 'builtin',
+    });
+  });
+
+  it('connects subagent lifecycle and cancellation to the live run inspector', async () => {
+    const { internals } = createAgent();
+    internals.hookManager.executeHooks = vi.fn().mockResolvedValue([]);
+    const cancel = vi.fn();
+    const context: SubagentStartContext = {
+      subagentId: 'observed-reader', subagentName: 'reader', subagentType: 'builtin',
+      task: 'Inspect source.', parentId: 'lead', depth: 1, provider: 'autohandai', model: 'moa', cancel,
+    };
+    await internals.delegator.onSubagentStart?.(context);
+    expect(internals.agentRunStore.getSnapshot().runs).toEqual([expect.objectContaining({
+      id: 'observed-reader', source: 'delegate', parentId: 'lead', provider: 'autohandai', model: 'moa',
+    })]);
+    await internals.agentRunStore.requestCancel('observed-reader');
+    expect(cancel).toHaveBeenCalledOnce();
+    await internals.delegator.onSubagentStop?.({
+      ...context, success: false, status: 'cancelled', duration: 10,
+      usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+    });
+    expect(internals.agentRunStore.getSnapshot().runs[0]).toMatchObject({
+      status: 'cancelled', cancellable: false, usage: { totalTokens: 2 },
     });
   });
 
@@ -468,15 +584,17 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
   it('runs model-discovered specialists through the high-level tool', async () => {
     const { internals } = createAgent({}, 'unrestricted', true);
     internals.orchestrateSpecialistsFromTool = vi.fn().mockResolvedValue('STRUCTURED_SPECIALIST_RESULTS');
+    const controller = new AbortController();
 
     const [result] = await internals.toolManager.execute([{
       tool: 'orchestrate_specialists',
       args: { objective: 'Inspect auth.', requested_roles: ['security', 'review'] },
-    }]);
+    }], undefined, { signal: controller.signal });
 
     expect(internals.orchestrateSpecialistsFromTool).toHaveBeenCalledWith(
       'Inspect auth.',
       ['security', 'review'],
+      controller.signal,
     );
     expect(result).toMatchObject({ success: true, output: 'STRUCTURED_SPECIALIST_RESULTS' });
   });
@@ -502,6 +620,7 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
 
   it('routes a later user answer through the active specialist interview', async () => {
     const { internals } = createAgent({}, 'unrestricted', true);
+    internals.activeAbortController = new AbortController();
     internals.specialistOrchestrator.continueInterview = vi.fn().mockResolvedValue({
       plan: {
         objective: 'Continue interview',
@@ -528,6 +647,7 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
 
     expect(internals.specialistOrchestrator.continueInterview).toHaveBeenCalledWith(
       'The primary user is an engineer.',
+      { signal: internals.activeAbortController.signal },
     );
     expect(result).toContain('product-interviewer');
     expect(result).toContain('What is the deadline?');

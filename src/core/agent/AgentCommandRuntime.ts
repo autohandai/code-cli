@@ -28,6 +28,47 @@ export interface AgentCommandRuntimeHost {
   [key: string]: any;
 }
 
+export interface CancellableCommandHost {
+  activeAbortController: AbortController | null;
+  currentInkAbortController: AbortController | null;
+  currentInkOnCancel: (() => void) | null;
+  runtimeResourceShutdownController: AbortController;
+  inkRenderer?: { isRunning(): boolean } | null;
+  setupEscListener(controller: AbortController, onCancel: () => void, ctrlCInterrupt?: boolean): () => void;
+}
+
+export async function runCancellableAgentCommand<T>(
+  host: CancellableCommandHost,
+  operation: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const previous = {
+    active: host.activeAbortController,
+    ink: host.currentInkAbortController,
+    onCancel: host.currentInkOnCancel,
+  };
+  const controller = new AbortController();
+  const signal = AbortSignal.any([
+    controller.signal,
+    host.runtimeResourceShutdownController.signal,
+    ...(previous.active ? [previous.active.signal] : []),
+  ]);
+  signal.throwIfAborted();
+  const cancel = () => controller.abort();
+  let cleanup = () => {};
+  host.activeAbortController = controller;
+  host.currentInkAbortController = controller;
+  host.currentInkOnCancel = cancel;
+  try {
+    if (!host.inkRenderer?.isRunning()) cleanup = host.setupEscListener(controller, cancel, true);
+    return await operation(signal);
+  } finally {
+    cleanup();
+    if (host.activeAbortController === controller) host.activeAbortController = previous.active;
+    if (host.currentInkAbortController === controller) host.currentInkAbortController = previous.ink;
+    if (host.currentInkOnCancel === cancel) host.currentInkOnCancel = previous.onCancel;
+  }
+}
+
 interface SkillSummary {
   name: string;
   description?: string;

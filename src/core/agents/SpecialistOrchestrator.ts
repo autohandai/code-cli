@@ -6,9 +6,10 @@
 
 import type { AgentDefinition, AgentSource } from './AgentRegistry.js';
 import { AgentRegistry } from './AgentRegistry.js';
-import type { AgentDelegator } from './AgentDelegator.js';
+import type { AgentDelegator, DelegationExecutionOptions } from './AgentDelegator.js';
 import type { ToolActionOutcome } from '../../types.js';
 import { randomUUID } from 'node:crypto';
+import { CAPABILITY_DEFINITIONS as ROLE_DEFINITIONS } from './TaskAnalyzer.js';
 import {
   fetchSubAgentsRegistry,
   installSubAgentFromCatalog,
@@ -95,19 +96,6 @@ export interface SpecialistCatalogAdapter {
     options: { registry: CatalogRegistry; allowedTools?: ReadonlySet<string> },
   ): Promise<string>;
 }
-
-const ROLE_DEFINITIONS: readonly SpecialistRoleDefinition[] = [
-  { id: 'ui', label: 'UI', aliases: ['ui', 'user interface', 'interface design'], preferredAgents: ['ui-designer', 'frontend-designer'] },
-  { id: 'ux', label: 'UX', aliases: ['ux', 'user experience', 'experience design'], preferredAgents: ['ux-researcher', 'ux-designer'] },
-  { id: 'security', label: 'Security', aliases: ['security', 'security audit', 'threat model'], preferredAgents: ['security-auditor'] },
-  { id: 'product-interviewer', label: 'Product interview', aliases: ['product interviewer', 'product interview', 'requirements interviewer'], preferredAgents: ['product-interviewer'] },
-  { id: 'planner', label: 'Planning', aliases: ['planner', 'planning', 'architecture'], preferredAgents: ['planner'] },
-  { id: 'debugger', label: 'Debugging', aliases: ['debugger', 'debugging', 'diagnosis'], preferredAgents: ['debugger'] },
-  { id: 'release-readiness', label: 'Release readiness', aliases: ['release readiness', 'release', 'packaging'], preferredAgents: ['release-readiness'] },
-  { id: 'research', label: 'Research', aliases: ['researcher', 'research'], preferredAgents: ['researcher'] },
-  { id: 'review', label: 'Review', aliases: ['reviewer', 'review'], preferredAgents: ['reviewer'] },
-  { id: 'testing', label: 'Testing', aliases: ['tester', 'testing', 'test'], preferredAgents: ['tester'] },
-] as const;
 
 const SOURCE_PRIORITY: Readonly<Record<AgentSource, number>> = {
   session: 0,
@@ -293,7 +281,18 @@ export class SpecialistOrchestrator {
     for (const [index, requestedRole] of request.requestedRoles.entries()) {
       const role = definitionForRole(requestedRole);
       if (!role) {
-        locallyUnresolvedIndexes.push(index);
+        const exactMatch = candidates.find((agent) => agent.name === requestedRole && !usedAgents.has(agent.name));
+        if (exactMatch) {
+          usedAgents.add(exactMatch.name);
+          selections[index] = {
+            requestedRole,
+            agentName: exactMatch.name,
+            source: exactMatch.source,
+            matchReason: 'exact installed agent name',
+          };
+        } else {
+          locallyUnresolvedIndexes.push(index);
+        }
         continue;
       }
 
@@ -489,7 +488,7 @@ export class SpecialistOrchestrator {
     this.stagedInstallations.clear();
   }
 
-  async continueInterview(answer: string): Promise<SpecialistExecutionResult | null> {
+  async continueInterview(answer: string, options: DelegationExecutionOptions = {}): Promise<SpecialistExecutionResult | null> {
     const interview = this.activeInterview;
     if (!interview) return null;
 
@@ -510,10 +509,11 @@ export class SpecialistOrchestrator {
       matchReason: 'continued the active session-scoped interview',
       executionMode: 'interview',
       unresolvedRoles: [],
-    });
+    }, options);
   }
 
-  async execute(plan: SpecialistPlan): Promise<SpecialistExecutionResult> {
+  async execute(plan: SpecialistPlan, options: DelegationExecutionOptions = {}): Promise<SpecialistExecutionResult> {
+    options.signal?.throwIfAborted();
     const tasks = plan.selectedAgents.map((selected) => ({
       agent_name: selected.agentName,
       task: [
@@ -527,13 +527,17 @@ export class SpecialistOrchestrator {
 
     if (plan.executionMode === 'parallel') {
       for (let index = 0; index < tasks.length; index += this.maxParallel) {
+        options.signal?.throwIfAborted();
         const batch = tasks.slice(index, index + this.maxParallel);
-        const outcome = await this.delegator.delegateParallelForTool(batch);
+        const outcome = await this.delegator.delegateParallelForTool(batch, options);
+        options.signal?.throwIfAborted();
         batches.push({ agents: batch.map((task) => task.agent_name), outcome });
       }
     } else {
       for (const task of tasks) {
-        const outcome = await this.delegator.delegateTaskForTool(task.agent_name, task.task);
+        options.signal?.throwIfAborted();
+        const outcome = await this.delegator.delegateTaskForTool(task.agent_name, task.task, options);
+        options.signal?.throwIfAborted();
         batches.push({ agents: [task.agent_name], outcome });
       }
     }

@@ -47,6 +47,21 @@ describe('TeamPanel', () => {
     expect(output).toContain('1/3 done');
   });
 
+  it('labels failed and cancelled tasks without inflating the completed count', () => {
+    const tasks: TeamTask[] = [
+      { ...mockTasks[0]!, subject: 'Completed review', status: 'completed' },
+      { ...mockTasks[1]!, subject: 'Failed review', status: 'failed' },
+      { ...mockTasks[2]!, subject: 'Cancelled review', status: 'cancelled' },
+    ];
+    const { lastFrame } = renderWithTheme(<TeamPanel team={mockTeam} tasks={tasks} />);
+    const output = lastFrame() ?? '';
+
+    expect(output).toContain('1/3 done');
+    expect(output).toContain('× Failed review [failed]');
+    expect(output).toContain('⊘ Cancelled review [cancelled]');
+    expect(output).not.toContain('3/3 done');
+  });
+
   it('should render task subjects', () => {
     const { lastFrame } = renderWithTheme(<TeamPanel team={mockTeam} tasks={mockTasks} />);
     const output = lastFrame();

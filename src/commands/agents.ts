@@ -21,6 +21,8 @@ export const metadata = {
     description: t('commands.agents.description'),
     implemented: true,
     subcommands: [
+        { name: 'help', description: 'show agent commands and keyboard controls' },
+        { name: 'view', description: 'inspect this session’s agent runs, results, and usage' },
         { name: 'provider [agent]', description: 'set the default provider/model or an agent-specific override' },
         { name: 'definitions', description: 'list configured sub-agent definitions' },
         { name: 'new', description: 'create a new sub-agent from a description' },
@@ -29,6 +31,7 @@ export const metadata = {
 };
 
 export interface AgentsCommandDeps {
+    onToggleAgentRunsView?: (visible: boolean) => void;
     registry?: ActiveAgentRegistry;
     input?: NodeJS.ReadStream;
     output?: NodeJS.WriteStream;
@@ -44,6 +47,25 @@ const TEAM_PROVIDER_SUBCOMMANDS = new Set(['provider', 'model']);
 
 export async function handler(args: string[] = [], deps: AgentsCommandDeps = {}): Promise<string | null> {
     const subcommand = args.find((arg) => !arg.startsWith('-'))?.toLowerCase();
+    if (subcommand === 'help' || args.includes('--help') || args.includes('-h')) {
+        return [
+            'Agent commands:',
+            '  /agents view              Inspect this session’s direct and team agent runs, results, and usage',
+            '                            ↑/↓ select · Enter details · c cancel (confirmation required) · Esc back',
+            '  /agents                   Watch global Autohand session heartbeats',
+            '  /agents --once            Print one global heartbeat snapshot',
+            '  /agents definitions       List configured agent definitions',
+            '  /agents provider [agent]  Set default or agent-specific provider/model',
+            '  /agents new               Create an agent definition',
+            '  /team view                Open the current team’s compact activity view',
+            '  /squad view               Inspect recorded external Squad runs (independent sessions; read-only)',
+        ].join('\n');
+    }
+    if (subcommand === 'view') {
+        if (!deps.onToggleAgentRunsView) return 'The session agent inspector is available in an interactive Autohand session. Use /agents view there.';
+        deps.onToggleAgentRunsView(true);
+        return 'Session agent inspector opened. Use arrows to select, Enter for details, and Esc to return.';
+    }
     if (subcommand && DEFINITION_SUBCOMMANDS.has(subcommand)) {
         return listAgentDefinitions();
     }

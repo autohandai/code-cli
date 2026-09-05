@@ -86,4 +86,28 @@ describe('TeamActivityBridge', () => {
       expect(setInteractionMode).not.toHaveBeenCalled();
     }
   });
+
+  it('announces terminal outcomes once without reporting failed or cancelled work as completed', () => {
+    const manager = new TeamManager({ leadSessionId: 'lead-1', workspacePath: '/tmp' });
+    const notifyUser = vi.fn();
+    attachTeamActivityBridge({
+      teamManager: manager,
+      isInteractive: true,
+      getInteractionMode: () => 'automode',
+      setInteractionMode: () => {},
+      setTeamActivity: () => {},
+      emitOutput: () => {},
+      notifyUser,
+    });
+    manager.createTeam('review');
+    const tasks = ['Done', 'Failed', 'Cancelled'].map((subject) => manager.tasks.createTask({ subject, description: '' }));
+
+    manager.tasks.updateTask(tasks[0]!.id, { status: 'completed' });
+    manager.tasks.updateTask(tasks[1]!.id, { status: 'failed' });
+    expect(notifyUser).not.toHaveBeenCalled();
+    manager.tasks.updateTask(tasks[2]!.id, { status: 'cancelled' });
+    manager.tasks.setTaskOutput(tasks[2]!.id, 'Stopped by lead');
+
+    expect(notifyUser).toHaveBeenCalledExactlyOnceWith('Team "review" finished: 1/3 completed, 1 failed, 1 cancelled.');
+  });
 });
