@@ -3084,6 +3084,10 @@ export class ActionExecutor {
         console.log(chalk.cyan(`\nInstalling sub-agent: ${action.name}...`));
         const result = await installSubAgentFromCatalog(action.name, {
           overwrite: action.overwrite,
+          allowedTools: new Set([
+            ...DEFAULT_TOOL_DEFINITIONS,
+            ...this.getRegisteredTools(),
+          ].map((definition) => definition.name)),
         });
         const registry = AgentRegistry.getInstance();
         registry.configureExternalAgents(this.runtime.config.externalAgents);

@@ -19,6 +19,13 @@ export const DEFAULT_SUB_AGENT_REGISTRY_URL =
 export const DEFAULT_SUB_AGENT_RAW_BASE_URL =
   'https://raw.githubusercontent.com/autohandai/awesome-sub-agents/main';
 
+const CATALOG_REQUEST_TIMEOUT_MS = 10_000;
+const MAX_CATALOG_REGISTRY_BYTES = 2 * 1024 * 1024;
+const MAX_CATALOG_AGENT_BYTES = 256 * 1024;
+const CATALOG_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+class CatalogRequestError extends Error {}
+
 export interface CatalogSubAgent {
   name: string;
   description: string;
@@ -33,13 +40,18 @@ export interface CatalogRegistry {
   schemaVersion: number;
   repository: string;
   agents: CatalogSubAgent[];
+  cachedAt?: number;
 }
 
-export interface SearchSubAgentsOptions {
-  category?: string;
-  limit?: number;
+interface RegistryFetchOptions {
   fetchImpl?: typeof fetch;
   registryUrl?: string;
+  cachePath?: string | false;
+}
+
+export interface SearchSubAgentsOptions extends RegistryFetchOptions {
+  category?: string;
+  limit?: number;
 }
 
 export interface InstallSubAgentOptions {
@@ -58,12 +70,62 @@ function getFetch(fetchImpl?: typeof fetch): typeof fetch {
   throw new Error('fetch is unavailable in this runtime');
 }
 
-async function fetchText(url: string, fetchImpl?: typeof fetch): Promise<string> {
-  const response = await getFetch(fetchImpl)(url);
-  if (!response.ok) {
-    throw new Error(`request failed for ${url}: ${response.status} ${response.statusText}`);
+async function fetchText(
+  url: string,
+  fetchImpl?: typeof fetch,
+  maxBytes = MAX_CATALOG_REGISTRY_BYTES,
+): Promise<string> {
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(new CatalogRequestError(`Sub-agent catalogue request timed out after ${CATALOG_REQUEST_TIMEOUT_MS}ms: ${url}`));
+    }, CATALOG_REQUEST_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([deadline, (async () => {
+      const request = getFetch(fetchImpl);
+      const response = await request(url, { signal: controller.signal }).catch((cause: unknown) => {
+        throw new CatalogRequestError(`Sub-agent catalogue request failed: ${url}`, { cause });
+      });
+      if (controller.signal.aborted) void response.body?.cancel().catch(() => {});
+      controller.signal.throwIfAborted();
+      if (!response.ok) {
+        void response.body?.cancel().catch(() => {});
+        const message = `request failed for ${url}: ${response.status} ${response.statusText}`;
+        if (response.status >= 500 || response.status === 408 || response.status === 429) {
+          throw new CatalogRequestError(message);
+        }
+        throw new Error(message);
+      }
+      if (Number(response.headers.get('content-length')) > maxBytes) {
+        void response.body?.cancel().catch(() => {});
+        throw new Error(`Sub-agent catalogue response exceeds ${maxBytes} bytes: ${url}`);
+      }
+      reader = response.body?.getReader();
+      if (!reader) return '';
+      const chunks: Uint8Array[] = [];
+      let totalBytes = 0;
+      while (true) {
+        const next = await reader.read().catch((cause: unknown) => {
+          throw new CatalogRequestError(`Sub-agent catalogue response interrupted: ${url}`, { cause });
+        });
+        if (next.done) break;
+        totalBytes += next.value.byteLength;
+        if (totalBytes > maxBytes) {
+          throw new Error(`Sub-agent catalogue response exceeds ${maxBytes} bytes: ${url}`);
+        }
+        chunks.push(next.value);
+      }
+      return Buffer.concat(chunks, totalBytes).toString('utf8');
+    })()]);
+  } finally {
+    clearTimeout(timeout);
+    void reader?.cancel().catch(() => {});
   }
-  return response.text();
 }
 
 function asString(value: unknown): string | undefined {
@@ -71,9 +133,14 @@ function asString(value: unknown): string | undefined {
 }
 
 function asStringArray(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const strings = value.map((entry) => asString(entry)).filter((entry): entry is string => Boolean(entry));
-  return strings.length > 0 ? strings : undefined;
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const strings: string[] = [];
+  for (const entry of value) {
+    const tool = asString(entry);
+    if (!tool || !/^[a-zA-Z0-9_.:-]+$/.test(tool)) return undefined;
+    strings.push(tool);
+  }
+  return strings;
 }
 
 function validateCatalogPath(agentPath: string): void {
@@ -96,12 +163,17 @@ function validateCatalogName(name: string): void {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 function parseRegistry(raw: string): CatalogRegistry {
-  const parsed = JSON.parse(raw) as { schemaVersion?: unknown; repository?: unknown; agents?: unknown };
-  if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.agents)) {
+  const parsed: unknown = JSON.parse(raw);
+  if (!isRecord(parsed) || parsed.schemaVersion !== 1 || !Array.isArray(parsed.agents)) {
     throw new Error('unsupported sub-agent registry schema');
   }
 
+  const names = new Set<string>();
   const agents: CatalogSubAgent[] = parsed.agents.map((entry, index) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
       throw new Error(`invalid sub-agent registry entry at index ${index}`);
@@ -116,9 +188,13 @@ function parseRegistry(raw: string): CatalogRegistry {
       throw new Error(`invalid sub-agent registry entry at index ${index}`);
     }
     validateCatalogName(name);
+    if (names.has(name.toLowerCase())) {
+      throw new Error(`duplicate catalog agent name: ${name}`);
+    }
+    names.add(name.toLowerCase());
     validateCatalogPath(agentPath);
     const sha256 = asString(record.sha256);
-    if (sha256 && !/^[a-f0-9]{64}$/i.test(sha256)) {
+    if (record.sha256 !== undefined && (!sha256 || !/^[a-f0-9]{64}$/i.test(sha256))) {
       throw new Error(`invalid sha256 for sub-agent registry entry at index ${index}`);
     }
     return {
@@ -139,12 +215,69 @@ function parseRegistry(raw: string): CatalogRegistry {
   };
 }
 
-export async function fetchSubAgentsRegistry(options: {
-  fetchImpl?: typeof fetch;
-  registryUrl?: string;
-} = {}): Promise<CatalogRegistry> {
-  const raw = await fetchText(options.registryUrl ?? DEFAULT_SUB_AGENT_REGISTRY_URL, options.fetchImpl);
-  return parseRegistry(raw);
+function registryCachePath(options: RegistryFetchOptions): string | undefined {
+  if (options.cachePath === false) return undefined;
+  if (options.cachePath) return options.cachePath;
+  if (options.fetchImpl || (options.registryUrl && options.registryUrl !== DEFAULT_SUB_AGENT_REGISTRY_URL)) {
+    return undefined;
+  }
+  return path.join(AUTOHAND_PATHS.agents, '.catalog', 'registry.json');
+}
+
+async function readCachedRegistry(cachePath: string, registryUrl: string): Promise<CatalogRegistry | undefined> {
+  const file = await fs.open(cachePath, 'r');
+  let raw: string;
+  try {
+    const buffer = Buffer.alloc(MAX_CATALOG_REGISTRY_BYTES + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const { bytesRead } = await file.read(buffer, length, buffer.length - length, length);
+      if (bytesRead === 0) break;
+      length += bytesRead;
+    }
+    if (length > MAX_CATALOG_REGISTRY_BYTES) throw new Error('cached catalogue metadata exceeds size limit');
+    raw = buffer.toString('utf8', 0, length);
+  } finally {
+    await file.close();
+  }
+  const cache: unknown = JSON.parse(raw);
+  if (!isRecord(cache) || cache.version !== 1 || cache.registryUrl !== registryUrl
+    || typeof cache.fetchedAt !== 'number' || !Number.isFinite(cache.fetchedAt)) {
+    throw new Error('invalid cached catalogue metadata');
+  }
+  const age = Date.now() - cache.fetchedAt;
+  if (age < 0 || age > CATALOG_CACHE_MAX_AGE_MS) return undefined;
+  return { ...parseRegistry(JSON.stringify(cache.registry)), cachedAt: cache.fetchedAt };
+}
+
+async function cacheRegistry(cachePath: string, registryUrl: string, registry: CatalogRegistry): Promise<void> {
+  const content = JSON.stringify({ version: 1, registryUrl, fetchedAt: Date.now(), registry });
+  if (Buffer.byteLength(content, 'utf8') > MAX_CATALOG_REGISTRY_BYTES) return;
+  const temporaryPath = `${cachePath}.${randomUUID()}.tmp`;
+  try {
+    await fs.mkdir(path.dirname(cachePath), { recursive: true });
+    await fs.writeFile(temporaryPath, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    await fs.rename(temporaryPath, cachePath);
+  } finally {
+    await fs.unlink(temporaryPath).catch(() => {});
+  }
+}
+
+export async function fetchSubAgentsRegistry(options: RegistryFetchOptions = {}): Promise<CatalogRegistry> {
+  const registryUrl = options.registryUrl ?? DEFAULT_SUB_AGENT_REGISTRY_URL;
+  const cachePath = registryCachePath(options);
+  let raw: string;
+  try {
+    raw = await fetchText(registryUrl, options.fetchImpl);
+  } catch (error) {
+    if (!(error instanceof CatalogRequestError) || !cachePath) throw error;
+    const cached = await readCachedRegistry(cachePath, registryUrl).catch(() => undefined);
+    if (cached) return cached;
+    throw error;
+  }
+  const registry = parseRegistry(raw);
+  if (cachePath) await cacheRegistry(cachePath, registryUrl, registry).catch(() => {});
+  return registry;
 }
 
 function normalizeLimit(limit?: number): number {
@@ -362,22 +495,23 @@ export async function searchSubAgentsCatalog(
   const registry = await fetchSubAgentsRegistry(options);
   const normalizedQuery = query?.trim() ?? '';
   const ranked = rankSubAgentsCatalog(registry, normalizedQuery, options);
+  const cacheNotice = registry.cachedAt === undefined ? ''
+    : `Using validated cached catalogue metadata from ${new Date(registry.cachedAt).toISOString()}; installation still requires approval and fresh content validation.\n\n`;
 
   if (ranked.length === 0) {
-    return [
+    return cacheNotice + [
       `No sub-agents found matching "${normalizedQuery || '*'}".`,
       'Try broader role terms (for example "ui", "backend", "security", "react") or omit the category filter.',
       `Catalog: ${registry.repository}`,
     ].join('\n');
   }
 
-  return formatAgentResults(ranked, normalizedQuery);
+  return cacheNotice + formatAgentResults(ranked, normalizedQuery);
 }
 
 function findAgent(agents: CatalogSubAgent[], name: string): CatalogSubAgent | undefined {
   const normalized = name.toLowerCase().trim();
-  return agents.find((agent) => agent.name.toLowerCase() === normalized)
-    ?? agents.find((agent) => path.basename(agent.path, path.extname(agent.path)).toLowerCase() === normalized);
+  return agents.find((agent) => agent.name.toLowerCase() === normalized);
 }
 
 function findSimilarAgents(agents: CatalogSubAgent[], name: string): CatalogSubAgent[] {
@@ -395,8 +529,6 @@ function safeAgentFilename(name: string): string {
   const safe = name.trim().replace(/[^A-Za-z0-9._-]/g, '-').replace(/^-+|-+$/g, '');
   return safe || 'sub-agent';
 }
-
-const MAX_CATALOG_AGENT_BYTES = 256 * 1024;
 
 function parseDownloadedAgent(markdown: string): { tools: string[]; body: string } {
   if (Buffer.byteLength(markdown, 'utf8') > MAX_CATALOG_AGENT_BYTES) {
@@ -475,7 +607,9 @@ export async function installSubAgentFromCatalog(
   name: string,
   options: InstallSubAgentOptions = {},
 ): Promise<string> {
-  const registry = options.registry ?? await fetchSubAgentsRegistry(options);
+  const registry = options.registry
+    ? parseRegistry(JSON.stringify(options.registry))
+    : await fetchSubAgentsRegistry({ ...options, cachePath: false });
   const agent = findAgent(registry.agents, name);
   if (!agent) {
     const similar = findSimilarAgents(registry.agents, name);
@@ -486,7 +620,7 @@ export async function installSubAgentFromCatalog(
   }
 
   const rawBaseUrl = (options.rawBaseUrl ?? DEFAULT_SUB_AGENT_RAW_BASE_URL).replace(/\/$/, '');
-  const markdown = await fetchText(`${rawBaseUrl}/${agent.path}`, options.fetchImpl);
+  const markdown = await fetchText(`${rawBaseUrl}/${agent.path}`, options.fetchImpl, MAX_CATALOG_AGENT_BYTES);
   const contentHash = validateDownloadedAgent(agent, markdown, options.allowedTools);
 
   const destinationDir = options.destinationDir ?? AUTOHAND_PATHS.agents;
