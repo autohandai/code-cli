@@ -105,18 +105,16 @@ function isJsonObject(value: unknown): value is JsonObject {
 function stripUnsyncedConfigFields(config: JsonObject): JsonObject {
   const rest = { ...config };
   delete rest.auth;
+  delete rest.mcp;
   return rest;
 }
 
 function mergeDownloadedConfig(downloaded: JsonObject, local: JsonObject | null): JsonObject {
-  const sanitizedDownloaded = stripUnsyncedConfigFields(downloaded);
-  if (local && Object.prototype.hasOwnProperty.call(local, 'auth')) {
-    return {
-      ...sanitizedDownloaded,
-      auth: local.auth,
-    };
+  const merged = stripUnsyncedConfigFields(downloaded);
+  for (const key of ['auth', 'mcp']) {
+    if (local && Object.prototype.hasOwnProperty.call(local, key)) merged[key] = local[key];
   }
-  return sanitizedDownloaded;
+  return merged;
 }
 
 function isRemoteNewer(localFile: SyncFileEntry, remoteFile: SyncFileEntry): boolean {
@@ -149,6 +147,7 @@ export class SyncService {
   private operationController: AbortController | null = null;
   private activeOperation: Promise<SyncResult> | null = null;
   private shutdownPromise: Promise<void> | null = null;
+  private lastAppliedMcpFingerprint: string | undefined;
 
   constructor(options: SyncServiceOptions) {
     this.authToken = options.authToken;
@@ -303,6 +302,8 @@ export class SyncService {
     try {
       this.assertOperationActive(context);
       this.onEvent({ type: 'sync_started' });
+      await this.syncCodingAgentControlPlane(context);
+      this.assertOperationActive(context);
 
       // 1. Build local manifest
       const enabledRoots = await this.getIncludePaths();
@@ -411,13 +412,6 @@ export class SyncService {
       });
       this.assertOperationActive(context);
 
-      // Connector configuration and safe settings metadata live on a dedicated
-      // account-scoped control plane. They deliberately do not share the generic
-      // encrypted file sync manifest because Console needs a redacted, structured
-      // view while connector credentials must remain unavailable to the browser.
-      await this.syncCodingAgentControlPlane(context);
-      this.assertOperationActive(context);
-
       const result: SyncResult = {
         success: true,
         uploaded,
@@ -467,14 +461,18 @@ export class SyncService {
     const config = await loadConfig(path.join(this.basePath, 'config.json'));
     this.assertOperationActive(context);
     if (!config.auth?.token) return;
-    const result = await syncCodingAgentControlPlane(config, this.authToken, {
+    await syncCodingAgentControlPlane(config, this.authToken, {
       signal: context.signal,
+      onMcpApplied: async (mcp) => {
+        this.assertOperationActive(context);
+        const fingerprint = JSON.stringify(mcp ?? null);
+        if (this.lastAppliedMcpFingerprint === fingerprint) return;
+        await this.onControlPlaneMcpApplied?.(mcp);
+        this.assertOperationActive(context);
+        this.lastAppliedMcpFingerprint = fingerprint;
+      },
     });
     this.assertOperationActive(context);
-    if (result.changed) {
-      await this.onControlPlaneMcpApplied?.(result.mcp);
-      this.assertOperationActive(context);
-    }
   }
 
   private isOperationActive(context: SyncOperationContext): boolean {

@@ -216,7 +216,7 @@ async function syncAccountManagedMcpConfig(
   }
   try {
     const { syncCodingAgentControlPlane } = await import('./sync/CodingAgentControlPlane.js');
-    await syncCodingAgentControlPlane(config, config.auth.token);
+    await syncCodingAgentControlPlane(config, config.auth.token, { publishLocalConnectors: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.log(chalk.yellow(`Saved locally. Connector sync will retry when Code is running: ${message}`));
@@ -1568,10 +1568,11 @@ async function runCLI(options: CLIOptions): Promise<void> {
           && config.sync?.enabled !== false
         ),
         createSyncService: async (authUser) => {
-          const { createSyncService, DEFAULT_SYNC_CONFIG } = await import('./sync/index.js');
+          const { createSyncService, DEFAULT_SYNC_CONFIG, SyncApiClient } = await import('./sync/index.js');
           return createSyncService({
             authToken: config.auth?.token ?? '',
             userId: authUser.id,
+            apiClient: new SyncApiClient({ baseUrl: config.api?.baseUrl }),
             config: {
               ...DEFAULT_SYNC_CONFIG,
               ...config.sync,

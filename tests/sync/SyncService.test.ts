@@ -60,6 +60,16 @@ describe('SyncService', () => {
     vi.clearAllMocks();
   });
 
+  it('applies Console connector changes even when file sync is unavailable', async () => {
+    const service = new SyncService({ authToken: 'test-token', userId: 'test-user', config: { enabled: true, interval: 60000 }, apiClient: mockApiClient });
+    (service as unknown as { basePath: string }).basePath = tempDir;
+    const control = vi.spyOn(service as unknown as { syncCodingAgentControlPlane: () => Promise<void> }, 'syncCodingAgentControlPlane').mockResolvedValue(undefined);
+    vi.mocked(mockApiClient.getRemoteManifest).mockRejectedValue(new Error('File sync unavailable'));
+    expect((await service.sync()).success).toBe(false);
+    expect(control).toHaveBeenCalledOnce();
+    expect(control.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(mockApiClient.getRemoteManifest).mock.invocationCallOrder[0]);
+  });
+
   describe('createSyncService', () => {
     it('creates a sync service with required options', () => {
       const service = createSyncService({
@@ -333,13 +343,14 @@ describe('SyncService', () => {
       );
     });
 
-    it('builds config manifest hashes without local auth fields', async () => {
+    it('builds config manifest hashes without local auth or connector credentials', async () => {
       await fs.writeJson(path.join(tempDir, 'config.json'), {
         auth: {
           token: 'local-token',
           user: { id: 'user-1', email: 'local@example.com' },
         },
         provider: 'openrouter',
+        mcp: { servers: [{ name: 'GitHub', transport: 'http', url: 'https://api.githubcopilot.com/mcp/', headers: { Authorization: 'Bearer protected' } }] },
       });
 
       const service = new SyncService({
@@ -436,6 +447,7 @@ describe('SyncService', () => {
           user: { id: 'user-1', email: 'local@example.com' },
         },
         provider: 'openrouter',
+        mcp: { servers: [{ name: 'current-account', transport: 'http', url: 'https://current.example/mcp' }] },
       });
 
       const remoteManifest: SyncManifest = {
@@ -479,6 +491,7 @@ describe('SyncService', () => {
             user: { id: 'user-1', email: 'remote@example.com' },
           },
           provider: 'ollama',
+          mcp: { servers: [{ name: 'deleted-connector', transport: 'http', url: 'https://stale.example/mcp' }] },
         }))
       );
 
@@ -487,6 +500,7 @@ describe('SyncService', () => {
 
       expect(result.success).toBe(true);
       expect(config.provider).toBe('ollama');
+      expect(config.mcp.servers.map((server: { name: string }) => server.name)).toEqual(['current-account']);
       expect(config.auth.token).toBe('fresh-local-token');
       expect(config.auth.user.email).toBe('local@example.com');
       expect(isEncrypted(config.auth.token)).toBe(false);

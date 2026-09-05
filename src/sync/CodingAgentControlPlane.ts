@@ -6,6 +6,7 @@
  */
 import crypto from 'node:crypto';
 import fs from 'fs-extra';
+import { z } from 'zod';
 
 import { AUTOHAND_FILES, AUTOHAND_HOME } from '../constants.js';
 import {
@@ -25,18 +26,37 @@ const SECRET_KEY_PATTERN = /(?:api[_-]?key|token|secret|password|credential|auth
 
 export type ManagedConnectorTransport = 'http' | 'stdio';
 
-export type ManagedConnector = {
-  id: string;
-  name: string;
-  transport: ManagedConnectorTransport;
-  url?: string;
-  command?: string;
-  args?: string[];
-  headers?: Record<string, string>;
-  env?: Record<string, string>;
-  enabled: boolean;
-  revision: number;
+const secretValues = z.record(z.string().min(1).max(120), z.string().max(8192));
+const connectorBase = {
+  id: z.string().min(1).max(200),
+  name: z.string().trim().min(1).max(80),
+  enabled: z.boolean(),
+  revision: z.number().int().nonnegative(),
 };
+const managedConnectorSchema = z.discriminatedUnion('transport', [
+  z.object({ ...connectorBase, transport: z.literal('http'), url: z.string().url().refine(isSecureEndpoint), headers: secretValues.optional() }),
+  z.object({ ...connectorBase, transport: z.literal('stdio'), command: z.string().trim().min(1).max(512), args: z.array(z.string().max(2048)).max(64).optional(), env: secretValues.optional() }),
+]);
+export type ManagedConnector = z.infer<typeof managedConnectorSchema>;
+
+function isSecureEndpoint(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return !url.username && !url.password && (url.protocol === 'https:' || (
+      url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+    ));
+  } catch { return false; }
+}
+
+function validateConnectorSnapshot(revision: number, connectors: unknown): ManagedConnector[] {
+  const parsed = z.array(managedConnectorSchema).safeParse(connectors);
+  if (!Number.isSafeInteger(revision) || revision < 0 || !parsed.success ||
+    new Set(parsed.data.map(({ id }) => id)).size !== parsed.data.length ||
+    parsed.data.some((connector) => connector.revision > revision)) {
+    throw new Error('Coding Agent connector sync response was invalid');
+  }
+  return parsed.data;
+}
 
 export type CodingAgentSettingsSnapshot = {
   deviceId: string;
@@ -87,10 +107,14 @@ type SettingsProfilesResponse = {
 
 export class CodingAgentControlPlaneClient {
   private readonly baseUrl: string;
+  private readonly accountId: string | undefined;
 
   constructor(config: LoadedConfig) {
     const configured = config.api?.baseUrl?.trim() || process.env.AUTOHAND_API_URL?.trim();
-    this.baseUrl = (configured || DEFAULT_API_BASE_URL).replace(/\/+$/, '');
+    const baseUrl = (configured || DEFAULT_API_BASE_URL).replace(/\/+$/, '');
+    if (!isSecureEndpoint(baseUrl)) throw new Error('Invalid Coding Agent API base URL');
+    this.baseUrl = baseUrl;
+    this.accountId = config.api?.accountId?.trim() || process.env.AUTOHAND_ACCOUNT_ID?.trim() || undefined;
   }
 
   async pullConnectors(authToken: string, deviceId: string, signal?: AbortSignal): Promise<{
@@ -106,11 +130,12 @@ export class CodingAgentControlPlaneClient {
         signal,
       },
     );
-    const revision = Number(payload.revision);
+    const revision = payload.revision;
     if (!payload.success || !Array.isArray(payload.connectors) || !Number.isInteger(revision)) {
       throw new Error(payload.error || 'Coding Agent connector sync response was invalid');
     }
-    return { revision, connectors: payload.connectors };
+    if (typeof revision !== 'number') throw new Error('Coding Agent connector sync response was invalid');
+    return { revision, connectors: validateConnectorSnapshot(revision, payload.connectors) };
   }
 
   async acknowledgeConnectors(
@@ -199,12 +224,15 @@ export class CodingAgentControlPlaneClient {
     timer.unref?.();
     const abort = () => controller.abort(init.signal?.reason);
     init.signal?.addEventListener('abort', abort, { once: true });
+    if (init.signal?.aborted) controller.abort(init.signal.reason);
     try {
       const response = await fetch(`${this.baseUrl}${route}`, {
         ...init,
+        redirect: 'error',
         headers: {
           Authorization: `Bearer ${authToken}`,
           'Content-Type': 'application/json',
+          ...(this.accountId ? { 'X-Autohand-Account-Id': this.accountId } : {}),
           ...(init.headers || {}),
         },
         signal: controller.signal,
@@ -335,28 +363,44 @@ export async function applyDefaultCodingAgentSettingsProfileOnLogin(
   return profile;
 }
 
+function connectorTarget(config: McpServerConfigEntry | ManagedConnector): string {
+  const sorted = (values: Record<string, string> = {}) => Object.entries(values).sort(([a], [b]) => a.localeCompare(b));
+  return JSON.stringify(config.transport === 'http'
+    ? [config.transport, config.url, sorted(config.headers)]
+    : [config.transport, config.command, config.args || [], sorted(config.env)]);
+}
+
 export function applyManagedConnectors(
   config: LoadedConfig,
   revision: number,
   connectors: ManagedConnector[],
 ): { changed: boolean; servers: McpServerConfigEntry[] } {
+  const validated = validateConnectorSnapshot(revision, connectors);
   const currentServers = config.mcp?.servers || [];
-  const unmanaged = currentServers.filter((server) => !server.managedConnectorId);
-  const managed = connectors.map<McpServerConfigEntry>((connector) => ({
-    name: connector.name,
-    transport: connector.transport,
-    ...(connector.transport === 'http'
-      ? { url: connector.url || '', headers: connector.headers || {} }
-      : { command: connector.command || '', args: connector.args || [], env: connector.env || {} }),
-    autoConnect: connector.enabled,
-    managedConnectorId: connector.id,
-    managedConnectorRevision: revision,
-  }));
+  const unmanaged = currentServers.filter((server) => !server.managedConnectorId && !validated.some((connector) =>
+    connector.name === server.name && connectorTarget(connector) === connectorTarget(server),
+  ));
+  const names = new Set(unmanaged.map(({ name }) => name));
+  const managed = validated.map<McpServerConfigEntry>((connector) => {
+    const stem = connector.name.replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/__+/g, '_').replace(/^-+|-+$/g, '').slice(0,32) || 'connector';
+    let name = stem;
+    let suffix = 1;
+    while (names.has(name)) name = `${stem}-${suffix++}`;
+    names.add(name);
+    return {
+      name,
+      transport: connector.transport,
+      ...(connector.transport === 'http'
+        ? { url: connector.url, headers: connector.headers || {} }
+        : { command: connector.command, args: connector.args || [], env: connector.env || {} }),
+      autoConnect: connector.enabled,
+      managedConnectorId: connector.id,
+      managedConnectorRevision: revision,
+    };
+  });
   const servers = [...unmanaged, ...managed];
   const changed = JSON.stringify(currentServers) !== JSON.stringify(servers);
-  if (changed) {
-    config.mcp = { ...config.mcp, servers };
-  }
+  if (changed) config.mcp = { ...config.mcp, servers };
   return { changed, servers };
 }
 
@@ -369,42 +413,50 @@ export function applyManagedConnectors(
 export async function syncCodingAgentControlPlane(
   config: LoadedConfig,
   authToken: string,
-  options: { signal?: AbortSignal } = {},
+  options: {
+    signal?: AbortSignal;
+    publishLocalConnectors?: boolean;
+    onMcpApplied?: (mcp: LoadedConfig['mcp']) => Promise<void> | void;
+  } = {},
 ): Promise<CodingAgentControlPlaneSyncResult> {
   const deviceId = await getOrCreateCodingAgentDeviceId();
   const client = new CodingAgentControlPlaneClient(config);
-  // Settings profiles are an additive control-plane feature. Do not make an
-  // existing connector sync unavailable while a client is talking to an older
-  // API deployment or lacks access to profiles.
-  const settingsProfilesPromise = client
-    .pullSettingsProfiles(authToken, options.signal)
-    .catch(() => [] as CodingAgentSettingsProfile[]);
-  for (const server of config.mcp?.servers || []) {
-    if (server.managedConnectorId || (server.transport !== 'http' && server.transport !== 'stdio')) {
-      continue;
+  const [initialState, settingsProfiles] = await Promise.all([
+    client.pullConnectors(authToken, deviceId, options.signal),
+    client.pullSettingsProfiles(authToken, options.signal).catch(() => [] as CodingAgentSettingsProfile[]),
+  ]);
+  let changed = false;
+  const apply = async (state: typeof initialState) => {
+    options.signal?.throwIfAborted();
+    const candidate = structuredClone(config);
+    const defaultProfile = settingsProfiles.find((profile) => profile.isDefault);
+    const profileApplied = defaultProfile ? applyCodingAgentSettingsProfile(candidate, defaultProfile) : { changed: false };
+    const applied = applyManagedConnectors(candidate, state.revision, state.connectors);
+    if (applied.changed || profileApplied.changed) {
+      await saveConfig(candidate);
+      options.signal?.throwIfAborted();
+      Object.assign(config, candidate);
+      changed = true;
     }
-    try {
+    await options.onMcpApplied?.(config.mcp);
+  };
+  await apply(initialState);
+  let revision = initialState.revision;
+  if (options.publishLocalConnectors) {
+    let published = false;
+    for (const server of config.mcp?.servers || []) {
+      if (server.managedConnectorId || (server.transport !== 'http' && server.transport !== 'stdio')) continue;
+      if (initialState.connectors.some(({ name }) => name.toLowerCase() === server.name.toLowerCase())) continue;
       await client.createConnector(authToken, server, options.signal);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (!message.includes('already exists')) throw error;
+      published = true;
+    }
+    if (published) {
+      const state = await client.pullConnectors(authToken, deviceId, options.signal);
+      await apply(state);
+      revision = state.revision;
     }
   }
-  const [state, settingsProfiles] = await Promise.all([
-    client.pullConnectors(authToken, deviceId, options.signal),
-    settingsProfilesPromise,
-  ]);
-  const defaultProfile = settingsProfiles.find((profile) => profile.isDefault);
-  const profileApplied = defaultProfile
-    ? applyCodingAgentSettingsProfile(config, defaultProfile)
-    : { changed: false, appliedKeys: [] };
-  const applied = applyManagedConnectors(config, state.revision, state.connectors);
-  if (applied.changed || profileApplied.changed) await saveConfig(config);
-  await client.uploadSettingsSnapshot(
-    authToken,
-    createCodingAgentSettingsSnapshot(config, deviceId),
-    options.signal,
-  );
-  await client.acknowledgeConnectors(authToken, deviceId, state.revision, options.signal);
-  return { changed: applied.changed || profileApplied.changed, mcp: config.mcp, revision: state.revision };
+  await client.acknowledgeConnectors(authToken, deviceId, revision, options.signal);
+  await client.uploadSettingsSnapshot(authToken, createCodingAgentSettingsSnapshot(config, deviceId), options.signal);
+  return { changed, mcp: config.mcp, revision };
 }
