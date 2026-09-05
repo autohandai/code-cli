@@ -113,6 +113,11 @@ describe('SETTINGS_REGISTRY', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
+  it('exposes a nine-thread session budget in Teams settings', () => {
+    expect(SETTINGS_REGISTRY.find(setting => setting.key === 'features.multi_agent_v2.max_concurrent_threads_per_session'))
+      .toMatchObject({ category: 'teams', type: 'number', defaultValue: 9 });
+  });
+
   it('exposes silent tool output as an off-by-default UI setting', () => {
     const setting = SETTINGS_REGISTRY.find(s => s.key === 'ui.silentToolOutput');
     expect(setting).toMatchObject({
@@ -199,6 +204,23 @@ describe('resolveAwarenessTier', () => {
 });
 
 describe('setConfigSetting', () => {
+  it.each(['features.multi_agent_v2.max_concurrent_threads_per_session', 'max_agents'])('sets the session budget using %s', (key) => {
+    const config = createMockConfig();
+
+    expect(setConfigSetting(config, key, '4')).toEqual({
+      key: 'features.multi_agent_v2.max_concurrent_threads_per_session', value: 4,
+    });
+    expect(config.features.multi_agent_v2.max_concurrent_threads_per_session).toBe(4);
+    expect(config.teams.maxTeammates).toBe(5);
+  });
+
+  it.each(['0', '-1', '65', '1.5', '', 'many'])('rejects invalid thread limit %j without mutation', (value) => {
+    const config = createMockConfig();
+
+    expect(() => setConfigSetting(config, 'max_agents', value)).toThrow('integer between 1 and 64');
+    expect(config.features).toBeUndefined();
+  });
+
   it('enables mouse composer cursor editing from its dotted config key', () => {
     const config = createMockConfig();
 
@@ -449,7 +471,83 @@ function createMockConfig(): any {
 
 describe('settings command integration', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    vi.mocked(mockSaveConfig).mockResolvedValue(undefined);
+  });
+
+  it('persists a direct session thread setting without opening a modal', async () => {
+    const config = createMockConfig();
+
+    const result = await settingsCmd({ config }, ['features.multi_agent_v2.max_concurrent_threads_per_session', '4']);
+
+    expect(result).toContain('Set features.multi_agent_v2.max_concurrent_threads_per_session = 4');
+    expect(config.features.multi_agent_v2.max_concurrent_threads_per_session).toBe(4);
+    expect(mockShowModal).not.toHaveBeenCalled();
+    expect(mockSaveConfig).toHaveBeenCalledWith(config);
+  });
+
+  it('reports invalid direct settings without writing configuration', async () => {
+    const config = createMockConfig();
+
+    const result = await settingsCmd({ config }, ['max_agents', '0']);
+
+    expect(result).toContain('integer between 1 and 64');
+    expect(mockSaveConfig).not.toHaveBeenCalled();
+    expect(mockShowModal).not.toHaveBeenCalled();
+  });
+
+  it('keeps the live configuration unchanged when saving a direct setting fails', async () => {
+    const config = createMockConfig();
+    vi.mocked(mockSaveConfig).mockRejectedValueOnce(new Error('disk unavailable'));
+
+    const result = await settingsCmd({ config }, ['max_agents', '4']);
+
+    expect(result).toContain('Settings not saved: disk unavailable');
+    expect(config.features).toBeUndefined();
+  });
+
+  it('documents the canonical thread setting in command help', async () => {
+    const result = await settingsCmd({ config: createMockConfig() }, ['help']);
+
+    expect(result).toContain('/settings features.multi_agent_v2.max_concurrent_threads_per_session 4');
+    expect(result).toContain('main agent');
+    expect(mockShowModal).not.toHaveBeenCalled();
+  });
+
+  it('validates and saves the session budget through Teams settings', async () => {
+    vi.mocked(mockShowModal)
+      .mockResolvedValueOnce({ label: 'Teams', value: 'teams' })
+      .mockResolvedValueOnce({ label: 'Session thread limit (main agent included)', value: 'features.multi_agent_v2.max_concurrent_threads_per_session' })
+      .mockResolvedValueOnce({ label: 'Back', value: '__back__' })
+      .mockResolvedValueOnce(null);
+    vi.mocked(mockShowInput).mockImplementationOnce(async (options) => {
+      expect(options.defaultValue).toBe('9');
+      expect(options.validate?.('1')).toBe(true);
+      expect(options.validate?.('64')).toBe(true);
+      expect(options.validate?.('0')).toContain('integer between 1 and 64');
+      expect(options.validate?.('1.5')).toContain('integer between 1 and 64');
+      expect(options.validate?.('65')).toContain('integer between 1 and 64');
+      return '4';
+    });
+    const config = createMockConfig();
+
+    await settingsCmd({ config });
+
+    expect(config.features.multi_agent_v2.max_concurrent_threads_per_session).toBe(4);
+    expect(mockSaveConfig).toHaveBeenCalledWith(config);
+  });
+
+  it('keeps the live thread limit unchanged when saving a Teams edit fails', async () => {
+    vi.mocked(mockShowModal)
+      .mockResolvedValueOnce({ label: 'Teams', value: 'teams' })
+      .mockResolvedValueOnce({ label: 'Session thread limit', value: 'features.multi_agent_v2.max_concurrent_threads_per_session' });
+    vi.mocked(mockShowInput).mockResolvedValueOnce('4');
+    vi.mocked(mockSaveConfig).mockRejectedValueOnce(new Error('disk unavailable'));
+    const config = createMockConfig();
+
+    await expect(settingsCmd({ config })).rejects.toThrow('disk unavailable');
+
+    expect(config.features).toBeUndefined();
   });
 
   it('exits when user presses ESC at category level', async () => {
