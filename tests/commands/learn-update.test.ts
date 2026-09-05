@@ -169,9 +169,10 @@ describe('/learn update', () => {
         metadata: { 'agentskill-source': 'github-registry' },
       },
     ];
+    const skillsRegistry = createMockRegistry(skills);
     const result = await learn(
       {
-        skillsRegistry: createMockRegistry(skills),
+        skillsRegistry,
         workspaceRoot: '/test',
         llm,
         isNonInteractive: true,
@@ -199,9 +200,10 @@ describe('/learn update', () => {
         },
       },
     ];
+    const skillsRegistry = createMockRegistry(skills);
     const result = await learn(
       {
-        skillsRegistry: createMockRegistry(skills),
+        skillsRegistry,
         workspaceRoot: '/test',
         llm,
         isNonInteractive: true,
@@ -238,9 +240,10 @@ describe('/learn update', () => {
         },
       },
     ];
+    const skillsRegistry = createMockRegistry(skills);
     const result = await learn(
       {
-        skillsRegistry: createMockRegistry(skills),
+        skillsRegistry,
         workspaceRoot: '/test',
         llm,
         isNonInteractive: true,
@@ -251,6 +254,12 @@ describe('/learn update', () => {
     expect(llm.complete).toHaveBeenCalled();
     expect(result).toContain('Regenerated');
     expect(result).toContain('Updated 1 skill');
+    expect(skillsRegistry.trackSkillEvent).toHaveBeenCalledWith({
+      skillName: 'old-skill',
+      source: 'autohand-user',
+      activationType: 'explicit',
+      action: 'update',
+    });
   });
 
   it('writes regenerated content to the skill path', async () => {

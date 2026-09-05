@@ -233,7 +233,8 @@ export class TelemetryManager {
 
     await this.trackEvent('command_use', {
       command: data.command,
-      args: data.args
+      ...(data.subcommand ? { subcommand: data.subcommand } : {}),
+      ...(data.surface ? { surface: data.surface } : {}),
     });
   }
 

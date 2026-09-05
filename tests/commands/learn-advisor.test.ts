@@ -10,6 +10,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { learn, parseLearnArgs } from '../../src/commands/learn.js';
 import type { LLMProvider } from '../../src/providers/LLMProvider.js';
+import { showConfirm, showModal } from '../../src/ui/ink/components/Modal.js';
+
+const fileMocks = vi.hoisted(() => ({
+  ensureDir: vi.fn(),
+  writeFile: vi.fn(),
+}));
+
+vi.mock('fs-extra', () => ({
+  default: {
+    ensureDir: fileMocks.ensureDir,
+    writeFile: fileMocks.writeFile,
+  },
+}));
 
 // ─── Mocks ──────────────────────────────────────────────────────────
 
@@ -433,5 +446,58 @@ describe('/learn LLM-powered flow', () => {
     expect(result).toBeDefined();
     // Should say no strong matches
     expect(result).toContain('No strong matches');
+  });
+
+  it('tracks an LLM-generated skill after it is installed', async () => {
+    vi.mocked(showConfirm).mockResolvedValueOnce(true);
+    vi.mocked(showModal).mockResolvedValueOnce({
+      label: 'Project (.autohand/skills/)',
+      value: 'project',
+    });
+    const complete = vi.fn()
+      .mockResolvedValueOnce({
+        id: 'analysis',
+        created: Date.now(),
+        content: JSON.stringify({
+          projectSummary: 'Test project',
+          audit: [],
+          recommendations: [],
+          gapAnalysis: 'Review evidence is missing',
+        }),
+        finishReason: 'stop' as const,
+      })
+      .mockResolvedValueOnce({
+        id: 'generation',
+        created: Date.now(),
+        content: JSON.stringify({
+          name: 'review-evidence',
+          description: 'Review evidence rigorously',
+          allowedTools: ['read_file'],
+          body: '# Review evidence\n\nInspect the evidence boundary.',
+        }),
+        finishReason: 'stop' as const,
+      });
+    const llm = {
+      getName: () => 'mock',
+      complete,
+      listModels: vi.fn(async () => []),
+      isAvailable: vi.fn(async () => true),
+      setModel: vi.fn(),
+    } as LLMProvider;
+    const skillsRegistry = createMockRegistry();
+
+    await expect(learn({
+      skillsRegistry,
+      workspaceRoot: '/test',
+      llm,
+      isNonInteractive: false,
+    }, [])).resolves.toContain('Generated and installed skill: review-evidence');
+
+    expect(skillsRegistry.trackSkillEvent).toHaveBeenCalledWith({
+      skillName: 'review-evidence',
+      source: 'autohand-project',
+      activationType: 'explicit',
+      action: 'install',
+    });
   });
 });

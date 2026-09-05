@@ -93,8 +93,13 @@ export interface ErrorData {
 
 export interface CommandUseData {
   command: string;
+  /** @deprecated Free-form arguments are never emitted. */
   args?: string[];
+  subcommand?: string;
+  surface?: CommandUseSurface;
 }
+
+export type CommandUseSurface = 'interactive' | 'cli' | 'acp' | 'json_rpc' | 'mobile';
 
 export interface ProviderModelMetadata {
   providerDisplayName?: string;

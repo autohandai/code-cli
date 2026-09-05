@@ -214,6 +214,12 @@ Output only the raw markdown content, no code fences.`
     // Reload the skill into the registry
     const success = await skillsRegistry.saveSkill(name, content);
     if (success) {
+      skillsRegistry.trackSkillEvent({
+        skillName: name,
+        source: storageLevel === 'project' ? 'autohand-project' : 'autohand-user',
+        activationType: 'explicit',
+        action: 'install',
+      });
       // Optionally activate the new skill
       const activateResult = await safePrompt<{ activate: boolean }>({
         type: 'confirm',

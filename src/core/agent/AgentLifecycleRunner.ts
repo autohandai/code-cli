@@ -1683,11 +1683,6 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
           return;
         }
 
-        const isSlashCommand = !mobileTurn && instruction.startsWith('/');
-        if (isSlashCommand) {
-          await host.telemetryManager.trackCommand({ command: instruction.split(' ')[0] });
-        }
-
         // Reset error tracking on successful prompt
         host.lastErrorMessage = null;
         host.consecutiveErrorCount = 0;

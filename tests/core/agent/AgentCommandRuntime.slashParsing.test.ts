@@ -5,6 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import {
+  handleAgentSlashCommand,
   renderAgentSlashCommandResult,
   parseAgentSlashCommand,
   runAgentSlashCommandWithInput,
@@ -38,6 +39,40 @@ describe('parseAgentSlashCommand', () => {
       command: '/handoff session',
       args: ['--queue'],
     });
+  });
+});
+
+describe('handleAgentSlashCommand telemetry', () => {
+  it('tracks a known subcommand and surface without free-form arguments', async () => {
+    const trackCommand = vi.fn().mockResolvedValue(undefined);
+    const handle = vi.fn().mockResolvedValue('report queued');
+    const host = {
+      runtime: { options: { bare: false } },
+      telemetryManager: { trackCommand },
+      slashHandler: {
+        getKnownSubcommands: vi.fn(() => ['changes', 'security']),
+        handle,
+      },
+    };
+
+    await expect(handleAgentSlashCommand(
+      host,
+      '/review',
+      ['security', 'private/customer-a', '--focus', 'credential leak'],
+      'json_rpc',
+    )).resolves.toBe('report queued');
+
+    expect(trackCommand).toHaveBeenCalledWith({
+      command: '/review',
+      subcommand: 'security',
+      surface: 'json_rpc',
+    });
+    expect(handle).toHaveBeenCalledWith('/review', [
+      'security',
+      'private/customer-a',
+      '--focus',
+      'credential leak',
+    ]);
   });
 });
 
