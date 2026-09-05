@@ -175,7 +175,8 @@ export class GoalManager {
 
     const key = this.goalKey();
     const existing = snapshot.goals[key];
-    if (existing && existing.status !== 'complete' && !opts.replace) {
+    const existingIsTerminal = existing?.status === 'complete' || existing?.status === 'budgetLimited';
+    if (existing && !existingIsTerminal && !opts.replace) {
       return this.result(snapshot, false, 'A goal already exists for this session. Clear it, complete it, or queue the new objective before replacing it.');
     }
 
@@ -196,11 +197,14 @@ export class GoalManager {
     const next: GoalSnapshot = {
       ...snapshot,
       goals: { ...snapshot.goals, [key]: goal },
+      completed: existing && existingIsTerminal
+        ? appendCompletedGoal(snapshot.completed, buildCompletedGoal(existing, now, key))
+        : snapshot.completed,
       updatedAt: now,
     };
     await this.writeSnapshot(next);
-    const message = existing && existing.status === 'complete'
-      ? 'Goal created; replaced completed goal.'
+    const message = existingIsTerminal
+      ? `Goal created; replaced ${existing.status === 'complete' ? 'completed' : 'budget-limited'} goal.`
       : 'Goal created.';
     return this.result(next, true, message);
   }

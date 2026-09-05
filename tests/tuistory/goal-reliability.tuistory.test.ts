@@ -17,6 +17,28 @@ import {
 } from './helpers/autohandTuistory.js';
 
 describe('built CLI goal reliability', () => {
+  it('starts an approved CLI goal after exhaustion without clearing its predecessor', async () => {
+    const state = await createTempAutohandHome({ config: { features: { slashGoal: true } } });
+    let session: Session | undefined;
+    try {
+      const manager = new GoalManager(state.workspaceRoot);
+      await manager.createGoal({ objective: 'exhausted CLI objective', tokenBudget: 1 });
+      await manager.recordTurnUsage({ tokensUsed: 1 });
+      session = await launchBuiltAutohand([
+        '--path', state.workspaceRoot, '--config', state.configPath, '--goal', 'fresh CLI objective',
+      ], { autohandHome: state.autohandHome, cwd: state.workspaceRoot });
+      await waitForExit(session);
+
+      expect(session.readAll()).toContain('Goal created');
+      const snapshot = await manager.getSessionSnapshot();
+      expect(snapshot.goal).toMatchObject({ objective: 'fresh CLI objective', status: 'active' });
+      expect(snapshot.completed[0]).toMatchObject({ objective: 'exhausted CLI objective', status: 'budgetLimited' });
+    } finally {
+      session?.close();
+      await state.cleanup();
+    }
+  });
+
   it('accepts the enabled --goal flag and persists its objective', async () => {
     const state = await createTempAutohandHome({ config: { features: { slashGoal: true } } });
     let session: Session | undefined;

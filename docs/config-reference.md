@@ -1135,6 +1135,9 @@ A goal is a standing instruction to keep working, so starting one switches the
 session into auto mode: the agent drives its own turns and stops asking for tool
 approval until the goal is complete. Setting a new goal while one is active
 queues it, and the queue advances automatically as each goal completes.
+After a goal reaches its budget limit, a new approved objective can start without
+clearing the old goal. The exhausted goal and its usage remain in terminal history;
+starting fresh does not resume or increase the exhausted goal's budget.
 Interactive goals created through the goal writer or agent tools use the same
 auto-mode policy as slash commands, including template starts and explicit
 resumes. The non-interactive `--goal` and RPC management APIs persist goals but

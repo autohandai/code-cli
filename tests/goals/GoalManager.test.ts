@@ -391,6 +391,42 @@ describe('GoalManager', () => {
     expect(complete.goal?.status).toBe('complete');
   });
 
+  it.each(['create', 'create-or-queue'] as const)('starts a new goal after budget exhaustion through %s and preserves terminal history', async (operation) => {
+    const manager = new GoalManager(workspaceRoot, { sessionId: 'budget-owner' });
+    const first = await manager.createGoal({ objective: 'bounded first goal', tokenBudget: 10 });
+    await manager.recordTurnUsage({ tokensUsed: 12 });
+    const result = operation === 'create'
+      ? await manager.createGoal({ objective: 'fresh approved goal' })
+      : await manager.createOrQueueGoal({ objective: 'fresh approved goal', source: 'tool' });
+
+    expect(result.ok).toBe(true);
+    expect(result.goal).toMatchObject({ objective: 'fresh approved goal', status: 'active', tokensUsed: 0 });
+    expect(result.queue).toEqual([]);
+    const snapshot = await new GoalManager(workspaceRoot).getSnapshot();
+    expect(snapshot.completed).toEqual([expect.objectContaining({
+      goalId: first.goal?.goalId, sessionId: 'budget-owner', status: 'budgetLimited', tokensUsed: 12,
+    })]);
+  });
+
+  it('leaves an exhausted goal and its history unchanged when the replacement is invalid', async () => {
+    const manager = new GoalManager(workspaceRoot);
+    await manager.createGoal({ objective: 'bounded goal', tokenBudget: 1 });
+    await manager.recordTurnUsage({ tokensUsed: 1 });
+    const before = await manager.getSnapshot();
+
+    expect((await manager.createOrQueueGoal({ objective: ' ', source: 'tool' })).ok).toBe(false);
+    expect(await manager.getSnapshot()).toEqual(before);
+  });
+
+  it('does not duplicate completed history when starting a new goal', async () => {
+    const manager = new GoalManager(workspaceRoot);
+    await manager.createGoal({ objective: 'finished goal' });
+    await manager.updateGoal({ status: 'complete' });
+    await manager.createGoal({ objective: 'next approved goal' });
+
+    expect((await manager.getSnapshot()).completed).toHaveLength(1);
+  });
+
   it('automatically starts the next queued goal when the active goal completes', async () => {
     const manager = new GoalManager(workspaceRoot);
     await manager.createGoal({ objective: 'first goal' });
