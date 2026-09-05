@@ -6,144 +6,19 @@
 import chalk from 'chalk';
 import { t } from '../i18n/index.js';
 import { safePrompt } from '../utils/prompt.js';
-import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
+import { showModal, showInput, type ModalOption, type ShowModalOptions } from '../ui/ink/components/Modal.js';
 import type { HookManager } from '../core/HookManager.js';
+import type { HookAuthoringService } from '../core/HookAuthoringService.js';
 import type { HookEvent, HookDefinition } from '../types.js';
 
 export interface HooksCommandContext {
   hookManager: HookManager;
+  authoring?: Pick<HookAuthoringService, 'create'>;
+  isNonInteractive?: boolean;
 }
 
-export const HOOK_EVENTS: HookEvent[] = [
-  'session-start',
-  'session-end',
-  'pre-clear',
-  'pre-prompt',
-  'pre-tool',
-  'post-tool',
-  'file-modified',
-  'stop',
-  'post-response',
-  'subagent-stop',
-  'permission-request',
-  'notification',
-  'session-error',
-  'rate-limit',
-  // Auto-mode events
-  'automode:start',
-  'automode:iteration',
-  'automode:checkpoint',
-  'automode:pause',
-  'automode:resume',
-  'automode:cancel',
-  'automode:complete',
-  'automode:error',
-  // Auto-research events
-  'autoresearch:start',
-  'autoresearch:pause',
-  'autoresearch:init',
-  'autoresearch:before',
-  'autoresearch:run',
-  'autoresearch:after',
-  'autoresearch:log',
-  'autoresearch:decision',
-  'autoresearch:replay',
-  'autoresearch:rescore',
-  'autoresearch:prune',
-  'autoresearch:complete',
-  'autoresearch:error',
-  // Learn events
-  'pre-learn',
-  'post-learn',
-  // Goal authoring events
-  'goal-written:completed',
-  // Team events
-  'team-created',
-  'teammate-spawned',
-  'teammate-idle',
-  'task-assigned',
-  'task-completed',
-  'team-shutdown',
-  // Review events
-  'review:start',
-  'review:end',
-  'review:paused',
-  'review:failed',
-  'review:completed',
-  // Mode events
-  'mode-change',
-  // Context lifecycle events
-  'context:compact',
-  'context:overflow',
-  'context:warning',
-  'context:critical',
-];
-
-// Event descriptions for better UX
-const EVENT_DESCRIPTIONS: Record<HookEvent, string> = {
-  'session-start': 'When a session begins',
-  'session-end': 'When a session ends',
-  'pre-clear': 'Before memory extraction on /clear or /new',
-  'pre-prompt': 'Before processing user input',
-  'pre-tool': 'Before a tool executes',
-  'post-tool': 'After a tool completes',
-  'file-modified': 'When files are changed',
-  'stop': 'When a turn completes',
-  'post-response': 'When a turn completes (alias)',
-  'subagent-stop': 'When a subagent finishes',
-  'permission-request': 'When permission is requested',
-  'notification': 'When notifications are shown',
-  'session-error': 'When an error occurs',
-  'rate-limit': 'When a provider rate limit ends the turn (no retry)',
-  // Auto-mode events
-  'automode:start': 'When auto-mode loop starts',
-  'automode:iteration': 'Each auto-mode iteration',
-  'automode:checkpoint': 'When auto-mode creates a checkpoint',
-  'automode:pause': 'When auto-mode is paused',
-  'automode:resume': 'When auto-mode is resumed',
-  'automode:cancel': 'When auto-mode is cancelled',
-  'automode:complete': 'When auto-mode completes',
-  'automode:error': 'When auto-mode encounters an error',
-  // Auto-research events
-  'autoresearch:start': 'When an auto-research session starts or resumes',
-  'autoresearch:pause': 'When an auto-research session is paused',
-  'autoresearch:init': 'When init_experiment configures the session',
-  'autoresearch:before': 'Before run_experiment starts an iteration',
-  'autoresearch:run': 'When run_experiment executes the benchmark',
-  'autoresearch:after': 'After run_experiment finishes an iteration',
-  'autoresearch:log': 'When log_experiment records a result',
-  'autoresearch:decision': 'When the deterministic experiment decision is persisted',
-  'autoresearch:replay': 'When an isolated candidate replay completes',
-  'autoresearch:rescore': 'When stored measurements are rescored with the current policy',
-  'autoresearch:prune': 'When artifact retention is previewed or applied',
-  'autoresearch:complete': 'When the auto-research loop completes',
-  'autoresearch:error': 'When auto-research encounters an error',
-  // Learn events
-  'pre-learn': 'Before a learn operation begins',
-  'post-learn': 'After a learn operation completes',
-  // Goal authoring events
-  'goal-written:completed': 'After a goal objective is created',
-  // Team events
-  'team-created': 'When a team is created',
-  'teammate-spawned': 'When a teammate process starts',
-  'teammate-idle': 'When a teammate becomes idle',
-  'task-assigned': 'When a task is assigned to a teammate',
-  'task-completed': 'When a task is marked as done',
-  'team-shutdown': 'When team cleanup completes',
-  // Review events
-  'review:start': 'When a code review begins',
-  'review:end': 'When a code review session ends',
-  'review:paused': 'When a code review is paused',
-  'review:failed': 'When a code review encounters an error',
-  'review:completed': 'When a code review finishes successfully',
-  // Mode events
-  'mode-change': 'When permission mode changes (unrestricted, yolo, etc.)',
-  // Context lifecycle events
-  'context:compact': 'When context is compacted (messages removed/summarized)',
-  'context:overflow': 'When context overflow is detected (API 400 error)',
-  'context:warning': 'When context usage crosses warning threshold (80%)',
-  'context:critical': 'When context usage crosses critical threshold (90%+)',
-};
+import { HOOK_EVENTS, EVENT_DESCRIPTIONS, getLifecycleHookInventory, type LifecycleHookRow } from '../core/hookEvents.js';
+export { HOOK_EVENTS } from '../core/hookEvents.js';
 
 // Icons for built-in hooks (matched by script name or description keywords)
 const HOOK_ICONS: Record<string, string> = {
@@ -321,7 +196,65 @@ function displaySummary(allHooks: HookDefinition[], globalEnabled: boolean): voi
 /**
  * Hooks command - displays and manages lifecycle hooks
  */
-export async function hooks(ctx: HooksCommandContext): Promise<string | null> {
+export function hookBrowserOptions(rows: LifecycleHookRow[], notice = '', initialIndex = 0, columns = process.stdout.columns ?? 100): ShowModalOptions {
+  const wide = columns >= 96;
+  const header = `      ${'Event'.padEnd(25)} ${'Installed'.padEnd(10)} ${'Active'.padEnd(8)}${wide ? 'Description' : ''}`;
+  return {
+    title: ['Hooks', 'Lifecycle hooks from config and enabled plugins.', notice].filter(Boolean).join('\n'),
+    options: rows.map((row, index) => ({
+      value: row.event,
+      label: `${index < 9 ? ' ' : ''}${row.event.padEnd(25)} ${String(row.installed).padEnd(10)} ${String(row.active).padEnd(8)}${wide ? row.description.slice(0, Math.max(10, columns - 55)) : ''}`,
+      ...(index === 0 ? { header } : {}),
+      ...(!wide ? { description: row.description } : {}),
+    })),
+    initialIndex,
+    maxVisible: Math.max(3, Math.min(16, Math.floor(((process.stdout.rows ?? 24) - 9) / (wide ? 1 : 2)))),
+    hint: '↑/↓ navigate · Enter describe a hook · Esc close · /hooks manage for existing hooks',
+  };
+}
+
+export async function hooks(ctx: HooksCommandContext, args = ''): Promise<string | null> {
+  const command = args.trim();
+  if (command === 'manage') return manageHooks(ctx);
+  if (command === 'help') return '/hooks — browse lifecycle events and create scripts in plain English\n/hooks list — list all events and counts\n/hooks manage — toggle, test, remove, or manually add config hooks\nPlugin hooks are managed with /extensions. See docs/hooks.md.';
+  if (command && command !== 'list') return 'Usage: /hooks [list|manage|help]';
+  if (command === 'list' || ctx.isNonInteractive) {
+    const rows = getLifecycleHookInventory(ctx.hookManager);
+    return ['Hooks — Lifecycle hooks from config and enabled plugins.',
+      'Event                     Installed  Active   Description',
+      ...rows.map(row => `${row.event.padEnd(25)} ${String(row.installed).padEnd(10)} ${String(row.active).padEnd(8)} ${row.description}`),
+    ].join('\n');
+  }
+  let notice = ctx.hookManager.isEnabled() ? '' : 'Hooks are globally disabled. Use /hooks manage to enable them.';
+  let initialIndex = 0;
+  while (true) {
+    const rows = getLifecycleHookInventory(ctx.hookManager);
+    const selected = await showModal(hookBrowserOptions(rows, notice, initialIndex));
+    if (!selected) return null;
+    const row = rows.find(item => item.event === selected.value);
+    if (!row) return null;
+    initialIndex = rows.indexOf(row);
+    const installed = row.hooks.map(hook => `${hook.enabled ? 'on' : 'off'} · ${hook.source} · ${hook.definition?.description ?? hook.definition?.command ?? 'Plugin lifecycle handler'}`);
+    if (!ctx.authoring) return 'Hook authoring is unavailable in this runtime. Use /hooks manage to add a shell command.';
+    const prompt = await showInput({
+      title: [`${row.event} — ${row.description}`, ...installed, '', 'Describe what this hook should do in plain English'].join('\n'),
+      placeholder: 'For example: append the event and timestamp to hooks.log',
+      validate: value => value.trim().length > 0 && value.length <= 8000 || 'Enter a request of 1–8000 characters.',
+    });
+    if (!prompt?.trim()) continue;
+    try {
+      console.log(chalk.dim(`Generating ${row.event} hook…`));
+      const result = await ctx.authoring.create({ event: row.event, prompt });
+      notice = result.status === 'created'
+        ? `Created ${result.hook.event} hook${result.active ? '' : ' (globally disabled)'}. Script: ${result.scriptPath}`
+        : 'Creation cancelled. No hook installed.';
+    } catch (error) {
+      notice = `Could not create hook: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+}
+
+async function manageHooks(ctx: HooksCommandContext): Promise<string | null> {
   const manager = ctx.hookManager;
   const settings = manager.getSettings();
   const allHooks = manager.getHooks();

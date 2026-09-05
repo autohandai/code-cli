@@ -1363,6 +1363,9 @@ export type BrowserFormAssignment =
   | ({ kind: 'files'; paths: string[] } & BrowserTargetInput);
 
 export type AgentAction =
+  | { type: 'list_hooks' }
+  | { type: 'create_hook'; prompt: string; event?: HookEvent }
+  | { type: 'set_hook_enabled'; event: HookEvent; index: number; enabled: boolean }
   | { type: 'read_file'; path: string; offset?: number; limit?: number }
   | { type: 'write_file'; path: string; contents?: string; content?: string }
   | { type: 'append_file'; path: string; contents?: string; content?: string }

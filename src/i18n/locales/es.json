@@ -241,7 +241,7 @@
       "failed": "Error al enviar comentarios: {{error}}"
     },
     "hooks": {
-      "description": "administrar git hooks",
+      "description": "explorar y crear hooks del ciclo de vida",
       "title": "Git Hooks",
       "installed": "Hooks instalados:",
       "available": "Hooks disponibles:",

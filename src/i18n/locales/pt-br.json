@@ -349,7 +349,7 @@
       "failed": "Falha ao enviar feedback: {{error}}"
     },
     "hooks": {
-      "description": "gerenciar hooks git",
+      "description": "explorar e criar hooks de ciclo de vida",
       "title": "Hooks Git",
       "installed": "Hooks instalados:",
       "available": "Hooks disponíveis:",

@@ -1,34 +1,41 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { review } from '../src/commands/review.js';
+import type { SlashCommandContext } from '../src/core/slashCommandTypes.js';
 
 describe('review command RPC/ACP mode', () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it('review command checks isNonInteractive to decide behavior', () => {
     const source = readFileSync('src/commands/review.ts', 'utf-8');
     expect(source).toContain('isNonInteractive');
   });
 
-  it('returns prompt text when isNonInteractive is true (even if queueInstruction exists)', () => {
-    const source = readFileSync('src/commands/review.ts', 'utf-8');
-    // The isNonInteractive check must come BEFORE queueInstruction check
-    // so that RPC/ACP mode always returns the prompt string
-    const nonInteractiveIdx = source.indexOf('isNonInteractive');
-    const queueIdx = source.indexOf('queueInstruction(prompt)');
-    expect(nonInteractiveIdx).toBeGreaterThan(-1);
-    expect(queueIdx).toBeGreaterThan(-1);
-    // isNonInteractive must be checked before queueInstruction is called
-    expect(nonInteractiveIdx).toBeLessThan(queueIdx);
+  it('returns prompt text when isNonInteractive is true (even if queueInstruction exists)', async () => {
+    const queueInstruction = vi.fn();
+    const result = await review({
+      workspaceRoot: process.cwd(),
+      isNonInteractive: true,
+      queueInstruction,
+    } as SlashCommandContext);
+
+    expect(result).toContain('# Autohand Review invocation');
+    expect(queueInstruction).not.toHaveBeenCalled();
   });
 
-  it('console.log calls only run in interactive mode (not in RPC)', () => {
-    const source = readFileSync('src/commands/review.ts', 'utf-8');
-    // The console.log statements should be after the isNonInteractive guard
-    // (inside the else/interactive branch), so they don't pollute RPC stdout
-    const nonInteractiveIdx = source.indexOf('isNonInteractive');
-    const startingReviewIdx = source.indexOf('Starting code review');
-    expect(nonInteractiveIdx).toBeGreaterThan(-1);
-    expect(startingReviewIdx).toBeGreaterThan(-1);
-    // console.log should be inside the interactive branch (after isNonInteractive return)
-    expect(startingReviewIdx).toBeGreaterThan(nonInteractiveIdx);
+  it('keeps status messages out of noninteractive stdout', async () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const context = {
+      workspaceRoot: process.cwd(),
+      isNonInteractive: true,
+      queueInstruction: vi.fn(),
+    } as SlashCommandContext;
+
+    await review(context);
+    expect(consoleSpy).not.toHaveBeenCalled();
+
+    await review({ ...context, isNonInteractive: false });
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Starting Autohand Review'));
   });
 });
 

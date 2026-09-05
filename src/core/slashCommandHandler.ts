@@ -459,7 +459,7 @@ export class SlashCommandHandler {
           }
           await this.ctx.onBeforeModal?.();
           try {
-            return await hooks({ hookManager: this.ctx.hookManager });
+            return await hooks({ hookManager: this.ctx.hookManager, authoring: this.ctx.hookAuthoring, isNonInteractive: this.ctx.isNonInteractive }, args.join(' '));
           } finally {
             await this.ctx.onAfterModal?.();
           }

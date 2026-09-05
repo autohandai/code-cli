@@ -349,7 +349,7 @@
       "failed": "Übermittlung von Feedback fehlgeschlagen: {{error}}"
     },
     "hooks": {
-      "description": "Git-Hooks verwalten",
+      "description": "Lebenszyklus-Hooks durchsuchen und erstellen",
       "title": "Git-Hooks",
       "installed": "Installierte Hooks:",
       "available": "Verfügbare Hooks:",

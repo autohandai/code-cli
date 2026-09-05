@@ -349,7 +349,7 @@
       "failed": "提交反饋失敗：{{error}}"
     },
     "hooks": {
-      "description": "管理 git hooks",
+      "description": "瀏覽與建立生命週期鉤子",
       "title": "Git Hooks",
       "installed": "已安裝的 hooks：",
       "available": "可用的 hooks：",

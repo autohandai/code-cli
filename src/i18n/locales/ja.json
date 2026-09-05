@@ -349,7 +349,7 @@
       "failed": "フィードバックの送信に失敗しました: {{error}}"
     },
     "hooks": {
-      "description": "gitフックを管理",
+      "description": "ライフサイクルフックの表示と作成",
       "title": "Gitフック",
       "installed": "インストール済みのフック:",
       "available": "利用可能なフック:",

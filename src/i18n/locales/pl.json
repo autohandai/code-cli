@@ -349,7 +349,7 @@
       "failed": "Nie udało się przesłać opinii: {{error}}"
     },
     "hooks": {
-      "description": "zarządzaj hookami git",
+      "description": "przeglądaj i twórz hooki cyklu życia",
       "title": "Hooki Git",
       "installed": "Zainstalowane hooki:",
       "available": "Dostępne hooki:",

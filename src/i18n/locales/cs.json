@@ -349,7 +349,7 @@
       "failed": "Nepodařilo se odeslat zpětnou vazbu: {{error}}"
     },
     "hooks": {
-      "description": "spravovat git hooky",
+      "description": "procházet a vytvářet háčky životního cyklu",
       "title": "Git hooky",
       "installed": "Nainstalované hooky:",
       "available": "Dostupné hooky:",

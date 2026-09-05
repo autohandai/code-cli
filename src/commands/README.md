@@ -82,3 +82,11 @@ case '/yourcommand': {
 - **Maintainability**: Clear separation of concerns
 - **Discoverability**: Easy to find and understand commands
 - **Lazy Loading**: Commands are dynamically imported only when used
+
+### Lifecycle hooks
+
+`/hooks` opens the lifecycle event browser. Select an event and describe the desired
+script in plain English, then review and save it. `/hooks list` prints the event
+table; `/hooks manage` retains manual add, toggle, test, remove, and global controls.
+See [Lifecycle hooks](../../docs/hooks.md) for plugin ownership, generated scripts,
+and the Autohand AI hook tools.
