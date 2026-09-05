@@ -7,7 +7,7 @@ import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { goal, metadata } from '../../src/commands/goal.js';
+import { goal, metadata, runGoalCli } from '../../src/commands/goal.js';
 import type { SlashCommandContext } from '../../src/core/slashCommandTypes.js';
 import { GoalManager } from '../../src/goals/GoalManager.js';
 import { ActiveAgentRegistry } from '../../src/session/ActiveAgentRegistry.js';
@@ -46,6 +46,29 @@ describe('/goal command', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     await fs.remove(workspaceRoot);
+  });
+
+  it('creates a non-interactive goal when the supplied configuration enables goals', async () => {
+    const result = await runGoalCli(workspaceRoot, 'create a reliable CLI goal', ctx.config);
+
+    expect(result).toContain('Goal created.');
+    expect((await new GoalManager(workspaceRoot).getSessionSnapshot()).goal?.objective)
+      .toBe('create a reliable CLI goal');
+  });
+
+  it('does not change interaction permissions for non-interactive goal commands', async () => {
+    ctx.isNonInteractive = true;
+
+    await goal(ctx, ['approved non-interactive goal']);
+
+    expect(ctx.setInteractionMode).not.toHaveBeenCalled();
+  });
+
+  it('explains that the goal writer requires an interactive session when called through the CLI flag', async () => {
+    const result = await runGoalCli(workspaceRoot, 'writer rough objective', ctx.config);
+
+    expect(result).toContain('requires an interactive session');
+    expect((await new GoalManager(workspaceRoot).getSessionSnapshot()).goal).toBeNull();
   });
 
   it('registers slash metadata', () => {

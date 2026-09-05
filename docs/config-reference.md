@@ -1135,6 +1135,10 @@ A goal is a standing instruction to keep working, so starting one switches the
 session into auto mode: the agent drives its own turns and stops asking for tool
 approval until the goal is complete. Setting a new goal while one is active
 queues it, and the queue advances automatically as each goal completes.
+Interactive goals created through the goal writer or agent tools use the same
+auto-mode policy as slash commands, including template starts and explicit
+resumes. The non-interactive `--goal` and RPC management APIs persist goals but
+do not silently launch an autonomous run or change interaction permissions.
 If a migration or interrupted session leaves queued work without a live owner,
 bare `/goal` starts the next item instead of leaving the backlog stranded.
 

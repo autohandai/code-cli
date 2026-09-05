@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { activateGoalAutoMode } from '../core/agent/GoalActivation.js';
 import { buildGoalContinuationInstruction, GoalManager } from '../goals/GoalManager.js';
 import type { SlashCommand, SlashCommandContext } from '../core/slashCommandTypes.js';
 import type { GoalMutationResult, GoalSessionSnapshot, GoalState } from '../goals/types.js';
@@ -11,6 +12,8 @@ import type { GoalEventData } from '../telemetry/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, resolveGoalFeatureEnabled } from '../goals/feature.js';
 
 const GOAL_OBJECTIVE_PREVIEW_LENGTH = 160;
+
+type GoalCommandContext = Pick<SlashCommandContext, 'workspaceRoot'> & Partial<SlashCommandContext>;
 
 export const metadata: SlashCommand = {
   command: '/goal',
@@ -35,7 +38,7 @@ export const goalsMetadata: SlashCommand = {
   description: 'Open the live goals queue and manage persistent goals',
 };
 
-export async function goal(ctx: SlashCommandContext, args: string[] = []): Promise<string> {
+export async function goal(ctx: GoalCommandContext, args: string[] = []): Promise<string> {
   if (!resolveGoalFeatureEnabled(ctx.config, ctx.isFeatureEnabled)) {
     return GOAL_FEATURE_DISABLED_MESSAGE;
   }
@@ -165,10 +168,13 @@ export async function runGoalCli(workspaceRoot: string, rawInput?: string, confi
   if (!input) return formatSnapshot(await manager.getSessionSnapshot());
 
   const args = input.match(/"[^"]*"|'[^']*'|\S+/g)?.map(unquote) ?? [];
-  return goal({ workspaceRoot } as SlashCommandContext, args);
+  return goal({ workspaceRoot, config, isNonInteractive: true }, args);
 }
 
-function startGoalWriter(ctx: SlashCommandContext, roughGoal?: string): string {
+function startGoalWriter(ctx: GoalCommandContext, roughGoal?: string): string {
+  if (ctx.isNonInteractive || !ctx.queueInstruction) {
+    return 'Goal writer requires an interactive session. Run autohand, then /goal writer.';
+  }
   const activated = ctx.skillsRegistry?.activateSkill('goal-writer') ?? false;
   const roughGoalText = roughGoal?.trim() || 'No rough goal was provided yet.';
   ctx.queueInstruction?.([
@@ -188,7 +194,7 @@ function startGoalWriter(ctx: SlashCommandContext, roughGoal?: string): string {
 }
 
 async function emitGoalWrittenCompleted(
-  ctx: SlashCommandContext,
+  ctx: GoalCommandContext,
   goalState: GoalState,
   source: string
 ): Promise<void> {
@@ -208,20 +214,8 @@ async function handleQueue(manager: GoalManager, rest: string): Promise<string> 
   return formatMutation(await manager.enqueueGoalBlock(rest, 'command'));
 }
 
-/**
- * A goal is a standing instruction to keep working, so starting one puts the
- * session in auto mode: the agent drives its own turns and stops asking for
- * tool approval until the goal is done. Set `agent.goalAutoMode: false` to keep
- * the normal turn-by-turn loop.
- */
-function isGoalAutoModeEnabled(ctx: SlashCommandContext): boolean {
-  return ctx.config?.agent?.goalAutoMode !== false;
-}
-
-function queueGoalContinuation(ctx: SlashCommandContext, objective: string): void {
-  if (isGoalAutoModeEnabled(ctx)) {
-    ctx.setInteractionMode?.('automode');
-  }
+function queueGoalContinuation(ctx: GoalCommandContext, objective: string): void {
+  activateGoalAutoMode(ctx);
   ctx.queueInstruction?.(buildGoalContinuationInstruction(objective));
 }
 

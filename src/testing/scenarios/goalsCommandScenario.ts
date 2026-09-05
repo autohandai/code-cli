@@ -94,3 +94,11 @@ export async function editSecondGoalSummary(session: Session): Promise<void> {
   await session.type(' after review');
   await session.press('enter');
 }
+
+export async function runToolGoalContinuationScenario(session: Session): Promise<void> {
+  await session.waitForText('❯', { timeout: 15_000 });
+  await session.type('Set a persistent goal: finish the tool-created goal.');
+  await session.press('enter');
+  await session.waitForText('TOOL_GOAL_FIRST_TURN', { timeout: 15_000 });
+  await session.waitForText('TOOL_GOAL_CONTINUED', { timeout: 5_000 });
+}

@@ -15,10 +15,12 @@ describe('goal tools', () => {
   let workspaceRoot: string;
   let executor: ActionExecutor;
   let currentSessionId: string;
+  let activatedObjectives: string[];
 
   beforeEach(async () => {
     workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-goal-tools-'));
     currentSessionId = 'session-current';
+    activatedObjectives = [];
     executor = new ActionExecutor({
       runtime: {
         workspaceRoot,
@@ -32,12 +34,38 @@ describe('goal tools', () => {
       resolveWorkspacePath: (relativePath: string) => path.resolve(workspaceRoot, relativePath),
       confirmDangerousAction: vi.fn().mockResolvedValue(true),
       getCurrentSessionId: () => currentSessionId,
+      onGoalActivated: (goal) => { activatedObjectives.push(goal.objective); },
     });
   });
 
   afterEach(async () => {
     vi.restoreAllMocks();
     await fs.remove(workspaceRoot);
+  });
+
+  it('activates a tool-created goal but does not reactivate it when another goal is queued', async () => {
+    await executor.execute({ type: 'create_goal', objective: 'started goal' });
+    await executor.execute({ type: 'create_goal', objective: 'queued goal' });
+
+    expect(activatedObjectives).toEqual(['started goal']);
+  });
+
+  it('activates queued starts and resumes without activating pauses or edits', async () => {
+    await executor.execute({ type: 'enqueue_goal', objective: 'queued goal' });
+    await executor.execute({ type: 'start_queued_goal' });
+    await executor.execute({ type: 'update_goal', status: 'paused' });
+    await executor.execute({ type: 'update_goal', objective: 'refined goal' });
+    await executor.execute({ type: 'update_goal', status: 'active' });
+
+    expect(activatedObjectives).toEqual(['queued goal', 'refined goal']);
+  });
+
+  it('activates template goals after they resolve successfully', async () => {
+    await fs.outputFile(path.join(workspaceRoot, '.pi-goals', 'approved.md'), 'Finish approved template work.');
+
+    await executor.execute({ type: 'create_goal_from_template', template: 'approved' });
+
+    expect(activatedObjectives).toEqual(['Finish approved template work.']);
   });
 
   it('creates and reads goals through agent tools', async () => {
@@ -98,6 +126,7 @@ describe('goal tools', () => {
       started: { objective: 'second approved goal' },
       goal: { objective: 'second approved goal', status: 'active' },
     });
+    expect(activatedObjectives).toEqual(['first approved goal', 'second approved goal']);
   });
 
   it('blocks goal tools when slash_goal is disabled', async () => {

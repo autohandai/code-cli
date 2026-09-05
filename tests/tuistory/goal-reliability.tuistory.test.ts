@@ -7,14 +7,64 @@ import { describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
 import { GoalManager } from '../../src/goals/GoalManager.js';
 import { runGoalAccountingScenario } from '../../src/testing/scenarios/goalAccountingScenario.js';
+import { runToolGoalContinuationScenario } from '../../src/testing/scenarios/goalsCommandScenario.js';
 import {
   createMockOpenRouterSequenceServer,
   createTempAutohandHome,
   exitInteractive,
   launchBuiltAutohand,
+  waitForExit,
 } from './helpers/autohandTuistory.js';
 
 describe('built CLI goal reliability', () => {
+  it('accepts the enabled --goal flag and persists its objective', async () => {
+    const state = await createTempAutohandHome({ config: { features: { slashGoal: true } } });
+    let session: Session | undefined;
+    try {
+      session = await launchBuiltAutohand([
+        '--path', state.workspaceRoot, '--config', state.configPath, '--goal', 'approved CLI objective',
+      ], { autohandHome: state.autohandHome, cwd: state.workspaceRoot });
+      await waitForExit(session);
+      expect(session.readAll()).toContain('Goal created.');
+      expect((await new GoalManager(state.workspaceRoot).getSessionSnapshot()).goal?.objective)
+        .toBe('approved CLI objective');
+    } finally {
+      session?.close();
+      await state.cleanup();
+    }
+  });
+
+  it('automatically continues a goal created by a tool in the default interaction mode', async () => {
+    const server = await createMockOpenRouterSequenceServer([
+      JSON.stringify({ toolCalls: [{ tool: 'create_goal', args: { objective: 'finish the tool-created goal' } }] }),
+      JSON.stringify({ toolCalls: [], finalResponse: 'TOOL_GOAL_FIRST_TURN' }),
+      JSON.stringify({ toolCalls: [{ tool: 'update_goal', args: { status: 'complete' } }] }),
+      JSON.stringify({ toolCalls: [], finalResponse: 'TOOL_GOAL_CONTINUED' }),
+    ]);
+    const state = await createTempAutohandHome({ config: {
+      features: { slashGoal: true },
+      openrouter: { baseUrl: server.baseUrl },
+      agent: { autoMemory: false, maxIterations: 4, sessionRetryLimit: 0 },
+      network: { maxRetries: 0, retryDelay: 0 },
+      ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+    } });
+    let session: Session | undefined;
+    try {
+      session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+        autohandHome: state.autohandHome, cwd: state.workspaceRoot,
+      });
+      await runToolGoalContinuationScenario(session);
+      await exitInteractive(session);
+      const snapshot = await new GoalManager(state.workspaceRoot).getSnapshot();
+      expect(Object.values(snapshot.goals)[0]).toMatchObject({ status: 'complete', tokensUsed: 108 });
+      expect(session.exitInfo?.exitCode).toBe(0);
+    } finally {
+      session?.close();
+      await server.close();
+      await state.cleanup();
+    }
+  });
+
   it('keeps the finishing turn usage on the completed goal when the queue advances', async () => {
     const server = await createMockOpenRouterSequenceServer([
       JSON.stringify({ toolCalls: [], finalResponse: 'ACCOUNTING_FIRST_TURN' }),

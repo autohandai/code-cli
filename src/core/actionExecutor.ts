@@ -111,7 +111,7 @@ import type { ResourceCoordinatorClient } from '../session/peers/ResourceCoordin
 import type { PeerClient } from '../session/peers/PeerMessaging.js';
 import { executePeerTool, PEER_TOOL_NAMES, validatePeerToolAction } from './peerTools.js';
 import { GoalManager } from '../goals/GoalManager.js';
-import type { GoalStatus } from '../goals/types.js';
+import type { GoalMutationResult, GoalState, GoalStatus } from '../goals/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, isGoalFeatureEnabled } from '../goals/feature.js';
 import { initExperiment, runExperiment, logExperiment } from '../autoresearch/tools.js';
 import { replayExperiment } from '../autoresearch/replay.js';
@@ -207,6 +207,7 @@ export interface ActionExecutorOptions {
     attemptId?: string;
     decision?: string;
   }) => Promise<void>;
+  onGoalActivated?: (goal: GoalState) => void | Promise<void>;
   /** Callback to fire after a goal objective has been created. */
   onGoalWrittenCompleted?: (context: {
     goalId?: string;
@@ -326,6 +327,7 @@ export class ActionExecutor {
   private readonly onReviewHook?: AgentExecutorDeps['onReviewHook'];
   private readonly onAutoresearchHook?: AgentExecutorDeps['onAutoresearchHook'];
   private readonly onGoalWrittenCompleted?: AgentExecutorDeps['onGoalWrittenCompleted'];
+  private readonly onGoalActivated?: AgentExecutorDeps['onGoalActivated'];
   private readonly onModalPause?: AgentExecutorDeps['onModalPause'];
   private readonly onRequestDirectoryAccess?: AgentExecutorDeps['onRequestDirectoryAccess'];
   private readonly onLiveCommandStart?: AgentExecutorDeps['onLiveCommandStart'];
@@ -368,6 +370,7 @@ export class ActionExecutor {
     this.onReviewHook = deps.onReviewHook;
     this.onAutoresearchHook = deps.onAutoresearchHook;
     this.onGoalWrittenCompleted = deps.onGoalWrittenCompleted;
+    this.onGoalActivated = deps.onGoalActivated;
     this.onModalPause = deps.onModalPause;
     this.onRequestDirectoryAccess = deps.onRequestDirectoryAccess;
     this.onLiveCommandStart = deps.onLiveCommandStart;
@@ -1612,6 +1615,7 @@ export class ActionExecutor {
           minTimeSecondsBeforeWrapUp: action.min_time_seconds_before_wrap_up,
         });
         if (!created.queued?.length) {
+          await this.activateGoal(created);
           await this.emitGoalWrittenCompleted(created, 'tool');
         }
         return formatGoalToolResult(created);
@@ -1639,6 +1643,7 @@ export class ActionExecutor {
           minTimeSecondsBeforeWrapUp: action.min_time_seconds_before_wrap_up,
         });
         if (!created.queued?.length) {
+          await this.activateGoal(created);
           await this.emitGoalWrittenCompleted(created, 'tool-template');
         }
         return formatGoalToolResult(created);
@@ -1653,6 +1658,7 @@ export class ActionExecutor {
           minTokensBeforeWrapUp: action.min_tokens_before_wrap_up,
           minTimeSecondsBeforeWrapUp: action.min_time_seconds_before_wrap_up,
         });
+        if (action.status === 'active' || updated.started) await this.activateGoal(updated);
         return formatGoalToolResult(updated);
       }
       case 'clear_goal': {
@@ -1676,7 +1682,9 @@ export class ActionExecutor {
       }
       case 'start_queued_goal': {
         const manager = this.createGoalManager();
-        return formatGoalToolResult(await manager.startQueuedGoal());
+        const started = await manager.startQueuedGoal();
+        await this.activateGoal(started);
+        return formatGoalToolResult(started);
       }
       case 'dequeue_goal': {
         const manager = this.createGoalManager();
@@ -4668,6 +4676,12 @@ export class ActionExecutor {
     }
 
     return outputLines.join('\n');
+  }
+
+  private async activateGoal(result: GoalMutationResult): Promise<void> {
+    if (result.ok && result.goal?.status === 'active' && !result.queued?.length) {
+      await this.onGoalActivated?.(result.goal);
+    }
   }
 
   private async emitGoalWrittenCompleted(result: {

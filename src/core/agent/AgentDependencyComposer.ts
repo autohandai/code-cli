@@ -109,6 +109,7 @@ import { getFeatureState } from '../../features/featureRegistry.js';
 import { SpecialistOrchestrator } from '../agents/SpecialistOrchestrator.js';
 import { isGoalFeatureEnabled, resolveGoalFeatureEnabled } from '../../goals/feature.js';
 import { GoalManager } from '../../goals/GoalManager.js';
+import { activateGoalAutoMode } from './GoalActivation.js';
 import type { GoalSessionSnapshot } from '../../goals/types.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { SuggestionEngine } from '../SuggestionEngine.js';
@@ -728,6 +729,11 @@ export function initializeAgentDependencies(
           goalSource: context.goalSource,
         });
       },
+      onGoalActivated: () => activateGoalAutoMode({
+        config: runtime.config,
+        isNonInteractive: Boolean(runtime.isCommandMode || runtime.isRpcMode || runtime.options?.prompt),
+        setInteractionMode: (mode) => { host.setInteractionMode(mode); },
+      }),
       onModalPause: async <T>(fn: () => Promise<T>) => host.withModalPause(fn),
       onLiveCommandStart: (command) => host.inkRenderer?.startLiveCommand(command) ?? '',
       onLiveCommandOutput: (id, stream, chunk) => host.inkRenderer?.appendLiveCommandOutput(id, stream, chunk),
