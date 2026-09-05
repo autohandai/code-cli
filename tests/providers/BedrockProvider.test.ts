@@ -132,6 +132,25 @@ describe("BedrockProvider", () => {
     expect(toolResult.content[0]?.text.trim()).not.toBe("");
   });
 
+  it("reports omitted screenshot input in the text-only Converse adapter", async () => {
+    mockRuntimeSend.mockResolvedValueOnce({
+      output: { message: { role: "assistant", content: [{ text: "Image unavailable." }] } },
+      stopReason: "end_turn",
+    });
+    const { BedrockProvider } = await import("../../src/providers/BedrockProvider.js");
+    const provider = new BedrockProvider({
+      model: "anthropic.claude-3-5-sonnet-20241022-v2:0", region: "us-east-1", authMode: "aws-credentials",
+    });
+    await provider.complete({ messages: [{ role: "user", content: [
+      { type: "text", text: "Only claim visual inspection if the screenshot is accessible." },
+      { type: "image_url", image_url: { url: "data:image/png;base64,AA==" } },
+    ] }] });
+    const body = JSON.stringify(mockRuntimeSend.mock.calls[0][0].input);
+    expect(body).toContain("does not support image inputs");
+    expect(body).toContain("Only claim visual inspection");
+    expect(body).not.toContain("data:image/");
+  });
+
   it("maps Autohand messages, tools, and tool results to Bedrock Converse", async () => {
     mockRuntimeSend.mockResolvedValueOnce({
       output: {
