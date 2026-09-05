@@ -6,6 +6,7 @@
 import chalk from 'chalk';
 import { activateGoalAutoMode } from '../core/agent/GoalActivation.js';
 import { buildGoalContinuationInstruction, GoalManager } from '../goals/GoalManager.js';
+import { parseCompletionEvidence } from '../goals/GoalCompletion.js';
 import type { SlashCommand, SlashCommandContext } from '../core/slashCommandTypes.js';
 import type { GoalMutationResult, GoalSessionSnapshot, GoalState } from '../goals/types.js';
 import type { GoalEventData } from '../telemetry/types.js';
@@ -118,7 +119,15 @@ export async function goal(ctx: GoalCommandContext, args: string[] = []): Promis
       return formatMutation(resumed);
     }
     case 'complete': {
-      const completed = await manager.updateGoal({ status: 'complete' });
+      let completionEvidence;
+      if (rest) {
+        try {
+          completionEvidence = parseCompletionEvidence(JSON.parse(rest) as unknown);
+        } catch (error) {
+          return `Invalid completion evidence: ${error instanceof Error ? error.message : 'expected JSON'}`;
+        }
+      }
+      const completed = await manager.updateGoal({ status: 'complete', completionEvidence });
       reportGoal(ctx, completed, 'completed');
       if (completed.ok && completed.started && completed.goal?.status === 'active') {
         queueGoalContinuation(ctx, completed.goal.objective);
@@ -170,6 +179,8 @@ export async function runGoalCli(workspaceRoot: string, rawInput?: string, confi
   const manager = new GoalManager(workspaceRoot);
   const input = rawInput?.trim() ?? '';
   if (!input) return formatSnapshot(await manager.getSessionSnapshot());
+  const completion = /^complete\s+([\s\S]+)$/i.exec(input);
+  if (completion) return goal({ workspaceRoot, config, isNonInteractive: true }, ['complete', completion[1]]);
 
   const args = input.match(/"[^"]*"|'[^']*'|\S+/g)?.map(unquote) ?? [];
   return goal({ workspaceRoot, config, isNonInteractive: true }, args);
@@ -297,6 +308,11 @@ function formatGoal(goalState: GoalState): string {
   if (goalState.timeBudgetSeconds) lines.push(`Time budget: ${formatDuration(goalState.timeBudgetSeconds)}`);
   if (goalState.minTokensBeforeWrapUp) lines.push(`Token floor: ${goalState.minTokensBeforeWrapUp}`);
   if (goalState.minTimeSecondsBeforeWrapUp) lines.push(`Time floor: ${formatDuration(goalState.minTimeSecondsBeforeWrapUp)}`);
+  if (goalState.acceptanceCriteria) lines.push('Acceptance criteria:', ...goalState.acceptanceCriteria.map((criterion) => `- ${criterion}`));
+  if (goalState.completionReceipt) {
+    lines.push(`Reported completion evidence: ${goalState.completionReceipt.summary}`);
+    lines.push(...goalState.completionReceipt.checks.map((check) => `- ${check.criterion}: ${check.status} — ${check.evidence}`));
+  }
   return lines.join('\n');
 }
 
@@ -313,7 +329,7 @@ function formatQueue(snapshot: Pick<GoalSessionSnapshot, 'queue'>): string {
 function formatCompletedRun(completed: NonNullable<GoalMutationResult['completedRun']>): string {
   return [
     `Completed goals this session (${completed.length}):`,
-    ...completed.map((item, index) => `${index + 1}. ${formatObjectivePreview(item.objective)}`),
+    ...completed.map((item, index) => `${index + 1}. ${formatObjectivePreview(item.objective)}${item.completionReceipt ? ` — Reported completion evidence: ${item.completionReceipt.summary}` : ''}`),
   ].join('\n');
 }
 

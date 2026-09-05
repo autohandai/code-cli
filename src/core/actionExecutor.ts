@@ -1609,6 +1609,7 @@ export class ActionExecutor {
         const created = await manager.createOrQueueGoal({
           objective: action.objective,
           source: 'tool',
+          acceptanceCriteria: action.acceptance_criteria,
           tokenBudget: action.token_budget,
           timeBudgetSeconds: action.time_budget_seconds,
           minTokensBeforeWrapUp: action.min_tokens_before_wrap_up,
@@ -1637,6 +1638,7 @@ export class ActionExecutor {
         const created = await manager.createOrQueueGoal({
           objective: resolution.template.objective,
           source: 'tool',
+          acceptanceCriteria: action.acceptance_criteria,
           tokenBudget: action.token_budget,
           timeBudgetSeconds: action.time_budget_seconds,
           minTokensBeforeWrapUp: action.min_tokens_before_wrap_up,
@@ -1653,6 +1655,7 @@ export class ActionExecutor {
         const updated = await manager.updateGoal({
           objective: action.objective,
           status: parseGoalStatus(action.status),
+          completionEvidence: action.completion_evidence,
           tokenBudget: action.token_budget,
           timeBudgetSeconds: action.time_budget_seconds,
           minTokensBeforeWrapUp: action.min_tokens_before_wrap_up,
@@ -1670,6 +1673,7 @@ export class ActionExecutor {
         return formatGoalToolResult(await manager.enqueueGoal({
           objective: action.objective,
           source: 'tool',
+          acceptanceCriteria: action.acceptance_criteria,
           tokenBudget: action.token_budget,
           timeBudgetSeconds: action.time_budget_seconds,
           minTokensBeforeWrapUp: action.min_tokens_before_wrap_up,

@@ -56,6 +56,16 @@ describe('/goal command', () => {
       .toBe('create a reliable CLI goal');
   });
 
+  it('preserves JSON completion evidence through the non-interactive command parser', async () => {
+    const manager = new GoalManager(workspaceRoot);
+    await manager.createGoal({ objective: 'CLI evidence', acceptanceCriteria: ['Tests pass'] });
+    expect(await runGoalCli(workspaceRoot, 'complete', ctx.config)).toContain('completion evidence');
+    const evidence = { summary: 'CLI verification', checks: [{ criterion: 'Tests pass', status: 'passed', evidence: '12 passed; report "one"' }] };
+
+    expect(await runGoalCli(workspaceRoot, `complete ${JSON.stringify(evidence)}`, ctx.config)).toContain('Reported completion evidence: CLI verification');
+    expect((await manager.getSessionSnapshot()).goal?.completionReceipt?.checks[0].evidence).toBe('12 passed; report "one"');
+  });
+
   it('does not change interaction permissions for non-interactive goal commands', async () => {
     ctx.isNonInteractive = true;
 

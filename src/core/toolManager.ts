@@ -278,6 +278,32 @@ export function buildToolPermissionContext(action: AgentAction): PermissionConte
   return buildToolPermissionContexts(action)[0];
 }
 
+const acceptanceCriteriaParameter: ToolParameter = {
+  type: 'array',
+  description: 'Optional 1–20 unique acceptance criteria explicitly approved by the user; each requires passed completion evidence',
+  items: { type: 'string', description: 'An approved criterion, at most 2000 characters' },
+};
+
+const completionEvidenceParameter: ToolParameter = {
+  type: 'object',
+  description: 'Reported evidence for completion, required when the goal has acceptance criteria; spending is not proof',
+  properties: {
+    summary: { type: 'string', description: 'Completion summary, at most 2000 characters' },
+    checks: {
+      type: 'array', description: '1–20 checks, exactly one passed check for each approved criterion',
+      items: {
+        type: 'object', required: ['criterion', 'status', 'evidence'],
+        properties: {
+          criterion: { type: 'string', description: 'Exact approved criterion' },
+          status: { type: 'string', description: 'Actual check outcome; only passed permits completion', enum: ['passed', 'failed', 'notRun'] },
+          evidence: { type: 'string', description: 'Observed result or artifact reference, at most 4000 characters' },
+        },
+      },
+    },
+  },
+  required: ['summary', 'checks'],
+};
+
 export const GOAL_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'get_goal',
@@ -290,6 +316,7 @@ export const GOAL_TOOL_DEFINITIONS: ToolDefinition[] = [
       type: 'object',
       properties: {
         objective: { type: 'string', description: 'Explicit user-requested goal objective' },
+        acceptance_criteria: acceptanceCriteriaParameter,
         token_budget: { type: 'number', description: 'Optional positive token budget' },
         time_budget_seconds: { type: 'number', description: 'Optional positive time budget in seconds' },
         min_tokens_before_wrap_up: { type: 'number', description: 'Optional minimum tokens before normal completion is allowed' },
@@ -305,6 +332,7 @@ export const GOAL_TOOL_DEFINITIONS: ToolDefinition[] = [
       type: 'object',
       properties: {
         template: { type: 'string', description: 'Template name or alias' },
+        acceptance_criteria: acceptanceCriteriaParameter,
         flags: { type: 'object', description: 'Template flag values' },
         args: { type: 'string', description: 'Trailing template arguments' },
         token_budget: { type: 'number', description: 'Optional positive token budget' },
@@ -322,6 +350,7 @@ export const GOAL_TOOL_DEFINITIONS: ToolDefinition[] = [
       type: 'object',
       properties: {
         objective: { type: 'string', description: 'Optional replacement objective' },
+        completion_evidence: completionEvidenceParameter,
         status: { type: 'string', description: 'Optional status', enum: ['active', 'paused', 'complete', 'budgetLimited'] },
         token_budget: { type: 'number', description: 'Optional positive token budget; use clear_goal for removal requests' },
         time_budget_seconds: { type: 'number', description: 'Optional positive time budget in seconds' },
@@ -345,6 +374,7 @@ export const GOAL_TOOL_DEFINITIONS: ToolDefinition[] = [
       type: 'object',
       properties: {
         objective: { type: 'string', description: 'Goal objective to queue' },
+        acceptance_criteria: acceptanceCriteriaParameter,
         token_budget: { type: 'number', description: 'Optional positive token budget' },
         time_budget_seconds: { type: 'number', description: 'Optional positive time budget in seconds' },
         min_tokens_before_wrap_up: { type: 'number', description: 'Optional token floor' },

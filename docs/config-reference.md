@@ -1178,6 +1178,20 @@ Recovered active goals are paused and must be resumed deliberately. Recovery
 refuses newer schema versions and backups owned by another live session. If no
 valid backup exists, the original files remain untouched for manual recovery.
 
+Goal tools and RPC accept optional `acceptance_criteria`: 1–20 unique criteria
+approved by the user. Goals with criteria require `completion_evidence` when
+completing: a `summary` and `checks`, each with the exact `criterion`, a `status`
+of `passed`, and non-empty `evidence` (a result or artifact reference). Missing,
+failed, unrun, duplicate, and mismatched checks prevent completion. Spending
+floors remain separate requirements, not proof. Legacy goals without criteria
+retain their existing completion behavior.
+
+`/goal complete <JSON evidence>` and `--goal 'complete <JSON evidence>'` accept
+the same evidence object. Receipts survive queue advancement and appear in
+`get_goal`, command output, and history. They are explicitly **reported** evidence,
+not independently verified results. Reopening a completed goal removes its
+current receipt and requires new evidence before completing again.
+
 To keep the normal turn-by-turn loop while goals are active:
 
 ```json

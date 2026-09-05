@@ -7,6 +7,7 @@ import fs from 'fs-extra';
 import crypto from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { atomicWriteJson } from '../utils/atomicFile.js';
+import { parseAcceptanceCriteria, parseCompletionReceipt } from './GoalCompletion.js';
 import { UNSCOPED_GOAL_SESSION_KEY } from './types.js';
 import type { CompletedGoal, GoalSnapshot, GoalState, QueuedGoal } from './types.js';
 
@@ -134,6 +135,7 @@ function normalizeGoal(value: unknown): GoalState {
     goalId: requiredString(raw.goalId),
     objective: requiredString(raw.objective),
     status: raw.status,
+    ...completion(raw),
     ...budgets(raw),
     tokensUsed: nonNegativeInteger(raw.tokensUsed) ?? 0,
     timeUsedSeconds: nonNegativeNumber(raw.timeUsedSeconds) ?? 0,
@@ -156,6 +158,7 @@ function normalizeQueuedGoal(value: unknown): QueuedGoal {
   return {
     queueId: requiredString(raw.queueId),
     objective: requiredString(raw.objective),
+    acceptanceCriteria: parseAcceptanceCriteria(raw.acceptanceCriteria),
     ...budgets(raw),
     source,
     template: optionalString(raw.template),
@@ -173,11 +176,17 @@ function normalizeCompletedGoal(value: unknown): CompletedGoal {
     sessionId: optionalString(raw.sessionId),
     objective: requiredString(raw.objective),
     status: raw.status,
+    ...completion(raw),
     tokensUsed: nonNegativeInteger(raw.tokensUsed) ?? 0,
     timeUsedSeconds: nonNegativeNumber(raw.timeUsedSeconds) ?? 0,
     createdAt: nonNegativeNumber(raw.createdAt) ?? Date.now(),
     completedAt: nonNegativeNumber(raw.completedAt) ?? Date.now(),
   };
+}
+
+function completion(raw: Record<string, unknown>): Pick<GoalState, 'acceptanceCriteria' | 'completionReceipt'> {
+  const acceptanceCriteria = parseAcceptanceCriteria(raw.acceptanceCriteria);
+  return { acceptanceCriteria, completionReceipt: parseCompletionReceipt(raw.completionReceipt, acceptanceCriteria) };
 }
 
 function budgets(raw: Record<string, unknown>): Pick<GoalState, 'tokenBudget' | 'timeBudgetSeconds' | 'minTokensBeforeWrapUp' | 'minTimeSecondsBeforeWrapUp'> {

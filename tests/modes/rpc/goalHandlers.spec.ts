@@ -91,4 +91,14 @@ describe('RPC goal handlers', () => {
     expect(result.ok).toBe(false);
     expect(result.message).toContain('slash_goal');
   });
+
+  it('preserves queued criteria and completion evidence across RPC handlers', async () => {
+    await adapter.handleGoalQueue({ objective: 'RPC evidence', acceptance_criteria: ['Tests pass'] });
+    await adapter.handleGoalStartQueued();
+    expect(await adapter.handleGoalUpdate({ status: 'complete' })).toMatchObject({ ok: false });
+
+    expect(await adapter.handleGoalUpdate({ status: 'complete', completion_evidence: {
+      summary: 'RPC verification', checks: [{ criterion: 'Tests pass', status: 'passed', evidence: 'RPC test log' }],
+    } })).toMatchObject({ ok: true, completed: { completionReceipt: { summary: 'RPC verification', provenance: 'reported' } } });
+  });
 });

@@ -19,6 +19,31 @@ import {
 } from './helpers/autohandTuistory.js';
 
 describe('built CLI goal reliability', () => {
+  it('requires and saves reported completion evidence through the built CLI', async () => {
+    const state = await createTempAutohandHome({ config: { features: { slashGoal: true } } });
+    let session: Session | undefined;
+    try {
+      const manager = new GoalManager(state.workspaceRoot);
+      await manager.createGoal({ objective: 'CLI completion receipt', acceptanceCriteria: ['Tests pass'] });
+      session = await launchBuiltAutohand([
+        '--path', state.workspaceRoot, '--config', state.configPath, '--goal', 'complete',
+      ], { autohandHome: state.autohandHome, cwd: state.workspaceRoot });
+      await waitForExit(session);
+      expect(session.readAll()).toContain('completion evidence');
+      session.close();
+      const evidence = { summary: 'Terminal evidence saved', checks: [{ criterion: 'Tests pass', status: 'passed', evidence: 'real CLI test log' }] };
+      session = await launchBuiltAutohand([
+        '--path', state.workspaceRoot, '--config', state.configPath, '--goal', `complete ${JSON.stringify(evidence)}`,
+      ], { autohandHome: state.autohandHome, cwd: state.workspaceRoot });
+      await waitForExit(session);
+      expect(session.readAll()).toContain('Reported completion evidence: Terminal evidence saved');
+      expect((await manager.getSessionSnapshot()).completed[0].completionReceipt).toMatchObject({ ...evidence, provenance: 'reported' });
+    } finally {
+      session?.close();
+      await state.cleanup();
+    }
+  });
+
   it('refuses damaged storage and explicitly restores its backup through the CLI', async () => {
     const state = await createTempAutohandHome({ config: { features: { slashGoal: true } } });
     const statePath = path.join(state.workspaceRoot, '.autohand', 'goals.local.json');

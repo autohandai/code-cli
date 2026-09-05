@@ -83,6 +83,8 @@ ${body}
       expect(goalWriter?.source).toBe('builtin');
       expect(goalWriter?.path).toContain('src/skills/builtin/goal-writer/SKILL.md');
       expect(goalWriter?.body).toContain('completion contract');
+      expect(goalWriter?.body).toContain('acceptance_criteria');
+      expect(goalWriter?.body).toContain('Never\n   add criteria the user did not approve');
 
       const deepResearch = registry.getSkill('deep-research');
       expect(deepResearch).not.toBeNull();

@@ -7,6 +7,7 @@ import type { Ora } from 'ora';
 import type { ThemeDefinition } from './ui/theme/types.js';
 import type { KeybindingProfileId } from './keybindings/profiles.js';
 import type { TeamActivitySnapshot } from './core/teams/types.js';
+import type { GoalCompletionEvidence } from './goals/types.js';
 
 // InkRenderer type defined inline to avoid tsx dev mode issues with .tsx imports
 interface InkRendererInterface {
@@ -1608,6 +1609,7 @@ export type AgentAction =
   | {
       type: 'create_goal';
       objective: string;
+      acceptance_criteria?: string[];
       token_budget?: number;
       time_budget_seconds?: number;
       min_tokens_before_wrap_up?: number;
@@ -1616,6 +1618,7 @@ export type AgentAction =
   | {
       type: 'create_goal_from_template';
       template: string;
+      acceptance_criteria?: string[];
       flags?: Record<string, string>;
       args?: string;
       token_budget?: number;
@@ -1626,6 +1629,7 @@ export type AgentAction =
   | {
       type: 'update_goal';
       objective?: string;
+      completion_evidence?: GoalCompletionEvidence;
       status?: string;
       token_budget?: number | null;
       time_budget_seconds?: number | null;
@@ -1637,6 +1641,7 @@ export type AgentAction =
   | {
       type: 'enqueue_goal';
       objective: string;
+      acceptance_criteria?: string[];
       token_budget?: number;
       time_budget_seconds?: number;
       min_tokens_before_wrap_up?: number;

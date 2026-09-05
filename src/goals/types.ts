@@ -8,9 +8,27 @@ export type GoalStatus = 'active' | 'paused' | 'budgetLimited' | 'complete';
 
 export const UNSCOPED_GOAL_SESSION_KEY = '__unscoped__';
 
+export interface GoalCompletionCheck {
+  criterion: string;
+  status: 'passed' | 'failed' | 'notRun';
+  evidence: string;
+}
+
+export interface GoalCompletionEvidence {
+  summary: string;
+  checks: GoalCompletionCheck[];
+}
+
+export interface GoalCompletionReceipt extends GoalCompletionEvidence {
+  recordedAt: number;
+  provenance: 'reported';
+}
+
 export interface GoalState {
   goalId: string;
   objective: string;
+  acceptanceCriteria?: string[];
+  completionReceipt?: GoalCompletionReceipt;
   status: GoalStatus;
   tokenBudget?: number;
   timeBudgetSeconds?: number;
@@ -25,6 +43,7 @@ export interface GoalState {
 export interface QueuedGoal {
   queueId: string;
   objective: string;
+  acceptanceCriteria?: string[];
   tokenBudget?: number;
   timeBudgetSeconds?: number;
   minTokensBeforeWrapUp?: number;
@@ -40,6 +59,8 @@ export interface CompletedGoal {
   goalId: string;
   sessionId?: string;
   objective: string;
+  acceptanceCriteria?: string[];
+  completionReceipt?: GoalCompletionReceipt;
   status: Extract<GoalStatus, 'complete' | 'budgetLimited'>;
   tokensUsed: number;
   timeUsedSeconds: number;
@@ -121,6 +142,7 @@ export interface GoalMutationResult {
 
 export interface GoalCreateInput {
   objective: string;
+  acceptanceCriteria?: string[];
   tokenBudget?: number;
   timeBudgetSeconds?: number;
   minTokensBeforeWrapUp?: number;
@@ -134,6 +156,7 @@ export interface GoalTurnUsageInput {
 
 export interface GoalUpdateInput {
   objective?: string;
+  completionEvidence?: GoalCompletionEvidence;
   status?: GoalStatus;
   tokenBudget?: number | null;
   timeBudgetSeconds?: number | null;

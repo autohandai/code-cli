@@ -83,6 +83,17 @@ describe('goal tools', () => {
     expect(snapshot).toContain('tokenBudget');
   });
 
+  it('enforces approved criteria through tools and returns a reported receipt', async () => {
+    await executor.execute({ type: 'create_goal', objective: 'evidence through tools', acceptance_criteria: ['Tests pass'] });
+    expect(JSON.parse(await executor.execute({ type: 'update_goal', status: 'complete' }))).toMatchObject({ ok: false });
+
+    const result: unknown = JSON.parse(await executor.execute({ type: 'update_goal', status: 'complete', completion_evidence: {
+      summary: 'Tool verification', checks: [{ criterion: 'Tests pass', status: 'passed', evidence: '12 passed in test log' }],
+    } }));
+
+    expect(result).toMatchObject({ ok: true, completed: { completionReceipt: { summary: 'Tool verification', provenance: 'reported' } } });
+  });
+
   it('does not attach a prior-session goal to the current session through get_goal', async () => {
     currentSessionId = 'session-prior';
     await executor.execute({

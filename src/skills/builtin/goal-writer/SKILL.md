@@ -77,6 +77,12 @@ lint, evals, browser checks, or zero-match searches.
 5. Revise until the user approves the exact text and order.
 6. Start approved goals with `create_goal` only after approval. Include a token
    budget only if one was agreed.
+7. If the user approves structured acceptance criteria, show the exact criteria
+   alongside the full objective and pass them as `acceptance_criteria`. Never
+   add criteria the user did not approve. Completion then requires
+   `completion_evidence`: a summary and a passed check with evidence for each
+   criterion. Receipts record reported evidence, not independent verification;
+   time or tokens spent cannot substitute for a passing check.
 
 ## Reusable shape
 

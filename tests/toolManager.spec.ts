@@ -129,6 +129,17 @@ describe('ToolManager', () => {
     expect(defaultNames.has('get_goal')).toBe(false);
   });
 
+  it('describes acceptance criteria and structured completion evidence in goal tool schemas', () => {
+    for (const name of ['create_goal', 'create_goal_from_template', 'enqueue_goal']) {
+      expect(GOAL_TOOL_DEFINITIONS.find((tool) => tool.name === name)?.parameters?.properties.acceptance_criteria)
+        .toMatchObject({ type: 'array', items: { type: 'string' } });
+    }
+    expect(GOAL_TOOL_DEFINITIONS.find((tool) => tool.name === 'update_goal')?.parameters?.properties.completion_evidence)
+      .toMatchObject({ type: 'object', required: ['summary', 'checks'], properties: { checks: {
+        items: { required: ['criterion', 'status', 'evidence'], properties: { status: { enum: ['passed', 'failed', 'notRun'] } } },
+      } } });
+  });
+
   it('exposes fff search tools instead of deprecated find and glob by default', () => {
     const names = new Set(DEFAULT_TOOL_DEFINITIONS.map((tool) => tool.name));
 

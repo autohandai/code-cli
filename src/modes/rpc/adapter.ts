@@ -154,7 +154,7 @@ import { negotiateBrowserCapabilities } from '../../browser/browserCapabilities.
 import { redactBrowserToolArguments } from '../../browser/browserRedaction.js';
 import { CHROME_AUTOMATION_V2_SYSTEM_PROMPT } from '../../browser/chromeSkill.js';
 import { GoalManager } from '../../goals/GoalManager.js';
-import type { GoalStatus } from '../../goals/types.js';
+import type { GoalCompletionEvidence, GoalStatus } from '../../goals/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, isGoalFeatureEnabled } from '../../goals/feature.js';
 import { getRpcErrorMetadata, writeRpcDebugLine } from './logging.js';
 import { SLASH_COMMANDS } from '../../core/slashCommands.js';
@@ -478,6 +478,7 @@ export class RPCAdapter {
 
   async handleGoalCreate(params: {
     objective: string;
+    acceptance_criteria?: string[];
     token_budget?: number;
     time_budget_seconds?: number;
     min_tokens_before_wrap_up?: number;
@@ -487,6 +488,7 @@ export class RPCAdapter {
     return new GoalManager(this.workspace).createOrQueueGoal({
       objective: params.objective,
       source: 'rpc',
+      acceptanceCriteria: params.acceptance_criteria,
       tokenBudget: params.token_budget,
       timeBudgetSeconds: params.time_budget_seconds,
       minTokensBeforeWrapUp: params.min_tokens_before_wrap_up,
@@ -496,6 +498,7 @@ export class RPCAdapter {
 
   async handleGoalUpdate(params: {
     objective?: string;
+    completion_evidence?: GoalCompletionEvidence;
     status?: string;
     token_budget?: number | null;
     time_budget_seconds?: number | null;
@@ -506,6 +509,7 @@ export class RPCAdapter {
     return new GoalManager(this.workspace).updateGoal({
       objective: params.objective,
       status: parseRpcGoalStatus(params.status),
+      completionEvidence: params.completion_evidence,
       tokenBudget: params.token_budget,
       timeBudgetSeconds: params.time_budget_seconds,
       minTokensBeforeWrapUp: params.min_tokens_before_wrap_up,
@@ -520,6 +524,7 @@ export class RPCAdapter {
 
   async handleGoalQueue(params: {
     objective: string;
+    acceptance_criteria?: string[];
     token_budget?: number;
     time_budget_seconds?: number;
     min_tokens_before_wrap_up?: number;
@@ -530,6 +535,7 @@ export class RPCAdapter {
     return manager.enqueueGoal({
       objective: params.objective,
       source: 'rpc',
+      acceptanceCriteria: params.acceptance_criteria,
       tokenBudget: params.token_budget,
       timeBudgetSeconds: params.time_budget_seconds,
       minTokensBeforeWrapUp: params.min_tokens_before_wrap_up,

@@ -8,6 +8,7 @@ import path from 'node:path';
 import { PROJECT_DIR_NAME } from '../constants.js';
 import { withFileLock } from '../utils/atomicFile.js';
 import { GoalSnapshotStore, GoalStorageError } from './GoalSnapshotStore.js';
+import { buildCompletionReceipt, parseAcceptanceCriteria } from './GoalCompletion.js';
 import { UNSCOPED_GOAL_SESSION_KEY as UNKNOWN_SESSION_KEY } from './types.js';
 import { ActiveAgentRegistry } from '../session/ActiveAgentRegistry.js';
 import { parseQueueBlockItems } from './queueBlockParser.js';
@@ -217,6 +218,7 @@ export class GoalManager {
     const goal: GoalState = {
       goalId: crypto.randomUUID(),
       objective: input.objective.trim(),
+      acceptanceCriteria: parseAcceptanceCriteria(input.acceptanceCriteria),
       status: 'active',
       tokenBudget: input.tokenBudget,
       timeBudgetSeconds: input.timeBudgetSeconds,
@@ -265,6 +267,9 @@ export class GoalManager {
     const key = this.goalKey();
     const current = snapshot.goals[key] ? this.withLiveElapsed(snapshot.goals[key]) : null;
     if (!current) return this.result(snapshot, false, 'No goal exists for this session to update.');
+    if (input.completionEvidence !== undefined && input.status !== 'complete') {
+      return this.result(snapshot, false, 'completion evidence can only be submitted when completing a goal.');
+    }
 
     let next: GoalState = { ...current };
     const changes: string[] = [];
@@ -272,7 +277,7 @@ export class GoalManager {
       const objective = input.objective.trim();
       if (!objective) return this.result(snapshot, false, 'objective must be non-empty.');
       if (objective.length > MAX_OBJECTIVE_LENGTH) return this.result(snapshot, false, `objective is too long (max ${MAX_OBJECTIVE_LENGTH} characters).`);
-      next = { ...next, objective };
+      next = { ...next, objective, completionReceipt: undefined };
       changes.push('objective');
     }
 
@@ -307,6 +312,16 @@ export class GoalManager {
       if (input.status === 'complete' && !floorMet(next)) {
         return this.result(snapshot, false, 'Completion floor is not met yet. Keep working, raise the floor, or clear the goal if the user explicitly wants to stop.');
       }
+      if (input.status === 'complete') {
+        try {
+          next.completionReceipt = buildCompletionReceipt(input.completionEvidence, next.acceptanceCriteria);
+        } catch (error) {
+          if (!(error instanceof TypeError)) throw error;
+          return this.result(snapshot, false, error.message);
+        }
+      } else {
+        next.completionReceipt = undefined;
+      }
       next = transitionStatus(next, input.status);
       changes.push(`status ${input.status}`);
     }
@@ -319,7 +334,7 @@ export class GoalManager {
     if (next.status === 'complete') {
       if (current.status === 'complete') return this.result({ ...snapshot, goals: { ...snapshot.goals, [key]: current } }, false, 'Goal is already complete.');
       const completedGoal = buildCompletedGoal(next, Date.now(), key);
-      const completedRun = appendCompletedGoal(snapshot.completed, completedGoal);
+      const completedRun = [...snapshot.completed.filter((item) => item.goalId !== completedGoal.goalId), completedGoal];
       next = { ...next, updatedAt: Date.now() };
       const updated: GoalSnapshot = {
         ...snapshot,
@@ -477,6 +492,7 @@ export class GoalManager {
       goalId: crypto.randomUUID(),
       objective,
       status: 'active',
+      acceptanceCriteria: nextQueued.acceptanceCriteria,
       tokenBudget: nextQueued.tokenBudget,
       timeBudgetSeconds: nextQueued.timeBudgetSeconds,
       minTokensBeforeWrapUp: nextQueued.minTokensBeforeWrapUp,
@@ -542,7 +558,10 @@ export class GoalManager {
     const key = this.goalKey();
     const current = snapshot.goals[key];
     if (current?.goalId === goalOrQueueId) {
-      const goal = { ...this.withLiveElapsed(current), objective, updatedAt: Date.now() };
+      if (current.status === 'complete' && current.acceptanceCriteria) {
+        return this.result(snapshot, false, 'Resume the completed goal before editing its objective and recording new evidence.');
+      }
+      const goal = { ...this.withLiveElapsed(current), objective, completionReceipt: undefined, updatedAt: Date.now() };
       const next = {
         ...snapshot,
         goals: { ...snapshot.goals, [key]: goal },
@@ -738,6 +757,7 @@ function buildQueuedGoal(input: GoalCreateInput & { source: QueuedGoal['source']
   return {
     queueId: `q-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
     objective: input.objective.trim(),
+    acceptanceCriteria: parseAcceptanceCriteria(input.acceptanceCriteria),
     tokenBudget: input.tokenBudget,
     timeBudgetSeconds: input.timeBudgetSeconds,
     minTokensBeforeWrapUp: input.minTokensBeforeWrapUp,
@@ -755,6 +775,8 @@ function buildCompletedGoal(goal: GoalState, completedAt: number, sessionId: str
     goalId: goal.goalId,
     sessionId,
     objective: goal.objective,
+    acceptanceCriteria: goal.acceptanceCriteria,
+    completionReceipt: goal.completionReceipt,
     status: goal.status === 'budgetLimited' ? 'budgetLimited' : 'complete',
     tokensUsed: goal.tokensUsed,
     timeUsedSeconds: goal.timeUsedSeconds,
@@ -769,6 +791,12 @@ function appendCompletedGoal(completed: CompletedGoal[], goal: CompletedGoal): C
 }
 
 function validateGoalInput(input: GoalCreateInput): string | null {
+  try {
+    parseAcceptanceCriteria(input.acceptanceCriteria);
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    return error.message;
+  }
   const objective = input.objective.trim();
   if (!objective) return 'objective must be non-empty.';
   if (objective.length > MAX_OBJECTIVE_LENGTH) return `objective is too long (max ${MAX_OBJECTIVE_LENGTH} characters).`;
