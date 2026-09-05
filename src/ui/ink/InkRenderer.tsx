@@ -41,6 +41,7 @@ import {
 } from '../../core/agent/WorkspaceChangeCapture.js';
 import type { InteractionMode } from '../../core/agent/InteractionModeController.js';
 import type { TeamActivitySnapshot } from '../../core/teams/types.js';
+import type { AgentRunsSnapshot, AgentRunSource } from '../../core/agents/AgentRunStore.js';
 import type { GoalSessionSnapshot } from '../../goals/types.js';
 import type { TaskListPosition } from '../../types.js';
 import type { LineExtension, LineSegment } from './StatusLine.js';
@@ -78,6 +79,7 @@ export interface InkRendererOptions {
   mouseComposerCursor?: boolean;
   taskListPositionProvider?: () => TaskListPosition;
   onEditGoalObjective?: (request: GoalEditRequest) => void | Promise<void>;
+  onCancelAgentRun?: (id: string) => void | Promise<unknown>;
 }
 
 export interface SetWorkingOptions {
@@ -192,6 +194,8 @@ interface AgentUIWrapperProps {
   onDismissAnnouncement?: (id: string) => void;
   onToggleLiveCommandExpanded: (id?: string) => void;
   onToggleTeamPanel: () => void;
+  onCloseAgentRunsPanel: () => void;
+  onCancelAgentRun?: (id: string) => void | Promise<unknown>;
   onToggleGoalPanel: () => void;
   onEditGoalObjective?: (request: GoalEditRequest) => void | Promise<void>;
   onInputChange: (input: string) => void;
@@ -227,6 +231,8 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       onDismissAnnouncement,
       onToggleLiveCommandExpanded,
       onToggleTeamPanel,
+      onCloseAgentRunsPanel,
+      onCancelAgentRun,
       onToggleGoalPanel,
       onEditGoalObjective,
       onInputChange,
@@ -277,6 +283,8 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         onDismissAnnouncement={onDismissAnnouncement}
         onToggleLiveCommandExpanded={onToggleLiveCommandExpanded}
         onToggleTeamPanel={onToggleTeamPanel}
+        onCloseAgentRunsPanel={onCloseAgentRunsPanel}
+        onCancelAgentRun={onCancelAgentRun}
         onToggleGoalPanel={onToggleGoalPanel}
         onEditGoalObjective={onEditGoalObjective}
         onInputChange={handleInputChange}
@@ -459,6 +467,8 @@ export class InkRenderer {
             onDismissAnnouncement={this.options.onDismissAnnouncement}
             onToggleLiveCommandExpanded={(id) => this.toggleActiveLiveCommandExpanded(id)}
             onToggleTeamPanel={() => this.toggleTeamPanel()}
+            onCloseAgentRunsPanel={() => this.setAgentRunsPanelVisible(false)}
+            onCancelAgentRun={this.options.onCancelAgentRun}
             onToggleGoalPanel={() => this.toggleGoalPanel()}
             onEditGoalObjective={this.options.onEditGoalObjective}
             onInputChange={this.handleInputChange}
@@ -1120,6 +1130,14 @@ export class InkRenderer {
     this.updateState({ teamActivity });
   }
 
+  setAgentRuns(agentRuns: AgentRunsSnapshot): void {
+    this.updateState({ agentRuns });
+  }
+
+  setAgentRunsPanelVisible(visible: boolean, source?: AgentRunSource): void {
+    this.updateState({ agentRunsPanelVisible: visible, agentRunsSource: source });
+  }
+
   setTeamPanelVisible(visible: boolean): void {
     this.updateState({ teamPanelVisible: visible });
   }
@@ -1324,6 +1342,8 @@ export class InkRenderer {
               onDismissAnnouncement={this.options.onDismissAnnouncement}
               onToggleLiveCommandExpanded={(id) => this.toggleActiveLiveCommandExpanded(id)}
               onToggleTeamPanel={() => this.toggleTeamPanel()}
+              onCloseAgentRunsPanel={() => this.setAgentRunsPanelVisible(false)}
+              onCancelAgentRun={this.options.onCancelAgentRun}
               onToggleGoalPanel={() => this.toggleGoalPanel()}
               onEditGoalObjective={this.options.onEditGoalObjective}
               onInputChange={this.handleInputChange}

@@ -24,6 +24,8 @@ const StatusIcon = memo(({ status }: { status: string }) => {
     case 'working': return icon('warning', '●');
     case 'idle': return icon('success', '○');
     case 'shutdown': return icon('error', '×');
+    case 'failed': return icon('error', '×');
+    case 'cancelled': return icon('muted', '⊘');
     case 'spawning': return icon('muted', '…');
     default: return icon('muted', '○');
   }
@@ -48,6 +50,9 @@ export const TeamPanel = memo(({ team, tasks }: TeamPanelProps) => {
           <Box key={task.id} gap={1}>
             <StatusIcon status={task.status} />
             <Text>{task.subject}</Text>
+            {task.status === 'failed' || task.status === 'cancelled' ? (
+              <Text>{theme.fg(task.status === 'failed' ? 'error' : 'muted', `[${task.status}]`)}</Text>
+            ) : null}
             {task.owner && <Text>{theme.fg('accent', ` → ${task.owner}`)}</Text>}
           </Box>
         ))}

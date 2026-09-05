@@ -34,20 +34,35 @@ export class MessageRouter {
    * without a `method` field are silently ignored (stderr leakage,
    * debug output, etc.).
    */
-  onMessage(stream: Readable, callback: (msg: RpcMessage) => void): void {
+  onMessage(
+    stream: Readable,
+    callback: (msg: RpcMessage) => void,
+    onError?: (error: Error) => void,
+  ): () => void {
     const rl = createInterface({ input: stream, crlfDelay: Infinity });
-    rl.on('line', (line) => {
+    const handleError = (error: Error): void => { onError?.(error); };
+    const handleLine = (line: string): void => {
       const trimmed = line.trim();
       if (!trimmed) return;
       try {
-        const parsed = JSON.parse(trimmed) as RpcMessage;
-        if (parsed.method) {
-          callback(parsed);
+        const parsed: unknown = JSON.parse(trimmed);
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+          && 'method' in parsed && typeof parsed.method === 'string' && parsed.method.length > 0
+          && 'params' in parsed && typeof parsed.params === 'object' && parsed.params !== null
+          && !Array.isArray(parsed.params)) {
+          callback(parsed as RpcMessage);
         }
       } catch {
         // Ignore non-JSON lines (stderr leakage, debug output, etc.)
       }
-    });
+    };
+    rl.on('error', handleError);
+    rl.on('line', handleLine);
+    return () => {
+      rl.off('line', handleLine);
+      rl.close();
+      rl.off('error', handleError);
+    };
   }
 
   /**

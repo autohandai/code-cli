@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { SubAgent } from '../../../src/core/agents/SubAgent.js';
-import type { AgentDefinition } from '../../../src/core/agents/AgentRegistry.js';
+import { AgentRegistry, type AgentDefinition } from '../../../src/core/agents/AgentRegistry.js';
 import type { LLMProvider } from '../../../src/providers/LLMProvider.js';
 import type { ActionExecutor } from '../../../src/core/actionExecutor.js';
 import { PermissionManager } from '../../../src/permissions/PermissionManager.js';
@@ -20,6 +20,176 @@ function nativeToolCall(name: string, args: Record<string, unknown>, id = `call-
 }
 
 describe('SubAgent', () => {
+  it('provides installed role names to a child that may delegate further', async () => {
+    const roster = vi.spyOn(AgentRegistry.getInstance(), 'getAllAgents').mockReturnValue([{
+      name: 'security-reviewer', description: 'Review trust boundaries.', systemPrompt: 'Review security.',
+      tools: ['read_file'], path: '/tmp/security-reviewer.md', source: 'builtin',
+    }]);
+    const complete = vi.fn(async () => ({ content: 'Verified.' }));
+    try {
+      const agent = new SubAgent({
+        name: 'reader', description: 'Read source', systemPrompt: 'Inspect source.',
+        tools: ['read_file'], path: '/tmp/reader.md',
+      }, {
+        getName: () => 'autohandai', complete,
+        getCapabilities: () => ({ nativeToolCalling: true }),
+        listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+      }, { executeForTool: vi.fn() } as unknown as ActionExecutor, { clientContext: 'cli', depth: 1, maxDepth: 3 });
+      await agent.run('Review security.');
+      expect(complete.mock.calls[0]?.[0].messages[0].content).toContain('security-reviewer');
+      expect(complete.mock.calls[0]?.[0].messages[0].content).toContain('Review trust boundaries.');
+    } finally {
+      roster.mockRestore();
+    }
+  });
+
+  it('does not advertise parent-only operations or depth-exhausted delegation to wildcard children', async () => {
+    const complete = vi.fn(async () => ({ content: 'Verified.' }));
+    const agent = new SubAgent({
+      name: 'reader', description: 'Read source', systemPrompt: 'Inspect source.',
+      tools: ['*'], path: '/tmp/reader.md',
+    }, {
+      getName: () => 'autohandai', complete,
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, { executeForTool: vi.fn() } as unknown as ActionExecutor, {
+      clientContext: 'cli', depth: 3, maxDepth: 3,
+      getToolDefinitions: () => [{ name: 'mcp__server__read', description: 'Parent MCP connection' }],
+    });
+
+    await agent.run('Inspect source.');
+    const toolNames = complete.mock.calls[0]?.[0].tools.map(tool => tool.name);
+    expect(toolNames).toContain('read_file');
+    expect(toolNames).not.toEqual(expect.arrayContaining(['delegate_task']));
+    for (const unsupported of ['delegate_parallel', 'create_team', 'add_teammate', 'task_stop', 'skill', 'sleep', 'install_mcp_server', 'mcp__server__read']) {
+      expect(toolNames).not.toContain(unsupported);
+    }
+  });
+
+  it('delivers teammate instructions before the next provider request', async () => {
+    const pending = ['Stay read-only.'];
+    const observedInstructions: string[][] = [];
+    const agent = new SubAgent({
+      name: 'reader', description: 'Read source', systemPrompt: 'Inspect source.',
+      tools: ['read_file'], path: '/tmp/reader.md',
+    }, {
+      getName: () => 'autohandai',
+      complete: async request => {
+        observedInstructions.push(request.messages.filter(message => message.role === 'user').map(message => String(message.content)));
+        if (observedInstructions.length === 1) {
+          pending.push('Focus on tests.');
+          return { content: '', toolCalls: [nativeToolCall('read_file', { path: 'package.json' })] };
+        }
+        return { content: 'Verified.' };
+      },
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, { executeForTool: async () => ({ success: true, output: 'package contents' }) } as unknown as ActionExecutor, {
+      clientContext: 'cli', depth: 1, maxDepth: 1, getPendingInstructions: () => pending.splice(0),
+    });
+
+    await agent.run('Read package.json');
+    expect(observedInstructions).toEqual([
+      ['Read package.json', 'Stay read-only.'],
+      ['Read package.json', 'Stay read-only.', 'Focus on tests.'],
+    ]);
+    expect(pending).toEqual([]);
+  });
+
+  it('publishes tool progress and cumulative token usage for the live run inspector', async () => {
+    const onProgress = vi.fn();
+    const complete = vi.fn()
+      .mockResolvedValueOnce({ content: '', toolCalls: [nativeToolCall('read_file', { path: 'package.json' })],
+        usage: { promptTokens: 1, completionTokens: 2, totalTokens: 3, cacheReadTokens: 1 } })
+      .mockResolvedValueOnce({ content: 'Verified.', usage: {
+        promptTokens: 4, completionTokens: 5, totalTokens: 9, cacheReadTokens: 2, cacheWriteTokens: 1,
+      } });
+    const agent = new SubAgent({
+      name: 'reader', description: 'Read source', systemPrompt: 'Inspect source.',
+      tools: ['read_file'], path: '/tmp/reader.md',
+    }, {
+      getName: () => 'autohandai', complete,
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, { executeForTool: async () => ({ success: true, output: 'package contents' }) } as unknown as ActionExecutor, {
+      clientContext: 'cli', depth: 1, maxDepth: 1, onProgress,
+    });
+
+    await agent.run('Read package.json');
+    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ status: 'tool', tool: 'read_file' }));
+    expect(onProgress).toHaveBeenLastCalledWith(expect.objectContaining({
+      usage: { promptTokens: 5, completionTokens: 7, totalTokens: 12, cacheReadTokens: 3, cacheWriteTokens: 1 },
+    }));
+  });
+
+  it('reports iteration exhaustion as a failure instead of a completed answer', async () => {
+    let iteration = 0;
+    const agent = new SubAgent({
+      name: 'reader', description: 'Read source', systemPrompt: 'Inspect source.',
+      tools: ['read_file'], path: '/tmp/reader.md',
+    }, {
+      getName: () => 'autohandai',
+      complete: async () => ({
+        content: '{"reflection":"The previous file was checked; a different file remains."}',
+        toolCalls: [nativeToolCall('read_file', { path: `file-${++iteration}.ts` })],
+      }),
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, { executeForTool: async () => ({ success: true, output: `contents ${iteration}` }) } as unknown as ActionExecutor, {
+      clientContext: 'cli', depth: 1, maxDepth: 1,
+    });
+
+    await expect(agent.run('Keep reading')).rejects.toThrow('within 10 iterations');
+  });
+
+  it('does not execute proposed tools after the parent aborts during a provider request', async () => {
+    const controller = new AbortController();
+    const executeForTool = vi.fn().mockResolvedValue({ success: true });
+    const agent = new SubAgent({
+      name: 'reader', description: 'Read source', systemPrompt: 'Inspect source.',
+      tools: ['read_file'], path: '/tmp/reader.md',
+    }, {
+      getName: () => 'autohandai',
+      complete: async () => {
+        controller.abort();
+        return { content: '', toolCalls: [nativeToolCall('read_file', { path: 'package.json' })] };
+      },
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, { executeForTool } as unknown as ActionExecutor, {
+      clientContext: 'cli', depth: 1, maxDepth: 1,
+    });
+
+    await expect(agent.run('Read package.json', { signal: controller.signal }))
+      .rejects.toMatchObject({ name: 'AbortError' });
+    expect(executeForTool).not.toHaveBeenCalled();
+  });
+
+  it('forwards parent cancellation to native requests and nested tool execution', async () => {
+    const signal = new AbortController().signal;
+    const complete = vi.fn()
+      .mockResolvedValueOnce({ content: '', toolCalls: [nativeToolCall('read_file', { path: 'package.json' })] })
+      .mockResolvedValueOnce({ content: 'Verified package.' });
+    const executeForTool = vi.fn().mockResolvedValue({ success: true, output: 'package contents' });
+    const agent = new SubAgent({
+      name: 'reader', description: 'Read source', systemPrompt: 'Inspect source.',
+      tools: ['read_file'], path: '/tmp/reader.md',
+    }, {
+      getName: () => 'autohandai', complete,
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, { executeForTool } as unknown as ActionExecutor, {
+      clientContext: 'cli', depth: 1, maxDepth: 1,
+    });
+
+    await expect(agent.run('Read package.json', { signal })).resolves.toBe('Verified package.');
+
+    expect(complete.mock.calls.every(([request]) => request.signal === signal)).toBe(true);
+    expect(executeForTool).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'read_file' }), expect.objectContaining({ signal }),
+    );
+  });
+
   it('does not send native tool schemas to providers without native tool-call capability', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const agentDefinition: AgentDefinition = {

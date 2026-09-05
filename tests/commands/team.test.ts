@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { team } from '../../src/commands/team.js';
 import { tasks } from '../../src/commands/tasks.js';
 import { message } from '../../src/commands/message.js';
+import { TeamManager } from '../../src/core/teams/TeamManager.js';
 
 // Minimal TeamManager mock
 function createMockTeamManager(hasTeam = true) {
@@ -63,6 +64,25 @@ describe('/team command', () => {
     expect(result).toContain('source: catalog');
   });
 
+  it('labels failed and cancelled tasks separately from pending work', async () => {
+    const manager = new TeamManager({ leadSessionId: 'lead', workspacePath: process.cwd() });
+    manager.createTeam('status-labels');
+    const failed = manager.tasks.createTask({ subject: 'Failed verification', description: '' });
+    const cancelled = manager.tasks.createTask({ subject: 'Stopped review', description: '' });
+    manager.tasks.createTask({ subject: 'Waiting task', description: '' });
+    manager.tasks.updateTask(failed.id, { status: 'failed', error: 'Provider unavailable' });
+    manager.stopTask(cancelled.id);
+
+    const result = await team({ teamManager: manager }, ['status']);
+
+    expect(result).toContain('Failed verification — failed');
+    expect(result).toContain('Stopped review — cancelled');
+    expect(result).toContain('Waiting task — pending');
+    expect(result).toContain('0/3 completed');
+    expect(result).not.toContain('○ Failed verification');
+    expect(result).not.toContain('○ Stopped review');
+  });
+
   it('should return warning when no team manager', async () => {
     const result = await team({ teamManager: undefined }, []);
     expect(result).toContain('not available');
@@ -119,6 +139,15 @@ describe('/team command', () => {
     const mock = createMockTeamManager();
     const result = await team({ teamManager: mock as any }, ['help']);
     expect(result).toContain('create');
+  });
+
+  it('links team help to the live agent run inspector', async () => {
+    const manager = new TeamManager({ leadSessionId: 'lead', workspacePath: process.cwd() });
+
+    const result = await team({ teamManager: manager }, ['help']);
+
+    expect(result).toContain('/agents view');
+    expect(result).toContain('Inspect live agent runs, output, and cancellation');
   });
 });
 

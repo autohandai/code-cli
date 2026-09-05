@@ -1491,6 +1491,54 @@ Detected patterns include:
 
 ---
 
+## Multi-agent Session Limits
+
+`features.multi_agent_v2.max_concurrent_threads_per_session` sets the total number of simultaneous threads in a session, including the main agent. The default is `9`: one main agent plus up to eight subagents. Choose an integer from `1` to `64`. Setting `1` keeps the main agent available and disables delegation.
+
+Open `/settings` → **Teams** → **Session thread limit (main agent included)**, or set it directly:
+
+```text
+/settings features.multi_agent_v2.max_concurrent_threads_per_session 4
+/settings max_agents 4
+```
+
+The non-interactive equivalent is `autohand config set features.multi_agent_v2.max_concurrent_threads_per_session 4`. Settings are persisted in the existing configuration format:
+
+```json
+{
+  "features": {
+    "multi_agent_v2": {
+      "max_concurrent_threads_per_session": 4
+    }
+  }
+}
+```
+
+```yaml
+features:
+  multi_agent_v2:
+    max_concurrent_threads_per_session: 4
+```
+
+```toml
+[features.multi_agent_v2]
+max_concurrent_threads_per_session = 4
+```
+
+`teams.maxTeammates` remains a separate, narrower teammate limit. Raising it does not bypass the session-wide thread budget. Lower limits can reduce simultaneous provider usage, but this setting is not a token or spending cap.
+
+Teammate tools are authorized by the lead session's current tool capabilities, permission rules, and hooks. Headless teammates never silently approve an unresolved interactive request: authorize a specific rule in the lead session or perform that operation in the lead. Existing explicit automatic-approval settings remain subject to policy and hook denials. Missing authorization, a disconnected lead, or a stale task attempt fails closed.
+
+Background processes belong to the teammate task that started them. Failed or cancelled attempts stop their owned processes before reassignment; successful background servers may remain available until teammate shutdown. Shutdown stops all remaining teammate-owned processes without stopping unrelated processes.
+
+Selecting maximum reasoning shows a usage warning when the configured limit is eight or more. At the default, it identifies nine concurrent threads including up to eight subagents and recommends setting `features.multi_agent_v2.max_concurrent_threads_per_session` below eight. Reducing the limit blocks new children once capacity is exhausted; it does not interrupt existing work.
+
+Use `/agents view` to inspect direct and team runs, their parentage, model/provider, usage, output, and errors. Arrow keys select a run, Enter opens details, and `c` requests cancellation with confirmation. Escape returns from details or confirmation to the run list; Escape from the list returns to the composer. `/squad view` displays the native daemon's recorded runs for this workspace; these are independent sessions with their own budgets, not children charged against this CLI session's limit.
+
+For the evidence-driven review, cleanup, and testing commands, see [Lifecycle workflows](guides/lifecycle-workflows.md).
+
+---
+
 ## API Settings
 
 Backend API configuration for team features.
@@ -2423,7 +2471,9 @@ Autohand provides a rich set of slash commands for interactive use. Type `/` in 
 
 | Command       | Description                                           |
 | ------------- | ----------------------------------------------------- |
-| `/agents`     | List available sub-agents                             |
+| `/agents`     | Watch active Autohand sessions                         |
+| `/agents definitions` | List installed sub-agent definitions          |
+| `/agents view` | Inspect direct and team runs                          |
 | `/agents provider [agent]` | Choose and confirm the provider/model default for new teammates, or an override for one sub-agent definition |
 | `/agents-new` | Create a new agent via wizard                         |
 | `/squad`      | Open/manage the standalone Autohand Squad runtime     |

@@ -15,6 +15,7 @@ import type {
   AssistantReactPayload,
   FunctionDefinition,
   LLMMessage,
+  MultimodalMessage,
   LLMResponse,
   LLMUsage,
   ProviderName,
@@ -137,7 +138,8 @@ export interface AgentReactLoopHost {
   emitOutput(event: AgentOutputEvent): void;
   ensureSpinnerRunning(): void;
   forceRenderSpinner(): void;
-  getMessagesWithImages(): Promise<LLMMessage[]>;
+  getMessagesWithImages(): Promise<MultimodalMessage[]>;
+  attachToolImages?(message: LLMMessage, imagePaths: readonly string[], signal: AbortSignal): Promise<{ attached: number; error?: string }>;
   getReactionParser(): { parseAssistantResponse(completion: LLMResponse): AssistantReactPayload };
   handleSmartContextCrop(call: ToolCallRequest): Promise<string>;
   isContextOverflowError(errorOrMessage: Error | string): boolean;
@@ -595,7 +597,7 @@ export async function runAgentReactLoop(
           const missingByAssistantId = new Map(
             integrity.missingResults.map((result) => [result.id, result]),
           );
-          messagesWithImages = messagesWithImages.flatMap((message): LLMMessage[] => {
+          messagesWithImages = messagesWithImages.flatMap((message): MultimodalMessage[] => {
             if (message.role !== 'assistant' || !message.tool_calls?.length) {
               return [message];
             }
@@ -1131,13 +1133,20 @@ export async function runAgentReactLoop(
             const content = result.success
               ? result.output ?? '(no output)'
               : result.error ?? result.output ?? 'Tool failed without error message';
-            host.conversation.addMessage({
+            const toolMessage: LLMMessage = {
               role: 'tool',
               name: result.tool,
               content,
               tool_call_id: otherCalls[i]?.id
-            });
-            await host.saveToolMessage(result.tool, content, otherCalls[i]?.id);
+            };
+            if (result.imagePaths?.length) {
+              const attachment = await host.attachToolImages?.(toolMessage, result.imagePaths, abortController.signal);
+              if (!attachment || attachment.error) {
+                toolMessage.content += `\n[Visual inspection unavailable] ${attachment?.error ?? 'Screenshot attachment is unavailable in this runtime.'}`;
+              }
+            }
+            host.conversation.addMessage(toolMessage);
+            await host.saveToolMessage(result.tool, toolMessage.content, otherCalls[i]?.id);
           }
           if (results.some((result) => result.success && result.tool === 'create_meta_tool')) {
             allTools = await refreshRuntimeTools();

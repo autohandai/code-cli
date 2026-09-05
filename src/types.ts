@@ -1557,8 +1557,8 @@ export type AgentAction =
   | { type: 'add_teammate'; name: string; agent_name: string; provider?: ProviderName; model?: string; requested_role?: string; agent_source?: string }
   | { type: 'create_task'; subject: string; description: string; blocked_by?: string[] }
   | { type: 'task_get'; task_id: string }
-  | { type: 'task_list'; status?: 'pending' | 'in_progress' | 'completed'; owner?: string }
-  | { type: 'task_update'; task_id: string; subject?: string; description?: string; blocked_by?: string[]; status?: 'pending' | 'in_progress' | 'completed' }
+  | { type: 'task_list'; status?: 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled'; owner?: string }
+  | { type: 'task_update'; task_id: string; subject?: string; description?: string; blocked_by?: string[]; status?: 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled' }
   | { type: 'task_stop'; task_id: string }
   | { type: 'task_output'; task_id: string; output: string }
   | { type: 'team_status' }
@@ -1568,6 +1568,13 @@ export type AgentAction =
   | { type: 'enter_worktree'; name?: string }
   | { type: 'exit_worktree'; keep?: boolean }
   // Web Search Operations
+  | {
+      type: 'capture_test_evidence';
+      url: string;
+      steps?: import('./testing/visualEvidence.js').VisualEvidenceStep[];
+      max_frames?: number;
+      timeout_ms?: number;
+    }
   | { type: 'web_search'; query: string; max_results?: number; search_type?: 'general' | 'packages' | 'docs' | 'changelog' }
   | { type: 'fetch_url'; url: string; selector?: string; max_length?: number }
   | { type: 'package_info'; package_name: string; registry?: 'npm' | 'pypi' | 'crates' | 'go' | 'rubygems'; version?: string }

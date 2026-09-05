@@ -171,14 +171,20 @@ export class SlashCommandHandler {
         }
         case '/agents': {
           const { handler } = await import('../commands/agents.js');
-          await this.ctx.onBeforeModal?.();
+          const isLiveView = args[0]?.toLowerCase() === 'view';
+          if (!isLiveView) await this.ctx.onBeforeModal?.();
           try {
-            const output = await handler(args, { config: this.ctx.config });
+            const output = await handler(args, {
+              config: this.ctx.config,
+              onToggleAgentRunsView: this.ctx.onToggleAgentRunsView
+                ? () => this.ctx.onToggleAgentRunsView?.(true)
+                : undefined,
+            });
             if (output) {
               console.log(output);
             }
           } finally {
-            await this.ctx.onAfterModal?.();
+            if (!isLiveView) await this.ctx.onAfterModal?.();
           }
           return null;
         }
@@ -408,6 +414,14 @@ export class SlashCommandHandler {
         case '/pr-review': {
           const { prReview } = await import('../commands/pr-review.js');
           return prReview(this.ctx, args);
+        }
+        case '/deslop': {
+          const { deslop } = await import('../commands/deslop.js');
+          return deslop(this.ctx, args);
+        }
+        case '/tester': {
+          const { tester } = await import('../commands/tester.js');
+          return tester(this.ctx, args);
         }
         case '/status': {
           const { status } = await import('../commands/status.js');
@@ -729,7 +743,11 @@ export class SlashCommandHandler {
         }
         case '/squad': {
           const { squad } = await import('../commands/squad.js');
-          return squad({ workspaceRoot: this.ctx.workspaceRoot, config: this.ctx.config }, args);
+          return squad({
+            workspaceRoot: this.ctx.workspaceRoot,
+            config: this.ctx.config,
+            onToggleAgentRunsView: this.ctx.onToggleAgentRunsView,
+          }, args);
         }
         default:
           usageOutcome = 'failed';

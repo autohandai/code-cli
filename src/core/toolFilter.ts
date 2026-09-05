@@ -116,6 +116,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   copy_path: 'create',
   rename_path: 'create',
   add_dependency: 'create',
+  capture_test_evidence: 'create',
 
   // Delete operations
   delete_path: 'delete',

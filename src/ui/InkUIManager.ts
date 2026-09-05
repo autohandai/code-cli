@@ -37,6 +37,7 @@ export interface InkUIManagerOptions {
   mouseComposerCursor?: boolean;
   taskListPositionProvider?: () => TaskListPosition;
   onEditGoalObjective?: (request: GoalEditRequest) => void | Promise<void>;
+  onCancelAgentRun?: (id: string) => void | Promise<unknown>;
   rendererFactory?: (options: InkRendererOptions) => InkRenderer;
 }
 

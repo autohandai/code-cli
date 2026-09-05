@@ -1,10 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
 import { PassThrough } from "node:stream";
+import { BackgroundProcessRegistry } from "../../src/core/agent/BackgroundProcessRegistry.js";
+import * as commandActions from '../../src/actions/command.js';
 
 const actionExecutorConstructor = vi.hoisted(() => vi.fn());
+const executeTeammateTool = vi.hoisted(() => vi.fn(async () => ({ success: true, output: 'written' })));
 
 // Mock heavy dependencies before importing
 vi.mock("../../src/config.js", () => ({
+  getProviderConfig: vi.fn().mockReturnValue({ model: 'test-model' }),
   loadConfig: vi.fn().mockResolvedValue({
     provider: "openrouter",
     openrouter: {
@@ -74,6 +78,8 @@ vi.mock("../../src/core/actionExecutor.js", () => ({
     constructor(options: unknown) {
       actionExecutorConstructor(options);
     }
+    getPermissionContext() { return undefined; }
+    executeForTool = executeTeammateTool;
   },
 }));
 
@@ -157,7 +163,88 @@ describe("parseTeammateOptions", () => {
   });
 });
 
+describe('headless teammate tool authorization', () => {
+  it('does not execute a write without a live lead authorization seam', async () => {
+    const { ProviderFactory } = await import('../../src/providers/ProviderFactory.js');
+    const provider = ProviderFactory.create({} as never);
+    const complete = vi.mocked(provider.complete);
+    complete.mockClear();
+    executeTeammateTool.mockClear();
+    complete.mockResolvedValueOnce({ content: '', toolCalls: [{
+      id: 'write-call', type: 'function', function: { name: 'write_file', arguments: JSON.stringify({ path: 'protected.txt', contents: 'x' }) },
+    }] });
+    await executeTask({ teamName: 'test', name: 'writer', agentName: 'tester', leadSessionId: 'session' }, {
+      id: 'task', runId: 'attempt', subject: 'Write', description: 'Write a file', status: 'in_progress', blockedBy: [], createdAt: '',
+    });
+    expect(executeTeammateTool).not.toHaveBeenCalled();
+    expect(complete.mock.calls[1][0].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'tool', content: expect.stringContaining('authorization') }),
+    ]));
+  });
+
+  it('requests the lead decision for the current attempt before executing a native write', async () => {
+    const { ProviderFactory } = await import('../../src/providers/ProviderFactory.js');
+    const complete = vi.mocked(ProviderFactory.create({} as never).complete);
+    complete.mockResolvedValueOnce({ content: '', toolCalls: [{
+      id: 'write-call', type: 'function', function: { name: 'write_file', arguments: JSON.stringify({ path: 'original.txt', contents: 'x' }) },
+    }] });
+    executeTeammateTool.mockClear();
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const requests: Record<string, unknown>[] = [];
+    stdout.on('data', (data) => {
+      for (const line of data.toString().trim().split('\n')) {
+        const message = JSON.parse(line);
+        if (message.method === 'team.authorizeTool') {
+          requests.push(message.params);
+          expect(executeTeammateTool).not.toHaveBeenCalled();
+          stdin.write(JSON.stringify({ method: 'team.authorizationResult', params: {
+            requestId: message.params.requestId,
+            result: { allowed: true, args: { path: 'reviewed.txt', contents: 'x' } },
+          } }) + '\n');
+        }
+        if (message.method === 'team.idle') stdin.write(JSON.stringify({ method: 'team.shutdown', params: {} }) + '\n');
+      }
+    });
+    const task = { id: 'task', runId: 'attempt', subject: 'Write', description: 'Write a file', status: 'in_progress', blockedBy: [], createdAt: '' };
+    const run = runTeammateModeWithStreams({ teamName: 'test', name: 'writer', agentName: 'tester', leadSessionId: 'session' }, stdin, stdout);
+    stdin.write(JSON.stringify({ method: 'team.assignTask', params: { task } }) + '\n');
+    await run;
+    expect(requests).toEqual([expect.objectContaining({ taskId: 'task', runId: 'attempt', call: expect.objectContaining({ tool: 'write_file' }) })]);
+    expect(executeTeammateTool).toHaveBeenCalledWith(expect.objectContaining({ type: 'write_file', path: 'reviewed.txt' }), expect.anything());
+  });
+});
+
 describe("teammate executeTask", () => {
+  it('owns and cleans background processes when executed without a persistent teammate loop', async () => {
+    const kill = vi.spyOn(commandActions, 'killProcessGroup').mockResolvedValue(undefined);
+    actionExecutorConstructor.mockImplementationOnce((deps: { backgroundProcessRegistry?: BackgroundProcessRegistry }) => {
+      deps.backgroundProcessRegistry?.register(4242, 'standalone command');
+    });
+    try {
+      await executeTask({ teamName: 'standalone', name: 'worker', agentName: 'tester', leadSessionId: 'lead' }, {
+        id: 'standalone-task', subject: 'Standalone', description: '', status: 'in_progress', blockedBy: [], createdAt: '',
+      });
+      expect(kill).toHaveBeenCalledWith(4242, 250);
+    } finally {
+      kill.mockRestore();
+    }
+  });
+
+  it('shares the teammate background process registry with its action executor', async () => {
+    const backgroundProcessRegistry = new BackgroundProcessRegistry();
+    actionExecutorConstructor.mockClear();
+
+    await executeTask({
+      teamName: 'background', name: 'worker', agentName: 'tester', leadSessionId: 'lead',
+    }, {
+      id: 'background-task', subject: 'Start a server', description: 'Start a server',
+      status: 'in_progress', blockedBy: [], createdAt: '',
+    }, { backgroundProcessRegistry });
+
+    expect(actionExecutorConstructor).toHaveBeenCalledWith(expect.objectContaining({ backgroundProcessRegistry }));
+  });
+
   it("scopes task identity environment variables to one execution", async () => {
     const originalTaskId = process.env.AUTOHAND_TEAM_TASK_ID;
     delete process.env.AUTOHAND_TEAM_TASK_ID;
@@ -330,14 +417,14 @@ describe("teammate executeTask", () => {
     expect(prompt).not.toContain("Always respond with structured JSON");
   });
 
-  it("returns error string on agent not found", async () => {
+  it("rejects an unknown agent instead of returning a successful-looking error string", async () => {
     const { AgentRegistry } =
       await import("../../src/core/agents/AgentRegistry.js");
     (AgentRegistry.getInstance().getAgent as any).mockReturnValueOnce(
       undefined,
     );
 
-    const result = await executeTask(
+    const result = executeTask(
       {
         teamName: "test",
         name: "worker",
@@ -353,8 +440,7 @@ describe("teammate executeTask", () => {
         createdAt: "",
       },
     );
-    expect(result).toContain("Error");
-    expect(result).toContain("nonexistent");
+    await expect(result).rejects.toThrow('Agent "nonexistent" not found');
   });
 
   it("calls provider.setModel when opts.model is provided", async () => {
@@ -407,6 +493,28 @@ describe("teammate executeTask", () => {
     );
 
     expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ provider: "autohandai" }));
+  });
+
+  it('isolates provider clients for nested teammates and retains the lead-selected model', async () => {
+    const { ProviderFactory } = await import('../../src/providers/ProviderFactory.js');
+    const { SessionThreadBudget } = await import('../../src/core/agents/SessionThreadBudget.js');
+    const factory = vi.mocked(ProviderFactory.create);
+    const provider = factory({} as never);
+    const complete = vi.mocked(provider.complete);
+    factory.mockClear();
+    complete.mockResolvedValueOnce({ content: '', toolCalls: [{ id: 'nested-call', type: 'function', function: {
+      name: 'delegate_task', arguments: JSON.stringify({ agent_name: 'tester', task: 'Nested review' }),
+    } }] });
+    complete.mockResolvedValueOnce({ content: 'Nested review complete' });
+    complete.mockResolvedValueOnce({ content: 'Parent complete' });
+
+    await executeTask({ teamName: 'nested', name: 'worker', agentName: 'tester', leadSessionId: 'session', provider: 'autohandai', model: 'fantail' },
+      { id: 'nested-model', subject: 'Review', description: 'Parent task', status: 'in_progress', blockedBy: [], createdAt: '' },
+      { threadBudget: new SessionThreadBudget(() => 3), authorizeTool: async context => ({ allowed: true, args: context.args }) });
+
+    expect(factory).toHaveBeenCalledTimes(2);
+    expect(factory).toHaveBeenNthCalledWith(2, expect.objectContaining({ provider: 'autohandai' }));
+    expect(provider.setModel).toHaveBeenLastCalledWith('fantail');
   });
 
   it("discovers extension agents and tools before starting the teammate sub-agent", async () => {
@@ -479,6 +587,77 @@ describe("runTeammateModeWithStreams (keep-alive)", () => {
       })
       .filter(Boolean);
   }
+
+  it('reports failed tasks and becomes idle after execution rejects', async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const lines = collectOutput(stdout);
+    const execute = vi.fn().mockRejectedValue(new Error('Provider unavailable'));
+    const running = runTeammateModeWithStreams(defaultOpts, stdin, stdout, { execute });
+    writeMessage(stdin, 'team.assignTask', { task: taskFixture('failed-task') });
+    await vi.waitFor(() => expect(parseMessages(lines)).toContainEqual(expect.objectContaining({
+      method: 'team.taskUpdate', params: expect.objectContaining({ taskId: 'failed-task', status: 'failed', error: 'Provider unavailable' }),
+    })));
+    expect(parseMessages(lines).some((message) => message.params.status === 'completed')).toBe(false);
+    writeMessage(stdin, 'team.shutdown', {});
+    await running;
+  });
+
+  it('delivers teammate messages and fresh context to the executing agent', async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    let finish!: (result: string) => void;
+    const execute = vi.fn().mockImplementation(() => new Promise<string>((resolve) => { finish = resolve; }));
+    const running = runTeammateModeWithStreams(defaultOpts, stdin, stdout, { execute });
+    writeMessage(stdin, 'team.assignTask', { task: taskFixture('running-task') });
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
+    writeMessage(stdin, 'team.message', { from: 'lead', content: 'Check the changed API' });
+    writeMessage(stdin, 'team.updateContext', { tasks: [taskFixture('dependency')] });
+    const runtime = execute.mock.calls[0][2];
+    expect(runtime.getPendingInstructions().join('\n')).toContain('Check the changed API');
+    expect(runtime.getPendingInstructions()).toEqual([]);
+    finish('Done');
+    writeMessage(stdin, 'team.shutdown', {});
+    await running;
+  });
+
+  it('aborts active execution on shutdown and never announces it completed', async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const lines = collectOutput(stdout);
+    const execute = vi.fn().mockImplementation((_opts, _task, runtime) => new Promise((_resolve, reject) => {
+      runtime.signal.addEventListener('abort', () => reject(runtime.signal.reason), { once: true });
+    }));
+    const running = runTeammateModeWithStreams(defaultOpts, stdin, stdout, { execute });
+    writeMessage(stdin, 'team.assignTask', { task: taskFixture('cancelled-task') });
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
+    writeMessage(stdin, 'team.shutdown', {});
+    await running;
+    expect(parseMessages(lines)).toContainEqual(expect.objectContaining({
+      method: 'team.taskUpdate', params: expect.objectContaining({ taskId: 'cancelled-task', status: 'cancelled' }),
+    }));
+    expect(parseMessages(lines).some((message) => message.params.status === 'completed')).toBe(false);
+  });
+
+  it('echoes execution identifiers and ignores a stale cancellation for the same task', async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const lines = collectOutput(stdout);
+    let finish!: (value: string) => void;
+    const execute = vi.fn().mockImplementation(() => new Promise<string>((resolve) => { finish = resolve; }));
+    const running = runTeammateModeWithStreams(defaultOpts, stdin, stdout, { execute });
+    writeMessage(stdin, 'team.assignTask', { task: { ...taskFixture('retried-task'), runId: 'new-run' } });
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
+    writeMessage(stdin, 'team.cancelTask', { taskId: 'retried-task', runId: 'old-run' });
+    expect(execute.mock.calls[0][2].signal.aborted).toBe(false);
+    finish('Current execution finished');
+    await vi.waitFor(() => expect(parseMessages(lines)).toContainEqual(expect.objectContaining({
+      method: 'team.taskUpdate', params: expect.objectContaining({ taskId: 'retried-task', runId: 'new-run', status: 'completed' }),
+    })));
+    expect(parseMessages(lines)).toContainEqual(expect.objectContaining({ method: 'team.idle', params: { lastTask: 'retried-task', runId: 'new-run' } }));
+    writeMessage(stdin, 'team.shutdown', {});
+    await running;
+  });
 
   it("sends team.ready on startup", async () => {
     const stdin = new PassThrough();
@@ -562,3 +741,11 @@ describe("runTeammateModeWithStreams (keep-alive)", () => {
     expect(result).toBe("resolved");
   });
 });
+
+function writeMessage(stdin: PassThrough, method: string, params: Record<string, unknown>): void {
+  stdin.write(JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n');
+}
+
+function taskFixture(id: string) {
+  return { id, subject: 'Inspect changes', description: 'Review changes', status: 'in_progress', blockedBy: [], createdAt: '' };
+}

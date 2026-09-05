@@ -51,14 +51,22 @@ export function attachTeamActivityBridge(options: TeamActivityBridgeOptions): ()
 
     options.emitOutput({ type: 'team_update', teamActivity: snapshot });
 
-    const allTasksComplete = snapshot.tasks.length > 0
-      && snapshot.tasks.every((task) => task.status === 'completed');
-    if (allTasksComplete && !completionAnnounced) {
+    const completed = snapshot.tasks.filter((task) => task.status === 'completed').length;
+    const failed = snapshot.tasks.filter((task) => task.status === 'failed').length;
+    const cancelled = snapshot.tasks.filter((task) => task.status === 'cancelled').length;
+    const total = snapshot.tasks.length;
+    const allTasksFinished = total > 0 && completed + failed + cancelled === total;
+    if (allTasksFinished && !completionAnnounced) {
       completionAnnounced = true;
-      options.notifyUser(
-        `Team "${team.name}" completed ${snapshot.tasks.length}/${snapshot.tasks.length} tasks.`,
-      );
-    } else if (!allTasksComplete) {
+      const outcomes = [
+        `${completed}/${total} completed`,
+        ...(failed > 0 ? [`${failed} failed`] : []),
+        ...(cancelled > 0 ? [`${cancelled} cancelled`] : []),
+      ];
+      options.notifyUser(completed === total
+        ? `Team "${team.name}" completed ${total}/${total} tasks.`
+        : `Team "${team.name}" finished: ${outcomes.join(', ')}.`);
+    } else if (!allTasksFinished) {
       completionAnnounced = false;
     }
   });

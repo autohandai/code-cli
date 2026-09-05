@@ -19,6 +19,7 @@ const STATUS_STYLE: Record<TaskPanelStatus, { token: 'success' | 'warning' | 'mu
   in_progress: { token: 'warning', fallback: chalk.yellow },
   pending: { token: 'muted', fallback: chalk.gray },
   failed: { token: 'error', fallback: chalk.red },
+  cancelled: { token: 'muted', fallback: chalk.gray },
 };
 
 export interface RenderTaskPanelTextOptions {

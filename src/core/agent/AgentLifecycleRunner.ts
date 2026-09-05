@@ -45,6 +45,7 @@ import {
   resolveActiveGoalContinuation,
   unpackQueuedAgentInstruction,
   type PendingPostTurnAction,
+  type QueuedInstructionPolicy,
   type SequencedQueuedAgentInstruction,
   type QueuedMobileComposerCommand,
 } from './PostTurnActionCoordinator.js';
@@ -1436,6 +1437,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
       try {
         let instruction: string | null = null;
         let echoInTranscript: boolean | undefined;
+        let executionPolicy: QueuedInstructionPolicy | undefined;
         let postTurnAction: PendingPostTurnAction | undefined;
         let mobileTurn: MobileClaimedTurnContext | undefined;
         let mobileCommand: QueuedMobileComposerCommand | undefined;
@@ -1450,6 +1452,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         if (nextQueuedWork) {
           instruction = nextQueuedWork.queued.text ?? null;
           echoInTranscript = nextQueuedWork.queued.echoInTranscript;
+          executionPolicy = nextQueuedWork.queued.executionPolicy;
           postTurnAction = nextQueuedWork.queued.postTurnAction;
           mobileTurn = nextQueuedWork.queued.mobileTurn;
           mobileCommand = nextQueuedWork.queued.mobileCommand;
@@ -1701,11 +1704,14 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         let turnSucceeded: boolean;
         if (mobileTurn) {
           turnSucceeded = await host.runInstruction(instruction, {
+            ...executionPolicy,
             mobileTurn,
             ...(echoInTranscript === false ? { echoInTranscript: false } : {}),
           });
         } else if (echoInTranscript === false) {
-          turnSucceeded = await host.runInstruction(instruction, { echoInTranscript: false });
+          turnSucceeded = await host.runInstruction(instruction, { ...executionPolicy, echoInTranscript: false });
+        } else if (executionPolicy) {
+          turnSucceeded = await host.runInstruction(instruction, executionPolicy);
         } else {
           turnSucceeded = await host.runInstruction(instruction);
         }

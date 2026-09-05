@@ -64,6 +64,21 @@ describe('/tasks command', () => {
     expect(output).not.toContain('SECRET-DESCRIPTION-BODY');
   });
 
+  it('renders failed and cancelled groups with an accurate completed count', async () => {
+    const output = await runTasks([
+      task({ id: 'task-1', subject: 'Failed review', status: 'failed' }),
+      task({ id: 'task-2', subject: 'Cancelled review', status: 'cancelled' }),
+      task({ id: 'task-3', subject: 'Finished review', status: 'completed' }),
+    ]);
+
+    expect(output).toContain('1/3 done');
+    expect(output).toContain('failed · 1');
+    expect(output).toContain('cancelled · 1');
+    expect(output).toContain('✕ task-1 Failed review');
+    expect(output).toContain('⊘ task-2 Cancelled review');
+    expect(output).not.toContain('pending');
+  });
+
   it('reports an empty task list', async () => {
     expect(await runTasks([])).toContain('No tasks');
   });

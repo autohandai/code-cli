@@ -60,6 +60,8 @@ import * as deepResearchCmd from '../commands/deep-research.js';
 import * as publishResearchCmd from '../commands/publish-research.js';
 import * as autoresearchCmd from '../commands/autoresearch.js';
 import * as prReviewCmd from '../commands/pr-review.js';
+import * as deslopCmd from '../commands/deslop.js';
+import * as testerCmd from '../commands/tester.js';
 import * as setupCmd from '../commands/setup.js';
 import * as yoloCmd from '../commands/yolo.js';
 import * as toolsCmd from '../commands/tools.js';
@@ -142,6 +144,8 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   publishResearchCmd.metadata,
   autoresearchCmd.metadata,
   prReviewCmd.metadata,
+  deslopCmd.metadata,
+  testerCmd.metadata,
   setupCmd.metadata,
   yoloCmd.metadata,
   toolsCmd.metadata,

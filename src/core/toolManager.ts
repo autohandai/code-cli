@@ -234,6 +234,10 @@ export function buildToolPermissionContexts(action: AgentAction): PermissionCont
     return [{ ...context, path: 'package.json' }];
   }
 
+  if (action.type === 'capture_test_evidence') {
+    return [{ ...context, path: '.autohand/test-evidence', command: action.url }];
+  }
+
   if (action.type === 'rename_path' || action.type === 'copy_path') {
     if (typeof values.from !== 'string' || typeof values.to !== 'string') {
       throw new Error(`Tool '${action.type}' requires string source and destination paths for authorization.`);
@@ -1312,7 +1316,7 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     parameters: {
       type: 'object',
       properties: {
-        status: { type: 'string', description: 'Optional status filter', enum: ['pending', 'in_progress', 'completed'] },
+        status: { type: 'string', description: 'Optional status filter', enum: ['pending', 'in_progress', 'completed', 'failed', 'cancelled'] },
         owner: { type: 'string', description: 'Optional owner filter' }
       }
     }
@@ -1331,14 +1335,14 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
           description: 'Updated prerequisite task IDs',
           items: { type: 'string', description: 'Task ID' }
         },
-        status: { type: 'string', description: 'Updated task status', enum: ['pending', 'in_progress', 'completed'] }
+        status: { type: 'string', description: 'Updated task status', enum: ['pending', 'in_progress', 'completed', 'failed', 'cancelled'] }
       },
       required: ['task_id']
     }
   },
   {
     name: 'task_stop',
-    description: 'Stop an active or queued team task and return it to pending state.',
+    description: 'Stop an active or queued team task and mark it cancelled.',
     parameters: {
       type: 'object',
       properties: {
@@ -1420,6 +1424,35 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   // Web Search Operations
+  {
+    name: 'capture_test_evidence',
+    description: 'Capture actual local browser evidence using an existing project Playwright installation. Produces PNG frames, a trace, animated WebP, and a report. Only the requested localhost HTTP(S) origin is allowed; no packages or browsers are installed. Capture success is not test assertion success or visual inspection. Open retained frames before claiming visual confirmation. Interaction steps may modify the local application and require approval.',
+    requiresApproval: true,
+    approvalMessage: 'Capture browser evidence and run the requested local application interactions?',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'Explicit local app URL (localhost, 127.0.0.1, or [::1]); remote/file/credentialed URLs are rejected' },
+        steps: {
+          type: 'array',
+          description: 'Up to 20 local UI interaction steps; omit for capture only. Do not include optional fields unused by an action.',
+          items: {
+            type: 'object',
+            properties: {
+              action: { type: 'string', enum: ['click', 'fill', 'press', 'waitFor'], description: 'Interaction to perform' },
+              selector: { type: 'string', description: 'Playwright locator selector' },
+              value: { type: 'string', description: 'Required only for fill' },
+              key: { type: 'string', description: 'Required only for press' },
+            },
+            required: ['action', 'selector'],
+          },
+        },
+        max_frames: { type: 'number', description: 'Maximum PNG frames (2–24, default 6)' },
+        timeout_ms: { type: 'number', description: 'Total capture duration limit (1000–60000 milliseconds, default 30000)' },
+      },
+      required: ['url'],
+    },
+  },
   {
     name: 'web_search',
     description: 'Search the web for up-to-date information about packages, libraries, frameworks, documentation, changelogs, and more. Use this when you need current information that may have changed after your training data.',
@@ -3178,6 +3211,10 @@ export class ToolManager {
 
   private buildApprovalMessage(call: ToolCallRequest, definition: ToolDefinition): string {
     const args = this.getCallArgs(call);
+    if (call.tool === 'capture_test_evidence') {
+      const interactions = Array.isArray(args.steps) ? args.steps.length : 0;
+      return `Capture local browser evidence at ${String(args.url ?? '')} with ${interactions} interaction${interactions === 1 ? '' : 's'}?\nInteractions may change the local app. Frames and traces may contain visible test data.`;
+    }
     if (call.tool === 'install_specialist_roster' && Array.isArray(args.agent_names)) {
       return `Install these resolved specialists from the default Autohand catalog?\n  ${args.agent_names.join(', ')}`;
     }
@@ -3359,13 +3396,21 @@ export class ToolManager {
     if (!this.isPlainObject(outcome) || typeof outcome.success !== 'boolean') {
       throw new Error('Tool executor returned a malformed outcome.');
     }
+    if (outcome.imagePaths !== undefined && (!Array.isArray(outcome.imagePaths)
+      || outcome.imagePaths.some(value => typeof value !== 'string' || !value.trim() || value.includes('\0')
+        || (/^[a-z][a-z\d+.-]*:/i.test(value) && !/^[a-z]:[\\/]/i.test(value))))) {
+      throw new Error('Tool executor returned malformed image file references.');
+    }
+    const images = outcome.imagePaths === undefined ? {} : { imagePaths: [...outcome.imagePaths] };
     if (outcome.success) {
       if (outcome.output !== undefined && typeof outcome.output !== 'string') {
         throw new Error('Tool executor returned malformed success output.');
       }
-      return outcome.output === undefined
-        ? { success: true }
-        : { success: true, output: outcome.output };
+      return {
+        success: true,
+        ...(outcome.output === undefined ? {} : { output: outcome.output }),
+        ...images,
+      };
     }
 
     const validKinds: ToolFailureKind[] = [
@@ -3395,6 +3440,7 @@ export class ToolManager {
       error: outcome.error,
       ...(outcome.output === undefined ? {} : { output: outcome.output }),
       ...(outcome.exitCode === undefined ? {} : { exitCode: outcome.exitCode }),
+      ...images,
     };
   }
 

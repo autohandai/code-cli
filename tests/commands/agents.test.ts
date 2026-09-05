@@ -9,6 +9,19 @@ import type { ActiveAgentRecord } from '../../src/session/ActiveAgentRegistry.js
 import type { LoadedConfig } from '../../src/types.js';
 
 describe('/agents command', () => {
+  it.each([['help'], ['--help']])('documents session inspection and global heartbeat scopes for %s', async (arg) => {
+    const output = await handler([arg]);
+    expect(output).toContain('/agents view');
+    expect(output).toContain('/agents --once');
+    expect(output).toContain('/team view');
+    expect(output).toContain('/squad view');
+    expect(output).toContain('c cancel');
+  });
+  it('opens the session run inspector without entering the global heartbeat view', async () => {
+    const onToggleAgentRunsView = vi.fn();
+    expect(await handler(['view'], { onToggleAgentRunsView })).toContain('Session agent inspector');
+    expect(onToggleAgentRunsView).toHaveBeenCalledWith(true);
+  });
   it('formats the empty active agents state with the definitions hint', () => {
     const output = formatActiveAgents([]);
 
