@@ -42,10 +42,10 @@ describe('AgentRegistry built-in agents', () => {
   it('should load built-in agents', async () => {
     const registry = await loadIsolatedRegistry();
     const builtins = registry.getAgentsBySource('builtin');
-    expect(builtins.length).toBeGreaterThanOrEqual(11);
+    expect(builtins.length).toBeGreaterThanOrEqual(12);
   });
 
-  it('should include the original six and five specialist built-ins', async () => {
+  it('should include the original six and six specialist built-ins', async () => {
     const registry = await loadIsolatedRegistry();
     const builtins = registry.getAgentsBySource('builtin');
     const names = builtins.map((a) => a.name);
@@ -55,11 +55,42 @@ describe('AgentRegistry built-in agents', () => {
     expect(names).toContain('docs-writer');
     expect(names).toContain('tester');
     expect(names).toContain('reviewer');
+    expect(names).toContain('autohand-review');
     expect(names).toContain('product-interviewer');
     expect(names).toContain('planner');
     expect(names).toContain('debugger');
     expect(names).toContain('security-auditor');
     expect(names).toContain('release-readiness');
+  });
+
+  it('loads Autohand Review as a read-only, evidence-led specialist', async () => {
+    const registry = await loadIsolatedRegistry();
+
+    const review = registry.getAgent('autohand-review');
+
+    expect(review).toMatchObject({
+      name: 'autohand-review',
+      source: 'builtin',
+    });
+    expect(review?.tools).toEqual(expect.arrayContaining([
+      'read_file',
+      'fff_grep',
+      'fff_find',
+      'list_tree',
+      'git_status',
+      'git_diff',
+      'git_diff_range',
+      'git_log',
+    ]));
+    expect(review?.tools).not.toEqual(expect.arrayContaining([
+      'write_file',
+      'run_command',
+      'shell',
+    ]));
+    expect(review?.systemPrompt).toContain('Executive view');
+    expect(review?.systemPrompt).toContain('Technical findings');
+    expect(review?.systemPrompt).toContain('Forensic appendix');
+    expect(review?.systemPrompt).toContain('Evidence boundary');
   });
 
   it('should parse frontmatter for description and tools', async () => {

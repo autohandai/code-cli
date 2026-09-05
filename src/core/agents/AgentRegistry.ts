@@ -19,6 +19,7 @@ import {
 } from './catalogProvenance.js';
 
 export const BUILTIN_AGENT_NAMES = [
+    'autohand-review',
     'code-cleaner',
     'debugger',
     'docs-writer',

@@ -105,7 +105,7 @@ const ROLE_DEFINITIONS: readonly SpecialistRoleDefinition[] = [
   { id: 'debugger', label: 'Debugging', aliases: ['debugger', 'debugging', 'diagnosis'], preferredAgents: ['debugger'] },
   { id: 'release-readiness', label: 'Release readiness', aliases: ['release readiness', 'release', 'packaging'], preferredAgents: ['release-readiness'] },
   { id: 'research', label: 'Research', aliases: ['researcher', 'research'], preferredAgents: ['researcher'] },
-  { id: 'review', label: 'Review', aliases: ['reviewer', 'review'], preferredAgents: ['reviewer'] },
+  { id: 'review', label: 'Review', aliases: ['reviewer', 'review'], preferredAgents: ['autohand-review', 'reviewer'] },
   { id: 'testing', label: 'Testing', aliases: ['tester', 'testing', 'test'], preferredAgents: ['tester'] },
 ] as const;
 

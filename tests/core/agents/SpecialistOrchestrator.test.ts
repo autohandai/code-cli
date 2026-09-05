@@ -91,6 +91,27 @@ describe('specialist intent detection', () => {
 });
 
 describe('SpecialistOrchestrator resolution', () => {
+  it('prefers Autohand Review for the built-in review role', async () => {
+    const orchestrator = new SpecialistOrchestrator(delegator(), {
+      registry: registryWith([
+        agent('reviewer', 'builtin'),
+        agent('autohand-review', 'builtin'),
+      ]),
+      offline: true,
+    });
+    const request = detectSpecialistRequest('Bring a review agent to inspect this repo.')!;
+
+    const plan = await orchestrator.resolve(request);
+
+    expect(plan.selectedAgents).toEqual([
+      expect.objectContaining({
+        requestedRole: 'review',
+        agentName: 'autohand-review',
+        source: 'builtin',
+      }),
+    ]);
+  });
+
   it('uses source precedence before role score and avoids duplicate agents', async () => {
     const orchestrator = new SpecialistOrchestrator(delegator(), {
       registry: registryWith([
