@@ -64,6 +64,26 @@ describe('config CLI subcommands', () => {
     expect(result.stdout).not.toContain('Unhandled Rejection');
   }, 120_000);
 
+  it('persists a session-wide thread limit through config set', () => {
+    const result = runCli('config set features.multi_agent_v2.max_concurrent_threads_per_session 4');
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Set features.multi_agent_v2.max_concurrent_threads_per_session = 4');
+    expect(fs.readJsonSync(configPath)).toMatchObject({
+      features: { multi_agent_v2: { max_concurrent_threads_per_session: 4 } },
+    });
+  }, 120_000);
+
+  it('rejects a thread limit outside the supported range without changing the file', () => {
+    const before = fs.readFileSync(configPath, 'utf8');
+
+    const result = runCli('config set max_agents 0');
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('integer between 1 and 64');
+    expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
+  }, 120_000);
+
   it('sets provider API keys without echoing the raw secret', () => {
     const result = runCli('config set openrouter.apiKey sk-openrouter-secret');
 

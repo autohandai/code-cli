@@ -8,6 +8,7 @@ import { t } from '../i18n/index.js';
 import { showModal, showInput, showConfirm, showPassword, type ModalOption } from '../ui/ink/components/Modal.js';
 import { saveConfig } from '../config.js';
 import type { BuiltInProviderName, LoadedConfig } from '../types.js';
+import { DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION, MAX_CONCURRENT_THREADS_PER_SESSION, isValidSessionThreadLimit } from '../core/agents/SessionThreadBudget.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -37,6 +38,7 @@ export interface SettingsCommandContext {
 }
 
 const SETTING_KEY_ALIASES: Record<string, string> = {
+  max_agents: 'features.multi_agent_v2.max_concurrent_threads_per_session',
   silent_tool_output: 'ui.silentToolOutput',
   tool_output_silent: 'ui.silentToolOutput',
   ui_silent_tool_output: 'ui.silentToolOutput',
@@ -156,6 +158,16 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
   { key: 'automode.useWorktree', labelKey: 'commands.settings.automode.useWorktree', descriptionKey: 'commands.settings.automode.useWorktreeDesc', category: 'automode', type: 'boolean', defaultValue: true },
 
   // Teams
+  {
+    key: 'features.multi_agent_v2.max_concurrent_threads_per_session',
+    labelKey: 'commands.settings.teams.sessionThreadLimit',
+    descriptionKey: 'commands.settings.teams.sessionThreadLimitDesc',
+    category: 'teams',
+    type: 'number',
+    defaultValue: DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION,
+    validate: value => isValidSessionThreadLimit(Number(value))
+      || `Session thread limit must be an integer between 1 and ${MAX_CONCURRENT_THREADS_PER_SESSION} (main agent included).`,
+  },
   { key: 'teams.enabled', labelKey: 'commands.settings.teams.enabled', descriptionKey: 'commands.settings.teams.enabledDesc', category: 'teams', type: 'boolean', defaultValue: true },
   { key: 'teams.teammateMode', labelKey: 'commands.settings.teams.teammateMode', descriptionKey: 'commands.settings.teams.teammateModeDesc', category: 'teams', type: 'enum', enumValues: ['auto', 'in-process', 'tmux'], defaultValue: 'auto' },
   { key: 'teams.maxTeammates', labelKey: 'commands.settings.teams.maxTeammates', descriptionKey: 'commands.settings.teams.maxTeammatesDesc', category: 'teams', type: 'number', defaultValue: 5 },
@@ -250,6 +262,10 @@ function parseBooleanSetting(value: string): boolean {
 }
 
 export function parseSettingValue(setting: SettingDef, rawValue: string): unknown {
+  const validation = setting.validate?.(rawValue);
+  if (validation !== undefined && validation !== true) {
+    throw new Error(typeof validation === 'string' ? validation : `Invalid value for ${setting.key}.`);
+  }
   switch (setting.type) {
     case 'boolean':
       return parseBooleanSetting(rawValue);
@@ -401,13 +417,16 @@ export async function editSetting(setting: SettingDef, config: LoadedConfig): Pr
         title: t(setting.labelKey),
         defaultValue: String(currentValue ?? setting.defaultValue ?? ''),
         validate: (v: string) => {
-          const n = Number(v);
-          if (isNaN(n) || !Number.isFinite(n)) return 'Must be a number';
-          return true;
+          try {
+            parseSettingValue(setting, v);
+            return true;
+          } catch (error) {
+            return error instanceof Error ? error.message : String(error);
+          }
         },
       });
       if (result !== null) {
-        const numValue = Number(result);
+        const numValue = parseSettingValue(setting, result);
         if (numValue !== currentValue) {
           setNestedValue(config, setting.key, numValue);
           return true;
@@ -467,15 +486,39 @@ async function showCategorySettings(category: SettingCategory, config: LoadedCon
       continue;
     }
 
-    const changed = await editSetting(setting, config);
+    const updated = structuredClone(config);
+    const changed = await editSetting(setting, updated);
     if (changed) {
-      await saveConfig(config);
+      await saveConfig(updated);
+      setNestedValue(config, setting.key, getNestedValue(updated, setting.key));
       console.log(chalk.green(`\n${t('commands.settings.saved')}\n`));
     }
   }
 }
 
-export async function settings(ctx: SettingsCommandContext): Promise<string | null> {
+export async function settings(ctx: SettingsCommandContext, args: string[] = []): Promise<string | null> {
+  if (args.length > 0) {
+    if (args[0] === 'help' || args[0] === '--help') {
+      return [
+        'Usage: /settings [<key> <value>]',
+        'Open /settings → Teams to configure the session thread limit (main agent included).',
+        '/settings features.multi_agent_v2.max_concurrent_threads_per_session 4',
+        `Use an integer from 1 to ${MAX_CONCURRENT_THREADS_PER_SESSION}; 1 disables delegation. Default: ${DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION}.`,
+      ].join('\n');
+    }
+    try {
+      if (args.length < 2) return 'Usage: /settings <key> <value>. Use /settings help for examples.';
+      const { key, value } = parseConfigSetArgs(args);
+      const updated = structuredClone(ctx.config);
+      const result = setConfigSetting(updated, key, value);
+      await saveConfig(updated);
+      setNestedValue(ctx.config, result.key, result.value);
+      return formatConfigSetResult(result);
+    } catch (error) {
+      return `Settings not saved: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
   console.log(chalk.cyan(`\n${t('commands.settings.title')}\n`));
 
   while (true) {

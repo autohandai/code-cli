@@ -279,6 +279,8 @@
         "useWorktreeDesc": "Use git worktree by default"
       },
       "teams": {
+        "sessionThreadLimit": "Session thread limit (main agent included)",
+        "sessionThreadLimitDesc": "1–64 total threads; default 9 = main agent + up to 8 subagents. Set 1 to disable delegation.",
         "enabled": "Teams enabled",
         "enabledDesc": "Enable team coordination features",
         "teammateMode": "Teammate mode",

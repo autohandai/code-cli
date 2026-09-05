@@ -381,6 +381,10 @@ export interface AutoReportSettings {
 }
 
 export interface FeatureFlagSettings {
+  multi_agent_v2?: {
+    /** Total session threads including the main agent. Integer 1–64; default 9. */
+    max_concurrent_threads_per_session?: number;
+  };
   /** Gate Autohand-hosted inference provider, models, setup, RPC, and ACP surfaces. */
   autohand_inference?: boolean;
   /** Remote feature flag environment (default: production) */
