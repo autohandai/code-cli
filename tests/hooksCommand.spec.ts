@@ -74,7 +74,7 @@ describe('/hooks command', () => {
   describe('metadata', () => {
     it('has correct command metadata', () => {
       expect(metadata.command).toBe('/hooks');
-      expect(metadata.description).toBe('manage git hooks');
+      expect(metadata.description).toBe('browse and create lifecycle hooks');
       expect(metadata.implemented).toBe(true);
     });
   });
@@ -83,7 +83,7 @@ describe('/hooks command', () => {
     it('shows empty state when no hooks configured', async () => {
       mockSafePrompt.mockResolvedValueOnce({ action: 'done' });
 
-      await hooks({ hookManager: manager });
+      await hooks({ hookManager: manager }, 'manage');
 
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Hooks'));
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('No hooks configured'));
@@ -95,7 +95,7 @@ describe('/hooks command', () => {
 
       mockSafePrompt.mockResolvedValueOnce({ action: 'done' });
 
-      await hooks({ hookManager: manager });
+      await hooks({ hookManager: manager }, 'manage');
 
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('pre-tool'));
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('post-tool'));
@@ -108,7 +108,7 @@ describe('/hooks command', () => {
 
       mockSafePrompt.mockResolvedValueOnce({ action: 'done' });
 
-      await hooks({ hookManager: manager });
+      await hooks({ hookManager: manager }, 'manage');
 
       // New UI shows "1 of 2 hooks active" in summary
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('1 of 2 hooks active'));
@@ -118,7 +118,7 @@ describe('/hooks command', () => {
       await manager.updateSettings({ enabled: false });
       mockSafePrompt.mockResolvedValueOnce({ action: 'done' });
 
-      await hooks({ hookManager: manager });
+      await hooks({ hookManager: manager }, 'manage');
 
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('disabled'));
     });
@@ -128,7 +128,7 @@ describe('/hooks command', () => {
     it('returns null when user selects done', async () => {
       mockSafePrompt.mockResolvedValueOnce({ action: 'done' });
 
-      const result = await hooks({ hookManager: manager });
+      const result = await hooks({ hookManager: manager }, 'manage');
 
       expect(result).toBeNull();
     });
@@ -136,7 +136,7 @@ describe('/hooks command', () => {
     it('returns null when user cancels prompt', async () => {
       mockSafePrompt.mockResolvedValueOnce(null);
 
-      const result = await hooks({ hookManager: manager });
+      const result = await hooks({ hookManager: manager }, 'manage');
 
       expect(result).toBeNull();
     });
@@ -151,7 +151,7 @@ describe('/hooks command', () => {
         .mockResolvedValueOnce({ description: 'My new hook' })
         .mockResolvedValueOnce({ async: false });
 
-      await hooks({ hookManager: manager });
+      await hooks({ hookManager: manager }, 'manage');
 
       const allHooks = manager.getHooks();
       expect(allHooks).toHaveLength(1);
@@ -165,7 +165,7 @@ describe('/hooks command', () => {
         .mockResolvedValueOnce({ action: 'add' })
         .mockResolvedValueOnce(null); // User cancels event selection
 
-      await hooks({ hookManager: manager });
+      await hooks({ hookManager: manager }, 'manage');
 
       expect(manager.getHooks()).toHaveLength(0);
     });
@@ -185,7 +185,7 @@ describe('/hooks command', () => {
         return null; // ESC to exit
       });
 
-      await hooks({ hookManager: manager });
+      await hooks({ hookManager: manager }, 'manage');
 
       expect(manager.getHooks()[0].enabled).toBe(false);
     });
@@ -202,7 +202,7 @@ describe('/hooks command', () => {
         return null;
       });
 
-      await hooks({ hookManager: manager });
+      await hooks({ hookManager: manager }, 'manage');
 
       expect(manager.getHooks()[0].enabled).toBe(true);
       expect(manager.getHooks()[1].enabled).toBe(false);
@@ -215,7 +215,7 @@ describe('/hooks command', () => {
       mockSafePrompt.mockResolvedValueOnce({ action: 'toggle' });
       mockShowModal.mockResolvedValue(null);
 
-      await hooks({ hookManager: manager });
+      await hooks({ hookManager: manager }, 'manage');
 
       expect(mockShowModal).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -238,7 +238,7 @@ describe('/hooks command', () => {
         .mockResolvedValueOnce({ hookIndex: '0' })
         .mockResolvedValueOnce({ confirm: true });
 
-      await hooks({ hookManager: manager });
+      await hooks({ hookManager: manager }, 'manage');
 
       expect(manager.getHooks()).toHaveLength(0);
     });
@@ -251,7 +251,7 @@ describe('/hooks command', () => {
         .mockResolvedValueOnce({ hookIndex: '0' })
         .mockResolvedValueOnce({ confirm: false });
 
-      await hooks({ hookManager: manager });
+      await hooks({ hookManager: manager }, 'manage');
 
       expect(manager.getHooks()).toHaveLength(1);
     });
@@ -265,7 +265,7 @@ describe('/hooks command', () => {
         .mockResolvedValueOnce({ action: 'test' })
         .mockResolvedValueOnce({ hookIndex: '0' });
 
-      await hooks({ hookManager: manager });
+      await hooks({ hookManager: manager }, 'manage');
 
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Completed'));
     });
@@ -277,7 +277,7 @@ describe('/hooks command', () => {
         .mockResolvedValueOnce({ action: 'test' })
         .mockResolvedValueOnce({ hookIndex: '0' });
 
-      await hooks({ hookManager: manager });
+      await hooks({ hookManager: manager }, 'manage');
 
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Failed'));
     });
@@ -289,7 +289,7 @@ describe('/hooks command', () => {
 
       mockSafePrompt.mockResolvedValueOnce({ action: 'toggle_global' });
 
-      await hooks({ hookManager: manager });
+      await hooks({ hookManager: manager }, 'manage');
 
       expect(manager.isEnabled()).toBe(false);
     });
@@ -300,7 +300,7 @@ describe('/hooks command', () => {
 
       mockSafePrompt.mockResolvedValueOnce({ action: 'toggle_global' });
 
-      await hooks({ hookManager: manager });
+      await hooks({ hookManager: manager }, 'manage');
 
       expect(manager.isEnabled()).toBe(true);
     });

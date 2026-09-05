@@ -349,7 +349,7 @@
       "failed": "Geri bildirim gönderme başarısız: {{error}}"
     },
     "hooks": {
-      "description": "git hook'larını yönet",
+      "description": "yaşam döngüsü kancalarını görüntüle ve oluştur",
       "title": "Git Hook'ları",
       "installed": "Yüklü hook'lar:",
       "available": "Mevcut hook'lar:",

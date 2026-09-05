@@ -1829,7 +1829,7 @@ Configure MCP (Model Context Protocol) servers to extend Autohand with external 
 
 ## Hooks Settings
 
-Configuration for lifecycle hooks that run shell commands on agent events. See [Hooks Documentation](./hooks.md) for full details.
+Configuration for lifecycle hooks that run shell commands on agent events. Open `/hooks` to browse all events and create a workspace-scoped script in plain English, or `/hooks manage` for manual controls. Autohand AI also exposes `list_hooks`, `create_hook`, and `set_hook_enabled`. See [Hooks Documentation](./hooks.md) for the workflow, plugin counts, approval behavior, and script storage.
 
 ```json
 {

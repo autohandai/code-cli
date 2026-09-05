@@ -349,7 +349,7 @@
       "failed": "Visszajelzés küldése sikertelen: {{error}}"
     },
     "hooks": {
-      "description": "git hookok kezelése",
+      "description": "életciklus-hookok böngészése és létrehozása",
       "title": "Git Hookok",
       "installed": "Telepített hookok:",
       "available": "Elérhető hookok:",

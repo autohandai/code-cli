@@ -349,7 +349,7 @@
       "failed": "提交反馈失败：{{error}}"
     },
     "hooks": {
-      "description": "管理 git hooks",
+      "description": "浏览和创建生命周期钩子",
       "title": "Git Hooks",
       "installed": "已安装的 hooks：",
       "available": "可用的 hooks：",

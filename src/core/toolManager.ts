@@ -30,6 +30,7 @@ import {
 } from './toolFilter.js';
 import { getPlanModeManager } from '../commands/plan.js';
 import { randomUUID } from 'node:crypto';
+import { HOOK_TOOL_NAMES } from './hookTools.js';
 
 type ReadyToolExecutionTask = {
   call: ToolCallRequest;
@@ -123,6 +124,7 @@ export interface ToolDefinition {
 }
 
 export interface ToolManagerOptions {
+  getActiveProvider?: () => string;
   executor: (action: AgentAction, context?: ToolExecutionContext) => Promise<ToolActionOutcome>;
   confirmApproval: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<PermissionPromptResponse>;
   definitions?: ToolDefinition[];
@@ -2370,6 +2372,7 @@ export const EXIT_PLAN_MODE_TOOL_DEFINITION: ToolDefinition = {
 };
 
 export class ToolManager {
+  private readonly getActiveProvider?: () => string;
   private readonly definitions = new Map<AgentAction['type'], ToolDefinition>();
   private readonly runtimeMetaToolNames = new Set<AgentAction['type']>();
   private readonly executor: ToolManagerOptions['executor'];
@@ -2383,6 +2386,7 @@ export class ToolManager {
   private readonly onAdditionalContext?: ToolAuthorizationOptions['onAdditionalContext'];
 
   constructor(options: ToolManagerOptions) {
+    this.getActiveProvider = options.getActiveProvider;
     this.executor = options.executor;
     this.confirmApproval = options.confirmApproval;
     this.toolFilter = new ToolFilter(options.clientContext ?? 'cli', options.customPolicy);
@@ -2461,13 +2465,14 @@ export class ToolManager {
    */
   isBuiltInTool(name: string): boolean {
     return DEFAULT_TOOL_DEFINITIONS.some(d => d.name === name)
+      || HOOK_TOOL_NAMES.has(name)
       || GOAL_TOOL_DEFINITIONS.some(d => d.name === name)
       || SPECIALIST_BUILTIN_TOOL_NAMES.has(name as AgentAction['type']);
   }
 
   listToolNames(): AgentAction['type'][] {
     return Array.from(this.definitions.keys())
-      .filter(name => this.toolFilter.isAllowed(name));
+      .filter(name => this.isToolAllowed(name));
   }
 
   /**
@@ -2482,7 +2487,7 @@ export class ToolManager {
    */
   listDefinitions(): ToolDefinition[] {
     return this.toolFilter.filterDefinitions(
-      Array.from(this.definitions.values()).filter((definition) => definition.modelVisible !== false),
+      Array.from(this.definitions.values()).filter((definition) => definition.modelVisible !== false && this.isProviderAllowed(definition.name)),
     );
   }
 
@@ -2497,7 +2502,11 @@ export class ToolManager {
    * Check if a specific tool is allowed in the current context
    */
   isToolAllowed(toolName: string): boolean {
-    return this.toolFilter.isAllowed(toolName);
+    return this.isProviderAllowed(toolName) && this.toolFilter.isAllowed(toolName);
+  }
+
+  private isProviderAllowed(toolName: string): boolean {
+    return !HOOK_TOOL_NAMES.has(toolName) || this.getActiveProvider?.() === 'autohandai';
   }
 
   /**
@@ -2631,7 +2640,7 @@ export class ToolManager {
       }
 
       // Check if tool is allowed in current context
-      if (!this.toolFilter.isAllowed(call.tool)) {
+      if (!this.isToolAllowed(call.tool)) {
         reject(`Tool '${call.tool}' is not available in the current context (${this.toolFilter.getContext()})`, 'authorization');
         continue;
       }
@@ -3291,7 +3300,7 @@ export class ToolManager {
   }
 
   private shouldExecuteSequentially(call: ToolCallRequest): boolean {
-    return SEQUENTIAL_TOOL_CATEGORIES.has(getToolCategory(call.tool));
+    return HOOK_TOOL_NAMES.has(call.tool) || SEQUENTIAL_TOOL_CATEGORIES.has(getToolCategory(call.tool));
   }
 
   /**
@@ -3315,6 +3324,7 @@ export class ToolManager {
         const { call, index } = tasks[taskIndex];
         let result: ToolExecutionResult;
         try {
+          if (!this.isProviderAllowed(call.tool)) throw new Error('Lifecycle hook tools are available only with the Autohand AI provider.');
           const action = this.toAction(call);
           const outcome = this.normalizeToolOutcome(await this.executor(action, {
             toolCallId: call.id,

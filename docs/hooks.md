@@ -2,6 +2,95 @@
 
 Autohand's hooks system allows you to run custom shell commands in response to lifecycle events like tool execution, file modifications, session lifecycle, and LLM interactions. Hooks can be configured via `config.json` or managed interactively with the `/hooks` command.
 
+## Create a hook in plain English
+
+Open `/hooks` to browse every supported lifecycle event, including events with no
+hooks installed. The table shows **Installed** and **Active** counts and a short
+explanation of each trigger. Counts combine config hooks (including the bundled
+examples) and hooks registered by enabled, trusted runtime extensions/plugins.
+Disabled config hooks count as installed; the global switch makes every active
+count zero. `post-response` is displayed under its canonical event, `stop`.
+An active count means enabled; tool/path filters still decide whether a particular
+event matches.
+
+1. Navigate with **↑/↓**, then press **Enter** on an event.
+2. Read the installed hooks and their sources, then describe the automation in
+   plain English. For example, select `post-tool` and type:
+   “After a successful write_file, append the edited path and timestamp to changes.log.”
+3. Autohand generates a Node.js script using the current provider. It validates the
+   returned definition and JavaScript syntax without executing the script.
+4. Review the event, workspace, filters, timeout, execution mode, and full script.
+   Use **↑/↓**, **PgUp/PgDn**, or **g/G** to scroll. Press **s** to save and enable,
+   or **Esc/Ctrl+C** to cancel. Cancellation writes nothing.
+5. The table refreshes. The saved hook runs on future matching lifecycle events,
+   including in later sessions. Global disable remains in effect until you enable
+   it through `/hooks manage`.
+
+Generated scripts are saved as unique `.cjs` files under
+`$AUTOHAND_HOME/hooks/generated/` (normally `~/.autohand/hooks/generated/`).
+The hook definition is added to the active config file, including a custom
+`--config` file. Existing hooks and plugin code are preserved. Generated scripts
+require **Node.js on PATH** and use only built-in Node modules by default. They
+run only in the workspace where they were created; moving the workspace requires
+creating a new hook. The generated wrapper reads JSON stdin once and provides its parsed fields as
+`hookContext` (for example, `hookContext.tool_name` or `hookContext.team_task_id`).
+Scripts can also read the documented environment variables. They are not run automatically for testing: use `/hooks manage` →
+“Test a hook” only when you intend its side effects to occur.
+
+Useful requests include:
+
+- `session-end`: “Append the session ID and timestamp to sessions.log.”
+- `pre-tool`: “Block run_command when it tries to run git push --force.”
+- `file-modified`: “Format changed TypeScript files with this project's formatter.”
+- `rate-limit`: “Write the provider and retry delay to quota-events.log.”
+- `task-completed`: “Log the team task ID and result to team-results.log.”
+
+Hook scripts execute with your local permissions. Review generated scripts as you
+would review a script you wrote yourself. A syntax check does not prove behavior;
+keep secrets in environment variables, and use argument arrays instead of shell
+interpolation for values received from hook context.
+
+### Commands and existing hooks
+
+| Command | Behavior |
+| --- | --- |
+| `/hooks` | Event browser and plain-English creation |
+| `/hooks list` | Complete event table, also usable without a TTY |
+| `/hooks manage` | Existing toggle, test, remove, manual-add, and global-switch controls |
+| `/hooks help` | Command help |
+| `/extensions` | Manage the plugins that own extension hooks |
+
+Plugin handlers are identified by extension ID on the selected event. They are
+not copied into config or toggled individually by config-hook controls. Disable
+the owning extension to stop those handlers. The global hook switch also applies
+to extension hooks. Lifecycle hooks are separate from Git's `.git/hooks`.
+
+### Autohand AI tools
+
+When the active provider is **Autohand AI** (`autohandai`), the assistant can use:
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `list_hooks` | none | List all event counts, plugin ownership, and config hooks with indexes |
+| `create_hook` | `prompt`, optional `event` | Infer a trigger if omitted, generate a script from plain English, then request approval and save it |
+| `set_hook_enabled` | `event`, `index`, `enabled` | Set one config hook's enabled state after normal tool authorization |
+
+For example: “Create a hook that logs the session ID when a session ends.”
+Autohand AI can call `create_hook` with that request; you do not need to write a
+shell command or edit JSON. These tools are intended for explicit requests for
+persistent automation, not one-off tasks. Normal approval modes (`--yes`,
+unrestricted mode, and transport approval callbacks) apply to tool-driven
+creation. Interactive `/hooks` creation always shows its script review.
+
+Hook tools are absent from other providers' model tool schemas, and execution
+checks reject them after a provider switch as well. The event browser and manual
+management remain available with every provider, and interactive authoring uses
+your currently selected provider. Hook execution itself is provider-independent.
+
+If generation fails, no hook is installed. If config persistence fails, the new
+script is removed and the hook is not left active in memory. Existing scripts
+are never overwritten by generated drafts.
+
 ## Overview
 
 Hooks are useful for:
@@ -13,12 +102,15 @@ Hooks are useful for:
 - Automating permission decisions
 - Custom session management
 
-## Two Modes of Hook Integration
+## Hook Integration
 
 ### 1. Config-Based Hooks (CLI)
 Define shell commands in your `~/.autohand/config.json` that run automatically on lifecycle events. These hooks run in your local shell environment.
 
-### 2. JSON-RPC 2.0 Notifications (IDE Integration)
+### 2. Runtime extension hooks
+Enabled, trusted extensions register lifecycle handlers through `api.hooks.on(event, handler)`. The `/hooks` browser includes these handlers and identifies the owning extension.
+
+### 3. JSON-RPC 2.0 Notifications (IDE Integration)
 When running in RPC mode (VS Code, Zed, etc.), hook events are also emitted as JSON-RPC 2.0 notifications that IDE extensions can subscribe to.
 
 ---
@@ -49,6 +141,19 @@ When running in RPC mode (VS Code, Zed, etc.), hook events are also emitted as J
 | `automode:cancel` | When auto-mode is cancelled | cancel reason, iteration, cost |
 | `automode:complete` | When auto-mode completes successfully | iterations, actions, files changed, cost |
 | `automode:error` | When auto-mode encounters an error | error message, iteration |
+| `autoresearch:start` | When an auto-research session starts or resumes | goal, active state, iteration, subcommand, attempt id, decision |
+| `autoresearch:pause` | When an auto-research session is paused | goal, active state, iteration, subcommand, attempt id, decision |
+| `autoresearch:init` | When init_experiment configures the session | goal, active state, iteration, subcommand, attempt id, decision |
+| `autoresearch:before` | Before run_experiment starts an iteration | goal, active state, iteration, subcommand, attempt id, decision |
+| `autoresearch:run` | When run_experiment executes the benchmark | goal, active state, iteration, subcommand, attempt id, decision |
+| `autoresearch:after` | After run_experiment finishes an iteration | goal, active state, iteration, subcommand, attempt id, decision |
+| `autoresearch:log` | When log_experiment records a result | goal, active state, iteration, subcommand, attempt id, decision |
+| `autoresearch:decision` | When the deterministic experiment decision is persisted | goal, active state, iteration, subcommand, attempt id, decision |
+| `autoresearch:replay` | When an isolated candidate replay completes | goal, active state, iteration, subcommand, attempt id, decision |
+| `autoresearch:rescore` | When stored measurements are rescored with the current policy | goal, active state, iteration, subcommand, attempt id, decision |
+| `autoresearch:prune` | When artifact retention is previewed or applied | goal, active state, iteration, subcommand, attempt id, decision |
+| `autoresearch:complete` | When the auto-research loop completes | goal, active state, iteration, subcommand, attempt id, decision |
+| `autoresearch:error` | When auto-research encounters an error | goal, active state, iteration, subcommand, attempt id, decision |
 | `pre-learn` | Before a learn operation begins | instruction, cwd |
 | `post-learn` | After a learn operation completes | instruction, duration, success |
 | `goal-written:completed` | After a goal objective is created | goal id, objective, source |
@@ -90,8 +195,9 @@ with backoff, honoring `Retry-After` when the provider sends one.
 ```json
 {
   "hooks": {
-    "rate-limit": [
+    "hooks": [
       {
+        "event": "rate-limit",
         "command": "notify-send \"Autohand: $HOOK_ERROR\"",
         "description": "Desktop notification when a quota is hit"
       }
@@ -528,9 +634,9 @@ echo '{"decision": "allow", "reason": "Read operations are safe"}'
 
 ---
 
-## Managing Hooks with `/hooks`
+## Manual management with `/hooks manage`
 
-Use the `/hooks` slash command to interactively:
+Use `/hooks manage` for existing config hooks:
 - View all registered hooks grouped by event
 - Add new hooks
 - Enable/disable individual hooks
@@ -735,7 +841,7 @@ rpcClient.onNotification('autohand.hook.subagentStop', (params) => {
 
 ## Built-in Hooks
 
-Autohand ships with default hooks that are installed on first run. All hooks are **disabled by default** and can be enabled via `/hooks` or by editing your config.
+Autohand ships with default hooks that are installed on first run. All hooks are **disabled by default** and can be enabled via `/hooks manage` or by editing your config.
 
 ### Logging Hooks
 
@@ -881,11 +987,11 @@ Automatically runs lint, test, and creates a commit with an LLM-generated messag
 
 ### Enabling Built-in Hooks
 
-Use `/hooks` and select "Enable/disable hooks" to toggle individual hooks:
+Use `/hooks manage` and select "Toggle hooks on/off" to toggle individual hooks:
 
 ```
-› /hooks
-? Hook action: Enable/disable hooks
+› /hooks manage
+? Action: Toggle hooks on/off
 ? Select hook to toggle:
   ❯ [disabled] session-start - Log session start
     [disabled] sound-alert - Play sound when task completes
@@ -915,7 +1021,7 @@ Or manually edit your `~/.autohand/config.json` to enable specific hooks.
 - Hook failures do not crash the agent
 - Errors are logged but execution continues
 - Exit code 2 blocks execution with the stderr message
-- Test hooks with the `/hooks` command before relying on them
+- Test hooks with `/hooks manage` before relying on them
 
 ### Security Considerations
 - Hook commands run in your shell with your permissions

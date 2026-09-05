@@ -51,6 +51,7 @@ export interface SlashCommandContext {
     permissionManager: PermissionManager;
     /** Hook manager for /hooks commands */
     hookManager?: HookManager;
+    hookAuthoring?: Pick<import('./HookAuthoringService.js').HookAuthoringService, 'create'>;
     llm: LLMProvider;
     workspaceRoot: string;
     model: string;

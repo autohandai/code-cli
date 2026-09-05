@@ -60,6 +60,9 @@ import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from '../../constants.js';
 import { createPersistentInput } from '../../ui/persistentInput.js';
 import { PermissionManager } from '../../permissions/PermissionManager.js';
 import { HookManager } from '../HookManager.js';
+import { HookAuthoringService } from '../HookAuthoringService.js';
+import { executeHookTool, HOOK_TOOL_DEFINITIONS, isHookAction } from '../hookTools.js';
+import { isAllowedPermissionPrompt, normalizePermissionPromptResponse } from '../../permissions/types.js';
 import { TeamManager } from '../teams/TeamManager.js';
 import type { TeamMember, TeamTask } from '../teams/types.js';
 import { resolveTeamModelAssignment } from '../teams/TeamModelPolicy.js';
@@ -487,8 +490,9 @@ export function initializeAgentDependencies(
       settings: runtime.config.hooks,
       workspaceRoot: runtime.workspaceRoot,
       onPersist: async () => {
-        runtime.config.hooks = host.hookManager.getSettings();
-        await saveConfig(runtime.config);
+        const hooks = host.hookManager.getSettings();
+        await saveConfig({ ...runtime.config, hooks });
+        runtime.config.hooks = hooks;
       },
       onHookOutput: (result) => {
         // In RPC mode, stdout must only contain JSON-RPC messages
@@ -1117,6 +1121,7 @@ export function initializeAgentDependencies(
     } : undefined;
 
     host.toolManager = new ToolManager({
+      getActiveProvider: () => host.activeProvider ?? runtime.config.provider ?? 'openrouter',
       maxConcurrency: runtime.config.agent?.parallelToolConcurrency ?? 5,
       executor: async (action, context) => {
         const startTime = Date.now();
@@ -1136,7 +1141,19 @@ export function initializeAgentDependencies(
 
           let outcome: ToolActionOutcome | undefined;
           let result: string | undefined;
-          if (action.type === 'delegate_task') {
+          if (isHookAction(action)) {
+            result = await executeHookTool(action, {
+              manager: host.hookManager,
+              getActiveProvider: () => host.activeProvider,
+              authoring: new HookAuthoringService({
+                manager: host.hookManager, workspaceRoot: runtime.workspaceRoot,
+                getProvider: () => host.llm, requireAutohand: true,
+                confirm: async preview => isAllowedPermissionPrompt(normalizePermissionPromptResponse(
+                  await host.confirmDangerousAction(preview, { tool: 'create_hook' }),
+                )),
+              }),
+            }, context?.signal);
+          } else if (action.type === 'delegate_task') {
             outcome = await host.delegator.delegateTaskForTool(action.agent_name, action.task);
           } else if (action.type === 'delegate_parallel') {
             outcome = await host.delegator.delegateParallelForTool(action.tasks);
@@ -1652,7 +1669,7 @@ export function initializeAgentDependencies(
         }
       },
       confirmApproval: (message, context) => host.confirmDangerousAction(message, context),
-      definitions: [...featureGatedToolDefinitions, ...delegationTools],
+      definitions: [...featureGatedToolDefinitions, ...delegationTools, ...HOOK_TOOL_DEFINITIONS],
       clientContext,
       customPolicy,
       authorization: toolAuthorization,
@@ -1814,6 +1831,13 @@ export function initializeAgentDependencies(
       permissionManager: host.permissionManager,
       hookManager: host.hookManager,
       skillsRegistry: host.skillsRegistry,
+      hookAuthoring: new HookAuthoringService({
+        manager: host.hookManager, workspaceRoot: runtime.workspaceRoot, getProvider: () => host.llm,
+        confirm: async preview => {
+          const { showHookScriptReview } = await import('../../ui/ink/components/HookScriptReview.js');
+          return await showHookScriptReview(preview);
+        },
+      }),
       toolsRegistry: host.toolsRegistry,
       extensionService: host.extensionService,
       refreshDynamicExtensions: async () => {

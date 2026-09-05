@@ -423,7 +423,7 @@
       "failed": "Failed to submit feedback: {{error}}"
     },
     "hooks": {
-      "description": "manage git hooks",
+      "description": "browse and create lifecycle hooks",
       "title": "Git Hooks",
       "installed": "Installed hooks:",
       "available": "Available hooks:",

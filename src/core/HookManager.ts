@@ -421,6 +421,10 @@ export class HookManager {
     this.extensionHooks = [...hooks];
   }
 
+  getExtensionHooks(): ExtensionRuntimeHook[] {
+    return [...this.extensionHooks];
+  }
+
   /**
    * Get current settings
    */
@@ -432,9 +436,13 @@ export class HookManager {
    * Update settings
    */
   async updateSettings(settings: Partial<HooksSettings>): Promise<void> {
+    const previous = this.settings;
     this.settings = { ...this.settings, ...settings };
-    if (this.onPersist) {
-      await this.onPersist();
+    try {
+      await this.onPersist?.();
+    } catch (error) {
+      this.settings = previous;
+      throw error;
     }
   }
 
@@ -442,11 +450,13 @@ export class HookManager {
    * Add a new hook
    */
   async addHook(hook: HookDefinition): Promise<void> {
-    const hooks = this.settings.hooks ?? [];
-    hooks.push({ ...hook, enabled: hook.enabled !== false });
-    this.settings.hooks = hooks;
-    if (this.onPersist) {
-      await this.onPersist();
+    const previous = this.settings;
+    this.settings = { ...previous, hooks: [...(previous.hooks ?? []), { ...hook, enabled: hook.enabled !== false }] };
+    try {
+      await this.onPersist?.();
+    } catch (error) {
+      this.settings = previous;
+      throw error;
     }
   }
 
@@ -486,12 +496,15 @@ export class HookManager {
       return false;
     }
 
-    const hook = eventHooks[index];
-    hook.enabled = hook.enabled === false;
+    return this.setHookEnabled(event, index, eventHooks[index].enabled === false);
+  }
 
-    if (this.onPersist) {
-      await this.onPersist();
-    }
+  async setHookEnabled(event: HookEvent, index: number, enabled: boolean): Promise<boolean> {
+    const hooks = this.settings.hooks ?? [];
+    const hook = hooks.filter(candidate => candidate.event === event)[index];
+    if (!Number.isInteger(index) || index < 0 || !hook) return false;
+    if ((hook.enabled !== false) === enabled) return true;
+    await this.updateSettings({ hooks: hooks.map(candidate => candidate === hook ? { ...candidate, enabled } : candidate) });
     return true;
   }
 
@@ -749,8 +762,16 @@ export class HookManager {
   /**
    * Build JSON input to pass via stdin to hook
    */
+  getContextFields(): string[] {
+    return Object.keys(this.buildJsonContext({ event: 'pre-tool', workspace: this.workspaceRoot }));
+  }
+
   private buildJsonInput(context: HookContext): string {
-    return JSON.stringify({
+    return JSON.stringify(this.buildJsonContext(context));
+  }
+
+  private buildJsonContext(context: HookContext): Record<string, unknown> {
+    return {
       session_id: context.sessionId,
       cwd: context.workspace,
       hook_event_name: context.event,
@@ -840,7 +861,7 @@ export class HookManager {
       team_tasks_total: context.teamTasksTotal,
       // Multi-directory support
       additional_workspaces: context.additionalWorkspaces,
-    });
+    };
   }
 
   /**

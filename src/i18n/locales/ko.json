@@ -349,7 +349,7 @@
       "failed": "피드백 제출 실패: {{error}}"
     },
     "hooks": {
-      "description": "git 훅 관리",
+      "description": "수명 주기 훅 탐색 및 생성",
       "title": "Git 훅",
       "installed": "설치된 훅:",
       "available": "사용 가능한 훅:",

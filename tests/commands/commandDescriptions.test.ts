@@ -10,7 +10,7 @@ import { metadata as skillsMetadata } from '../../src/commands/skills.js';
 
 describe('command descriptions', () => {
   it('uses action-oriented tips for review, plan, and skills', () => {
-    expect(reviewMetadata.description).toBe('review your current changes and find issues');
+    expect(reviewMetadata.description).toBe('run the Autohand review workflow against changes, code, architecture, security, performance, or history');
     expect(planMetadata.description).toBe('plan and break down a complex task');
     expect(skillsMetadata.description).toBe('discover and install skills for your project');
   });
