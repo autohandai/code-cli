@@ -6,6 +6,8 @@
 
 export type GoalStatus = 'active' | 'paused' | 'budgetLimited' | 'complete';
 
+export const UNSCOPED_GOAL_SESSION_KEY = '__unscoped__';
+
 export interface GoalState {
   goalId: string;
   objective: string;
@@ -98,6 +100,8 @@ export interface GoalTemplateMetadata {
 
 export interface GoalMutationResult {
   ok: boolean;
+  storageWarning?: string;
+  recovery?: { backupPath: string; preservedPath?: string };
   goal: GoalState | null;
   queue: QueuedGoal[];
   telemetry?: {

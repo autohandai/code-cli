@@ -80,6 +80,29 @@ describe('/goal command', () => {
     expect(metadata.subcommands?.map((item) => item.name)).toContain('edit');
   });
 
+  it('repairs damaged storage explicitly without starting autonomous work', async () => {
+    const manager = new GoalManager(workspaceRoot, { sessionId: 'session-current' });
+    await manager.createGoal({ objective: 'repair this saved goal' });
+    await fs.writeFile(path.join(workspaceRoot, '.autohand', 'goals.local.json'), '{damaged');
+
+    const result = await goal(ctx, ['repair']);
+
+    expect(result).toContain('Goal storage restored');
+    expect((await manager.getSessionSnapshot()).goal?.status).toBe('paused');
+    expect(queued).toEqual([]);
+    expect(ctx.setInteractionMode).not.toHaveBeenCalled();
+  });
+
+  it('shows the warning if a goal was saved without a refreshed backup', async () => {
+    const manager = new GoalManager(workspaceRoot, { sessionId: 'session-current' });
+    await manager.createGoal({ objective: 'existing saved goal' });
+    const backupPath = path.join(workspaceRoot, '.autohand', 'goals.local.json.backup');
+    await fs.move(backupPath, `${backupPath}.saved-for-test`);
+    await fs.ensureDir(backupPath);
+
+    expect(await goal(ctx, ['save the goal'])).toContain('backup could not be refreshed');
+  });
+
   it('retries the queue after completion without reactivating the finished goal', async () => {
     const manager = new GoalManager(workspaceRoot, { sessionId: 'session-current' });
     await manager.createGoal({ objective: 'finished goal' });

@@ -28,6 +28,7 @@ export const metadata: SlashCommand = {
     { name: 'resume', description: 'Resume a paused or queued goal' },
     { name: 'complete', description: 'Mark the current goal complete' },
     { name: 'clear', description: 'Clear the current goal' },
+    { name: 'repair', description: 'Restore damaged goal storage from its validated backup' },
     { name: 'templates', description: 'List reusable .pi-goals templates' },
   ],
 };
@@ -129,6 +130,8 @@ export async function goal(ctx: GoalCommandContext, args: string[] = []): Promis
       reportGoal(ctx, cleared, 'cancelled');
       return formatMutation(cleared);
     }
+    case 'repair':
+      return formatMutation(await manager.repairSnapshot());
     case 'templates': {
       const templates = await manager.listTemplates();
       if (templates.length === 0) return 'No goal templates found in .pi-goals/ or .ai/.pi-goals/.';
@@ -222,6 +225,7 @@ function queueGoalContinuation(ctx: GoalCommandContext, objective: string): void
 
 function formatMutation(result: GoalMutationResult): string {
   const lines = [result.ok ? chalk.green(result.message ?? 'Goal updated.') : chalk.yellow(result.message ?? 'Goal command failed.')];
+  if (result.storageWarning) lines.push(chalk.yellow(result.storageWarning));
   if (result.goal) {
     lines.push('');
     lines.push(formatGoal(result.goal));

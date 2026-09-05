@@ -4711,6 +4711,7 @@ function parseGoalStatus(value: string | undefined): GoalStatus | undefined {
 
 function formatGoalToolResult(result: {
   ok: boolean;
+  storageWarning?: string;
   message?: string;
   goal: unknown;
   queue: unknown[];
@@ -4726,6 +4727,7 @@ function formatGoalToolResult(result: {
 }): string {
   return JSON.stringify({
     ok: result.ok,
+    storageWarning: result.storageWarning,
     message: result.message,
     goal: result.goal,
     queue: result.queue,

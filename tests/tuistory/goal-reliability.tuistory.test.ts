@@ -19,6 +19,36 @@ import {
 } from './helpers/autohandTuistory.js';
 
 describe('built CLI goal reliability', () => {
+  it('refuses damaged storage and explicitly restores its backup through the CLI', async () => {
+    const state = await createTempAutohandHome({ config: { features: { slashGoal: true } } });
+    const statePath = path.join(state.workspaceRoot, '.autohand', 'goals.local.json');
+    let session: Session | undefined;
+    try {
+      const manager = new GoalManager(state.workspaceRoot);
+      await manager.createGoal({ objective: 'saved for explicit recovery' });
+      await fs.writeFile(statePath, '{damaged CLI snapshot');
+      session = await launchBuiltAutohand([
+        '--path', state.workspaceRoot, '--config', state.configPath, '--goal', 'attempt while damaged',
+      ], { autohandHome: state.autohandHome, cwd: state.workspaceRoot });
+      await waitForExit(session);
+      expect(session.readAll()).toContain('Goal storage');
+      expect(await fs.readFile(statePath, 'utf8')).toBe('{damaged CLI snapshot');
+
+      session.close();
+      session = await launchBuiltAutohand([
+        '--path', state.workspaceRoot, '--config', state.configPath, '--goal', 'repair',
+      ], { autohandHome: state.autohandHome, cwd: state.workspaceRoot });
+      await waitForExit(session);
+      expect(session.readAll()).toContain('Goal storage restored');
+      expect((await manager.getSessionSnapshot()).goal).toMatchObject({
+        objective: 'saved for explicit recovery', status: 'paused',
+      });
+    } finally {
+      session?.close();
+      await state.cleanup();
+    }
+  });
+
   it('persists CLI completion when a queued template is unavailable', async () => {
     const state = await createTempAutohandHome({ config: { features: { slashGoal: true } } });
     let session: Session | undefined;

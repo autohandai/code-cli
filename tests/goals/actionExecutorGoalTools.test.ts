@@ -168,6 +168,21 @@ describe('goal tools', () => {
     expect(activatedObjectives).toEqual([]);
   });
 
+  it('surfaces backup warnings while acknowledging a successfully saved goal update', async () => {
+    await executor.execute({ type: 'create_goal', objective: 'saved tool goal' });
+    const backupPath = path.join(workspaceRoot, '.autohand', 'goals.local.json.backup');
+    await fs.move(backupPath, `${backupPath}.saved-for-test`);
+    await fs.ensureDir(backupPath);
+
+    const result: unknown = JSON.parse(await executor.execute({ type: 'update_goal', objective: 'updated tool goal' }));
+
+    expect(result).toMatchObject({
+      ok: true,
+      goal: { objective: 'updated tool goal' },
+      storageWarning: expect.stringContaining('backup could not be refreshed'),
+    });
+  });
+
   it('classifies an unknown goal template as validation failure', async () => {
     const outcome = await executor.executeForTool(
       { type: 'create_goal_from_template', template: 'missing-template' },

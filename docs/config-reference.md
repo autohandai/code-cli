@@ -1164,6 +1164,20 @@ charged retroactively to a newly created goal. Only reported provider usage is
 counted; unavailable usage is not estimated. Active elapsed time includes short
 turns and objective edits, and stops while the goal is paused or complete.
 
+Goal storage does not treat malformed, unreadable, or unsupported snapshots as
+empty state. Mutations stop without overwriting the stored file. Successful
+writes also refresh `.autohand/goals.local.json.backup`; if that refresh fails,
+the goal remains saved and a warning explains that the backup may be older.
+
+Use `/goal repair` or `--goal repair` to restore a validated backup explicitly.
+The damaged bytes are retained in a `goals.local.json.corrupt-*` file, created
+with mode `0600` where supported. Windows does not implement Unix owner/group
+permission distinctions through Node's file-mode API; see the
+[Node filesystem documentation](https://nodejs.org/api/fs.html#file-modes).
+Recovered active goals are paused and must be resumed deliberately. Recovery
+refuses newer schema versions and backups owned by another live session. If no
+valid backup exists, the original files remain untouched for manual recovery.
+
 To keep the normal turn-by-turn loop while goals are active:
 
 ```json

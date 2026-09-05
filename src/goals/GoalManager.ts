@@ -4,10 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import crypto from 'node:crypto';
-import fs from 'fs-extra';
 import path from 'node:path';
 import { PROJECT_DIR_NAME } from '../constants.js';
-import { atomicWriteJson, withFileLock } from '../utils/atomicFile.js';
+import { withFileLock } from '../utils/atomicFile.js';
+import { GoalSnapshotStore, GoalStorageError } from './GoalSnapshotStore.js';
+import { UNSCOPED_GOAL_SESSION_KEY as UNKNOWN_SESSION_KEY } from './types.js';
 import { ActiveAgentRegistry } from '../session/ActiveAgentRegistry.js';
 import { parseQueueBlockItems } from './queueBlockParser.js';
 import { listGoalTemplateMetadata, resolveGoalTemplateByName, resolveGoalTemplateInvocation } from './templates.js';
@@ -27,8 +28,6 @@ import type {
 
 const GOAL_STATE_FILE = 'goals.local.json';
 const MAX_OBJECTIVE_LENGTH = 80_000;
-/** Key used for goals created by managers without a session (RPC/CLI). */
-const UNKNOWN_SESSION_KEY = '__unscoped__';
 
 type GoalSnapshotPublisher = () => Promise<void>;
 
@@ -55,6 +54,8 @@ export function buildGoalContinuationInstruction(objective: string): string {
 }
 
 export class GoalManager {
+  private readonly store: GoalSnapshotStore;
+  private storageWarning?: string;
   private readonly sessionId?: string;
   private readonly getSessionId?: () => string | undefined;
   private readonly isSessionAlive: (sessionId: string) => Promise<boolean>;
@@ -63,6 +64,7 @@ export class GoalManager {
     private readonly workspaceRoot: string,
     options: GoalManagerOptions = {},
   ) {
+    this.store = new GoalSnapshotStore(this.statePath());
     this.sessionId = options.sessionId?.trim() || undefined;
     this.getSessionId = options.getSessionId;
     this.isSessionAlive = options.isSessionAlive ?? defaultSessionLivenessProbe;
@@ -147,6 +149,37 @@ export class GoalManager {
 
   async listTemplates(): Promise<GoalTemplateMetadata[]> {
     return listGoalTemplateMetadata(this.workspaceRoot);
+  }
+
+  async repairSnapshot(): Promise<GoalMutationResult> {
+    return this.withMutation(async () => {
+      try {
+        const current = await this.readSnapshot();
+        return this.result(current, false, 'Goal storage is valid. No recovery was needed.');
+      } catch (error) {
+        if (!(error instanceof GoalStorageError) || error.kind !== 'corrupt') throw error;
+      }
+      const backup = await this.store.readBackup();
+      for (const sessionId of Object.keys(backup.goals)) {
+        if (sessionId !== this.goalKey() && sessionId !== UNKNOWN_SESSION_KEY && await this.isSessionAlive(sessionId)) {
+          throw new GoalStorageError('stop other workspace sessions before restoring a backup. No goals were changed.', 'unreadable');
+        }
+      }
+      const now = Date.now();
+      const restored: GoalSnapshot = {
+        ...backup,
+        goals: Object.fromEntries(Object.entries(backup.goals).map(([key, goal]) => [key,
+          goal.status === 'active' ? { ...goal, status: 'paused' as const, updatedAt: now } : goal,
+        ])),
+        updatedAt: now,
+      };
+      const preservedPath = await this.store.restore(restored);
+      await this.publishSnapshot();
+      return this.result(restored, true,
+        `Goal storage restored from ${this.store.backupPath}. Active goals were paused; use /goal resume when ready.${preservedPath ? ` Damaged data preserved at ${preservedPath}.` : ''}`,
+        { recovery: { backupPath: this.store.backupPath, preservedPath } },
+      );
+    });
   }
 
   async resolveObjective(input: string): Promise<{ ok: true; input: GoalCreateInput; template?: string; templateFlags?: Record<string, string>; templateArgs?: string } | { ok: false; message: string }> {
@@ -645,6 +678,7 @@ export class GoalManager {
       goal,
       queue: snapshot.queue,
       message,
+      storageWarning: this.storageWarning,
       telemetry: goal ? {
         timeRemainingSeconds: goal.timeBudgetSeconds !== undefined ? Math.max(0, goal.timeBudgetSeconds - goal.timeUsedSeconds) : undefined,
         tokensRemaining: goal.tokenBudget !== undefined ? Math.max(0, goal.tokenBudget - goal.tokensUsed) : undefined,
@@ -655,21 +689,16 @@ export class GoalManager {
   }
 
   private async readSnapshot(): Promise<GoalSnapshot> {
-    const filePath = this.statePath();
-    if (!(await fs.pathExists(filePath))) {
-      return emptySnapshot();
-    }
-    try {
-      const raw = await fs.readJson(filePath) as unknown;
-      return normalizeSnapshot(raw);
-    } catch {
-      return emptySnapshot();
-    }
+    return this.store.read();
   }
 
   private async writeSnapshot(snapshot: GoalSnapshot): Promise<void> {
+    this.storageWarning = await this.store.write(snapshot);
+    await this.publishSnapshot();
+  }
+
+  private async publishSnapshot(): Promise<void> {
     const statePath = this.statePath();
-    await atomicWriteJson(statePath, snapshot);
     const publishers = snapshotPublishers.get(statePath);
     if (publishers) {
       await Promise.allSettled([...publishers].map((publish) => publish()));
@@ -679,7 +708,10 @@ export class GoalManager {
   private withMutation<T>(operation: () => Promise<T>): Promise<T> {
     return withFileLock(
       `${this.statePath()}.lock`,
-      operation,
+      () => {
+        this.storageWarning = undefined;
+        return operation();
+      },
       { waitTimeoutMs: 10_000 },
     );
   }
@@ -701,94 +733,6 @@ async function defaultSessionLivenessProbe(sessionId: string): Promise<boolean> 
   return active.some((record) => record.sessionId === sessionId);
 }
 
-function emptySnapshot(): GoalSnapshot {
-  return { version: 2, goals: {}, queue: [], completed: [], updatedAt: Date.now() };
-}
-
-function normalizeSnapshot(value: unknown): GoalSnapshot {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return emptySnapshot();
-  }
-  const raw = value as Record<string, unknown>;
-  const goals: Record<string, GoalState> = {};
-  if (raw.goals && typeof raw.goals === 'object' && !Array.isArray(raw.goals)) {
-    for (const [key, value] of Object.entries(raw.goals)) {
-      const goal = normalizeGoal(value);
-      if (goal) goals[key] = goal;
-    }
-  }
-  // v1 -> v2 migration: a single `goal` + `activeSessionId` becomes a
-  // per-session goal under the owning session (or __unscoped__).
-  const legacyGoal = normalizeGoal(raw.goal);
-  if (legacyGoal) {
-    const legacyKey = typeof raw.activeSessionId === 'string' && raw.activeSessionId.trim()
-      ? raw.activeSessionId
-      : UNKNOWN_SESSION_KEY;
-    goals[legacyKey] = legacyGoal;
-  }
-  return {
-    version: 2,
-    goals,
-    queue: Array.isArray(raw.queue) ? raw.queue.map(normalizeQueuedGoal).filter((item): item is QueuedGoal => Boolean(item)) : [],
-    completed: Array.isArray(raw.completed) ? raw.completed.map(normalizeCompletedGoal).filter((item): item is CompletedGoal => Boolean(item)) : [],
-    updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : Date.now(),
-  };
-}
-
-function normalizeGoal(value: unknown): GoalState | null {
-  if (!value || typeof value !== 'object') return null;
-  const raw = value as Record<string, unknown>;
-  if (typeof raw.goalId !== 'string' || typeof raw.objective !== 'string' || !isGoalStatus(raw.status)) return null;
-  return {
-    goalId: raw.goalId,
-    objective: raw.objective,
-    status: raw.status,
-    tokenBudget: positiveInteger(raw.tokenBudget),
-    timeBudgetSeconds: positiveInteger(raw.timeBudgetSeconds),
-    minTokensBeforeWrapUp: positiveInteger(raw.minTokensBeforeWrapUp),
-    minTimeSecondsBeforeWrapUp: positiveInteger(raw.minTimeSecondsBeforeWrapUp),
-    tokensUsed: positiveInteger(raw.tokensUsed) ?? 0,
-    timeUsedSeconds: nonNegativeNumber(raw.timeUsedSeconds) ?? 0,
-    createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now(),
-    updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : Date.now(),
-  };
-}
-
-function normalizeQueuedGoal(value: unknown): QueuedGoal | null {
-  if (!value || typeof value !== 'object') return null;
-  const raw = value as Record<string, unknown>;
-  if (typeof raw.queueId !== 'string' || typeof raw.objective !== 'string') return null;
-  return {
-    queueId: raw.queueId,
-    objective: raw.objective,
-    tokenBudget: positiveInteger(raw.tokenBudget),
-    timeBudgetSeconds: positiveInteger(raw.timeBudgetSeconds),
-    minTokensBeforeWrapUp: positiveInteger(raw.minTokensBeforeWrapUp),
-    minTimeSecondsBeforeWrapUp: positiveInteger(raw.minTimeSecondsBeforeWrapUp),
-    source: raw.source === 'command' || raw.source === 'tool' || raw.source === 'rpc' || raw.source === 'cli' ? raw.source : 'tool',
-    template: typeof raw.template === 'string' ? raw.template : undefined,
-    templateFlags: isStringRecord(raw.templateFlags) ? raw.templateFlags : undefined,
-    templateArgs: typeof raw.templateArgs === 'string' ? raw.templateArgs : undefined,
-    createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now(),
-  };
-}
-
-function normalizeCompletedGoal(value: unknown): CompletedGoal | null {
-  if (!value || typeof value !== 'object') return null;
-  const raw = value as Record<string, unknown>;
-  if (typeof raw.goalId !== 'string' || typeof raw.objective !== 'string') return null;
-  if (raw.status !== 'complete' && raw.status !== 'budgetLimited') return null;
-  return {
-    goalId: raw.goalId,
-    sessionId: typeof raw.sessionId === 'string' ? raw.sessionId : undefined,
-    objective: raw.objective,
-    status: raw.status,
-    tokensUsed: positiveInteger(raw.tokensUsed) ?? 0,
-    timeUsedSeconds: nonNegativeNumber(raw.timeUsedSeconds) ?? 0,
-    createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now(),
-    completedAt: typeof raw.completedAt === 'number' ? raw.completedAt : Date.now(),
-  };
-}
 
 function buildQueuedGoal(input: GoalCreateInput & { source: QueuedGoal['source']; template?: string; templateFlags?: Record<string, string>; templateArgs?: string }): QueuedGoal {
   return {
@@ -876,22 +820,6 @@ function floorMet(goal: GoalState): boolean {
   return tokenMet && timeMet;
 }
 
-function nonNegativeNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
-}
-
-function positiveInteger(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined;
-}
-
-function isGoalStatus(value: unknown): value is GoalState['status'] {
-  return value === 'active' || value === 'paused' || value === 'budgetLimited' || value === 'complete';
-}
-
-function isStringRecord(value: unknown): value is Record<string, string> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  return Object.values(value).every((entry) => typeof entry === 'string');
-}
 
 function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 3)}...` : value;
