@@ -5,6 +5,7 @@
  */
 import type {
   LLMRequest,
+  MultimodalMessage,
   LLMResponse,
   LLMToolCall,
   NvidiaAISettings,
@@ -14,15 +15,16 @@ import type {
 } from "../types.js";
 import { ApiError, FRIENDLY_MESSAGES, classifyApiError } from "./errors.js";
 import { normalizeLLMUsage } from "./usage.js";
+import { toTextOnlyContent } from "./messagePayload.js";
 
 /**
  * Sanitize messages for API consumption.
  * Only includes fields expected by OpenAI-compatible APIs.
  */
-function sanitizeMessages(messages: Array<{ role: string; content: string; name?: string; tool_call_id?: string; tool_calls?: LLMToolCall[] }>): Record<string, unknown>[] {
+function sanitizeMessages(messages: MultimodalMessage[]): Record<string, unknown>[] {
   const systemContent = messages
     .filter((message) => message.role === "system")
-    .map((message) => message.content.trim())
+    .map((message) => toTextOnlyContent(message.content).trim())
     .filter(Boolean)
     .join("\n\n");
   const orderedMessages = messages.filter((message) => message.role !== "system");

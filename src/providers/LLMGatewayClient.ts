@@ -10,7 +10,7 @@ import type {
   LLMGatewaySettings,
   NetworkSettings,
   FunctionDefinition,
-  LLMMessage,
+  MultimodalMessage,
   NvidiaChatTemplateKwargs,
 } from "../types.js";
 import { ApiError, classifyApiError } from "./errors.js";
@@ -33,7 +33,7 @@ import { normalizeLLMUsage } from "./usage.js";
  * content stays in context instead of being dropped.
  */
 function sanitizeMessages(
-  messages: LLMMessage[],
+  messages: MultimodalMessage[],
   supportsImageInput: boolean,
 ): Record<string, unknown>[] {
   return normalizeOutboundMessages(messages, {

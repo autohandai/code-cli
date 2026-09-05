@@ -10,7 +10,7 @@ import type {
   VertexAISettings,
   NetworkSettings,
   FunctionDefinition,
-  LLMMessage,
+  MultimodalMessage,
 } from "../types.js";
 import type { LLMProvider, LLMProviderCapabilities } from "./LLMProvider.js";
 import { getGcloudAccessToken, clearGcloudTokenCache } from "../utils/gcloudAuth.js";
@@ -36,7 +36,7 @@ import { getProviderModelIds } from "./modelCatalog.js";
  * - name (for function messages, optional)
  * Excludes internal fields like priority, metadata.
  */
-function sanitizeMessages(messages: LLMMessage[]): Record<string, unknown>[] {
+function sanitizeMessages(messages: MultimodalMessage[]): Record<string, unknown>[] {
   return messages.map((msg) => {
     const sanitized: Record<string, unknown> = {
       role: msg.role,

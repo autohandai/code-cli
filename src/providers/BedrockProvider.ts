@@ -21,12 +21,13 @@ import {
   type ApiErrorCode,
 } from "./errors.js";
 import { normalizeLLMUsage } from "./usage.js";
+import { toTextOnlyContent } from './messagePayload.js';
 import type {
   BedrockApiMode,
   BedrockAuthMode,
   BedrockSettings,
   FunctionDefinition,
-  LLMMessage,
+  MultimodalMessage,
   LLMRequest,
   LLMResponse,
   LLMToolCall,
@@ -179,23 +180,13 @@ function parseToolArguments(argumentsJson: string): unknown {
 const EMPTY_TOOL_RESULT_PLACEHOLDER = "(no output)";
 
 /**
- * Converse has no image block in this integration, and multimodal turns arrive
- * as a content array cast to `string`, so flatten to the text parts.
+ * Converse has no image block in this integration, so flatten to text parts.
  */
-function toPlainText(content: LLMMessage["content"]): string {
-  if (typeof content === "string") {
-    return content;
-  }
-  if (!Array.isArray(content)) {
-    return "";
-  }
-  return (content as Array<{ type?: unknown; text?: unknown }>)
-    .filter((part) => part?.type === "text" && typeof part.text === "string")
-    .map((part) => part.text as string)
-    .join("\n");
+function toPlainText(content: MultimodalMessage["content"]): string {
+  return toTextOnlyContent(content);
 }
 
-function toTextContent(content: LLMMessage["content"]): ConverseContentBlock[] {
+function toTextContent(content: MultimodalMessage["content"]): ConverseContentBlock[] {
   const text = toPlainText(content);
   return text.trim() ? [{ text }] : [];
 }
@@ -210,7 +201,7 @@ function toToolUseBlocks(toolCalls: LLMToolCall[]): ConverseContentBlock[] {
   }));
 }
 
-function toConverseMessage(message: LLMMessage): ConverseMessage | null {
+function toConverseMessage(message: MultimodalMessage): ConverseMessage | null {
   if (message.role === "system") {
     return null;
   }
@@ -243,7 +234,7 @@ function toConverseMessage(message: LLMMessage): ConverseMessage | null {
   return userContent.length > 0 ? { role: "user", content: userContent } : null;
 }
 
-function toOpenAIMessage(message: LLMMessage): Record<string, unknown> {
+function toOpenAIMessage(message: MultimodalMessage): Record<string, unknown> {
   const mapped: Record<string, unknown> = {
     role: message.role,
     content: message.role === "assistant" && message.tool_calls?.length
@@ -260,7 +251,7 @@ function toOpenAIMessage(message: LLMMessage): Record<string, unknown> {
   return mapped;
 }
 
-function toResponsesInputItem(message: LLMMessage): Record<string, unknown>[] {
+function toResponsesInputItem(message: MultimodalMessage): Record<string, unknown>[] {
   if (message.role === "tool" && message.tool_call_id) {
     return [
       {
@@ -585,7 +576,7 @@ export class BedrockProvider implements LLMProvider {
       .filter((message): message is ConverseMessage => message !== null);
     const system = request.messages
       .filter((message) => message.role === "system" && message.content)
-      .map((message) => ({ text: message.content }));
+      .map((message) => ({ text: toPlainText(message.content) }));
     const body: ConverseCommandInput = {
       modelId: request.model ?? this.model,
       messages: contentMessages as unknown as ConverseCommandInput["messages"],

@@ -1189,12 +1189,8 @@ export interface LLMMessage {
  * Message with multimodal content for API requests
  * Used when converting LLMMessage to API format with images
  */
-export interface MultimodalMessage {
-  role: MessageRole;
+export interface MultimodalMessage extends Omit<LLMMessage, 'content'> {
   content: string | ContentPart[];
-  name?: string;
-  tool_call_id?: string;
-  tool_calls?: LLMToolCall[];
 }
 
 /**
@@ -1249,7 +1245,7 @@ export interface PromptCacheDirective {
 }
 
 export interface LLMRequest {
-  messages: LLMMessage[];
+  messages: MultimodalMessage[];
   temperature?: number;
   maxTokens?: number;
   stream?: boolean;
@@ -1738,6 +1734,8 @@ export type ToolActionOutcome =
   | {
       success: true;
       output?: string;
+      /** Local artifact paths for runtime-only multimodal handoff; never image bytes or URLs. */
+      imagePaths?: string[];
     }
   | {
       success: false;
@@ -1745,6 +1743,7 @@ export type ToolActionOutcome =
       error: string;
       output?: string;
       exitCode?: number | null;
+      imagePaths?: string[];
     };
 
 export type ToolExecutionResult = {
