@@ -274,7 +274,7 @@ export class SlashCommandHandler {
           // modal's useInput for stdin and ESC events get dropped.
           await this.ctx.onBeforeModal?.();
           try {
-            return await settings({ config: this.ctx.config });
+            return await settings({ config: this.ctx.config }, args);
           } finally {
             await this.ctx.onAfterModal?.();
           }

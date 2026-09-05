@@ -768,6 +768,15 @@ autohand config set silent_tool_output false
 
 Choose **UI & Display → Task list position** in `/settings`. `up` places live tasks above the working status line; `above-composer` keeps them directly above the composer and is the default.
 
+Set it directly during an interactive session:
+
+```text
+/settings task_list position up
+/settings task_list position above-composer
+```
+
+`above composer` is also accepted. Omit the value to open the position picker directly. The preference is saved and takes effect when the composer returns, without restarting.
+
 You can also set the position from the command line:
 
 ```bash

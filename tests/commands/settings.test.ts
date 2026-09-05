@@ -450,7 +450,102 @@ function createMockConfig(): any {
 describe('settings command integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(mockShowModal).mockReset();
+    vi.mocked(mockSaveConfig).mockReset().mockResolvedValue(undefined);
   });
+
+  it.each([
+    { args: ['task_list', 'position', 'up'], expected: 'up' },
+    { args: ['task_list', 'position', 'above-composer'], expected: 'above-composer' },
+    { args: ['task_list', 'position', 'above', 'composer'], expected: 'above-composer' },
+    { args: ['ui.taskListPosition', 'up'], expected: 'up' },
+  ])('sets task list position directly with $args', async ({ args, expected }) => {
+    const config = createMockConfig();
+    const originalUi = config.ui;
+
+    const result = await settingsCmd({ config }, args);
+
+    expect(result).toBe(`Task list position: ${expected}`);
+    expect(config.ui.taskListPosition).toBe(expected);
+    expect(config.ui).toBe(originalUi);
+    expect(config.ui.theme).toBe('dark');
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+    expect(mockSaveConfig).toHaveBeenCalledWith(expect.objectContaining({
+      configPath: config.configPath,
+      ui: expect.objectContaining({ taskListPosition: expected, theme: 'dark' }),
+    }));
+    expect(mockShowModal).not.toHaveBeenCalled();
+  });
+
+  it('opens only the position picker when its value is omitted', async () => {
+    vi.mocked(mockShowModal).mockResolvedValueOnce({ label: 'up', value: 'up' });
+    const config = createMockConfig();
+
+    expect(await settingsCmd({ config }, ['task_list', 'position']))
+      .toBe('Task list position: up');
+
+    expect(mockShowModal).toHaveBeenCalledOnce();
+    expect(mockShowModal).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Task list position',
+      options: [{ label: 'up', value: 'up' }, { label: 'above-composer', value: 'above-composer' }],
+    }));
+    expect(config.ui.taskListPosition).toBe('up');
+  });
+
+  it('creates UI settings when they were not configured', async () => {
+    const config: LoadedConfig = { configPath: '/tmp/test/config.json' };
+
+    expect(await settingsCmd({ config }, ['task_list', 'position', 'up']))
+      .toBe('Task list position: up');
+    expect(config.ui?.taskListPosition).toBe('up');
+  });
+
+  it('does not save or change the position when its picker is cancelled', async () => {
+    vi.mocked(mockShowModal).mockResolvedValueOnce(null);
+    const config = createMockConfig();
+
+    expect(await settingsCmd({ config }, ['task_list', 'position'])).toBeNull();
+
+    expect(config.ui.taskListPosition).toBeUndefined();
+    expect(mockSaveConfig).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid positions without opening a modal or saving', async () => {
+    const config = createMockConfig();
+
+    await expect(settingsCmd({ config }, ['task_list', 'position', 'below']))
+      .rejects.toThrow('Expected one of up, above-composer');
+
+    expect(config.ui.taskListPosition).toBeUndefined();
+    expect(mockSaveConfig).not.toHaveBeenCalled();
+    expect(mockShowModal).not.toHaveBeenCalled();
+  });
+
+  it('returns usage for an unrecognized settings argument', async () => {
+    const config = createMockConfig();
+
+    expect(await settingsCmd({ config }, ['task_list', 'location', 'up']))
+      .toContain('/settings task_list position [up|above-composer]');
+
+    expect(mockSaveConfig).not.toHaveBeenCalled();
+    expect(mockShowModal).not.toHaveBeenCalled();
+  });
+
+  it.each([['task_list', 'position', 'up'], ['task_list', 'position']])(
+    'preserves the live configuration when saving fails (%s %s %s)',
+    async (...args) => {
+      const config = createMockConfig();
+      config.ui.taskListPosition = 'above-composer';
+      if (args.length === 2) {
+        vi.mocked(mockShowModal).mockResolvedValueOnce({ label: 'up', value: 'up' });
+      }
+      vi.mocked(mockSaveConfig).mockRejectedValueOnce(new Error('disk full'));
+
+      await expect(settingsCmd({ config }, args)).rejects.toThrow('disk full');
+
+      expect(config.ui.taskListPosition).toBe('above-composer');
+    },
+  );
 
   it('exits when user presses ESC at category level', async () => {
     (mockShowModal as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);

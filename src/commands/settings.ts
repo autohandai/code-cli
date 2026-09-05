@@ -475,7 +475,34 @@ async function showCategorySettings(category: SettingCategory, config: LoadedCon
   }
 }
 
-export async function settings(ctx: SettingsCommandContext): Promise<string | null> {
+async function configureTaskListPosition(config: LoadedConfig, args: string[]): Promise<string | null> {
+  const setting = SETTINGS_REGISTRY.find(s => s.key === 'ui.taskListPosition');
+  const keyLength = args.findIndex((_, index) =>
+    normalizeSettingKey(args.slice(0, index + 1).join(' ')) === 'ui.taskListPosition',
+  ) + 1;
+  if (!setting || keyLength === 0) {
+    return 'Usage: /settings task_list position [up|above-composer]';
+  }
+
+  const candidate = { ...config, ui: { ...config.ui } };
+  const rawValue = args.slice(keyLength).join(' ');
+  if (rawValue) {
+    setConfigSetting(candidate, setting.key, rawValue === 'above composer' ? 'above-composer' : rawValue);
+  } else if (!await editSetting(setting, candidate)) {
+    return null;
+  }
+
+  await saveConfig(candidate);
+  config.ui ??= {};
+  config.ui.taskListPosition = candidate.ui.taskListPosition;
+  return `${t(setting.labelKey)}: ${config.ui.taskListPosition}`;
+}
+
+export async function settings(ctx: SettingsCommandContext, args: string[] = []): Promise<string | null> {
+  if (args.length > 0) {
+    return configureTaskListPosition(ctx.config, args);
+  }
+
   console.log(chalk.cyan(`\n${t('commands.settings.title')}\n`));
 
   while (true) {

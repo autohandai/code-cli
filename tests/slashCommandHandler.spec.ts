@@ -31,6 +31,11 @@ vi.mock('../src/commands/usage.js', () => ({
   usage: mockUsage,
 }));
 
+const mockSettings = vi.fn();
+vi.mock('../src/commands/settings.js', () => ({
+  settings: mockSettings,
+}));
+
 function createContext() {
   return {
     promptModelSelection: vi.fn().mockResolvedValue(undefined),
@@ -68,6 +73,7 @@ const DEFAULT_COMMANDS: SlashCommand[] = [
   { command: '/plan', description: 'plan mode', implemented: true },
   { command: '/squad', description: 'open squad', implemented: true },
   { command: '/usage', description: 'show usage', implemented: true },
+  { command: '/settings', description: 'configure settings', implemented: true },
 ];
 
 describe('SlashCommandHandler', () => {
@@ -90,6 +96,19 @@ describe('SlashCommandHandler', () => {
       origin: 'user',
       outcome: 'succeeded',
     });
+  });
+
+  it('forwards task list position arguments and restores the composer after settings', async () => {
+    const ctx = createContext();
+    const handler = new SlashCommandHandler(ctx, DEFAULT_COMMANDS);
+    mockSettings.mockResolvedValueOnce('Task list position: up');
+
+    const result = await handler.handle('/settings', ['task_list', 'position', 'up']);
+
+    expect(result).toBe('Task list position: up');
+    expect(mockSettings).toHaveBeenCalledWith({ config: ctx.config }, ['task_list', 'position', 'up']);
+    expect(ctx.onBeforeModal).toHaveBeenCalledOnce();
+    expect(ctx.onAfterModal).toHaveBeenCalledOnce();
   });
 
   it('returns the real /plan status text to non-console callers', async () => {
