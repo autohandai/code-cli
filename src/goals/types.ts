@@ -36,6 +36,7 @@ export interface QueuedGoal {
 
 export interface CompletedGoal {
   goalId: string;
+  sessionId?: string;
   objective: string;
   status: Extract<GoalStatus, 'complete' | 'budgetLimited'>;
   tokensUsed: number;
@@ -119,6 +120,11 @@ export interface GoalCreateInput {
   timeBudgetSeconds?: number;
   minTokensBeforeWrapUp?: number;
   minTimeSecondsBeforeWrapUp?: number;
+}
+
+export interface GoalTurnUsageInput {
+  tokensUsed?: number;
+  goalId?: string | null;
 }
 
 export interface GoalUpdateInput {

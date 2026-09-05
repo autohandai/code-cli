@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
+import { GoalManager } from '../../../src/goals/GoalManager.js';
 import { InstructionRunner, type AgentInstructionHost } from '../../../src/core/agent/InstructionRunner.js';
 import { startDeepResearchRun } from '../../../src/deepResearch/session.js';
 import {
@@ -197,6 +198,31 @@ describe('InstructionRunner command mode UI', () => {
     }] } });
     expect(await new InstructionRunner(host).run('prompt')).toBe(true);
     expect(host.conversation.addSystemNote).toHaveBeenCalledWith('IMPORTED_CONTEXT', '[Pre-prompt Hook Context]');
+  });
+
+  it('charges the finishing turn to its original goal after the next goal starts', async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'goal-turn-accounting-'));
+    const manager = new GoalManager(workspaceRoot);
+    await manager.createGoal({ objective: 'first goal' });
+    await manager.enqueueGoal({ objective: 'second goal', source: 'tool' });
+    const host = createHost();
+    host.runtime.workspaceRoot = workspaceRoot;
+    host.runReactLoop = async () => {
+      host.currentTurnActualUsage = {
+        kind: 'actual', promptTokens: 100, completionTokens: 23, totalTokens: 123,
+      };
+      await manager.updateGoal({ status: 'complete' });
+      return { status: 'completed' };
+    };
+
+    try {
+      expect(await new InstructionRunner(host).run('finish the first goal')).toBe(true);
+      const snapshot = await manager.getSessionSnapshot();
+      expect(snapshot.completed[0]?.tokensUsed).toBe(123);
+      expect(snapshot.goal).toMatchObject({ objective: 'second goal', tokensUsed: 0 });
+    } finally {
+      await fs.remove(workspaceRoot);
+    }
   });
 
   it('returns before starting work when the external signal is already aborted', async () => {

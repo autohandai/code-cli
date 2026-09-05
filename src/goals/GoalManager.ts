@@ -20,6 +20,7 @@ import type {
   GoalSnapshot,
   GoalState,
   GoalTemplateMetadata,
+  GoalTurnUsageInput,
   GoalUpdateInput,
   QueuedGoal,
 } from './types.js';
@@ -280,7 +281,7 @@ export class GoalManager {
 
     if (next.status === 'complete') {
       if (current.status === 'complete') return this.result({ ...snapshot, goals: { ...snapshot.goals, [key]: current } }, false, 'Goal is already complete.');
-      const completedGoal = buildCompletedGoal(next, Date.now());
+      const completedGoal = buildCompletedGoal(next, Date.now(), key);
       const completedRun = appendCompletedGoal(snapshot.completed, completedGoal);
       const nextQueued = snapshot.queue[0];
       if (nextQueued) {
@@ -419,7 +420,7 @@ export class GoalManager {
       ? {
         ...snapshot,
         goals: { ...snapshot.goals, [key]: current },
-        completed: appendCompletedGoal(snapshot.completed, buildCompletedGoal(current, Date.now())),
+        completed: appendCompletedGoal(snapshot.completed, buildCompletedGoal(current, Date.now(), key)),
       }
       : snapshot;
     return this.startQueuedGoalFromSnapshot(snapshotWithTerminalHistory, nextQueued);
@@ -503,7 +504,7 @@ export class GoalManager {
     const key = this.goalKey();
     const current = snapshot.goals[key];
     if (current?.goalId === goalOrQueueId) {
-      const goal = { ...current, objective, updatedAt: Date.now() };
+      const goal = { ...this.withLiveElapsed(current), objective, updatedAt: Date.now() };
       const next = {
         ...snapshot,
         goals: { ...snapshot.goals, [key]: goal },
@@ -536,29 +537,50 @@ export class GoalManager {
     return this.result(next, true, 'Queued goal updated.');
   }
 
-  async recordTurnUsage(input: { tokensUsed?: number }): Promise<GoalMutationResult> {
+  async recordTurnUsage(input: GoalTurnUsageInput): Promise<GoalMutationResult> {
+    if (input.goalId === null) {
+      return this.result(await this.readSnapshot(), true, 'No goal owned this turn.');
+    }
     return this.withMutation(() => this.recordTurnUsageUnlocked(input));
   }
 
-  private async recordTurnUsageUnlocked(input: { tokensUsed?: number }): Promise<GoalMutationResult> {
+  private async recordTurnUsageUnlocked(input: GoalTurnUsageInput): Promise<GoalMutationResult> {
     const snapshot = await this.readSnapshot();
     const key = this.goalKey();
     const current = snapshot.goals[key];
+    const tokens = Number.isFinite(input.tokensUsed) ? Math.max(0, Math.floor(input.tokensUsed ?? 0)) : 0;
+    if (input.goalId && current?.goalId !== input.goalId) {
+      const completedIndex = snapshot.completed.findIndex((goal) => (
+        goal.goalId === input.goalId && (goal.sessionId ?? UNKNOWN_SESSION_KEY) === key
+      ));
+      if (completedIndex < 0) return this.result(snapshot, true, 'The turn goal is no longer available for this session.');
+      const completed = snapshot.completed.slice();
+      completed[completedIndex] = {
+        ...completed[completedIndex],
+        tokensUsed: completed[completedIndex].tokensUsed + tokens,
+      };
+      const next = { ...snapshot, completed, updatedAt: Date.now() };
+      await this.writeSnapshot(next);
+      return this.result(next, true, 'Completed goal usage recorded.');
+    }
     if (!current) return this.result(snapshot, true, 'No active goal for this session.');
-    if (current.status !== 'active') {
+    if (current.status !== 'active' && input.goalId === undefined) {
       return this.result(snapshot, true, 'Goal usage not recorded because the goal is not active.');
     }
     let goal = this.withLiveElapsed(current);
     goal = {
       ...goal,
-      tokensUsed: goal.tokensUsed + Math.max(0, Math.floor(input.tokensUsed ?? 0)),
+      tokensUsed: goal.tokensUsed + tokens,
       updatedAt: Date.now(),
     };
-    const limitReason = budgetLimitReason(goal);
+    const limitReason = goal.status === 'active' ? budgetLimitReason(goal) : null;
     if (limitReason) {
       goal = transitionStatus(goal, 'budgetLimited');
     }
-    const next = { ...snapshot, goals: { ...snapshot.goals, [key]: goal }, updatedAt: goal.updatedAt };
+    const completed = snapshot.completed.map((entry) => entry.goalId === goal.goalId
+      ? { ...entry, tokensUsed: goal.tokensUsed }
+      : entry);
+    const next = { ...snapshot, goals: { ...snapshot.goals, [key]: goal }, completed, updatedAt: goal.updatedAt };
     await this.writeSnapshot(next);
     return this.result(next, true, limitReason ? `Goal budget limited: ${limitReason}.` : 'Goal usage recorded.');
   }
@@ -663,7 +685,7 @@ export class GoalManager {
 
   private withLiveElapsed(goal: GoalState): GoalState {
     if (goal.status !== 'active') return goal;
-    const elapsedDelta = Math.max(0, Math.floor((Date.now() - goal.updatedAt) / 1000));
+    const elapsedDelta = Math.max(0, (Date.now() - goal.updatedAt) / 1000);
     return { ...goal, timeUsedSeconds: goal.timeUsedSeconds + elapsedDelta };
   }
 }
@@ -721,7 +743,7 @@ function normalizeGoal(value: unknown): GoalState | null {
     minTokensBeforeWrapUp: positiveInteger(raw.minTokensBeforeWrapUp),
     minTimeSecondsBeforeWrapUp: positiveInteger(raw.minTimeSecondsBeforeWrapUp),
     tokensUsed: positiveInteger(raw.tokensUsed) ?? 0,
-    timeUsedSeconds: positiveInteger(raw.timeUsedSeconds) ?? 0,
+    timeUsedSeconds: nonNegativeNumber(raw.timeUsedSeconds) ?? 0,
     createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now(),
     updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : Date.now(),
   };
@@ -753,10 +775,11 @@ function normalizeCompletedGoal(value: unknown): CompletedGoal | null {
   if (raw.status !== 'complete' && raw.status !== 'budgetLimited') return null;
   return {
     goalId: raw.goalId,
+    sessionId: typeof raw.sessionId === 'string' ? raw.sessionId : undefined,
     objective: raw.objective,
     status: raw.status,
     tokensUsed: positiveInteger(raw.tokensUsed) ?? 0,
-    timeUsedSeconds: positiveInteger(raw.timeUsedSeconds) ?? 0,
+    timeUsedSeconds: nonNegativeNumber(raw.timeUsedSeconds) ?? 0,
     createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now(),
     completedAt: typeof raw.completedAt === 'number' ? raw.completedAt : Date.now(),
   };
@@ -778,9 +801,10 @@ function buildQueuedGoal(input: GoalCreateInput & { source: QueuedGoal['source']
   };
 }
 
-function buildCompletedGoal(goal: GoalState, completedAt: number): CompletedGoal {
+function buildCompletedGoal(goal: GoalState, completedAt: number, sessionId: string): CompletedGoal {
   return {
     goalId: goal.goalId,
+    sessionId,
     objective: goal.objective,
     status: goal.status === 'budgetLimited' ? 'budgetLimited' : 'complete',
     tokensUsed: goal.tokensUsed,
@@ -821,15 +845,7 @@ function validateFloors(input: Pick<GoalCreateInput, 'tokenBudget' | 'timeBudget
 }
 
 function transitionStatus(goal: GoalState, status: GoalState['status']): GoalState {
-  const now = Date.now();
-  if (goal.status === 'active' && status !== 'active') {
-    const elapsedDelta = Math.max(0, Math.floor((now - goal.updatedAt) / 1000));
-    return { ...goal, status, timeUsedSeconds: goal.timeUsedSeconds + elapsedDelta, updatedAt: now };
-  }
-  if (goal.status !== 'active' && status === 'active') {
-    return { ...goal, status, updatedAt: now };
-  }
-  return { ...goal, status, updatedAt: now };
+  return { ...goal, status, updatedAt: Date.now() };
 }
 
 function budgetLimitReason(goal: GoalState): string | null {
@@ -853,6 +869,10 @@ function floorMet(goal: GoalState): boolean {
   const tokenMet = goal.minTokensBeforeWrapUp === undefined || goal.tokensUsed >= goal.minTokensBeforeWrapUp;
   const timeMet = goal.minTimeSecondsBeforeWrapUp === undefined || goal.timeUsedSeconds >= goal.minTimeSecondsBeforeWrapUp;
   return tokenMet && timeMet;
+}
+
+function nonNegativeNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 function positiveInteger(value: unknown): number | undefined {

@@ -394,6 +394,13 @@ export class InstructionRunner {
       }
     }
 
+    const turnGoalManager = new GoalManager(host.runtime.workspaceRoot, {
+      sessionId: host.sessionManager?.getCurrentSession()?.metadata?.sessionId,
+    });
+    const turnGoalId = await turnGoalManager.getActiveGoalForSession()
+      .then((goal) => goal?.goalId ?? null)
+      .catch(() => null);
+
     host.activeAbortController = abortController;
     let canceledByUser = false;
     let success = true;
@@ -747,9 +754,7 @@ export class InstructionRunner {
         const turnTokens = isActualTurnUsage(completedTurnUsage) && !host.currentTurnHadUnavailableUsage
           ? completedTurnUsage.totalTokens
           : 0;
-        await new GoalManager(host.runtime.workspaceRoot, {
-          sessionId: host.sessionManager?.getCurrentSession()?.metadata?.sessionId,
-        }).recordTurnUsage({ tokensUsed: turnTokens });
+        await turnGoalManager.recordTurnUsage({ tokensUsed: turnTokens, goalId: turnGoalId });
       } catch {
         // Goal accounting is best-effort and must never mask the turn result.
       }

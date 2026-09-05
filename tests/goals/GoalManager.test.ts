@@ -22,6 +22,7 @@ describe('GoalManager', () => {
 
   afterEach(async () => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
     await fs.remove(workspaceRoot);
   });
 
@@ -166,6 +167,7 @@ describe('GoalManager', () => {
   });
 
   it('keeps a prior-session goal isolated until the current session creates its own', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
     const priorSession = new GoalManager(workspaceRoot, { sessionId: 'session-prior' });
     await priorSession.createGoal({ objective: 'finish the prior report' });
     const before = await priorSession.getSnapshot();
@@ -283,6 +285,80 @@ describe('GoalManager', () => {
     expect(result.goal?.objective).toBe('queued work');
     expect(result.started?.objective).toBe('queued work');
     expect((await manager.getSnapshot()).queue).toEqual([]);
+  });
+
+  it.each(['paused', 'complete'] as const)('counts ten active seconds once when a goal becomes %s', async (status) => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const manager = new GoalManager(workspaceRoot);
+    await manager.createGoal({ objective: 'measure active time' });
+
+    clock.mockReturnValue(1_010_000);
+    const updated = await manager.updateGoal({ status });
+
+    expect(updated.goal?.timeUsedSeconds).toBe(10);
+  });
+
+  it('preserves elapsed time when editing the active objective', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const manager = new GoalManager(workspaceRoot);
+    const created = await manager.createGoal({ objective: 'original objective' });
+    if (!created.goal) throw new Error('Expected a created goal');
+
+    clock.mockReturnValue(1_010_000);
+    await manager.editGoalObjective(created.goal.goalId, 'refined objective');
+    clock.mockReturnValue(1_015_000);
+
+    expect((await manager.getSessionSnapshot()).goal?.timeUsedSeconds).toBe(15);
+  });
+
+  it('does not discard fractional seconds between frequent usage updates', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const manager = new GoalManager(workspaceRoot);
+    await manager.createGoal({ objective: 'measure short turns' });
+
+    for (const now of [1_000_400, 1_000_800, 1_001_200]) {
+      clock.mockReturnValue(now);
+      await manager.recordTurnUsage({ tokensUsed: 1 });
+    }
+
+    expect((await manager.getSessionSnapshot()).goal?.timeUsedSeconds).toBeCloseTo(1.2);
+  });
+
+  it('does not charge a goal created after a turn started without one', async () => {
+    const manager = new GoalManager(workspaceRoot);
+    await manager.createGoal({ objective: 'newly created goal' });
+
+    await manager.recordTurnUsage({ goalId: null, tokensUsed: 123 });
+
+    expect((await manager.getSessionSnapshot()).goal?.tokensUsed).toBe(0);
+  });
+
+  it.each(['paused', 'complete'] as const)('records the final usage without reactivating a %s goal', async (status) => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const manager = new GoalManager(workspaceRoot, { sessionId: 'owner' });
+    const created = await manager.createGoal({ objective: 'finish owned work' });
+    if (!created.goal) throw new Error('Expected a created goal');
+    clock.mockReturnValue(1_010_000);
+    await manager.updateGoal({ status });
+    clock.mockReturnValue(1_020_000);
+
+    await manager.recordTurnUsage({ goalId: created.goal.goalId, tokensUsed: 123 });
+
+    const snapshot = await manager.getSessionSnapshot();
+    expect(snapshot.goal).toMatchObject({ status, tokensUsed: 123, timeUsedSeconds: 10 });
+    if (status === 'complete') expect(snapshot.completed[0]?.tokensUsed).toBe(123);
+  });
+
+  it('cannot charge another session completed goal by supplying its ID', async () => {
+    const owner = new GoalManager(workspaceRoot, { sessionId: 'owner' });
+    const created = await owner.createGoal({ objective: 'owned goal' });
+    if (!created.goal) throw new Error('Expected a created goal');
+    await owner.updateGoal({ status: 'complete' });
+
+    await new GoalManager(workspaceRoot, { sessionId: 'other' })
+      .recordTurnUsage({ goalId: created.goal.goalId, tokensUsed: 123 });
+
+    expect((await owner.getSessionSnapshot()).completed[0]?.tokensUsed).toBe(0);
   });
 
   it('tracks active elapsed time and refuses to resume exhausted time budgets', async () => {

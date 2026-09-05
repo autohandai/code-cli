@@ -1145,6 +1145,13 @@ close the panel. Closing the view does not pause the goal; use `/goals pause`
 for that. See [viewing and managing goals](features.md#viewing-and-managing-goals)
 for keyboard controls and the queue, edit, resume, complete, and clear commands.
 
+Goal token usage follows the goal and session that owned the turn when it
+started. If completion starts the next queued goal during that turn, the final
+usage remains on the completed goal. A turn started without a goal is not
+charged retroactively to a newly created goal. Only reported provider usage is
+counted; unavailable usage is not estimated. Active elapsed time includes short
+turns and objective edits, and stops while the goal is paused or complete.
+
 To keep the normal turn-by-turn loop while goals are active:
 
 ```json
