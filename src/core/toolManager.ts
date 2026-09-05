@@ -33,6 +33,7 @@ import { getPlanModeManager } from '../commands/plan.js';
 import { randomUUID } from 'node:crypto';
 import { HOOK_TOOL_NAMES } from './hookTools.js';
 import { PEER_TOOL_DEFINITIONS } from './peerTools.js';
+import { GOAL_STATUSES } from '../goals/types.js';
 
 type ReadyToolExecutionTask = {
   call: ToolCallRequest;
@@ -351,7 +352,17 @@ export const GOAL_TOOL_DEFINITIONS: ToolDefinition[] = [
       properties: {
         objective: { type: 'string', description: 'Optional replacement objective' },
         completion_evidence: completionEvidenceParameter,
-        status: { type: 'string', description: 'Optional status', enum: ['active', 'paused', 'complete', 'budgetLimited'] },
+        status: { type: 'string', description: 'Optional status; blocked and waiting require a stop reason and resumption condition', enum: [...GOAL_STATUSES] },
+        stop_reason: { type: 'string', description: 'Why the goal is blocked or waiting, at most 4000 characters' },
+        resume_when: { type: 'string', description: 'Concrete condition required before an explicit resume, at most 4000 characters' },
+        checkpoint: {
+          type: 'object', description: 'Save current progress without claiming completion', required: ['summary'],
+          properties: {
+            summary: { type: 'string', description: 'Progress made, at most 4000 characters' },
+            nextStep: { type: 'string', description: 'Next action after resuming, at most 4000 characters' },
+            artifacts: { type: 'array', description: 'At most 20 artifact references', items: { type: 'string' } },
+          },
+        },
         token_budget: { type: 'number', description: 'Optional positive token budget; use clear_goal for removal requests' },
         time_budget_seconds: { type: 'number', description: 'Optional positive time budget in seconds' },
         min_tokens_before_wrap_up: { type: 'number', description: 'Optional token floor' },

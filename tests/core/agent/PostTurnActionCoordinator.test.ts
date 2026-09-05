@@ -175,7 +175,7 @@ describe('post-turn active goal continuation', () => {
     const continuation = await resolveActiveGoalContinuation(host, true);
 
     expect(continuation).toContain('Active goal: Finish the browser game');
-    expect(continuation).toContain('until it is complete, blocked, paused, cleared, or budget-limited');
+    expect(continuation).toContain('until it is complete, blocked, waiting, paused, cleared, or budget-limited');
   });
 
   it.each([
@@ -194,6 +194,14 @@ describe('post-turn active goal continuation', () => {
       .updateGoal({ status: 'complete' });
 
     await expect(resolveActiveGoalContinuation(host, true)).resolves.toBeNull();
+  });
+
+  it.each(['blocked', 'waiting'] as const)('does not continue a %s goal until explicit resume', async (status) => {
+    const manager = new GoalManager(workspaceRoot, { sessionId: 'session-current' });
+    expect((await manager.updateGoal({ status, stopReason: 'Needs approval', resumeWhen: 'User approves' })).ok).toBe(true);
+    await expect(resolveActiveGoalContinuation(host, true)).resolves.toBeNull();
+    await manager.updateGoal({ status: 'active' });
+    expect(await resolveActiveGoalContinuation(host, true)).toContain('Active goal:');
   });
 
   it('does not continue an active goal attached to a prior session', async () => {

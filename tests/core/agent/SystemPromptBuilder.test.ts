@@ -133,6 +133,8 @@ describe('SystemPromptBuilder', () => {
     expect(enabledPrompt).toContain('Persistent goal execution is session-scoped');
     expect(enabledPrompt).toContain('Spending floors are not proof');
     expect(enabledPrompt).toContain('not independent verification');
+    expect(enabledPrompt).toContain('a slow command alone is not a blocker');
+    expect(enabledPrompt).toContain('stop_reason and resume_when');
     expect(enabledPrompt).toContain('/goal resume');
   });
 

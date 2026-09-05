@@ -154,7 +154,7 @@ import { negotiateBrowserCapabilities } from '../../browser/browserCapabilities.
 import { redactBrowserToolArguments } from '../../browser/browserRedaction.js';
 import { CHROME_AUTOMATION_V2_SYSTEM_PROMPT } from '../../browser/chromeSkill.js';
 import { GoalManager } from '../../goals/GoalManager.js';
-import type { GoalCompletionEvidence, GoalStatus } from '../../goals/types.js';
+import { parseGoalStatus, type GoalCheckpointInput, type GoalCompletionEvidence } from '../../goals/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, isGoalFeatureEnabled } from '../../goals/feature.js';
 import { getRpcErrorMetadata, writeRpcDebugLine } from './logging.js';
 import { SLASH_COMMANDS } from '../../core/slashCommands.js';
@@ -499,6 +499,9 @@ export class RPCAdapter {
   async handleGoalUpdate(params: {
     objective?: string;
     completion_evidence?: GoalCompletionEvidence;
+    stop_reason?: string;
+    resume_when?: string;
+    checkpoint?: GoalCheckpointInput;
     status?: string;
     token_budget?: number | null;
     time_budget_seconds?: number | null;
@@ -508,8 +511,11 @@ export class RPCAdapter {
     if (!this.isGoalFeatureEnabled()) return this.goalFeatureDisabledResult();
     return new GoalManager(this.workspace).updateGoal({
       objective: params.objective,
-      status: parseRpcGoalStatus(params.status),
+      status: parseGoalStatus(params.status),
       completionEvidence: params.completion_evidence,
+      stopReason: params.stop_reason,
+      resumeWhen: params.resume_when,
+      checkpoint: params.checkpoint,
       tokenBudget: params.token_budget,
       timeBudgetSeconds: params.time_budget_seconds,
       minTokensBeforeWrapUp: params.min_tokens_before_wrap_up,
@@ -4437,11 +4443,4 @@ export class RPCAdapter {
       };
     }
   }
-}
-
-function parseRpcGoalStatus(value: string | undefined): GoalStatus | undefined {
-  if (value === 'active' || value === 'paused' || value === 'complete' || value === 'budgetLimited') {
-    return value;
-  }
-  return undefined;
 }

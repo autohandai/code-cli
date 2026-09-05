@@ -61,6 +61,21 @@ describe('goal tools', () => {
     expect(activatedObjectives).toEqual(['queued goal', 'refined goal']);
   });
 
+  it('does not silently discard invalid tool statuses while applying other fields', async () => {
+    await executor.execute({ type: 'create_goal', objective: 'original objective' });
+    await expect(executor.execute({ type: 'update_goal', status: 'typo', objective: 'must not be saved' })).rejects.toThrow('status');
+    expect(await executor.execute({ type: 'get_goal' })).toContain('original objective');
+  });
+
+  it('saves a blocked tool checkpoint without reactivating the goal', async () => {
+    await executor.execute({ type: 'create_goal', objective: 'blocked tool work' });
+    const output: unknown = JSON.parse(await executor.execute({ type: 'update_goal', status: 'blocked',
+      stop_reason: 'Need approval', resume_when: 'User approves', checkpoint: { summary: 'Prepared patch', nextStep: 'Apply approved patch' },
+    }));
+    expect(output).toMatchObject({ ok: true, goal: { status: 'blocked', stopReason: 'Need approval', checkpoint: { summary: 'Prepared patch' } } });
+    expect(activatedObjectives).toEqual(['blocked tool work']);
+  });
+
   it('activates template goals after they resolve successfully', async () => {
     await fs.outputFile(path.join(workspaceRoot, '.pi-goals', 'approved.md'), 'Finish approved template work.');
 

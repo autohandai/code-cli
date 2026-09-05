@@ -8,7 +8,8 @@ import crypto from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { atomicWriteJson } from '../utils/atomicFile.js';
 import { parseAcceptanceCriteria, parseCompletionReceipt } from './GoalCompletion.js';
-import { UNSCOPED_GOAL_SESSION_KEY } from './types.js';
+import { parseGoalStopState, parseStoredCheckpoint } from './GoalProgress.js';
+import { isGoalStatus, UNSCOPED_GOAL_SESSION_KEY } from './types.js';
 import type { CompletedGoal, GoalSnapshot, GoalState, QueuedGoal } from './types.js';
 
 export class GoalStorageError extends Error {
@@ -135,6 +136,8 @@ function normalizeGoal(value: unknown): GoalState {
     goalId: requiredString(raw.goalId),
     objective: requiredString(raw.objective),
     status: raw.status,
+    ...parseGoalStopState(raw.status, raw.stopReason, raw.resumeWhen),
+    checkpoint: parseStoredCheckpoint(raw.checkpoint),
     ...completion(raw),
     ...budgets(raw),
     tokensUsed: nonNegativeInteger(raw.tokensUsed) ?? 0,
@@ -230,10 +233,6 @@ function nonNegativeInteger(value: unknown): number | undefined {
   const number = nonNegativeNumber(value);
   if (number !== undefined && !Number.isInteger(number)) throw malformed();
   return number;
-}
-
-function isGoalStatus(value: unknown): value is GoalState['status'] {
-  return value === 'active' || value === 'paused' || value === 'budgetLimited' || value === 'complete';
 }
 
 function malformed(): GoalStorageError {

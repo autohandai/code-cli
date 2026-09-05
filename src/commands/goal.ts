@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import { activateGoalAutoMode } from '../core/agent/GoalActivation.js';
 import { buildGoalContinuationInstruction, GoalManager } from '../goals/GoalManager.js';
 import { parseCompletionEvidence } from '../goals/GoalCompletion.js';
+import { parseGoalCheckpoint, parseGoalProgressCommand } from '../goals/GoalProgress.js';
 import type { SlashCommand, SlashCommandContext } from '../core/slashCommandTypes.js';
 import type { GoalMutationResult, GoalSessionSnapshot, GoalState } from '../goals/types.js';
 import type { GoalEventData } from '../telemetry/types.js';
@@ -26,6 +27,9 @@ export const metadata: SlashCommand = {
     { name: 'edit', description: 'Edit an active or queued goal by ID' },
     { name: 'queue', description: 'List queued goals or enqueue a goal' },
     { name: 'pause', description: 'Pause the current goal' },
+    { name: 'blocked', description: 'Stop with a reason, resumption condition, and optional checkpoint JSON' },
+    { name: 'waiting', description: 'Wait for an external condition with optional checkpoint JSON' },
+    { name: 'checkpoint', description: 'Save progress and the next step as JSON' },
     { name: 'resume', description: 'Resume a paused or queued goal' },
     { name: 'complete', description: 'Mark the current goal complete' },
     { name: 'clear', description: 'Clear the current goal' },
@@ -100,6 +104,21 @@ export async function goal(ctx: GoalCommandContext, args: string[] = []): Promis
       const paused = await manager.updateGoal({ status: 'paused' });
       reportGoal(ctx, paused, 'paused');
       return formatMutation(paused);
+    }
+    case 'blocked':
+    case 'waiting':
+    case 'checkpoint': {
+      const operation = subcommand.toLowerCase();
+      let update;
+      try {
+        const value: unknown = JSON.parse(rest);
+        update = operation === 'checkpoint'
+          ? { checkpoint: parseGoalCheckpoint(value) }
+          : { ...parseGoalProgressCommand(value), status: operation === 'blocked' ? 'blocked' as const : 'waiting' as const };
+      } catch (error) {
+        return `Invalid goal progress: ${error instanceof Error ? error.message : 'expected JSON'}`;
+      }
+      return formatMutation(await manager.updateGoal(update));
     }
     case 'resume': {
       const snapshot = await manager.getSessionSnapshot();
@@ -179,8 +198,8 @@ export async function runGoalCli(workspaceRoot: string, rawInput?: string, confi
   const manager = new GoalManager(workspaceRoot);
   const input = rawInput?.trim() ?? '';
   if (!input) return formatSnapshot(await manager.getSessionSnapshot());
-  const completion = /^complete\s+([\s\S]+)$/i.exec(input);
-  if (completion) return goal({ workspaceRoot, config, isNonInteractive: true }, ['complete', completion[1]]);
+  const structured = /^(complete|blocked|waiting|checkpoint)\s+([\s\S]+)$/i.exec(input);
+  if (structured) return goal({ workspaceRoot, config, isNonInteractive: true }, [structured[1], structured[2]]);
 
   const args = input.match(/"[^"]*"|'[^']*'|\S+/g)?.map(unquote) ?? [];
   return goal({ workspaceRoot, config, isNonInteractive: true }, args);
@@ -308,6 +327,13 @@ function formatGoal(goalState: GoalState): string {
   if (goalState.timeBudgetSeconds) lines.push(`Time budget: ${formatDuration(goalState.timeBudgetSeconds)}`);
   if (goalState.minTokensBeforeWrapUp) lines.push(`Token floor: ${goalState.minTokensBeforeWrapUp}`);
   if (goalState.minTimeSecondsBeforeWrapUp) lines.push(`Time floor: ${formatDuration(goalState.minTimeSecondsBeforeWrapUp)}`);
+  if (goalState.stopReason) lines.push(`Stopped because: ${goalState.stopReason}`);
+  if (goalState.resumeWhen) lines.push(`Resume when: ${goalState.resumeWhen}`);
+  if (goalState.checkpoint) {
+    lines.push(`Checkpoint: ${goalState.checkpoint.summary}`);
+    if (goalState.checkpoint.nextStep) lines.push(`Next step: ${goalState.checkpoint.nextStep}`);
+    if (goalState.checkpoint.artifacts?.length) lines.push(`Artifacts: ${goalState.checkpoint.artifacts.join(', ')}`);
+  }
   if (goalState.acceptanceCriteria) lines.push('Acceptance criteria:', ...goalState.acceptanceCriteria.map((criterion) => `- ${criterion}`));
   if (goalState.completionReceipt) {
     lines.push(`Reported completion evidence: ${goalState.completionReceipt.summary}`);
@@ -363,7 +389,7 @@ function unquote(value: string): string {
  * what makes the stall actionable.
  */
 function reportGoal(
-  ctx: SlashCommandContext,
+  ctx: GoalCommandContext,
   result: GoalMutationResult,
   action: GoalEventData['action'],
 ): void {

@@ -74,6 +74,26 @@ describe('/goal command', () => {
     expect(ctx.setInteractionMode).not.toHaveBeenCalled();
   });
 
+  it('saves a waiting checkpoint through the CLI flag without starting more work', async () => {
+    const manager = new GoalManager(workspaceRoot);
+    await manager.createGoal({ objective: 'wait for approved credentials' });
+    const progress = { stopReason: 'Need credentials', resumeWhen: 'Credentials arrive', checkpoint: { summary: 'Tests prepared', nextStep: 'Run tests' } };
+    const result = await runGoalCli(workspaceRoot, `waiting ${JSON.stringify(progress)}`, ctx.config);
+    expect(result).toContain('Status: waiting');
+    expect(result).toContain('Resume when: Credentials arrive');
+    expect(result).toContain('Checkpoint: Tests prepared');
+    expect(queued).toEqual([]);
+  });
+
+  it('saves checkpoint-only commands and refuses malformed progress without mutating the goal', async () => {
+    const manager = new GoalManager(workspaceRoot, { sessionId: 'session-current' });
+    await manager.createGoal({ objective: 'checkpoint command' });
+    expect(await goal(ctx, ['checkpoint', '{"summary":"Saved command progress"}'])).toContain('Checkpoint: Saved command progress');
+    expect(await goal(ctx, ['blocked', '{invalid'])).toContain('Invalid goal progress');
+    expect((await manager.getSessionSnapshot()).goal).toMatchObject({ status: 'active', checkpoint: { summary: 'Saved command progress' } });
+    expect(queued).toEqual([]);
+  });
+
   it('explains that the goal writer requires an interactive session when called through the CLI flag', async () => {
     const result = await runGoalCli(workspaceRoot, 'writer rough objective', ctx.config);
 

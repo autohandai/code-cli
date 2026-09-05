@@ -111,7 +111,7 @@ import type { ResourceCoordinatorClient } from '../session/peers/ResourceCoordin
 import type { PeerClient } from '../session/peers/PeerMessaging.js';
 import { executePeerTool, PEER_TOOL_NAMES, validatePeerToolAction } from './peerTools.js';
 import { GoalManager } from '../goals/GoalManager.js';
-import type { GoalMutationResult, GoalState, GoalStatus } from '../goals/types.js';
+import { parseGoalStatus, type GoalMutationResult, type GoalState } from '../goals/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, isGoalFeatureEnabled } from '../goals/feature.js';
 import { initExperiment, runExperiment, logExperiment } from '../autoresearch/tools.js';
 import { replayExperiment } from '../autoresearch/replay.js';
@@ -1656,6 +1656,9 @@ export class ActionExecutor {
           objective: action.objective,
           status: parseGoalStatus(action.status),
           completionEvidence: action.completion_evidence,
+          stopReason: action.stop_reason,
+          resumeWhen: action.resume_when,
+          checkpoint: action.checkpoint,
           tokenBudget: action.token_budget,
           timeBudgetSeconds: action.time_budget_seconds,
           minTokensBeforeWrapUp: action.min_tokens_before_wrap_up,
@@ -4703,14 +4706,6 @@ export class ActionExecutor {
       goalSource: source,
     });
   }
-}
-
-function parseGoalStatus(value: string | undefined): GoalStatus | undefined {
-  if (!value) return undefined;
-  if (value === 'active' || value === 'paused' || value === 'complete' || value === 'budgetLimited') {
-    return value;
-  }
-  return undefined;
 }
 
 function formatGoalToolResult(result: {

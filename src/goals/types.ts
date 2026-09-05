@@ -4,7 +4,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export type GoalStatus = 'active' | 'paused' | 'budgetLimited' | 'complete';
+export const GOAL_STATUSES = ['active', 'paused', 'blocked', 'waiting', 'budgetLimited', 'complete'] as const;
+export type GoalStatus = typeof GOAL_STATUSES[number];
+
+export function isGoalStatus(value: unknown): value is GoalStatus {
+  return GOAL_STATUSES.some((status) => status === value);
+}
+
+export function parseGoalStatus(value: unknown): GoalStatus | undefined {
+  if (value === undefined) return undefined;
+  if (!isGoalStatus(value)) throw new TypeError(`status must be one of: ${GOAL_STATUSES.join(', ')}.`);
+  return value;
+}
 
 export const UNSCOPED_GOAL_SESSION_KEY = '__unscoped__';
 
@@ -24,11 +35,24 @@ export interface GoalCompletionReceipt extends GoalCompletionEvidence {
   provenance: 'reported';
 }
 
+export interface GoalCheckpointInput {
+  summary: string;
+  nextStep?: string;
+  artifacts?: string[];
+}
+
+export interface GoalCheckpoint extends GoalCheckpointInput {
+  recordedAt: number;
+}
+
 export interface GoalState {
   goalId: string;
   objective: string;
   acceptanceCriteria?: string[];
   completionReceipt?: GoalCompletionReceipt;
+  stopReason?: string;
+  resumeWhen?: string;
+  checkpoint?: GoalCheckpoint;
   status: GoalStatus;
   tokenBudget?: number;
   timeBudgetSeconds?: number;
@@ -157,6 +181,9 @@ export interface GoalTurnUsageInput {
 export interface GoalUpdateInput {
   objective?: string;
   completionEvidence?: GoalCompletionEvidence;
+  stopReason?: string;
+  resumeWhen?: string;
+  checkpoint?: GoalCheckpointInput;
   status?: GoalStatus;
   tokenBudget?: number | null;
   timeBudgetSeconds?: number | null;

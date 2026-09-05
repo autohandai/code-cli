@@ -101,4 +101,16 @@ describe('RPC goal handlers', () => {
       summary: 'RPC verification', checks: [{ criterion: 'Tests pass', status: 'passed', evidence: 'RPC test log' }],
     } })).toMatchObject({ ok: true, completed: { completionReceipt: { summary: 'RPC verification', provenance: 'reported' } } });
   });
+
+  it('rejects invalid RPC statuses without editing the objective', async () => {
+    await adapter.handleGoalCreate({ objective: 'original RPC objective' });
+    await expect(adapter.handleGoalUpdate({ status: 'typo', objective: 'must not be saved' })).rejects.toThrow('status');
+    expect(await adapter.handleGoalGet()).toMatchObject({ goal: { objective: 'original RPC objective' } });
+  });
+
+  it('persists waiting metadata and a checkpoint through RPC', async () => {
+    await adapter.handleGoalCreate({ objective: 'wait for CI' });
+    expect(await adapter.handleGoalUpdate({ status: 'waiting', stop_reason: 'CI running', resume_when: 'CI passes', checkpoint: { summary: 'Patch ready' } }))
+      .toMatchObject({ ok: true, goal: { status: 'waiting', checkpoint: { summary: 'Patch ready' } } });
+  });
 });

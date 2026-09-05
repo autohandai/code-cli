@@ -1192,6 +1192,24 @@ the same evidence object. Receipts survive queue advancement and appear in
 not independently verified results. Reopening a completed goal removes its
 current receipt and requires new evidence before completing again.
 
+Goals may be `blocked` by an obstacle or `waiting` for an external condition.
+Both states require `stop_reason` and `resume_when` through tools/RPC, and stop
+automatic continuation and elapsed-time accrual. An optional `checkpoint`
+stores a `summary`, `nextStep`, and up to 20 `artifacts` references. A checkpoint
+alone saves progress without pausing. Explicit `/goal resume` preserves it and
+clears the stop details; it does not automatically verify the condition.
+
+The command equivalents accept JSON (camelCase field names):
+
+```text
+/goal waiting {"stopReason":"CI running","resumeWhen":"CI completes","checkpoint":{"summary":"Patch ready","nextStep":"Inspect CI"}}
+/goal checkpoint {"summary":"Tests prepared","artifacts":["test-report.log"]}
+```
+
+Use `/goal blocked` with the same fields for an obstacle. A slow command alone
+does not automatically mark a goal blocked. Invalid supplied statuses reject
+the entire update without silently applying other edits.
+
 To keep the normal turn-by-turn loop while goals are active:
 
 ```json

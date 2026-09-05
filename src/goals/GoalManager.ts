@@ -9,7 +9,8 @@ import { PROJECT_DIR_NAME } from '../constants.js';
 import { withFileLock } from '../utils/atomicFile.js';
 import { GoalSnapshotStore, GoalStorageError } from './GoalSnapshotStore.js';
 import { buildCompletionReceipt, parseAcceptanceCriteria } from './GoalCompletion.js';
-import { UNSCOPED_GOAL_SESSION_KEY as UNKNOWN_SESSION_KEY } from './types.js';
+import { applyGoalProgress } from './GoalProgress.js';
+import { parseGoalStatus, UNSCOPED_GOAL_SESSION_KEY as UNKNOWN_SESSION_KEY } from './types.js';
 import { ActiveAgentRegistry } from '../session/ActiveAgentRegistry.js';
 import { parseQueueBlockItems } from './queueBlockParser.js';
 import { listGoalTemplateMetadata, resolveGoalTemplateByName, resolveGoalTemplateInvocation } from './templates.js';
@@ -49,7 +50,7 @@ export interface GoalManagerOptions {
 export function buildGoalContinuationInstruction(objective: string): string {
   return [
     `Active goal: ${objective}`,
-    'Continue working toward this persistent goal until it is complete, blocked, paused, cleared, or budget-limited.',
+    'Continue working toward this persistent goal until it is complete, blocked, waiting, paused, cleared, or budget-limited.',
     'Use get_goal or update_goal when you need to inspect or modify the goal state.',
   ].join('\n');
 }
@@ -273,6 +274,15 @@ export class GoalManager {
 
     let next: GoalState = { ...current };
     const changes: string[] = [];
+    try {
+      parseGoalStatus(input.status);
+      next = applyGoalProgress(next, input);
+    } catch (error) {
+      if (!(error instanceof TypeError)) throw error;
+      return this.result(snapshot, false, error.message);
+    }
+    if (input.checkpoint !== undefined) changes.push('checkpoint');
+    if (input.stopReason !== undefined || input.resumeWhen !== undefined) changes.push('stop details');
     if (input.objective !== undefined) {
       const objective = input.objective.trim();
       if (!objective) return this.result(snapshot, false, 'objective must be non-empty.');
@@ -306,9 +316,6 @@ export class GoalManager {
     if (floorError) return this.result(snapshot, false, floorError);
 
     if (input.status !== undefined) {
-      if (!['active', 'paused', 'complete', 'budgetLimited'].includes(input.status)) {
-        return this.result(snapshot, false, 'status must be active, paused, complete, or budgetLimited.');
-      }
       if (input.status === 'complete' && !floorMet(next)) {
         return this.result(snapshot, false, 'Completion floor is not met yet. Keep working, raise the floor, or clear the goal if the user explicitly wants to stop.');
       }
@@ -678,7 +685,7 @@ export class GoalManager {
     const peers: GoalPeer[] = [];
     for (const [key, goal] of Object.entries(snapshot.goals)) {
       if (key === ownKey || key === UNKNOWN_SESSION_KEY) continue;
-      if (goal.status !== 'active' && goal.status !== 'paused') continue;
+      if (goal.status === 'complete' || goal.status === 'budgetLimited') continue;
       let ownerAlive = true;
       try {
         ownerAlive = await this.isSessionAlive(key);

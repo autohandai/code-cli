@@ -140,6 +140,14 @@ describe('ToolManager', () => {
       } } });
   });
 
+  it('exposes explicit stop states, resumption conditions, and checkpoints to goal tools', () => {
+    const properties = GOAL_TOOL_DEFINITIONS.find((tool) => tool.name === 'update_goal')?.parameters?.properties;
+    expect(properties?.status.enum).toEqual(expect.arrayContaining(['blocked', 'waiting']));
+    expect(properties?.stop_reason.type).toBe('string');
+    expect(properties?.resume_when.type).toBe('string');
+    expect(properties?.checkpoint).toMatchObject({ type: 'object', required: ['summary'] });
+  });
+
   it('exposes fff search tools instead of deprecated find and glob by default', () => {
     const names = new Set(DEFAULT_TOOL_DEFINITIONS.map((tool) => tool.name));
 

@@ -10,6 +10,7 @@ import path from 'node:path';
 import { GoalManager } from '../../src/goals/GoalManager.js';
 import { runGoalAccountingScenario } from '../../src/testing/scenarios/goalAccountingScenario.js';
 import { runToolGoalContinuationScenario } from '../../src/testing/scenarios/goalsCommandScenario.js';
+import { inspectStoppedGoal, resumeStoppedGoal } from '../../src/testing/scenarios/goalProgressScenario.js';
 import {
   createMockOpenRouterSequenceServer,
   createTempAutohandHome,
@@ -19,6 +20,39 @@ import {
 } from './helpers/autohandTuistory.js';
 
 describe('built CLI goal reliability', () => {
+  it.each(['blocked', 'waiting'] as const)('keeps a %s goal stopped until an explicit interactive resume', async (status) => {
+    const server = await createMockOpenRouterSequenceServer([
+      JSON.stringify({ toolCalls: [{ tool: 'update_goal', args: { status, stop_reason: 'Needs approval', resume_when: 'User approves', checkpoint: { summary: 'Patch prepared' } } }] }),
+      JSON.stringify({ toolCalls: [], finalResponse: 'GOAL_STOPPED_FOR_APPROVAL' }),
+      JSON.stringify({ toolCalls: [{ tool: 'update_goal', args: { status: 'complete' } }] }),
+      JSON.stringify({ toolCalls: [], finalResponse: 'GOAL_RESUMED_AND_FINISHED' }),
+    ]);
+    const state = await createTempAutohandHome({ config: {
+      features: { slashGoal: true }, openrouter: { baseUrl: server.baseUrl },
+      agent: { autoMemory: false, maxIterations: 4, sessionRetryLimit: 0 },
+      network: { maxRetries: 0, retryDelay: 0 },
+      ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+    } });
+    let session: Session | undefined;
+    try {
+      session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+        autohandHome: state.autohandHome, cwd: state.workspaceRoot,
+      });
+      await inspectStoppedGoal(session, status);
+      const manager = new GoalManager(state.workspaceRoot);
+      expect(Object.values((await manager.getSnapshot()).goals)[0]?.status).toBe(status);
+      expect(session.readAll()).not.toContain('GOAL_RESUMED_AND_FINISHED');
+      await resumeStoppedGoal(session);
+      await exitInteractive(session);
+      expect(Object.values((await manager.getSnapshot()).goals)[0]).toMatchObject({ status: 'complete', checkpoint: { summary: 'Patch prepared' } });
+    } finally {
+      if (session && !session.exitInfo) await exitInteractive(session).catch(() => {});
+      session?.close();
+      await server.close();
+      await state.cleanup();
+    }
+  });
+
   it('requires and saves reported completion evidence through the built CLI', async () => {
     const state = await createTempAutohandHome({ config: { features: { slashGoal: true } } });
     let session: Session | undefined;

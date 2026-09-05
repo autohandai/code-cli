@@ -7,7 +7,7 @@ import type { Ora } from 'ora';
 import type { ThemeDefinition } from './ui/theme/types.js';
 import type { KeybindingProfileId } from './keybindings/profiles.js';
 import type { TeamActivitySnapshot } from './core/teams/types.js';
-import type { GoalCompletionEvidence } from './goals/types.js';
+import type { GoalCheckpointInput, GoalCompletionEvidence } from './goals/types.js';
 
 // InkRenderer type defined inline to avoid tsx dev mode issues with .tsx imports
 interface InkRendererInterface {
@@ -1630,6 +1630,9 @@ export type AgentAction =
       type: 'update_goal';
       objective?: string;
       completion_evidence?: GoalCompletionEvidence;
+      stop_reason?: string;
+      resume_when?: string;
+      checkpoint?: GoalCheckpointInput;
       status?: string;
       token_budget?: number | null;
       time_budget_seconds?: number | null;
