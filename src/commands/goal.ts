@@ -28,6 +28,12 @@ export const metadata: SlashCommand = {
   ],
 };
 
+export const goalsMetadata: SlashCommand = {
+  ...metadata,
+  command: '/goals',
+  description: 'Open the live goals queue and manage persistent goals',
+};
+
 export async function goal(ctx: SlashCommandContext, args: string[] = []): Promise<string> {
   if (!resolveGoalFeatureEnabled(ctx.config, ctx.isFeatureEnabled)) {
     return GOAL_FEATURE_DISABLED_MESSAGE;
@@ -68,7 +74,10 @@ export async function goal(ctx: SlashCommandContext, args: string[] = []): Promi
     case 'refine':
       return startGoalWriter(ctx, rest);
     case 'view': {
-      ctx.onToggleGoalView?.(true);
+      if (!ctx.onToggleGoalView || ctx.isNonInteractive) {
+        return formatSnapshot(await manager.getSessionSnapshot());
+      }
+      ctx.onToggleGoalView(true);
       return 'Opened the live goals view. Press Cmd+G or Ctrl+G to close it.';
     }
     case 'edit': {

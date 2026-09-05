@@ -235,6 +235,12 @@ describe('remote feature flag loading', () => {
             userOverridable: true,
           },
           {
+            key: 'slash_goals',
+            enabled: false,
+            reason: 'version_below_min',
+            userOverridable: true,
+          },
+          {
             key: 'remote_disabled',
             enabled: false,
             reason: 'rollout_miss',
@@ -252,6 +258,8 @@ describe('remote feature flag loading', () => {
     await manager.refreshFeatureFlags();
 
     expect(manager.isFeatureEnabled('usage_v2', true)).toBe(true);
+    expect(manager.isFeatureEnabled('slash_goals', true)).toBe(true);
+    expect(manager.isFeatureEnabled('slash_goals', false)).toBe(false);
     expect(manager.isFeatureEnabled('remote_disabled', true)).toBe(false);
   });
 });

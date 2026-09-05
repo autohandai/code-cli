@@ -16,6 +16,7 @@ import stripAnsi from 'strip-ansi';
 import packageJson from '../../package.json' with { type: 'json' };
 import { SLASH_COMMANDS } from '../../src/core/slashCommands.js';
 import { hasTerminalProcessPid } from '../../src/testing/assertions/terminalOutput.js';
+import { openGoalsPanel } from '../../src/testing/scenarios/goalsCommandScenario.js';
 import { getHelpOrderedSlashCommands } from '../../src/ui/inputPrompt.js';
 import {
   clearComposerInput,
@@ -1356,7 +1357,7 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   }, 45_000);
 
-  it('enables goals, shows the chained goal queue, and edits a queued goal with the mouse', async () => {
+  it('enables slash_goals, opens /goals, and edits a chained goal with the mouse', async () => {
     const openRouterServer = await createMockOpenRouterSequenceServer([
       JSON.stringify({
         toolCalls: [],
@@ -1383,7 +1384,7 @@ describe('interactive built CLI Tuistory tests', () => {
     });
 
     await waitForComposer(session);
-    await session.type('/experiments enable /goals');
+    await session.type('/experiments enable slash_goals');
     await session.press('enter');
     await session.waitForText('Enabled slash_goal.', { timeout: 5_000 });
 
@@ -1398,9 +1399,7 @@ describe('interactive built CLI Tuistory tests', () => {
     await session.press('enter');
     await session.waitForText('Queued goal.', { timeout: 5_000 });
 
-    await waitForComposer(session);
-    await session.type('/goal view');
-    await session.press('enter');
+    await openGoalsPanel(session);
     await session.waitForText('Goals · 2 total', { timeout: 5_000 });
     await session.waitForText('ship the first queue item', { timeout: 5_000 });
     await session.waitForText('ship the second queue item', { timeout: 5_000 });

@@ -161,7 +161,7 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
   {
     id: 'slash_goal',
     label: 'Slash goal',
-    description: 'Enable experimental persistent goals across /goal, --goal, tools, RPC, and ACP.',
+    description: 'Enable experimental persistent goals across /goal, /goals, --goal, tools, RPC, and ACP.',
     stage: 'experimental',
     configPath: 'features.slashGoal',
     defaultEnabled: false,
@@ -281,8 +281,12 @@ export function isTokenUsageStatusEnabled(config?: Pick<LoadedConfig, 'features'
 
 const LOCAL_FEATURE_IDS = new Set(FEATURE_REGISTRY.map((feature) => feature.id));
 
+function resolveLocalFeatureId(id: string): string {
+  return id === 'slash_goals' ? 'slash_goal' : id;
+}
+
 export function isLocalFeatureId(id: string): boolean {
-  return LOCAL_FEATURE_IDS.has(id);
+  return LOCAL_FEATURE_IDS.has(resolveLocalFeatureId(id));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -349,6 +353,7 @@ export function isVisibleRemoteExperiment(flag: RemoteFeatureFlagSnapshot['flags
 }
 
 export function findFeature(id: string, options: FeatureRegistryOptions = {}): FeatureDefinition | undefined {
+  id = resolveLocalFeatureId(id);
   const local = FEATURE_REGISTRY.find((feature) => feature.id === id);
   if (local) return local;
 
@@ -366,6 +371,7 @@ export function findFeature(id: string, options: FeatureRegistryOptions = {}): F
 }
 
 export function getFeatureState(config: LoadedConfig, id: string, options: FeatureRegistryOptions = {}): FeatureState | undefined {
+  id = resolveLocalFeatureId(id);
   const definition = FEATURE_REGISTRY.find((feature) => feature.id === id);
   if (definition) {
     const rawValue = definition.configPath ? getNestedValue(config, definition.configPath) : undefined;
@@ -394,6 +400,7 @@ export function setFeatureState(
   enabled: boolean,
   options: FeatureRegistryOptions = {}
 ): FeatureMutationResult {
+  id = resolveLocalFeatureId(id);
   const definition = FEATURE_REGISTRY.find((feature) => feature.id === id);
   if (definition) {
     if (!definition.configPath) {

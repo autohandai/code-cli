@@ -90,6 +90,23 @@ describe('/goal command', () => {
     ]);
   });
 
+  it.each([false, true])('returns the queue without starting it when no panel is available (non-interactive: %s)', async (isNonInteractive) => {
+    ctx.isNonInteractive = isNonInteractive;
+    if (isNonInteractive) ctx.onToggleGoalView = vi.fn();
+    await goal(ctx, ['queue', 'ship the queued goal']);
+
+    const result = await goal(ctx, ['view']);
+
+    expect(result).toContain('ship the queued goal');
+    expect(result).toContain('Queued goals (1)');
+    expect(queued).toEqual([]);
+    expect(ctx.setInteractionMode).not.toHaveBeenCalled();
+    if (ctx.onToggleGoalView) expect(ctx.onToggleGoalView).not.toHaveBeenCalled();
+    const snapshot = await new GoalManager(workspaceRoot, { sessionId: 'session-current' }).getSessionSnapshot();
+    expect(snapshot.goal).toBeNull();
+    expect(snapshot.queue).toHaveLength(1);
+  });
+
   it('starts the writer when /goal has no active goal or arguments', async () => {
     const result = await goal(ctx, []);
 

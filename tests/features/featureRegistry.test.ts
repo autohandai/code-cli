@@ -7,8 +7,10 @@ import { describe, expect, it } from 'vitest';
 import type { LoadedConfig } from '../../src/types.js';
 import {
   FEATURE_REGISTRY,
+  findFeature,
   formatFeatureList,
   getFeatureState,
+  isLocalFeatureId,
   isTokenUsageStatusEnabled,
   listFeatureStates,
   setFeatureState,
@@ -280,6 +282,39 @@ describe('feature registry', () => {
     expect(result.ok).toBe(true);
     expect(config.features?.slashGoal).toBe(true);
     expect(getFeatureState(config, 'slash_goal')?.enabled).toBe(true);
+  });
+
+  it('resolves slash_goals to the local goal experiment and omits the duplicate remote row', () => {
+    const config = makeConfig();
+    const remoteSnapshot = {
+      success: true as const,
+      environment: 'production',
+      evaluatedAt: '2026-09-05T00:00:00.000Z',
+      ttlSeconds: 300,
+      flags: [{
+        key: 'slash_goals',
+        enabled: false,
+        reason: 'version_below_min',
+        userOverridable: true,
+      }],
+    };
+    const options = { remoteSnapshot };
+
+    expect(isLocalFeatureId('slash_goals')).toBe(true);
+    expect(findFeature('slash_goals', options)?.id).toBe('slash_goal');
+    expect(getFeatureState(config, 'slash_goals', options)?.enabled).toBe(false);
+
+    const result = setFeatureState(config, 'slash_goals', true, options);
+
+    expect(result).toMatchObject({ ok: true, feature: { id: 'slash_goal', source: 'local', enabled: true } });
+    expect(config.features?.slashGoal).toBe(true);
+    expect(config.features?.remoteOverrides).toBeUndefined();
+    expect(getFeatureState(config, 'slash_goals', options)?.enabled).toBe(true);
+    expect(listFeatureStates(config, options).filter((feature) => feature.id.startsWith('slash_goal')))
+      .toMatchObject([{ id: 'slash_goal', source: 'local', enabled: true }]);
+
+    expect(setFeatureState(config, 'slash_goals', false, options).feature?.enabled).toBe(false);
+    expect(getFeatureState(config, 'slash_goal', options)?.enabled).toBe(false);
   });
 
   it('keeps automatic specialist orchestration default-on and locally opt-out', () => {
