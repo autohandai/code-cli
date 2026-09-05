@@ -50,6 +50,8 @@ import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from './constants.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessionWorktree.js';
 import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
 import { registerBrowserCommand, registerBrowserOptions } from './browser/cliCommand.js';
+import { registerReviewCommand } from './review/reviewCliCommand.js';
+import type { ReviewCliExecution } from './review/reviewCliRuntime.js';
 import { formatDeprecatedBrowserOptionWarning } from './browser/compatibility.js';
 import {
   normalizeContextCompactOption,
@@ -633,6 +635,36 @@ program
 
     await runCLI(opts);
   });
+
+registerReviewCommand(program, {
+  run: async (invocation) => {
+    const { executeReviewCliInvocation } = await import('./review/reviewCliRuntime.js');
+    await executeReviewCliInvocation(invocation, {
+      cwd: () => process.cwd(),
+      refreshModelCatalog: refreshModelCatalogBeforeAgentStart,
+      loadConfig,
+      resolveWorkspaceRoot,
+      validateWorkspacePath,
+      checkWorkspaceSafety,
+      authenticate: ensureAuthenticated,
+      buildInstruction: async (workspaceRoot, request) => {
+        const { buildReviewCommandInstruction } = await import('./commands/review.js');
+        return buildReviewCommandInstruction(workspaceRoot, request);
+      },
+      run: async (execution) => {
+        await runCLI({
+          ...execution.options,
+          _authConfig: execution.authenticatedConfig,
+          reviewExecution: execution.review,
+        });
+      },
+    });
+  },
+  serve: async (invocation) => {
+    const { serveReviewReport } = await import('./review/reviewReportServer.js');
+    await serveReviewReport(invocation);
+  },
+});
 
 program
   .command('resume <sessionId>')
@@ -1253,15 +1285,21 @@ program
     process.exit(0);
   });
 
-async function runCLI(options: CLIOptions): Promise<void> {
+interface InternalCLIOptions extends CLIOptions {
+  _authConfig?: LoadedConfig;
+  reviewExecution?: ReviewCliExecution['review'];
+}
+
+async function runCLI(options: InternalCLIOptions): Promise<void> {
   const agentHolder: { current: AutohandAgent | null } = { current: null };
   const commandLifecycleController = new AbortController();
   let agent: AutohandAgent | null = null;
   const structuredOutput = isStructuredCommandOutput(options.commandOutputFormat);
-  const commandOutputWriter = structuredOutput
+  const captureCommandOutput = structuredOutput || options.reviewExecution !== undefined;
+  const commandOutputWriter = captureCommandOutput
     ? new CommandOutputWriter(options.commandOutputFormat ?? 'text')
     : undefined;
-  const restoreConsoleOutput = structuredOutput ? redirectConsoleOutputToStderr() : undefined;
+  const restoreConsoleOutput = captureCommandOutput ? redirectConsoleOutputToStderr() : undefined;
   let commandOutputCompleted = false;
   const runtimeResourceOwner = new CliRuntimeResourceOwner<
     AuthUser,
@@ -1283,7 +1321,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
     },
   });
   try {
-    let config = (options as any)._authConfig ?? await awaitCliLifecycleStep(
+    let config = options._authConfig ?? await awaitCliLifecycleStep(
       loadConfig(options.config, process.cwd()),
       commandLifecycleController.signal,
     );
@@ -1462,6 +1500,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
       config,
       workspaceRoot,
       options,
+      commandOutputCaptured: captureCommandOutput,
       additionalDirs: additionalDirs.length > 0 ? additionalDirs : undefined
     };
 
@@ -1601,10 +1640,7 @@ async function runCLI(options: CLIOptions): Promise<void> {
 
     // Override model from CLI if provided
     if (options.model) {
-      const providerName = config.provider ?? 'openrouter';
-      if (config[providerName]) {
-        (config as any)[providerName].model = options.model;
-      }
+      applyCliModelOverride(config, options.model);
     }
 
     // Override debug mode from CLI if provided
@@ -1780,10 +1816,15 @@ async function runCLI(options: CLIOptions): Promise<void> {
       if (commandOutputWriter) {
         agent.setOutputListener((event) => commandOutputWriter.handleEvent(event));
       }
-      const succeeded = await agent.runCommandMode(
-        options.prompt,
-        commandLifecycleController.signal,
-      );
+      const succeeded = options.reviewExecution
+        ? await agent.runCommandMode(options.prompt, {
+            signal: commandLifecycleController.signal,
+            review: options.reviewExecution,
+          })
+        : await agent.runCommandMode(
+            options.prompt,
+            commandLifecycleController.signal,
+          );
       commandOutputWriter?.finish(succeeded);
       commandOutputCompleted = true;
       agent.setOutputListener(undefined);

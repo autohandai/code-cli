@@ -42,6 +42,10 @@ const {
     addSystemNote: vi.fn(),
     addMessage: vi.fn(),
   };
+  const mockPermissionManager = {
+    getMode: vi.fn().mockReturnValue("external"),
+    setMode: vi.fn(),
+  };
 
   const mockAgent = {
     initializeForRPC: vi.fn().mockResolvedValue(undefined),
@@ -53,10 +57,13 @@ const {
     applyAcpConfigOption: vi.fn(),
     cancelCurrentInstruction: vi.fn(),
     getSessionManager: vi.fn().mockReturnValue(mockSessionManager),
+    getHookManager: vi.fn(),
+    getPermissionManager: vi.fn().mockReturnValue(mockPermissionManager),
     runInstruction: vi.fn().mockResolvedValue(true),
     isSlashCommand: vi.fn().mockReturnValue(false),
     isSlashCommandSupported: vi.fn().mockReturnValue(false),
     handleSlashCommand: vi.fn().mockResolvedValue(null),
+    trackCommandUsage: vi.fn().mockResolvedValue(undefined),
     parseSlashCommand: vi.fn().mockImplementation((input: string) => {
       const parts = input.trim().split(/\s+/);
       return { command: parts[0], args: parts.slice(1) };
@@ -224,10 +231,12 @@ describe("AutohandAcpAdapter", () => {
     );
     mockAgent.initializeForRPC.mockResolvedValue(undefined);
     mockAgent.getSessionManager.mockReturnValue(mockSessionManager);
+    mockAgent.getHookManager.mockReset().mockReturnValue(undefined);
     mockAgent.runInstruction.mockResolvedValue(true);
     mockAgent.isSlashCommand.mockReturnValue(false);
     mockAgent.isSlashCommandSupported.mockReturnValue(false);
     mockAgent.handleSlashCommand.mockResolvedValue(null);
+    mockAgent.trackCommandUsage.mockReset().mockResolvedValue(undefined);
     mockAgent.connectAcpMcpServers.mockResolvedValue(undefined);
     mockAgent.applyAcpMode.mockImplementation(() => {});
     mockAgent.applyAcpModel.mockImplementation(() => {});
@@ -639,8 +648,72 @@ describe("AutohandAcpAdapter", () => {
 
       expect(result.stopReason).toBe("end_turn");
       expect(mockAgent.isSlashCommand).toHaveBeenCalledWith("/help");
-      expect(mockAgent.handleSlashCommand).toHaveBeenCalledWith("/help", []);
+      expect(mockAgent.handleSlashCommand).toHaveBeenCalledWith("/help", [], "acp");
       expect(connection.sessionUpdate).toHaveBeenCalled();
+    });
+
+    it("executes /review through the model and review lifecycle", async () => {
+      const hookManager = {
+        executeHooks: vi.fn().mockResolvedValue([]),
+      };
+      mockAgent.getHookManager.mockReturnValue(hookManager);
+      mockAgent.isSlashCommand.mockReturnValue(true);
+      mockAgent.isSlashCommandSupported.mockReturnValue(true);
+
+      const result = await adapter.prompt({
+        sessionId,
+        prompt: [{
+          type: "text",
+          text: "/review architecture packages/api --audience technical",
+        }],
+      } as any);
+
+      expect(result.stopReason).toBe("end_turn");
+      expect(mockAgent.handleSlashCommand).not.toHaveBeenCalled();
+      expect(mockAgent.trackCommandUsage).toHaveBeenCalledWith({
+        command: "/review",
+        subcommand: "architecture",
+        surface: "acp",
+      });
+      expect(mockAgent.runInstruction).toHaveBeenCalledWith(
+        expect.stringContaining("# Autohand Review invocation"),
+        { signal: expect.any(AbortSignal) },
+      );
+      expect(mockAgent.runInstruction.mock.calls[0]?.[0]).toContain(
+        '"kind": "architecture"',
+      );
+      expect(hookManager.executeHooks.mock.calls.map(([event]) => event)).toEqual([
+        "review:start",
+        "review:completed",
+        "review:end",
+      ]);
+      expect(mockAgent.getPermissionManager().setMode.mock.calls).toEqual([
+        ["restricted"],
+        ["external"],
+      ]);
+      expect(connection.extNotification).toHaveBeenCalledWith(
+        "autohand.hook.reviewStart",
+        expect.objectContaining({
+          event: "review:start",
+          kind: "architecture",
+          surface: "acp",
+          status: "running",
+        }),
+      );
+      expect(connection.extNotification).toHaveBeenCalledWith(
+        "autohand.hook.reviewCompleted",
+        expect.objectContaining({ event: "review:completed", success: true }),
+      );
+      expect(connection.extNotification).toHaveBeenCalledWith(
+        "autohand.hook.reviewEnd",
+        expect.objectContaining({ event: "review:end", status: "completed" }),
+      );
+      expect(connection.extNotification).toHaveBeenCalledWith(
+        "autohand.hook.prePrompt",
+        expect.objectContaining({
+          instruction: "/review architecture packages/api --audience technical",
+        }),
+      );
     });
 
     it("calls agent.runInstruction for regular prompts", async () => {

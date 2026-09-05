@@ -335,6 +335,36 @@ describe('HookManager', () => {
       expect(results).toHaveLength(0);
     });
 
+    it('publishes the complete review execution context to lifecycle observers', async () => {
+      const listener = vi.fn();
+      manager.subscribeLifecycle(listener);
+
+      await manager.executeHooks('review:start', {
+        sessionId: 'session-review',
+        reviewAudience: 'forensic',
+        reviewBase: 'origin/main',
+        reviewFormat: 'markdown',
+        reviewHead: 'HEAD',
+        reviewKind: 'security',
+        reviewPath: 'src/auth',
+        reviewScope: 'security',
+        reviewStatus: 'running',
+        reviewSurface: 'acp',
+      });
+
+      expect(listener).toHaveBeenCalledWith(expect.objectContaining({
+        event: 'review:start',
+        workspace: '/test/workspace',
+        reviewAudience: 'forensic',
+        reviewBase: 'origin/main',
+        reviewFormat: 'markdown',
+        reviewHead: 'HEAD',
+        reviewKind: 'security',
+        reviewStatus: 'running',
+        reviewSurface: 'acp',
+      }));
+    });
+
     it('executes async hooks in parallel', async () => {
       await manager.addHook({ event: 'pre-tool', command: 'true', async: true });
       await manager.addHook({ event: 'pre-tool', command: 'true', async: true });

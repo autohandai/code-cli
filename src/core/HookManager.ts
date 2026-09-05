@@ -161,6 +161,20 @@ export interface HookContext {
   reviewInstructions?: string;
   /** Review error message (for review:failed) */
   reviewError?: string;
+  /** Review kind selected by the caller */
+  reviewKind?: string;
+  /** Report audience selected by the caller */
+  reviewAudience?: string;
+  /** Report format selected by the caller */
+  reviewFormat?: string;
+  /** Surface that executed the review */
+  reviewSurface?: string;
+  /** Current review lifecycle status */
+  reviewStatus?: string;
+  /** Git comparison base, when provided */
+  reviewBase?: string;
+  /** Git comparison head, when provided */
+  reviewHead?: string;
 
   // Goal hooks
   /** Goal ID (for goal-written:completed) */
@@ -600,6 +614,13 @@ export class HookManager {
           context.reviewScope,
           context.reviewInstructions,
           context.reviewError,
+          context.reviewKind,
+          context.reviewAudience,
+          context.reviewFormat,
+          context.reviewSurface,
+          context.reviewStatus,
+          context.reviewBase,
+          context.reviewHead,
         ].filter((part) => part !== undefined && part !== null).join(' ');
         break;
       case 'goal-written:completed':
@@ -732,6 +753,13 @@ export class HookManager {
       if (context.reviewScope) env.HOOK_REVIEW_SCOPE = context.reviewScope;
       if (context.reviewError) env.HOOK_REVIEW_ERROR = context.reviewError;
       if (context.reviewInstructions) env.HOOK_REVIEW_INSTRUCTIONS = context.reviewInstructions;
+      if (context.reviewKind) env.HOOK_REVIEW_KIND = context.reviewKind;
+      if (context.reviewAudience) env.HOOK_REVIEW_AUDIENCE = context.reviewAudience;
+      if (context.reviewFormat) env.HOOK_REVIEW_FORMAT = context.reviewFormat;
+      if (context.reviewSurface) env.HOOK_REVIEW_SURFACE = context.reviewSurface;
+      if (context.reviewStatus) env.HOOK_REVIEW_STATUS = context.reviewStatus;
+      if (context.reviewBase) env.HOOK_REVIEW_BASE = context.reviewBase;
+      if (context.reviewHead) env.HOOK_REVIEW_HEAD = context.reviewHead;
     }
 
     // Goal hooks
@@ -844,6 +872,13 @@ export class HookManager {
       review_scope: context.reviewScope,
       review_instructions: context.reviewInstructions,
       review_error: context.reviewError,
+      review_kind: context.reviewKind,
+      review_audience: context.reviewAudience,
+      review_format: context.reviewFormat,
+      review_surface: context.reviewSurface,
+      review_status: context.reviewStatus,
+      review_base: context.reviewBase,
+      review_head: context.reviewHead,
       // Goal context
       goal_id: context.goalId,
       goal_objective: context.goalObjective,

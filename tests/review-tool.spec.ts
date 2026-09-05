@@ -11,7 +11,7 @@ describe('review command RPC/ACP mode', () => {
     expect(source).toContain('isNonInteractive');
   });
 
-  it('returns prompt text when isNonInteractive is true (even if queueInstruction exists)', async () => {
+  it('does not expose the specialist prompt when isNonInteractive is true', async () => {
     const queueInstruction = vi.fn();
     const result = await review({
       workspaceRoot: process.cwd(),
@@ -19,7 +19,10 @@ describe('review command RPC/ACP mode', () => {
       queueInstruction,
     } as SlashCommandContext);
 
-    expect(result).toContain('# Autohand Review invocation');
+    expect(result).toContain('Use /review in an interactive, ACP, or JSON-RPC session');
+    expect(result).toContain('autohand review');
+    expect(result).not.toContain('# Autohand Review invocation');
+    expect(result).not.toContain('specialistInstructions');
     expect(queueInstruction).not.toHaveBeenCalled();
   });
 

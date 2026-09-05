@@ -47,6 +47,7 @@ function createHost(instructionSucceeded: boolean) {
     performAutoCommit: vi.fn().mockResolvedValue(undefined),
     telemetryManager: {
       endSession: vi.fn().mockResolvedValue(undefined),
+      trackCommand: vi.fn().mockResolvedValue(undefined),
     },
     sessionStartedAt: Date.now() - 100,
     shutdown: vi.fn().mockResolvedValue(undefined),
@@ -130,6 +131,54 @@ describe('runAgentCommandMode', () => {
     expect(host.hookManager.executeHooks).toHaveBeenCalledOnce();
     expect(host.runtime.isCommandMode).toBe(false);
     expect(host.useInkRenderer).toBe(true);
+  });
+
+  it('brackets a non-interactive review command with review lifecycle hooks', async () => {
+    const host = createHost(true);
+    const order: string[] = [];
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    host.runInstruction.mockImplementation(async () => {
+      order.push('instruction');
+      return true;
+    });
+    host.hookManager.executeHooks.mockImplementation(async (event: string) => {
+      order.push(event);
+      return [];
+    });
+
+    await expect(runAgentCommandMode(host, 'review instruction', {
+      review: {
+        surface: 'cli',
+        request: {
+          kind: 'changes',
+          audience: 'mixed',
+          format: 'markdown',
+          base: 'origin/main',
+        },
+      },
+    })).resolves.toBe(true);
+
+    expect(order).toEqual([
+      'review:start',
+      'instruction',
+      'review:completed',
+      'review:end',
+      'stop',
+    ]);
+    expect(host.hookManager.executeHooks).toHaveBeenCalledWith(
+      'review:start',
+      expect.objectContaining({ reviewSurface: 'cli', reviewBase: 'origin/main' }),
+    );
+    expect(host.telemetryManager.trackCommand).toHaveBeenCalledWith({
+      command: 'review',
+      subcommand: 'changes',
+      surface: 'cli',
+    });
+    expect(host.runInstruction).toHaveBeenCalledWith('review instruction', {
+      signal: undefined,
+      echoInTranscript: false,
+    });
+    expect(stdoutWrite).not.toHaveBeenCalledWith('\x07');
   });
 
   it('restores renderer and command-mode state when execution throws', async () => {
