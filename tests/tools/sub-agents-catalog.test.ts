@@ -3,7 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -14,6 +14,7 @@ import type { LLMMessage } from '../../src/types.js';
 import { AgentRegistry } from '../../src/core/agents/AgentRegistry.js';
 import {
   installSubAgentFromCatalog,
+  fetchSubAgentsRegistry,
   searchSubAgentsCatalog,
 } from '../../src/actions/subAgentsCatalog.js';
 
@@ -157,8 +158,214 @@ describe('sub-agent catalog actions', () => {
   const tempRoots: string[] = [];
 
   afterEach(async () => {
+    vi.useRealTimers();
     (AgentRegistry as unknown as { instance?: AgentRegistry }).instance = undefined;
     await Promise.all(tempRoots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
+  });
+
+  it('bounds a catalogue fetch even when a transport ignores its abort signal', async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | null | undefined;
+    const fetchImpl = vi.fn<typeof fetch>((_input, init) => {
+      signal = init?.signal;
+      return new Promise<Response>(() => {});
+    });
+    const pending = fetchSubAgentsRegistry({ fetchImpl });
+    const rejected = expect(pending).rejects.toThrow('timed out');
+    await vi.advanceTimersByTimeAsync(10_001);
+    await rejected;
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it('rejects oversized catalogue headers and streamed bodies before parsing metadata', async () => {
+    await expect(fetchSubAgentsRegistry({
+      fetchImpl: vi.fn<typeof fetch>(async () => new Response(JSON.stringify(registry), {
+        headers: { 'content-length': String(3 * 1024 * 1024) },
+      })),
+    })).rejects.toThrow('response exceeds 2097152 bytes');
+
+    await expect(fetchSubAgentsRegistry({
+      fetchImpl: vi.fn<typeof fetch>(async () => new Response(' '.repeat(2 * 1024 * 1024 + 1))),
+    })).rejects.toThrow('response exceeds 2097152 bytes');
+  });
+
+  it('cancels a stalled response body at the same request deadline', async () => {
+    vi.useFakeTimers();
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({ cancel });
+    const pending = fetchSubAgentsRegistry({
+      fetchImpl: vi.fn<typeof fetch>(async () => new Response(body)),
+    });
+    const rejected = expect(pending).rejects.toThrow('timed out');
+    await vi.advanceTimersByTimeAsync(10_001);
+    await rejected;
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it.each(['ui-designer', 'UI-Designer'])('rejects ambiguous duplicate catalog names (%s)', async (name) => {
+    const duplicateRegistry = {
+      ...registry,
+      agents: [registry.agents[2], { ...registry.agents[2], name }],
+    };
+
+    await expect(fetchSubAgentsRegistry({
+      fetchImpl: mockFetch(uiDesignerMarkdown, duplicateRegistry),
+    })).rejects.toThrow('duplicate catalog agent name');
+  });
+
+  it('revalidates a supplied registry before fetching installation content', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-sub-agents-'));
+    tempRoots.push(root);
+    const fetchImpl = vi.fn<typeof fetch>(mockFetch());
+
+    await expect(installSubAgentFromCatalog('ui-designer', {
+      destinationDir: root,
+      registry: { ...registry, agents: [{ ...registry.agents[2], path: '../ui-designer.md' }] },
+      fetchImpl,
+    })).rejects.toThrow('invalid catalog path');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(await fs.readdir(root)).toEqual([]);
+  });
+
+  it('uses labelled validated metadata during an outage without installing agent prompts', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-sub-agents-'));
+    tempRoots.push(root);
+    const cachePath = path.join(root, 'registry.json');
+    const network = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
+      ...registry,
+      agents: registry.agents.map((agent) => ({ ...agent, prompt: 'Do not cache this executable prompt.' })),
+    })));
+
+    await searchSubAgentsCatalog('UI design', { fetchImpl: network, cachePath });
+    const result = await searchSubAgentsCatalog('UI design', {
+      fetchImpl: vi.fn<typeof fetch>().mockRejectedValue(new TypeError('offline')),
+      cachePath,
+    });
+
+    expect(result).toContain('Using validated cached catalogue metadata');
+    expect(result).toContain('name: ui-designer');
+    expect(result).toContain('install: install_sub_agent name="ui-designer"');
+    expect(await fs.readFile(cachePath, 'utf8')).not.toContain('executable prompt');
+    expect(await fs.readdir(root)).toEqual(['registry.json']);
+  });
+
+  it.each([
+    { tools: ['read_file', 42] },
+    { tools: ['read_file', 'run command'] },
+    { tools: ['read_file', ''] },
+    { sha256: 42 },
+  ])('rejects malformed tool and hash metadata without silently dropping it (%j)', async (invalid) => {
+    await expect(fetchSubAgentsRegistry({
+      fetchImpl: vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
+        ...registry,
+        agents: [{ ...registry.agents[2], ...invalid }],
+      }))),
+    })).rejects.toThrow(/invalid .*registry entry/);
+  });
+
+  it.each([503, 429, 'broken-body'] as const)('uses cached metadata for a transient fetch failure (%s)', async (failure) => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-sub-agents-'));
+    tempRoots.push(root);
+    const cachePath = path.join(root, 'registry.json');
+    await fetchSubAgentsRegistry({ fetchImpl: mockFetch(), cachePath });
+    const response = typeof failure === 'number'
+      ? new Response('unavailable', { status: failure })
+      : new Response(new ReadableStream<Uint8Array>({
+        start(controller) { controller.error(new TypeError('connection interrupted')); },
+      }));
+
+    const result = await searchSubAgentsCatalog('UI design', {
+      fetchImpl: vi.fn<typeof fetch>(async () => response),
+      cachePath,
+    });
+
+    expect(result).toContain('Using validated cached catalogue metadata');
+    expect(result).toContain('name: ui-designer');
+  });
+
+  it.each([
+    { reason: 'expired', patch: { fetchedAt: Date.now() - 8 * 24 * 60 * 60 * 1000 } },
+    { reason: 'future timestamp', patch: { fetchedAt: Date.now() + 24 * 60 * 60 * 1000 } },
+    { reason: 'different source', patch: { registryUrl: 'https://example.test/registry.json' } },
+    { reason: 'unsupported schema', patch: { registry: { ...registry, schemaVersion: 2 } } },
+    { reason: 'duplicate name', patch: { registry: { ...registry, agents: [registry.agents[2], registry.agents[2]] } } },
+    { reason: 'unsafe path', patch: { registry: { ...registry, agents: [{ ...registry.agents[2], path: '../agent.md' }] } } },
+    { reason: 'invalid tools', patch: { registry: { ...registry, agents: [{ ...registry.agents[2], tools: ['read_file', 42] }] } } },
+    { reason: 'invalid hash', patch: { registry: { ...registry, agents: [{ ...registry.agents[2], sha256: 42 }] } } },
+  ])('refuses cached metadata with $reason', async ({ patch }) => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-sub-agents-'));
+    tempRoots.push(root);
+    const cachePath = path.join(root, 'registry.json');
+    await fetchSubAgentsRegistry({ fetchImpl: mockFetch(), cachePath });
+    const cached: Record<string, unknown> = JSON.parse(await fs.readFile(cachePath, 'utf8'));
+    await fs.writeFile(cachePath, JSON.stringify({ ...cached, ...patch }));
+
+    await expect(searchSubAgentsCatalog('UI design', {
+      fetchImpl: vi.fn<typeof fetch>().mockRejectedValue(new TypeError('offline')),
+      cachePath,
+    })).rejects.toThrow('catalogue request failed');
+  });
+
+  it.each(['malformed-json', 'oversized', 'missing'] as const)('ignores unusable cached metadata (%s)', async (failure) => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-sub-agents-'));
+    tempRoots.push(root);
+    const cachePath = path.join(root, 'registry.json');
+    if (failure !== 'missing') {
+      await fs.writeFile(cachePath, failure === 'oversized' ? ' '.repeat(2 * 1024 * 1024 + 1) : '{');
+    }
+
+    await expect(searchSubAgentsCatalog('UI design', {
+      fetchImpl: vi.fn<typeof fetch>().mockRejectedValue(new TypeError('offline')),
+      cachePath,
+    })).rejects.toThrow('catalogue request failed');
+  });
+
+  it.each(['invalid-metadata', 'oversized', 'not-found'] as const)('does not hide invalid live responses with cached metadata (%s)', async (failure) => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-sub-agents-'));
+    tempRoots.push(root);
+    const cachePath = path.join(root, 'registry.json');
+    await fetchSubAgentsRegistry({ fetchImpl: mockFetch(), cachePath });
+    const previous = await fs.readFile(cachePath, 'utf8');
+    const response = failure === 'not-found' ? new Response('not found', { status: 404 })
+      : new Response(failure === 'oversized' ? ' '.repeat(2 * 1024 * 1024 + 1) : 'null');
+
+    await expect(searchSubAgentsCatalog('UI design', {
+      fetchImpl: vi.fn<typeof fetch>(async () => response),
+      cachePath,
+    })).rejects.toThrow();
+    expect(await fs.readFile(cachePath, 'utf8')).toBe(previous);
+  });
+
+  it('keeps live discovery available when the metadata cache cannot be written', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-sub-agents-'));
+    tempRoots.push(root);
+    const parentFile = path.join(root, 'not-a-directory');
+    await fs.writeFile(parentFile, 'preserve this file');
+
+    const result = await searchSubAgentsCatalog('UI design', {
+      fetchImpl: mockFetch(),
+      cachePath: path.join(parentFile, 'registry.json'),
+    });
+
+    expect(result).toContain('name: ui-designer');
+    expect(await fs.readFile(parentFile, 'utf8')).toBe('preserve this file');
+  });
+
+  it('requires fresh downloadable content even after using cached metadata', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-sub-agents-'));
+    tempRoots.push(root);
+    const cachePath = path.join(root, 'registry.json');
+    await fetchSubAgentsRegistry({ fetchImpl: mockFetch(), cachePath });
+    const offline = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('offline'));
+    const cachedRegistry = await fetchSubAgentsRegistry({ fetchImpl: offline, cachePath });
+
+    await expect(installSubAgentFromCatalog('ui-designer', {
+      registry: cachedRegistry,
+      destinationDir: root,
+      fetchImpl: offline,
+    })).rejects.toThrow('catalogue request failed');
+    expect(await fs.readdir(root)).toEqual(['registry.json']);
   });
 
   it('searches registry entries and returns exact install guidance', async () => {
@@ -231,7 +438,7 @@ describe('sub-agent catalog actions', () => {
   });
 
   it('discovers and ranks agents from the live awesome-sub-agents registry', async () => {
-    const result = await searchSubAgentsCatalog('backend api', { limit: 8 });
+    const result = await searchSubAgentsCatalog('backend api', { limit: 8, cachePath: false });
     expect(result).toMatch(/Found \d+ sub-agent/);
     expect(result).toContain('install: install_sub_agent name=');
     // Live catalog should surface backend-oriented specialists for this query.
@@ -241,7 +448,7 @@ describe('sub-agent catalog actions', () => {
       || result.includes('api-designer'),
     ).toBe(true);
 
-    const ui = await searchSubAgentsCatalog('UI design', { limit: 8 });
+    const ui = await searchSubAgentsCatalog('UI design', { limit: 8, cachePath: false });
     expect(ui).toContain('ui-designer');
     expect(ui).toContain('name: ui-designer');
     expect(ui).toContain('install: install_sub_agent name="ui-designer"');
@@ -261,6 +468,42 @@ describe('sub-agent catalog actions', () => {
     expect(result).toContain('Installed sub-agent ui-designer');
     expect(result).toContain('delegate_task');
     expect(result).toContain('add_teammate');
+  });
+
+  it('does not install a differently named agent through its catalog filename', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-sub-agents-'));
+    tempRoots.push(root);
+    const renamedRegistry = {
+      ...registry,
+      agents: [{ ...registry.agents[2], name: 'canonical-ui-designer' }],
+    };
+
+    const result = await installSubAgentFromCatalog('ui-designer', {
+      destinationDir: root,
+      fetchImpl: mockFetch(uiDesignerMarkdown, renamedRegistry),
+    });
+
+    expect(result).toContain('Sub-agent not found: "ui-designer".');
+    expect(result).toContain('Similar sub-agents: canonical-ui-designer');
+    expect(await fs.readdir(root)).toEqual([]);
+  });
+
+  it('installs a case-insensitive exact registry name when its filename differs', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-sub-agents-'));
+    tempRoots.push(root);
+    const renamedRegistry = {
+      ...registry,
+      agents: [{ ...registry.agents[2], name: 'canonical-ui-designer' }],
+    };
+
+    const result = await installSubAgentFromCatalog(' CANONICAL-UI-DESIGNER ', {
+      destinationDir: root,
+      fetchImpl: mockFetch(uiDesignerMarkdown, renamedRegistry),
+    });
+
+    expect(result).toContain('Installed sub-agent canonical-ui-designer');
+    expect(await fs.readFile(path.join(root, 'canonical-ui-designer.md'), 'utf8'))
+      .toBe(uiDesignerMarkdown);
   });
 
   it('does not overwrite an existing definition unless explicitly requested', async () => {

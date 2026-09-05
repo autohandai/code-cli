@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { AUTOHAND_PATHS } from '../../constants.js';
 import type { ExternalAgentsConfig, InlineAgentDefinition } from '../../types.js';
 import type { ExtensionAgentContribution, ExtensionScope } from '../../extensions/types.js';
+import { BUILTIN_AGENT_HANDOFF } from './builtinAgentContract.js';
 import {
     isCatalogManagedContent,
     readCatalogProvenance,
@@ -22,12 +23,15 @@ export const BUILTIN_AGENT_NAMES = [
     'code-cleaner',
     'debugger',
     'docs-writer',
+    'implementer',
     'planner',
     'product-interviewer',
     'release-readiness',
+    'requirements-translator',
     'researcher',
     'reviewer',
     'security-auditor',
+    'software-architect',
     'tester',
     'todo-resolver',
 ] as const;
@@ -394,7 +398,9 @@ export class AgentRegistry {
                 path: filePath,
                 source: resolvedSource,
                 description: parsed.description || `Agent ${name}`,
-                systemPrompt: parsed.systemPrompt,
+                systemPrompt: source === 'builtin'
+                    ? `${parsed.systemPrompt}\n\n${BUILTIN_AGENT_HANDOFF}`
+                    : parsed.systemPrompt,
                 tools: parsed.tools.length > 0 ? parsed.tools : ['*'],
                 model: parsed.model,
             };
