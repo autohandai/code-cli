@@ -16,15 +16,15 @@ vi.mock('fs-extra', () => ({
     readFile: vi.fn(async () => {
       return [
         '---',
-        'name: code-reviewer',
-        'description: test skill',
-        'allowed-tools: read_file fff_grep fff_find',
+        'description: test specialist',
+        'tools: read_file, fff_grep, fff_find',
         '---',
         '',
-        'You are a Staff-level Software Engineer performing a code review.',
-        '',
-        '## Review Methodology',
-        'Analyze across 10 dimensions.',
+        '# Autohand Review',
+        '### Executive view',
+        '### Technical findings',
+        '### Forensic appendix',
+        '### Evidence boundary',
       ].join('\n');
     }),
   },
@@ -55,6 +55,14 @@ describe('/review command', () => {
     expect(metadata.command).toBe('/review');
     expect(metadata.implemented).toBe(true);
     expect(metadata.description).toContain('review');
+    expect(metadata.subcommands?.map((subcommand) => subcommand.name)).toEqual([
+      'changes',
+      'code',
+      'architecture',
+      'security',
+      'performance',
+      'forensics',
+    ]);
   });
 
   it('queues instructions silently and returns null when queueInstruction is available', async () => {
@@ -66,9 +74,9 @@ describe('/review command', () => {
     expect(result).toBeNull();
     expect(queueInstruction).toHaveBeenCalledOnce();
     const queued = queueInstruction.mock.calls[0][0];
-    expect(queued).toContain('Staff-level Software Engineer');
-    expect(queued).toContain('Review Target');
-    expect(queued).toContain('/tmp/test');
+    expect(queued).toContain('Autohand Review');
+    expect(queued).toContain('"kind": "changes"');
+    expect(queued).toContain('"workspaceRoot": "/tmp/test"');
   });
 
   it('shows a brief status message to the user', async () => {
@@ -77,28 +85,80 @@ describe('/review command', () => {
     await review(ctx as any);
 
     const output = consoleSpy.mock.calls.map(c => c[0]).join('\n');
-    expect(output).toContain('Starting code review');
-    expect(output).toContain('10 dimensions');
+    expect(output).toContain('Starting Autohand Review');
+    expect(output).toContain('changes');
   });
 
   it('shows user focus in the status message', async () => {
     const ctx = { workspaceRoot: '/tmp/test', config: {}, queueInstruction: vi.fn() };
 
-    await review(ctx as any, ['focus', 'on', 'security']);
+    await review(ctx as any, ['--focus', 'security']);
 
     const output = consoleSpy.mock.calls.map(c => c[0]).join('\n');
-    expect(output).toContain('focus on security');
+    expect(output).toContain('security');
   });
 
   it('includes user instructions in the queued prompt', async () => {
     const queueInstruction = vi.fn();
     const ctx = { workspaceRoot: '/tmp/test', config: {}, queueInstruction };
 
-    await review(ctx as any, ['check', 'error', 'handling']);
+    await review(ctx as any, ['--focus', 'check', 'error', 'handling']);
 
     const queued = queueInstruction.mock.calls[0][0];
-    expect(queued).toContain('Additional Focus');
-    expect(queued).toContain('check error handling');
+    expect(queued).toContain('"focus": "check error handling"');
+  });
+
+  it('parses advanced review subcommands through the shared request contract', async () => {
+    const queueInstruction = vi.fn();
+    const ctx = { workspaceRoot: '/tmp/test', config: {}, queueInstruction };
+
+    await review(ctx as any, [
+      'architecture',
+      'packages/api',
+      '--audience',
+      'technical',
+      '--base',
+      'origin/main',
+    ]);
+
+    const queued = queueInstruction.mock.calls[0][0];
+    expect(queued).toContain('"kind": "architecture"');
+    expect(queued).toContain('"target": "packages/api"');
+    expect(queued).toContain('"audience": "technical"');
+    expect(queued).toContain('"base": "origin/main"');
+  });
+
+  it('returns review help without queueing a turn', async () => {
+    const queueInstruction = vi.fn();
+    const ctx = { workspaceRoot: '/tmp/test', config: {}, queueInstruction };
+
+    const result = await review(ctx as any, ['help']);
+
+    expect(result).toContain('/review architecture');
+    expect(result).toContain('autohand review security');
+    expect(queueInstruction).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid review options without queueing a turn', async () => {
+    const queueInstruction = vi.fn();
+    const ctx = { workspaceRoot: '/tmp/test', config: {}, queueInstruction };
+
+    const result = await review(ctx as any, ['security', '--audience', 'unknown']);
+
+    expect(result).toContain('Invalid review audience');
+    expect(queueInstruction).not.toHaveBeenCalled();
+  });
+
+  it('loads the Autohand Review specialist contract', async () => {
+    const fse = (await import('fs-extra')).default;
+    const queueInstruction = vi.fn();
+
+    await review({ workspaceRoot: '/tmp/test', config: {}, queueInstruction } as any);
+
+    expect(fse.readFile).toHaveBeenCalledWith(
+      expect.stringContaining('agents/builtin/autohand-review.md'),
+      'utf-8',
+    );
   });
 
   it('falls back to returning prompt text when queueInstruction is unavailable', async () => {
@@ -108,18 +168,20 @@ describe('/review command', () => {
 
     expect(result).toBeTruthy();
     expect(typeof result).toBe('string');
-    expect(result).toContain('Staff-level Software Engineer');
+    expect(result).toContain('Autohand Review');
   });
 
-  it('falls back gracefully if SKILL.md is missing', async () => {
+  it('falls back gracefully if the bundled specialist definition is missing', async () => {
     const fse = (await import('fs-extra')).default;
+    (fse.readFile as any).mockRejectedValueOnce(new Error('ENOENT'));
     (fse.readFile as any).mockRejectedValueOnce(new Error('ENOENT'));
 
     const ctx = { workspaceRoot: '/tmp/test', config: {}, queueInstruction: vi.fn() };
     await review(ctx as any);
 
     const queued = (ctx.queueInstruction as any).mock.calls[0][0];
-    expect(queued).toContain('code review');
+    expect(queued).toContain('Autohand Review');
+    expect(queued).toContain('evidence-led');
   });
 
   it('returns prompt text in RPC/ACP mode (isNonInteractive) even when queueInstruction exists', async () => {
@@ -131,7 +193,7 @@ describe('/review command', () => {
     // In non-interactive mode, should return the prompt (not queue it)
     expect(result).toBeTruthy();
     expect(typeof result).toBe('string');
-    expect(result).toContain('Staff-level Software Engineer');
+    expect(result).toContain('Autohand Review');
     // queueInstruction should NOT have been called
     expect(queueInstruction).not.toHaveBeenCalled();
   });
