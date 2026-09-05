@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import fs from 'fs-extra';
 import path from 'node:path';
 import { PROJECT_DIR_NAME } from '../constants.js';
+import { atomicWriteJson, withFileLock } from '../utils/atomicFile.js';
 import { ActiveAgentRegistry } from '../session/ActiveAgentRegistry.js';
 import { parseQueueBlockItems } from './queueBlockParser.js';
 import { listGoalTemplateMetadata, resolveGoalTemplateByName, resolveGoalTemplateInvocation } from './templates.js';
@@ -163,6 +164,10 @@ export class GoalManager {
   }
 
   async createGoal(input: GoalCreateInput, opts: { replace?: boolean } = {}): Promise<GoalMutationResult> {
+    return this.withMutation(() => this.createGoalUnlocked(input, opts));
+  }
+
+  private async createGoalUnlocked(input: GoalCreateInput, opts: { replace?: boolean } = {}): Promise<GoalMutationResult> {
     const snapshot = await this.readSnapshot();
     const validation = validateGoalInput(input);
     if (validation) return this.result(snapshot, false, validation);
@@ -200,16 +205,24 @@ export class GoalManager {
   }
 
   async createOrQueueGoal(input: GoalCreateInput & { source: QueuedGoal['source'] }): Promise<GoalMutationResult> {
+    return this.withMutation(() => this.createOrQueueGoalUnlocked(input));
+  }
+
+  private async createOrQueueGoalUnlocked(input: GoalCreateInput & { source: QueuedGoal['source'] }): Promise<GoalMutationResult> {
     const snapshot = await this.readSnapshot();
     const key = this.goalKey();
     const current = snapshot.goals[key] ? this.withLiveElapsed(snapshot.goals[key]) : null;
     if (current && current.status !== 'complete' && current.status !== 'budgetLimited') {
-      return this.enqueueGoal(input);
+      return this.enqueueGoalUnlocked(input);
     }
-    return this.createGoal(input);
+    return this.createGoalUnlocked(input);
   }
 
   async updateGoal(input: GoalUpdateInput): Promise<GoalMutationResult> {
+    return this.withMutation(() => this.updateGoalUnlocked(input));
+  }
+
+  private async updateGoalUnlocked(input: GoalUpdateInput): Promise<GoalMutationResult> {
     const snapshot = await this.readSnapshot();
     const key = this.goalKey();
     const current = snapshot.goals[key] ? this.withLiveElapsed(snapshot.goals[key]) : null;
@@ -309,6 +322,10 @@ export class GoalManager {
   }
 
   async clearGoal(): Promise<GoalMutationResult> {
+    return this.withMutation(() => this.clearGoalUnlocked());
+  }
+
+  private async clearGoalUnlocked(): Promise<GoalMutationResult> {
     const snapshot = await this.readSnapshot();
     const key = this.goalKey();
     const hadGoal = Boolean(snapshot.goals[key]);
@@ -324,6 +341,10 @@ export class GoalManager {
   }
 
   async enqueueGoal(input: GoalCreateInput & { source: QueuedGoal['source']; template?: string; templateFlags?: Record<string, string>; templateArgs?: string }): Promise<GoalMutationResult> {
+    return this.withMutation(() => this.enqueueGoalUnlocked(input));
+  }
+
+  private async enqueueGoalUnlocked(input: GoalCreateInput & { source: QueuedGoal['source']; template?: string; templateFlags?: Record<string, string>; templateArgs?: string }): Promise<GoalMutationResult> {
     const snapshot = await this.readSnapshot();
     const validation = validateGoalInput(input);
     if (validation) return this.result(snapshot, false, validation);
@@ -334,9 +355,13 @@ export class GoalManager {
   }
 
   async enqueueGoalBlock(input: string, source: QueuedGoal['source']): Promise<GoalMutationResult> {
+    return this.withMutation(() => this.enqueueGoalBlockUnlocked(input, source));
+  }
+
+  private async enqueueGoalBlockUnlocked(input: string, source: QueuedGoal['source']): Promise<GoalMutationResult> {
     const snapshot = await this.readSnapshot();
     const items = parseQueueBlockItems(input);
-    if (!items) return this.enqueueResolvedGoalInput(input, source);
+    if (!items) return this.enqueueResolvedGoalInputUnlocked(input, source);
 
     const queued: QueuedGoal[] = [];
     for (const item of items) {
@@ -358,12 +383,16 @@ export class GoalManager {
   }
 
   async enqueueResolvedGoalInput(input: string, source: QueuedGoal['source']): Promise<GoalMutationResult> {
+    return this.withMutation(() => this.enqueueResolvedGoalInputUnlocked(input, source));
+  }
+
+  private async enqueueResolvedGoalInputUnlocked(input: string, source: QueuedGoal['source']): Promise<GoalMutationResult> {
     const resolved = await this.resolveObjective(input);
     if (!resolved.ok) {
       const snapshot = await this.readSnapshot();
       return this.result(snapshot, false, resolved.message);
     }
-    return this.enqueueGoal({
+    return this.enqueueGoalUnlocked({
       ...resolved.input,
       source,
       template: resolved.template,
@@ -373,6 +402,10 @@ export class GoalManager {
   }
 
   async startQueuedGoal(): Promise<GoalMutationResult> {
+    return this.withMutation(() => this.startQueuedGoalUnlocked());
+  }
+
+  private async startQueuedGoalUnlocked(): Promise<GoalMutationResult> {
     const snapshot = await this.readSnapshot();
     const key = this.goalKey();
     const current = snapshot.goals[key] ? this.withLiveElapsed(snapshot.goals[key]) : null;
@@ -425,6 +458,10 @@ export class GoalManager {
   }
 
   async dequeueGoal(audit?: { rationale?: string; authority?: string }): Promise<GoalMutationResult> {
+    return this.withMutation(() => this.dequeueGoalUnlocked(audit));
+  }
+
+  private async dequeueGoalUnlocked(audit?: { rationale?: string; authority?: string }): Promise<GoalMutationResult> {
     const snapshot = await this.readSnapshot();
     if (!audit?.rationale?.trim() || !audit.authority?.trim()) {
       return this.result(snapshot, false, 'rationale and authority are required to dequeue a queued goal.');
@@ -437,6 +474,10 @@ export class GoalManager {
   }
 
   async removeQueuedGoal(queueId: string): Promise<GoalMutationResult> {
+    return this.withMutation(() => this.removeQueuedGoalUnlocked(queueId));
+  }
+
+  private async removeQueuedGoalUnlocked(queueId: string): Promise<GoalMutationResult> {
     const snapshot = await this.readSnapshot();
     const removed = snapshot.queue.find((item) => item.queueId === queueId);
     if (!removed) return this.result(snapshot, false, `No queued goal found with id ${queueId}.`);
@@ -446,6 +487,10 @@ export class GoalManager {
   }
 
   async editGoalObjective(goalOrQueueId: string, objectiveInput: string): Promise<GoalMutationResult> {
+    return this.withMutation(() => this.editGoalObjectiveUnlocked(goalOrQueueId, objectiveInput));
+  }
+
+  private async editGoalObjectiveUnlocked(goalOrQueueId: string, objectiveInput: string): Promise<GoalMutationResult> {
     const snapshot = await this.readSnapshot();
     const objective = objectiveInput.trim();
     if (!objective) {
@@ -492,6 +537,10 @@ export class GoalManager {
   }
 
   async recordTurnUsage(input: { tokensUsed?: number }): Promise<GoalMutationResult> {
+    return this.withMutation(() => this.recordTurnUsageUnlocked(input));
+  }
+
+  private async recordTurnUsageUnlocked(input: { tokensUsed?: number }): Promise<GoalMutationResult> {
     const snapshot = await this.readSnapshot();
     const key = this.goalKey();
     const current = snapshot.goals[key];
@@ -593,12 +642,19 @@ export class GoalManager {
 
   private async writeSnapshot(snapshot: GoalSnapshot): Promise<void> {
     const statePath = this.statePath();
-    await fs.ensureDir(path.dirname(statePath));
-    await fs.writeJson(statePath, snapshot, { spaces: 2 });
+    await atomicWriteJson(statePath, snapshot);
     const publishers = snapshotPublishers.get(statePath);
     if (publishers) {
       await Promise.allSettled([...publishers].map((publish) => publish()));
     }
+  }
+
+  private withMutation<T>(operation: () => Promise<T>): Promise<T> {
+    return withFileLock(
+      `${this.statePath()}.lock`,
+      operation,
+      { waitTimeoutMs: 10_000 },
+    );
   }
 
   private statePath(): string {

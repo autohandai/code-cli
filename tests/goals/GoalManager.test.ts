@@ -4,10 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import fs from 'fs-extra';
+import { execFile } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GoalManager } from '../../src/goals/GoalManager.js';
+
+const execFileAsync = promisify(execFile);
 
 describe('GoalManager', () => {
   let workspaceRoot: string;
@@ -34,6 +38,66 @@ describe('GoalManager', () => {
     expect(snapshot.goals['session-current']?.goalId).toBe(created.goal?.goalId);
     expect(snapshot.goals['session-current']?.status).toBe('active');
     expect(await fs.pathExists(path.join(workspaceRoot, '.autohand', 'goals.local.json'))).toBe(true);
+  });
+
+  it('preserves both goals when separate sessions create them simultaneously', async () => {
+    const first = new GoalManager(workspaceRoot, { sessionId: 'session-first' });
+    const second = new GoalManager(workspaceRoot, { sessionId: 'session-second' });
+
+    const results = await Promise.all([
+      first.createGoal({ objective: 'first concurrent goal' }),
+      second.createGoal({ objective: 'second concurrent goal' }),
+    ]);
+
+    expect(results.map((result) => result.ok)).toEqual([true, true]);
+    const reloaded = await new GoalManager(workspaceRoot).getSnapshot();
+    expect(Object.values(reloaded.goals).map((goal) => goal.objective).sort()).toEqual([
+      'first concurrent goal',
+      'second concurrent goal',
+    ]);
+  });
+
+  it('creates one goal and queues the other when the same session starts both simultaneously', async () => {
+    const manager = new GoalManager(workspaceRoot, { sessionId: 'session-current' });
+    const results = await Promise.all([
+      manager.createOrQueueGoal({ objective: 'first goal', source: 'tool' }),
+      manager.createOrQueueGoal({ objective: 'second goal', source: 'rpc' }),
+    ]);
+
+    expect(results.every((result) => result.ok)).toBe(true);
+    const snapshot = await manager.getSessionSnapshot();
+    expect([snapshot.goal?.objective, ...snapshot.queue.map((item) => item.objective)].sort())
+      .toEqual(['first goal', 'second goal']);
+  });
+
+  it('preserves every usage increment when turns are recorded simultaneously', async () => {
+    const manager = new GoalManager(workspaceRoot);
+    await manager.createGoal({ objective: 'count every turn' });
+
+    await Promise.all([11, 23, 37].map((tokensUsed) => manager.recordTurnUsage({ tokensUsed })));
+
+    expect((await manager.getSessionSnapshot()).goal?.tokensUsed).toBe(71);
+  });
+
+  it('preserves queue entries written by separate CLI processes', async () => {
+    const moduleUrl = new URL('../../src/goals/GoalManager.ts', import.meta.url).href;
+    const script = [
+      `import { GoalManager } from ${JSON.stringify(moduleUrl)};`,
+      'const manager = new GoalManager(process.argv[1], { sessionId: process.argv[2] });',
+      'for (let i = 0; i < 4; i++) {',
+      '  const result = await manager.enqueueGoal({ objective: process.argv[2] + "-" + i, source: "cli" });',
+      '  if (!result.ok) throw new Error(result.message);',
+      '}',
+    ].join('\n');
+    await Promise.all(['first', 'second'].map((sessionId) => execFileAsync(process.execPath, [
+      '--import', 'tsx', '--input-type=module', '--eval', script, workspaceRoot, sessionId,
+    ], { timeout: 15_000 })));
+
+    const snapshot = await new GoalManager(workspaceRoot).getSessionSnapshot();
+    expect(snapshot.queue.map((item) => item.objective).sort()).toEqual([
+      'first-0', 'first-1', 'first-2', 'first-3',
+      'second-0', 'second-1', 'second-2', 'second-3',
+    ]);
   });
 
   it('migrates a v1 active goal into its owning session', async () => {
