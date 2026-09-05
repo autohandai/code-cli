@@ -5,68 +5,119 @@
  */
 import chalk from 'chalk';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import fse from 'fs-extra';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
+import {
+  REVIEW_KINDS,
+  buildReviewInstruction,
+  formatReviewHelp,
+  parseReviewArguments,
+  type ReviewRequest,
+} from '../review/reviewRequest.js';
 
 export const metadata = {
   command: '/review',
-  description: 'review your current changes and find issues',
+  description: 'run the Autohand review workflow against changes, code, architecture, security, performance, or history',
   implemented: true,
+  subcommands: REVIEW_KINDS.map((kind) => ({
+    name: kind,
+    description: `${kind} review`,
+  })),
 };
 
 type ReviewCommandContext = SlashCommandContext;
 
-export async function review(ctx: ReviewCommandContext, args: string[] = []): Promise<string | null> {
-  const userInstructions = args.join(' ').trim();
+export type ReviewCommandResolution =
+  | { type: 'instruction'; request: ReviewRequest; instruction: string }
+  | { type: 'output'; output: string };
 
-  // Load the bundled code-reviewer skill
-  const skillPath = path.resolve(
-    path.dirname(new URL(import.meta.url).pathname),
-    '../skills/builtin/code-reviewer/SKILL.md',
-  );
+const FALLBACK_SPECIALIST_INSTRUCTIONS = [
+  '# Autohand Review',
+  '',
+  'Conduct a read-only, evidence-led code and architecture review. Report only concrete risks with precise evidence, impact, remediation, and verification.',
+  '',
+  '### Executive view',
+  'Explain the verdict and decisions in plain language.',
+  '',
+  '### Technical findings',
+  'Prioritize reproducible findings by severity and confidence.',
+  '',
+  '### Forensic appendix',
+  'Record repository state, scope, provenance, hypotheses, and blind spots.',
+  '',
+  '### Evidence boundary',
+  'State what the inspection proves and does not prove.',
+].join('\n');
 
-  let skillBody = '';
-  try {
-    const content = await fse.readFile(skillPath, 'utf-8');
-    // Strip YAML frontmatter
-    const bodyMatch = content.match(/^---[\s\S]*?---\s*([\s\S]*)$/);
-    skillBody = bodyMatch ? bodyMatch[1].trim() : content;
-  } catch {
-    skillBody =
-      'Perform a thorough code review analyzing architecture, security, performance, error handling, and maintainability.';
-  }
+function stripFrontmatter(content: string): string {
+  const bodyMatch = content.match(/^---\r?\n[\s\S]*?\r?\n---\s*([\s\S]*)$/);
+  return bodyMatch ? bodyMatch[1].trim() : content.trim();
+}
 
-  // Build the review prompt that combines skill instructions + user intent
-  const parts = [
-    skillBody,
-    '',
-    '## Review Target',
-    `Workspace: ${ctx.workspaceRoot}`,
+async function loadSpecialistInstructions(): Promise<string> {
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.resolve(moduleDir, '../agents/builtin/autohand-review.md'),
+    path.resolve(moduleDir, 'agents/builtin/autohand-review.md'),
   ];
 
-  if (userInstructions) {
-    parts.push('', '## Additional Focus', userInstructions);
+  for (const candidate of candidates) {
+    try {
+      return stripFrontmatter(await fse.readFile(candidate, 'utf-8'));
+    } catch {
+      continue;
+    }
+  }
+  return FALLBACK_SPECIALIST_INSTRUCTIONS;
+}
+
+export async function resolveReviewCommand(
+  workspaceRoot: string,
+  args: readonly string[] = [],
+): Promise<ReviewCommandResolution> {
+  const parsed = parseReviewArguments(args);
+  if (!parsed.ok) {
+    return {
+      type: 'output',
+      output: `${parsed.error}\n\n${formatReviewHelp()}`,
+    };
+  }
+  if ('help' in parsed) {
+    return { type: 'output', output: formatReviewHelp() };
   }
 
-  parts.push(
-    '',
-    '## Instructions',
-    'Start the review now. Use the available tools (read_file, fff_grep, fff_find, list_tree, git_status, git_diff) to gather context, then deliver your 10-dimension review.',
-  );
+  const specialistInstructions = await loadSpecialistInstructions();
+  return {
+    type: 'instruction',
+    request: parsed.request,
+    instruction: buildReviewInstruction({
+      request: parsed.request,
+      workspaceRoot,
+      specialistInstructions,
+    }),
+  };
+}
 
-  const prompt = parts.join('\n');
+export async function review(ctx: ReviewCommandContext, args: string[] = []): Promise<string | null> {
+  const resolution = await resolveReviewCommand(ctx.workspaceRoot, args);
+  if (resolution.type === 'output') return resolution.output;
 
-  // In RPC/ACP mode, return the prompt as text for the adapter to process.
-  // In interactive mode, queue silently so it doesn't flood the terminal.
   if (ctx.isNonInteractive || !ctx.queueInstruction) {
-    return prompt;
+    return resolution.instruction;
   }
 
-  ctx.queueInstruction(prompt);
-  console.log(chalk.cyan('\n  Starting code review...'));
-  if (userInstructions) {
-    console.log(chalk.gray(`  Focus: ${userInstructions}`));
+  ctx.queueInstruction(resolution.instruction);
+  console.log(chalk.cyan('\n  Starting Autohand Review...'));
+  console.log(chalk.gray(
+    `  ${resolution.request.kind} · ${resolution.request.audience} audience · read-only`,
+  ));
+  if (resolution.request.target) {
+    console.log(chalk.gray(`  Target: ${resolution.request.target}`));
   }
-  console.log(chalk.gray('  Analyzing 10 dimensions: architecture, security, performance, and more.\n'));
+  if (resolution.request.focus) {
+    console.log(chalk.gray(`  Focus: ${resolution.request.focus}`));
+  }
+  console.log();
   return null;
 }
