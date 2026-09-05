@@ -12,6 +12,20 @@ async function waitForScreen(session: Session, expected: string): Promise<void> 
   });
 }
 
+export async function setTaskListPositionDirectly(
+  session: Session,
+  position: 'up' | 'above-composer' | 'above composer',
+): Promise<void> {
+  const command = `/settings task_list position ${position}`;
+  const savedPosition = position === 'up' ? 'up' : 'above-composer';
+  await waitForScreen(session, '❯');
+  await session.type(command);
+  await waitForScreen(session, command);
+  await session.press('enter');
+  await waitForScreen(session, `Task list position: ${savedPosition}`);
+  await waitForScreen(session, '❯');
+}
+
 export async function setTaskListPositionUp(session: Session): Promise<void> {
   await waitForScreen(session, '❯');
   await session.type('/settings');
