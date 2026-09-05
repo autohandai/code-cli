@@ -105,7 +105,7 @@ export const CAPABILITY_DEFINITIONS: readonly CapabilityDefinition[] = [
       /\b(review\w*|audit\w*|code\s+review|pr\s+review)\b/i,
     ],
     repoAffinity: {},
-    preferredAgents: ['reviewer'],
+    preferredAgents: ['autohand-review', 'reviewer'],
   },
   {
     id: 'research',

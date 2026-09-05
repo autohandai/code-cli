@@ -44,6 +44,12 @@ describe('CAPABILITY_DEFINITIONS', () => {
       expect(capability.repoAffinity).toBeDefined();
     }
   });
+
+  it('routes review work to the Autohand Review specialist first', () => {
+    const review = CAPABILITY_DEFINITIONS.find((capability) => capability.id === 'review');
+
+    expect(review?.preferredAgents[0]).toBe('autohand-review');
+  });
 });
 
 describe('analyzeTask', () => {
