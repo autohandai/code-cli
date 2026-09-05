@@ -287,14 +287,23 @@ export class GoalManager {
       if (current.status === 'complete') return this.result({ ...snapshot, goals: { ...snapshot.goals, [key]: current } }, false, 'Goal is already complete.');
       const completedGoal = buildCompletedGoal(next, Date.now(), key);
       const completedRun = appendCompletedGoal(snapshot.completed, completedGoal);
+      next = { ...next, updatedAt: Date.now() };
+      const updated: GoalSnapshot = {
+        ...snapshot,
+        goals: { ...snapshot.goals, [key]: next },
+        completed: completedRun,
+        updatedAt: next.updatedAt,
+      };
+      await this.writeSnapshot(updated);
       const nextQueued = snapshot.queue[0];
       if (nextQueued) {
-        const started = await this.startQueuedGoalFromSnapshot({
-          ...snapshot,
-          goals: { ...snapshot.goals, [key]: next },
-          completed: completedRun,
-        }, nextQueued);
-        if (!started.ok) return started;
+        const started = await this.startQueuedGoalFromSnapshot(updated, nextQueued);
+        if (!started.ok) {
+          return this.result(updated, true,
+            `Goal completed. The next queued goal was not started: ${started.message} The queue is unchanged; repair the template and use /goal resume or start_queued_goal.`,
+            { completed: completedGoal, completedRun, queueError: started.message },
+          );
+        }
         return {
           ...started,
           message: 'Goal completed. Started next queued goal.',
@@ -302,14 +311,6 @@ export class GoalManager {
           completedRun,
         };
       }
-      next = { ...next, updatedAt: Date.now() };
-      const updated = {
-        ...snapshot,
-        goals: { ...snapshot.goals, [key]: next },
-        completed: completedRun,
-        updatedAt: next.updatedAt,
-      };
-      await this.writeSnapshot(updated);
       return this.result(updated, true, formatAllCompleteMessage(completedRun), {
         completed: completedGoal,
         completedRun,

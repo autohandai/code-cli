@@ -463,6 +463,29 @@ describe('GoalManager', () => {
     expect(formatted).toContain('second goal');
   });
 
+  it('preserves completion when the next template cannot resolve and permits a later queue retry', async () => {
+    const manager = new GoalManager(workspaceRoot, { sessionId: 'completion-owner' });
+    await manager.createGoal({ objective: 'finished work' });
+    await manager.enqueueGoal({ objective: 'template work', source: 'tool', template: 'missing-next' });
+
+    const result = await manager.updateGoal({ status: 'complete' });
+
+    const reloaded = new GoalManager(workspaceRoot, { sessionId: 'completion-owner' });
+    expect((await reloaded.getSessionSnapshot()).goal?.status).toBe('complete');
+    expect(result.ok).toBe(true);
+    expect(result.queueError).toContain('missing-next');
+    expect(result.completed?.objective).toBe('finished work');
+    expect((await reloaded.getSnapshot()).completed).toHaveLength(1);
+    expect(result.queue).toHaveLength(1);
+
+    await fs.outputFile(path.join(workspaceRoot, '.pi-goals', 'missing-next.md'), 'Resolved next objective');
+    const retry = await reloaded.startQueuedGoal();
+
+    expect(retry.goal?.objective).toBe('Resolved next objective');
+    expect(retry.queue).toEqual([]);
+    expect((await reloaded.getSnapshot()).completed).toHaveLength(1);
+  });
+
   it('runs goals concurrently across sessions without abandoning or queueing behind peers', async () => {
     const priorSession = new GoalManager(workspaceRoot, { sessionId: 'session-prior' });
     await priorSession.createGoal({ objective: 'stale prior goal' });

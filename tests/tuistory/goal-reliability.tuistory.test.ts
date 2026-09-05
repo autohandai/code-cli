@@ -5,6 +5,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
+import fs from 'fs-extra';
+import path from 'node:path';
 import { GoalManager } from '../../src/goals/GoalManager.js';
 import { runGoalAccountingScenario } from '../../src/testing/scenarios/goalAccountingScenario.js';
 import { runToolGoalContinuationScenario } from '../../src/testing/scenarios/goalsCommandScenario.js';
@@ -17,6 +19,37 @@ import {
 } from './helpers/autohandTuistory.js';
 
 describe('built CLI goal reliability', () => {
+  it('persists CLI completion when a queued template is unavailable', async () => {
+    const state = await createTempAutohandHome({ config: { features: { slashGoal: true } } });
+    let session: Session | undefined;
+    try {
+      const manager = new GoalManager(state.workspaceRoot);
+      await manager.createGoal({ objective: 'finished CLI work' });
+      await manager.enqueueGoal({ objective: 'pending CLI template', source: 'cli', template: 'missing-next' });
+      session = await launchBuiltAutohand([
+        '--path', state.workspaceRoot, '--config', state.configPath, '--goal', 'complete',
+      ], { autohandHome: state.autohandHome, cwd: state.workspaceRoot });
+      await waitForExit(session);
+
+      expect(session.readAll()).toContain('Goal completed. The next queued goal was not started');
+      const snapshot = await manager.getSessionSnapshot();
+      expect(snapshot.goal?.status).toBe('complete');
+      expect(snapshot.completed).toHaveLength(1);
+      expect(snapshot.queue).toHaveLength(1);
+      session.close();
+      await fs.outputFile(path.join(state.workspaceRoot, '.pi-goals', 'missing-next.md'), 'Recovered CLI template');
+      session = await launchBuiltAutohand([
+        '--path', state.workspaceRoot, '--config', state.configPath, '--goal', 'resume',
+      ], { autohandHome: state.autohandHome, cwd: state.workspaceRoot });
+      await waitForExit(session);
+      expect(session.readAll()).toContain('Started queued goal');
+      expect((await manager.getSessionSnapshot()).goal?.objective).toBe('Recovered CLI template');
+    } finally {
+      session?.close();
+      await state.cleanup();
+    }
+  });
+
   it('starts an approved CLI goal after exhaustion without clearing its predecessor', async () => {
     const state = await createTempAutohandHome({ config: { features: { slashGoal: true } } });
     let session: Session | undefined;

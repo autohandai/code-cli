@@ -101,7 +101,8 @@ export async function goal(ctx: GoalCommandContext, args: string[] = []): Promis
     }
     case 'resume': {
       const snapshot = await manager.getSessionSnapshot();
-      if (!snapshot.goal && snapshot.queue.length > 0) {
+      const canStartQueued = !snapshot.goal || snapshot.goal.status === 'complete' || snapshot.goal.status === 'budgetLimited';
+      if (canStartQueued && snapshot.queue.length > 0) {
         const started = await manager.startQueuedGoal();
         if (started.ok && started.goal) {
           queueGoalContinuation(ctx, started.goal.objective);

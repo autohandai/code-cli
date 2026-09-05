@@ -107,6 +107,7 @@ export interface GoalMutationResult {
   };
   message?: string;
   queued?: QueuedGoal[];
+  queueError?: string;
   started?: QueuedGoal;
   completed?: CompletedGoal;
   completedRun?: CompletedGoal[];

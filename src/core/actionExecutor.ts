@@ -4715,6 +4715,7 @@ function formatGoalToolResult(result: {
   goal: unknown;
   queue: unknown[];
   queued?: unknown[];
+  queueError?: string;
   started?: unknown;
   completed?: unknown;
   completedRun?: unknown[];
@@ -4729,6 +4730,7 @@ function formatGoalToolResult(result: {
     goal: result.goal,
     queue: result.queue,
     queued: result.queued,
+    queueError: result.queueError,
     started: result.started,
     completed: result.completed,
     completedRun: result.completedRun,

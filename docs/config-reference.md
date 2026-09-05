@@ -1138,6 +1138,11 @@ queues it, and the queue advances automatically as each goal completes.
 After a goal reaches its budget limit, a new approved objective can start without
 clearing the old goal. The exhausted goal and its usage remain in terminal history;
 starting fresh does not resume or increase the exhausted goal's budget.
+Completion is saved before resolving the next queued template. If that template
+is missing or invalid, completion still succeeds, `queueError` describes the
+queue-start failure, and the item stays queued for an explicit retry.
+After repairing the template, `/goal resume`, `--goal resume`, or
+`start_queued_goal` starts the queued item without restarting the finished goal.
 Interactive goals created through the goal writer or agent tools use the same
 auto-mode policy as slash commands, including template starts and explicit
 resumes. The non-interactive `--goal` and RPC management APIs persist goals but

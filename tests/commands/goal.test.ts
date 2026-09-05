@@ -80,6 +80,26 @@ describe('/goal command', () => {
     expect(metadata.subcommands?.map((item) => item.name)).toContain('edit');
   });
 
+  it('retries the queue after completion without reactivating the finished goal', async () => {
+    const manager = new GoalManager(workspaceRoot, { sessionId: 'session-current' });
+    await manager.createGoal({ objective: 'finished goal' });
+    await manager.enqueueGoal({ objective: 'pending template', source: 'command', template: 'missing-next' });
+    await manager.updateGoal({ status: 'complete' });
+
+    const missing = await goal(ctx, ['resume']);
+
+    expect(missing).toContain('missing-next');
+    expect((await manager.getSessionSnapshot()).goal?.status).toBe('complete');
+    expect(queued).toEqual([]);
+
+    await fs.outputFile(path.join(workspaceRoot, '.pi-goals', 'missing-next.md'), 'Recovered next goal');
+    const result = await goal(ctx, ['resume']);
+
+    expect(result).toContain('Started queued goal');
+    expect(queued).toEqual([expect.stringContaining('Recovered next goal')]);
+    expect((await manager.getSnapshot()).completed).toHaveLength(1);
+  });
+
   it('opens the live goals view without creating another goal', async () => {
     const onToggleGoalView = vi.fn();
     ctx.onToggleGoalView = onToggleGoalView;

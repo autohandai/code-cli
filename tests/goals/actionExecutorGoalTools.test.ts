@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActionExecutor } from '../../src/core/actionExecutor.js';
 import { FileActionManager } from '../../src/actions/filesystem.js';
 import type { AgentRuntime } from '../../src/types.js';
+import { GoalManager } from '../../src/goals/GoalManager.js';
 
 describe('goal tools', () => {
   let workspaceRoot: string;
@@ -149,6 +150,22 @@ describe('goal tools', () => {
     });
 
     expect(result).toContain('slash_goal');
+  });
+
+  it('reports successful completion separately from an unresolved queued template', async () => {
+    const manager = new GoalManager(workspaceRoot, { sessionId: currentSessionId });
+    await manager.createGoal({ objective: 'completed tool work' });
+    await manager.enqueueGoal({ objective: 'pending template work', source: 'tool', template: 'missing-next' });
+
+    const result: unknown = JSON.parse(await executor.execute({ type: 'update_goal', status: 'complete' }));
+
+    expect(result).toMatchObject({
+      ok: true,
+      goal: { status: 'complete' },
+      completed: { objective: 'completed tool work' },
+      queueError: expect.stringContaining('missing-next'),
+    });
+    expect(activatedObjectives).toEqual([]);
   });
 
   it('classifies an unknown goal template as validation failure', async () => {
