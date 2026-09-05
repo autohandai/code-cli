@@ -3,16 +3,20 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
 import fs from 'fs-extra';
 import path from 'node:path';
 import { GoalManager } from '../../src/goals/GoalManager.js';
+import { SessionManager } from '../../src/session/SessionManager.js';
+import { ActiveAgentRegistry } from '../../src/session/ActiveAgentRegistry.js';
 import { runGoalAccountingScenario } from '../../src/testing/scenarios/goalAccountingScenario.js';
 import { runToolGoalContinuationScenario } from '../../src/testing/scenarios/goalsCommandScenario.js';
 import { inspectStoppedGoal, resumeStoppedGoal } from '../../src/testing/scenarios/goalProgressScenario.js';
+import { cancelGoalRecovery, finishRecoveredGoal, openGoalRecovery, refuseLiveGoalRecovery, selectOriginalGoal } from '../../src/testing/scenarios/goalRecoveryScenario.js';
 import {
   createMockOpenRouterSequenceServer,
+  createMockAutohandAINativeSequenceServer,
   createTempAutohandHome,
   exitInteractive,
   launchBuiltAutohand,
@@ -20,6 +24,95 @@ import {
 } from './helpers/autohandTuistory.js';
 
 describe('built CLI goal reliability', () => {
+  it('cancels recovery safely and restores the selected offline conversation without resuming its goal', async () => {
+    const server = await createMockAutohandAINativeSequenceServer([
+      { content: 'RECOVERY_CONTEXT_SEEN' },
+      { content: 'Finish the recovered goal.', toolCall: { id: 'recovered-completion', name: 'update_goal', args: { status: 'complete' } } },
+      { content: 'RECOVERED_GOAL_FINISHED' },
+    ]);
+    const state = await createTempAutohandHome({ config: {
+      provider: 'autohandai',
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'tuistory-autohand-api-key', model: 'moa', baseUrl: server.baseUrl },
+      features: { autohand_inference: true, slashGoal: true },
+      agent: { autoMemory: false, maxIterations: 4, sessionRetryLimit: 0 },
+      network: { maxRetries: 0, retryDelay: 0 },
+      ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+    } });
+    let session: Session | undefined;
+    try {
+      const sessions = new SessionManager(path.join(state.autohandHome, 'sessions'));
+      await sessions.initialize();
+      const original = await sessions.createSession(state.workspaceRoot, 'moa');
+      await original.append({ role: 'user', content: 'Remember the original recovery plan', timestamp: new Date().toISOString() });
+      await original.append({ role: 'assistant', content: 'RECOVERED_CONVERSATION_MARKER', timestamp: new Date().toISOString() });
+      await sessions.closeSession();
+      const owner = new GoalManager(state.workspaceRoot, { sessionId: original.metadata.sessionId });
+      await owner.createGoal({ objective: 'recover original work' });
+      const other = await sessions.createSession(state.workspaceRoot, 'moa');
+      await sessions.closeSession();
+      await new GoalManager(state.workspaceRoot, { sessionId: other.metadata.sessionId }).createGoal({ objective: 'different offline work' });
+      session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+        autohandHome: state.autohandHome, cwd: state.workspaceRoot,
+      });
+      await openGoalRecovery(session);
+      await cancelGoalRecovery(session);
+      expect((await owner.getSessionSnapshot()).goal?.status).toBe('active');
+      await openGoalRecovery(session);
+      await selectOriginalGoal(session);
+      expect(JSON.stringify(server.requests[0])).toContain('RECOVERED_CONVERSATION_MARKER');
+      expect((await owner.getSessionSnapshot()).goal?.status).toBe('paused');
+      await finishRecoveredGoal(session);
+      expect((await owner.getSessionSnapshot()).goal?.status).toBe('complete');
+      expect((await owner.getSnapshot()).goals[other.metadata.sessionId]?.status).toBe('active');
+      await exitInteractive(session);
+    } finally {
+      if (session && !session.exitInfo) await exitInteractive(session).catch(() => {});
+      session?.close();
+      await server.close();
+      await state.cleanup();
+    }
+  });
+
+  it('refuses recovery from another real live terminal session', async () => {
+    const server = await createMockAutohandAINativeSequenceServer([{ content: 'SHOULD_NOT_RUN' }]);
+    const state = await createTempAutohandHome({ config: {
+      provider: 'autohandai',
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'tuistory-autohand-api-key', model: 'moa', baseUrl: server.baseUrl },
+      features: { autohand_inference: true, slashGoal: true }, agent: { autoMemory: false },
+      ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+    } });
+    let ownerTerminal: Session | undefined;
+    let recoveringTerminal: Session | undefined;
+    try {
+      const recoveryConfigPath = path.join(state.autohandHome, 'recovery-config.json');
+      await fs.copy(state.configPath, recoveryConfigPath);
+      const launchOptions = { autohandHome: state.autohandHome, cwd: state.workspaceRoot };
+      ownerTerminal = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], launchOptions);
+      await ownerTerminal.waitForText('❯', { timeout: 15_000 });
+      const registry = new ActiveAgentRegistry(path.join(state.autohandHome, 'active-agents'));
+      const record = await vi.waitFor(async () => {
+        const [current] = await registry.listActive();
+        if (!current) throw new Error('Expected a live terminal heartbeat');
+        return current;
+      }, { timeout: 10_000, interval: 100 });
+      const owner = new GoalManager(state.workspaceRoot, { sessionId: record.sessionId });
+      await owner.createGoal({ objective: 'live owner work' });
+      recoveringTerminal = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', recoveryConfigPath], launchOptions);
+      await refuseLiveGoalRecovery(recoveringTerminal, record.sessionId);
+      expect((await owner.getSessionSnapshot()).goal?.status).toBe('active');
+      expect(server.requests).toHaveLength(0);
+      await exitInteractive(recoveringTerminal);
+      await exitInteractive(ownerTerminal);
+    } finally {
+      for (const terminal of [recoveringTerminal, ownerTerminal]) {
+        if (terminal && !terminal.exitInfo) await exitInteractive(terminal).catch(() => {});
+        terminal?.close();
+      }
+      await server.close();
+      await state.cleanup();
+    }
+  });
+
   it.each(['blocked', 'waiting'] as const)('keeps a %s goal stopped until an explicit interactive resume', async (status) => {
     const server = await createMockOpenRouterSequenceServer([
       JSON.stringify({ toolCalls: [{ tool: 'update_goal', args: { status, stop_reason: 'Needs approval', resume_when: 'User approves', checkpoint: { summary: 'Patch prepared' } } }] }),

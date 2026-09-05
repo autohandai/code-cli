@@ -153,6 +153,38 @@ export class GoalManager {
     return listGoalTemplateMetadata(this.workspaceRoot);
   }
 
+  async prepareSessionRecovery(sessionId: string): Promise<GoalMutationResult> {
+    return this.withMutation(async () => {
+      const snapshot = await this.readSnapshot();
+      const key = this.goalKey();
+      if (!/^[a-zA-Z0-9_.-]+$/.test(sessionId) || sessionId === '.' || sessionId === '..' || sessionId === UNKNOWN_SESSION_KEY) {
+        return this.result(snapshot, false, 'Recovery requires an exact saved session ID, not a path or an unscoped goal.');
+      }
+      if (sessionId === key) return this.result(snapshot, false, 'This goal is already attached. Use /goal resume when ready.');
+      const target = snapshot.goals[sessionId];
+      if (!target || target.status === 'complete' || target.status === 'budgetLimited') {
+        return this.result(snapshot, false, 'No unfinished goal exists for that session.');
+      }
+      if (snapshot.goals[key]?.status === 'active') {
+        return this.result(snapshot, false, 'Pause or complete this session’s active goal before recovering another session.');
+      }
+      try {
+        if (await this.isSessionAlive(sessionId)) return this.result(snapshot, false, 'Cannot recover a goal owned by a live session.');
+      } catch {
+        return this.result(snapshot, false, 'Could not verify session liveness. No goals were changed.');
+      }
+      if (target.status !== 'active') return this.result(snapshot, true, 'Goal is stopped and ready for conversation recovery.');
+      const now = Date.now();
+      const next: GoalSnapshot = {
+        ...snapshot,
+        goals: { ...snapshot.goals, [sessionId]: { ...target, status: 'paused', updatedAt: now } },
+        updatedAt: now,
+      };
+      await this.writeSnapshot(next);
+      return this.result(next, true, 'Offline goal paused for conversation recovery; saved usage was preserved.');
+    });
+  }
+
   async repairSnapshot(): Promise<GoalMutationResult> {
     return this.withMutation(async () => {
       try {

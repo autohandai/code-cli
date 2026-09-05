@@ -1454,6 +1454,7 @@ export class InkRenderer {
 
       // Create fresh ref for new instance
       this.wrapperRef = React.createRef<AgentUIWrapperHandle>();
+      this.lastQueuedInstruction = null;
 
       // Unmounting the previous Ink instance removes its visible primary-screen
       // frame before the alternate-screen modal opens. Replay the canonical

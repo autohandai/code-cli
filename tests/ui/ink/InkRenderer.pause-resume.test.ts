@@ -193,6 +193,23 @@ describe('InkRenderer pause/resume cycle', () => {
     (process.stdin as any).isTTY = originalIsTTY;
   });
 
+  it('allows reopening a modal immediately while still suppressing duplicate input bursts', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000);
+    renderer.start();
+    renderer.addQueuedInstruction('/goal recover');
+    renderer.addQueuedInstruction('/goal recover');
+    expect(renderer.getQueueCount()).toBe(1);
+    expect(renderer.dequeueInstruction()).toBe('/goal recover');
+    renderer.pause();
+    await renderer.resume();
+
+    renderer.addQueuedInstruction('/goal recover');
+    renderer.addQueuedInstruction('/goal recover');
+
+    expect(renderer.getQueueCount()).toBe(1);
+    expect(renderer.dequeueInstruction()).toBe('/goal recover');
+  });
+
   it('should restore raw mode after pause/resume', async () => {
     renderer.start();
     expect(renderer.isRunning()).toBe(true);

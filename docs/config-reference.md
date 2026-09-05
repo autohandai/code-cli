@@ -1210,6 +1210,18 @@ Use `/goal blocked` with the same fields for an obstacle. A slow command alone
 does not automatically mark a goal blocked. Invalid supplied statuses reject
 the entire update without silently applying other edits.
 
+`/goal recover` opens an offline-session picker; `/goal recover <session-id>`
+selects an exact owner directly. Recovery restores the original conversation,
+not just the goal text, and leaves work stopped until `/goal resume`. Live
+owners, unknown conversations, and cross-workspace sessions are refused.
+Canceling the picker changes nothing. Pause your current active goal first.
+
+Recovery preserves saved usage instead of charging unobservable offline time.
+If conversation restoration fails after preparation, the original goal remains
+safely stopped and can be retried. `--goal recover` only lists actionable
+offline choices; it does not open a picker or start autonomous work. Use
+`/goal repair` instead when the goal-storage file itself is damaged.
+
 To keep the normal turn-by-turn loop while goals are active:
 
 ```json

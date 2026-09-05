@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import path from 'node:path';
+import { showModal } from '../ui/ink/components/Modal.js';
 import { activateGoalAutoMode } from '../core/agent/GoalActivation.js';
 import { buildGoalContinuationInstruction, GoalManager } from '../goals/GoalManager.js';
 import { parseCompletionEvidence } from '../goals/GoalCompletion.js';
@@ -34,6 +36,7 @@ export const metadata: SlashCommand = {
     { name: 'complete', description: 'Mark the current goal complete' },
     { name: 'clear', description: 'Clear the current goal' },
     { name: 'repair', description: 'Restore damaged goal storage from its validated backup' },
+    { name: 'recover', description: 'Restore an offline goal’s conversation without starting work' },
     { name: 'templates', description: 'List reusable .pi-goals templates' },
   ],
 };
@@ -160,6 +163,8 @@ export async function goal(ctx: GoalCommandContext, args: string[] = []): Promis
     }
     case 'repair':
       return formatMutation(await manager.repairSnapshot());
+    case 'recover':
+      return recoverGoalSession(ctx, manager, rest);
     case 'templates': {
       const templates = await manager.listTemplates();
       if (templates.length === 0) return 'No goal templates found in .pi-goals/ or .ai/.pi-goals/.';
@@ -225,6 +230,59 @@ function startGoalWriter(ctx: GoalCommandContext, roughGoal?: string): string {
       : 'The next turn will use the built-in $goal-writer skill instructions if available.',
     'Answer the follow-up questions to create a completion contract with proof, boundaries, and a stop rule.',
   ].join('\n');
+}
+
+async function recoverGoalSession(ctx: GoalCommandContext, manager: GoalManager, requestedId: string): Promise<string> {
+  const snapshot = await manager.getSessionSnapshot();
+  const offline = snapshot.peers.filter((peer) => !peer.ownerAlive);
+  if (ctx.isNonInteractive || !ctx.restoreSession || !ctx.sessionManager) {
+    return [
+      'Recover a goal from an interactive session; recovery does not start work.',
+      ...offline.map((peer) => `/goal recover ${peer.sessionId} — ${formatObjectivePreview(peer.objective)} (${peer.status})`),
+      ...(offline.length ? [] : ['No offline goal sessions are available.']),
+    ].join('\n');
+  }
+  if (snapshot.goal?.status === 'active') return 'Pause or complete this session’s active goal before recovering another session.';
+  let sessionId = requestedId;
+  if (!sessionId) {
+    if (!offline.length) return 'No offline goal sessions are available. Live sessions cannot be recovered.';
+    try {
+      await ctx.onBeforeModal?.();
+      const selection = await showModal({
+        title: 'Recover an offline goal',
+        hint: '↑↓ choose · enter restore conversation · esc cancel · goals stay stopped',
+        options: offline.map((peer) => ({
+          value: peer.sessionId, label: formatObjectivePreview(peer.objective),
+          description: `${peer.sessionId} · ${peer.status} · offline`,
+        })),
+      });
+      if (!selection) return 'Recovery cancelled. No goals were changed.';
+      sessionId = selection.value;
+    } catch (error) {
+      return `Goal recovery failed: ${error instanceof Error ? error.message : 'picker unavailable'}`;
+    } finally {
+      await ctx.onAfterModal?.();
+    }
+  }
+  if (!/^[a-zA-Z0-9_.-]+$/.test(sessionId) || sessionId === '.' || sessionId === '..') {
+    return 'Recovery requires an exact saved session ID, not a path.';
+  }
+  try {
+    const sessions = await ctx.sessionManager.listSessions({ project: ctx.workspaceRoot });
+    if (!sessions.some((session) => session.sessionId === sessionId && path.resolve(session.projectPath) === path.resolve(ctx.workspaceRoot))) {
+      return 'The original conversation is unavailable in this workspace. No goals were changed.';
+    }
+    const prepared = await manager.prepareSessionRecovery(sessionId);
+    if (!prepared.ok) return prepared.message ?? 'Recovery was refused.';
+    try {
+      await ctx.restoreSession(sessionId);
+    } catch (error) {
+      return `Conversation recovery failed: ${error instanceof Error ? error.message : 'unknown error'}. The original goal remains safely stopped; retry /goal recover ${sessionId}.`;
+    }
+    return [`Recovered session ${sessionId}. Its goal remains stopped; use /goal resume when ready.`, prepared.storageWarning].filter(Boolean).join('\n');
+  } catch (error) {
+    return `Goal recovery failed: ${error instanceof Error ? error.message : 'unknown error'}`;
+  }
 }
 
 async function emitGoalWrittenCompleted(
@@ -309,7 +367,7 @@ function formatSnapshot(snapshot: GoalSessionSnapshot): string {
     parts.push([
       `Other active sessions (${snapshot.peers.length}):`,
       ...snapshot.peers.map((peer) => (
-        `- ${formatObjectivePreview(peer.objective)} (${peer.status}${peer.ownerAlive ? '' : ', session offline'})`
+        `- ${formatObjectivePreview(peer.objective)} (${peer.status}${peer.ownerAlive ? '' : ', session offline'}) · ${peer.sessionId}${peer.ownerAlive ? '' : ` · /goal recover ${peer.sessionId}`}`
       )),
     ].join('\n'));
   }
