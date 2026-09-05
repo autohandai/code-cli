@@ -91,7 +91,7 @@ describe('/experiments command', () => {
     expect(mockSaveConfig).toHaveBeenCalledWith(config);
   });
 
-  it.each(['/goal', '/goals', 'goal', 'goals'])(
+  it.each(['/goal', '/goals', 'goal', 'goals', 'slash_goals'])(
     'accepts %s as a user-facing alias for slash_goal',
     async (featureAlias) => {
       const { features } = await import('../../src/commands/features.js');
@@ -104,6 +104,36 @@ describe('/experiments command', () => {
       expect(mockSaveConfig).toHaveBeenCalledWith(config);
     },
   );
+
+  it('enables goals locally when the plural remote flag is below its minimum version', async () => {
+    const { features } = await import('../../src/commands/features.js');
+    const config = makeConfig({ features: { slashGoal: false } });
+    mockLoadRemoteFeatureFlags.mockResolvedValue({
+      success: true,
+      environment: 'production',
+      evaluatedAt: '2026-09-05T00:00:00.000Z',
+      ttlSeconds: 300,
+      flags: [{
+        key: 'slash_goals',
+        enabled: false,
+        reason: 'version_below_min',
+        userOverridable: true,
+      }],
+    });
+    mockShowModal.mockImplementation(async (options: ShowModalOptions) => {
+      const goalOptions = options.options.filter((option) => option.value.startsWith('slash_goal'));
+      expect(goalOptions).toHaveLength(1);
+      expect(goalOptions[0]).toMatchObject({ value: 'slash_goal', checked: false });
+      options.onToggle?.(goalOptions[0]!, true);
+      return null;
+    });
+
+    expect(await features({ config }, ['enable', 'slash_goals'])).toBe('Enabled slash_goal.');
+    expect(config.features?.slashGoal).toBe(true);
+    expect(await features({ config }, ['disable', 'slash_goals'])).toBe('Disabled slash_goal.');
+    expect(await features({ config }, [])).toBe('Enabled slash_goal.');
+    expect(config.features?.slashGoal).toBe(true);
+  });
 
   it('lets users enable experimental_handoff without requiring restart', async () => {
     const { features } = await import('../../src/commands/features.js');

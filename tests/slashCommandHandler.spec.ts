@@ -73,6 +73,7 @@ const DEFAULT_COMMANDS: SlashCommand[] = [
   { command: '/plan', description: 'plan mode', implemented: true },
   { command: '/squad', description: 'open squad', implemented: true },
   { command: '/usage', description: 'show usage', implemented: true },
+  { command: '/goals', description: 'open goals', implemented: true },
   { command: '/settings', description: 'configure settings', implemented: true },
 ];
 
@@ -275,6 +276,46 @@ describe('SlashCommandHandler', () => {
     expect(ctx.refreshFeatureGatedTools).toHaveBeenCalledTimes(1);
     expect(ctx.onBeforeModal).not.toHaveBeenCalled();
     expect(ctx.onAfterModal).not.toHaveBeenCalled();
+  });
+
+  it('opens the goals panel from /goals without starting goal work', async () => {
+    const ctx = {
+      ...createContext(),
+      onToggleGoalView: vi.fn(),
+      queueInstruction: vi.fn(),
+      setInteractionMode: vi.fn(),
+    };
+    ctx.config.features.slashGoal = true;
+    const handler = new SlashCommandHandler(ctx, DEFAULT_COMMANDS);
+
+    expect(handler.isCommandSupported('/goals')).toBe(true);
+    const result = await handler.handle('/goals');
+
+    expect(result).toContain('Opened the live goals view');
+    expect(ctx.onToggleGoalView).toHaveBeenCalledWith(true);
+    expect(ctx.queueInstruction).not.toHaveBeenCalled();
+    expect(ctx.setInteractionMode).not.toHaveBeenCalled();
+  });
+
+  it('keeps /goals behind the same experiment as /goal', async () => {
+    const ctx = { ...createContext(), onToggleGoalView: vi.fn() };
+    const handler = new SlashCommandHandler(ctx, DEFAULT_COMMANDS);
+
+    const result = await handler.handle('/goals');
+
+    expect(result).toContain('/experiments enable slash_goal');
+    expect(ctx.onToggleGoalView).not.toHaveBeenCalled();
+  });
+
+  it('preserves goal subcommands through /goals', async () => {
+    const ctx = { ...createContext(), queueInstruction: vi.fn() };
+    ctx.config.features.slashGoal = true;
+    const handler = new SlashCommandHandler(ctx, DEFAULT_COMMANDS);
+
+    const result = await handler.handle('/goals', ['writer', 'ship the release']);
+
+    expect(result).toContain('Goal writer started');
+    expect(ctx.queueInstruction).toHaveBeenCalledWith(expect.stringContaining('ship the release'));
   });
 
   it('returns /about output instead of printing through the active composer', async () => {

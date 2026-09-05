@@ -148,6 +148,7 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   extensionsCmd.metadata,
   featuresCmd.metadata,
   goalCmd.metadata,
+  goalCmd.goalsMetadata,
   squadCmd.metadata,
   sessionBranchingCmd.forkMetadata,
   sessionBranchingCmd.cloneMetadata,
