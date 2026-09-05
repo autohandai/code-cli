@@ -57,6 +57,7 @@ const mockAgent = {
   isSlashCommand: vi.fn().mockReturnValue(false),
   isSlashCommandSupported: vi.fn().mockReturnValue(false),
   handleSlashCommand: vi.fn(),
+  trackCommandUsage: vi.fn().mockResolvedValue(undefined),
   parseSlashCommand: vi.fn(),
   runInstruction: vi.fn().mockResolvedValue(true),
   runCommandMode: vi.fn().mockResolvedValue(true),
@@ -109,6 +110,16 @@ describe('RPC Adapter - P2 Handlers', () => {
     mockAgent.getAutomodeManager.mockReturnValue(undefined);
     mockAgent.getAndResetFileModCount.mockReturnValue({ count: 0, paths: [] });
     mockAgent.getAndResetExecutedActions.mockReturnValue([]);
+    mockAgent.getHookManager.mockReset().mockReturnValue(undefined);
+    mockAgent.isSlashCommand.mockReset().mockReturnValue(false);
+    mockAgent.isSlashCommandSupported.mockReset().mockReturnValue(false);
+    mockAgent.handleSlashCommand.mockReset().mockResolvedValue(null);
+    mockAgent.trackCommandUsage.mockReset().mockResolvedValue(undefined);
+    mockAgent.parseSlashCommand.mockReset().mockImplementation((input: string) => {
+      const parts = input.trim().split(/\s+/);
+      return { command: parts[0], args: parts.slice(1) };
+    });
+    mockAgent.runInstruction.mockReset().mockResolvedValue(true);
     mockAgent.runCommandMode.mockResolvedValue(true);
     mockAgent.shutdownRuntimeResources.mockResolvedValue(undefined);
     mockAgent.configureBrowserV2Tools.mockImplementation((tools) => [...tools]);
@@ -269,6 +280,75 @@ describe('RPC Adapter - P2 Handlers', () => {
   // -------------------------------------------------------------------------
 
   describe('prompt handling', () => {
+    it('executes /review through the model and review lifecycle', async () => {
+      const hookManager = {
+        executeHooks: vi.fn().mockResolvedValue([]),
+      };
+      mockAgent.getHookManager.mockReturnValue(hookManager);
+      mockAgent.isSlashCommand.mockReturnValue(true);
+      mockAgent.isSlashCommandSupported.mockReturnValue(true);
+      mockAgent.parseSlashCommand.mockReturnValue({
+        command: '/review',
+        args: ['security', 'src/auth', '--audience', 'forensic'],
+      });
+      const outputListener = mockAgent.setOutputListener.mock.calls[0]?.[0];
+      mockAgent.runInstruction.mockImplementationOnce(async () => {
+        outputListener({ type: 'message', content: 'No critical security findings.' });
+        return true;
+      });
+
+      await expect(adapter.handlePrompt('review_rpc', {
+        message: '/review security src/auth --audience forensic',
+      })).resolves.toEqual({ success: true });
+
+      expect(mockAgent.handleSlashCommand).not.toHaveBeenCalled();
+      expect(mockAgent.trackCommandUsage).toHaveBeenCalledWith({
+        command: '/review',
+        subcommand: 'security',
+        surface: 'json_rpc',
+      });
+      expect(mockAgent.runInstruction).toHaveBeenCalledWith(
+        expect.stringContaining('# Autohand Review invocation'),
+        { signal: expect.any(AbortSignal) },
+      );
+      expect(mockAgent.runInstruction.mock.calls[0]?.[0]).toContain('"kind": "security"');
+      expect(hookManager.executeHooks.mock.calls.map(([event]) => event)).toEqual([
+        'pre-prompt',
+        'review:start',
+        'review:completed',
+        'review:end',
+        'stop',
+      ]);
+      expect(hookManager.executeHooks).toHaveBeenCalledWith(
+        'pre-prompt',
+        expect.objectContaining({
+          instruction: '/review security src/auth --audience forensic',
+        }),
+        { signal: expect.any(AbortSignal) },
+      );
+      expect(writeNotification).toHaveBeenCalledWith(
+        'autohand.messageUpdate',
+        expect.objectContaining({ delta: 'No critical security findings.' }),
+      );
+      expect(writeNotification).toHaveBeenCalledWith(
+        'autohand.hook.reviewStart',
+        expect.objectContaining({
+          event: 'review:start',
+          kind: 'security',
+          surface: 'json_rpc',
+          status: 'running',
+        }),
+      );
+      expect(writeNotification).toHaveBeenCalledWith(
+        'autohand.hook.reviewCompleted',
+        expect.objectContaining({ event: 'review:completed', success: true }),
+      );
+      expect(writeNotification).toHaveBeenCalledWith(
+        'autohand.hook.reviewEnd',
+        expect.objectContaining({ event: 'review:end', status: 'completed' }),
+      );
+    });
+
     it('waits at a requested step boundary and records the host stop decision', async () => {
       mockAgent.runInstruction.mockImplementationOnce(async (_instruction, options) => {
         const decision = options?.onStepFinish?.({

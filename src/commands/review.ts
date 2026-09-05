@@ -32,6 +32,15 @@ export type ReviewCommandResolution =
   | { type: 'instruction'; request: ReviewRequest; instruction: string }
   | { type: 'output'; output: string };
 
+type ReviewArgumentsResolution =
+  | { type: 'request'; request: ReviewRequest }
+  | { type: 'output'; output: string };
+
+const REVIEW_EXECUTION_GUIDANCE = [
+  'Autohand Review requires an execution surface.',
+  'Use /review in an interactive, ACP, or JSON-RPC session, or run "autohand review" for one-shot non-interactive output.',
+].join(' ');
+
 const FALLBACK_SPECIALIST_INSTRUCTIONS = [
   '# Autohand Review',
   '',
@@ -76,6 +85,17 @@ export async function resolveReviewCommand(
   workspaceRoot: string,
   args: readonly string[] = [],
 ): Promise<ReviewCommandResolution> {
+  const resolution = resolveReviewArguments(args);
+  if (resolution.type === 'output') return resolution;
+
+  return {
+    type: 'instruction',
+    request: resolution.request,
+    instruction: await buildReviewCommandInstruction(workspaceRoot, resolution.request),
+  };
+}
+
+function resolveReviewArguments(args: readonly string[]): ReviewArgumentsResolution {
   const parsed = parseReviewArguments(args);
   if (!parsed.ok) {
     return {
@@ -87,27 +107,35 @@ export async function resolveReviewCommand(
     return { type: 'output', output: formatReviewHelp() };
   }
 
+  return { type: 'request', request: parsed.request };
+}
+
+export async function buildReviewCommandInstruction(
+  workspaceRoot: string,
+  request: ReviewRequest,
+): Promise<string> {
   const specialistInstructions = await loadSpecialistInstructions();
-  return {
-    type: 'instruction',
-    request: parsed.request,
-    instruction: buildReviewInstruction({
-      request: parsed.request,
-      workspaceRoot,
-      specialistInstructions,
-    }),
-  };
+  return buildReviewInstruction({
+    request,
+    workspaceRoot,
+    specialistInstructions,
+  });
 }
 
 export async function review(ctx: ReviewCommandContext, args: string[] = []): Promise<string | null> {
-  const resolution = await resolveReviewCommand(ctx.workspaceRoot, args);
+  const resolution = resolveReviewArguments(args);
   if (resolution.type === 'output') return resolution.output;
 
   if (ctx.isNonInteractive || !ctx.queueInstruction) {
-    return resolution.instruction;
+    return REVIEW_EXECUTION_GUIDANCE;
   }
 
-  ctx.queueInstruction(resolution.instruction);
+  const instruction = await buildReviewCommandInstruction(ctx.workspaceRoot, resolution.request);
+  ctx.queueInstruction(instruction, {
+    kind: 'review-lifecycle',
+    request: resolution.request,
+    surface: 'interactive',
+  });
   console.log(chalk.cyan('\n  Starting Autohand Review...'));
   console.log(chalk.gray(
     `  ${resolution.request.kind} · ${resolution.request.audience} audience · read-only`,

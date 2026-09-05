@@ -8,6 +8,8 @@ import { buildGoalContinuationInstruction, GoalManager } from '../../goals/GoalM
 import type { MobileComposerCommandExecutionOutcome } from '../../mobile/MobileHandoffClient.js';
 import type { MobileComposerExecutableCommand } from '../../mobile/MobileCommandPolicy.js';
 import type { MobileClaimedTurnContext } from '../../mobile/MobileRelay.js';
+import type { ReviewExecutionSurface } from '../../review/reviewLifecycle.js';
+import type { ReviewRequest } from '../../review/reviewRequest.js';
 import { nextQueuedWorkSequence } from '../../utils/queuedWorkSequence.js';
 
 export interface PublishResearchPostTurnAction {
@@ -16,7 +18,15 @@ export interface PublishResearchPostTurnAction {
   reportPath: string;
 }
 
-export type PendingPostTurnAction = PublishResearchPostTurnAction;
+export interface ReviewLifecyclePostTurnAction {
+  kind: 'review-lifecycle';
+  request: ReviewRequest;
+  surface: ReviewExecutionSurface;
+}
+
+export type PendingPostTurnAction =
+  | PublishResearchPostTurnAction
+  | ReviewLifecyclePostTurnAction;
 
 export interface QueuedMobileComposerCommand {
   command: MobileComposerExecutableCommand;
@@ -100,6 +110,10 @@ export async function executePendingPostTurnAction(
   turnSucceeded: boolean,
   environment: PostTurnEnvironment = currentPostTurnEnvironment(),
 ): Promise<string | null> {
+  if (action.kind === 'review-lifecycle') {
+    return null;
+  }
+
   if (
     !turnSucceeded
     || host.shouldExit

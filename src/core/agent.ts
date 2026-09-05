@@ -74,6 +74,7 @@ import { ErrorLogger } from './errorLogger.js';
 import { MemoryManager } from '../memory/MemoryManager.js';
 import { FeedbackManager } from '../feedback/FeedbackManager.js';
 import { TelemetryManager } from '../telemetry/TelemetryManager.js';
+import type { CommandUseData, CommandUseSurface } from '../telemetry/types.js';
 import {
   extractAndSaveSessionMemories,
   type ExtractedMemory,
@@ -178,6 +179,7 @@ import {
   type FreshAgentSessionHost,
   type FreshAgentSessionRecord,
   type FreshAgentSessionStateHost,
+  type RunAgentCommandModeOptions,
 } from './agent/AgentLifecycleRunner.js';
 import { promptForAgentInstruction, type AgentPromptInstructionHost } from './agent/PromptInstructionReader.js';
 import {
@@ -688,7 +690,7 @@ export class AutohandAgent {
 
   async runCommandMode(
     instruction: string,
-    options: AbortSignal | { signal?: AbortSignal; keepAlive?: boolean } = {},
+    options: AbortSignal | RunAgentCommandModeOptions = {},
   ): Promise<boolean> {
     return runAgentCommandMode(
       this,
@@ -2238,8 +2240,16 @@ export class AutohandAgent {
    * Handle a slash command (e.g., /skills, /skills install, /model)
    * Returns the command output or null if the command doesn't exist
    */
-  async handleSlashCommand(command: string, args: string[] = []): Promise<string | null> {
-    return handleAgentSlashCommand(this, command, args);
+  async handleSlashCommand(
+    command: string,
+    args: string[] = [],
+    surface: CommandUseSurface = 'interactive',
+  ): Promise<string | null> {
+    return handleAgentSlashCommand(this, command, args, surface);
+  }
+
+  async trackCommandUsage(data: CommandUseData): Promise<void> {
+    await this.telemetryManager.trackCommand(data);
   }
 
   /**

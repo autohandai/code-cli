@@ -33,6 +33,11 @@ export const ACP_HOOK_NOTIFICATIONS = {
   HOOK_SUBAGENT_STOP: "autohand.hook.subagentStop",
   HOOK_PERMISSION_REQUEST: "autohand.hook.permissionRequest",
   HOOK_NOTIFICATION: "autohand.hook.notification",
+  HOOK_REVIEW_START: "autohand.hook.reviewStart",
+  HOOK_REVIEW_END: "autohand.hook.reviewEnd",
+  HOOK_REVIEW_PAUSED: "autohand.hook.reviewPaused",
+  HOOK_REVIEW_FAILED: "autohand.hook.reviewFailed",
+  HOOK_REVIEW_COMPLETED: "autohand.hook.reviewCompleted",
   // Setup wizard notifications
   SETUP_STARTED: "autohand.setup.started",
   SETUP_STEP_START: "autohand.setup.stepStart",

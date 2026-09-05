@@ -274,6 +274,8 @@ export function buildReviewInstruction(input: {
       ];
 
   return [
+    'Execute the following internal specialist instruction as one agent turn.',
+    '',
     '# Autohand Review invocation',
     '',
     'Run the public-beta review workflow as a read-only inspection. Do not modify the workspace.',

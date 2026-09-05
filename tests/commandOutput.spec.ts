@@ -52,6 +52,18 @@ describe('resolveCommandOutputFormat', () => {
 });
 
 describe('CommandOutputWriter', () => {
+  it('writes one plain-text final result when command output is captured', () => {
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const writer = new CommandOutputWriter('text');
+
+    writer.handleEvent({ type: 'message', content: '# Review report\n\nEvidence.' });
+    writer.finish(true);
+    writer.finish(true);
+
+    expect(stdoutWrite).toHaveBeenCalledOnce();
+    expect(stdoutWrite).toHaveBeenCalledWith('# Review report\n\nEvidence.\n');
+  });
+
   let stdoutWrite: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {

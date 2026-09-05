@@ -1780,6 +1780,8 @@ export interface AgentRuntime {
   isRpcMode?: boolean;
   /** True when running one-shot command mode via --prompt/positional prompt */
   isCommandMode?: boolean;
+  /** True when final command output is emitted by a transport writer. */
+  commandOutputCaptured?: boolean;
 }
 
 export interface AgentStatusSnapshot {

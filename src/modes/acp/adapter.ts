@@ -49,6 +49,15 @@ import { ApiError, classifyApiError, type ApiErrorCode } from '../../providers/e
 import type { SessionMessage } from '../../session/types.js';
 import { isGoalFeatureEnabled } from '../../goals/feature.js';
 import { configureSearchFromSettings } from '../../actions/web.js';
+import { resolveReviewCommand } from '../../commands/review.js';
+import {
+  executeReviewWithLifecycle,
+  type ReviewLifecycleContext,
+  type ReviewLifecycleEvent,
+} from '../../review/reviewLifecycle.js';
+import type { ReviewRequest } from '../../review/reviewRequest.js';
+import { REVIEW_KINDS } from '../../review/reviewRequest.js';
+import { buildCommandUseData } from '../../telemetry/commandUsage.js';
 
 import {
   ACP_HOOK_NOTIFICATIONS,
@@ -66,6 +75,14 @@ import {
 import { createPermissionBridge } from './permissions.js';
 
 import packageJson from '../../../package.json' with { type: 'json' };
+
+const REVIEW_ACP_NOTIFICATIONS = {
+  'review:start': ACP_HOOK_NOTIFICATIONS.HOOK_REVIEW_START,
+  'review:end': ACP_HOOK_NOTIFICATIONS.HOOK_REVIEW_END,
+  'review:paused': ACP_HOOK_NOTIFICATIONS.HOOK_REVIEW_PAUSED,
+  'review:failed': ACP_HOOK_NOTIFICATIONS.HOOK_REVIEW_FAILED,
+  'review:completed': ACP_HOOK_NOTIFICATIONS.HOOK_REVIEW_COMPLETED,
+} as const satisfies Record<ReviewLifecycleEvent, string>;
 
 interface AssistantReplayParts {
   thought?: string;
@@ -649,62 +666,97 @@ export class AutohandAcpAdapter implements Agent {
     // Check if it's a slash command
     // BUT: exclude file paths like /var/folders/... or /Users/...
     const trimmed = instruction.trim();
+    let reviewRequest: ReviewRequest | undefined;
     if (trimmed.startsWith('/') && !isLikelyFilePathSlashInput(trimmed)) {
       // Use parseSlashCommand to handle two-word commands ("/mcp install", "/skills new")
       // and preserve the "/" prefix required by the handler.
       const { command, args } = agent.parseSlashCommand(trimmed);
 
       if (agent.isSlashCommand(trimmed)) {
-        try {
-          if (agent.isSlashCommandSupported(command)) {
-            const result = await agent.handleSlashCommand(command, args);
-            if (result !== null) {
-              await this.connection.sessionUpdate({
-                sessionId: params.sessionId,
-                update: {
-                  sessionUpdate: 'agent_message_chunk',
-                  content: { type: 'text', text: result },
-                },
-              });
+        if (command === '/review' && agent.isSlashCommandSupported(command)) {
+          await agent.trackCommandUsage(buildCommandUseData({
+            command,
+            args,
+            knownSubcommands: REVIEW_KINDS,
+            surface: 'acp',
+          })).catch(() => {});
+          const resolution = await resolveReviewCommand(session.workspaceRoot, args);
+          if (resolution.type === 'output') {
+            await this.connection.sessionUpdate({
+              sessionId: params.sessionId,
+              update: {
+                sessionUpdate: 'agent_message_chunk',
+                content: { type: 'text', text: resolution.output },
+              },
+            });
+            return { stopReason: 'end_turn' };
+          }
+          instruction = resolution.instruction;
+          reviewRequest = resolution.request;
+        } else {
+          try {
+            if (agent.isSlashCommandSupported(command)) {
+              const result = await agent.handleSlashCommand(command, args, 'acp');
+              if (result !== null) {
+                await this.connection.sessionUpdate({
+                  sessionId: params.sessionId,
+                  update: {
+                    sessionUpdate: 'agent_message_chunk',
+                    content: { type: 'text', text: result },
+                  },
+                });
+              } else {
+                await this.connection.sessionUpdate({
+                  sessionId: params.sessionId,
+                  update: {
+                    sessionUpdate: 'agent_message_chunk',
+                    content: { type: 'text', text: `Command ${command} executed.` },
+                  },
+                });
+              }
             } else {
               await this.connection.sessionUpdate({
                 sessionId: params.sessionId,
                 update: {
                   sessionUpdate: 'agent_message_chunk',
-                  content: { type: 'text', text: `Command ${command} executed.` },
+                  content: { type: 'text', text: `Unknown command: ${command}. Type /help for available commands.` },
                 },
               });
             }
-          } else {
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
             await this.connection.sessionUpdate({
               sessionId: params.sessionId,
               update: {
                 sessionUpdate: 'agent_message_chunk',
-                content: { type: 'text', text: `Unknown command: ${command}. Type /help for available commands.` },
+                content: { type: 'text', text: `Error: ${errMsg}` },
               },
             });
           }
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          await this.connection.sessionUpdate({
-            sessionId: params.sessionId,
-            update: {
-              sessionUpdate: 'agent_message_chunk',
-              content: { type: 'text', text: `Error: ${errMsg}` },
-            },
-          });
+          return { stopReason: 'end_turn' };
         }
-        return { stopReason: 'end_turn' };
       }
     }
 
-    // Regular instruction - run through the LLM
+    // Regular prompts and /review both run through the LLM.
     const turnStart = Date.now();
-    this.emitHookPrePrompt(params.sessionId, instruction, []);
+    this.emitHookPrePrompt(params.sessionId, reviewRequest ? trimmed : instruction, []);
     try {
-      const success = await agent.runInstruction(instruction, {
+      const runInstruction = (): Promise<boolean> => agent.runInstruction(instruction, {
         signal: session.abortController.signal,
       });
+      const success = reviewRequest
+        ? await executeReviewWithLifecycle({
+            request: reviewRequest,
+            surface: 'acp',
+            sessionId: params.sessionId,
+            signal: session.abortController.signal,
+            hookManager: agent.getHookManager?.(),
+            permissionManager: agent.getPermissionManager?.(),
+            onEvent: (event, context) => this.emitHookReview(event, context),
+            execute: runInstruction,
+          })
+        : await runInstruction();
       const turnDuration = Date.now() - turnStart;
       this.emitHookStop(params.sessionId, 0, 0, turnDuration);
       if (!success && this.cancelledSessions.has(params.sessionId)) {
@@ -1009,6 +1061,29 @@ export class AutohandAcpAdapter implements Agent {
         `[ACP] Failed to emit hook notification ${method}: ${err instanceof Error ? err.message : String(err)}\n`
       );
     }
+  }
+
+  private emitHookReview(
+    event: ReviewLifecycleEvent,
+    context: ReviewLifecycleContext,
+  ): Promise<void> {
+    return this.emitHookSafe(REVIEW_ACP_NOTIFICATIONS[event], {
+      sessionId: context.sessionId,
+      event,
+      kind: context.reviewKind,
+      audience: context.reviewAudience,
+      format: context.reviewFormat,
+      surface: context.reviewSurface,
+      status: context.reviewStatus,
+      target: context.reviewPath,
+      base: context.reviewBase,
+      head: context.reviewHead,
+      focus: context.reviewInstructions,
+      duration: context.duration,
+      success: context.success,
+      error: context.reviewError,
+      timestamp: new Date().toISOString(),
+    });
   }
 
   emitHookPreTool(sessionId: string, toolId: string, toolName: string, args: Record<string, unknown>): void {

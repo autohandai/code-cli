@@ -108,6 +108,14 @@ export class CommandOutputWriter {
     if (this.completed) return;
     this.completed = true;
 
+    if (this.format === 'text') {
+      if (succeeded && this.finalContent) {
+        process.stdout.write(
+          this.finalContent.endsWith('\n') ? this.finalContent : `${this.finalContent}\n`,
+        );
+      }
+      return;
+    }
     if (this.format === 'stream-json') {
       if (!succeeded && !this.lastError) {
         this.write({ type: 'error', message: 'Command did not complete successfully.' });

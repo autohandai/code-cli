@@ -535,22 +535,22 @@ describe('agent.ts deduplication', () => {
       const loopBody = loopMatch![0];
 
       // After the shell command handler (!), there must be slash command handling
-      // before runInstruction is called
+      // before the tested instruction-turn boundary is called.
       const shellHandlerIdx = loopBody.indexOf('isShellCommand(instruction)');
       const slashHandlerIdx = loopBody.indexOf("instruction.startsWith('/')");
-      const runInstructionIdx = loopBody.indexOf('await host.runInstruction(');
+      const instructionTurnIdx = loopBody.indexOf('await executeAgentInstructionTurn(');
 
       expect(shellHandlerIdx).toBeGreaterThan(-1);
       expect(slashHandlerIdx).toBeGreaterThan(-1);
-      expect(runInstructionIdx).toBeGreaterThan(-1);
+      expect(instructionTurnIdx).toBeGreaterThan(-1);
 
-      // Slash command handling must appear BEFORE runInstruction
+      // Slash command handling must appear BEFORE the instruction turn
       // (not just the telemetry check, but actual command execution)
-      expect(slashHandlerIdx).toBeLessThan(runInstructionIdx);
+      expect(slashHandlerIdx).toBeLessThan(instructionTurnIdx);
 
       // There must be a call to runSlashCommandWithInput or handleSlashCommand
-      // between the slash check and runInstruction
-      const betweenSlashAndRun = loopBody.substring(slashHandlerIdx, runInstructionIdx);
+      // between the slash check and the instruction turn.
+      const betweenSlashAndRun = loopBody.substring(slashHandlerIdx, instructionTurnIdx);
       expect(
         betweenSlashAndRun.includes('runSlashCommandWithInput') ||
         betweenSlashAndRun.includes('handleSlashCommand')
@@ -626,14 +626,14 @@ describe('agent.ts deduplication', () => {
       const loopBody = loopMatch![0];
 
       const hashHandlerIdx = loopBody.indexOf("instruction.startsWith('#')");
-      const runInstructionIdx = loopBody.indexOf('await host.runInstruction(');
+      const instructionTurnIdx = loopBody.indexOf('await executeAgentInstructionTurn(');
 
       expect(hashHandlerIdx).toBeGreaterThan(-1);
-      expect(runInstructionIdx).toBeGreaterThan(-1);
-      expect(hashHandlerIdx).toBeLessThan(runInstructionIdx);
+      expect(instructionTurnIdx).toBeGreaterThan(-1);
+      expect(hashHandlerIdx).toBeLessThan(instructionTurnIdx);
 
       // Must call handleMemoryStore and use continue
-      const betweenHashAndRun = loopBody.substring(hashHandlerIdx, runInstructionIdx);
+      const betweenHashAndRun = loopBody.substring(hashHandlerIdx, instructionTurnIdx);
       expect(betweenHashAndRun.includes('handleMemoryStore')).toBe(true);
       expect(betweenHashAndRun.includes('continue')).toBe(true);
     });

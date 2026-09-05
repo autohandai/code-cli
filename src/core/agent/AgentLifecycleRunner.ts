@@ -51,6 +51,9 @@ import {
 import type { MobileClaimedTurnContext } from '../../mobile/MobileRelay.js';
 import type { MobileImageAttachment } from '../../mobile/MobileHandoffClient.js';
 import { validateMobileCommandInvocationForWorkspace } from '../../mobile/MobileCommandPolicy.js';
+import { executeReviewWithLifecycle } from '../../review/reviewLifecycle.js';
+import type { ReviewExecutionSurface } from '../../review/reviewLifecycle.js';
+import type { ReviewRequest } from '../../review/reviewRequest.js';
 
 const execFileAsync = promisify(execFile);
 const RUNTIME_RESOURCE_SHUTDOWN_TIMEOUT_MS = 2_500;
@@ -71,6 +74,48 @@ export interface AgentLifecycleHost {
 export interface RunAgentCommandModeOptions {
   signal?: AbortSignal;
   keepAlive?: boolean;
+  review?: {
+    request: ReviewRequest;
+    surface: ReviewExecutionSurface;
+  };
+}
+
+export interface ExecuteAgentInstructionTurnOptions {
+  echoInTranscript?: boolean;
+  postTurnAction?: PendingPostTurnAction;
+  mobileTurn?: MobileClaimedTurnContext;
+}
+
+export async function executeAgentInstructionTurn(
+  host: AgentLifecycleHost,
+  instruction: string,
+  options: ExecuteAgentInstructionTurnOptions = {},
+): Promise<boolean> {
+  const execute = (): Promise<boolean> => {
+    if (options.mobileTurn) {
+      return host.runInstruction(instruction, {
+        mobileTurn: options.mobileTurn,
+        ...(options.echoInTranscript === false ? { echoInTranscript: false } : {}),
+      });
+    }
+    if (options.echoInTranscript === false) {
+      return host.runInstruction(instruction, { echoInTranscript: false });
+    }
+    return host.runInstruction(instruction);
+  };
+
+  if (options.postTurnAction?.kind !== 'review-lifecycle') {
+    return execute();
+  }
+
+  return executeReviewWithLifecycle({
+    request: options.postTurnAction.request,
+    surface: options.postTurnAction.surface,
+    sessionId: host.sessionManager.getCurrentSession()?.metadata.sessionId,
+    hookManager: host.hookManager,
+    permissionManager: host.permissionManager,
+    execute,
+  });
 }
 
 type ProviderSettingsHost = {
@@ -1084,11 +1129,33 @@ export async function runAgentCommandMode(
       );
       initialized = true;
 
+      if (options.review) {
+        await host.telemetryManager.trackCommand({
+          command: 'review',
+          subcommand: options.review.request.kind,
+          surface: 'cli',
+        }).catch(() => {});
+      }
+
       turnStartedAt = Date.now();
-      succeeded = await awaitLifecycleStep(
-        Promise.resolve(host.runInstruction(instruction, { signal })),
+      const executeInstruction = (): Promise<boolean> => awaitLifecycleStep(
+        Promise.resolve(host.runInstruction(instruction, {
+          signal,
+          ...(options.review ? { echoInTranscript: false } : {}),
+        })),
         signal,
       );
+      succeeded = options.review
+        ? await executeReviewWithLifecycle({
+            request: options.review.request,
+            surface: options.review.surface,
+            sessionId: host.sessionManager.getCurrentSession()?.metadata.sessionId,
+            signal,
+            hookManager: host.hookManager,
+            permissionManager: host.permissionManager,
+            execute: executeInstruction,
+          })
+        : await executeInstruction();
 
       if (!succeeded) {
         finalizationDeadline.start();
@@ -1102,6 +1169,7 @@ export async function runAgentCommandMode(
       if (succeeded) {
         if (
           host.runtime.config.ui?.terminalBell !== false
+          && !options.review
           && (host.runtime.options.commandOutputFormat ?? 'text') === 'text'
         ) {
           process.stdout.write('\x07');
@@ -1693,18 +1761,12 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         }
 
         const turnStartTime = Date.now();
-        let turnSucceeded: boolean;
-        if (mobileTurn) {
-          turnSucceeded = await host.runInstruction(instruction, {
-            mobileTurn,
-            ...(echoInTranscript === false ? { echoInTranscript: false } : {}),
-          });
-        } else if (echoInTranscript === false) {
-          turnSucceeded = await host.runInstruction(instruction, { echoInTranscript: false });
-        } else {
-          turnSucceeded = await host.runInstruction(instruction);
-        }
-        if (postTurnAction) {
+        const turnSucceeded = await executeAgentInstructionTurn(host, instruction, {
+          ...(mobileTurn ? { mobileTurn } : {}),
+          ...(echoInTranscript !== undefined ? { echoInTranscript } : {}),
+          ...(postTurnAction ? { postTurnAction } : {}),
+        });
+        if (postTurnAction?.kind === 'publish-research') {
           const consumedAction = postTurnAction;
           postTurnAction = undefined;
           let publicationResult: string | null = null;

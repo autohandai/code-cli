@@ -5,7 +5,7 @@
  *
  * Tests for /review slash command:
  * - Queues instructions silently via queueInstruction
- * - Falls back to returning prompt text when queueInstruction unavailable
+ * - Never exposes internal specialist instructions as command output
  * - Incorporates user focus areas
  */
 
@@ -77,6 +77,30 @@ describe('/review command', () => {
     expect(queued).toContain('Autohand Review');
     expect(queued).toContain('"kind": "changes"');
     expect(queued).toContain('"workspaceRoot": "/tmp/test"');
+    expect(queued).not.toMatch(/^#/);
+  });
+
+  it('marks queued interactive reviews for lifecycle execution', async () => {
+    const queueInstruction = vi.fn();
+
+    await review(
+      { workspaceRoot: '/tmp/test', config: {}, queueInstruction } as any,
+      ['security', 'src/auth', '--audience', 'forensic'],
+    );
+
+    expect(queueInstruction).toHaveBeenCalledWith(
+      expect.stringContaining('# Autohand Review invocation'),
+      {
+        kind: 'review-lifecycle',
+        request: {
+          kind: 'security',
+          audience: 'forensic',
+          format: 'markdown',
+          target: 'src/auth',
+        },
+        surface: 'interactive',
+      },
+    );
   });
 
   it('shows a brief status message to the user', async () => {
@@ -161,14 +185,15 @@ describe('/review command', () => {
     );
   });
 
-  it('falls back to returning prompt text when queueInstruction is unavailable', async () => {
+  it('returns execution guidance without exposing the specialist prompt when queueInstruction is unavailable', async () => {
     const ctx = { workspaceRoot: '/tmp/test', config: {} };
 
     const result = await review(ctx as any);
 
-    expect(result).toBeTruthy();
-    expect(typeof result).toBe('string');
-    expect(result).toContain('Autohand Review');
+    expect(result).toContain('Use /review in an interactive, ACP, or JSON-RPC session');
+    expect(result).toContain('autohand review');
+    expect(result).not.toContain('# Autohand Review invocation');
+    expect(result).not.toContain('specialistInstructions');
   });
 
   it('falls back gracefully if the bundled specialist definition is missing', async () => {
@@ -184,17 +209,15 @@ describe('/review command', () => {
     expect(queued).toContain('evidence-led');
   });
 
-  it('returns prompt text in RPC/ACP mode (isNonInteractive) even when queueInstruction exists', async () => {
+  it('does not expose prompt text from the direct handler in RPC/ACP mode', async () => {
     const queueInstruction = vi.fn();
     const ctx = { workspaceRoot: '/tmp/test', config: {}, queueInstruction, isNonInteractive: true };
 
     const result = await review(ctx as any);
 
-    // In non-interactive mode, should return the prompt (not queue it)
-    expect(result).toBeTruthy();
-    expect(typeof result).toBe('string');
-    expect(result).toContain('Autohand Review');
-    // queueInstruction should NOT have been called
+    expect(result).toContain('Use /review in an interactive, ACP, or JSON-RPC session');
+    expect(result).not.toContain('# Autohand Review invocation');
+    expect(result).not.toContain('specialistInstructions');
     expect(queueInstruction).not.toHaveBeenCalled();
   });
 

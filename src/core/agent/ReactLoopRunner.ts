@@ -484,14 +484,16 @@ export async function runAgentReactLoop(
         host.inkRenderer.setFinalResponse(response);
       } else {
         host.runtime.spinner?.stop();
-        if (showThinking && options.thought && !suppressThinking) {
-          console.log(chalk.gray(`Thinking: ${options.thought}`));
-          console.log();
-        }
-        if (options.usedThoughtAsResponse) {
-          console.log(chalk.gray('Thinking: ') + response);
-        } else {
-          console.log(response);
+        if (!host.runtime.commandOutputCaptured) {
+          if (showThinking && options.thought && !suppressThinking) {
+            console.log(chalk.gray(`Thinking: ${options.thought}`));
+            console.log();
+          }
+          if (options.usedThoughtAsResponse) {
+            console.log(chalk.gray('Thinking: ') + response);
+          } else {
+            console.log(response);
+          }
         }
       }
     };
