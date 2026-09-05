@@ -36,6 +36,10 @@ export class SlashCommandHandler {
     return this.commandMap.has(command) || this.extensionRuntime?.getCommand(command) !== undefined;
   }
 
+  getKnownSubcommands(command: string): string[] {
+    return this.commandMap.get(command)?.subcommands?.map(({ name }) => name) ?? [];
+  }
+
   async handle(command: string, args: string[] = []): Promise<string | null> {
     if (command === LEGACY_BROWSER_SLASH_COMMAND) {
       if (!this.commandMap.has(BROWSER_SLASH_COMMAND)) {

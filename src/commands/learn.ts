@@ -288,6 +288,12 @@ async function handleGeneration(
   const skillDir = path.join(targetDir, generated.name);
   await fse.ensureDir(skillDir);
   await fse.writeFile(path.join(skillDir, 'SKILL.md'), skillContent, 'utf-8');
+  ctx.skillsRegistry.trackSkillEvent({
+    skillName: generated.name,
+    source: scope === 'project' ? 'autohand-project' : 'autohand-user',
+    activationType: 'explicit',
+    action: 'install',
+  });
 
   return (
     chalk.green(`Generated and installed skill: ${generated.name}\n`) +
@@ -361,6 +367,12 @@ async function handleLearnUpdate(ctx: LearnCommandContext): Promise<string> {
     // Write to the skill's existing path
     try {
       await fse.writeFile(skill.path, content, 'utf-8');
+      skillsRegistry.trackSkillEvent({
+        skillName: skill.name,
+        source: skill.source,
+        activationType: 'explicit',
+        action: 'update',
+      });
       updated++;
       lines.push(chalk.green(`  Regenerated ${skill.name}`));
     } catch {

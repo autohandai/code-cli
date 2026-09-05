@@ -23,6 +23,8 @@ import { normalizePermissionPromptResponse, type PermissionPromptResult } from '
 import type { Plan } from '../../modes/planMode/types.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { BARE_SLASH_COMMANDS_DISABLED_MESSAGE } from '../../runtime/bareMode.js';
+import { buildCommandUseData } from '../../telemetry/commandUsage.js';
+import type { CommandUseSurface } from '../../telemetry/types.js';
 
 export interface AgentCommandRuntimeHost {
   [key: string]: any;
@@ -197,10 +199,22 @@ export async function runAgentSlashCommandWithInput(host: AgentCommandRuntimeHos
     }
   }
 
-export async function handleAgentSlashCommand(host: AgentCommandRuntimeHost, command: string, args: string[] = []): Promise<string | null> {
+export async function handleAgentSlashCommand(
+  host: AgentCommandRuntimeHost,
+  command: string,
+  args: string[] = [],
+  surface: CommandUseSurface = 'interactive',
+): Promise<string | null> {
     if (host.runtime.options.bare) {
       return BARE_SLASH_COMMANDS_DISABLED_MESSAGE;
     }
+
+    await host.telemetryManager?.trackCommand(buildCommandUseData({
+      command,
+      args,
+      knownSubcommands: host.slashHandler.getKnownSubcommands(command),
+      surface,
+    })).catch(() => {});
 
     // /mcp depends on background startup state (notably MCP auto-connect).
     // Ensure startup init is settled before rendering server status/actions.
