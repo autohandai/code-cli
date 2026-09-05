@@ -79,6 +79,11 @@ class McpConnectionCancelledError extends Error {
 const MCP_STOP_GRACE_MS = 1_000;
 const MCP_STOP_FORCE_WAIT_MS = 1_000;
 
+function isOAuthBridge(config: McpServerConfig): boolean {
+  return config.transport === 'stdio' && Boolean(config.command && isNpxCommand(config.command))
+    && Boolean(config.args?.some((argument) => /^mcp-remote(?:@[0-9]+\.[0-9]+\.[0-9]+)?$/.test(argument)));
+}
+
 function waitForChildClose(child: ChildProcess, timeoutMs: number): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     let settled = false;
@@ -196,6 +201,8 @@ export class McpStdioConnection extends EventEmitter {
       ...(params !== undefined ? { params } : {}),
     };
 
+    const timeoutMs = method === 'initialize' && isOAuthBridge(this.config)
+      ? 240_000 : McpStdioConnection.REQUEST_TIMEOUT_MS;
     return new Promise<unknown>((resolve, reject) => {
       const failRequest = (error: Error): void => {
         const pending = this.pendingRequests.get(id);
@@ -208,9 +215,9 @@ export class McpStdioConnection extends EventEmitter {
 
       const timer = setTimeout(() => {
         failRequest(new Error(
-          `MCP request "${method}" timed out after ${McpStdioConnection.REQUEST_TIMEOUT_MS}ms`
+          `MCP request "${method}" timed out after ${timeoutMs}ms`
         ));
-      }, McpStdioConnection.REQUEST_TIMEOUT_MS);
+      }, timeoutMs);
       timer.unref?.();
 
       const handleAbort = (): void => {
@@ -1064,6 +1071,7 @@ export class McpClientManager {
     config: McpServerConfig,
     generation: number,
   ): Promise<{ connection: McpStdioConnection; tools: McpToolDefinition[] }> {
+    if (isOAuthBridge(config)) return this.connectStdioWithFraming(config, 'newline', generation);
     try {
       return await this.connectStdioWithFraming(config, 'content-length', generation);
     } catch (contentLengthError) {

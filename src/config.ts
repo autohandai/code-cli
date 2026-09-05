@@ -644,6 +644,7 @@ function mergeEnvVariables(config: AutohandConfig): AutohandConfig {
   config = {
     ...config,
     api: {
+      accountId: process.env.AUTOHAND_ACCOUNT_ID || config.api?.accountId,
       baseUrl:
         process.env.AUTOHAND_API_URL ||
         normalizeSavedApiBaseUrl(config.api?.baseUrl) ||

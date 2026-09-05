@@ -895,6 +895,7 @@ export interface AutohandConfig {
   externalAgents?: ExternalAgentsConfig;
   api?: {
     baseUrl?: string;
+    accountId?: string;
     companySecret?: string;
   };
   /** Authentication settings */
