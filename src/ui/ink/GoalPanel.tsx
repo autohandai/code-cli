@@ -6,7 +6,8 @@
 import React, { memo, useEffect, useRef } from 'react';
 import { stripVTControlCharacters } from 'node:util';
 import { Box, Text, measureElement, useBoxMetrics, type DOMElement } from 'ink';
-import type { GoalSessionSnapshot } from '../../goals/types.js';
+import type { CompletedGoal, GoalSessionSnapshot } from '../../goals/types.js';
+import { UNSCOPED_GOAL_SESSION_KEY } from '../../goals/types.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import type { OutputLayout } from './mouseInput.js';
 
@@ -43,7 +44,7 @@ export function getEditableGoalItems(
   ];
 }
 
-function goalTargetKey(target: GoalEditRequest): string {
+export function goalTargetKey(target: GoalEditRequest): string {
   return `${target.kind}:${target.id}`;
 }
 
@@ -109,6 +110,16 @@ export const GoalPanel = memo(function GoalPanel({
   const editable = getEditableGoalItems(snapshot);
   const total = editable.length + snapshot.peers.length;
   const queueStartIndex = snapshot.goal ? 1 : 0;
+  let lastCompleted: CompletedGoal | undefined;
+  for (const goal of snapshot.completed) {
+    const belongsToSession = (goal.sessionId ?? UNSCOPED_GOAL_SESSION_KEY) === (snapshot.sessionId ?? UNSCOPED_GOAL_SESSION_KEY);
+    if (belongsToSession && goal.completionReceipt
+      && goal.completionReceipt.recordedAt >= (lastCompleted?.completionReceipt?.recordedAt ?? 0)) {
+      lastCompleted = goal;
+    }
+  }
+  const receipt = snapshot.goal?.completionReceipt ?? lastCompleted?.completionReceipt;
+  const receiptObjective = snapshot.goal?.completionReceipt ? snapshot.goal.objective : lastCompleted?.objective;
 
   return (
     <Box flexDirection="column" marginTop={1} marginBottom={1}>
@@ -116,6 +127,10 @@ export const GoalPanel = memo(function GoalPanel({
         <Text bold>Goals · {total} total</Text>
         <Text color={colors.muted}>· Ctrl+G close</Text>
       </Box>
+
+      {snapshot.storageError ? (
+        <Text color={colors.warning}>Live updates unavailable. {snapshot.storageError}</Text>
+      ) : null}
 
       {snapshot.goal ? (
         <Box flexDirection="column" marginTop={1}>
@@ -127,6 +142,22 @@ export const GoalPanel = memo(function GoalPanel({
             status={snapshot.goal.status}
             onLayoutChange={onRowLayoutChange}
           />
+          <Text color={colors.muted}>Owner: {snapshot.sessionId ?? 'unscoped'}</Text>
+          <Text color={colors.muted}>
+            Tokens: {snapshot.goal.tokensUsed} / {snapshot.goal.tokenBudget ?? 'no limit'}
+            {' · '}Time: {Math.floor(snapshot.goal.timeUsedSeconds)}s / {snapshot.goal.timeBudgetSeconds === undefined ? 'no limit' : `${snapshot.goal.timeBudgetSeconds}s`}
+          </Text>
+          {snapshot.goal.stopReason ? <Text wrap="truncate-end">Stopped: {snapshot.goal.stopReason}</Text> : null}
+          {snapshot.goal.resumeWhen ? <Text wrap="truncate-end">Resume when: {snapshot.goal.resumeWhen}</Text> : null}
+          {snapshot.goal.checkpoint ? (
+            <Box flexDirection="column">
+              <Text wrap="truncate-end">Checkpoint: {snapshot.goal.checkpoint.summary}</Text>
+              {snapshot.goal.checkpoint.nextStep ? <Text wrap="truncate-end">Next: {snapshot.goal.checkpoint.nextStep}</Text> : null}
+              {snapshot.goal.checkpoint.artifacts?.length ? (
+                <Text color={colors.muted} wrap="truncate-end">Artifacts: {snapshot.goal.checkpoint.artifacts.join(' · ')}</Text>
+              ) : null}
+            </Box>
+          ) : null}
         </Box>
       ) : null}
 
@@ -170,7 +201,14 @@ export const GoalPanel = memo(function GoalPanel({
         </Box>
       ) : null}
 
-      {editable.length === 0 && snapshot.peers.length === 0 ? (
+      {receipt ? (
+        <Box flexDirection="column" marginTop={1}>
+          <Text color={colors.muted} wrap="truncate-end">Completed · {receiptObjective}</Text>
+          <Text wrap="truncate-end">Reported completion: {receipt.summary}</Text>
+        </Box>
+      ) : null}
+
+      {editable.length === 0 && snapshot.peers.length === 0 && !snapshot.storageError ? (
         <Text color={colors.muted}>No active or queued goals.</Text>
       ) : null}
 

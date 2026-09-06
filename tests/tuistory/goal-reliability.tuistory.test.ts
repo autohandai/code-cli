@@ -14,6 +14,7 @@ import { runGoalAccountingScenario } from '../../src/testing/scenarios/goalAccou
 import { runToolGoalContinuationScenario } from '../../src/testing/scenarios/goalsCommandScenario.js';
 import { inspectStoppedGoal, resumeStoppedGoal } from '../../src/testing/scenarios/goalProgressScenario.js';
 import { cancelGoalRecovery, finishRecoveredGoal, openGoalRecovery, refuseLiveGoalRecovery, selectOriginalGoal } from '../../src/testing/scenarios/goalRecoveryScenario.js';
+import { enqueueGoalFromAnotherProcess, expectGoalPanelRefresh, openLiveGoalPanel } from '../../src/testing/scenarios/goalPanelScenario.js';
 import {
   createMockOpenRouterSequenceServer,
   createMockAutohandAINativeSequenceServer,
@@ -24,6 +25,53 @@ import {
 } from './helpers/autohandTuistory.js';
 
 describe('built CLI goal reliability', () => {
+  it('refreshes the open goal panel across processes without input and preserves the composer draft', async () => {
+    const server = await createMockAutohandAINativeSequenceServer([{ content: 'SHOULD_NOT_RUN' }]);
+    const state = await createTempAutohandHome({ config: {
+      provider: 'autohandai',
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'tuistory-autohand-api-key', model: 'moa', baseUrl: server.baseUrl },
+      features: { autohand_inference: true, slashGoal: true }, agent: { autoMemory: false },
+      ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+    } });
+    let session: Session | undefined;
+    try {
+      session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+        autohandHome: state.autohandHome, cwd: state.workspaceRoot, rows: 40,
+      });
+      await session.waitForText('❯', { timeout: 15_000 });
+      const registry = new ActiveAgentRegistry(path.join(state.autohandHome, 'active-agents'));
+      const ownerId = await vi.waitFor(async () => {
+        const [record] = await registry.listActive();
+        if (!record) throw new Error('Expected a live terminal heartbeat');
+        return record.sessionId;
+      }, { timeout: 10_000, interval: 100 });
+      const owner = new GoalManager(state.workspaceRoot, { sessionId: ownerId });
+      await owner.createGoal({ objective: 'live panel work', tokenBudget: 100 });
+      await owner.updateGoal({ status: 'blocked', stopReason: 'Needs approval', resumeWhen: 'Owner approves', checkpoint: { summary: 'Patch prepared' } });
+      await openLiveGoalPanel(session);
+      await expectGoalPanelRefresh(session, `Owner: ${ownerId}`);
+      await expectGoalPanelRefresh(session, 'Checkpoint: Patch prepared');
+      await session.type('KEEP_MY_DRAFT');
+      await enqueueGoalFromAnotherProcess(state.workspaceRoot, 'REMOTE_VISIBLE_WITHOUT_INPUT');
+      await expectGoalPanelRefresh(session, 'REMOTE_VISIBLE_WITHOUT_INPUT');
+      expect(await session.text()).toContain('❯ KEEP_MY_DRAFT');
+      const statePath = path.join(state.workspaceRoot, '.autohand', 'goals.local.json');
+      await fs.writeFile(statePath, '{broken');
+      await expectGoalPanelRefresh(session, 'Live updates unavailable');
+      expect(await fs.readFile(statePath, 'utf8')).toBe('{broken');
+      expect((await owner.repairSnapshot()).ok).toBe(true);
+      await session.text({ timeout: 5000, waitFor: (text) => !text.includes('Live updates unavailable') && text.includes('REMOTE_VISIBLE_WITHOUT_INPUT') });
+      expect(await session.text()).toContain('❯ KEEP_MY_DRAFT');
+      expect(server.requests).toHaveLength(0);
+      await exitInteractive(session);
+    } finally {
+      if (session && !session.exitInfo) await exitInteractive(session).catch(() => {});
+      session?.close();
+      await server.close();
+      await state.cleanup();
+    }
+  });
+
   it('cancels recovery safely and restores the selected offline conversation without resuming its goal', async () => {
     const server = await createMockAutohandAINativeSequenceServer([
       { content: 'RECOVERY_CONTEXT_SEEN' },

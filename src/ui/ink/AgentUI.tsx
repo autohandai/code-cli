@@ -35,7 +35,7 @@ import { TeamPanel } from './TeamPanel.js';
 import { AgentRunsPanel } from './AgentRunsPanel.js';
 import type { AgentRunsSnapshot, AgentRunSource } from '../../core/agents/AgentRunStore.js';
 import type { TeamActivitySnapshot } from '../../core/teams/types.js';
-import { GoalPanel, getEditableGoalItems, type GoalEditRequest } from './GoalPanel.js';
+import { GoalPanel, getEditableGoalItems, goalTargetKey, type GoalEditRequest } from './GoalPanel.js';
 import type { GoalSessionSnapshot } from '../../goals/types.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/index.js';
@@ -877,8 +877,12 @@ export function AgentUI({
   );
   const [queueSelectionIndex, setQueueSelectionIndex] = useState<number | null>(null);
   const [editingQueueIndex, setEditingQueueIndex] = useState<number | null>(null);
-  const [goalSelectionIndex, setGoalSelectionIndex] = useState<number | null>(null);
+  const [goalSelectionKey, setGoalSelectionKey] = useState<string | null>(null);
   const [editingGoal, setEditingGoal] = useState<GoalEditRequest | null>(null);
+  const goalItems = useMemo(() => getEditableGoalItems(state.goalActivity), [state.goalActivity]);
+  const selectedGoalPosition = goalItems.findIndex((item) => goalTargetKey(item) === goalSelectionKey);
+  const goalSelectionIndex = selectedGoalPosition < 0 ? null : selectedGoalPosition;
+  const editedGoalUnavailable = editingGoal !== null && !goalItems.some((item) => goalTargetKey(item) === goalTargetKey(editingGoal));
   
   // File mention autocomplete state
   const [fileMentionSuggestions, setFileMentionSuggestions] = useState<FileMentionSuggestion[]>([]);
@@ -1011,8 +1015,12 @@ export function AgentUI({
   goalSelectionIndexRef.current = goalSelectionIndex;
   const editingGoalRef = useRef(editingGoal);
   editingGoalRef.current = editingGoal;
-  const goalItemsRef = useRef(getEditableGoalItems(state.goalActivity));
-  goalItemsRef.current = getEditableGoalItems(state.goalActivity);
+  const goalItemsRef = useRef(goalItems);
+  goalItemsRef.current = goalItems;
+  const setGoalSelectionIndex = useCallback((index: number | null) => {
+    const target = index === null ? undefined : goalItemsRef.current[index];
+    setGoalSelectionKey(target ? goalTargetKey(target) : null);
+  }, []);
   const goalPanelVisibleRef = useRef(state.goalPanelVisible);
   goalPanelVisibleRef.current = state.goalPanelVisible;
   const onImageDetectedRef = useRef(onImageDetected);
@@ -1088,7 +1096,7 @@ export function AgentUI({
     setEditingGoal(target);
     setGoalSelectionIndex(index);
     syncInputFromBuffer();
-  }, [syncInputFromBuffer]);
+  }, [setGoalSelectionIndex, syncInputFromBuffer]);
 
   const lastColumnsRef = useRef(process.stdout.columns);
 
@@ -1321,22 +1329,10 @@ export function AgentUI({
   }, [state.queuedInstructions.length]);
 
   useEffect(() => {
-    const goalItems = getEditableGoalItems(state.goalActivity);
-    const goalCount = goalItems.length;
-    setGoalSelectionIndex((current) => {
-      if (current === null || goalCount === 0) {
-        return null;
-      }
-      return Math.min(current, goalCount - 1);
-    });
-    const activeEdit = editingGoalRef.current;
-    if (activeEdit && !goalItems.some((item) => (
-      item.id === activeEdit.id && item.kind === activeEdit.kind
-    ))) {
-      editingGoalRef.current = null;
-      setEditingGoal(null);
+    if (goalSelectionKey !== null && !goalItems.some((item) => goalTargetKey(item) === goalSelectionKey)) {
+      setGoalSelectionKey(null);
     }
-  }, [state.goalActivity]);
+  }, [goalItems, goalSelectionKey]);
 
   // Reset ctrl+c count after 2 seconds
   useEffect(() => {
@@ -2200,6 +2196,7 @@ export function AgentUI({
       const goalEdit = editingGoalRef.current;
 
       if (goalEdit !== null) {
+        if (!goalItemsRef.current.some((item) => goalTargetKey(item) === goalTargetKey(goalEdit))) return;
         clearInkComposerInputForSubmit(buffer, pasteState, {
           setInput,
           setCursorOffset,
@@ -2636,6 +2633,8 @@ export function AgentUI({
       />
 
       <NotificationStack notifications={state.notifications} />
+
+      {editedGoalUnavailable ? <Text color={colors.warning}>Goal is unavailable. Draft kept; Esc cancels.</Text> : null}
 
       {/* Fixed bottom section - always renders for layout stability */}
       {state.agentRunsPanelVisible ? (

@@ -121,6 +121,8 @@ export interface GoalPeer {
 /** Per-session view of the workspace goal state (what `get_goal` returns). */
 export interface GoalSessionSnapshot {
   version: 2;
+  sessionId?: string;
+  storageError?: string;
   /** This session's active goal, if any. */
   goal: GoalState | null;
   queue: QueuedGoal[];

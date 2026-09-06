@@ -1,0 +1,21 @@
+Goals · 5 total · Ctrl+G close
+
+Current
+  1. release work blocked
+Owner: current-owner
+Tokens: 42 / 100 · Time: 12s / 60s
+Stopped: Needs approval
+Resume when: Owner approves
+Checkpoint: Patch prepared
+Next: Run checks
+Artifacts: report.md
+
+Queue · 3 pending
+  2. first objective queued
+  3. second objective queued
+  4. third objective queued
+
+Other sessions
+○ peer work paused
+Ctrl+G close · ↑↓ navigate · enter edit · click edit · esc clear selection
+Manage: /goals pause · resume · complete · clear · queue

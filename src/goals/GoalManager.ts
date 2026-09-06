@@ -33,7 +33,12 @@ const MAX_OBJECTIVE_LENGTH = 80_000;
 
 type GoalSnapshotPublisher = () => Promise<void>;
 
-const snapshotPublishers = new Map<string, Set<GoalSnapshotPublisher>>();
+interface GoalSubscriptionGroup {
+  publishers: Set<GoalSnapshotPublisher>;
+  timer: ReturnType<typeof setInterval>;
+}
+
+const subscriptionGroups = new Map<string, GoalSubscriptionGroup>();
 
 export interface GoalManagerOptions {
   sessionId?: string;
@@ -102,6 +107,7 @@ export class GoalManager {
     if (!goal) {
       return {
         version: 2,
+        sessionId: key === UNKNOWN_SESSION_KEY ? undefined : key,
         goal: null,
         queue: snapshot.queue,
         completed: snapshot.completed,
@@ -113,6 +119,7 @@ export class GoalManager {
     }
     return {
       version: 2,
+      sessionId: key === UNKNOWN_SESSION_KEY ? undefined : key,
       goal,
       queue: snapshot.queue,
       completed: snapshot.completed,
@@ -124,18 +131,71 @@ export class GoalManager {
 
   subscribe(listener: (snapshot: GoalSessionSnapshot) => void): () => void {
     const statePath = this.statePath();
-    const publish = async (): Promise<void> => {
-      listener(await this.getSessionSnapshot());
+    let disposed = false;
+    let refreshAgain = false;
+    let pending: Promise<void> | undefined;
+    let lastValid: GoalSessionSnapshot | undefined;
+    let lastFingerprint: string | undefined;
+    const publishLatest = async (): Promise<void> => {
+      let snapshot: GoalSessionSnapshot;
+      try {
+        snapshot = await this.getSessionSnapshot();
+      } catch (error) {
+        const key = this.goalKey();
+        const sessionId = key === UNKNOWN_SESSION_KEY ? undefined : key;
+        snapshot = {
+          ...((lastValid?.sessionId === sessionId ? lastValid : undefined) ?? {
+            version: 2, sessionId, goal: null, queue: [], completed: [], peers: [], updatedAt: 0,
+            sessionAttachment: key === UNKNOWN_SESSION_KEY ? 'unscoped' : 'none',
+          }),
+          storageError: error instanceof Error ? error.message : 'Goal storage could not be read.',
+        };
+      }
+      if (disposed) return;
+      if ((snapshot.sessionId ?? UNKNOWN_SESSION_KEY) !== this.goalKey()) {
+        refreshAgain = true;
+        return;
+      }
+      if (!snapshot.storageError) lastValid = snapshot;
+      const fingerprint = JSON.stringify({
+        ...snapshot,
+        updatedAt: undefined,
+        goal: snapshot.goal ? { ...snapshot.goal, timeUsedSeconds: Math.floor(snapshot.goal.timeUsedSeconds) } : null,
+      });
+      if (fingerprint === lastFingerprint) return;
+      lastFingerprint = fingerprint;
+      listener(snapshot);
     };
-    const publishers = snapshotPublishers.get(statePath) ?? new Set<GoalSnapshotPublisher>();
-    publishers.add(publish);
-    snapshotPublishers.set(statePath, publishers);
+    const publish = (): Promise<void> => {
+      refreshAgain = true;
+      pending ??= (async () => {
+        while (refreshAgain && !disposed) {
+          refreshAgain = false;
+          await publishLatest();
+        }
+      })().finally(() => { pending = undefined; });
+      return pending;
+    };
+    let group = subscriptionGroups.get(statePath);
+    if (!group) {
+      const publishers = new Set<GoalSnapshotPublisher>();
+      const timer = setInterval(() => {
+        for (const refresh of publishers) void refresh().catch(() => {});
+      }, 1000);
+      timer.unref();
+      group = { publishers, timer };
+      subscriptionGroups.set(statePath, group);
+    }
+    group.publishers.add(publish);
     void publish().catch(() => {});
 
     return () => {
-      publishers.delete(publish);
-      if (publishers.size === 0) {
-        snapshotPublishers.delete(statePath);
+      if (disposed) return;
+      disposed = true;
+      group.publishers.delete(publish);
+      if (group.publishers.size === 0) {
+        clearInterval(group.timer);
+        subscriptionGroups.delete(statePath);
       }
     };
   }
@@ -757,9 +817,9 @@ export class GoalManager {
 
   private async publishSnapshot(): Promise<void> {
     const statePath = this.statePath();
-    const publishers = snapshotPublishers.get(statePath);
-    if (publishers) {
-      await Promise.allSettled([...publishers].map((publish) => publish()));
+    const group = subscriptionGroups.get(statePath);
+    if (group) {
+      await Promise.allSettled([...group.publishers].map((publish) => publish()));
     }
   }
 

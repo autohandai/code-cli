@@ -1222,6 +1222,18 @@ safely stopped and can be retried. `--goal recover` only lists actionable
 offline choices; it does not open a picker or start autonomous work. Use
 `/goal repair` instead when the goal-storage file itself is damaged.
 
+The `/goals` panel (also **Ctrl+G**) refreshes across terminals approximately
+once per second, including elapsed time and owner liveness. It shows the current
+owner, token/time budgets, stop details, checkpoint, and latest reported
+completion evidence. Panel refreshes do not call a model or modify storage.
+Unchanged snapshots do not trigger redraws; closing the CLI releases monitoring.
+
+Queue updates preserve the selected goal by identity and keep an edit draft
+intact. If the edited goal disappears, Enter cannot send its draft as a new
+agent instruction; Escape cancels the edit. Storage errors are shown alongside
+the last valid view until storage can be read again. Nothing is reset or repaired
+automatically.
+
 To keep the normal turn-by-turn loop while goals are active:
 
 ```json

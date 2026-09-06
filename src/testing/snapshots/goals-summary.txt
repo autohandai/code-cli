@@ -3,6 +3,8 @@ Goals · 3 total · Ctrl+G close
 
 Current
   1. Repair failing goal tests… paused
+Owner: unscoped
+Tokens: 0 / no limit · Time: 0s / no limit
 
 Queue · 1 pending
 › 2. Review the terminal layout… queued
