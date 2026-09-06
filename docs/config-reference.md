@@ -26,6 +26,9 @@ Localized references:
 
 ## Table of Contents
 
+For local repository scanning and credential reuse during workflow uploads, see
+[Repository discovery](./discovery.md).
+
 - [Configuration File Location](#configuration-file-location)
 - [Environment Variables](#environment-variables)
 - [Bare Mode](#bare-mode)
