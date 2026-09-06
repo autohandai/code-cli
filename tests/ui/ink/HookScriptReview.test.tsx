@@ -1,4 +1,5 @@
 import React from 'react';
+import { stripVTControlCharacters } from 'node:util';
 import { renderInkScreen } from '../../../src/testing/drivers/ink-driver.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HookScriptReview } from '../../../src/ui/ink/components/HookScriptReview.js';
@@ -8,7 +9,10 @@ import { getLifecycleHookInventory } from '../../../src/core/hookEvents.js';
 import { HookManager } from '../../../src/core/HookManager.js';
 
 const mounted: { unmount(): void }[] = [];
-afterEach(() => { for (const view of mounted.splice(0)) view.unmount(); });
+afterEach(() => {
+  for (const view of mounted.splice(0)) view.unmount();
+  vi.unstubAllEnvs();
+});
 function renderScreen(component: React.ReactElement) {
   const view = renderInkScreen(component);
   mounted.push(view);
@@ -18,14 +22,20 @@ function renderScreen(component: React.ReactElement) {
 const settle = () => new Promise(resolve => setTimeout(resolve, 30));
 
 describe('hook terminal screens', () => {
-  it('renders the event table and navigates to a lifecycle event with Enter', async () => {
+  it.each(['0', '1', '2', '3'])('renders the event table and navigates to a lifecycle event with Enter at color level %s', async colorLevel => {
+    vi.stubEnv('NO_COLOR', undefined);
+    vi.stubEnv('FORCE_COLOR', colorLevel);
     const options = hookBrowserOptions(getLifecycleHookInventory(new HookManager({ workspaceRoot: '/test' })), '', 0, 100);
     const onSelect = vi.fn();
     const view = renderScreen(<Modal {...options} onSelect={onSelect} />);
     expect(view.lastFrame()).toContain('Installed');
     expect(view.lastFrame()).toContain('Active');
     expect(view.lastFrame()).toContain('session-start');
-    await expect(view.lastFrame()).toMatchFileSnapshot('../../../src/testing/snapshots/lifecycle-hooks.txt');
+    const frame = stripVTControlCharacters(view.lastFrame() ?? '')
+      .split('\n')
+      .map(line => line.trimEnd())
+      .join('\n');
+    await expect(frame).toMatchFileSnapshot('../../../src/testing/snapshots/lifecycle-hooks.txt');
     await settle();
     view.stdin.write('\u001b[B');
     await settle();
