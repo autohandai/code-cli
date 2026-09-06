@@ -161,7 +161,7 @@ function createDefaultConfig(): AutohandConfig {
 /**
  * Detect config file path - checks for TOML/YAML first, then JSON
  */
-async function detectConfigPath(customPath?: string): Promise<string> {
+export async function detectConfigPath(customPath?: string): Promise<string> {
   if (customPath) {
     return path.resolve(customPath);
   }

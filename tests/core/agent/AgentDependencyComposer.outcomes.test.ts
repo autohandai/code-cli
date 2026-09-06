@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as inputPrompt from '../../../src/ui/inputPrompt.js';
 import { AutohandAgent } from '../../../src/core/agent.js';
 import type { FileActionManager } from '../../../src/actions/filesystem.js';
 import {
@@ -26,6 +27,7 @@ import type {
 } from '../../../src/types.js';
 
 interface AgentOutcomeInternals {
+  modalActive: boolean;
   conversation: {
     addSystemNote: ReturnType<typeof vi.fn>;
   };
@@ -793,5 +795,37 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
       tool: 'install_agent_skill',
       success: true,
     }));
+  });
+});
+
+
+describe('hook context delivery', () => {
+  it('suppresses actual hook output while a modal is open and restores it afterwards', async () => {
+    const { agent, internals } = createAgent();
+    const notify = vi.spyOn(inputPrompt, 'promptNotify').mockImplementation(() => {});
+    try {
+      const manager = agent.getHookManager();
+      manager.setWorkspaceRoot(process.cwd());
+      manager.getSettings().hooks!.push({ event: 'session-start', command: 'printf modal-output' });
+      internals.modalActive = true;
+      await manager.executeHooks('session-start', {});
+      expect(notify).not.toHaveBeenCalled();
+      internals.modalActive = false;
+      await manager.executeHooks('session-start', {});
+      expect(notify).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('modal-output'));
+    } finally {
+      notify.mockRestore();
+    }
+  });
+
+  it('injects session hook context even when protocol output is suppressed', async () => {
+    const { agent, internals, runtime } = createAgent();
+    runtime.isRpcMode = true;
+    internals.conversation.addSystemNote = vi.fn();
+    const manager = agent.getHookManager();
+    manager.setWorkspaceRoot(process.cwd());
+    manager.getSettings().hooks!.push({ event: 'session-start', command: `printf '%s' '{"additionalContext":"SESSION_CONTEXT"}'` });
+    await manager.executeHooks('session-start', {});
+    expect(internals.conversation.addSystemNote).toHaveBeenCalledWith('SESSION_CONTEXT', '[Hook Context]');
   });
 });

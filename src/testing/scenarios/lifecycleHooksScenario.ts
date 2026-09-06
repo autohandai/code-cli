@@ -17,3 +17,29 @@ export async function describeSessionEndHook(session: Session): Promise<void> {
   await session.press('enter');
   await session.waitForText('Review lifecycle hook');
 }
+
+export async function importClaudeHooks(session: Session): Promise<void> {
+  await session.waitForText('❯');
+  await session.type('/import claude --categories hooks');
+  await session.press('enter');
+  await session.waitForText('saved disabled');
+}
+
+export async function enableImportedHook(session: Session, index: number): Promise<void> {
+  await session.type('/hooks manage');
+  await session.press('enter');
+  await session.waitForText('Toggle hooks on/off');
+  await session.press('down');
+  await session.press('enter');
+  await session.waitForText('Toggle hooks — spacebar to enable/disable');
+  for (let step = 0; step < index; step++) await session.press('down');
+  await session.press('space');
+  await session.press('enter');
+  await session.waitForText('Toggled 1 hook');
+}
+
+export async function submitHookScenarioPrompt(session: Session, prompt: string, expected: string): Promise<void> {
+  await session.type(prompt);
+  await session.press('enter');
+  await session.waitForText(expected);
+}

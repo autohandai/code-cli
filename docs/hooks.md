@@ -1034,3 +1034,59 @@ Or manually edit your `~/.autohand/config.json` to enable specific hooks.
 - Use `decision: "ask"` as the default fallback
 - Use `decision: "block"` with exit code 2 for truly dangerous operations
 - Always provide a `reason` for allow/deny decisions for auditability
+
+## Import hooks from another coding agent
+
+Use the `hooks` category to import command hooks into the configuration Autohand actually uses:
+
+```sh
+autohand import claude --categories hooks
+autohand import codex --categories hooks
+autohand import cursor --categories hooks
+autohand import grok --categories hooks
+```
+
+Inside a session, use `/import claude --categories hooks`. `--dry-run` scans without writing. `--all --categories hooks` restricts an all-source import to hooks. The CLI respects the selected `--path`, `--config`, and `AUTOHAND_CONFIG`; the slash command updates the current session's hook manager. Legacy Codex `notify` commands are discovered and reported for manual porting because they receive their JSON payload as a command argument.
+
+Imported commands are **saved disabled**. Review the original scripts, then enable the desired entries through `/hooks manage`. Importing does not execute commands, copy scripts, install dependencies, or carry over another agent's trust approvals. Commands continue to reference their original scripts. Repeating the same import skips existing definitions and preserves their enabled state. Existing hooks and unrelated configuration remain intact; malformed destination configuration is reported without overwriting it.
+
+| Source | User files | Current project files |
+| --- | --- | --- |
+| Claude Code | `~/.claude/settings.json` (or `CLAUDE_CONFIG_DIR`) | `.claude/settings.json`, `.claude/settings.local.json` |
+| Codex | `~/.codex/hooks.json`, `config.toml` (or `CODEX_HOME`) | `.codex/hooks.json`, `.codex/config.toml` |
+| Cursor | `~/.cursor/hooks.json` | `.cursor/hooks.json` |
+| Grok | `~/.grok/hooks/*.json` | `.grok/hooks/*.json` |
+
+Codex JSON and inline TOML definitions are both read, including nested array tables and multiline commands. Grok import currently imports hooks only. Plugin bundles, managed policies, ancestor-project layers, and additional Grok `hooks-paths` roots are outside this importer. Import Claude/Cursor configurations under their own source names even when Grok also loads those files.
+
+| Source event | Autohand event |
+| --- | --- |
+| `PreToolUse` / Cursor `preToolUse` | `pre-tool` |
+| `PostToolUse` / Cursor `postToolUse` | `post-tool` on success (Codex observes both outcomes) |
+| Claude/Grok `PostToolUseFailure` / Cursor `postToolUseFailure` | `post-tool` on failure |
+| `UserPromptSubmit` / Cursor `beforeSubmitPrompt` | `pre-prompt` |
+| Claude/Codex `PermissionRequest` | `permission-request` |
+| `SessionStart` / Cursor `sessionStart` | `session-start` |
+| `SessionEnd` / Cursor `sessionEnd` | `session-end` |
+| Claude/Grok `Notification` | `notification` |
+| `PostCompact` | `context:compact` |
+| Cursor `beforeShellExecution` / `afterShellExecution` | Shell-only `pre-tool` / successful `post-tool` |
+| Grok `Stop` | `stop` |
+
+The adapter translates common tool names, file paths/content, shell arguments, event names, JSON stdin, and supported permission responses. Cursor shell matchers inspect the command string. Success/failure filters and project scope are enforced before spawning a command. Cursor user hooks retain their user-directory working directory; project hooks run in the project. Claude-compatible commands receive `CLAUDE_PROJECT_DIR`; Grok commands receive the Grok hook environment fields.
+
+Timeout values are converted from seconds to milliseconds. When omitted, Claude command hooks use 600 seconds, prompt hooks 30 seconds, and session-end hooks 1.5 seconds; Codex uses 600 seconds except session-end at 1 second. Grok uses 5 seconds. Cursor documents a platform-dependent default, so imports use Autohand's 5-second default; set an explicit source timeout to retain a particular budget. Source-wide/shared shutdown budgets are not reproduced.
+
+This is a command-hook adapter, not an emulation of the source agent. Review any script that depends on its complete payload or tool schema. Transcript paths, source-specific IDs, permission-mode/sandbox metadata, file attachments, tool-response object shapes, and source-specific file-edit formats are not reconstructed. Codex shell calls use `Bash`; native file tools retain their names (`apply_patch` also matches `Edit` and `Write`). Claude/Cursor file operations expose common file fields, while patch/edit input rewrites are denied with an explanation. Permission persistence updates also require manual porting.
+
+HTTP, prompt/agent/MCP-tool handlers, asynchronous hooks, `failClosed`, unsupported matcher shapes, and unmapped events are reported as skipped. In particular, Claude/Codex/Cursor stop or subagent-stop hooks that continue a turn, pre-compaction hooks, Cursor file-read content gates and Tab/workspace hooks, and new source-specific events need manual porting. Post-compaction is never substituted for pre-compaction. Hooks that add context can deliver it to the conversation; lifecycle observers cannot restart turns or replace MCP responses.
+
+Grok's only blocking event is `PreToolUse`. An explicit deny or exit code 2 blocks there; its other events stay passive. An `allow` response from Grok does not override Autohand permissions.
+
+Formats were checked against the official [Claude Code hook reference](https://code.claude.com/docs/en/hooks), [Codex hook manual](https://learn.chatgpt.com/docs/hooks.md), [Cursor hook reference](https://cursor.com/docs/hooks), and [Grok hook reference](https://docs.x.ai/build/features/hooks).
+
+### Runtime wiring checked with hook imports
+
+`pre-prompt` runs in the common instruction runner, including interactive CLI, command, ACP, and JSON-RPC turns. Denial happens before prompt preparation or model calls, and running prompt hooks can be cancelled. RPC adapters forward original Review prompts and mentioned files instead of executing a duplicate hook. ACP also executes configured `stop` hooks after a turn.
+
+Permission changes emit `mode-change` with `previous_mode`/`mode` JSON fields and `HOOK_PREVIOUS_MODE`/`HOOK_MODE` environment fields. `/learn` emits `pre-learn` before analysis and `post-learn` afterwards. The hook summary uses the same event catalogue as the browser, and autoresearch `decision`, `replay`, `rescore`, and `prune` events honor their matchers.

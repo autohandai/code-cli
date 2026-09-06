@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import type { HookManager, HookExecutionResult } from '../HookManager.js';
 import { ProviderNotConfiguredError } from '../../providers/ProviderFactory.js';
 import { ApiError } from '../../providers/errors.js';
 import {
@@ -91,6 +92,8 @@ export interface AgentInstructionHost {
   sessionTokenUsageUnavailable: boolean;
   lastIntent: Intent;
   activeAbortController: AbortController | null;
+  currentInkAbortController?: AbortController | null;
+  currentInkOnCancel?: (() => void) | null;
   persistentInputActiveTurn: boolean;
   promptSeedInput: string;
   useInkRenderer: boolean;
@@ -101,6 +104,7 @@ export interface AgentInstructionHost {
   runtime: AgentRuntime;
   sessionManager?: InstructionSessionManager;
   permissionManager?: PermissionManager;
+  hookManager?: HookManager;
   intentDetector: InstructionIntentDetector;
   persistentInput: InstructionPersistentInput;
   conversation: InstructionConversation;
@@ -166,6 +170,8 @@ export interface AgentInstructionHost {
 }
 
 export interface RunInstructionOptions {
+  mentionedFiles?: string[];
+  hookInstruction?: string;
   signal?: AbortSignal;
   mobileTurn?: MobileClaimedTurnContext;
   /** Internal instructions still reach the model and session log when their terminal echo is hidden. */
@@ -257,6 +263,58 @@ export class InstructionRunner {
 
     if (abortController.signal.aborted) {
       return false;
+    }
+
+    host.isInstructionActive = true;
+    host.activeAbortController = abortController;
+    const useInkInput = !host.runtime.isRpcMode && host.useInkRenderer && !!host.inkRenderer;
+    if (useInkInput) {
+      host.currentInkAbortController = abortController;
+      host.currentInkOnCancel = null;
+    }
+    const stopPromptInput = !host.runtime.isRpcMode && !useInkInput && process.stdin.isTTY
+      && (host.hookManager?.getHooksForEvent('pre-prompt').length ?? 0) > 0
+      ? host.setupEscListener(abortController, () => {}, true) : () => {};
+    let promptInputClosed = false;
+    const cleanupPromptInterrupts = (): void => {
+      if (promptInputClosed) return;
+      promptInputClosed = true;
+      stopPromptInput();
+    };
+    abortController.signal.addEventListener('abort', cleanupPromptInterrupts, { once: true });
+    let hookResults: HookExecutionResult[];
+    try {
+      hookResults = await host.hookManager?.executeHooks('pre-prompt', {
+        instruction: options.hookInstruction ?? instruction,
+        sessionId: host.sessionManager?.getCurrentSession()?.metadata?.sessionId,
+        mentionedFiles: options.mentionedFiles,
+      }, { signal: abortController.signal }) ?? [];
+    } finally {
+      abortController.signal.removeEventListener('abort', cleanupPromptInterrupts);
+      cleanupPromptInterrupts();
+      if (useInkInput && host.currentInkAbortController === abortController) {
+        host.currentInkAbortController = null;
+      }
+      host.isInstructionActive = false;
+      host.activeAbortController = null;
+    }
+    if (abortController.signal.aborted) {
+      if (!host.runtime.isRpcMode) console.log(chalk.yellow('Request canceled.'));
+      return false;
+    }
+    const blocked = hookResults.find(result => result.blockingError
+      || result.response?.decision === 'block' || result.response?.decision === 'deny'
+      || result.response?.continue === false);
+    if (blocked) {
+      const reason = blocked.response?.reason ?? blocked.response?.stopReason ?? blocked.error ?? 'Prompt blocked by hook';
+      host.emitOutput({ type: 'error', content: reason });
+      if (!host.runtime.isRpcMode) console.log(chalk.yellow(reason));
+      return false;
+    }
+    for (const result of hookResults) {
+      if (result.response?.additionalContext) {
+        host.conversation.addSystemNote(result.response.additionalContext, '[Pre-prompt Hook Context]');
+      }
     }
 
     if (deepResearch.runId) {

@@ -4,6 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import os from 'node:os';
+import { HookImportService, type HookImportOptions } from '../HookImportService.js';
+import type { ImportCategoryResult, ImportError } from '../types.js';
+import type { ImportedHookSource } from '../../types.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import fse from 'fs-extra';
@@ -51,6 +54,8 @@ export interface WriteSessionOptions {
  * retry logic, and writing Autohand-native session data.
  */
 export abstract class BaseImporter implements Importer {
+  constructor(protected readonly hookImportOptions: HookImportOptions = {}) {}
+
   abstract readonly name: ImportSource;
   abstract readonly displayName: string;
   abstract readonly homePath: string;
@@ -64,6 +69,9 @@ export abstract class BaseImporter implements Importer {
    * Returns absolute paths unchanged.
    */
   get resolvedHomePath(): string {
+    if (this.hookImportOptions.sourceHome) return this.hookImportOptions.sourceHome;
+    if (this.name === 'codex' && process.env.CODEX_HOME) return process.env.CODEX_HOME;
+    if (this.name === 'claude' && process.env.CLAUDE_CONFIG_DIR) return process.env.CLAUDE_CONFIG_DIR;
     if (this.homePath.startsWith('~/') || this.homePath === '~') {
       return path.join(os.homedir(), this.homePath.slice(2));
     }
@@ -78,7 +86,28 @@ export abstract class BaseImporter implements Importer {
    * Checks whether this agent's data directory exists on disk.
    */
   async detect(): Promise<boolean> {
-    return fse.pathExists(this.resolvedHomePath);
+    return await fse.pathExists(this.resolvedHomePath) || (await this.hookService()?.scan() ?? 0) > 0;
+  }
+
+  protected hookService(): HookImportService | undefined {
+    if (!['claude', 'codex', 'cursor', 'grok'].includes(this.name)) return undefined;
+    return new HookImportService(this.name as ImportedHookSource, this.resolvedHomePath, this.hookImportOptions);
+  }
+
+  protected async scanHooks(available: Map<ImportCategory, { count: number; description: string }>): Promise<void> {
+    const count = await this.hookService()?.scan() ?? 0;
+    if (count > 0) available.set('hooks', { count, description: 'Hook configurations; compatible commands are saved disabled for review' });
+  }
+
+  protected async importCommandHooks(
+    imported: Map<ImportCategory, ImportCategoryResult>, errors: ImportError[], onProgress?: ProgressCallback,
+  ): Promise<void> {
+    const result = await this.hookService()?.import();
+    if (!result) return;
+    imported.set('hooks', result.stats);
+    errors.push(...result.errors);
+    const total = result.stats.success + result.stats.failed + result.stats.skipped;
+    onProgress?.({ category: 'hooks', current: total, total, item: 'Hooks saved disabled for review', status: result.stats.failed ? 'failed' : 'done' });
   }
 
   // ---------------------------------------------------------------

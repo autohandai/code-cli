@@ -78,17 +78,5 @@ describe('Quality Pipeline modalActive flag', () => {
     expect(source.slice(runQualityIndex, resetIndex)).toContain('finally');
   });
 
-  it('should suppress hook output when modalActive is true', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync('src/core/agent/AgentDependencyComposer.ts', 'utf-8');
 
-    // Verify onHookOutput checks modalActive
-    const onHookOutputSection = source.substring(
-      source.indexOf('onHookOutput:'),
-      source.indexOf('onHookOutput:') + 500
-    );
-
-    expect(onHookOutputSection).toContain('if (host.modalActive)');
-    expect(onHookOutputSection).toContain('return;');
-  });
 });

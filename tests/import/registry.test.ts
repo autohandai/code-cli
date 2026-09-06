@@ -35,9 +35,9 @@ describe('ImporterRegistry', () => {
   // getAll()
   // ---------------------------------------------------------------
   describe('getAll()', () => {
-    it('should return all 9 importers', () => {
+    it('should return all 10 importers', () => {
       const all = registry.getAll();
-      expect(all).toHaveLength(9);
+      expect(all).toHaveLength(10);
     });
 
     it('should include every ImportSource', () => {
@@ -158,7 +158,7 @@ describe('ImporterRegistry', () => {
       vi.mocked(fse.pathExists).mockResolvedValue(true as never);
 
       const available = await registry.detectAvailable();
-      expect(available).toHaveLength(9);
+      expect(available).toHaveLength(10);
     });
 
     it('should call detect() on every registered importer', async () => {

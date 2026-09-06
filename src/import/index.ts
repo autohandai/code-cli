@@ -18,7 +18,7 @@ import { IMPORT_SOURCES } from './types.js';
  */
 export async function runImport(options: ImportOptions): Promise<void> {
   const { ImporterRegistry } = await import('./registry.js');
-  const registry = new ImporterRegistry();
+  const registry = new ImporterRegistry(options);
 
   // ── No source specified → detect available ────────────────────────
   if (!options.source) {
@@ -47,7 +47,7 @@ export async function runImport(options: ImportOptions): Promise<void> {
     for (const importer of available) {
       console.log(chalk.cyan(`\nImporting from ${importer.displayName}...`));
       const scanResult = await importer.scan();
-      const cats = Array.from(scanResult.available.keys());
+      const cats = options.categories ? options.categories.filter(category => scanResult.available.has(category)) : Array.from(scanResult.available.keys());
       if (cats.length === 0) {
         console.log(chalk.gray('  No importable data found.'));
         continue;
@@ -91,16 +91,14 @@ export async function runImport(options: ImportOptions): Promise<void> {
 
   // Determine categories
   let categories: ImportCategory[];
-  if (options.all) {
-    categories = Array.from(scanResult.available.keys());
-  } else if (options.categories && options.categories.length > 0) {
+  if (options.categories && options.categories.length > 0) {
     categories = options.categories.filter(c => scanResult.available.has(c));
     if (categories.length === 0) {
       console.log(chalk.yellow('None of the specified categories are available.'));
       console.log(chalk.gray('Available: ' + Array.from(scanResult.available.keys()).join(', ')));
       return;
     }
-  } else if (process.stdout.isTTY) {
+  } else if (process.stdout.isTTY && !options.all) {
     // Interactive category selection via wizard
     const { showImportWizard } = await import('./ui/ImportWizard.js');
     await showImportWizard(registry, { ...options, source: options.source });
@@ -174,6 +172,7 @@ function printSummary(result: ImportResult): void {
 
   console.log();
   console.log(chalk.cyan('Next steps:'));
+  if (result.imported.get('hooks')?.success) console.log(chalk.white('  /hooks manage — Review and enable imported hooks (saved disabled)'));
   console.log(chalk.white('  /sessions     — Browse imported sessions'));
   console.log(chalk.white('  /resume       — Resume an imported session'));
   console.log(chalk.gray(`  Duration: ${(result.duration / 1000).toFixed(1)}s`));

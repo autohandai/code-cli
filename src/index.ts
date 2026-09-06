@@ -1268,7 +1268,7 @@ function hasFlag(args: string[], flagName: string): boolean {
 // ── Import subcommand ─────────────────────────────────────────────────
 program
   .command('import [source]')
-  .description('Import data from other coding agents (claude, codex, gemini, cursor, cline, continue, augment, opencode, kimi)')
+  .description('Import data from other coding agents (claude, codex, gemini, cursor, cline, continue, augment, opencode, kimi, grok)')
   .option('--all', 'Import all available categories without prompting')
   .option('--categories <list>', 'Comma-separated list of categories to import (sessions,settings,skills,memory,mcp,hooks)', (val: string) => val.split(','))
   .option('--dry-run', 'Preview what would be imported without making changes')
@@ -1276,6 +1276,8 @@ program
   .action(async (source: string | undefined, opts: { all?: boolean; categories?: string[]; dryRun?: boolean; retryFailed?: boolean }) => {
     const { runImport } = await import('./import/index.js');
     await runImport({
+      workspaceRoot: path.resolve(program.opts<CLIOptions>().path ?? process.cwd()),
+      configPath: program.opts<CLIOptions>().config,
       source: source as any,
       categories: opts.categories as any,
       all: opts.all,

@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { Importer, ImportSource } from './types.js';
+import { GrokImporter } from './importers/GrokImporter.js';
+import type { HookImportOptions } from './HookImportService.js';
 import { ClaudeImporter } from './importers/ClaudeImporter.js';
 import { CodexImporter } from './importers/CodexImporter.js';
 import { GeminiImporter } from './importers/GeminiImporter.js';
@@ -23,17 +25,18 @@ import { KimiImporter } from './importers/KimiImporter.js';
 export class ImporterRegistry {
   private readonly importers: Map<ImportSource, Importer>;
 
-  constructor() {
+  constructor(options: HookImportOptions = {}) {
     this.importers = new Map();
-    this.register(new ClaudeImporter());
-    this.register(new CodexImporter());
-    this.register(new GeminiImporter());
-    this.register(new CursorImporter());
-    this.register(new ClineImporter());
-    this.register(new ContinueImporter());
-    this.register(new AugmentImporter());
-    this.register(new OpencodeImporter());
-    this.register(new KimiImporter());
+    this.register(new ClaudeImporter(options));
+    this.register(new CodexImporter(options));
+    this.register(new GeminiImporter(options));
+    this.register(new CursorImporter(options));
+    this.register(new ClineImporter(options));
+    this.register(new ContinueImporter(options));
+    this.register(new AugmentImporter(options));
+    this.register(new OpencodeImporter(options));
+    this.register(new KimiImporter(options));
+    this.register(new GrokImporter(options));
   }
 
   /**

@@ -44,6 +44,7 @@ export class CodexImporter extends BaseImporter {
 
   async scan(): Promise<ImportScanResult> {
     const available = new Map<ImportCategory, { count: number; description: string }>();
+    await this.scanHooks(available);
     const home = this.resolvedHomePath;
 
     if (!(await fse.pathExists(home))) {
@@ -110,6 +111,9 @@ export class CodexImporter extends BaseImporter {
 
     for (const category of categories) {
       switch (category) {
+        case 'hooks':
+          await this.importCommandHooks(imported, errors, onProgress);
+          break;
         case 'sessions':
           await this.importSessions(imported, errors, onProgress);
           break;

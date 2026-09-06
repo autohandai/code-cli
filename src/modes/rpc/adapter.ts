@@ -1023,21 +1023,9 @@ export class RPCAdapter {
               return { success: false };
             }
             const hookManager = this.agent.getHookManager?.();
-            if (hookManager) {
-              await hookManager.executeHooks(
-                'pre-prompt',
-                {
-                  sessionId: this.sessionId ?? undefined,
-                  instruction: reviewRequest ? params.message : instruction,
-                  mentionedFiles: params.context?.files ?? [],
-                },
-                { signal: prompt.abortController.signal },
-              );
-            }
-            if (!this.canContinuePrompt(prompt)) {
-              return { success: false };
-            }
             const runInstruction = (): Promise<boolean> => this.agent!.runInstruction(instruction, {
+              ...(reviewRequest ? { hookInstruction: params.message } : {}),
+              ...(params.context?.files ? { mentionedFiles: params.context.files } : {}),
               signal: prompt.abortController.signal,
               ...(params.stopWhen?.mode === 'host'
                 ? { onStepFinish: (step) => this.requestStepDecision(prompt, step) }

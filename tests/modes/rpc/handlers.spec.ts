@@ -309,23 +309,15 @@ describe('RPC Adapter - P2 Handlers', () => {
       });
       expect(mockAgent.runInstruction).toHaveBeenCalledWith(
         expect.stringContaining('# Autohand Review invocation'),
-        { signal: expect.any(AbortSignal) },
+        { signal: expect.any(AbortSignal), hookInstruction: '/review security src/auth --audience forensic' },
       );
       expect(mockAgent.runInstruction.mock.calls[0]?.[0]).toContain('"kind": "security"');
       expect(hookManager.executeHooks.mock.calls.map(([event]) => event)).toEqual([
-        'pre-prompt',
         'review:start',
         'review:completed',
         'review:end',
         'stop',
       ]);
-      expect(hookManager.executeHooks).toHaveBeenCalledWith(
-        'pre-prompt',
-        expect.objectContaining({
-          instruction: '/review security src/auth --audience forensic',
-        }),
-        { signal: expect.any(AbortSignal) },
-      );
       expect(writeNotification).toHaveBeenCalledWith(
         'autohand.messageUpdate',
         expect.objectContaining({ delta: 'No critical security findings.' }),

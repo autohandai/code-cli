@@ -704,3 +704,16 @@ describe('PermissionManager', () => {
     });
   });
 });
+
+
+describe('permission mode observation', () => {
+  it('notifies only actual transitions and isolates observer failures', () => {
+    const manager = new PermissionManager({ settings: { mode: 'interactive' } });
+    const changed = vi.fn(() => { throw new Error('observer failed'); });
+    manager.setModeChangeListener(changed);
+    expect(() => manager.setMode('unrestricted')).not.toThrow();
+    manager.setMode('unrestricted');
+    expect(changed).toHaveBeenCalledExactlyOnceWith('unrestricted', 'interactive');
+    expect(manager.getMode()).toBe('unrestricted');
+  });
+});

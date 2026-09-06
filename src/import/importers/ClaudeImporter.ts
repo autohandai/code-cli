@@ -53,6 +53,7 @@ export class ClaudeImporter extends BaseImporter {
 
   async scan(): Promise<ImportScanResult> {
     const available = new Map<ImportCategory, { count: number; description: string }>();
+    await this.scanHooks(available);
     const home = this.resolvedHomePath;
 
     if (!(await fse.pathExists(home))) {
@@ -136,6 +137,9 @@ export class ClaudeImporter extends BaseImporter {
 
     for (const category of categories) {
       switch (category) {
+        case 'hooks':
+          await this.importCommandHooks(imported, errors, onProgress);
+          break;
         case 'sessions':
           await this.importSessions(imported, errors, onProgress);
           break;
@@ -149,7 +153,7 @@ export class ClaudeImporter extends BaseImporter {
           await this.importMemory(imported, errors, onProgress);
           break;
         default:
-          // Categories not supported by Claude (mcp, hooks) – skip silently
+          // MCP import is not supported here.
           break;
       }
     }

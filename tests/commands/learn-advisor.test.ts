@@ -8,6 +8,7 @@
  * LLM failure handling, gap analysis, and generation flow.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { HookManager } from '../../src/core/HookManager.js';
 import { learn, parseLearnArgs } from '../../src/commands/learn.js';
 import type { LLMProvider } from '../../src/providers/LLMProvider.js';
 import { showConfirm, showModal } from '../../src/ui/ink/components/Modal.js';
@@ -499,5 +500,28 @@ describe('/learn LLM-powered flow', () => {
       activationType: 'explicit',
       action: 'install',
     });
+  });
+});
+
+
+describe('/learn lifecycle hooks', () => {
+  it('allows pre-learn to block project analysis and model calls', async () => {
+    const llm = createMockLLM('{}');
+    const hookManager = new HookManager({ workspaceRoot: process.cwd(), settings: { hooks: [{
+      event: 'pre-learn', command: `printf '%s' '{"decision":"block","reason":"LEARN_BLOCKED"}'`,
+    }] } });
+    const result = await learn({ skillsRegistry: createMockRegistry(), workspaceRoot: process.cwd(), llm, hookManager, isNonInteractive: true }, []);
+    expect(result).toContain('LEARN_BLOCKED');
+    expect(llm.complete).not.toHaveBeenCalled();
+  });
+
+  it('emits post-learn with the outcome after analysis', async () => {
+    const llm = createMockLLM(JSON.stringify({ projectSummary: 'test', audit: [], recommendations: [], gapAnalysis: null }));
+    const hookManager = new HookManager({ workspaceRoot: process.cwd() });
+    const observed = vi.fn();
+    hookManager.subscribeLifecycle(observed);
+    await learn({ skillsRegistry: createMockRegistry(), workspaceRoot: process.cwd(), llm, hookManager, isNonInteractive: true }, []);
+    expect(observed.mock.calls.map(([context]) => context.event)).toEqual(['pre-learn', 'post-learn']);
+    expect(observed).toHaveBeenLastCalledWith(expect.objectContaining({ event: 'post-learn', success: true }));
   });
 });
