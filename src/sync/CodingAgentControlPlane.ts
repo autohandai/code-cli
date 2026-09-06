@@ -313,7 +313,9 @@ export function createCodingAgentSettingsSnapshot(config: LoadedConfig, deviceId
       value,
     }];
   });
-  const { auth: _auth, mcp: _mcp, configPath: _configPath, isNewConfig: _isNewConfig, ...rest } = config;
+  const rest = Object.fromEntries(
+    Object.entries(config).filter(([key]) => !['auth', 'mcp', 'configPath', 'isNewConfig'].includes(key)),
+  );
   return {
     deviceId,
     schemaVersion: 1,
