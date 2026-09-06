@@ -229,6 +229,7 @@ import { normalizeMcpCommandForConfig } from './mcp/commandNormalization.js';
 import type { CLIOptions, AgentRuntime } from './types.js';
 import type { AutohandAgent } from './core/agent.js';
 import { registerExtensionsCommand } from './extensions/cli.js';
+import { isDiscoveryInvocation, registerDiscoveryCommand } from './discovery/cli.js';
 
 installProcessErrorHandlers();
 
@@ -236,6 +237,7 @@ const program = new Command();
 registerBrowserCommand(program);
 registerBrowserOptions(program);
 registerExtensionsCommand(program);
+registerDiscoveryCommand(program);
 
 program
   .name('autohand')
@@ -2747,7 +2749,15 @@ function isCliEntrypoint(): boolean {
     return false;
   }
 
-  return import.meta.url === pathToFileURL(entryPath).href;
+  if (import.meta.url === pathToFileURL(entryPath).href) {
+    return true;
+  }
+
+  try {
+    return import.meta.url === pathToFileURL(fs.realpathSync(entryPath)).href;
+  } catch {
+    return false;
+  }
 }
 
 if (isCliEntrypoint()) {
@@ -2777,7 +2787,7 @@ function argvOptionValue(argv: string[], option: string): string | undefined {
 }
 
 async function prepareRuntimeExtensionsForCli(command: Command, argv: string[]): Promise<void> {
-  if (argv.includes('--bare')) {
+  if (argv.includes('--bare') || isDiscoveryInvocation(command, argv)) {
     return;
   }
   const workspaceRoot = path.resolve(argvOptionValue(argv, '--path') ?? argvOptionValue(argv, '--dir') ?? process.cwd());
