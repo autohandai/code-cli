@@ -85,10 +85,6 @@ function captureLastError(reason: unknown): void {
   (globalThis as { __autohandLastError?: unknown }).__autohandLastError = reason;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 function buildFallbackConfig(configPath: string | undefined, processRef: ProcessLike): LoadedConfig {
   return {
     provider: 'openrouter',
@@ -286,10 +282,15 @@ export async function reportProcessError(reason: unknown, options: ProcessErrorC
     },
   });
 
-  await Promise.race([
-    reportPromise,
-    sleep(options.reportTimeoutMs ?? DEFAULT_REPORT_TIMEOUT_MS),
-  ]);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<void>((resolve) => {
+    timeout = setTimeout(resolve, options.reportTimeoutMs ?? DEFAULT_REPORT_TIMEOUT_MS);
+  });
+  try {
+    await Promise.race([reportPromise, deadline]);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function installProcessErrorHandlers(options: InstallProcessErrorHandlersOptions = {}): void {
