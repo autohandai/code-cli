@@ -19,6 +19,7 @@ type SquadRunStatus = typeof RUN_STATUSES[number];
 
 export interface SquadRunSummary {
   id: string;
+  workspaceRoot: string;
   agentName: string;
   task: string;
   status: SquadRunStatus;
@@ -88,6 +89,7 @@ function parseRun(value: unknown): { workspace: string; run: SquadRunSummary } |
     workspace: value.workspace,
     run: {
       id: displayText(value.id, 256),
+      workspaceRoot: value.workspace,
       agentName: typeof value.agentId === 'string' ? displayText(value.agentId, 128) : 'Squad agent',
       task: displayText(value.prompt, 4_096),
       status: value.status as SquadRunStatus,
@@ -133,7 +135,7 @@ export async function readSquadRunSnapshot(options: SquadRunSnapshotOptions): Pr
       const runWorkspace = await fs.realpath(parsed.workspace).catch(() => path.resolve(parsed.workspace));
       if (runWorkspace !== workspace || seen.has(parsed.run.id)) continue;
       seen.add(parsed.run.id);
-      runs.push(parsed.run);
+      runs.push({ ...parsed.run, workspaceRoot: runWorkspace });
     } catch {
       skipped++;
     }
@@ -147,6 +149,7 @@ export async function readSquadRunSnapshot(options: SquadRunSnapshotOptions): Pr
 }
 
 interface SquadRunMonitorOptions extends SquadRunSnapshotOptions {
+  getWorkspaceRoot?: () => string;
   isVisible?: () => boolean;
   signal?: AbortSignal;
 }
@@ -173,15 +176,17 @@ export class SquadRunMonitor {
 
   async refresh(): Promise<void> {
     if (this.stopped || this.refreshing || this.options.isVisible?.() === false) return;
+    const workspaceRoot = this.options.getWorkspaceRoot?.() ?? this.options.workspaceRoot;
     this.refreshing = true;
     try {
-      const snapshot = await readSquadRunSnapshot(this.options);
-      if (this.stopped) return;
+      const snapshot = await readSquadRunSnapshot({ ...this.options, workspaceRoot });
+      if (this.stopped || workspaceRoot !== (this.options.getWorkspaceRoot?.() ?? this.options.workspaceRoot)) return;
       const runs: AgentRun[] = snapshot.runs.map(run => ({
         id: `squad:${run.id}`,
         source: 'squad',
         name: run.agentName,
         task: run.task,
+        workspaceRoot: run.workspaceRoot,
         status: run.status === 'queued' ? 'pending' : run.status === 'rejected' ? 'failed' : run.status,
         startedAt: run.startedAt ?? run.createdAt,
         updatedAt: run.completedAt ?? run.startedAt ?? run.createdAt,
@@ -192,7 +197,9 @@ export class SquadRunMonitor {
       }));
       this.store.replaceExternal(runs, snapshot.message);
     } catch {
-      if (!this.stopped) this.store.replaceExternal([], `Squad run records are unavailable. ${RECORDED_STATUS}`);
+      if (!this.stopped && workspaceRoot === (this.options.getWorkspaceRoot?.() ?? this.options.workspaceRoot)) {
+        this.store.replaceExternal([], `Squad run records are unavailable. ${RECORDED_STATUS}`);
+      }
     } finally {
       this.refreshing = false;
     }

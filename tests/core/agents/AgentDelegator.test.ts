@@ -23,6 +23,62 @@ describe('AgentDelegator typed outcomes', () => {
     vi.restoreAllMocks();
   });
 
+  it('pins the selected workspace and original user request across nested delegation', async () => {
+    const registry = AgentRegistry.getInstance();
+    const previousAgents = registry.getSessionAgents();
+    registry.setSessionAgents([{
+      name: 'context-reader', description: 'Read the selected checkout.',
+      systemPrompt: 'Inspect source.', tools: ['read_file'],
+    }]);
+    let workspaceRoot = '/initial-repository';
+    let userRequest = 'Review checkout payments in the selected repository. Do not edit files.';
+    const requests: Array<Parameters<LLMProvider['complete']>[0]> = [];
+    const onSubagentStart = vi.fn();
+    const complete: LLMProvider['complete'] = async request => {
+      requests.push(request);
+      userRequest = 'An unrelated later request must not replace the original scope.';
+      const child = request.messages.at(-1)?.content === 'Child work';
+      if (child || request.messages.some(message => message.role === 'tool')) {
+        return { id: 'done', created: 0, raw: null, content: 'Review complete.' };
+      }
+      return { id: 'delegate', created: 0, raw: null, content: '', toolCalls: [{
+        id: 'child', type: 'function', function: {
+          name: 'delegate_task', arguments: JSON.stringify({ agent_name: 'context-reader', task: 'Child work' }),
+        },
+      }] };
+    };
+    const delegator = new AgentDelegator({
+      getName: () => 'autohandai', complete,
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, {} as ActionExecutor, {
+      workspaceRoot, getWorkspaceRoot: () => workspaceRoot, getUserRequest: () => userRequest,
+      onSubagentStart, threadBudget: new SessionThreadBudget(() => 3),
+    });
+    workspaceRoot = '/selected-repository/worktree';
+    try {
+      await expect(delegator.delegateTaskForTool('context-reader', 'Review the payment handler.'))
+        .resolves.toMatchObject({ success: true });
+      expect(requests).toHaveLength(3);
+      for (const request of requests) {
+        const context = request.messages.map(message => String(message.content)).join('\n');
+        expect(context).toContain('/selected-repository/worktree');
+        expect(context).toContain('Review checkout payments in the selected repository. Do not edit files.');
+        expect(context).not.toContain('/initial-repository');
+        expect(context).not.toContain('An unrelated later request');
+      }
+      expect(onSubagentStart).toHaveBeenCalledTimes(2);
+      for (const [context] of onSubagentStart.mock.calls) {
+        expect(context).toMatchObject({
+          workspaceRoot: '/selected-repository/worktree',
+          userRequest: 'Review checkout payments in the selected repository. Do not edit files.',
+        });
+      }
+    } finally {
+      registry.setSessionAgents(previousAgents);
+    }
+  });
+
   it('returns a cancelled outcome when the parent aborts a native subagent', async () => {
     const registry = AgentRegistry.getInstance();
     vi.spyOn(registry, 'loadAgents').mockResolvedValue();

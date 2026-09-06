@@ -12,6 +12,37 @@ import {
 } from '../../../src/core/agents/SessionThreadBudget.js';
 
 describe('SessionThreadBudget', () => {
+  it('keeps workspace changes and child runs mutually exclusive', () => {
+    const budget = new SessionThreadBudget();
+    const worker = budget.tryAcquire('worker');
+    expect(() => budget.beginWorkspaceChange())
+      .toThrow('Wait for active subagents to finish or cancel them before switching workspace');
+
+    worker.release();
+    const workspaceChange = budget.beginWorkspaceChange();
+    expect(() => budget.tryAcquire('next-worker')).toThrow('workspace is changing');
+    expect(budget.activeChildren).toBe(0);
+    workspaceChange.release();
+    expect(() => budget.tryAcquire('next-worker')).not.toThrow();
+  });
+
+  it('keeps child admission closed until every nested workspace lease is released exactly once', () => {
+    const budget = new SessionThreadBudget();
+    const outer = budget.beginWorkspaceChange();
+    const inner = budget.beginWorkspaceChange();
+
+    inner.release();
+    inner.release();
+    expect(() => budget.tryAcquire('worker')).toThrow('workspace is changing');
+
+    outer.release();
+    const later = budget.beginWorkspaceChange();
+    outer.release();
+    expect(() => budget.tryAcquire('worker')).toThrow('workspace is changing');
+    later.release();
+    expect(() => budget.tryAcquire('worker')).not.toThrow();
+  });
+
   it('reserves the lead thread and admits eight children by default', () => {
     const budget = new SessionThreadBudget();
     expect(budget.maxThreads).toBe(9);

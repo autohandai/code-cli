@@ -61,6 +61,16 @@ describe('buildTeamTaskPayload', () => {
 });
 
 describe('description budget', () => {
+  it('omits repeated original requests from listings but preserves full task detail', () => {
+    const original = 'Review the selected repository without editing files. '.repeat(500);
+    const assigned = task({ userRequest: original });
+    const listing = parseTeamTaskPayload(buildTeamTaskPayload({ tasks: [assigned], truncateDescriptions: true }));
+    expect(listing?.tasks[0]).not.toHaveProperty('userRequest');
+    const detail = parseTeamTaskPayload(buildTeamTaskPayload({ tasks: [assigned] }));
+    expect(detail?.tasks[0]).toHaveProperty('userRequest', original);
+    expect(assigned.userRequest).toBe(original);
+  });
+
   it('truncates long descriptions when asked and flags the task', () => {
     const long = 'x'.repeat(900);
     const parsed = JSON.parse(

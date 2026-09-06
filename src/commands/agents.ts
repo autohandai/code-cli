@@ -67,7 +67,7 @@ export async function handler(args: string[] = [], deps: AgentsCommandDeps = {})
         return 'Session agent inspector opened. Use arrows to select, Enter for details, and Esc to return.';
     }
     if (subcommand && DEFINITION_SUBCOMMANDS.has(subcommand)) {
-        return listAgentDefinitions();
+        return listAgentDefinitions(deps.config);
     }
     if (subcommand && TEAM_PROVIDER_SUBCOMMANDS.has(subcommand)) {
         return configureTeamModelAssignment(args, deps);
@@ -179,9 +179,9 @@ function formatProviderName(provider: ProviderName): string {
     return provider === 'autohandai' ? 'Autohand AI' : provider;
 }
 
-export async function listAgentDefinitions(): Promise<string> {
+export async function listAgentDefinitions(activeConfig?: LoadedConfig): Promise<string> {
     const registry = AgentRegistry.getInstance();
-    const config = await loadConfig(undefined, process.cwd());
+    const config = activeConfig ?? await loadConfig(undefined, process.cwd());
     registry.configureExternalAgents(config.externalAgents);
     await registry.loadAgents();
     const agents = registry.getAllAgents();
@@ -193,7 +193,7 @@ export async function listAgentDefinitions(): Promise<string> {
     let output = chalk.bold(`${t('commands.agents.definitionsTitle') ?? 'Sub-Agent Definitions'}:\n\n`);
 
     for (const agent of agents) {
-        output += `${chalk.green('🤖 ' + agent.name)}\n`;
+        output += `${chalk.green(agent.name)}\n`;
         output += `  ${chalk.gray(agent.description)}\n`;
         output += `  ${chalk.blue('Path:')} ${agent.path}\n`;
         if (agent.model) {

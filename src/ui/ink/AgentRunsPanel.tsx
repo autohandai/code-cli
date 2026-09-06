@@ -125,6 +125,8 @@ export function AgentRunsPanel({ snapshot, terminalRows = 24, terminalColumns = 
   });
 
   const detailLines = selected ? [
+    `Workspace: ${selected.workspaceRoot ?? 'unavailable'}`,
+    ...(selected.userRequest ? [`User request: ${selected.userRequest}`] : []),
     `Task: ${selected.task}`,
     selected.source === 'squad' ? 'Scope: Squad external (independent budget)' : `Parent: ${selected.parentId ?? 'session lead'} · ${selected.source}`,
     `${selected.provider ?? 'Provider unavailable'} · ${selected.model ?? 'model unavailable'}`,
@@ -146,6 +148,7 @@ export function AgentRunsPanel({ snapshot, terminalRows = 24, terminalColumns = 
           {run.id === selected?.id ? '›' : ' '} {indentation(run, runs)}{clean(run.name)} · {run.status} · {run.source === 'squad' ? 'Squad external' : run.source} · {duration(run, now)}
         </Text>)}
         {runs.length === 0 ? <Text color={colors.muted}>No agent runs recorded yet.</Text> : <Text color={colors.muted} wrap="truncate">{selectedIndex + 1}/{runs.length} · {clean(selected?.task ?? '')}</Text>}
+        {selected ? <Text color={colors.muted} wrap="truncate">Workspace: {clean(selected.workspaceRoot ?? 'unavailable')}</Text> : null}
       </> : <>
         <Text bold wrap="truncate">{clean(selected?.name ?? 'Run unavailable')} · {selected?.status}</Text>
         {detailLines.slice(visibleDetailOffset, visibleDetailOffset + rows).map((line, index) => <Text key={index} wrap="truncate">{line}</Text>)}

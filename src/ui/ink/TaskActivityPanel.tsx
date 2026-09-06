@@ -161,7 +161,6 @@ function TaskActivityPanelComponent({ items, maxVisible, terminalRows }: TaskAct
       <Box key={item.id} gap={1} width="100%">
         <Text color={color}>{glyph}</Text>
         <Text wrap="truncate">
-          {item.kind === 'subagent' ? '🤖 ' : ''}
           {item.label}
           {detail}
         </Text>

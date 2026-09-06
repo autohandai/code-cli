@@ -15,6 +15,8 @@ export interface AgentRunInput {
   source: AgentRunSource;
   name: string;
   task: string;
+  workspaceRoot?: string;
+  userRequest?: string;
   provider?: string;
   model?: string;
 }

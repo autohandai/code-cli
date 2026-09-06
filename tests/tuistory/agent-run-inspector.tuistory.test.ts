@@ -32,6 +32,7 @@ afterEach(async () => {
 
 describe('Autohand AI native session agent inspector', () => {
   it('inspects native results and usage, cancels a running agent, retains history across a modal, and exits', async () => {
+    const originalRequest = 'Run the inspection fixture. Review only; do not edit files.';
     const requests: Array<Record<string, unknown>> = [];
     let leadTurns = 0;
     let slowStarted = false;
@@ -55,13 +56,17 @@ describe('Autohand AI native session agent inspector', () => {
         return;
       }
       const fast = system.startsWith('INSPECTOR_FAST');
+      const read = fast && !messages.some(message => message.role === 'tool');
       if (!fast) leadTurns += 1;
       const delegate = !fast && leadTurns === 1;
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end(JSON.stringify({
         id: `inspection-${requests.length}`, created: 1,
-        choices: [{ index: 0, finish_reason: delegate ? 'tool_calls' : 'stop', message: {
+        choices: [{ index: 0, finish_reason: delegate || read ? 'tool_calls' : 'stop', message: {
           role: 'assistant', content: fast ? 'FAST_AGENT_PROOF' : delegate ? 'Starting the requested inspection workers.' : 'INSPECTOR_TURN_COMPLETE',
+          ...(read ? { tool_calls: [{ id: 'read-selected-workspace', type: 'function', function: {
+            name: 'read_file', arguments: JSON.stringify({ path: 'repository-proof.txt' }),
+          } }] } : {}),
           ...(delegate ? { tool_calls: [{ id: 'delegate-inspection', type: 'function', function: {
             name: 'delegate_parallel', arguments: JSON.stringify({ tasks: ['fast', 'slow', 'error'].map((name) => ({
               agent_name: `inspector-${name}`, task: `Run ${name} inspection fixture`,
@@ -83,6 +88,8 @@ describe('Autohand AI native session agent inspector', () => {
       ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
     } });
     states.push(state);
+    await fs.writeFile(path.join(state.workspaceRoot, 'repository-proof.txt'), 'SELECTED_REPOSITORY_CONTENT\n');
+    await fs.writeFile(path.join(state.autohandHome, 'repository-proof.txt'), 'WRONG_LAUNCH_DIRECTORY_CONTENT\n');
     const squadDirectory = path.join(state.autohandHome, 'squad', 'runs');
     await fs.mkdir(squadDirectory, { recursive: true });
     await fs.writeFile(path.join(squadDirectory, 'inspector-external.json'), JSON.stringify({
@@ -95,16 +102,35 @@ describe('Autohand AI native session agent inspector', () => {
       description: `Isolated inspector ${name} fixture`, prompt: `INSPECTOR_${name.toUpperCase()}`, tools: ['read_file'],
     }]));
     const session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '--agents', JSON.stringify(inlineAgents), '--yes'], {
-      autohandHome: state.autohandHome, cwd: state.workspaceRoot, cols: 100, rows: 24, waitForDataTimeout: 15_000,
+      autohandHome: state.autohandHome, cwd: state.autohandHome, cols: 100, rows: 24, waitForDataTimeout: 15_000,
     });
     sessions.push(session);
     await session.waitForText('❯', { timeout: 20_000 });
-    await session.type('Run the inspection fixture.');
+    await session.type(originalRequest);
     await session.press('enter');
     await vi.waitFor(() => expect(slowStarted).toBe(true), { timeout: 20_000 });
+    const workerRequests = requests.filter(payload => (payload.messages as Array<{ role: string; content?: string }>).some(message => message.role === 'system' && message.content?.startsWith('INSPECTOR_')));
+    expect(workerRequests.length).toBeGreaterThanOrEqual(2);
+    for (const payload of workerRequests) {
+      const messages = payload.messages as Array<{ role: string; content?: string }>;
+      expect(messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ role: 'system', content: expect.stringContaining(state.workspaceRoot) }),
+        expect.objectContaining({ role: 'user', content: `Original user request:\n${originalRequest}` }),
+      ]));
+    }
     const detail = await inspectAndCancelFixtureAgent(session);
     expect(detail).toContain('autohandai · moa');
     expect(detail).toContain('Parent:');
+    expect(detail).toContain('Workspace:');
+    expect(detail.replace(/\s+/g, '')).toContain(state.workspaceRoot.replace(/\s+/g, ''));
+    expect(detail).toContain('User request:');
+    expect(detail).not.toContain('🤖');
+    await vi.waitFor(() => {
+      const observations = requests.filter(payload => (payload.messages as Array<{ content?: string }>).some(message => message.content?.startsWith('INSPECTOR_FAST')))
+        .flatMap(payload => (payload.messages as Array<{ role: string; content?: string }>).filter(message => message.role === 'tool').map(message => message.content));
+      expect(observations.join('\n')).toContain('SELECTED_REPOSITORY_CONTENT');
+      expect(observations.join('\n')).not.toContain('WRONG_LAUNCH_DIRECTORY_CONTENT');
+    });
     await vi.waitFor(() => expect(slowAborted).toBe(true), { timeout: 10_000 });
     await session.press('escape');
     await session.text({ timeout: 5_000, waitFor: (text) => text.includes('Enter details') });

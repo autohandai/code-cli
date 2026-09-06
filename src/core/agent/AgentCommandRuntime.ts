@@ -23,6 +23,7 @@ import { normalizePermissionPromptResponse, type PermissionPromptResult } from '
 import type { Plan } from '../../modes/planMode/types.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { BARE_SLASH_COMMANDS_DISABLED_MESSAGE } from '../../runtime/bareMode.js';
+import type { ThreadLease } from '../agents/SessionThreadBudget.js';
 
 export interface AgentCommandRuntimeHost {
   [key: string]: any;
@@ -626,14 +627,21 @@ export function resolveAgentWorkspacePath(host: AgentCommandRuntimeHost, relativ
   }
 
 export async function switchAgentWorkspaceContext(host: AgentCommandRuntimeHost, workspaceRoot: string): Promise<void> {
-    host.runtime.workspaceRoot = workspaceRoot;
-    host.memoryManager.setWorkspace(workspaceRoot);
-    host.hookManager.setWorkspaceRoot(workspaceRoot);
-    host.files.setWorkspaceRoot(workspaceRoot);
-    host.persistentInput.setWorkspaceRoot(workspaceRoot);
-    host.ignoreFilter = new GitIgnoreParser(workspaceRoot, []);
-    host.workspaceFileCollector.setWorkspace(workspaceRoot, host.ignoreFilter);
-    await host.skillsRegistry.setWorkspace(workspaceRoot);
+    const workspaceChange: ThreadLease | undefined = workspaceRoot !== host.runtime.workspaceRoot
+      ? host.sessionThreadBudget?.beginWorkspaceChange()
+      : undefined;
+    try {
+      host.runtime.workspaceRoot = workspaceRoot;
+      host.memoryManager.setWorkspace(workspaceRoot);
+      host.hookManager.setWorkspaceRoot(workspaceRoot);
+      host.files.setWorkspaceRoot(workspaceRoot);
+      host.persistentInput.setWorkspaceRoot(workspaceRoot);
+      host.ignoreFilter = new GitIgnoreParser(workspaceRoot, []);
+      host.workspaceFileCollector.setWorkspace(workspaceRoot, host.ignoreFilter);
+      await host.skillsRegistry.setWorkspace(workspaceRoot);
+    } finally {
+      await workspaceChange?.release();
+    }
   }
 
 export async function enterAgentSessionWorktree(host: AgentCommandRuntimeHost, name?: string): Promise<string> {
@@ -641,25 +649,30 @@ export async function enterAgentSessionWorktree(host: AgentCommandRuntimeHost, n
       return `Already inside worktree ${host.sessionWorktreeState.worktreePath} (${host.sessionWorktreeState.branchName}). Exit it first with exit_worktree.`;
     }
 
-    const originalWorkspaceRoot = host.runtime.workspaceRoot;
-    const info = prepareSessionWorktree({
-      cwd: originalWorkspaceRoot,
-      worktree: name ?? true,
-      mode: 'cli',
-    });
+    const workspaceChange: ThreadLease | undefined = host.sessionThreadBudget?.beginWorkspaceChange();
+    try {
+      const originalWorkspaceRoot = host.runtime.workspaceRoot;
+      const info = prepareSessionWorktree({
+        cwd: originalWorkspaceRoot,
+        worktree: name ?? true,
+        mode: 'cli',
+      });
 
-    host.sessionWorktreeState = {
-      ...info,
-      originalWorkspaceRoot,
-    };
+      host.sessionWorktreeState = {
+        ...info,
+        originalWorkspaceRoot,
+      };
 
-    await host.switchWorkspaceContext(info.worktreePath);
+      await host.switchWorkspaceContext(info.worktreePath);
 
-    return [
-      `Entered worktree ${info.worktreePath}.`,
-      `Branch: ${info.branchName}${info.createdBranch ? ' (new)' : ''}`,
-      `Original workspace: ${originalWorkspaceRoot}`,
-    ].join('\n');
+      return [
+        `Entered worktree ${info.worktreePath}.`,
+        `Branch: ${info.branchName}${info.createdBranch ? ' (new)' : ''}`,
+        `Original workspace: ${originalWorkspaceRoot}`,
+      ].join('\n');
+    } finally {
+      await workspaceChange?.release();
+    }
   }
 
 export function handleAgentSkillTool(
@@ -759,20 +772,25 @@ export async function exitAgentSessionWorktree(host: AgentCommandRuntimeHost, ke
       return 'No active session worktree.';
     }
 
-    if (!keep) {
-      const manager = new WorktreeManager(state.repoRoot);
-      await manager.remove(state.worktreePath, {
-        force: true,
-        deleteBranch: state.createdBranch,
-      });
+    const workspaceChange: ThreadLease | undefined = host.sessionThreadBudget?.beginWorkspaceChange();
+    try {
+      if (!keep) {
+        const manager = new WorktreeManager(state.repoRoot);
+        await manager.remove(state.worktreePath, {
+          force: true,
+          deleteBranch: state.createdBranch,
+        });
+      }
+
+      await host.switchWorkspaceContext(state.originalWorkspaceRoot);
+      host.sessionWorktreeState = null;
+
+      return keep
+        ? `Exited worktree ${state.worktreePath} and returned to ${state.originalWorkspaceRoot}. Worktree kept on disk.`
+        : `Exited worktree ${state.worktreePath} and returned to ${state.originalWorkspaceRoot}.`;
+    } finally {
+      await workspaceChange?.release();
     }
-
-    await host.switchWorkspaceContext(state.originalWorkspaceRoot);
-    host.sessionWorktreeState = null;
-
-    return keep
-      ? `Exited worktree ${state.worktreePath} and returned to ${state.originalWorkspaceRoot}. Worktree kept on disk.`
-      : `Exited worktree ${state.worktreePath} and returned to ${state.originalWorkspaceRoot}.`;
   }
 
 export function isAgentDestructiveCommand(_host: AgentCommandRuntimeHost, command: string): boolean {

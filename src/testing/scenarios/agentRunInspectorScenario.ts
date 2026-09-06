@@ -16,8 +16,18 @@ export async function inspectAndCancelFixtureAgent(session: Session): Promise<st
   await openAgentRunInspector(session);
   session.writeRaw('\u001b[200~HIDDEN_INSPECTOR_PASTE\u001b[201~');
   await session.press('enter');
-  await session.text({ timeout: 10_000, waitFor: (text) => text.includes('FAST_AGENT_PROOF') && text.includes('54 tokens') });
-  const completedDetail = await session.text({ immediate: true });
+  await session.text({ timeout: 10_000, waitFor: (text) => text.includes('inspector-fast · completed') });
+  const frames: string[] = [];
+  for (let scroll = 0; scroll < 30; scroll += 1) {
+    const frame = await session.text();
+    frames.push(frame);
+    if (frame.includes('FAST_AGENT_PROOF') && frames.some(text => text.includes('108 tokens'))) break;
+    await session.press('down');
+  }
+  const completedDetail = frames.join('\n');
+  if (!completedDetail.includes('FAST_AGENT_PROOF') || !completedDetail.includes('108 tokens')) {
+    throw new Error(`Completed agent result or usage missing from inspector:\n${completedDetail}`);
+  }
   await session.press('escape');
   await session.text({ timeout: 5_000, waitFor: (text) => text.includes('Enter details') });
   await session.press('down');

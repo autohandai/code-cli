@@ -216,6 +216,36 @@ describe('headless teammate tool authorization', () => {
 });
 
 describe("teammate executeTask", () => {
+  it('preserves the original user request from IPC through the worker provider request', async () => {
+    const { ProviderFactory } = await import('../../src/providers/ProviderFactory.js');
+    const complete = vi.mocked(ProviderFactory.create({ provider: 'openrouter' }).complete);
+    complete.mockClear();
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    stdout.on('data', (data: Buffer) => {
+      for (const line of data.toString().trim().split('\n')) {
+        const message: { method: string } = JSON.parse(line);
+        if (message.method === 'team.idle') stdin.write(JSON.stringify({ method: 'team.shutdown', params: {} }) + '\n');
+      }
+    });
+    const running = runTeammateModeWithStreams({
+      teamName: 'scope', name: 'reader', agentName: 'tester', leadSessionId: 'lead',
+      workspacePath: '/selected-repository/worktree',
+    }, stdin, stdout);
+    stdin.write(JSON.stringify({ method: 'team.assignTask', params: { task: {
+      id: 'queued-review', runId: 'attempt', subject: 'Review payments', description: 'Inspect payment validation.',
+      userRequest: 'Review the selected repository. Do not edit files.',
+      status: 'in_progress', blockedBy: [], createdAt: '',
+    } } }) + '\n');
+    await running;
+
+    expect(complete.mock.calls[0][0].messages).toEqual(expect.arrayContaining([
+      { role: 'user', content: 'Original user request:\nReview the selected repository. Do not edit files.' },
+      { role: 'user', content: 'Inspect payment validation.' },
+      expect.objectContaining({ role: 'system', content: expect.stringContaining('/selected-repository/worktree') }),
+    ]));
+  });
+
   it('owns and cleans background processes when executed without a persistent teammate loop', async () => {
     const kill = vi.spyOn(commandActions, 'killProcessGroup').mockResolvedValue(undefined);
     actionExecutorConstructor.mockImplementationOnce((deps: { backgroundProcessRegistry?: BackgroundProcessRegistry }) => {

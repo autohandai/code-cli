@@ -23,6 +23,15 @@ function renderPanel(items: ActivityItem[], maxVisible?: number, terminalRows?: 
 }
 
 describe('TaskActivityPanel', () => {
+  it('identifies sub-agents with text and status marks without decorative emoji', () => {
+    const { lastFrame } = renderPanel([
+      { id: 'reader', kind: 'subagent', label: 'reader: inspect the selected repository', status: 'in_progress' },
+    ]);
+    expect(lastFrame()).toContain('Workers · 1 running');
+    expect(lastFrame()).toContain('reader: inspect the selected repository');
+    expect(lastFrame()).not.toMatch(/\p{Extended_Pictographic}/u);
+  });
+
   it('keeps only the summary and active task in a 14-row terminal', () => {
     expect(getTaskActivityMaxVisible(14)).toBe(1);
     expect(getTaskActivityMaxVisible(18)).toBe(4);

@@ -160,6 +160,7 @@ async function executeTaskWithEnvironment(
     ...taskRuntime,
     getPendingInstructions: () => [...authorizationContext.splice(0), ...(taskRuntime.getPendingInstructions?.() ?? [])],
     workspaceRoot: workspacePath,
+    userRequest: task.userRequest,
     model: opts.model,
     resolveSubagentAssignment: (definition) => {
       const selectedProvider = config.provider ?? 'openrouter';

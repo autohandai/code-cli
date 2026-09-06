@@ -20,6 +20,39 @@ function nativeToolCall(name: string, args: Record<string, unknown>, id = `call-
 }
 
 describe('SubAgent', () => {
+  it.each([true, false])('preserves user scope and uses plain-text startup output (native tools: %s)', async nativeToolCalling => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const requests: Array<Parameters<LLMProvider['complete']>[0]> = [];
+    const agent = new SubAgent({
+      name: 'reader', description: 'Read source', systemPrompt: 'Inspect source.',
+      tools: ['read_file'], path: '/tmp/reader.md',
+    }, {
+      getName: () => 'autohandai',
+      complete: async request => {
+        requests.push(request);
+        return { id: 'review', created: 0, raw: null, content: nativeToolCalling ? 'Reviewed.' : '{"finalResponse":"Reviewed."}' };
+      },
+      getCapabilities: () => ({ nativeToolCalling }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, {} as ActionExecutor, {
+      clientContext: 'cli', depth: 1, maxDepth: 1,
+      workspaceRoot: '/selected-repo', userRequest: 'Review payments. Do not edit files.',
+    });
+    try {
+      await expect(agent.run('Inspect payment validation.')).resolves.toBe('Reviewed.');
+      expect(requests[0].messages[0]).toMatchObject({ role: 'system', content: expect.stringContaining('/selected-repo') });
+      expect(requests[0].messages.filter(message => message.role === 'user')).toEqual([
+        { role: 'user', content: 'Original user request:\nReview payments. Do not edit files.' },
+        { role: 'user', content: 'Inspect payment validation.' },
+      ]);
+      const output = log.mock.calls.flat().join('\n');
+      expect(output).toContain("Sub-agent 'reader'");
+      expect(output).not.toMatch(/\p{Extended_Pictographic}/u);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it('provides installed role names to a child that may delegate further', async () => {
     const roster = vi.spyOn(AgentRegistry.getInstance(), 'getAllAgents').mockReturnValue([{
       name: 'security-reviewer', description: 'Review trust boundaries.', systemPrompt: 'Review security.',

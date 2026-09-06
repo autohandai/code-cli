@@ -51,6 +51,8 @@ export const TeamTaskSchema = z.object({
   runId: z.string().optional(),
   subject: z.string().min(1),
   description: z.string(),
+  userRequest: z.string().optional(),
+  workspaceRoot: z.string().optional(),
   status: TaskStatusSchema,
   owner: z.string().optional(),
   blockedBy: z.array(z.string()),
