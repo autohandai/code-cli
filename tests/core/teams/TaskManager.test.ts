@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { TaskManager } from '../../../src/core/teams/TaskManager.js';
+import { TeamTaskSchema } from '../../../src/core/teams/types.js';
 
 describe('TaskManager', () => {
   let tm: TaskManager;
@@ -18,6 +19,25 @@ describe('TaskManager', () => {
     expect(task.id).toMatch(/^task-\d+$/);
     expect(task.status).toBe('pending');
     expect(task.blockedBy).toEqual([]);
+  });
+
+  it('preserves the creating workspace and user request through queued-task persistence and IPC validation', () => {
+    const input = {
+      subject: 'Review payments', description: 'Inspect checkout validation.',
+      userRequest: 'Review the selected repository. Do not edit files.',
+      workspaceRoot: '/selected-repository',
+    };
+    const task = tm.createTask(input);
+    input.userRequest = 'A later request must not replace the queued scope.';
+    input.workspaceRoot = '/unrelated-repository';
+    const restored = TaskManager.deserialize(tm.serialize());
+    restored.updateTask(task.id, { description: 'Inspect the payment handler first.' });
+
+    expect(TeamTaskSchema.parse(restored.getTask(task.id))).toMatchObject({
+      subject: 'Review payments', description: 'Inspect the payment handler first.',
+      userRequest: 'Review the selected repository. Do not edit files.',
+      workspaceRoot: '/selected-repository',
+    });
   });
 
   it('should list all tasks', () => {

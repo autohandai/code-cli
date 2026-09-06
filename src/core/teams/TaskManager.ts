@@ -9,6 +9,8 @@ import type { TaskStatus, TeamTask } from './types.js';
 interface CreateTaskInput {
   subject: string;
   description: string;
+  userRequest?: string;
+  workspaceRoot?: string;
   blockedBy?: string[];
 }
 
@@ -38,6 +40,8 @@ export class TaskManager {
       id,
       subject: input.subject,
       description: input.description,
+      ...(input.userRequest !== undefined ? { userRequest: input.userRequest } : {}),
+      ...(input.workspaceRoot !== undefined ? { workspaceRoot: input.workspaceRoot } : {}),
       status: 'pending',
       blockedBy: input.blockedBy ?? [],
       createdAt: new Date().toISOString(),

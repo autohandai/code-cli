@@ -19,6 +19,7 @@ import { TeammateAuthorizationRequestSchema, type TeammateAuthorizationResult, t
 interface TeamManagerOptions {
   leadSessionId: string | (() => string | undefined);
   workspacePath: string;
+  getWorkspacePath?: () => string;
   configPath?: string;
   maxTeammates?: number;
   threadBudget?: SessionThreadBudget;
@@ -77,6 +78,7 @@ export class TeamManager {
   private readonly listeners = new Set<(snapshot: TeamActivitySnapshot) => void>();
   private readonly threadBudget: SessionThreadBudget;
   private readonly processLeases = new Map<TeammateProcess, ThreadLease>();
+  private readonly teammateWorkspaces = new WeakMap<TeammateProcess, string>();
   private readonly nestedLeases = new Map<TeammateProcess, Map<string, ThreadLease>>();
   private readonly taskRuns = new Map<string, string>();
   private readonly requestedTaskStates = new Map<string, Exclude<TaskStatus, 'in_progress'>>();
@@ -169,6 +171,7 @@ export class TeamManager {
       throw new Error(`Team has reached the configured maximum of ${this.maxTeammates} teammates`);
     }
 
+    const workspacePath = this.opts.getWorkspacePath?.() ?? this.opts.workspacePath;
     const lease = this.threadBudget.tryAcquire(`team:${randomUUID()}`);
     const tp = new TeammateProcess({
       teamName: this.team.name,
@@ -180,11 +183,12 @@ export class TeamManager {
       modelSource: opts.modelSource,
       requestedRole: opts.requestedRole,
       agentSource: opts.agentSource,
-      workspacePath: this.opts.workspacePath,
+      workspacePath,
       configPath: this.opts.configPath,
     });
 
     this.teammates.set(opts.name, tp);
+    this.teammateWorkspaces.set(tp, workspacePath);
     this.processLeases.set(tp, lease);
     try {
       tp.spawn(
@@ -393,7 +397,9 @@ export class TeamManager {
       if (tp.status !== 'idle' || !this.processLeases.has(tp)) continue;
       const available = this._tasks.getAvailableTasks();
       if (available.length === 0) return;
-      const task = available[0];
+      const workspaceRoot = this.teammateWorkspaces.get(tp);
+      const task = available.find(candidate => candidate.workspaceRoot === undefined || candidate.workspaceRoot === workspaceRoot);
+      if (!task) continue;
       const runId = `team-task:${randomUUID()}`;
       this._tasks.assignTask(task.id, name, runId);
       this.taskRuns.set(task.id, runId);
@@ -406,6 +412,8 @@ export class TeamManager {
         source: 'team',
         name,
         task: task.subject,
+        workspaceRoot: this.teammateWorkspaces.get(tp),
+        userRequest: task.userRequest,
         provider: member.provider,
         model: member.model,
       });
@@ -504,6 +512,8 @@ export class TeamManager {
         source: 'delegate',
         name: params.subagentName,
         task: params.task,
+        workspaceRoot: this.teammateWorkspaces.get(tp),
+        userRequest: task.userRequest,
         ...(typeof params.provider === 'string' ? { provider: params.provider } : {}),
         ...(typeof params.model === 'string' ? { model: params.model } : {}),
       });

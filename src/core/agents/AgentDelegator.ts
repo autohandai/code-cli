@@ -47,6 +47,8 @@ export interface SubagentStartContext {
     subagentType: string;
     /** Delegated task text */
     task: string;
+    workspaceRoot?: string;
+    userRequest?: string;
     /** Provider selected for this execution when an explicit assignment was resolved. */
     provider?: string;
     /** Model selected for this execution when an explicit assignment was resolved. */
@@ -72,6 +74,8 @@ export interface SubagentProgressContext extends SubagentStartContext, SubAgentP
 
 export interface DelegatorOptions {
     workspaceRoot?: string;
+    getWorkspaceRoot?: () => string;
+    getUserRequest?: () => string | undefined;
     allowedToolNames?: ReadonlySet<string>;
     threadBudget?: ThreadBudget;
     parentId?: string;
@@ -167,8 +171,11 @@ export class AgentDelegator {
         agentConfig: AgentDefinition, agentName: string, task: string,
         options: DelegationExecutionOptions,
     ): Promise<ToolActionOutcome> {
+        const workspaceRoot = this.options.getWorkspaceRoot?.() ?? this.options.workspaceRoot;
+        const userRequest = this.options.getUserRequest?.();
         const subAgentOptions: SubAgentOptions = {
-            workspaceRoot: this.options.workspaceRoot,
+            workspaceRoot,
+            userRequest,
             allowedToolNames: this.options.allowedToolNames,
             clientContext: this.clientContext,
             depth: this.currentDepth + 1,
@@ -197,6 +204,8 @@ export class AgentDelegator {
             subagentName: agentName,
             subagentType: agentConfig.source ?? 'user',
             task,
+            workspaceRoot,
+            userRequest,
             parentId: this.options.parentId,
             depth: this.currentDepth + 1,
             cancel: () => controller.abort(),

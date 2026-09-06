@@ -56,6 +56,7 @@ function nativeResponse(response: ServerResponse, id: string, content: string, t
 
 describe('Autohand AI native team IPC inspector', () => {
   it('tracks nested results, native failures, and confirmed cancellation through real teammate processes', async () => {
+    const originalRequest = 'Create the native team fixture and run its three tasks. Do not edit files.';
     const requests: NativeRequest[] = [];
     let leadTurns = 0;
     let parentTurns = 0;
@@ -84,7 +85,8 @@ describe('Autohand AI native team IPC inspector', () => {
         return;
       }
       if (system.startsWith('NATIVE_PARENT_FIXTURE')) {
-        const task = payload.messages?.find((message) => message.role === 'user')?.content;
+        const task = payload.messages?.find(message => message.role === 'user'
+          && typeof message.content === 'string' && message.content.startsWith('TEAM_'))?.content;
         if (typeof task === 'string' && task.includes('TEAM_FAILURE_TASK')) {
           response.writeHead(400, { 'content-type': 'application/json' });
           response.end(JSON.stringify({ error: { message: 'TEAM_NATIVE_FAILURE', type: 'invalid_request_error' } }));
@@ -126,11 +128,11 @@ describe('Autohand AI native team IPC inspector', () => {
       description: 'Native nested inspection fixture', systemPrompt: 'NATIVE_NESTED_FIXTURE', tools: ['read_file'],
     }));
     const session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '--yes'], {
-      autohandHome: state.autohandHome, cwd: state.workspaceRoot, cols: 100, rows: 28, waitForDataTimeout: 15_000,
+      autohandHome: state.autohandHome, cwd: state.autohandHome, cols: 100, rows: 28, waitForDataTimeout: 15_000,
     });
     sessions.push(session);
     await session.waitForText('❯', { timeout: 20_000 });
-    await session.type('Create the native team fixture and run its three tasks.');
+    await session.type(originalRequest);
     await session.press('enter');
     await vi.waitFor(() => expect(nestedStarted, JSON.stringify({
       leadTurns, parentTurns,
@@ -139,11 +141,26 @@ describe('Autohand AI native team IPC inspector', () => {
         tools: payload.tools?.map((tool) => tool.function?.name).filter((name) => name?.includes('delegate')),
       })), terminal: session.readAll().slice(-16000),
     })).toBe(true), { timeout: 30_000 });
+    const workerRequests = requests.filter(payload => payload.messages?.some(message => message.role === 'system'
+      && typeof message.content === 'string' && /^NATIVE_(PARENT|NESTED)_FIXTURE/.test(message.content)));
+    expect(workerRequests.length).toBeGreaterThanOrEqual(2);
+    for (const payload of workerRequests) {
+      expect(payload.messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ role: 'system', content: expect.stringContaining(state.workspaceRoot) }),
+        expect.objectContaining({ role: 'user', content: `Original user request:\n${originalRequest}` }),
+      ]));
+    }
     const initial = await inspectNativeTeamAndNestedRun(session);
     expect(initial.parent).toContain('autohandai · moa');
     expect(initial.parent).not.toContain('independent budget');
     expect(initial.nested).toMatch(/Parent: team-task:[a-f0-9-]+/);
     expect(initial.nested).toContain('autohandai · moa');
+    for (const detail of [initial.parent, initial.nested]) {
+      expect(detail).toContain('Workspace:');
+      expect(detail.replace(/\s+/g, '')).toContain(state.workspaceRoot.replace(/\s+/g, ''));
+      expect(detail).toContain('User request:');
+      expect(detail).not.toContain('🤖');
+    }
     await vi.waitFor(() => expect(nestedAborted).toBe(true), { timeout: 10_000 });
     await vi.waitFor(() => expect(teamCancellationStarted).toBe(true), { timeout: 20_000 });
     const outcomes = await inspectNativeTeamFailureAndCancel(session);

@@ -37,6 +37,7 @@ describe('Squad run snapshots', () => {
     expect(result.available).toBe(true);
     expect(result.runs).toEqual([{
       id: 'run-1', agentName: 'reviewer', task: 'Review the API', status: 'running',
+      workspaceRoot: await fs.realpath(workspace),
       createdAt: Date.parse('2026-09-05T10:00:00Z'), startedAt: Date.parse('2026-09-05T10:00:01Z'),
       channelId: 'channel-a', threadId: 'thread-a',
     }]);
@@ -101,6 +102,83 @@ describe('Squad run snapshots', () => {
     ]));
     expect(store.getSnapshot().externalStatus).toContain('independent sessions');
     monitor.stop();
+  });
+
+  it('exposes the verified canonical workspace without copying command or log metadata', async () => {
+    const workspaceAlias = path.join(root, 'workspace-alias');
+    await fs.symlink(workspace, workspaceAlias);
+    await fs.writeFile(path.join(root, 'runs', 'alias.json'), JSON.stringify(record(workspaceAlias)));
+    const store = new AgentRunStore();
+    const monitor = new SquadRunMonitor(store, {
+      workspaceRoot: workspace,
+      env: { AUTOHAND_SQUAD_HOME: root },
+    });
+    try {
+      await monitor.refresh();
+
+      const snapshot = store.getSnapshot();
+      expect(snapshot.runs).toMatchObject([{
+        id: 'squad:run-1', workspaceRoot: await fs.realpath(workspace),
+      }]);
+      expect(JSON.stringify(snapshot)).not.toContain('never-');
+      expect(snapshot.runs[0]).not.toHaveProperty('command');
+      expect(snapshot.runs[0]).not.toHaveProperty('logPath');
+    } finally {
+      monitor.stop();
+    }
+  });
+
+  it('follows the selected repository when the active workspace changes', async () => {
+    const nextWorkspace = path.join(root, 'next-workspace');
+    await fs.mkdir(nextWorkspace);
+    await fs.writeFile(path.join(root, 'runs', 'first.json'), JSON.stringify(record(workspace)));
+    await fs.writeFile(path.join(root, 'runs', 'next.json'), JSON.stringify({ ...record(nextWorkspace), id: 'next-run' }));
+    let selectedWorkspace = workspace;
+    const store = new AgentRunStore();
+    const monitor = new SquadRunMonitor(store, {
+      workspaceRoot: workspace,
+      getWorkspaceRoot: () => selectedWorkspace,
+      env: { AUTOHAND_SQUAD_HOME: root },
+    });
+    try {
+      await monitor.refresh();
+      expect(store.getSnapshot().runs.map(run => run.id)).toEqual(['squad:run-1']);
+
+      selectedWorkspace = nextWorkspace;
+      await monitor.refresh();
+
+      expect(store.getSnapshot().runs.map(run => run.id)).toEqual(['squad:next-run']);
+    } finally {
+      monitor.stop();
+    }
+  });
+
+  it('discards a refresh result when the selected repository changes while records are being read', async () => {
+    const nextWorkspace = path.join(root, 'next-workspace');
+    await fs.mkdir(nextWorkspace);
+    await fs.writeFile(path.join(root, 'runs', 'first.json'), JSON.stringify(record(workspace)));
+    await fs.writeFile(path.join(root, 'runs', 'next.json'), JSON.stringify({ ...record(nextWorkspace), id: 'next-run' }));
+    let selectedWorkspace = workspace;
+    const store = new AgentRunStore();
+    store.start({ id: 'lead-child', source: 'delegate', name: 'tester', task: 'Test' });
+    const monitor = new SquadRunMonitor(store, {
+      workspaceRoot: workspace,
+      getWorkspaceRoot: () => selectedWorkspace,
+      env: { AUTOHAND_SQUAD_HOME: root },
+    });
+    try {
+      const refreshing = monitor.refresh();
+      selectedWorkspace = nextWorkspace;
+      await refreshing;
+
+      expect(store.getSnapshot().runs.map(run => run.id)).toEqual(['lead-child']);
+      expect(store.getSnapshot().externalStatus).toBeUndefined();
+
+      await monitor.refresh();
+      expect(store.getSnapshot().runs.map(run => run.id)).toEqual(['lead-child', 'squad:next-run']);
+    } finally {
+      monitor.stop();
+    }
   });
 
   it('pauses polling when hidden and stops permanently at shutdown', async () => {

@@ -21,6 +21,8 @@ export interface TeamTaskPayloadTask {
   id: string;
   subject: string;
   description: string;
+  workspaceRoot?: string;
+  userRequest?: string;
   status: string;
   owner?: string;
   blockedBy: string[];
@@ -58,11 +60,13 @@ export function taskToolTruncatesDescriptions(tool: string): boolean {
 
 function truncateDescription(task: TeamTask): TeamTaskPayloadTask {
   const description = typeof task.description === 'string' ? task.description : '';
+  const summary = { ...task };
+  delete summary.userRequest;
   if (description.length <= TASK_LIST_DESCRIPTION_BUDGET) {
-    return { ...task };
+    return summary;
   }
   return {
-    ...task,
+    ...summary,
     description: `${description.slice(0, TASK_LIST_DESCRIPTION_BUDGET)}…`,
     descriptionTruncated: true,
   };

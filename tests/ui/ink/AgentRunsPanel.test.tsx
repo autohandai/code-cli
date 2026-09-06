@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from 'ink-testing-library';
 import { AgentRunsPanel } from '../../../src/ui/ink/AgentRunsPanel.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
-import type { AgentRun, AgentRunsSnapshot } from '../../../src/core/agents/AgentRunStore.js';
+import { AgentRunStore, type AgentRun, type AgentRunsSnapshot } from '../../../src/core/agents/AgentRunStore.js';
 
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
@@ -22,6 +22,55 @@ function panel(snapshot: AgentRunsSnapshot, onClose = vi.fn(), onCancel = vi.fn(
 }
 
 describe('AgentRunsPanel', () => {
+  it('shows the selected workspace and original user request separately from the delegated task', async () => {
+    const store = new AgentRunStore();
+    store.start({
+      id: 'checkout-reviewer', source: 'delegate', name: 'Checkout reviewer',
+      task: 'Inspect payment validation.',
+      workspaceRoot: '/selected-repository/worktree',
+      userRequest: 'Review checkout payments. Do not edit files.',
+    });
+    const view = panel(store.getSnapshot());
+
+    expect(view.lastFrame()).toContain('Workspace: /selected-repository/worktree');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    view.stdin.write('\r');
+
+    await vi.waitFor(() => expect(view.lastFrame()).toContain('User request: Review checkout payments. Do not edit files.'));
+    expect(view.lastFrame()).toContain('Workspace: /selected-repository/worktree');
+    expect(view.lastFrame()).toContain('Task: Inspect payment validation.');
+    expect(view.lastFrame()?.split('\n').length).toBeLessThanOrEqual(18);
+  });
+
+  it('bounds multiline workspace context in the list and scrolls the original request in narrow details', async () => {
+    const view = render(<ThemeProvider><AgentRunsPanel snapshot={{ updatedAt: 200, runs: [run('reviewer', {
+      workspaceRoot: `/selected/${'repository\n'.repeat(20)}worktree`,
+      userRequest: `${'Review checkout payments without edits. '.repeat(12)}\nREQUEST_END\u001b[2J`,
+      task: 'Inspect payment validation.',
+      output: 'CHECKOUT_PROOF', status: 'completed', cancellable: false,
+    })] }} terminalRows={18} terminalColumns={36} onClose={() => {}} onCtrlC={() => {}} /></ThemeProvider>);
+
+    expect(view.lastFrame()?.split('\n').length).toBeLessThanOrEqual(18);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    view.stdin.write('\r');
+    await vi.waitFor(() => expect(view.lastFrame()).toContain('↑/↓ scroll'));
+    let sawUserRequest = false;
+    let sawRequestEnd = false;
+    for (let index = 0; index < 70; index += 1) {
+      view.stdin.write('\u001b[B');
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const frame = view.lastFrame() ?? '';
+      sawUserRequest ||= frame.includes('User request:');
+      sawRequestEnd ||= frame.includes('REQUEST_END');
+      expect(frame.split('\n').length).toBeLessThanOrEqual(18);
+      expect(frame).not.toContain('\u001b[2J');
+    }
+    expect(sawUserRequest).toBe(true);
+    expect(sawRequestEnd).toBe(true);
+    expect(view.lastFrame()).toContain('Task: Inspect payment validation.');
+    expect(view.lastFrame()).toContain('CHECKOUT_PROOF');
+  });
+
   it('advances a running session duration while waiting without new progress messages', async () => {
     vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
     vi.setSystemTime(5000);
@@ -55,6 +104,8 @@ describe('AgentRunsPanel', () => {
     expect(view.lastFrame()).not.toContain('Parent: session lead');
     expect(view.lastFrame()).toContain('Provider unavailable · model unavailable');
     expect(view.lastFrame()).toContain('Usage unavailable');
+    expect(view.lastFrame()).toContain('Workspace: unavailable');
+    expect(view.lastFrame()).not.toContain('User request:');
   });
 
   it('does not show an outstanding stop request on a terminal run', async () => {

@@ -7,8 +7,26 @@ import { describe, expect, it, vi } from 'vitest';
 import { formatActiveAgents, handler } from '../../src/commands/agents.js';
 import type { ActiveAgentRecord } from '../../src/session/ActiveAgentRegistry.js';
 import type { LoadedConfig } from '../../src/types.js';
+import { AgentRegistry } from '../../src/core/agents/AgentRegistry.js';
 
 describe('/agents command', () => {
+  it('lists plain-text definitions from the active session configuration', async () => {
+    const registry = AgentRegistry.getInstance();
+    const previousPaths = registry.getExternalPaths();
+    const config: LoadedConfig = {
+      configPath: '/selected-repository/config.json',
+      externalAgents: { enabled: true, paths: ['/selected-repository/agents'] },
+    };
+    try {
+      const output = await handler(['definitions'], { config });
+      expect(registry.getExternalPaths()).toEqual(['/selected-repository/agents']);
+      expect(output).toContain('Sub-Agent Definitions');
+      expect(output).not.toContain('🤖');
+    } finally {
+      registry.setExternalPaths(previousPaths);
+    }
+  });
+
   it.each([['help'], ['--help']])('documents session inspection and global heartbeat scopes for %s', async (arg) => {
     const output = await handler([arg]);
     expect(output).toContain('/agents view');

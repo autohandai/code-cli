@@ -34,6 +34,7 @@ export class SessionThreadLimitError extends Error {
 
 export class SessionThreadBudget implements ThreadBudget {
   private readonly children = new Set<string>();
+  private workspaceChanges = 0;
 
   constructor(
     private readonly getMaxThreads: () => number = () => DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION,
@@ -55,8 +56,26 @@ export class SessionThreadBudget implements ThreadBudget {
     return Math.max(0, this.maxThreads - 1 - this.activeChildren);
   }
 
+  beginWorkspaceChange(): ThreadLease {
+    if (this.activeChildren > 0) {
+      throw new Error('Wait for active subagents to finish or cancel them before switching workspace.');
+    }
+    this.workspaceChanges += 1;
+    let released = false;
+    return {
+      release: () => {
+        if (released) return;
+        released = true;
+        this.workspaceChanges -= 1;
+      },
+    };
+  }
+
   tryAcquire(runId: string): ThreadLease {
     if (!runId.trim()) throw new Error('A child run identifier is required.');
+    if (this.workspaceChanges > 0) {
+      throw new Error('Cannot start a subagent while the workspace is changing. Wait for the workspace change to finish.');
+    }
     if (this.children.has(runId)) throw new Error(`Child run '${runId}' is already registered.`);
     const limit = this.maxThreads;
     // Waiting here can deadlock when every parent holds a lease while delegating.

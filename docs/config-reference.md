@@ -1535,6 +1535,8 @@ Selecting maximum reasoning shows a usage warning when the configured limit is e
 
 Use `/agents view` to inspect direct and team runs, their parentage, model/provider, usage, output, and errors. Arrow keys select a run, Enter opens details, and `c` requests cancellation with confirmation. Escape returns from details or confirmation to the run list; Escape from the list returns to the composer. `/squad view` displays the native daemon's recorded runs for this workspace; these are independent sessions with their own budgets, not children charged against this CLI session's limit.
 
+Run details distinguish the execution workspace, original user request (when available), and delegated task. New workers use the currently selected workspace, including worktrees; nested workers and queued team tasks retain the initiating request and its constraints. Queued team tasks are bound to the workspace where they were created and remain pending when no matching worker is available; `task_get` includes that workspace. Finish or stop existing workers before switching workspaces. New workers cannot start while a workspace switch is in progress. `/agents definitions` uses the active session configuration, and `/squad view` follows the selected workspace.
+
 For the evidence-driven review, cleanup, and testing commands, see [Lifecycle workflows](guides/lifecycle-workflows.md).
 
 ---

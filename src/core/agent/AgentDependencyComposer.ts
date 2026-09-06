@@ -556,6 +556,7 @@ export function initializeAgentDependencies(
     });
     const squadRunMonitor = new SquadRunMonitor(host.agentRunStore, {
       workspaceRoot: runtime.workspaceRoot,
+      getWorkspaceRoot: () => runtime.workspaceRoot,
       signal: host.runtimeResourceShutdownController?.signal,
       isVisible: () => host.inkRenderer?.getState?.().agentRunsPanelVisible === true,
     });
@@ -567,6 +568,7 @@ export function initializeAgentDependencies(
       leadSessionId: () => host.sessionManager?.getCurrentSession?.()?.metadata?.sessionId,
       threadBudget: host.sessionThreadBudget,
       workspacePath: runtime.workspaceRoot,
+      getWorkspacePath: () => runtime.workspaceRoot,
       configPath: runtime.config.configPath,
       maxTeammates: runtime.config.teams?.maxTeammates,
       authorizeTool: (call, signal) => authorizeTeammateTool(call, {
@@ -734,6 +736,8 @@ export function initializeAgentDependencies(
       ?? (runtime.options.restricted ? 'restricted' : 'cli');
     host.delegator = new AgentDelegator(llm, host.actionExecutor, {
       workspaceRoot: runtime.workspaceRoot,
+      getWorkspaceRoot: () => runtime.workspaceRoot,
+      getUserRequest: () => host.currentInstructionText,
       threadBudget: host.sessionThreadBudget,
       clientContext: delegatorContext,
       maxDepth: 3,
@@ -765,6 +769,7 @@ export function initializeAgentDependencies(
         host.agentRunStore.start({
           id: context.subagentId, parentId: context.parentId, depth: context.depth,
           source: 'delegate', name: context.subagentName, task: context.task,
+          workspaceRoot: context.workspaceRoot, userRequest: context.userRequest,
           provider: context.provider, model: context.model,
         });
         if (context.cancel) host.agentRunStore.registerCancel(context.subagentId, context.cancel);
@@ -1278,6 +1283,8 @@ export function initializeAgentDependencies(
                 host.teamManager.tasks.createTask({
                   subject: task.subject,
                   description: task.description,
+                  userRequest: host.currentInstructionText,
+                  workspaceRoot: runtime.workspaceRoot,
                   blockedBy: task.blockedBy,
                 });
               }
@@ -1317,6 +1324,8 @@ export function initializeAgentDependencies(
             const task = host.teamManager.tasks.createTask({
               subject: action.subject,
               description: action.description,
+              userRequest: host.currentInstructionText,
+              workspaceRoot: runtime.workspaceRoot,
               blockedBy: action.blocked_by,
             });
             // Auto-assign to idle teammates
