@@ -1176,6 +1176,14 @@ function normalizeSavedApiBaseUrl(baseUrl: string | undefined): string | undefin
  * Env vars take precedence over config file values
  */
 function mergeEnvVariables(config: AutohandConfig): AutohandConfig {
+  if (process.env.AUTOHAND_PROVIDER !== undefined) {
+    const provider = normalizeProviderName(process.env.AUTOHAND_PROVIDER.trim());
+    if (!provider) {
+      throw new Error("AUTOHAND_PROVIDER must name a supported provider");
+    }
+    config = { ...config, provider };
+  }
+
   config = {
     ...config,
     api: {
@@ -1978,6 +1986,22 @@ export async function saveConfig(
     if (override.previous === undefined) delete data.provider;
     else data.provider = override.previous;
     if (override.generatedAccountSettings) delete data.autohandai;
+  }
+
+  const processProvider = normalizeProviderName(process.env.AUTOHAND_PROVIDER?.trim());
+  if (processProvider) {
+    // Hook and permission saves must not persist process-only provider credentials.
+    const persisted = await fs.pathExists(configPath) ? await parseConfigFile(configPath) : {};
+    const settingsKey = isCustomProviderName(processProvider) ? "customProviders"
+      : processProvider.startsWith("extension:") ? "extensionProviders"
+        : processProvider === "blueprint-local" ? "blueprintLocal" : processProvider;
+    for (const key of ["provider", settingsKey]) {
+      if (Object.hasOwn(persisted, key)) {
+        Object.assign(data, { [key]: Reflect.get(persisted, key) });
+      } else {
+        Reflect.deleteProperty(data, key);
+      }
+    }
   }
 
   if (!options.writeAuth) {
