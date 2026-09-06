@@ -106,20 +106,23 @@ describe('project test script evidence', () => {
     expect(await fs.readdir(unrelated)).toEqual([]);
   });
 
-  it.skipIf(process.platform === 'win32')('cancels an active process group even when its test process ignores SIGTERM', async () => {
+  it.skipIf(process.platform === 'win32')('cancels a slow-starting process group even when its test process ignores SIGTERM', async () => {
     const pidPath = path.join(workspaceRoot, 'running.pid');
     await fs.writeFile(path.join(workspaceRoot, 'fixture.cjs'), [
+      'setTimeout(() => {',
       'process.on("SIGTERM", () => {});',
       `require("node:fs").writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));`,
       'console.log("test process started");',
       'setInterval(() => {}, 1000);',
+      '}, 1_200);',
     ].join('\n'));
     const controller = new AbortController();
     const run = runProjectTestScript({ workspaceRoot, script: 'test', signal: controller.signal });
     try {
-      await vi.waitFor(async () => expect(await fs.readFile(pidPath, 'utf8')).toMatch(/^\d+$/));
+      await vi.waitFor(async () => expect(await fs.readFile(pidPath, 'utf8')).toMatch(/^\d+$/), { timeout: 10_000 });
     } finally {
       controller.abort();
+      await run;
     }
 
     const result = await run;
