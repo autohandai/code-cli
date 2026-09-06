@@ -177,6 +177,12 @@ export interface PermissionManagerOptions {
 }
 
 export class PermissionManager {
+  private onModeChange?: (mode: PermissionMode, previousMode: PermissionMode) => void | Promise<void>;
+
+  setModeChangeListener(listener: (mode: PermissionMode, previousMode: PermissionMode) => void | Promise<void>): void {
+    this.onModeChange = listener;
+  }
+
   private settings: PermissionSettings;
   private localSettings: PermissionSettings | undefined;
   private sessionProjectSettings: SessionProjectPermissions | undefined;
@@ -271,7 +277,12 @@ export class PermissionManager {
    * Set permission mode (can be overridden by CLI flags)
    */
   setMode(mode: PermissionMode): void {
+    const previousMode = this.mode;
+    if (mode === previousMode) return;
     this.mode = mode;
+    try {
+      void Promise.resolve(this.onModeChange?.(mode, previousMode)).catch(() => {});
+    } catch { /* Mode changes must not depend on observers. */ }
   }
 
   /**

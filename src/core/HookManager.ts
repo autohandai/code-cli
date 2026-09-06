@@ -3,6 +3,8 @@
  * @license Apache-2.0
  */
 import { spawn } from 'node:child_process';
+import { matchesImportedHook, importedHookInput, importedHookEnvironment, importedHookResponse } from './ImportedHookAdapter.js';
+import { HOOK_EVENTS } from './hookEvents.js';
 import { minimatch } from 'minimatch';
 import type { HooksSettings, HookDefinition, HookEvent, HookFilter, HookResponse } from '../types.js';
 import type { ExtensionRuntimeHook } from '../extensions/ExtensionRuntimeHost.js';
@@ -11,6 +13,8 @@ import type { ExtensionRuntimeHook } from '../extensions/ExtensionRuntimeHost.js
 export interface HookContext {
   /** Event that triggered the hook */
   event: HookEvent;
+  previousMode?: string;
+  mode?: string;
   /** Workspace root path */
   workspace: string;
   /** Session ID */
@@ -594,11 +598,17 @@ export class HookManager {
       case 'autoresearch:run':
       case 'autoresearch:after':
       case 'autoresearch:log':
+      case 'autoresearch:decision':
+      case 'autoresearch:replay':
+      case 'autoresearch:rescore':
+      case 'autoresearch:prune':
       case 'autoresearch:complete':
       case 'autoresearch:error':
         value = [
           context.autoresearchGoal,
           context.autoresearchSubcommand,
+          context.autoresearchAttemptId,
+          context.autoresearchDecision,
           context.tool,
           formatMatcherArgs(context.args),
           context.error,
@@ -665,6 +675,9 @@ export class HookManager {
       HOOK_EVENT: context.event,
       HOOK_WORKSPACE: context.workspace,
     };
+
+    if (context.previousMode) env.HOOK_PREVIOUS_MODE = context.previousMode;
+    if (context.mode) env.HOOK_MODE = context.mode;
 
     // Session info
     if (context.sessionId) env.HOOK_SESSION_ID = context.sessionId;
@@ -800,6 +813,8 @@ export class HookManager {
 
   private buildJsonContext(context: HookContext): Record<string, unknown> {
     return {
+      previous_mode: context.previousMode,
+      mode: context.mode,
       session_id: context.sessionId,
       cwd: context.workspace,
       hook_event_name: context.event,
@@ -927,8 +942,8 @@ export class HookManager {
     const startTime = Date.now();
     const timeout = hook.timeout ?? DEFAULT_HOOK_TIMEOUT;
     const killGracePeriodMs = options.killGracePeriodMs ?? DEFAULT_KILL_GRACE_PERIOD_MS;
-    const env = this.buildEnvironment(context);
-    const jsonInput = this.buildJsonInput(context);
+    const env = { ...this.buildEnvironment(context), ...(hook.importedFrom ? importedHookEnvironment(hook.importedFrom, context) : {}) };
+    const jsonInput = hook.importedFrom ? JSON.stringify(importedHookInput(hook.importedFrom, context)) : this.buildJsonInput(context);
 
     if (options.signal?.aborted) {
       return {
@@ -943,7 +958,7 @@ export class HookManager {
     return new Promise((resolve) => {
       const child = spawn(hook.command, [], {
         shell: true,
-        cwd: this.workspaceRoot,
+        cwd: hook.importedFrom?.workingDirectory ?? this.workspaceRoot,
         env,
         stdio: ['pipe', 'pipe', 'pipe'], // stdin enabled for JSON input
       });
@@ -1011,12 +1026,12 @@ export class HookManager {
         const exitCode = code ?? 0;
 
         // Exit code 2 = blocking error (special handling)
-        const isBlockingError = exitCode === 2;
+        const isBlockingError = exitCode === 2 && (hook.importedFrom?.source !== 'grok' || context.event === 'pre-tool');
 
         // Parse JSON response if exit code is 0 and stdout looks like JSON
         let response: HookResponse | undefined;
         if (exitCode === 0) {
-          response = this.parseHookResponse(stdout);
+          response = hook.importedFrom ? importedHookResponse(hook.importedFrom, stdout, context) : this.parseHookResponse(stdout);
         }
 
         const result: HookExecutionResult = {
@@ -1118,7 +1133,7 @@ export class HookManager {
 
     // Get hooks for event, then filter by both filter and matcher
     const hooks = this.getHooksForEvent(event).filter(h =>
-      this.matchesFilter(h.filter, fullContext) && this.matchesMatcher(h, fullContext)
+      this.matchesFilter(h.filter, fullContext) && (h.importedFrom ? matchesImportedHook(h, fullContext) : this.matchesMatcher(h, fullContext))
     );
 
     if (hooks.length === 0) {
@@ -1226,69 +1241,9 @@ export class HookManager {
    * Get a summary of hooks by event
    */
   getSummary(): Record<HookEvent, { total: number; enabled: number }> {
-    const events: HookEvent[] = [
-      'pre-tool',
-      'post-tool',
-      'file-modified',
-      'pre-prompt',
-      'stop',
-      'post-response', // Alias for 'stop'
-      'session-error',
-      'rate-limit',
-      'subagent-stop',
-      'session-start',
-      'session-end',
-      'pre-clear',
-      'permission-request',
-      'notification',
-      // Auto-mode events
-      'automode:start',
-      'automode:iteration',
-      'automode:checkpoint',
-      'automode:pause',
-      'automode:resume',
-      'automode:cancel',
-      'automode:complete',
-      'automode:error',
-      // Auto-research events
-      'autoresearch:start',
-      'autoresearch:pause',
-      'autoresearch:init',
-      'autoresearch:before',
-      'autoresearch:run',
-      'autoresearch:after',
-      'autoresearch:log',
-      'autoresearch:complete',
-      'autoresearch:error',
-      // Learn events
-      'pre-learn',
-      'post-learn',
-      // Goal authoring events
-      'goal-written:completed',
-      // Review events
-      'review:start',
-      'review:end',
-      'review:paused',
-      'review:failed',
-      'review:completed',
-      // Team events
-      'team-created',
-      'teammate-spawned',
-      'teammate-idle',
-      'task-assigned',
-      'task-completed',
-      'team-shutdown',
-      // Mode events
-      'mode-change',
-      // Context lifecycle events
-      'context:compact',
-      'context:overflow',
-      'context:warning',
-      'context:critical',
-    ];
     const summary: Record<HookEvent, { total: number; enabled: number }> = {} as Record<HookEvent, { total: number; enabled: number }>;
 
-    for (const event of events) {
+    for (const event of HOOK_EVENTS) {
       const eventHooks = this.getHooks().filter(h => h.event === event);
       summary[event] = {
         total: eventHooks.length,

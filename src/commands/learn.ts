@@ -403,13 +403,18 @@ export async function learn(ctx: LearnCommandContext, args: string[]): Promise<s
 
   const parsed = parseLearnArgs(args);
 
-  switch (parsed.subcommand) {
-    case 'recommend':
-      return handleLearnRecommend(ctx, parsed.deep);
-    case 'update':
-      return handleLearnUpdate(ctx);
-    default:
-      return handleLearnRecommend(ctx, false);
+  const context = { tool: 'learn', args: { subcommand: parsed.subcommand, deep: parsed.deep } };
+  const results = await ctx.hookManager?.executeHooks('pre-learn', context) ?? [];
+  const blocked = results.find(result => result.blockingError || result.response?.decision === 'block'
+    || result.response?.decision === 'deny' || result.response?.continue === false);
+  if (blocked) return blocked.response?.reason ?? blocked.response?.stopReason ?? blocked.error ?? 'Learn blocked by hook';
+  let success = false;
+  try {
+    const result = parsed.subcommand === 'update' ? await handleLearnUpdate(ctx) : await handleLearnRecommend(ctx, parsed.deep);
+    success = true;
+    return result;
+  } finally {
+    await ctx.hookManager?.executeHooks('post-learn', { ...context, success });
   }
 }
 

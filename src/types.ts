@@ -769,8 +769,20 @@ export interface HookFilter {
   path?: string[];
 }
 
+export type ImportedHookSource = 'claude' | 'codex' | 'cursor' | 'grok';
+
+export interface ImportedHookOrigin {
+  id: string;
+  source: ImportedHookSource;
+  event: string;
+  configPath: string;
+  workspaceRoot?: string;
+  workingDirectory?: string;
+}
+
 /** Hook definition for config-based hooks */
 export interface HookDefinition {
+  importedFrom?: ImportedHookOrigin;
   /** Event to hook into */
   event: HookEvent;
   /** Shell command to execute (receives context via env vars and JSON via stdin) */

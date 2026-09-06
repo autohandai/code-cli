@@ -39,6 +39,7 @@ export class CursorImporter extends BaseImporter {
 
   async scan(): Promise<ImportScanResult> {
     const available = new Map<ImportCategory, { count: number; description: string }>();
+    await this.scanHooks(available);
     const home = this.resolvedHomePath;
 
     if (!(await fse.pathExists(home))) {
@@ -57,11 +58,6 @@ export class CursorImporter extends BaseImporter {
         ? 'Cursor CLI config & preferences'
         : 'Cursor hooks.json preferences';
       available.set('settings', { count, description: desc });
-    }
-
-    // Hooks
-    if (hasHooks) {
-      available.set('hooks', { count: 1, description: 'Cursor hook configurations' });
     }
 
     // MCP
@@ -116,7 +112,7 @@ export class CursorImporter extends BaseImporter {
           await this.importSettings(imported, errors, onProgress);
           break;
         case 'hooks':
-          await this.importHooks(imported, errors, onProgress);
+          await this.importCommandHooks(imported, errors, onProgress);
           break;
         case 'mcp':
           await this.importMcp(imported, errors, onProgress);
@@ -208,61 +204,6 @@ export class CursorImporter extends BaseImporter {
   // ---------------------------------------------------------------
   // Hooks
   // ---------------------------------------------------------------
-
-  protected async importHooks(
-    imported: Map<ImportCategory, ImportCategoryResult>,
-    errors: ImportError[],
-    onProgress?: ProgressCallback,
-  ): Promise<void> {
-    const hooksPath = path.join(this.resolvedHomePath, 'hooks.json');
-
-    if (!(await fse.pathExists(hooksPath))) {
-      imported.set('hooks', { success: 0, failed: 0, skipped: 1 });
-      return;
-    }
-
-    onProgress?.({
-      category: 'hooks',
-      current: 1,
-      total: 1,
-      item: 'hooks.json',
-      status: 'importing',
-    });
-
-    try {
-      const hooksData = await this.safeReadJson(hooksPath);
-      const configDir = AUTOHAND_PATHS.config;
-      await fse.ensureDir(configDir);
-
-      await fse.writeJson(
-        path.join(configDir, 'imported-cursor-hooks.json'),
-        {
-          importedFrom: 'cursor',
-          importedAt: new Date().toISOString(),
-          hooks: hooksData.hooks ?? hooksData,
-        },
-        { spaces: 2 },
-      );
-
-      imported.set('hooks', { success: 1, failed: 0, skipped: 0 });
-
-      onProgress?.({
-        category: 'hooks',
-        current: 1,
-        total: 1,
-        item: 'hooks.json',
-        status: 'done',
-      });
-    } catch (err) {
-      imported.set('hooks', { success: 0, failed: 1, skipped: 0 });
-      errors.push({
-        category: 'hooks',
-        item: 'hooks.json',
-        error: err instanceof Error ? err.message : String(err),
-        retriable: false,
-      });
-    }
-  }
 
   // ---------------------------------------------------------------
   // MCP

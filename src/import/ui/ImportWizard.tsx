@@ -61,7 +61,7 @@ interface ImportSummaryProps {
   result: ImportResult;
 }
 
-function ImportSummary({ source, result }: ImportSummaryProps) {
+export function ImportSummary({ source, result }: ImportSummaryProps) {
   const entries = Array.from(result.imported.entries());
 
   return (
@@ -77,14 +77,17 @@ function ImportSummary({ source, result }: ImportSummaryProps) {
         if (stats.skipped > 0) parts.push(`${stats.skipped} skipped`);
 
         return (
-          <Text key={cat}>
-            {'  '}{label}: {parts.join(', ') || 'none'}
-          </Text>
+          <Box key={cat} flexDirection="column">
+            <Text>{'  '}{label}: {parts.join(', ') || 'none'}</Text>
+            {Object.entries(stats.skipReasons ?? {}).map(([reason, count]) => <Text key={reason} color="gray">    {count}× {reason}</Text>)}
+          </Box>
         );
       })}
 
       <Text>{''}</Text>
+      {result.errors.map((error, index) => <Text key={index} color="yellow">{error.item}: {error.error}</Text>)}
       <Text color="cyan">Next steps:</Text>
+      {(result.imported.get('hooks')?.success ?? 0) > 0 && <Text>  /hooks manage — Review and enable imported hooks (saved disabled)</Text>}
       <Text>  /sessions     {'\u2014'} Browse your imported sessions</Text>
       <Text>  /resume       {'\u2014'} Resume an imported session</Text>
     </Box>

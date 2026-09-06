@@ -536,3 +536,22 @@ describe('HookManager', () => {
     });
   });
 });
+
+
+describe('complete lifecycle catalogue', () => {
+  it.each(['decision', 'replay', 'rescore', 'prune'] as const)('summarizes and filters autoresearch:%s', async name => {
+    const event = `autoresearch:${name}` as const;
+    const manager = new HookManager({ workspaceRoot: process.cwd(), settings: { hooks: [{ event, matcher: 'matched-goal', command: 'echo invoked' }] } });
+    expect(manager.getSummary()[event]).toEqual({ total: 1, enabled: 1 });
+    expect(await manager.executeHooks(event, { autoresearchGoal: 'different' })).toEqual([]);
+    expect(await manager.executeHooks(event, { autoresearchGoal: 'matched-goal' })).toHaveLength(1);
+  });
+});
+
+describe('autoresearch decision matching', () => {
+  it('matches the decision and attempt id carried by the event', async () => {
+    const manager = new HookManager({ workspaceRoot: process.cwd(), settings: { hooks: [{ event: 'autoresearch:decision', matcher: 'attempt-42.*keep', command: 'echo matched' }] } });
+    expect(await manager.executeHooks('autoresearch:decision', { autoresearchAttemptId: 'attempt-42', autoresearchDecision: 'keep' })).toHaveLength(1);
+    expect(await manager.executeHooks('autoresearch:decision', { autoresearchAttemptId: 'attempt-42', autoresearchDecision: 'discard' })).toEqual([]);
+  });
+});

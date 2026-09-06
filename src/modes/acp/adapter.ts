@@ -743,6 +743,7 @@ export class AutohandAcpAdapter implements Agent {
     this.emitHookPrePrompt(params.sessionId, reviewRequest ? trimmed : instruction, []);
     try {
       const runInstruction = (): Promise<boolean> => agent.runInstruction(instruction, {
+        ...(reviewRequest ? { hookInstruction: trimmed } : {}),
         signal: session.abortController.signal,
       });
       const success = reviewRequest
@@ -758,6 +759,13 @@ export class AutohandAcpAdapter implements Agent {
           })
         : await runInstruction();
       const turnDuration = Date.now() - turnStart;
+      try {
+        await agent.getHookManager?.()?.executeHooks('stop', {
+          sessionId: params.sessionId, turnDuration, success,
+        }, { signal: session.abortController.signal });
+      } catch (error) {
+        process.stderr.write(`[ACP] Stop hook failed: ${error instanceof Error ? error.message : String(error)}\n`);
+      }
       this.emitHookStop(params.sessionId, 0, 0, turnDuration);
       if (!success && this.cancelledSessions.has(params.sessionId)) {
         return { stopReason: 'cancelled' };

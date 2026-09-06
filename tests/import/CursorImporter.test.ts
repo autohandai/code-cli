@@ -130,6 +130,7 @@ describe('CursorImporter', () => {
     });
 
     it('should detect hooks from hooks.json', async () => {
+      fse.readJson.mockResolvedValue({ hooks: { preToolUse: [{ command: 'echo check' }] } } as never);
       fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s === CURSOR_HOME) return true;
@@ -214,7 +215,8 @@ describe('CursorImporter', () => {
   // import() – hooks
   // ---------------------------------------------------------------
   describe('import() - hooks', () => {
-    it('should extract hook configurations', async () => {
+    it('reports an unsupported legacy hooks array instead of archiving it as successful', async () => {
+      fse.readJson.mockResolvedValue({ hooks: [{ event: 'onSave', command: 'lint' }] } as never);
       fse.pathExists.mockImplementation(async (p: string) => {
         const s = String(p);
         if (s === CURSOR_HOME) return true;
@@ -230,14 +232,15 @@ describe('CursorImporter', () => {
       });
 
       const result = await importer.import(['hooks']);
-      expect(result.imported.get('hooks')!.success).toBe(1);
+      expect(result.imported.get('hooks')!.failed).toBe(1);
+      expect(result.imported.get('hooks')!.success).toBe(0);
     });
 
     it('should handle missing hooks.json for hooks', async () => {
       fse.pathExists.mockResolvedValue(false as never);
 
       const result = await importer.import(['hooks']);
-      expect(result.imported.get('hooks')!.skipped).toBe(1);
+      expect(result.imported.get('hooks')).toEqual({ success: 0, failed: 0, skipped: 0 });
     });
   });
 

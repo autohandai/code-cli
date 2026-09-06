@@ -97,6 +97,7 @@
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
     "sharp": "^0.35.3",
+    "smol-toml": "^1.8.0",
     "string-width": "^8.2.2",
     "terminal-link": "^5.0.0",
     "unified": "^11.0.5",

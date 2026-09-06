@@ -674,7 +674,12 @@ export class SlashCommandHandler {
         }
         case '/import': {
           const { execute } = await import('../commands/import.js');
-          return execute(args);
+          await this.ctx.onBeforeModal?.();
+          try {
+            return await execute(args, { workspaceRoot: this.ctx.workspaceRoot, configPath: this.ctx.config?.configPath, hookManager: this.ctx.hookManager });
+          } finally {
+            await this.ctx.onAfterModal?.();
+          }
         }
         case '/repeat': {
           const { repeat } = await import('../commands/repeat.js');

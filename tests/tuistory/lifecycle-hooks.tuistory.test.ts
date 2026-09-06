@@ -1,8 +1,9 @@
 import fs from 'fs-extra';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
-import { describeSessionEndHook, openLifecycleHooks } from '../../src/testing/scenarios/lifecycleHooksScenario.js';
+import type { HookDefinition } from '../../src/types.js';
+import { describeSessionEndHook, openLifecycleHooks, importClaudeHooks, enableImportedHook, submitHookScenarioPrompt } from '../../src/testing/scenarios/lifecycleHooksScenario.js';
 import { createTempAutohandHome, createMockAutohandAINativeSequenceServer, launchBuiltAutohand,
   exitInteractive, type TuistoryTempState, type MockNativeToolServer, type MockNativeAssistantTurn } from './helpers/autohandTuistory.js';
 
@@ -20,10 +21,11 @@ const hookDraft = { content: JSON.stringify({
     script: "require('node:fs').appendFileSync('lifecycle.log', 'SESSION_END_HOOK_RAN\\n');",
   }) };
 
-async function launch(turns: MockNativeAssistantTurn[] = [hookDraft]) {
+async function launch(turns: MockNativeAssistantTurn[] = [hookDraft], hooks: HookDefinition[] = [], prepare?: (state: TuistoryTempState) => Promise<void>) {
   const server = await createMockAutohandAINativeSequenceServer(turns);
   servers.push(server);
   const state = await createTempAutohandHome({ config: {
+    hooks: { hooks },
     provider: 'autohandai',
     autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'tuistory-key', model: 'moa', baseUrl: server.baseUrl },
     features: { autohand_inference: true }, agent: { autoMemory: false, sessionRetryLimit: 0 },
@@ -31,7 +33,9 @@ async function launch(turns: MockNativeAssistantTurn[] = [hookDraft]) {
     network: { maxRetries: 0 },
   } });
   states.push(state);
+  await prepare?.(state);
   const session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '--yes'], {
+    env: { CLAUDE_CONFIG_DIR: path.join(state.workspaceRoot, 'source-home') },
     autohandHome: state.autohandHome, cwd: state.workspaceRoot, cols: 120, rows: 32,
   });
   sessions.push(session);
@@ -86,4 +90,63 @@ describe('lifecycle hooks built CLI', () => {
     await exitInteractive(session);
     expect(await fs.pathExists(path.join(state.workspaceRoot, 'lifecycle.log'))).toBe(false);
   }, 60_000);
+});
+
+
+describe('imported hooks in the built CLI', () => {
+  it('imports project hooks, enables them in the current session, blocks a prompt and recovers', async () => {
+    const { session, state, server } = await launch([{ content: 'ALLOWED_PROMPT_COMPLETE' }], [], async state => {
+      await fs.outputJson(path.join(state.workspaceRoot, '.claude/settings.json'), { hooks: {
+        UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'node .claude/prompt.cjs' }] }],
+        Stop: [{ hooks: [{ type: 'command', command: 'echo unsupported' }] }],
+      } });
+      await fs.outputFile(path.join(state.workspaceRoot, '.claude/prompt.cjs'), `let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => {
+        const value = JSON.parse(input);
+        if (value.prompt.includes('denied request')) console.log(JSON.stringify({decision:'block',reason:'IMPORTED_PROMPT_BLOCKED'}));
+      });`);
+    });
+    await importClaudeHooks(session);
+    expect(session.readAll()).toContain('Stop: no equivalent');
+    const saved = await fs.readJson(state.configPath);
+    const index = saved.hooks.hooks.findIndex((hook: HookDefinition) => hook.importedFrom?.source === 'claude');
+    expect(index).toBeGreaterThanOrEqual(0);
+    expect(saved.hooks.hooks[index].enabled).toBe(false);
+    expect(server.requests).toHaveLength(0);
+    await enableImportedHook(session, index);
+    await submitHookScenarioPrompt(session, 'denied request', 'IMPORTED_PROMPT_BLOCKED');
+    expect(server.requests).toHaveLength(0);
+    await submitHookScenarioPrompt(session, 'tell me hello', 'ALLOWED_PROMPT_COMPLETE');
+    expect(server.requests).toHaveLength(1);
+    await exitInteractive(session);
+  }, 90_000);
+
+  it('runs the learn guard before analysis without calling the model', async () => {
+    const { session, server } = await launch([], [{ event: 'pre-learn', command: `printf '%s' '{"decision":"block","reason":"LEARN_GUARD_BLOCKED"}'` }]);
+    await session.waitForText('❯');
+    await submitHookScenarioPrompt(session, '/learn', 'LEARN_GUARD_BLOCKED');
+    expect(server.requests).toHaveLength(0);
+    await exitInteractive(session);
+  }, 60_000);
+});
+
+
+describe('prompt hook cancellation', () => {
+  it('cancels a running hook with Escape and accepts the next prompt', async () => {
+    const { session, state, server } = await launch([{ content: 'HOOK_CANCEL_RECOVERED' }], [{ event: 'pre-prompt', command: 'node prompt-wait.cjs', timeout: 30_000 }], async state => {
+      await fs.writeFile(path.join(state.workspaceRoot, 'prompt-wait.cjs'), `let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => {
+        if (JSON.parse(input).instruction === 'wait for hook') {
+          require('fs').writeFileSync('hook-started.txt', 'started');
+          setTimeout(() => {}, 20000);
+        }
+      });`);
+    });
+    await session.waitForText('❯');
+    await session.type('wait for hook');
+    await session.press('enter');
+    await vi.waitFor(async () => expect(await fs.pathExists(path.join(state.workspaceRoot, 'hook-started.txt'))).toBe(true));
+    await session.press('escape');
+    await submitHookScenarioPrompt(session, 'tell me hello', 'HOOK_CANCEL_RECOVERED');
+    expect(server.requests).toHaveLength(1);
+    await exitInteractive(session);
+  }, 45_000);
 });

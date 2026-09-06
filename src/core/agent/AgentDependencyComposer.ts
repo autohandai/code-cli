@@ -62,7 +62,7 @@ import { PermissionManager } from '../../permissions/PermissionManager.js';
 import { HookManager } from '../HookManager.js';
 import { HookAuthoringService } from '../HookAuthoringService.js';
 import { executeHookTool, HOOK_TOOL_DEFINITIONS, isHookAction } from '../hookTools.js';
-import { isAllowedPermissionPrompt, normalizePermissionPromptResponse } from '../../permissions/types.js';
+import { isAllowedPermissionPrompt, normalizePermissionPromptResponse, type PermissionMode } from '../../permissions/types.js';
 import { TeamManager } from '../teams/TeamManager.js';
 import type { TeamMember, TeamTask } from '../teams/types.js';
 import { resolveTeamModelAssignment } from '../teams/TeamModelPolicy.js';
@@ -495,6 +495,9 @@ export function initializeAgentDependencies(
         runtime.config.hooks = hooks;
       },
       onHookOutput: (result) => {
+        if (result.response?.additionalContext && !['pre-tool', 'pre-prompt', 'permission-request'].includes(result.hook.event)) {
+          host.conversation.addSystemNote(result.response.additionalContext, '[Hook Context]');
+        }
         // In RPC mode, stdout must only contain JSON-RPC messages
         // Hook output would break the protocol, so suppress it
         if (runtime.isRpcMode) {
@@ -515,6 +518,9 @@ export function initializeAgentDependencies(
           promptNotify(chalk.yellow(`[hook:${result.hook.event}] ${result.stderr}`));
         }
       }
+    });
+    host.permissionManager.setModeChangeListener?.(async (mode: PermissionMode, previousMode: PermissionMode) => {
+      await host.hookManager.executeHooks('mode-change', { mode, previousMode });
     });
     host.notificationService.setListener(async (options: Readonly<NotificationOptions>) => {
       await host.hookManager.executeHooks('notification', {

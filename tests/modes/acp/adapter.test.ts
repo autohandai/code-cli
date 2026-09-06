@@ -677,7 +677,7 @@ describe("AutohandAcpAdapter", () => {
       });
       expect(mockAgent.runInstruction).toHaveBeenCalledWith(
         expect.stringContaining("# Autohand Review invocation"),
-        { signal: expect.any(AbortSignal) },
+        { signal: expect.any(AbortSignal), hookInstruction: '/review architecture packages/api --audience technical' },
       );
       expect(mockAgent.runInstruction.mock.calls[0]?.[0]).toContain(
         '"kind": "architecture"',
@@ -686,6 +686,7 @@ describe("AutohandAcpAdapter", () => {
         "review:start",
         "review:completed",
         "review:end",
+        "stop",
       ]);
       expect(mockAgent.getPermissionManager().setMode.mock.calls).toEqual([
         ["restricted"],
@@ -730,6 +731,13 @@ describe("AutohandAcpAdapter", () => {
         "Add unit tests for the auth module",
         { signal: expect.any(AbortSignal) },
       );
+    });
+
+    it("executes configured stop hooks after an ACP turn", async () => {
+      const executeHooks = vi.fn().mockResolvedValue([]);
+      mockAgent.getHookManager.mockReturnValue({ executeHooks });
+      await adapter.prompt({ sessionId, prompt: [{ type: "text", text: "hello" }] });
+      expect(executeHooks).toHaveBeenCalledWith('stop', expect.objectContaining({ sessionId }), { signal: expect.any(AbortSignal) });
     });
 
     it("throws for invalid session ID", async () => {

@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { HookImportOptions } from './HookImportService.js';
+
 /**
  * Supported agent sources for import.
  */
@@ -16,7 +18,8 @@ export type ImportSource =
   | 'continue'
   | 'augment'
   | 'opencode'
-  | 'kimi';
+  | 'kimi'
+  | 'grok';
 
 /**
  * Categories of data that can be imported from an agent.
@@ -92,7 +95,7 @@ export type ProgressCallback = (progress: ImportProgress) => void;
 /**
  * Options passed to the import command.
  */
-export interface ImportOptions {
+export interface ImportOptions extends HookImportOptions {
   readonly source?: ImportSource;
   readonly categories?: ImportCategory[];
   readonly all?: boolean;
@@ -122,7 +125,7 @@ export interface Importer {
  * All supported import sources.
  */
 export const IMPORT_SOURCES: readonly ImportSource[] = Object.freeze([
-  'claude', 'codex', 'gemini', 'cursor', 'cline', 'continue', 'augment', 'opencode', 'kimi',
+  'claude', 'codex', 'gemini', 'cursor', 'cline', 'continue', 'augment', 'opencode', 'kimi', 'grok',
 ] as const);
 
 /**
