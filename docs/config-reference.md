@@ -76,6 +76,7 @@ export AUTOHAND_HOME=/custom/path  # Changes ~/.autohand to /custom/path
 | -------------------------------------- | ------------------------------------------------ | -------------------------------- |
 | `AUTOHAND_HOME`                        | Base directory for all Autohand data             | `/custom/path`                   |
 | `AUTOHAND_CONFIG`                      | Custom config file path                          | `/path/to/config.toml`           |
+| `AUTOHAND_PROVIDER`                    | Select provider for this process, overriding global and workspace selection | `autohandai` |
 | `AUTOHAND_MODELS_CATALOG`              | Custom provider model catalog path               | `/path/to/models.json`           |
 | `AUTOHAND_API_URL`                     | API endpoint (overrides config)                  | `https://api.autohand.ai`        |
 | `AUTOHAND_AUTH_URL`                    | Sign-in and account-sync website origin (independent of `AUTOHAND_API_URL`) | `https://autohand.ai` |
@@ -94,6 +95,21 @@ export AUTOHAND_HOME=/custom/path  # Changes ~/.autohand to /custom/path
 | `AUTOHAND_CODE`                        | Environment detection flag (set automatically)   | `1`                              |
 | `AUTOHAND_CODE_SIMPLE`                 | Enable bare mode without passing `--bare`        | `1`                              |
 | `AUTOHAND_DISABLE_STATEFUL_READ`       | Emergency opt-out for all stateful-read experiments | `1`                           |
+
+### Process provider selection
+
+Set `AUTOHAND_PROVIDER=autohandai` to select Autohand AI for this process even
+when the global configuration or `.autohand/settings.local.json` selects another
+provider. Supply inference credentials through `AUTOHAND_AI_API_KEY`,
+`AUTOHAND_AI_BASE_URL`, and `AUTOHAND_AI_PLAN`; normal account authentication
+still applies. Existing feature gates remain in effect.
+
+The override accepts the normal built-in, `custom:<id>`, and `extension:<id>`
+provider names. An empty or unsupported explicit value fails startup. Omitting
+the variable preserves normal saved-provider selection. Incidental settings
+saves retain the saved provider selection and its configuration section,
+including credentials, instead of writing process-only values to disk. For
+custom or extension providers, their configuration map is retained from disk.
 
 ### Thinking Level
 
