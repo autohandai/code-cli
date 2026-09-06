@@ -188,6 +188,9 @@ export class NVIDIAClient {
         );
         return response;
       } catch (error) {
+        if (request.signal?.aborted) {
+          throw new Error("Request cancelled.");
+        }
         lastError = error as Error;
 
         if (this.isNonRetryableError(error as Error)) {
@@ -241,7 +244,7 @@ export class NVIDIAClient {
       const timeoutId = setTimeout(() => timeoutController.abort(), this.timeout);
 
       const combinedSignal = signal
-        ? this.combineSignals(signal, timeoutController.signal)
+        ? AbortSignal.any([signal, timeoutController.signal])
         : timeoutController.signal;
 
       try {
@@ -256,10 +259,6 @@ export class NVIDIAClient {
       }
     } catch (error) {
       const err = error as Error;
-
-      if (err.name === "AbortError" && signal?.aborted) {
-        throw new Error("Request cancelled.");
-      }
 
       if (err.name === "AbortError") {
         throw new Error("Request timed out. The NVIDIA service may be experiencing high load.");
@@ -480,20 +479,6 @@ export class NVIDIAClient {
     }
 
     return false;
-  }
-
-  private combineSignals(signal1: AbortSignal, signal2: AbortSignal): AbortSignal {
-    const controller = new AbortController();
-
-    const abort = () => controller.abort();
-    signal1.addEventListener("abort", abort);
-    signal2.addEventListener("abort", abort);
-
-    if (signal1.aborted || signal2.aborted) {
-      controller.abort();
-    }
-
-    return controller.signal;
   }
 
   private sleep(ms: number): Promise<void> {

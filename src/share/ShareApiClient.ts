@@ -305,19 +305,20 @@ export class ShareApiClient {
    * Check if API is reachable
    */
   async healthCheck(): Promise<boolean> {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
 
+    try {
       const response = await fetch(`${this.config.baseUrl}/health`, {
         method: 'GET',
         signal: controller.signal,
       });
 
-      clearTimeout(timeoutId);
       return response.ok;
     } catch {
       return false;
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 }

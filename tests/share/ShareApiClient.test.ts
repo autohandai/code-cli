@@ -36,6 +36,7 @@ describe("ShareApiClient", () => {
 
   afterEach(() => {
     global.fetch = originalFetch;
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -212,6 +213,14 @@ describe("ShareApiClient", () => {
   });
 
   describe("healthCheck", () => {
+    it("clears its deadline when the network request fails", async () => {
+      vi.useFakeTimers();
+      global.fetch = vi.fn().mockRejectedValue(new Error("ECONNREFUSED"));
+
+      await expect(client.healthCheck()).resolves.toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
     it("should return true when API is reachable", async () => {
       global.fetch = vi.fn().mockResolvedValue({
         ok: true,

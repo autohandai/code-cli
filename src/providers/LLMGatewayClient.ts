@@ -374,6 +374,9 @@ export class LLMGatewayClient {
         );
         return response;
       } catch (error) {
+        if (request.signal?.aborted) {
+          throw new ApiError('Request cancelled.', 'cancelled', 0, false);
+        }
         lastError = error as Error;
 
         // Don't retry if user cancelled or if it's a non-retryable error
@@ -442,7 +445,7 @@ export class LLMGatewayClient {
 
       // Combine user signal with timeout
       const combinedSignal = signal
-        ? this.combineSignals(signal, timeoutController.signal)
+        ? AbortSignal.any([signal, timeoutController.signal])
         : timeoutController.signal;
 
       try {
@@ -457,11 +460,6 @@ export class LLMGatewayClient {
       }
     } catch (error) {
       const err = error as Error;
-
-      // User cancelled
-      if (err.name === "AbortError" && signal?.aborted) {
-        throw new ApiError("Request cancelled.", "cancelled", 0, false);
-      }
 
       // Timeout. Retrying is only worth it for a streaming request, where nothing arrived
       // within a budget that only ever had to cover time to headers. A non-streaming one
@@ -748,23 +746,6 @@ export class LLMGatewayClient {
     }
 
     return false;
-  }
-
-  private combineSignals(
-    signal1: AbortSignal,
-    signal2: AbortSignal
-  ): AbortSignal {
-    const controller = new AbortController();
-
-    const abort = () => controller.abort();
-    signal1.addEventListener("abort", abort);
-    signal2.addEventListener("abort", abort);
-
-    if (signal1.aborted || signal2.aborted) {
-      controller.abort();
-    }
-
-    return controller.signal;
   }
 
   private sleep(ms: number, signal?: AbortSignal): Promise<void> {

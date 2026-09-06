@@ -309,6 +309,9 @@ export class OpenRouterClient {
         );
         return response;
       } catch (error) {
+        if (request.signal?.aborted) {
+          throw new ApiError('Request cancelled.', 'cancelled', 0, false);
+        }
         lastError = error as Error;
 
         // A 402 naming an affordable budget means credits remain but the
@@ -373,7 +376,7 @@ export class OpenRouterClient {
 
       // Combine user signal with timeout
       const combinedSignal = signal
-        ? this.combineSignals(signal, timeoutController.signal)
+        ? AbortSignal.any([signal, timeoutController.signal])
         : timeoutController.signal;
 
       try {
@@ -388,11 +391,6 @@ export class OpenRouterClient {
       }
     } catch (error) {
       const err = error as Error;
-
-      // User cancelled
-      if (err.name === "AbortError" && signal?.aborted) {
-        throw new ApiError("Request cancelled.", 'cancelled', 0, false);
-      }
 
       // Timeout
       if (err.name === "AbortError") {
@@ -502,23 +500,6 @@ export class OpenRouterClient {
     // Defensive: delegate to the centralized classifier for unexpected errors
     const classified = classifyApiError(0, error.message);
     return !classified.retryable;
-  }
-
-  private combineSignals(
-    signal1: AbortSignal,
-    signal2: AbortSignal
-  ): AbortSignal {
-    const controller = new AbortController();
-
-    const abort = () => controller.abort();
-    signal1.addEventListener("abort", abort, { once: true });
-    signal2.addEventListener("abort", abort, { once: true });
-
-    if (signal1.aborted || signal2.aborted) {
-      controller.abort();
-    }
-
-    return controller.signal;
   }
 
   private sleep(ms: number): Promise<void> {

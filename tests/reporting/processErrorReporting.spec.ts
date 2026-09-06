@@ -83,7 +83,43 @@ describe('processErrorReporting', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     delete (globalThis as { __autohandLastError?: unknown }).__autohandLastError;
+  });
+
+  it.each(['success', 'failure'] as const)('clears the report deadline after %s', async (outcome) => {
+    vi.useFakeTimers();
+    if (outcome === 'failure') mocks.reportError.mockRejectedValue(new Error('report unavailable'));
+
+    const report = reportProcessError(new Error('fault'), {
+      handler: 'unhandledRejection',
+      processRef: createFakeProcess(),
+    });
+
+    if (outcome === 'failure') {
+      await expect(report).rejects.toThrow('report unavailable');
+    } else {
+      await report;
+    }
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('still bounds a report that never settles', async () => {
+    vi.useFakeTimers();
+    mocks.reportError.mockReturnValue(new Promise<void>(() => {}));
+    const settled = vi.fn();
+    const report = reportProcessError(new Error('fault'), {
+      handler: 'unhandledRejection',
+      processRef: createFakeProcess(),
+      reportTimeoutMs: 100,
+    }).then(settled);
+
+    await vi.advanceTimersByTimeAsync(99);
+    expect(settled).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await report;
+    expect(settled).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('reports unhandled rejections with argv-derived config and client metadata', async () => {

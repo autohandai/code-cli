@@ -358,6 +358,9 @@ export class VertexAIProvider implements LLMProvider {
         );
         return response;
       } catch (error) {
+        if (request.signal?.aborted) {
+          throw new ApiError('Request cancelled.', 'cancelled', 0, false);
+        }
         lastError = error as Error;
 
         // Check if this is an auth error and we can refresh the token
@@ -407,7 +410,7 @@ export class VertexAIProvider implements LLMProvider {
 
       // Combine user signal with timeout
       const combinedSignal = signal
-        ? this.combineSignals(signal, timeoutController.signal)
+        ? AbortSignal.any([signal, timeoutController.signal])
         : timeoutController.signal;
 
       try {
@@ -422,11 +425,6 @@ export class VertexAIProvider implements LLMProvider {
       }
     } catch (error) {
       const err = error as Error;
-
-      // User cancelled
-      if (err.name === "AbortError" && signal?.aborted) {
-        throw new ApiError("Request cancelled.", 'cancelled', 0, false);
-      }
 
       // Timeout
       if (err.name === "AbortError") {
@@ -615,23 +613,6 @@ export class VertexAIProvider implements LLMProvider {
     }
     
     return false;
-  }
-
-  private combineSignals(
-    signal1: AbortSignal,
-    signal2: AbortSignal
-  ): AbortSignal {
-    const controller = new AbortController();
-
-    const abort = () => controller.abort();
-    signal1.addEventListener("abort", abort);
-    signal2.addEventListener("abort", abort);
-
-    if (signal1.aborted || signal2.aborted) {
-      controller.abort();
-    }
-
-    return controller.signal;
   }
 
   private sleep(ms: number): Promise<void> {
