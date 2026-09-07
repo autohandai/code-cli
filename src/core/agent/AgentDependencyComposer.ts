@@ -1944,6 +1944,13 @@ export function initializeAgentDependencies(
       isContextCompactionEnabled: () => host.isContextCompactionEnabled(),
       // Non-interactive mode (RPC/ACP) - guards interactive commands
       isNonInteractive: runtime.isRpcMode === true,
+      setComposerInput: (text: string) => {
+        if (host.inkRenderer) {
+          host.inkRenderer.setInput(text);
+        } else {
+          host.promptSeedInput = text;
+        }
+      },
       onBeforeModal: async () => {
         writeAutohandDebugLine(
           `[DEBUG] onBeforeModal: inkRenderer exists=${!!host.inkRenderer}, persistentInputActive=${host.persistentInputActiveTurn}`,

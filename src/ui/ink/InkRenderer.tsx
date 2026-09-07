@@ -29,6 +29,7 @@ import type { SlashCommand } from '../../core/slashCommandTypes.js';
 import type { SkillMentionInfo } from '../mentionFilter.js';
 import type { ExtensionKeybinding } from '../../extensions/ExtensionRuntimeHost.js';
 import { ThemeProvider } from '../theme/ThemeContext.js';
+import { getTypedMessageHistory } from '../../session/TypedMessageHistory.js';
 import { I18nProvider } from '../i18n/index.js';
 import { inkRenderOptions } from '../inkRenderOptions.js';
 import { stripAnsiCodes } from '../displayUtils.js';
@@ -271,6 +272,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
     return (
       <AgentUI
         state={state}
+        typedMessageHistory={getTypedMessageHistory()}
         onInstruction={onInstruction}
         onEscape={onEscape}
         onCtrlC={onCtrlC}
@@ -1206,6 +1208,10 @@ export class InkRenderer {
    */
   clearInput(): void {
     this.updateState({ currentInput: '' });
+  }
+
+  setInput(text: string): void {
+    this.updateState({ currentInput: text });
   }
 
   setPendingSuggestion(pendingSuggestion?: Promise<void>): void {

@@ -48,6 +48,7 @@ import { renderTerminalMarkdown } from '../../core/immediateCommandRouter.js';
 import { buildFileMentionSuggestions } from '../mentionFilter.js';
 import { getContentDisplay } from '../displayUtils.js';
 import type { ChatLogMessage } from '../../session/chatLog.js';
+import { TypedMessageHistory, type TypedMessageEntry } from '../../session/TypedMessageHistory.js';
 import type { TaskListPosition } from '../../types.js';
 import { formatCompactTokens } from '../../core/agent/AgentFormatter.js';
 import {
@@ -198,6 +199,7 @@ export interface AgentUILineExtensions {
 
 export interface AgentUIProps {
   state: AgentUIState;
+  typedMessageHistory?: TypedMessageHistory;
   onInstruction: (text: string) => void;
   onEscape: () => void;
   onCtrlC: () => void;
@@ -741,6 +743,7 @@ function matchesCurrentAssistantResponseSuggestion(
 
 export function AgentUI({
   state,
+  typedMessageHistory,
   onInstruction,
   onEscape,
   onCtrlC,
@@ -773,6 +776,17 @@ export function AgentUI({
   const extensionKeybindings = state.extensionKeybindings ?? extensionKeybindingProps;
   const [input, setInput] = useState(state.currentInput || '');
   const [cursorOffset, setCursorOffset] = useState((state.currentInput || '').length);
+  const [inputHistory] = useState(() => typedMessageHistory ?? new TypedMessageHistory());
+  const historyNavigationRef = useRef<{
+    entries: readonly TypedMessageEntry[];
+    index: number;
+    draft: string;
+    row: number;
+    col: number;
+    hiddenContent: string | null;
+    hiddenPastes: InkPasteState['hiddenPastes'];
+  } | null>(null);
+  useEffect(() => { void inputHistory.refresh().catch(() => {}); }, [inputHistory]);
   const [isReadingHistory, setIsReadingHistory] = useState(false);
   const readingHistoryRef = useRef(false);
   const [ctrlCCount, setCtrlCCount] = useState(0);
@@ -962,6 +976,7 @@ export function AgentUI({
   }, [flushInputSync]);
 
   const beginGoalEdit = useCallback((target: GoalEditRequest, index: number) => {
+    historyNavigationRef.current = null;
     textBufferRef.current.setText(target.objective);
     editingGoalRef.current = target;
     goalSelectionIndexRef.current = index;
@@ -1007,6 +1022,7 @@ export function AgentUI({
   const insertPastedText = useCallback((pastedText: string) => {
     readingHistoryRef.current = false;
     setIsReadingHistory(false);
+    historyNavigationRef.current = null;
     const imageDetector = onImageDetectedRef.current;
     const processedText = imageDetector
       ? processImagesInText(pastedText, imageDetector, { announce: false })
@@ -1139,6 +1155,7 @@ export function AgentUI({
   useEffect(() => {
     const buffer = textBufferRef.current;
     if (state.currentInput !== buffer.getText()) {
+      historyNavigationRef.current = null;
       buffer.setText(state.currentInput || '');
       syncInputFromBuffer();
     }
@@ -1246,6 +1263,7 @@ export function AgentUI({
 
   // Update file mention suggestions when input changes
   useEffect(() => {
+    if (historyNavigationRef.current) return;
     if (!filesProvider) {
       setFileMentionVisible(false);
       setFileMentionSuggestions([]);
@@ -1285,6 +1303,7 @@ export function AgentUI({
 
   // Update slash command suggestions when input changes
   useEffect(() => {
+    if (historyNavigationRef.current) return;
     const cmds = slashCommandsRef.current;
     if (!cmds || cmds.length === 0) {
       setSlashVisible(false);
@@ -1352,6 +1371,7 @@ export function AgentUI({
 
   // Update skill ($) mention suggestions when input changes
   useEffect(() => {
+    if (historyNavigationRef.current) return;
     const provider = skillsProviderRef.current;
     if (!provider) {
       if (skillVisibleRef.current) {
@@ -1592,6 +1612,7 @@ export function AgentUI({
 
     // Handle Ctrl+C - clear input if non-empty, otherwise warn then exit
     if (key.ctrl && char === 'c') {
+      historyNavigationRef.current = null;
       const currentInput = textBufferRef.current.getText();
 
       if (currentInput.length > 0) {
@@ -1756,6 +1777,41 @@ export function AgentUI({
       }
     }
 
+    if ((key.upArrow || key.downArrow) && !key.ctrl && !key.meta && !key.shift
+      && editingQueueIndexRef.current === null && editingGoalRef.current === null) {
+      const buffer = textBufferRef.current;
+      const [row] = buffer.getVisualCursor();
+      let navigation = historyNavigationRef.current;
+      if (!navigation && key.upArrow && row === 0 && inputHistory.entries().length > 0) {
+        navigation = {
+          entries: [...inputHistory.entries()], index: -1, draft: buffer.getText(),
+          row: buffer.getCursorRow(), col: buffer.getCursorCol(),
+          hiddenContent: pasteStateRef.current.hiddenContent,
+          hiddenPastes: [...(pasteStateRef.current.hiddenPastes ?? [])],
+        };
+        historyNavigationRef.current = navigation;
+      }
+      if (navigation) {
+        navigation.index = key.upArrow
+          ? Math.min(navigation.index + 1, navigation.entries.length - 1)
+          : navigation.index - 1;
+        clearInkHiddenPastes(pasteStateRef.current);
+        if (navigation.index < 0) {
+          buffer.setText(navigation.draft);
+          buffer.setCursor(navigation.row, navigation.col);
+          pasteStateRef.current.hiddenContent = navigation.hiddenContent;
+          pasteStateRef.current.hiddenPastes = navigation.hiddenPastes;
+          historyNavigationRef.current = null;
+        } else {
+          buffer.setText(navigation.entries[navigation.index].text);
+        }
+        dismissAutocompleteState();
+        syncInputFromBuffer();
+        setCtrlCCount(0);
+        return;
+      }
+    }
+
     if (
       (key.return || key.rightArrow) &&
       acceptActiveAutocompleteSuggestion({
@@ -1849,9 +1905,12 @@ export function AgentUI({
     }
 
     const buffer = textBufferRef.current;
+    const textBeforeKey = buffer.getText();
     const result = handleInkTextBufferInput(buffer, char, key);
+    if (buffer.getText() !== textBeforeKey) historyNavigationRef.current = null;
 
     if (result === 'submit') {
+      historyNavigationRef.current = null;
       const pasteState = pasteStateRef.current;
       
       // Keep the compact paste marker editable in the Composer while resolving
@@ -1930,6 +1989,7 @@ export function AgentUI({
         },
       });
       dismissAutocompleteState();
+      void inputHistory.record(text, workspaceRootRef.current ?? process.cwd()).catch(() => {});
       onInstructionRef.current(text);
 
       return;
@@ -2072,6 +2132,7 @@ export function AgentUI({
     beginGoalEdit,
     dismissAutocompleteState,
     insertPastedText,
+    inputHistory,
     mouseComposerCursor,
     stdout,
     syncBufferViewport,

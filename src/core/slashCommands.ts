@@ -47,6 +47,7 @@ import * as stopCmd from '../commands/stop.js';
 import * as about from '../commands/about.js';
 import * as ide from '../commands/ide.js';
 import * as history from '../commands/history.js';
+import * as whatityped from '../commands/whatityped.js';
 import * as mcpCmd from '../commands/mcp.js';
 import * as teamCmd from '../commands/team.js';
 import * as tasksCmd from '../commands/tasks.js';
@@ -127,6 +128,7 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   about.metadata,
   ide.metadata,
   history.metadata,
+  whatityped.metadata,
   mcpCmd.metadata,
   mcpCmd.installMetadata,
   teamCmd.metadata,

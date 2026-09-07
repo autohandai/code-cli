@@ -163,6 +163,8 @@ Features:
 - Press `Ctrl+C` twice to exit
 - Press `Shift+Tab` to cycle edit, plan, YOLO, and auto modes
 - Press `?` to toggle keyboard shortcuts panel
+- Press `Up` to recall older typed messages and `Down` for newer messages or your unfinished draft. In multiline drafts, `Up` moves the cursor until it reaches the first visual row.
+- Use `/whatityped` to select a message from any working directory and load it into the composer for editing. The latest 200 submissions are saved locally in `~/.autohand/typed-message-history.json` (or your `AUTOHAND_HOME`), starting when you use this feature.
 - Press `Enter` or `Shift+Enter` for newlines in multi-line input
 
 ### Command Mode (Non-Interactive)
