@@ -51,6 +51,7 @@ import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessio
 import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
 import { registerBrowserCommand, registerBrowserOptions } from './browser/cliCommand.js';
 import { registerReviewCommand } from './review/reviewCliCommand.js';
+import { registerResumeCommand } from './startup/resumeCommand.js';
 import type { ReviewCliExecution } from './review/reviewCliRuntime.js';
 import { formatDeprecatedBrowserOptionWarning } from './browser/compatibility.js';
 import {
@@ -668,22 +669,16 @@ registerReviewCommand(program, {
   },
 });
 
-program
-  .command('resume <sessionId>')
-  .description('Resume a previous session')
-  .option('--path <path>', 'Workspace path to operate in')
-  .option('--model <model>', 'Override the configured LLM model')
-  .option('--offline', 'Disable the model catalog refresh for this resumed session', false)
-  .action(async (sessionId: string, opts: CLIOptions & { offline?: boolean }) => {
+registerResumeCommand(program, {
+  run: async (opts) => {
     await refreshModelCatalogBeforeAgentStart(opts);
 
     // Mandatory auth gate for resume
     let authConfig = await loadConfig(opts.config, process.cwd());
     authConfig = await ensureAuthenticated(authConfig);
-    (opts as any)._authConfig = authConfig;
-
-    await runCLI({ ...opts, resumeSessionId: sessionId });
-  });
+    await runCLI({ ...opts, _authConfig: authConfig });
+  },
+});
 
 program
   .command('login')

@@ -98,99 +98,81 @@ function getTimeAgo(date: Date): string {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-export async function resume(ctx: {
+interface ResumePickerContext {
     sessionManager: SessionManager;
-    args: string[];
     workspaceRoot?: string;
     onBeforeModal?: () => Promise<void> | void;
     onAfterModal?: () => Promise<void> | void;
-    restoreSession?: (sessionId: string) => Promise<void>;
-    /** Reuses the session read for the preview when restoring the agent runtime. */
-    restoreLoadedSession?: (session: Session) => Promise<void>;
-}): Promise<string | null> {
-    const sessionId = ctx.args[0];
+    interactive?: boolean;
+    emptyHint?: string;
+}
 
-    // If session ID provided directly, use it
-    if (sessionId) {
-        return resumeSession(ctx.sessionManager, sessionId, ctx.restoreSession, ctx.restoreLoadedSession);
-    }
-
-    // Otherwise, show interactive session picker filtered by current project
-    try {
-        const projectFilter = ctx.workspaceRoot
-            ? { project: ctx.workspaceRoot }
-            : undefined;
-        const recentSessionManager = ctx.sessionManager as SessionManager & {
-            listRecentSessions?: SessionManager['listRecentSessions'];
-        };
-        const recentPage = recentSessionManager.listRecentSessions
-            ? await recentSessionManager.listRecentSessions(projectFilter, 20)
-            : (() => {
-                const sessions = ctx.sessionManager.listSessions(projectFilter);
-                return sessions.then((loadedSessions) => ({ sessions: loadedSessions.slice(0, 20), total: loadedSessions.length }));
-            })();
-        const { sessions: recentSessions, total: totalSessions } = await recentPage;
-
-        if (totalSessions === 0) {
-            if (ctx.workspaceRoot) {
-                const projectName = path.basename(ctx.workspaceRoot);
-                console.log(chalk.gray(`\nNo sessions found for project "${projectName}".`));
-                console.log(chalk.gray('Use /sessions to see all sessions across projects.\n'));
-            } else {
-                console.log(chalk.gray(`\n${t('commands.sessions.noSessions')}`));
-                console.log(chalk.gray('Start a new conversation to create a session.\n'));
-            }
+export async function selectResumeSession(ctx: ResumePickerContext): Promise<string | null> {
+    const projectFilter = ctx.workspaceRoot ? { project: ctx.workspaceRoot } : undefined;
+    const pageSize = 20;
+    let offset = 0;
+    while (true) {
+        const recentPage = ctx.sessionManager.listRecentSessions
+            ? await ctx.sessionManager.listRecentSessions(projectFilter, pageSize, offset)
+            : await ctx.sessionManager.listSessions(projectFilter).then((sessions) => ({
+                sessions: sessions.slice(offset, offset + pageSize), total: sessions.length,
+            }));
+        const { sessions, total } = recentPage;
+        if (total === 0) {
+            console.log(chalk.gray(ctx.workspaceRoot
+                ? `\nNo sessions found for project "${path.basename(ctx.workspaceRoot)}".`
+                : `\n${t('commands.sessions.noSessions')}`));
+            console.log(chalk.gray(ctx.emptyHint ?? 'Use /sessions to see all sessions across projects.'));
             return null;
         }
-
-        console.log(chalk.cyan(`\n${t('commands.sessions.selectPrompt')}\n`));
-
-        // Build choices with titles
-        const choices = await Promise.all(recentSessions.map(async (session) =>
-            formatSessionChoice(session, await getSessionTitle(session))
-        ));
-
-        if (totalSessions > recentSessions.length) {
-            choices.push({
-                name: '__more__',
-                message: chalk.gray(`... ${totalSessions - recentSessions.length} more sessions`),
-                hint: 'Use /sessions to see all'
-            });
+        if (ctx.interactive === false) {
+            throw new Error('The session picker requires an interactive terminal. Use autohand resume --last or provide a session reference.');
         }
 
-        const options: ModalOption[] = choices.map(choice => ({
-            label: choice.message,
-            value: choice.name,
-            description: choice.hint
+        const options: ModalOption[] = await Promise.all(sessions.map(async (session) => {
+            const choice = formatSessionChoice(session, await getSessionTitle(session));
+            return { label: choice.message, value: choice.name, description: choice.hint };
         }));
+        if (offset > 0) {
+            options.push({ label: 'Previous sessions', value: '__previous__' });
+        }
+        if (offset + pageSize < total) {
+            options.push({ label: 'More sessions', value: '__next__' });
+        }
 
         await ctx.onBeforeModal?.();
         const result = await (async () => {
             try {
-                return await showModal({
-                    title: 'Choose a session',
-                    options
-                });
+                return await showModal({ title: 'Choose a session', options });
             } finally {
                 await ctx.onAfterModal?.();
             }
         })();
-
         if (!result) {
             console.log(chalk.gray('\nResume cancelled.'));
             return null;
         }
-
-        if (result.value === '__more__') {
-            console.log(chalk.gray('\nUse /sessions to see all sessions, then /resume <id>'));
-            return null;
+        if (result.value === '__next__') {
+            offset += pageSize;
+        } else if (result.value === '__previous__') {
+            offset = Math.max(0, offset - pageSize);
+        } else {
+            return result.value;
         }
+    }
+}
 
-        return resumeSession(ctx.sessionManager, result.value, ctx.restoreSession, ctx.restoreLoadedSession);
-
+export async function resume(ctx: ResumePickerContext & {
+    args: string[];
+    restoreSession?: (sessionId: string) => Promise<void>;
+    restoreLoadedSession?: (session: Session) => Promise<void>;
+}): Promise<string | null> {
+    try {
+        const sessionId = ctx.args[0] ?? await selectResumeSession(ctx);
+        if (!sessionId) return null;
+        return resumeSession(ctx.sessionManager, sessionId, ctx.restoreSession, ctx.restoreLoadedSession);
     } catch (error) {
-        // Handle unexpected errors
-        console.error(chalk.red(t('commands.resume.failed', { error: (error as Error).message })));
+        console.error(chalk.red(t('commands.resume.failed', { error: error instanceof Error ? error.message : String(error) })));
         return null;
     }
 }

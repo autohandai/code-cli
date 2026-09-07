@@ -2497,6 +2497,12 @@ Autohand provides a rich set of slash commands for interactive use. Type `/` in 
 
 ### Session Management
 
+From the shell, `autohand resume` opens a picker scoped to the current working directory. Use `--path <path>` to select another workspace, `--all` to browse every project, or `--last` to resume the most recently active session. `--last --all` selects the most recently active session across projects. Older metadata without a valid activity timestamp falls back to creation time.
+
+`autohand resume <reference>` accepts a full session ID, a unique ID prefix, or a saved session directory/file. Ambiguous or missing references exit with an error. Explicit references cannot be combined with `--last` or `--all`. `--config`, `--model`, and `--offline` remain available; `-c` continues to mean auto-commit.
+
+The picker loads twenty sessions per page and provides **More sessions** and **Previous sessions** navigation. Escape or Ctrl+C cancels without starting an agent. Non-interactive invocations require `--last` or an explicit reference when saved sessions exist. Empty history exits successfully without starting a session.
+
 | Command       | Description                                           |
 | ------------- | ----------------------------------------------------- |
 | `/quit`       | Exit the current session                              |
