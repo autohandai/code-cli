@@ -5,6 +5,7 @@
  */
 
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import type { Readable, Writable } from 'node:stream';
 import type { PreToolHookContext, ToolDefinition } from '../core/toolManager.js';
 import type { AgentRuntime, ProviderName } from '../types.js';
@@ -97,6 +98,7 @@ async function executeTaskWithEnvironment(
   const { AgentRegistry } = await import('../core/agents/AgentRegistry.js');
   const { SubAgent } = await import('../core/agents/SubAgent.js');
   const { ActionExecutor } = await import('../core/actionExecutor.js');
+  const { MemoryManager } = await import('../memory/MemoryManager.js');
   const { FileActionManager } = await import('../actions/filesystem.js');
   const { createToolsRegistry } = await import('../core/toolsRegistry.js');
   const { PermissionManager } = await import('../permissions/PermissionManager.js');
@@ -149,6 +151,7 @@ async function executeTaskWithEnvironment(
     confirmDangerousAction: async () => false,
     toolsRegistry,
     permissionManager,
+    memoryManager: new MemoryManager(workspacePath),
     getRegisteredTools: () => runtimeToolDefinitions,
     getCurrentSessionId: () => opts.leadSessionId,
     backgroundProcessRegistry: taskRuntime.backgroundProcessRegistry,
@@ -161,6 +164,7 @@ async function executeTaskWithEnvironment(
     getPendingInstructions: () => [...authorizationContext.splice(0), ...(taskRuntime.getPendingInstructions?.() ?? [])],
     workspaceRoot: workspacePath,
     userRequest: task.userRequest,
+    projectMemoryEnabled: process.env.AUTOHAND_CODE_SIMPLE !== '1',
     model: opts.model,
     resolveSubagentAssignment: (definition) => {
       const selectedProvider = config.provider ?? 'openrouter';
@@ -237,8 +241,15 @@ export async function runTeammateModeWithStreams(
   );
   const pendingInstructions: string[] = [];
   const nestedCancels = new Map<string, () => void>();
+  const nestedMessages = new Map<string, (message: string) => boolean>();
+  const pendingReadiness = new Map<string, {
+    taskId: string;
+    runId: string;
+    targetRunId: string;
+    finish: (allowed: boolean) => void;
+  }>();
   let pendingContext: string | undefined;
-  let active: { taskId: string; runId?: string; controller: AbortController; promise: Promise<void> } | undefined;
+  let active: { taskId: string; runId?: string; controller: AbortController; promise: Promise<void>; messages: string[] } | undefined;
   let closing = false;
   let resolveShutdown!: () => void;
   const stopped = new Promise<void>((resolve) => { resolveShutdown = resolve; });
@@ -253,8 +264,30 @@ export async function runTeammateModeWithStreams(
     resolveShutdown();
   };
 
-  const execute = async (task: TeamTask, controller: AbortController) => {
+  const execute = async (task: TeamTask, controller: AbortController, messages: string[], requiresReadiness: boolean) => {
     const execution = { taskId: task.id, runId: task.runId };
+    const waitForRunReady = async (targetRunId: string | undefined, signal: AbortSignal) => {
+      signal.throwIfAborted();
+      if (!requiresReadiness) return;
+      const runId = task.runId;
+      if (!runId || !targetRunId || pendingReadiness.size >= 32) throw new Error('Cannot request lead approval for this run');
+      const requestId = randomUUID();
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => finish(false), 30_000);
+        timeout.unref?.();
+        const onAbort = () => finish(false);
+        const finish = (allowed: boolean) => {
+          if (!pendingReadiness.delete(requestId)) return;
+          clearTimeout(timeout);
+          signal.removeEventListener('abort', onAbort);
+          if (allowed && !signal.aborted) resolve();
+          else reject(signal.reason ?? new Error('Lead did not approve run continuation'));
+        };
+        pendingReadiness.set(requestId, { taskId: task.id, runId, targetRunId, finish });
+        signal.addEventListener('abort', onAbort, { once: true });
+        sendToLead('team.runReady', { requestId, taskId: task.id, runId, targetRunId });
+      });
+    };
     const backgroundProcessRegistry = new BackgroundProcessRegistry();
     backgroundRegistries.add(backgroundProcessRegistry);
     const stopTaskProcesses = () => { void backgroundProcessRegistry.shutdown(250); };
@@ -262,26 +295,52 @@ export async function runTeammateModeWithStreams(
     if (controller.signal.aborted) stopTaskProcesses();
     sendToLead('team.taskUpdate', { ...execution, status: 'in_progress' });
     try {
+      await waitForRunReady(task.runId, controller.signal);
       const result = await (dependencies.execute ?? executeTask)(opts, task, {
         signal: controller.signal,
         threadBudget: budget,
         authorizeTool: (context) => authorizationBroker.authorize(context, execution),
         backgroundProcessRegistry,
         getPendingInstructions: () => {
-          const instructions = pendingInstructions.splice(0);
+          const instructions = [...messages.splice(0), ...pendingInstructions.splice(0)];
           if (pendingContext) instructions.push(pendingContext);
           pendingContext = undefined;
           return instructions;
         },
-        onProgress: (progress) => { sendToLead('team.progress', { ...execution, ...progress }); },
-        onSubagentStart: async (context) => {
-          if (context.cancel) nestedCancels.set(context.subagentId, context.cancel);
-          sendToLead('team.subagentStart', { ...execution, ...context, cancel: undefined });
+        onProgress: async (progress) => {
+          sendToLead('team.progress', { ...execution, ...progress });
+          await waitForRunReady(task.runId, controller.signal);
         },
-        onSubagentProgress: async (context) => { sendToLead('team.subagentProgress', { ...execution, ...context }); },
+        onSubagentStart: async (context) => {
+          const startController = new AbortController();
+          nestedCancels.set(context.subagentId, () => {
+            startController.abort(new Error('Nested run cancelled by the lead'));
+            context.cancel?.();
+          });
+          if (context.sendMessage) nestedMessages.set(context.subagentId, context.sendMessage);
+          sendToLead('team.subagentStart', {
+            ...execution, ...context, cancel: undefined, sendMessage: undefined, messageable: Boolean(context.sendMessage),
+          });
+          try {
+            await waitForRunReady(context.subagentId, AbortSignal.any([controller.signal, startController.signal]));
+          } catch (error) {
+            context.cancel?.();
+            throw error;
+          }
+        },
+        onSubagentProgress: async (context) => {
+          sendToLead('team.subagentProgress', { ...execution, ...context, cancel: undefined, sendMessage: undefined });
+          try {
+            await waitForRunReady(context.subagentId, controller.signal);
+          } catch (error) {
+            context.cancel?.();
+            throw error;
+          }
+        },
         onSubagentStop: async (context) => {
           nestedCancels.delete(context.subagentId);
-          sendToLead('team.subagentStop', { ...execution, ...context, cancel: undefined });
+          nestedMessages.delete(context.subagentId);
+          sendToLead('team.subagentStop', { ...execution, ...context, cancel: undefined, sendMessage: undefined });
         },
       });
       controller.signal.throwIfAborted();
@@ -297,6 +356,8 @@ export async function runTeammateModeWithStreams(
       controller.signal.removeEventListener('abort', stopTaskProcesses);
       if (backgroundProcessRegistry.list().length === 0) backgroundRegistries.delete(backgroundProcessRegistry);
       nestedCancels.clear();
+      nestedMessages.clear();
+      messages.length = 0;
       active = undefined;
       if (!closing) sendToLead('team.idle', { lastTask: task.id, runId: task.runId });
     }
@@ -309,6 +370,35 @@ export async function runTeammateModeWithStreams(
     }
     if (method === 'team.threadResult') {
       budget.handleResult(params);
+      return;
+    }
+    if (method === 'team.runReadyResult') {
+      const { requestId, taskId, runId, targetRunId, allowed } = params;
+      if (typeof requestId !== 'string' || typeof allowed !== 'boolean') return;
+      const pending = pendingReadiness.get(requestId);
+      if (pending && pending.taskId === taskId && pending.runId === runId && pending.targetRunId === targetRunId) pending.finish(allowed);
+      return;
+    }
+    if (method === 'team.runMessage') {
+      const { requestId, taskId, runId, targetRunId, content } = params;
+      if (typeof requestId !== 'string' || requestId.length > 200 || typeof taskId !== 'string'
+        || typeof runId !== 'string' || typeof targetRunId !== 'string') return;
+      const message = typeof content === 'string' ? content.trim() : '';
+      let accepted = false;
+      if (!closing && active && !active.controller.signal.aborted && active.taskId === taskId && active.runId === runId
+        && message.length > 0 && message.length <= 8_000) {
+        if (targetRunId === runId && active.messages.length < 32) {
+          active.messages.push(message);
+          accepted = true;
+        } else if (targetRunId !== runId) {
+          try {
+            accepted = nestedMessages.get(targetRunId)?.(message) === true;
+          } catch {
+            accepted = false;
+          }
+        }
+      }
+      sendToLead('team.runMessageResult', { requestId, taskId, runId, targetRunId, accepted });
       return;
     }
     if (closing) return;
@@ -325,8 +415,9 @@ export async function runTeammateModeWithStreams(
           break;
         }
         const controller = new AbortController();
-        const promise = Promise.resolve().then(() => execute(parsed.data, controller));
-        active = { taskId: parsed.data.id, runId: parsed.data.runId, controller, promise };
+        const messages: string[] = [];
+        const promise = Promise.resolve().then(() => execute(parsed.data, controller, messages, params.waitForRunReady === true));
+        active = { taskId: parsed.data.id, runId: parsed.data.runId, controller, promise, messages };
         break;
       }
       case 'team.cancelTask':
@@ -335,7 +426,13 @@ export async function runTeammateModeWithStreams(
         ));
         break;
       case 'team.cancelRun':
-        if (typeof params.runId === 'string') nestedCancels.get(params.runId)?.();
+        if (typeof params.runId === 'string') {
+          nestedMessages.delete(params.runId);
+          for (const pending of pendingReadiness.values()) {
+            if (pending.targetRunId === params.runId) pending.finish(false);
+          }
+          nestedCancels.get(params.runId)?.();
+        }
         break;
       case 'team.message':
         if (typeof params.from === 'string' && typeof params.content === 'string') {
@@ -359,6 +456,7 @@ export async function runTeammateModeWithStreams(
   stdin.on('end', shutdown);
   stdin.on('close', shutdown);
   stdout.on('error', shutdown);
+  stdout.on('close', shutdown);
   dependencies.signal?.addEventListener('abort', shutdown, { once: true });
   try {
     sendToLead('team.ready', { name: opts.name });
@@ -374,6 +472,7 @@ export async function runTeammateModeWithStreams(
     stdin.off('end', shutdown);
     stdin.off('close', shutdown);
     stdout.off('error', shutdown);
+    stdout.off('close', shutdown);
     dependencies.signal?.removeEventListener('abort', shutdown);
   }
   sendToLead('team.shutdownAck');

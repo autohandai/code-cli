@@ -8,7 +8,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
-import { inspectAndCancelFixtureAgent, openAgentRunInspector } from '../../src/testing/scenarios/agentRunInspectorScenario.js';
+import { inspectAndCancelFixtureAgent, inspectFixtureAgentProgress, inspectReadOnlyExternalAgent, messageAndCancelFixtureAgents, openAgentRunInspector } from '../../src/testing/scenarios/agentRunInspectorScenario.js';
+import { MemoryManager } from '../../src/memory/MemoryManager.js';
 import { createTempAutohandHome, exitInteractive, launchBuiltAutohand, type TuistoryTempState } from './helpers/autohandTuistory.js';
 
 const sessions: Session[] = [];
@@ -31,12 +32,15 @@ afterEach(async () => {
 });
 
 describe('Autohand AI native session agent inspector', () => {
-  it('inspects native results and usage, cancels a running agent, retains history across a modal, and exits', async () => {
+  it('keeps workers out of the main screen, inspects live stages and results, cancels, restores history, and exits', async () => {
     const originalRequest = 'Run the inspection fixture. Review only; do not edit files.';
     const requests: Array<Record<string, unknown>> = [];
     let leadTurns = 0;
     let slowStarted = false;
     let slowAborted = false;
+    let slowTurns = 0;
+    let releaseSlowModel: (() => void) | undefined;
+    let commandGatePath = '';
     const server = createServer(async (request, response) => {
       if (request.url !== '/chat/completions') { response.writeHead(404).end(); return; }
       const chunks: Buffer[] = [];
@@ -47,7 +51,24 @@ describe('Autohand AI native session agent inspector', () => {
       const system = messages.filter((message) => message.role === 'system').map((message) => message.content ?? '').join('\n');
       if (system.startsWith('INSPECTOR_SLOW')) {
         slowStarted = true;
-        response.once('close', () => { slowAborted = true; });
+        slowTurns += 1;
+        if (slowTurns === 1) {
+          releaseSlowModel = () => {
+            const commandScript = `const fs = require('node:fs'); const timer = setInterval(() => { if (fs.existsSync(${JSON.stringify(commandGatePath)})) { clearInterval(timer); process.stdout.write('COMMAND_STAGE_FINISHED'); } }, 25); setTimeout(() => process.exit(1), 20000).unref();`;
+            response.writeHead(200, { 'content-type': 'application/json' });
+            response.end(JSON.stringify({
+              id: 'inspection-slow-command', created: 1,
+              choices: [{ index: 0, finish_reason: 'tool_calls', message: {
+                role: 'assistant', content: 'Waiting for the read-only fixture command.',
+                tool_calls: [{ id: 'wait-inspector-command', type: 'function', function: {
+                  name: 'run_command', arguments: JSON.stringify({ command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify(commandScript)}` }),
+                } }],
+              } }], usage: { prompt_tokens: 42, completion_tokens: 12, total_tokens: 54 },
+            }));
+          };
+        } else {
+          response.once('close', () => { slowAborted = true; });
+        }
         return;
       }
       if (system.startsWith('INSPECTOR_ERROR')) {
@@ -88,6 +109,7 @@ describe('Autohand AI native session agent inspector', () => {
       ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
     } });
     states.push(state);
+    commandGatePath = path.join(state.workspaceRoot, 'inspector-command-gate');
     await fs.writeFile(path.join(state.workspaceRoot, 'repository-proof.txt'), 'SELECTED_REPOSITORY_CONTENT\n');
     await fs.writeFile(path.join(state.autohandHome, 'repository-proof.txt'), 'WRONG_LAUNCH_DIRECTORY_CONTENT\n');
     const squadDirectory = path.join(state.autohandHome, 'squad', 'runs');
@@ -99,7 +121,8 @@ describe('Autohand AI native session agent inspector', () => {
       command: 'PRIVATE_COMMAND_MUST_NOT_APPEAR', logPath: 'PRIVATE_LOG_PATH_MUST_NOT_APPEAR',
     }));
     const inlineAgents = Object.fromEntries(['fast', 'slow', 'error'].map((name) => [`inspector-${name}`, {
-      description: `Isolated inspector ${name} fixture`, prompt: `INSPECTOR_${name.toUpperCase()}`, tools: ['read_file'],
+      description: `Isolated inspector ${name} fixture`, prompt: `INSPECTOR_${name.toUpperCase()}`,
+      tools: name === 'slow' ? ['run_command'] : ['read_file'],
     }]));
     const session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '--agents', JSON.stringify(inlineAgents), '--yes'], {
       autohandHome: state.autohandHome, cwd: state.autohandHome, cols: 100, rows: 24, waitForDataTimeout: 15_000,
@@ -118,6 +141,16 @@ describe('Autohand AI native session agent inspector', () => {
         expect.objectContaining({ role: 'user', content: `Original user request:\n${originalRequest}` }),
       ]));
     }
+    const mainScreens = await inspectFixtureAgentProgress(session, () => {
+      if (!releaseSlowModel) throw new Error('Slow model fixture has not started');
+      releaseSlowModel();
+    }, () => fs.writeFile(commandGatePath, 'continue\n'));
+    for (const frame of [mainScreens.before, mainScreens.after]) {
+      expect(frame).not.toContain('Workers ·');
+      expect(frame).not.toMatch(/^[▣□■✕]\s+inspector-\w+: Run /m);
+    }
+    await vi.waitFor(() => expect(slowTurns).toBe(2));
+    expect(slowAborted).toBe(false);
     const detail = await inspectAndCancelFixtureAgent(session);
     expect(detail).toContain('autohandai · moa');
     expect(detail).toContain('Parent:');
@@ -168,6 +201,135 @@ describe('Autohand AI native session agent inspector', () => {
     expect(squadDetail.slice(squadDetail.lastIndexOf('Squad runs · external'))).not.toContain('c cancel');
     expect(session.readAll()).not.toContain('PRIVATE_COMMAND_MUST_NOT_APPEAR');
     expect(session.readAll()).not.toContain('PRIVATE_LOG_PATH_MUST_NOT_APPEAR');
+    await exitInteractive(session);
+    sessions.splice(sessions.indexOf(session), 1);
+  }, 90_000);
+
+  it('messages only the selected live worker, shares project lessons, saves an authorized lesson, and keeps external runs read-only', async () => {
+    const projectLesson = 'Use Bun through the package test script when checking this repository.';
+    const wrongProjectLesson = 'WRONG_REPOSITORY_LESSON_MUST_NOT_APPEAR';
+    const savedLesson = 'Native provider fixtures must stay local and never contact an external service.';
+    const originalRequest = `Run the interaction reader read-only. Authorize only the interaction writer to save this project lesson with save_memory: ${savedLesson}`;
+    const followup = 'Acknowledge ONLY_WRITER_FOLLOWUP in your final reply.';
+    const workerRequests = new Map<string, Array<Array<{ role: string; content?: string }>>>();
+    let releaseReader: (() => void) | undefined;
+    let releaseWriter: (() => void) | undefined;
+    let readerAborted = false;
+    let leadTurns = 0;
+    const server = createServer(async (request, response) => {
+      if (request.url !== '/chat/completions') { response.writeHead(404).end(); return; }
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      const payload = JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>;
+      const messages = payload.messages as Array<{ role: string; content?: string }>;
+      const system = messages.filter((message) => message.role === 'system').map((message) => message.content ?? '').join('\n');
+      const worker = system.startsWith('INTERACTION_READER') ? 'reader' : system.startsWith('INTERACTION_WRITER') ? 'writer' : undefined;
+      const respond = (content: string, tool?: { name: string; args: Record<string, unknown> }) => {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({
+          id: `interaction-${worker ?? 'lead'}`, created: 1,
+          choices: [{ index: 0, finish_reason: tool ? 'tool_calls' : 'stop', message: {
+            role: 'assistant', content,
+            ...(tool ? { tool_calls: [{ id: `interaction-${tool.name}`, type: 'function', function: {
+              name: tool.name, arguments: JSON.stringify(tool.args),
+            } }] } : {}),
+          } }], usage: { prompt_tokens: 42, completion_tokens: 12, total_tokens: 54 },
+        }));
+      };
+      if (worker) {
+        const history = workerRequests.get(worker) ?? [];
+        history.push(messages);
+        workerRequests.set(worker, history);
+        if (history.length === 1) {
+          if (worker === 'reader') releaseReader = () => respond('Reading the fixture.', { name: 'read_file', args: { path: 'interaction-proof.txt' } });
+          else releaseWriter = () => respond('Saving the explicitly authorized lesson.', { name: 'save_memory', args: { fact: savedLesson, level: 'project' } });
+        } else if (worker === 'reader') {
+          response.once('close', () => { readerAborted = true; });
+        } else {
+          respond(messages.some((message) => message.role === 'user' && message.content === followup)
+            ? 'WRITER_REPLY_ACKNOWLEDGED ONLY_WRITER_FOLLOWUP'
+            : 'WRITER_FOLLOWUP_MISSING');
+        }
+        return;
+      }
+      leadTurns += 1;
+      respond(leadTurns === 1 ? 'Starting the interaction fixtures.' : 'INTERACTION_TURN_COMPLETE', leadTurns === 1 ? {
+        name: 'delegate_parallel', args: { tasks: [
+          { agent_name: 'interaction-reader', task: 'Read the fixture without writing or saving memory.' },
+          { agent_name: 'interaction-writer', task: `Save this authorized project lesson: ${savedLesson}` },
+        ] },
+      } : undefined);
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    servers.push(server);
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Interaction server did not bind');
+    const state = await createTempAutohandHome({ config: {
+      provider: 'autohandai',
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'tuistory-interaction', model: 'moa', baseUrl: `http://127.0.0.1:${address.port}` },
+      features: { autohand_inference: true, automaticSpecialists: false },
+      agent: { autoMemory: false, maxIterations: 4, sessionRetryLimit: 0 },
+      network: { maxRetries: 0, retryDelay: 0 },
+      ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+    } });
+    states.push(state);
+    const memory = new MemoryManager(state.workspaceRoot, { userMemoryDir: path.join(state.autohandHome, 'memory') });
+    const wrongMemory = new MemoryManager(state.autohandHome, { userMemoryDir: path.join(state.autohandHome, 'memory') });
+    await memory.store(projectLesson, 'project');
+    await wrongMemory.store(wrongProjectLesson, 'project');
+    await fs.writeFile(path.join(state.workspaceRoot, 'interaction-proof.txt'), 'READ_ONLY_INTERACTION_PROOF\n');
+    const squadDirectory = path.join(state.autohandHome, 'squad', 'runs');
+    await fs.mkdir(squadDirectory, { recursive: true });
+    await fs.writeFile(path.join(squadDirectory, 'interaction-external.json'), JSON.stringify({
+      id: 'interaction-external', agentId: 'external-readonly', workspace: state.workspaceRoot,
+      prompt: 'Recorded external fixture', status: 'completed',
+      createdAt: '2026-09-05T00:00:00.000Z', startedAt: '2026-09-05T00:00:01.000Z', completedAt: '2026-09-05T00:00:03.000Z',
+    }));
+    const inlineAgents = {
+      'interaction-reader': { description: 'Read-only interaction fixture', prompt: 'INTERACTION_READER', tools: ['read_file'] },
+      'interaction-writer': { description: 'Authorized project lesson fixture', prompt: 'INTERACTION_WRITER', tools: ['save_memory'] },
+    };
+    const session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '--agents', JSON.stringify(inlineAgents), '--yes'], {
+      autohandHome: state.autohandHome, cwd: state.autohandHome, cols: 100, rows: 24, waitForDataTimeout: 15_000,
+    });
+    sessions.push(session);
+    await session.waitForText('❯', { timeout: 20_000 });
+    await session.type(originalRequest);
+    await session.press('enter');
+    await vi.waitFor(() => {
+      expect(releaseReader).toBeDefined();
+      expect(releaseWriter).toBeDefined();
+    }, { timeout: 20_000 });
+    for (const history of workerRequests.values()) {
+      const system = history[0]?.filter((message) => message.role === 'system').map((message) => message.content ?? '').join('\n') ?? '';
+      expect(system).toContain('## Project lessons');
+      expect(system).toContain(projectLesson);
+      expect(system).toContain(path.join(state.workspaceRoot, '.autohand', 'memory'));
+      expect(system).not.toContain(wrongProjectLesson);
+    }
+    const { receipt, reply } = await messageAndCancelFixtureAgents(session, followup, () => {
+      if (!releaseReader || !releaseWriter) throw new Error('Interaction workers have not started');
+      releaseReader();
+      releaseWriter();
+    });
+    expect(receipt).toContain('Message queued for next model request.');
+    expect(receipt).not.toMatch(/message (?:read|delivered)/i);
+    expect(reply).toContain('WRITER_REPLY_ACKNOWLEDGED ONLY_WRITER_FOLLOWUP');
+    expect(workerRequests.get('writer')?.[1]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'user', content: followup }),
+      expect.objectContaining({ role: 'tool', content: expect.stringContaining('Saved to project memory:') }),
+    ]));
+    expect(workerRequests.get('reader')).toHaveLength(2);
+    expect(JSON.stringify(workerRequests.get('reader'))).not.toContain('ONLY_WRITER_FOLLOWUP');
+    await vi.waitFor(() => expect(readerAborted).toBe(true));
+    expect((await memory.list('project')).map((entry) => entry.content)).toEqual(expect.arrayContaining([projectLesson, savedLesson]));
+    expect((await wrongMemory.list('project')).map((entry) => entry.content)).toEqual([wrongProjectLesson]);
+    const external = await inspectReadOnlyExternalAgent(session);
+    for (const frame of [external.list, external.detail]) {
+      expect(frame).not.toContain('m message');
+      expect(frame).not.toContain('c cancel');
+      expect(frame).not.toContain('Message external-readonly');
+    }
     await exitInteractive(session);
     sessions.splice(sessions.indexOf(session), 1);
   }, 90_000);

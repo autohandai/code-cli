@@ -234,6 +234,25 @@ describe('HookManager to RPC lifecycle integration', () => {
     ]);
   });
 
+  it('publishes subagent progress and user controls with exact run identifiers', async () => {
+    const { hookManager } = createHarness();
+    vi.mocked(writeNotification).mockClear();
+    const context = { subagentId: 'child', subagentName: 'reader', subagentType: 'builtin',
+      subagentParentId: 'lead', subagentSource: 'delegate', subagentStatus: 'running',
+      subagentActivity: 'Reading files', subagentMessage: 'Check tests', subagentWorkspace: '/workspace' };
+    for (const event of ['subagent-start', 'subagent-progress', 'subagent-message', 'subagent-cancel-requested'] as const) {
+      await hookManager.executeHooks(event, context);
+    }
+    expect(hookNotifications()).toEqual([
+      'autohand.hook.subagentStart', 'autohand.hook.subagentProgress',
+      'autohand.hook.subagentMessage', 'autohand.hook.subagentCancelRequested',
+    ].map(method => [method, {
+      subagentId: 'child', subagentName: 'reader', subagentType: 'builtin', parentId: 'lead',
+      source: 'delegate', status: 'running', activity: 'Reading files', message: 'Check tests',
+      workspace: '/workspace', timestamp,
+    }]));
+  });
+
   it('emits pre-prompt and session-error from the real accepted-prompt path', async () => {
     const { adapter, agent, emitOutput } = createHarness();
     agent.runInstruction.mockImplementationOnce(async () => {

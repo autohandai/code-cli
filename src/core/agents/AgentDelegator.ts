@@ -37,6 +37,7 @@ type ParallelDelegationResult =
 /** Context published when a subagent begins execution. */
 export interface SubagentStartContext {
     cancel?: () => void;
+    sendMessage?: (message: string) => boolean;
     parentId?: string;
     depth?: number;
     /** Unique identifier for the subagent run */
@@ -74,6 +75,7 @@ export interface SubagentProgressContext extends SubagentStartContext, SubAgentP
 
 export interface DelegatorOptions {
     workspaceRoot?: string;
+    projectMemoryEnabled?: boolean;
     getWorkspaceRoot?: () => string;
     getUserRequest?: () => string | undefined;
     allowedToolNames?: ReadonlySet<string>;
@@ -175,6 +177,7 @@ export class AgentDelegator {
         const userRequest = this.options.getUserRequest?.();
         const subAgentOptions: SubAgentOptions = {
             workspaceRoot,
+            projectMemoryEnabled: this.options.projectMemoryEnabled,
             userRequest,
             allowedToolNames: this.options.allowedToolNames,
             clientContext: this.clientContext,
@@ -195,6 +198,8 @@ export class AgentDelegator {
         const subagentId = this.generateSubagentId();
         const controller = new AbortController();
         const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
+        const pendingInstructions: string[] = [];
+        let acceptingMessages = true;
         const startTime = Date.now();
         let lease: ThreadLease | undefined;
         let started = false;
@@ -209,6 +214,12 @@ export class AgentDelegator {
             parentId: this.options.parentId,
             depth: this.currentDepth + 1,
             cancel: () => controller.abort(),
+            sendMessage: (message) => {
+                const content = message.trim();
+                if (!acceptingMessages || signal.aborted || !content || content.length > 8000 || pendingInstructions.length >= 32) return false;
+                pendingInstructions.push(content);
+                return true;
+            },
         };
         try {
             signal.throwIfAborted();
@@ -226,11 +237,13 @@ export class AgentDelegator {
                 this.actionExecutor,
                 {
                     ...subAgentOptions, parentId: subagentId,
+                    getPendingInstructions: () => pendingInstructions.splice(0),
                     ...(assignment ? { model: assignment.model } : {}),
                     onProgress: progress => this.notifyObserver(this.options.onSubagentProgress, { ...startContext, ...progress }),
                 },
             );
             const result = await agent.run(task, { signal });
+            acceptingMessages = false;
 
             // Fire subagent-stop hook on success
             if (started && this.onSubagentStop) {
@@ -246,6 +259,7 @@ export class AgentDelegator {
 
             return { success: true, output: result };
         } catch (error) {
+            acceptingMessages = false;
             const errorMessage = error instanceof Error ? error.message : String(error);
             const cancelled = signal.aborted
                 || (error instanceof Error && error.name === 'AbortError');
@@ -269,6 +283,8 @@ export class AgentDelegator {
                 error: errorMessage, output,
             };
         } finally {
+            acceptingMessages = false;
+            pendingInstructions.length = 0;
             await lease?.release();
         }
     }

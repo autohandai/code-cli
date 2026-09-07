@@ -271,6 +271,18 @@ Skills can specify which tools they need via the `allowed-tools` field. Availabl
 | `inspect_memory` | Outline or zoom memory, invalidate derived summaries, or rebuild projections |
 | `delete_memory` | Delete an obsolete memory while retaining its canonical deletion event |
 
+Delegated and teammate workers read up to five recent project lessons from the
+selected workspace's `.autohand/memory/`, with each lesson truncated to 1,000
+characters. They treat saved lessons as reference data, not new instructions or
+permission to expand a task. Bare mode disables this automatic context.
+
+Workers with `save_memory` available can save an explicitly authorized,
+evidence-backed lesson with `level="project"`. They must not save secrets, raw
+logs, or speculative explanations. Read-only workers and workers without the
+memory tool report lesson candidates to the lead; their tool access is never
+expanded to persist memory. Worker output is not automatically stored, and
+`agent.autoMemory: false` keeps automatic lesson saving disabled.
+
 Skill activations are learned as project capability usage in the canonical
 memory event log. The derived project ranking distinguishes user and agent use,
 so frequently successful skills can inform later sessions without copying skill

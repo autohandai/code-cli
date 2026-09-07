@@ -290,6 +290,7 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
           }
         },
         onCancelAgentRun: (id) => host.agentRunStore?.requestCancel(id),
+        onMessageAgentRun: (id, text) => host.agentRunStore?.sendMessage(id, text) ?? Promise.resolve(false),
         skillsProvider: () =>
           host.skillsRegistry.listSkills().map((skill: { name: string; description?: string; isActive: boolean; source: string }) => ({
             name: skill.name,

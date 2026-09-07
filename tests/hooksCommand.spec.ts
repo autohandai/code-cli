@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-const { hooks, metadata } = await import('../src/commands/hooks.js');
+const { hooks, metadata, HOOK_EVENTS } = await import('../src/commands/hooks.js');
 import { HookManager } from '../src/core/HookManager.js';
 import { EventEmitter } from 'node:events';
 
@@ -72,6 +72,12 @@ describe('/hooks command', () => {
   });
 
   describe('metadata', () => {
+    it('offers subagent start, progress and control events to user hook configuration', () => {
+      expect(HOOK_EVENTS).toEqual(expect.arrayContaining([
+        'subagent-start', 'subagent-progress', 'subagent-message', 'subagent-cancel-requested', 'subagent-stop',
+      ]));
+    });
+
     it('has correct command metadata', () => {
       expect(metadata.command).toBe('/hooks');
       expect(metadata.description).toBe('manage git hooks');
