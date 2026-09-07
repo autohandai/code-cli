@@ -112,4 +112,25 @@ describe('/theme command', () => {
     expect(config.ui?.theme).toBe('light');
     expect(mockSaveConfig).toHaveBeenCalledWith(config);
   });
+
+  it('offers Tuatara and persists it before resuming the composer', async () => {
+    const config = { ui: { theme: 'tui' } } as LoadedConfig;
+    initTheme('tui');
+    mockShowModal.mockResolvedValue({ label: 'tuatara', value: 'tuatara' });
+    const onAfterModal = vi.fn(() => {
+      expect(getTheme().name).toBe('tuatara');
+      expect(getTheme().colors.accent).toBe('#b7c98a');
+      expect(mockSaveConfig).toHaveBeenCalledWith(config);
+    });
+
+    await theme({ config, onAfterModal });
+
+    expect(mockShowModal).toHaveBeenCalledWith(expect.objectContaining({
+      options: expect.arrayContaining([expect.objectContaining({
+        value: 'tuatara', description: 'Tuatara-inspired lichen, warm stone, and soft amber',
+      })]),
+    }));
+    expect(config.ui?.theme).toBe('tuatara');
+    expect(onAfterModal).toHaveBeenCalledOnce();
+  });
 });

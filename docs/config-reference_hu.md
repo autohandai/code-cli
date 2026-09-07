@@ -536,7 +536,7 @@ A részletekért lásd a [Workspace Safety](./workspace-safety.md) részt.
 ```
 | Mező | Típus | Alapértelmezett | Leírás |
 | ----------------------------- | ------ | ------- | ---------------------------------------------------------------------------------------------- |
-| `theme` | húr | `"dark"` | Színes téma a terminál kimenetéhez. A beépítettek a következők: `dark`, `light`, `dracula`, `sandy`, `tui`, `github-dark`, `cappadocia`, CODE és ___8__ `australia`. A régi `turkey` és `brazil` értékek továbbra is betöltődnek álnévként. |
+| `theme` | húr | `"dark"` | Színes téma a terminál kimenetéhez. A beépítettek a következők: `dark`, `light`, `dracula`, `sandy`, `tui`, `tuatara`, `github-dark`, `cappadocia`, CODE és ___8__ `australia`. A régi `turkey` és `brazil` értékek továbbra is betöltődnek álnévként. |
 | `customThemes` | tárgy | `{}` | Soron belüli egyéni témadefiníciók a téma nevével. A használatához állítsa be a `theme` kulcsot ugyanarra a kulcsra.   |
 | `autoConfirm` | logikai | `false` | A biztonságos működés érdekében hagyja ki a megerősítő felszólításokat |
 | `readFileCharLimit` | szám | `300` | Maximum megjeleníthető karakter az olvasási/kereső eszköz kimenetéből (a teljes tartalom továbbra is elküldésre kerül a modellnek) |

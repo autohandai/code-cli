@@ -554,7 +554,7 @@ cd ~/projects/my-app && autohand
 ```
 | Pole | Typ | Výchozí | Popis |
 | ----------------------------- | ------ | ------- | ---------------------------------------------------------------------------------------------- |
-| `theme` | řetězec | `"dark"` | Barevný motiv pro výstup na terminál. Mezi vestavěné moduly patří `dark`, `light`, `dracula`, `sandy`, `tui`, `github-dark`, `cappadocia`, _DE_10_AH_DE a _9_1AH_CO_DE. Starší hodnoty `turkey` a `brazil` se stále načítají jako aliasy. |
+| `theme` | řetězec | `"dark"` | Barevný motiv pro výstup na terminál. Mezi vestavěné moduly patří `dark`, `light`, `dracula`, `sandy`, `tui`, `tuatara`, `github-dark`, `cappadocia`, _DE_10_AH_DE a _9_1AH_CO_DE. Starší hodnoty `turkey` a `brazil` se stále načítají jako aliasy. |
 | `customThemes` | objekt | `{}` | Vložené definice vlastního motivu s klíčem podle názvu motivu. Chcete-li jej použít, nastavte `theme` na stejný klíč.   |
 | `autoConfirm` | booleovský | `false` | Přeskočte výzvy k potvrzení pro bezpečný provoz |
 | `readFileCharLimit` | číslo | `300` | Max. počet znaků k zobrazení z výstupu nástroje pro čtení/hledání (celý obsah je stále odesílán do modelu) |

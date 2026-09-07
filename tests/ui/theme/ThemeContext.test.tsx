@@ -22,7 +22,7 @@ describe('ThemeProvider', () => {
     initTheme('dark');
   });
 
-  it('updates mounted Ink UI when the global theme changes', async () => {
+  it.each(['light', 'tuatara'])('updates mounted Ink UI when the global theme changes to %s', async name => {
     initTheme('dark');
 
     const { lastFrame } = render(
@@ -34,10 +34,10 @@ describe('ThemeProvider', () => {
     expect(lastFrame()).toContain('dark');
 
     await act(async () => {
-      initTheme('light');
+      initTheme(name);
     });
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(lastFrame()).toContain('light');
+    expect(lastFrame()).toContain(name);
   });
 });

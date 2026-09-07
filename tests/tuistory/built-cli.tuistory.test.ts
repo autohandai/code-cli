@@ -17,6 +17,7 @@ import packageJson from '../../package.json' with { type: 'json' };
 import { SLASH_COMMANDS } from '../../src/core/slashCommands.js';
 import { hasTerminalProcessPid } from '../../src/testing/assertions/terminalOutput.js';
 import { openGoalsPanel } from '../../src/testing/scenarios/goalsCommandScenario.js';
+import { selectTheme } from '../../src/testing/scenarios/themeScenario.js';
 import { getHelpOrderedSlashCommands } from '../../src/ui/inputPrompt.js';
 import {
   clearComposerInput,
@@ -3017,12 +3018,7 @@ describe('interactive built CLI Tuistory tests', () => {
       },
     });
 
-    await waitForComposer(session);
-    await session.type('/theme');
-    await session.press('enter');
-    await session.waitForText('Select a theme:', { timeout: 10_000 });
-    await session.press('8');
-    await session.waitForText("Theme changed to 'sandy'", { timeout: 10_000 });
+    await selectTheme(session, 'sandy');
     await session.waitForText('Theme preview:', { timeout: 10_000 });
 
     const output = session.readAll();
@@ -3035,6 +3031,48 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(rawOutput).toContain('[38;2;245;240;232m');
 
     await exitInteractive(session);
+  });
+
+  it('selects Tuatara, renders its composer, and restores it after restart', async () => {
+    const authServer = await createMockAuthServer();
+    mockAuthServers.push(authServer);
+    const state = await createTempAutohandHome({ config: { ui: { theme: 'tui', promptSuggestions: false } } });
+    tempStates.push(state);
+    const launch = () => trackSession(launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      env: {
+        NO_COLOR: undefined, FORCE_COLOR: '3', COLORTERM: 'truecolor', TERM: 'xterm-256color',
+        AUTOHAND_API_URL: authServer.baseUrl,
+        AUTOHAND_AUTH_URL: authServer.baseUrl,
+        AUTOHAND_AUTH_API_URL: `${authServer.baseUrl}/api/auth`,
+      },
+    }));
+    const session = await launch();
+    await selectTheme(session, 'tuatara');
+    expect((await fs.readJson(state.configPath)).ui.theme).toBe('tuatara');
+    await waitForComposer(session);
+    await session.type('Review the Tuatara palette');
+    expect(await session.text({ only: { foreground: '#dfdfcf', background: '#303c2d' } }))
+      .toContain('Review the Tuatara palette');
+    expect(await session.text({ only: { foreground: '#b7c98a' } })).toContain('▔');
+    expect(session.getRawOutput()).toContain('[38;2;230;154;131m');
+    await clearComposerInput(session);
+    await session.type('/theme');
+    await session.press('enter');
+    await session.waitForText('tuatara (current)');
+    await session.press('escape');
+    await waitForComposer(session);
+    expect((await fs.readJson(state.configPath)).ui.theme).toBe('tuatara');
+    await exitInteractive(session);
+
+    const restarted = await launch();
+    await waitForComposer(restarted);
+    await restarted.type('Tuatara survives restart');
+    expect(await restarted.text({ only: { foreground: '#dfdfcf', background: '#303c2d' } }))
+      .toContain('Tuatara survives restart');
+    expect(await restarted.text({ only: { foreground: '#b7c98a' } })).toContain('▔');
+    await exitInteractive(restarted);
   });
 
   it('preserves one visible copy of chat history across repeated slash menu cycles', async () => {
