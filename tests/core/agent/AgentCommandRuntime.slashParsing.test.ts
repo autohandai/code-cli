@@ -112,7 +112,18 @@ describe('renderAgentSlashCommandResult', () => {
 });
 
 describe('runAgentSlashCommandWithInput', () => {
-  it.each(['/browser', '/chrome'])('keeps the persistent composer paused for %s', async (command) => {
+  it('preserves the prompt loaded by /whatityped', async () => {
+    const clearInput = vi.fn();
+    const host = {
+      runtime: { options: {}, config: {} },
+      inkRenderer: { isRunning: () => true, clearInput },
+      handleSlashCommand: vi.fn(async () => null),
+    };
+    await runAgentSlashCommandWithInput(host, '/whatityped', []);
+    expect(clearInput).not.toHaveBeenCalled();
+  });
+
+  it.each(['/browser', '/chrome', '/whatityped'])('keeps the persistent composer paused for %s', async (command) => {
     const restoreStdoutTTY = overrideStreamTTY(process.stdout, true);
     const restoreStdinTTY = overrideStreamTTY(process.stdin, true);
     const start = vi.fn();

@@ -18,6 +18,7 @@ const SHORTCUT_ROWS: Array<{ left: string; right: string }> = [
   { left: '$ for skills', right: 'shift + tab cycles interaction modes' },
   { left: 'shift + enter inserts newline', right: 'alt + enter inserts newline' },
   { left: 'enter submits prompt', right: 'ctrl + c clears input / exits' },
+  { left: '↑ / ↓ recalls typed messages', right: '/whatityped opens history' },
   { left: 'esc interrupts active turn', right: 'type /, @, $, or ! to switch mode' },
 ];
 

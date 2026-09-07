@@ -45,6 +45,7 @@ export interface SlashCommandContext {
     promptApprovalMode?: () => Promise<void>;
     createAgentsFile: () => Promise<void>;
     resetConversation: () => void | Promise<void>;
+    setComposerInput?: (text: string) => void;
     sessionManager: SessionManager;
     currentSession?: Session;
     memoryManager: MemoryManager;

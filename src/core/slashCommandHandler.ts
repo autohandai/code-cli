@@ -112,7 +112,7 @@ export class SlashCommandHandler {
       '/model', '/cc', '/search', '/theme', '/language', '/feedback', '/skills new', '/skills-new',
       '/squad', '/statusline',
       '/publish-research', '/ps', '/stop',
-      '/whatsnew',
+      '/whatsnew', '/whatityped',
     ]);
     if (this.ctx.isNonInteractive && INTERACTIVE_ONLY.has(command)) {
       usageOutcome = 'failed';
@@ -574,6 +574,10 @@ export class SlashCommandHandler {
         case '/history': {
           const { history } = await import('../commands/history.js');
           return history({ ...this.ctx, args });
+        }
+        case '/whatityped': {
+          const { whatityped } = await import('../commands/whatityped.js');
+          return whatityped(this.ctx);
         }
         case '/mcp': {
           const { mcp } = await import('../commands/mcp.js');
