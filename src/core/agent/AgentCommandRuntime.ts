@@ -454,8 +454,19 @@ export async function handleAgentExitPlanMode(
       return { success: false, kind: 'validation', error };
     }
 
-    // Non-interactive mode: auto-accept with default option
-    if (host.runtime.options.yes || host.runtime.options.unrestricted || process.env.CI === '1' || process.env.AUTOHAND_NON_INTERACTIVE === '1') {
+    const nonInteractive = Boolean(host.runtime.options.prompt)
+      || !process.stdin.isTTY
+      || process.env.CI === '1'
+      || process.env.CI === 'true'
+      || process.env.AUTOHAND_NON_INTERACTIVE === '1';
+    if (host.runtime.options.plan && nonInteractive) {
+      const output = 'Plan ready for review. Staying in planning mode. Do not execute the plan; summarize it for the user and stop.';
+      host.conversation.addSystemNote(output);
+      return { success: true, output };
+    }
+
+    // Explicit startup planning always requires a user decision before execution.
+    if (!host.runtime.options.plan && (host.runtime.options.yes || host.runtime.options.unrestricted || process.env.CI === '1' || process.env.AUTOHAND_NON_INTERACTIVE === '1')) {
       const config = planManager.acceptPlan('auto_accept');
       console.log(chalk.yellow('  (Auto-accepted in non-interactive mode)\n'));
       host.conversation.addSystemNote(

@@ -2356,6 +2356,7 @@ These flags override config file settings:
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `--unrestricted`              | No approval prompts                                                                            |
 | `--restricted`                | Deny dangerous operations                                                                      |
+| `--plan`                      | Start in read-only plan mode before the first interactive or command prompt                     |
 | `--permissions`               | Display current permission settings and exit                                                   |
 | `--no-idle-logout`            | Keep authenticated sessions alive past the idle timeout for long-running agents                |
 | `--yolo [pattern]`            | Auto-approve tool calls matching pattern (e.g., `allow:read,write` or `deny:delete`)           |
@@ -2492,6 +2493,10 @@ Enable an increment with `autohand experiments enable <feature>`. Partial, clamp
 ---
 
 ## Slash Commands
+
+Start directly in planning mode with `autohand --plan`, or generate a one-shot plan with `autohand --plan --prompt "Plan the migration"`. Planning instructions and read-only tool gating apply from the first model request. Interactive plan acceptance requires a user decision even with `--yes` or `--unrestricted`; command and unattended runs leave the plan pending review. Use `/plan off` or Shift+Tab to change modes interactively.
+
+`--plan` conflicts with `--yolo`, `--auto-mode`, and `--auto-commit`. It does not change the `--mode rpc|acp` transport selector.
 
 Autohand provides a rich set of slash commands for interactive use. Type `/` in the REPL to see suggestions.
 
