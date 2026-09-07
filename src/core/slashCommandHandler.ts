@@ -274,6 +274,9 @@ export class SlashCommandHandler {
             console.log(chalk.yellow('Config not available.'));
             return null;
           }
+          if (args.length > 0) {
+            return await settings({ config: this.ctx.config }, args);
+          }
           // Pause the InkRenderer for the entire /settings session.
           // settings() runs its own while(true) loop with multiple showModal
           // calls; without pause/resume the Composer's useInput races the
