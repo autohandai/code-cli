@@ -297,7 +297,7 @@ cd ~/projects/my-app && autohand
 ```json
 {
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "autoConfirm": false,
     "readFileCharLimit": 300,
     "showCompletionNotification": true,
@@ -312,7 +312,7 @@ cd ~/projects/my-app && autohand
 
 | 필드                         | 타입                  | 기본값   | 설명                                                                           |
 | ---------------------------- | --------------------- | -------- | ------------------------------------------------------------------------------ |
-| `theme`                      | `"dark"` \| `"light"` | `"dark"` | 터미널 출력 색상 테마                                                          |
+| `theme`                      | string | `"aurora"` | 터미널 출력 색상 테마                                                          |
 | `autoConfirm`                | boolean               | `false`  | 안전한 작업에 대한 확인 프롬프트 건너뛰기                                      |
 | `readFileCharLimit`          | number                | `300`    | 읽기/검색 도구 출력에서 표시할 최대 문자 수 (전체 내용은 여전히 모델에 전송됨) |
 | `showCompletionNotification` | boolean               | `true`   | 작업 완료 시 시스템 알림 표시                                                  |
@@ -726,7 +726,7 @@ autohand --auto-skill
     "allowDangerousOps": false
   },
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "autoConfirm": false,
     "showCompletionNotification": true,
     "showThinking": true,
@@ -784,7 +784,7 @@ workspace:
   allowDangerousOps: false
 
 ui:
-  theme: dark
+  theme: aurora
   autoConfirm: false
   showCompletionNotification: true
   showThinking: true

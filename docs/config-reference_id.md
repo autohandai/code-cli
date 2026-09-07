@@ -269,7 +269,7 @@ Lihat [Keamanan Workspace](./workspace-safety.md) untuk detail lengkap.
 ```json
 {
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "autoConfirm": false,
     "readFileCharLimit": 300,
     "showCompletionNotification": true,
@@ -284,7 +284,7 @@ Lihat [Keamanan Workspace](./workspace-safety.md) untuk detail lengkap.
 
 | Field                        | Tipe                  | Default  | Deskripsi                                                                                             |
 | ---------------------------- | --------------------- | -------- | ----------------------------------------------------------------------------------------------------- |
-| `theme`                      | `"dark"` \| `"light"` | `"dark"` | Tema warna untuk output terminal                                                                      |
+| `theme`                      | string | `"aurora"` | Tema warna untuk output terminal                                                                      |
 | `autoConfirm`                | boolean               | `false`  | Lewati prompt konfirmasi untuk operasi aman                                                           |
 | `readFileCharLimit`          | number                | `300`    | Karakter maksimum yang ditampilkan dari output tool baca/cari (konten lengkap tetap dikirim ke model) |
 | `showCompletionNotification` | boolean               | `true`   | Tampilkan notifikasi sistem saat tugas selesai                                                        |
@@ -1115,7 +1115,7 @@ Untuk pengalaman interaktif yang lebih tepat, gunakan `/learn` dalam sesi.
     "allowDangerousOps": false
   },
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "autoConfirm": false,
     "showCompletionNotification": true,
     "showThinking": true,
@@ -1216,7 +1216,7 @@ workspace:
   allowDangerousOps: false
 
 ui:
-  theme: dark
+  theme: aurora
   autoConfirm: false
   showCompletionNotification: true
   showThinking: true

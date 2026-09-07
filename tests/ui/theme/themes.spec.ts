@@ -40,16 +40,19 @@ function contrastRatio(foreground: string, background: string): number {
   return (Math.max(light, dark) + 0.05) / (Math.min(light, dark) + 0.05);
 }
 
-describe('Tuatara theme', () => {
+describe.each([
+  { name: 'tuatara', accent: '#b7c98a', background: '#171c17' },
+  { name: 'aurora', accent: '#9b9ef5', background: '#111216' },
+])('$name theme', ({ name, accent, background }) => {
   it('is available as a built-in theme alongside Tui', () => {
-    expect(isBuiltInTheme('tuatara')).toBe(true);
-    expect(getBuiltInTheme('tuatara')?.name).toBe('tuatara');
-    expect(listAvailableThemes()).toEqual(expect.arrayContaining(['tui', 'tuatara']));
-    expect(loadTheme('tuatara').colors.accent).toBe('#b7c98a');
+    expect(isBuiltInTheme(name)).toBe(true);
+    expect(getBuiltInTheme(name)?.name).toBe(name);
+    expect(listAvailableThemes()).toEqual(expect.arrayContaining(['tui', name]));
+    expect(loadTheme(name).colors.accent).toBe(accent);
   });
 
   it('keeps readable text and syntax contrast on its dark surfaces', () => {
-    const { colors } = loadTheme('tuatara');
+    const { colors } = loadTheme(name);
     const foregrounds: ColorToken[] = [
       'text', 'dim', 'muted', 'accent', 'success', 'error', 'warning',
       'userMessageText', 'toolTitle', 'toolOutput', 'diffAdded', 'diffRemoved', 'diffContext',
@@ -58,7 +61,7 @@ describe('Tuatara theme', () => {
       'mdHeading', 'mdLink', 'mdLinkUrl', 'mdCode', 'mdCodeBlock', 'mdQuote', 'mdListBullet',
     ];
     const backgrounds = [
-      '#171c17', '#1a1a1a', colors.userMessageBg,
+      background, '#1a1a1a', colors.userMessageBg,
       colors.toolPendingBg, colors.toolSuccessBg, colors.toolErrorBg,
     ];
     for (const background of backgrounds) {
@@ -71,7 +74,7 @@ describe('Tuatara theme', () => {
   });
 
   it.each<ColorMode>(['truecolor', '256', '16', 'none'])('preserves status and diff labels in %s terminals', mode => {
-    const theme = new Theme('tuatara', loadTheme('tuatara').colors, mode);
+    const theme = new Theme(name, loadTheme(name).colors, mode);
     const output = [
       theme.fg('success', '✓ passed'), theme.fg('error', '✗ failed'),
       theme.fg('warning', '! warning'), theme.fg('diffAdded', '+ added'), theme.fg('diffRemoved', '- removed'),
@@ -232,8 +235,8 @@ describe('builtInThemes', () => {
     expect(builtInThemes.australia).toBe(australiaTheme);
   });
 
-  it('has exactly 10 built-in themes', () => {
-    expect(Object.keys(builtInThemes)).toHaveLength(10);
+  it('has exactly 11 built-in themes', () => {
+    expect(Object.keys(builtInThemes)).toHaveLength(11);
   });
 
   it('all themes have unique names', () => {
@@ -315,8 +318,8 @@ describe('getBuiltInThemeNames()', () => {
 });
 
 describe('getDefaultThemeName()', () => {
-  it('returns "dark" as default', () => {
-    expect(getDefaultThemeName()).toBe('dark');
+  it('returns Aurora as default', () => {
+    expect(getDefaultThemeName()).toBe('aurora');
   });
 
   it('returns a valid built-in theme name', () => {

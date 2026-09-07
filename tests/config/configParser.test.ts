@@ -397,6 +397,24 @@ describe("configParser – error handling (Issue #3)", () => {
     expect(result.ui?.activityVerbsEnabled).toBe(true);
     expect(saved.agent.toolSelectionCache).toBe(true);
     expect(saved.ui.activityVerbsEnabled).toBe(true);
+    expect(result.ui?.theme).toBe('aurora');
+    expect(saved.ui.theme).toBe('aurora');
+    const { getTheme } = await import('../../src/ui/theme/index.js');
+    expect(getTheme().name).toBe('aurora');
+  });
+
+  it.each([undefined, 'dark', 'tui', 'tuatara', 'aurora'])('loads the effective theme without rewriting an existing %s selection', async theme => {
+    const source = JSON.stringify({
+      provider: 'openrouter',
+      openrouter: { apiKey: 'test-key', model: 'test-model' },
+      ui: theme ? { theme } : {},
+    });
+    const configPath = await writeTempConfig(testDir, 'config.json', source);
+    const loadConfig = await importLoadConfig();
+    await loadConfig(configPath);
+    const { getTheme } = await import('../../src/ui/theme/index.js');
+    expect(getTheme().name).toBe(theme ?? 'aurora');
+    expect(await fse.readFile(configPath, 'utf8')).toBe(source);
   });
 
   it("loads explicit tool selection cache opt-out from config", async () => {

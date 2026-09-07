@@ -24,7 +24,7 @@ import type {
 } from "./types.js";
 import { AUTOHAND_FILES, AUTOHAND_HOME } from "./constants.js";
 import { isAutohandInferenceEnabled } from "./featureFlags.js";
-import { autoInitTheme, configureThemeSources, themeExists } from "./ui/theme/index.js";
+import { autoInitTheme, configureThemeSources, getDefaultThemeName, themeExists } from "./ui/theme/index.js";
 import { loadLocalProjectSettings, type LocalProjectSettings } from "./permissions/localProjectPermissions.js";
 import { isAwsBedrockProviderEnabled } from "./features/featureRegistry.js";
 import { getCustomProviderConfig, isCustomProviderName } from "./providers/customProviders.js";
@@ -137,7 +137,7 @@ function createDefaultConfig(): AutohandConfig {
       allowDangerousOps: false,
     },
     ui: {
-      theme: "dark",
+      theme: getDefaultThemeName(),
       autoConfirm: false,
       silentToolOutput: false,
       taskListPosition: "above-composer",
@@ -519,7 +519,7 @@ export async function loadConfig(
 
   if (initializeTheme) {
     // Initialize theme from config.
-    const themeName = withEnv.ui?.theme || "dark";
+    const themeName = withEnv.ui?.theme || getDefaultThemeName();
     autoInitTheme(themeName);
   }
 
@@ -781,7 +781,7 @@ function normalizeConfig(
       },
       ui: {
         autoConfirm: config.dry_run ?? false,
-        theme: "dark",
+        theme: getDefaultThemeName(),
         silentToolOutput: false,
         taskListPosition: "above-composer",
         completionReportEnabled: true,
@@ -884,7 +884,7 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
     if (config.ui.theme && typeof config.ui.theme !== "string") {
       throw new Error(`ui.theme must be a string in ${configPath}`);
     }
-    // Theme validation is lenient — unknown themes fall back to dark at init time.
+    // Theme validation is lenient — unknown themes fall back to the default at init time.
     // This avoids crashes when a Ghostty or custom theme was saved but is no longer available.
     if (
       config.ui.theme &&

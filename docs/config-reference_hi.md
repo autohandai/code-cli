@@ -297,7 +297,7 @@ cd ~/projects/my-app && autohand
 ```json
 {
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "autoConfirm": false,
     "readFileCharLimit": 300,
     "showCompletionNotification": true,
@@ -312,7 +312,7 @@ cd ~/projects/my-app && autohand
 
 | फ़ील्ड                       | टाइप                  | डिफ़ॉल्ट | विवरण                                                                                             |
 | ---------------------------- | --------------------- | -------- | ------------------------------------------------------------------------------------------------- |
-| `theme`                      | `"dark"` \| `"light"` | `"dark"` | टर्मिनल आउटपुट के लिए कलर थीम                                                                     |
+| `theme`                      | string | `"aurora"` | टर्मिनल आउटपुट के लिए कलर थीम                                                                     |
 | `autoConfirm`                | boolean               | `false`  | सुरक्षित ऑपरेशनों के लिए कन्फर्मेशन प्रॉम्प्ट स्किप करें                                          |
 | `readFileCharLimit`          | number                | `300`    | रीड/सर्च टूल आउटपुट में दिखाए जाने वाले अधिकतम कैरेक्टर (पूरा कंटेंट अभी भी मॉडल को भेजा जाता है) |
 | `showCompletionNotification` | boolean               | `true`   | टास्क पूरा होने पर सिस्टम नोटिफिकेशन दिखाएं                                                       |
@@ -1143,7 +1143,7 @@ autohand --auto-skill
     "allowDangerousOps": false
   },
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "autoConfirm": false,
     "showCompletionNotification": true,
     "showThinking": true,
@@ -1201,7 +1201,7 @@ workspace:
   allowDangerousOps: false
 
 ui:
-  theme: dark
+  theme: aurora
   autoConfirm: false
   showCompletionNotification: true
   showThinking: true

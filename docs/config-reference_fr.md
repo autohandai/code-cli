@@ -500,7 +500,7 @@ Voir [Sécurité de l'espace de travail](./workspace-safety.md) pour plus de dé
 ```json
 {
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "customThemes": {
       "company": {
         "colors": {
@@ -536,7 +536,7 @@ Voir [Sécurité de l'espace de travail](./workspace-safety.md) pour plus de dé
 ```
 | Champ | Tapez | Par défaut | Descriptif |
 | ---------------------------- | ------ | ------- | ------------------------------------------------------------------------------------------------------------- |
-| `theme` | chaîne | `"dark"` | Thème de couleur pour la sortie du terminal. Les éléments intégrés incluent `dark`, `light`, `dracula`, `sandy`, `tui`, `tuatara`, `github-dark`, `cappadocia`, `rio` et `australia`. Les anciennes valeurs `turkey` et `brazil` se chargent toujours en tant qu'alias. |
+| `theme` | chaîne | `"aurora"` | Thème de couleur pour la sortie du terminal. Les éléments intégrés incluent `aurora`, `dark`, `light`, `dracula`, `sandy`, `tui`, `tuatara`, `github-dark`, `cappadocia`, `rio` et `australia`. Les anciennes valeurs `turkey` et `brazil` se chargent toujours en tant qu'alias. |
 | `customThemes` | objet | `{}` | Définitions de thèmes personnalisées en ligne saisies par nom de thème. Définissez `theme` sur la même clé pour en utiliser une.   |
 | `autoConfirm` | booléen | `false` | Ignorer les invites de confirmation pour des opérations sûres |
 | `readFileCharLimit` | numéro | `300` | Nombre maximum de caractères à afficher à partir de la sortie de l'outil de lecture/recherche (le contenu complet est toujours envoyé au modèle) |
@@ -1619,7 +1619,7 @@ autohand --no-browser       # Start with browser bridge disabled
     "allowDangerousOps": false
   },
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "autoConfirm": false,
     "showCompletionNotification": true,
     "showThinking": true,
@@ -1704,7 +1704,7 @@ workspace:
   allowDangerousOps: false
 
 ui:
-  theme: dark
+  theme: aurora
   autoConfirm: false
   showCompletionNotification: true
   showThinking: true
@@ -1789,7 +1789,7 @@ defaultRoot = "~/projects"
 allowDangerousOps = false
 
 [ui]
-theme = "dark"
+theme = "aurora"
 autoConfirm = false
 showCompletionNotification = true
 showThinking = true

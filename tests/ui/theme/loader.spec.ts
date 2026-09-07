@@ -11,6 +11,7 @@ import { tmpdir } from 'os';
 import {
   loadTheme,
   initTheme,
+  autoInitTheme,
   getThemeDefinition,
   loadCustomTheme,
   validateAndMergeTheme,
@@ -25,6 +26,7 @@ import {
 import { setTheme, isThemeInitialized, getTheme } from '../../../src/ui/theme/Theme.js';
 import { COLOR_TOKENS } from '../../../src/ui/theme/types.js';
 import { builtInThemes } from '../../../src/ui/theme/themes.js';
+import * as ghosttyLoader from '../../../src/ui/theme/ghosttyLoader.js';
 
 // Use a temp directory for custom themes in tests
 const TEST_THEMES_DIR = join(tmpdir(), 'autohand-test-themes');
@@ -113,19 +115,39 @@ describe('initTheme()', () => {
     const theme = initTheme();
 
     expect(isThemeInitialized()).toBe(true);
-    expect(theme.name).toBe('dark'); // Default is dark
+    expect(theme.name).toBe('aurora');
   });
 
-  it('falls back to dark theme on error', () => {
+  it('falls back to Aurora on error', () => {
     // Mock console.warn to suppress warning message
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     const theme = initTheme('nonexistent');
 
-    expect(theme.name).toBe('dark');
+    expect(theme.name).toBe('aurora');
     expect(warnSpy).toHaveBeenCalled();
 
     warnSpy.mockRestore();
+  });
+});
+
+describe('autoInitTheme()', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it.each(['aurora', 'dark', 'tui', 'tuatara'])('preserves an explicit %s selection over terminal detection', name => {
+    const detect = vi.spyOn(ghosttyLoader, 'detectGhosttyTheme').mockReturnValue('Dracula');
+    expect(autoInitTheme(name).name).toBe(name);
+    expect(detect).not.toHaveBeenCalled();
+  });
+
+  it('uses Aurora when no theme or terminal palette is configured', () => {
+    vi.spyOn(ghosttyLoader, 'detectGhosttyTheme').mockReturnValue(null);
+    vi.stubEnv('COLORFGBG', '15;0');
+    vi.stubEnv('TERMINAL_EMULATOR', undefined);
+    expect(autoInitTheme().name).toBe('aurora');
   });
 });
 

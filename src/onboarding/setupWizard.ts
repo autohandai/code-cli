@@ -8,7 +8,7 @@ import chalk from 'chalk';
 import { t, changeLanguage, detectLocale, SUPPORTED_LOCALES, LANGUAGE_DISPLAY_NAMES } from '../i18n/index.js';
 import type { SupportedLocale } from '../i18n/index.js';
 import { showModal, showInput, showPassword, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
-import { getBuiltInThemeNames } from '../ui/theme/index.js';
+import { getBuiltInThemeNames, getDefaultThemeName } from '../ui/theme/index.js';
 import { ASCII_FRIEND } from '../utils/asciiArt.js';
 import fse from 'fs-extra';
 import { join } from 'path';
@@ -992,7 +992,8 @@ export class SetupWizard {
 
     const themes = getBuiltInThemeNames();
     const themeDescriptions: Record<string, string> = {
-      dark: 'Default dark theme',
+      aurora: 'Default theme with charcoal, cool neutrals, and soft periwinkle',
+      dark: 'Classic dark theme',
       light: 'Light theme for light backgrounds',
       dracula: 'Popular Dracula color scheme',
       sandy: 'Warm, earthy desert tones',
@@ -1011,10 +1012,11 @@ export class SetupWizard {
 
     const themeResult = await showModal({
       title: 'Select a theme',
-      options: themeOptions
+      options: themeOptions,
+      initialIndex: themes.indexOf(getDefaultThemeName())
     });
 
-    const theme = themeResult?.value as string || 'dark';
+    const theme = themeResult?.value || getDefaultThemeName();
 
     const autoConfirm = await showConfirm({
       title: 'Auto-confirm non-destructive actions?',
@@ -1344,7 +1346,7 @@ export class SetupWizard {
     };
 
     // Set UI preferences (merge locale + user preferences)
-    const uiConfig: Partial<AutohandConfig['ui']> = {};
+    const uiConfig: Partial<AutohandConfig['ui']> = { theme: getDefaultThemeName() };
     if (this.state.locale) {
       uiConfig.locale = this.state.locale;
     }

@@ -482,7 +482,7 @@ Create `~/.autohand/config.json` or use `config.toml`, `config.yaml`, or `config
     "allowDangerousOps": false
   },
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "autoConfirm": false
   }
 }

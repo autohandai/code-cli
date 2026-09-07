@@ -151,10 +151,10 @@ describe('AgentUI live command block', () => {
       chalk.level = originalChalkLevel;
     }
 
-    expect(output).toContain('\u001b[38;2;0;188;212m  ┌ diff --git a/src/app.ts b/src/app.ts');
-    expect(output).toContain('\u001b[38;2;0;188;212m  ├ @@ -1,2 +1,2 @@');
-    expect(output).toContain('\u001b[38;2;76;175;80m  │ +const newValue = true;');
-    expect(output).toContain('\u001b[38;2;244;67;54m  │ -const oldValue = true;');
+    expect(output).toContain('\u001b[38;2;155;158;245m  ┌ diff --git a/src/app.ts b/src/app.ts');
+    expect(output).toContain('\u001b[38;2;155;158;245m  ├ @@ -1,2 +1,2 @@');
+    expect(output).toContain('\u001b[38;2;134;207;163m  │ +const newValue = true;');
+    expect(output).toContain('\u001b[38;2;237;154;154m  │ -const oldValue = true;');
   });
 
   it('renders apply_patch output with theme diff colors', () => {
@@ -188,10 +188,10 @@ describe('AgentUI live command block', () => {
       chalk.level = originalChalkLevel;
     }
 
-    expect(output).toContain('\u001b[38;2;76;175;80m1 line');
-    expect(output).toContain('\u001b[38;2;244;67;54m1 line');
-    expect(output).toContain('\u001b[38;2;76;175;80m  │    1 +  const newValue = true;');
-    expect(output).toContain('\u001b[38;2;244;67;54m  │    1 -  const oldValue = true;');
+    expect(output).toContain('\u001b[38;2;134;207;163m1 line');
+    expect(output).toContain('\u001b[38;2;237;154;154m1 line');
+    expect(output).toContain('\u001b[38;2;134;207;163m  │    1 +  const newValue = true;');
+    expect(output).toContain('\u001b[38;2;237;154;154m  │    1 -  const oldValue = true;');
   });
 
   it('renders git diff chat history tool output with theme diff colors', () => {
@@ -224,8 +224,8 @@ describe('AgentUI live command block', () => {
     }
 
     expect(stripAnsi(output)).toContain('  Added 1 line, removed 1 line');
-    expect(output).toContain('\u001b[38;2;76;175;80m  │ +const newValue = true;');
-    expect(output).toContain('\u001b[38;2;244;67;54m  │ -const oldValue = true;');
+    expect(output).toContain('\u001b[38;2;134;207;163m  │ +const newValue = true;');
+    expect(output).toContain('\u001b[38;2;237;154;154m  │ -const oldValue = true;');
   });
 
   it('renders git diff colors from theme ANSI even when chalk colors are disabled', () => {
@@ -259,14 +259,18 @@ describe('AgentUI live command block', () => {
       chalk.level = originalChalkLevel;
     }
 
-    expect(output).toContain('\u001b[38;2;76;175;80m  │ +const newValue = true;');
-    expect(output).toContain('\u001b[38;2;244;67;54m  │ -const oldValue = true;');
+    expect(output).toContain('\u001b[38;2;134;207;163m  │ +const newValue = true;');
+    expect(output).toContain('\u001b[38;2;237;154;154m  │ -const oldValue = true;');
   });
 
-  it('uses the active theme palette for git diff colors', () => {
+  it.each([
+    { themeName: 'dark', addition: '76;175;80', deletion: '244;67;54' },
+    { themeName: 'dracula', addition: '80;250;123', deletion: '255;85;85' },
+    { themeName: 'aurora', addition: '134;207;163', deletion: '237;154;154' },
+  ])('uses the $themeName palette for git diff colors', ({ themeName, addition, deletion }) => {
     const { lastFrame } = render(
       <I18nProvider>
-        <ThemeProvider themeName="dracula">
+        <ThemeProvider themeName={themeName}>
           <ToolOutputStatic
             entry={{
               id: 'tool-1',
@@ -285,8 +289,8 @@ describe('AgentUI live command block', () => {
     );
 
     const output = lastFrame() ?? '';
-    expect(output).toContain('\u001b[38;2;80;250;123m  │ +const newValue = true;');
-    expect(output).toContain('\u001b[38;2;255;85;85m  │ -const oldValue = true;');
+    expect(output).toContain(`\u001b[38;2;${addition}m  │ +const newValue = true;`);
+    expect(output).toContain(`\u001b[38;2;${deletion}m  │ -const oldValue = true;`);
   });
 
   it('renders assistant diff fences as themed diff blocks without literal fences', () => {
@@ -316,8 +320,8 @@ describe('AgentUI live command block', () => {
     }
 
     expect(stripAnsi(output)).not.toContain('```');
-    expect(output).toContain('\u001b[38;2;76;175;80m  │ +it("creates new JSON config with on-by-default runtime helpers"');
-    expect(output).toContain('\u001b[38;2;244;67;54m  │ -it("creates new JSON config with tool selection cache enabled by default"');
+    expect(output).toContain('\u001b[38;2;134;207;163m  │ +it("creates new JSON config with on-by-default runtime helpers"');
+    expect(output).toContain('\u001b[38;2;237;154;154m  │ -it("creates new JSON config with tool selection cache enabled by default"');
   });
 
   it('renders raw assistant unified diff text with theme diff colors', () => {
@@ -348,7 +352,7 @@ describe('AgentUI live command block', () => {
       chalk.level = originalChalkLevel;
     }
 
-    expect(output).toContain('\u001b[38;2;76;175;80m  │ +  it(\'creates new configs with completion reports enabled by default\'');
+    expect(output).toContain('\u001b[38;2;134;207;163m  │ +  it(\'creates new configs with completion reports enabled by default\'');
     expect(output).toMatch(/\u001b\[38;2;\d+;\d+;\d+m  ├ @@ -12,6 \+12,10 @@/);
     expect(stripAnsi(output)).toContain('index 6672471..e83154d 100644');
   });
@@ -393,8 +397,8 @@ describe('AgentUI live command block', () => {
       chalk.level = originalChalkLevel;
     }
 
-    expect(output).toContain('\u001b[38;2;76;175;80m  │ +const newValue = true;');
-    expect(output).toContain('\u001b[38;2;244;67;54m  │ -const oldValue = true;');
+    expect(output).toContain('\u001b[38;2;134;207;163m  │ +const newValue = true;');
+    expect(output).toContain('\u001b[38;2;237;154;154m  │ -const oldValue = true;');
   });
 
   it('renders completed chat history before the active final response', () => {

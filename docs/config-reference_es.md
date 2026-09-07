@@ -296,7 +296,7 @@ Ver [Seguridad del Espacio de Trabajo](./workspace-safety.md) para detalles comp
 ```json
 {
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "autoConfirm": false,
     "readFileCharLimit": 300,
     "showCompletionNotification": true,
@@ -311,7 +311,7 @@ Ver [Seguridad del Espacio de Trabajo](./workspace-safety.md) para detalles comp
 
 | Campo                        | Tipo                  | Predeterminado | Descripción                                                                                                                 |
 | ---------------------------- | --------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `theme`                      | `"dark"` \| `"light"` | `"dark"`       | Tema de color para salida de terminal                                                                                       |
+| `theme`                      | string | `"aurora"`       | Tema de color para salida de terminal                                                                                       |
 | `autoConfirm`                | boolean               | `false`        | Omitir confirmaciones para operaciones seguras                                                                              |
 | `readFileCharLimit`          | number                | `300`          | Máximo de caracteres mostrados en salida de herramientas de lectura/búsqueda (el contenido completo aún se envía al modelo) |
 | `showCompletionNotification` | boolean               | `true`         | Mostrar notificación del sistema cuando la tarea termine                                                                    |
@@ -1144,7 +1144,7 @@ Para una experiencia interactiva más precisa, use `/learn` dentro de una sesió
     "allowDangerousOps": false
   },
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "autoConfirm": false,
     "showCompletionNotification": true,
     "showThinking": true,
@@ -1245,7 +1245,7 @@ workspace:
   allowDangerousOps: false
 
 ui:
-  theme: dark
+  theme: aurora
   autoConfirm: false
   showCompletionNotification: true
   showThinking: true

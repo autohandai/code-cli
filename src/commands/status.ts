@@ -10,6 +10,7 @@ import type { AutohandConfig } from '../types.js';
 import { cleanupModalRender, prepareModalRender } from '../ui/ink/components/Modal.js';
 import { formatSessionActualTokens } from '../core/agent/AgentFormatter.js';
 import { createCommandTheme } from './commandTheme.js';
+import { getDefaultThemeName } from '../ui/theme/themes.js';
 import {
     formatAccountPlanAllowance,
     formatAccountPlanName,
@@ -330,7 +331,7 @@ function renderConfigTab(data: StatusData): void {
     console.log(theme.bold('Autohand preferences\n'));
 
     const settings: Array<[string, string]> = [
-        ['Theme', config?.ui?.theme ?? 'dark'],
+        ['Theme', config?.ui?.theme ?? getDefaultThemeName()],
         ['Auto-confirm', config?.ui?.autoConfirm ? 'true' : 'false'],
         ['Silent tool output', config?.ui?.silentToolOutput === true ? 'true' : 'false'],
         ['Show thinking', config?.ui?.showThinking !== false ? 'true' : 'false'],

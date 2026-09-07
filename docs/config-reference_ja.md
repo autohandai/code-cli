@@ -297,7 +297,7 @@ cd ~/projects/my-app && autohand
 ```json
 {
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "autoConfirm": false,
     "readFileCharLimit": 300,
     "showCompletionNotification": true,
@@ -312,7 +312,7 @@ cd ~/projects/my-app && autohand
 
 | フィールド                   | 型                    | デフォルト | 説明                                                                        |
 | ---------------------------- | --------------------- | ---------- | --------------------------------------------------------------------------- |
-| `theme`                      | `"dark"` \| `"light"` | `"dark"`   | ターミナル出力のカラーテーマ                                                |
+| `theme`                      | string | `"aurora"`   | ターミナル出力のカラーテーマ                                                |
 | `autoConfirm`                | boolean               | `false`    | 安全な操作の確認プロンプトをスキップ                                        |
 | `readFileCharLimit`          | number                | `300`      | 読み取り/検索ツール出力の最大表示文字数（完全な内容はモデルに送信されます） |
 | `showCompletionNotification` | boolean               | `true`     | タスク完了時にシステム通知を表示                                            |
@@ -1134,7 +1134,7 @@ share:
     "allowDangerousOps": false
   },
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "autoConfirm": false,
     "showCompletionNotification": true,
     "showThinking": true,
@@ -1214,7 +1214,7 @@ workspace:
   allowDangerousOps: false
 
 ui:
-  theme: dark
+  theme: aurora
   autoConfirm: false
   showCompletionNotification: true
   showThinking: true
