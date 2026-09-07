@@ -1413,6 +1413,11 @@ async function handleSingleRequest(
         break;
       }
 
+      case RPC_METHODS.GET_SUPPORTED_AGENTS: {
+        result = adapter.handleGetSupportedAgents();
+        break;
+      }
+
       case RPC_METHODS.GET_TOOLS_REGISTRY: {
         result = adapter.handleGetToolsRegistry();
         break;
