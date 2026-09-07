@@ -213,6 +213,7 @@ export interface AgentUIProps {
   onToggleTeamPanel?: () => void;
   onCloseAgentRunsPanel?: () => void;
   onCancelAgentRun?: (id: string) => void | Promise<unknown>;
+  onMessageAgentRun?: (id: string, text: string) => Promise<boolean>;
   /** Toggle the expanded persistent goals view. */
   onToggleGoalPanel?: () => void;
   /** Persist a composer edit for an active or queued goal. */
@@ -756,6 +757,7 @@ export function AgentUI({
   onToggleTeamPanel,
   onCloseAgentRunsPanel,
   onCancelAgentRun,
+  onMessageAgentRun,
   onToggleGoalPanel,
   onEditGoalObjective,
   onInputChange,
@@ -2262,6 +2264,7 @@ export function AgentUI({
           terminalColumns={windowSize.columns}
           onClose={() => onCloseAgentRunsPanel?.()}
           onCancel={onCancelAgentRun}
+          onMessage={onMessageAgentRun}
           onCtrlC={onCtrlC}
         />
       ) : <FixedBottom

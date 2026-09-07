@@ -14,11 +14,13 @@ vi.mock('node:child_process', () => {
   return {
     spawn: vi.fn((command: string) => {
       const mockProcess = new EventEmitter() as EventEmitter & {
+        stdin: { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> };
         stdout: EventEmitter;
         stderr: EventEmitter;
         kill: (signal?: NodeJS.Signals) => boolean;
       };
       mockProcess.stdout = new EventEmitter();
+      mockProcess.stdin = { write: vi.fn(), end: vi.fn() };
       mockProcess.stderr = new EventEmitter();
       let closed = false;
       mockProcess.kill = vi.fn((signal: NodeJS.Signals = 'SIGTERM') => {
@@ -135,6 +137,38 @@ describe('HookManager', () => {
   });
 
   describe('getHooksForEvent', () => {
+    it('exports documented subagent result scalars including false and zero', async () => {
+      await manager.addHook({ event: 'subagent-stop', command: 'true' });
+      await manager.executeHooks('subagent-stop', {
+        subagentSuccess: false, subagentDuration: 0, subagentError: 'e'.repeat(5_000),
+      });
+      const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env;
+      expect(env?.HOOK_SUBAGENT_SUCCESS).toBe('false');
+      expect(env?.HOOK_SUBAGENT_DURATION).toBe('0');
+      expect(env?.HOOK_SUBAGENT_ERROR).toHaveLength(4_000);
+    });
+
+    it('exposes subagent controls in summaries and passes run context through filtered shell hooks', async () => {
+      const events = ['subagent-start', 'subagent-progress', 'subagent-message', 'subagent-cancel-requested'] as const;
+      for (const event of events) await manager.addHook({ event, command: 'true', matcher: '^reviewer$' });
+      expect(manager.getSummary()).toMatchObject(Object.fromEntries(events.map(event => [event, { total: 1, enabled: 1 }])));
+      await manager.executeHooks('subagent-progress', { subagentType: 'different' });
+      expect(spawn).not.toHaveBeenCalled();
+      await manager.executeHooks('subagent-progress', {
+        subagentId: 'run-1', subagentName: 'reader', subagentType: 'reviewer', subagentParentId: 'lead',
+        subagentSource: 'delegate', subagentStatus: 'running', subagentActivity: 'Reading files',
+        subagentWorkspace: '/test/workspace', subagentTask: 'Inspect code', subagentMessage: 'Check tests',
+      });
+      expect(spawn).toHaveBeenCalledWith('true', [], expect.objectContaining({ env: expect.objectContaining({
+        HOOK_SUBAGENT_ID: 'run-1', HOOK_SUBAGENT_NAME: 'reader', HOOK_SUBAGENT_TYPE: 'reviewer',
+        HOOK_SUBAGENT_PARENT_ID: 'lead', HOOK_SUBAGENT_SOURCE: 'delegate', HOOK_SUBAGENT_STATUS: 'running',
+        HOOK_SUBAGENT_ACTIVITY: 'Reading files', HOOK_SUBAGENT_WORKSPACE: '/test/workspace',
+      }) }));
+      const child = vi.mocked(spawn).mock.results.at(-1)?.value;
+      expect(child?.stdin?.write).toHaveBeenCalledWith(expect.stringContaining('"subagent_message":"Check tests"'));
+      expect(child?.stdin?.write).toHaveBeenCalledWith(expect.stringContaining('"subagent_task":"Inspect code"'));
+    });
+
     it('returns only enabled hooks for specific event', async () => {
       await manager.addHook({ event: 'pre-tool', command: 'echo 1', enabled: true });
       await manager.addHook({ event: 'pre-tool', command: 'echo 2', enabled: false });

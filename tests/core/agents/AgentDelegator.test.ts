@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AgentDelegator } from '../../../src/core/agents/AgentDelegator.js';
+import { AgentDelegator, type SubagentStartContext } from '../../../src/core/agents/AgentDelegator.js';
 import { AgentRegistry } from '../../../src/core/agents/AgentRegistry.js';
 import type { ActionExecutor } from '../../../src/core/actionExecutor.js';
 import type { LLMProvider } from '../../../src/providers/LLMProvider.js';
@@ -23,6 +23,66 @@ describe('AgentDelegator typed outcomes', () => {
     vi.restoreAllMocks();
   });
 
+  it('queues follow-ups for one run without delivering them to siblings or later runs', async () => {
+    const registry = AgentRegistry.getInstance();
+    vi.spyOn(registry, 'loadAgents').mockResolvedValue();
+    vi.spyOn(registry, 'getAgent').mockReturnValue({
+      name: 'reader', description: 'Reader', systemPrompt: 'Read source.', tools: [], path: '/tmp/reader.md',
+    });
+    const contexts: SubagentStartContext[] = [];
+    const requests: Array<Parameters<LLMProvider['complete']>[0]> = [];
+    const firstRequest = Promise.withResolvers<void>();
+    const releaseFirst = Promise.withResolvers<void>();
+    const delegator = new AgentDelegator({
+      getName: () => 'autohandai',
+      complete: async request => {
+        requests.push(request);
+        if (request.messages.at(-1)?.content === 'First task') {
+          firstRequest.resolve();
+          await releaseFirst.promise;
+        }
+        return { content: request.messages.at(-1)?.content === 'Inspect tests too.' ? 'Follow-up done.' : 'Done.' };
+      },
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, {} as ActionExecutor, {
+      onSubagentStart: async context => { contexts.push(context); }, threadBudget: new SessionThreadBudget(() => 3),
+    });
+    const first = delegator.delegateTaskForTool('reader', 'First task');
+    await firstRequest.promise;
+    expect(contexts[0].sendMessage?.('Inspect tests too.')).toBe(true);
+    await expect(delegator.delegateTaskForTool('reader', 'Sibling task')).resolves.toMatchObject({ success: true, output: 'Done.' });
+    releaseFirst.resolve();
+    await expect(first).resolves.toMatchObject({ success: true, output: 'Follow-up done.' });
+    expect(contexts[0].sendMessage?.('Late instruction')).toBe(false);
+    await expect(delegator.delegateTaskForTool('reader', 'Later task')).resolves.toMatchObject({ success: true, output: 'Done.' });
+    const siblingRequests = requests.filter(request => request.messages.some(message => message.content === 'Sibling task' || message.content === 'Later task'));
+    for (const request of siblingRequests) expect(request.messages).not.toContainEqual({ role: 'user', content: 'Inspect tests too.' });
+  });
+
+  it('bounds a direct run inbox and rejects follow-ups after cancellation', async () => {
+    const registry = AgentRegistry.getInstance();
+    vi.spyOn(registry, 'loadAgents').mockResolvedValue();
+    vi.spyOn(registry, 'getAgent').mockReturnValue({
+      name: 'reader', description: 'Reader', systemPrompt: 'Read.', tools: [], path: '/tmp/reader.md',
+    });
+    const delegator = new AgentDelegator({
+      getName: () => 'autohandai', complete: vi.fn(async () => ({ content: 'Must not run.' })),
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, {} as ActionExecutor, {
+      onSubagentStart: async context => {
+        expect(context.sendMessage?.(' ')).toBe(false);
+        expect(context.sendMessage?.('x'.repeat(8001))).toBe(false);
+        for (let index = 0; index < 32; index++) expect(context.sendMessage?.(`Message ${index}`)).toBe(true);
+        expect(context.sendMessage?.('Overflow')).toBe(false);
+        context.cancel?.();
+        expect(context.sendMessage?.('After cancellation')).toBe(false);
+      },
+    });
+    await expect(delegator.delegateTaskForTool('reader', 'Read')).resolves.toMatchObject({ success: false, kind: 'aborted' });
+  });
+
   it('pins the selected workspace and original user request across nested delegation', async () => {
     const registry = AgentRegistry.getInstance();
     const previousAgents = registry.getSessionAgents();
@@ -33,11 +93,13 @@ describe('AgentDelegator typed outcomes', () => {
     let workspaceRoot = '/initial-repository';
     let userRequest = 'Review checkout payments in the selected repository. Do not edit files.';
     const requests: Array<Parameters<LLMProvider['complete']>[0]> = [];
-    const onSubagentStart = vi.fn();
+    const onSubagentStart = vi.fn(async (context: SubagentStartContext) => {
+      if (context.depth === 2) context.sendMessage?.('Child-only follow-up.');
+    });
     const complete: LLMProvider['complete'] = async request => {
       requests.push(request);
       userRequest = 'An unrelated later request must not replace the original scope.';
-      const child = request.messages.at(-1)?.content === 'Child work';
+      const child = request.messages.some(message => message.role === 'user' && message.content === 'Child work');
       if (child || request.messages.some(message => message.role === 'tool')) {
         return { id: 'done', created: 0, raw: null, content: 'Review complete.' };
       }
@@ -68,6 +130,10 @@ describe('AgentDelegator typed outcomes', () => {
         expect(context).not.toContain('An unrelated later request');
       }
       expect(onSubagentStart).toHaveBeenCalledTimes(2);
+      for (const request of requests) {
+        const child = request.messages.some(message => message.role === 'user' && message.content === 'Child work');
+        expect(request.messages.some(message => message.role === 'user' && message.content === 'Child-only follow-up.')).toBe(child);
+      }
       for (const [context] of onSubagentStart.mock.calls) {
         expect(context).toMatchObject({
           workspaceRoot: '/selected-repository/worktree',

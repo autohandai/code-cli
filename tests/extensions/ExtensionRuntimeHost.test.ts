@@ -253,6 +253,19 @@ describe('ExtensionRuntimeHost', () => {
     })).toMatchObject({ allowed: false, reason: 'mode_restricted' });
   });
 
+  it('accepts subagent lifecycle hooks from trusted extensions', async () => {
+    const events = ['subagent-start', 'subagent-progress', 'subagent-message', 'subagent-cancel-requested'] as const;
+    const fixture = await makeRuntimePackage({ source: `export function activate(api) {
+      for (const event of ${JSON.stringify(events)}) api.hooks.on(event, () => ({ additionalContext: 'Check tests' }));
+    }` });
+    const service = new ExtensionService({ userRoot: fixture.userRoot, projectRoot: fixture.projectRoot });
+    await service.install(fixture.packageRoot, { trust: true });
+    const host = new ExtensionRuntimeHost();
+    hosts.push(host);
+    await host.sync(await new ExtensionRegistry({ userRoot: fixture.userRoot }).load());
+    expect(host.getHooks().map(hook => hook.event)).toEqual(events);
+  });
+
   it('creates and configures extension providers through the normal provider factory', async () => {
     const fixture = await makeRuntimePackage();
     const service = new ExtensionService({ userRoot: fixture.userRoot });

@@ -223,15 +223,17 @@ export class TeammateProcess {
   /**
    * Send an arbitrary JSON-RPC message to the child process via stdin.
    */
-  send(msg: { method: string; params: Record<string, unknown> }): void {
+  send(msg: { method: string; params: Record<string, unknown> }): boolean {
     if (this.child?.stdin && this.isRunning && !this.transportFailed
       && !this.child.stdin.destroyed && !this.child.stdin.writableEnded) {
       try {
         this.router.send(this.child.stdin, msg);
+        return true;
       } catch (error) {
         this.handleTransportFailure(error);
       }
     }
+    return false;
   }
 
   /**
@@ -241,7 +243,7 @@ export class TeammateProcess {
   assignTask(task: TeamTask): void {
     if (this.childExited || this.transportFailed) return;
     this._status = 'working';
-    this.send({ method: 'team.assignTask', params: { task } });
+    this.send({ method: 'team.assignTask', params: { task, waitForRunReady: true } });
   }
 
   /**

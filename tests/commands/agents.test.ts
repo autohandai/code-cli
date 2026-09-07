@@ -34,6 +34,8 @@ describe('/agents command', () => {
     expect(output).toContain('/team view');
     expect(output).toContain('/squad view');
     expect(output).toContain('c cancel');
+    expect(output).toContain('m message');
+    expect(output).toContain('queued');
   });
   it('opens the session run inspector without entering the global heartbeat view', async () => {
     const onToggleAgentRunsView = vi.fn();

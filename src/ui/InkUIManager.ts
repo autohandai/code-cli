@@ -38,6 +38,7 @@ export interface InkUIManagerOptions {
   taskListPositionProvider?: () => TaskListPosition;
   onEditGoalObjective?: (request: GoalEditRequest) => void | Promise<void>;
   onCancelAgentRun?: (id: string) => void | Promise<unknown>;
+  onMessageAgentRun?: (id: string, text: string) => Promise<boolean>;
   rendererFactory?: (options: InkRendererOptions) => InkRenderer;
 }
 

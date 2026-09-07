@@ -80,6 +80,7 @@ export interface InkRendererOptions {
   taskListPositionProvider?: () => TaskListPosition;
   onEditGoalObjective?: (request: GoalEditRequest) => void | Promise<void>;
   onCancelAgentRun?: (id: string) => void | Promise<unknown>;
+  onMessageAgentRun?: (id: string, text: string) => Promise<boolean>;
 }
 
 export interface SetWorkingOptions {
@@ -196,6 +197,7 @@ interface AgentUIWrapperProps {
   onToggleTeamPanel: () => void;
   onCloseAgentRunsPanel: () => void;
   onCancelAgentRun?: (id: string) => void | Promise<unknown>;
+  onMessageAgentRun?: (id: string, text: string) => Promise<boolean>;
   onToggleGoalPanel: () => void;
   onEditGoalObjective?: (request: GoalEditRequest) => void | Promise<void>;
   onInputChange: (input: string) => void;
@@ -233,6 +235,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       onToggleTeamPanel,
       onCloseAgentRunsPanel,
       onCancelAgentRun,
+      onMessageAgentRun,
       onToggleGoalPanel,
       onEditGoalObjective,
       onInputChange,
@@ -285,6 +288,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         onToggleTeamPanel={onToggleTeamPanel}
         onCloseAgentRunsPanel={onCloseAgentRunsPanel}
         onCancelAgentRun={onCancelAgentRun}
+        onMessageAgentRun={onMessageAgentRun}
         onToggleGoalPanel={onToggleGoalPanel}
         onEditGoalObjective={onEditGoalObjective}
         onInputChange={handleInputChange}
@@ -469,6 +473,7 @@ export class InkRenderer {
             onToggleTeamPanel={() => this.toggleTeamPanel()}
             onCloseAgentRunsPanel={() => this.setAgentRunsPanelVisible(false)}
             onCancelAgentRun={this.options.onCancelAgentRun}
+            onMessageAgentRun={this.options.onMessageAgentRun}
             onToggleGoalPanel={() => this.toggleGoalPanel()}
             onEditGoalObjective={this.options.onEditGoalObjective}
             onInputChange={this.handleInputChange}
@@ -1344,6 +1349,7 @@ export class InkRenderer {
               onToggleTeamPanel={() => this.toggleTeamPanel()}
               onCloseAgentRunsPanel={() => this.setAgentRunsPanelVisible(false)}
               onCancelAgentRun={this.options.onCancelAgentRun}
+              onMessageAgentRun={this.options.onMessageAgentRun}
               onToggleGoalPanel={() => this.toggleGoalPanel()}
               onEditGoalObjective={this.options.onEditGoalObjective}
               onInputChange={this.handleInputChange}

@@ -7,6 +7,7 @@
 import chalk from 'chalk';
 import { AgentRegistry, type AgentDefinition } from './AgentRegistry.js';
 import { formatAgentRoster } from './agentRoster.js';
+import { buildWorkerProjectMemoryContext } from './workerProjectMemory.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
 import { ConversationManager } from '../conversationManager.js';
 import { ToolImageStore } from '../ToolImageStore.js';
@@ -41,6 +42,7 @@ import {
  */
 export interface SubAgentOptions {
     workspaceRoot?: string;
+    projectMemoryEnabled?: boolean;
     userRequest?: string;
     allowedToolNames?: ReadonlySet<string>;
     getPendingInstructions?: () => string[];
@@ -174,6 +176,7 @@ export class SubAgent {
         if (canDelegate) {
             this.delegator = new AgentDelegator(llm, actionExecutor, {
                 workspaceRoot: options.workspaceRoot,
+                projectMemoryEnabled: options.projectMemoryEnabled,
                 getUserRequest: () => options.userRequest,
                 clientContext: options.clientContext,
                 currentDepth: options.depth,
@@ -305,6 +308,15 @@ export class SubAgent {
         options.signal?.throwIfAborted();
         console.log(chalk.cyan(`\nSub-agent '${this.name}' starting task... (depth ${this.options.depth}/${this.options.maxDepth})`));
 
+        const projectMemory = await buildWorkerProjectMemoryContext({
+            workspaceRoot: this.options.workspaceRoot,
+            enabled: this.options.projectMemoryEnabled,
+            canSaveMemory: this.toolManager.listDefinitions().some(tool => tool.name === 'save_memory'),
+            autoMemory: this.options.featureConfig?.agent?.autoMemory,
+        });
+        options.signal?.throwIfAborted();
+        if (projectMemory) this.conversation.addMessage({ role: 'system', content: projectMemory });
+
         if (this.options.userRequest) {
             this.conversation.addMessage({ role: 'user', content: `Original user request:\n${this.options.userRequest}` });
         }
@@ -317,10 +329,10 @@ export class SubAgent {
         const maxIterations = 10;
         for (let i = 0; i < maxIterations; i++) {
             options.signal?.throwIfAborted();
-            for (const instruction of this.options.getPendingInstructions?.() ?? []) {
-                if (instruction.trim()) this.conversation.addMessage({ role: 'user', content: instruction });
-            }
+            this.consumePendingInstructions();
             await this.options.onProgress?.({ status: 'thinking', usage: this.getUsage() });
+            options.signal?.throwIfAborted();
+            this.consumePendingInstructions();
             const requestTools = this.supportsNativeToolCalling
                 && !loopGuard.isForcingFinalResponse()
                 && tools.length > 0
@@ -422,6 +434,7 @@ export class SubAgent {
                 await this.options.onProgress?.({
                     status: 'tool', tool: payload.toolCalls.map(call => call.tool).join(', '), usage: this.getUsage(),
                 });
+                options.signal?.throwIfAborted();
                 const results = await this.toolManager.execute(payload.toolCalls, undefined, { signal: options.signal });
                 options.signal?.throwIfAborted();
 
@@ -460,6 +473,8 @@ export class SubAgent {
                 continue;
             }
 
+            if (this.consumePendingInstructions()) continue;
+
             // No tools, return final response
             const response = payload.finalResponse ?? payload.response ?? completion.content;
             console.log(chalk.cyan(`[${this.name}] Finished.`));
@@ -471,6 +486,12 @@ export class SubAgent {
 
     public getUsage(): LLMUsage {
         return { ...this.usage };
+    }
+
+    private consumePendingInstructions(): boolean {
+        const instructions = (this.options.getPendingInstructions?.() ?? []).filter(instruction => instruction.trim());
+        for (const content of instructions) this.conversation.addMessage({ role: 'user', content });
+        return instructions.length > 0;
     }
 
     private recordRejectedNativeToolCalls(calls: ToolCallRequest[], content: string): void {

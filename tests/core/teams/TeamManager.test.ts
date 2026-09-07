@@ -32,7 +32,7 @@ vi.mock('../../../src/core/teams/TeammateProcess.js', () => {
           this.onMessage = onMessage;
           this.onExit = onExit;
         });
-        this.send = vi.fn();
+        this.send = vi.fn().mockReturnValue(true);
         this.assignTask = vi.fn();
         this.sendMessage = vi.fn();
         this.cancelTask = vi.fn();
@@ -103,6 +103,132 @@ describe('TeamManager', () => {
   it('should not create a second team', () => {
     manager.createTeam('team-a');
     expect(() => manager.createTeam('team-b')).toThrow('already active');
+  });
+
+  it('acknowledges run messages only for the exact task, attempt, and target', async () => {
+    const runStore = new AgentRunStore();
+    manager = new TeamManager({ leadSessionId: 'lead', workspacePath: '/tmp', runStore });
+    manager.createTeam('messages');
+    const worker = manager.addTeammate({ name: 'worker', agentName: 'tester' });
+    emit(worker, 'team.ready', {});
+    const task = manager.tasks.createTask({ subject: 'Review', description: 'Check changes' });
+    manager.tryAssignIdleTeammate();
+    const run = runStore.getSnapshot().runs[0];
+    const settled = vi.fn();
+    const delivery = runStore.sendMessage(run.id, 'Check the cancellation path').then(settled);
+    try {
+      expect(runStore.getSnapshot().runs[0].messageable).toBe(true);
+      const request = vi.mocked(worker.send).mock.calls.find(([message]) => message.method === 'team.runMessage')?.[0];
+      expect(request).toEqual({ method: 'team.runMessage', params: {
+        requestId: expect.any(String), taskId: task.id, runId: run.id, targetRunId: run.id,
+        content: 'Check the cancellation path',
+      } });
+      for (const mismatch of [{ taskId: 'another-task' }, { runId: 'previous-attempt' }, { targetRunId: 'another-run' }]) {
+        emit(worker, 'team.runMessageResult', { ...request?.params, ...mismatch, accepted: true });
+        await Promise.resolve();
+        expect(settled).not.toHaveBeenCalled();
+      }
+      emit(worker, 'team.runMessageResult', { ...request?.params, accepted: true });
+      await delivery;
+      expect(settled).toHaveBeenCalledExactlyOnceWith(true);
+    } finally {
+      exitTeammate(worker, 0);
+      await delivery;
+    }
+  });
+
+  it('rejects stale attempts and targets nested messages without redirecting them to the teammate', async () => {
+    const runStore = new AgentRunStore();
+    manager = new TeamManager({ leadSessionId: 'lead', workspacePath: '/tmp', runStore });
+    manager.createTeam('nested-messages');
+    const worker = manager.addTeammate({ name: 'worker', agentName: 'tester' });
+    emit(worker, 'team.ready', {});
+    const task = manager.tasks.createTask({ subject: 'Review', description: 'Check changes' });
+    manager.tryAssignIdleTeammate();
+    const firstRunId = runStore.getSnapshot().runs[0].id;
+    emit(worker, 'team.taskUpdate', { taskId: task.id, status: 'failed', error: 'Retry' });
+    manager.updateTask(task.id, { status: 'pending' });
+    const currentRunId = runStore.getSnapshot().runs.at(-1)!.id;
+    expect(currentRunId).not.toBe(firstRunId);
+    await expect(runStore.sendMessage(firstRunId, 'Must not enter the retry')).resolves.toBe(false);
+    emit(worker, 'team.subagentStart', {
+      taskId: task.id, subagentId: 'nested-message-run', subagentName: 'reviewer', subagentType: 'researcher',
+      task: 'Inspect cancellation', parentId: currentRunId, messageable: true,
+    });
+    const delivery = runStore.sendMessage('nested-message-run', 'Inspect only this child');
+    try {
+      const request = vi.mocked(worker.send).mock.calls.find(([message]) => message.method === 'team.runMessage')?.[0];
+      expect(request?.params).toMatchObject({ taskId: task.id, runId: currentRunId, targetRunId: 'nested-message-run' });
+      expect(runStore.getSnapshot().runs.at(-1)).toMatchObject({ messageable: true, agentType: 'researcher' });
+      emit(worker, 'team.runMessageResult', { ...request?.params, accepted: false });
+      await expect(delivery).resolves.toBe(false);
+      emit(worker, 'team.subagentStop', { taskId: task.id, subagentId: 'nested-message-run', success: true });
+      await expect(runStore.sendMessage('nested-message-run', 'Too late')).resolves.toBe(false);
+    } finally {
+      exitTeammate(worker, 0);
+      await delivery;
+    }
+  });
+
+  it('settles unacknowledged run messages when transport closes, cancellation starts, or acknowledgement expires', async () => {
+    vi.useFakeTimers();
+    const runStore = new AgentRunStore();
+    manager = new TeamManager({ leadSessionId: 'lead', workspacePath: '/tmp', runStore });
+    manager.createTeam('message-failures');
+    const worker = manager.addTeammate({ name: 'worker', agentName: 'tester' });
+    emit(worker, 'team.ready', {});
+    const task = manager.tasks.createTask({ subject: 'Review', description: 'Check changes' });
+    manager.tryAssignIdleTeammate();
+    const runId = runStore.getSnapshot().runs[0].id;
+    try {
+      vi.mocked(worker.send).mockReturnValueOnce(false);
+      await expect(runStore.sendMessage(runId, 'Closed pipe')).resolves.toBe(false);
+      const timedOut = runStore.sendMessage(runId, 'No acknowledgement');
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(timedOut).resolves.toBe(false);
+      const cancelled = runStore.sendMessage(runId, 'Cancellation race');
+      manager.stopTask(task.id);
+      await expect(cancelled).resolves.toBe(false);
+      emit(worker, 'team.taskUpdate', { taskId: task.id, status: 'cancelled' });
+      manager.updateTask(task.id, { status: 'pending' });
+      const disconnected = runStore.sendMessage(runStore.getSnapshot().runs.at(-1)!.id, 'Disconnect race');
+      exitTeammate(worker, 1);
+      await expect(disconnected).resolves.toBe(false);
+    } finally {
+      exitTeammate(worker, 0);
+    }
+  });
+
+  it('does not let a teammate claim another run identifier and replace its message or cancellation controls', async () => {
+    const runStore = new AgentRunStore();
+    const sendMessage = vi.fn(() => true);
+    const cancel = vi.fn();
+    runStore.start({ id: 'existing-direct-run', source: 'delegate', name: 'reader', task: 'Existing direct work' });
+    runStore.registerMessage('existing-direct-run', sendMessage);
+    runStore.registerCancel('existing-direct-run', cancel);
+    manager = new TeamManager({ leadSessionId: 'lead', workspacePath: '/tmp', runStore });
+    manager.createTeam('run-ownership');
+    const worker = manager.addTeammate({ name: 'worker', agentName: 'tester' });
+    emit(worker, 'team.ready', {});
+    const task = manager.tasks.createTask({ subject: 'Review', description: 'Check changes' });
+    manager.tryAssignIdleTeammate();
+    try {
+      emit(worker, 'team.subagentStart', {
+        taskId: task.id, subagentId: 'existing-direct-run', subagentName: 'spoofed-reader',
+        task: 'Different work', parentId: task.runId, messageable: true,
+      });
+      const delivery = runStore.sendMessage('existing-direct-run', 'For the original run');
+      expect(sendMessage).toHaveBeenCalledExactlyOnceWith('For the original run');
+      await expect(delivery).resolves.toBe(true);
+      await expect(runStore.requestCancel('existing-direct-run')).resolves.toBe(true);
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(worker.send).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'team.runMessage' }));
+      expect(worker.send).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'team.cancelRun' }));
+      emit(worker, 'team.subagentStop', { taskId: task.id, subagentId: 'existing-direct-run', success: true });
+      expect(runStore.getSnapshot().runs[0]).toMatchObject({ name: 'reader', status: 'running' });
+    } finally {
+      exitTeammate(worker, 0);
+    }
   });
 
   it('should add a teammate', () => {
@@ -315,6 +441,7 @@ describe('TeamManager', () => {
     const stdout = new PassThrough();
     vi.mocked(worker.send).mockImplementation((message) => {
       stdin.write(JSON.stringify(message) + '\n');
+      return true;
     });
     vi.mocked(worker.assignTask).mockImplementation((task) => {
       stdin.write(JSON.stringify({ method: 'team.assignTask', params: { task } }) + '\n');
@@ -352,7 +479,7 @@ describe('TeamManager', () => {
     const worker = manager.addTeammate({ name: 'worker', agentName: 'tester' });
     const stdin = new PassThrough();
     const stdout = new PassThrough();
-    vi.mocked(worker.send).mockImplementation((message) => { stdin.write(JSON.stringify(message) + '\n'); });
+    vi.mocked(worker.send).mockImplementation((message) => { stdin.write(JSON.stringify(message) + '\n'); return true; });
     vi.mocked(worker.assignTask).mockImplementation((task) => {
       worker.send({ method: 'team.assignTask', params: { task } });
     });

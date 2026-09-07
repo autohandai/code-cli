@@ -39,6 +39,13 @@ interface AddTeammateOptions {
   agentSource?: string;
 }
 
+interface PendingRunMessage {
+  taskId: string;
+  runId: string;
+  targetRunId: string;
+  finish: (accepted: boolean) => void;
+}
+
 const TEAM_SHUTDOWN_TIMEOUT_MS = 2_000;
 const LEGACY_TEAMMATE_GRACE_MS = 750;
 const UsageSchema = z.object({
@@ -85,6 +92,7 @@ export class TeamManager {
   private readonly lastAssignedRuns = new Map<TeammateProcess, string>();
   private readonly nestedRuns = new Map<TeammateProcess, Set<string>>();
   private readonly authorizations = new Map<TeammateProcess, Map<string, { taskId: string; controller: AbortController }>>();
+  private readonly runMessages = new Map<TeammateProcess, Map<string, PendingRunMessage>>();
 
   constructor(opts: TeamManagerOptions) {
     this.opts = opts;
@@ -286,6 +294,19 @@ export class TeamManager {
         break;
       }
 
+      case 'team.runMessageResult': {
+        const { requestId, taskId, runId, targetRunId, accepted } = msg.params;
+        if (typeof requestId !== 'string' || typeof accepted !== 'boolean') break;
+        const pending = this.runMessages.get(tp)?.get(requestId);
+        if (!pending || pending.taskId !== taskId || pending.runId !== runId || pending.targetRunId !== targetRunId) break;
+        pending.finish(accepted && this.canMessageRun(tp, pending));
+        break;
+      }
+
+      case 'team.runReady':
+        void this.authorizeRunStart(tp, msg.params);
+        break;
+
       case 'team.idle':
         if (this.closing) break;
         if (msg.params.runId !== this.lastAssignedRuns.get(tp)) break;
@@ -411,6 +432,7 @@ export class TeamManager {
         depth: 1,
         source: 'team',
         name,
+        agentType: member.agentName,
         task: task.subject,
         workspaceRoot: this.teammateWorkspaces.get(tp),
         userRequest: task.userRequest,
@@ -418,6 +440,7 @@ export class TeamManager {
         model: member.model,
       });
       this.opts.runStore?.registerCancel(runId, () => { this.stopTask(task.id); });
+      this.opts.runStore?.registerMessage(runId, (content) => this.sendRunMessage(tp, task.id, runId, runId, content));
       tp.setStatus('working');
       tp.send({ method: 'team.updateContext', params: { tasks: this._tasks.listTasks() } });
       tp.assignTask({ ...task, runId });
@@ -462,6 +485,7 @@ export class TeamManager {
     if (task.owner && task.status === 'in_progress') {
       const teammate = this.teammates.get(task.owner);
       if (teammate && this.processLeases.has(teammate)) {
+        this.rejectRunMessages(teammate, task.id);
         this._tasks.updateTask(task.id, { cancelRequested: true, error: reason });
         const runId = this.taskRuns.get(task.id);
         if (runId) this.opts.runStore?.progress(runId, {
@@ -481,6 +505,8 @@ export class TeamManager {
     const runId = this.taskRuns.get(task.id);
     if (!runId || (status !== 'completed' && status !== 'failed' && status !== 'cancelled')) return;
     this.opts.runStore?.finish(runId, { status, result: task.output, error });
+    const teammate = task.owner ? this.teammates.get(task.owner) : undefined;
+    if (teammate) this.rejectRunMessages(teammate, task.id);
     this.taskRuns.delete(task.id);
   }
 
@@ -499,11 +525,11 @@ export class TeamManager {
       if (task.status !== 'in_progress' || typeof params.subagentName !== 'string' || typeof params.task !== 'string') return;
       const parentId = this.taskRuns.get(taskId);
       if (!parentId || (params.parentId !== parentId && !runs?.has(String(params.parentId)))) return;
+      if (runs?.has(subagentId) || this.opts.runStore?.getSnapshot().runs.some((run) => run.id === subagentId)) return;
       if (!runs) {
         runs = new Set();
         this.nestedRuns.set(tp, runs);
       }
-      if (runs.has(subagentId)) return;
       runs.add(subagentId);
       this.opts.runStore?.start({
         id: subagentId,
@@ -511,6 +537,7 @@ export class TeamManager {
         depth: typeof params.depth === 'number' ? Math.max(2, Math.min(4, params.depth)) : 2,
         source: 'delegate',
         name: params.subagentName,
+        ...(typeof params.subagentType === 'string' ? { agentType: params.subagentType } : {}),
         task: params.task,
         workspaceRoot: this.teammateWorkspaces.get(tp),
         userRequest: task.userRequest,
@@ -518,8 +545,13 @@ export class TeamManager {
         ...(typeof params.model === 'string' ? { model: params.model } : {}),
       });
       this.opts.runStore?.registerCancel(subagentId, () => {
+        this.rejectRunMessages(tp, taskId, subagentId);
         tp.send({ method: 'team.cancelRun', params: { runId: subagentId } });
       });
+      if (params.messageable === true) {
+        const runId = task.runId;
+        this.opts.runStore?.registerMessage(subagentId, (content) => this.sendRunMessage(tp, taskId, runId, subagentId, content));
+      }
     } else if (runs?.has(subagentId) && method === 'team.subagentProgress') {
       this.opts.runStore?.progress(subagentId, {
         activity: typeof params.tool === 'string' ? params.tool : 'Thinking',
@@ -535,6 +567,60 @@ export class TeamManager {
         ...this.parseUsage(params.usage),
       });
       runs.delete(subagentId);
+      this.rejectRunMessages(tp, taskId, subagentId);
+    }
+  }
+
+  private canMessageRun(tp: TeammateProcess, target: Pick<PendingRunMessage, 'taskId' | 'runId' | 'targetRunId'>): boolean {
+    const task = this._tasks.getTask(target.taskId);
+    return !this.closing && this.processLeases.has(tp) && this.teammates.get(tp.name) === tp
+      && task?.owner === tp.name && task.status === 'in_progress' && !task.cancelRequested
+      && task.runId === target.runId
+      && (target.targetRunId === target.runId || this.nestedRuns.get(tp)?.has(target.targetRunId) === true);
+  }
+
+  private async authorizeRunStart(tp: TeammateProcess, params: Record<string, unknown>): Promise<void> {
+    const { requestId, taskId, runId, targetRunId } = params;
+    if (typeof requestId !== 'string' || !requestId || requestId.length > 200
+      || typeof taskId !== 'string' || typeof runId !== 'string' || typeof targetRunId !== 'string') return;
+    const target = { taskId, runId, targetRunId };
+    let allowed = false;
+    if (this.canMessageRun(tp, target)) {
+      await this.opts.runStore?.waitForLifecycle(targetRunId);
+      const run = this.opts.runStore?.getSnapshot().runs.find((entry) => entry.id === targetRunId);
+      allowed = this.canMessageRun(tp, target) && (!this.opts.runStore || Boolean(run
+        && (run.status === 'running' || run.status === 'pending') && !run.cancelRequested));
+    }
+    tp.send({ method: 'team.runReadyResult', params: { requestId, ...target, allowed } });
+  }
+
+  private sendRunMessage(tp: TeammateProcess, taskId: string, runId: string, targetRunId: string, content: string): Promise<boolean> {
+    const target = { taskId, runId, targetRunId };
+    if (!this.canMessageRun(tp, target) || (this.runMessages.get(tp)?.size ?? 0) >= 32) return Promise.resolve(false);
+    let pending = this.runMessages.get(tp);
+    if (!pending) {
+      pending = new Map();
+      this.runMessages.set(tp, pending);
+    }
+    const requests = pending;
+    const requestId = randomUUID();
+    return new Promise<boolean>((resolve) => {
+      const timeout = setTimeout(() => finish(false), 5_000);
+      timeout.unref?.();
+      const finish = (accepted: boolean) => {
+        if (!requests.delete(requestId)) return;
+        clearTimeout(timeout);
+        if (requests.size === 0) this.runMessages.delete(tp);
+        resolve(accepted);
+      };
+      requests.set(requestId, { ...target, finish });
+      if (!tp.send({ method: 'team.runMessage', params: { requestId, ...target, content } })) finish(false);
+    });
+  }
+
+  private rejectRunMessages(tp: TeammateProcess, taskId?: string, targetRunId?: string): void {
+    for (const pending of this.runMessages.get(tp)?.values() ?? []) {
+      if ((!taskId || pending.taskId === taskId) && (!targetRunId || pending.targetRunId === targetRunId)) pending.finish(false);
     }
   }
 
@@ -595,6 +681,7 @@ export class TeamManager {
   }
 
   private releaseProcessLeases(tp: TeammateProcess): void {
+    this.rejectRunMessages(tp);
     for (const entry of this.authorizations.get(tp)?.values() ?? []) entry.controller.abort();
     this.authorizations.delete(tp);
     const processLease = this.processLeases.get(tp);

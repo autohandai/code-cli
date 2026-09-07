@@ -53,12 +53,7 @@ interface AgentOutcomeInternals {
     onSubagentStop?: (context: SubagentStopContext) => Promise<void>;
     delegateTask: ReturnType<typeof vi.fn>;
     delegateTaskForTool: ReturnType<typeof vi.fn>;
-    onSubagentStart?: (context: {
-      subagentId: string;
-      subagentName: string;
-      subagentType: string;
-      task: string;
-    }) => Promise<void>;
+    onSubagentStart?: (context: SubagentStartContext) => Promise<void>;
   };
   getInteractionMode(): string;
   inkRenderer?: {
@@ -335,14 +330,17 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
     const { internals } = createAgent();
     internals.hookManager.executeHooks = vi.fn().mockResolvedValue([]);
     const cancel = vi.fn();
+    const sendMessage = vi.fn(() => true);
     const context: SubagentStartContext = {
       subagentId: 'observed-reader', subagentName: 'reader', subagentType: 'builtin',
-      task: 'Inspect source.', parentId: 'lead', depth: 1, provider: 'autohandai', model: 'moa', cancel,
+      task: 'Inspect source.', parentId: 'lead', depth: 1, provider: 'autohandai', model: 'moa', cancel, sendMessage,
     };
     await internals.delegator.onSubagentStart?.(context);
     expect(internals.agentRunStore.getSnapshot().runs).toEqual([expect.objectContaining({
       id: 'observed-reader', source: 'delegate', parentId: 'lead', provider: 'autohandai', model: 'moa',
     })]);
+    expect(await internals.agentRunStore.sendMessage('observed-reader', 'Check tests.')).toBe(true);
+    expect(sendMessage).toHaveBeenCalledWith('Check tests.');
     await internals.agentRunStore.requestCancel('observed-reader');
     expect(cancel).toHaveBeenCalledOnce();
     await internals.delegator.onSubagentStop?.({
@@ -352,6 +350,33 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
     expect(internals.agentRunStore.getSnapshot().runs[0]).toMatchObject({
       status: 'cancelled', cancellable: false, usage: { totalTokens: 2 },
     });
+    expect(await internals.agentRunStore.sendMessage('observed-reader', 'Too late.')).toBe(false);
+    expect(internals.hookManager.executeHooks.mock.calls.filter(([event]) => event === 'subagent-stop')).toHaveLength(1);
+  });
+
+  it('applies lifecycle hook instructions and cancellation to only the emitting subagent', async () => {
+    const { internals } = createAgent();
+    const sendMessage = vi.fn(() => true);
+    const cancel = vi.fn();
+    internals.hookManager.executeHooks = vi.fn(async event => [{
+      hook: { event, command: 'local-worker-policy' }, success: true, duration: 0,
+      response: event === 'subagent-start' ? { additionalContext: 'Stay read-only.' }
+        : event === 'subagent-progress' ? { continue: false }
+          : { additionalContext: 'Must not recursively trigger actions.' },
+    }]);
+    await internals.delegator.onSubagentStart?.({
+      subagentId: 'controlled-worker', subagentName: 'reader', subagentType: 'builtin',
+      task: 'Read source.', sendMessage, cancel,
+    });
+    expect(sendMessage).toHaveBeenCalledExactlyOnceWith('Stay read-only.');
+    expect(cancel).not.toHaveBeenCalled();
+    internals.agentRunStore.progress('controlled-worker', { activity: 'read_file' });
+    await internals.agentRunStore.waitForLifecycle('controlled-worker');
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(internals.hookManager.executeHooks).toHaveBeenCalledWith('subagent-start', expect.objectContaining({
+      subagentId: 'controlled-worker', subagentType: 'builtin',
+    }));
   });
 
   it('maps an MCP protocol error result to an operational failure', async () => {

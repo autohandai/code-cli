@@ -19,6 +19,7 @@ export interface AgentRunInput {
   userRequest?: string;
   provider?: string;
   model?: string;
+  agentType?: string;
 }
 
 export interface AgentRun extends AgentRunInput {
@@ -31,6 +32,7 @@ export interface AgentRun extends AgentRunInput {
   output?: string;
   error?: string;
   cancellable: boolean;
+  messageable?: boolean;
   cancelRequested?: boolean;
 }
 
@@ -62,6 +64,13 @@ export interface AgentRunStoreOptions {
   now?: () => number;
   maxCompletedRuns?: number;
   maxOutputCharacters?: number;
+  onLifecycleEvent?: (event: AgentRunLifecycleEvent) => void | Promise<void>;
+}
+
+export interface AgentRunLifecycleEvent {
+  type: 'start' | 'progress' | 'message' | 'cancel-requested' | 'stop';
+  run: AgentRun;
+  message?: string;
 }
 
 export function isAgentRunActive(run: Pick<AgentRun, 'status'>): boolean {
@@ -72,6 +81,8 @@ export class AgentRunStore {
   private readonly runs = new Map<string, AgentRun>();
   private readonly listeners = new Set<(snapshot: AgentRunsSnapshot) => void>();
   private readonly cancellationHandlers = new Map<string, () => void | Promise<void>>();
+  private readonly messageHandlers = new Map<string, (message: string) => boolean | Promise<boolean>>();
+  private readonly lifecycleTasks = new Map<string, Set<Promise<void>>>();
   private readonly completedRunIds: string[] = [];
   private readonly now: () => number;
   private readonly maxCompletedRuns: number;
@@ -79,7 +90,7 @@ export class AgentRunStore {
   private updatedAt = 0;
   private externalStatus: string | undefined;
 
-  constructor(options: AgentRunStoreOptions = {}) {
+  constructor(private readonly options: AgentRunStoreOptions = {}) {
     this.now = options.now ?? Date.now;
     this.maxCompletedRuns = Math.max(1, Math.floor(options.maxCompletedRuns ?? 100));
     this.maxOutputCharacters = Math.max(1, Math.floor(options.maxOutputCharacters ?? 8192));
@@ -88,8 +99,9 @@ export class AgentRunStore {
   start(input: AgentRunInput): void {
     if (this.runs.has(input.id)) return;
     const now = this.now();
-    this.runs.set(input.id, { ...input, status: 'running', startedAt: now, updatedAt: now, cancellable: false });
+    this.runs.set(input.id, { ...input, status: 'running', startedAt: now, updatedAt: now, cancellable: false, messageable: false });
     this.publish();
+    this.emitLifecycle('start', input.id);
   }
 
   progress(id: string, progress: AgentRunProgress): void {
@@ -101,6 +113,7 @@ export class AgentRunStore {
       ...(progress.output !== undefined ? { output: this.bounded(progress.output) } : {}),
     });
     this.publish();
+    this.emitLifecycle(progress.cancelRequested && !run.cancelRequested ? 'cancel-requested' : 'progress', id);
   }
 
   finish(id: string, completion: AgentRunCompletion): void {
@@ -108,12 +121,14 @@ export class AgentRunStore {
     if (!run || !isAgentRunActive(run)) return;
     const now = this.now();
     this.cancellationHandlers.delete(id);
+    this.messageHandlers.delete(id);
     this.runs.set(id, {
-      ...run, status: completion.status, finishedAt: now, updatedAt: now, cancellable: false, cancelRequested: false, activity: undefined,
+      ...run, status: completion.status, finishedAt: now, updatedAt: now, cancellable: false, messageable: false, cancelRequested: false, activity: undefined,
       ...(completion.result !== undefined ? { output: this.bounded(completion.result) } : {}),
       ...(completion.error !== undefined ? { error: this.bounded(completion.error) } : {}),
       ...(completion.usage ? { usage: { ...completion.usage } } : {}),
     });
+    this.emitLifecycle('stop', id);
     if (run.source !== 'squad') this.completedRunIds.push(id);
     while (this.completedRunIds.length > this.maxCompletedRuns) {
       const oldestId = this.completedRunIds.shift();
@@ -124,6 +139,54 @@ export class AgentRunStore {
 
   private bounded(text: string): string {
     return text.slice(-this.maxOutputCharacters);
+  }
+
+  registerMessage(id: string, handler: (message: string) => boolean | Promise<boolean>): () => void {
+    const run = this.runs.get(id);
+    if (!run || run.source === 'squad' || !isAgentRunActive(run) || run.cancelRequested) return () => {};
+    this.messageHandlers.set(id, handler);
+    this.runs.set(id, { ...run, messageable: true });
+    this.publish();
+    return () => {
+      if (this.messageHandlers.get(id) !== handler) return;
+      this.messageHandlers.delete(id);
+      const current = this.runs.get(id);
+      if (current) this.runs.set(id, { ...current, messageable: false });
+      this.publish();
+    };
+  }
+
+  async sendMessage(id: string, message: string): Promise<boolean> {
+    const run = this.runs.get(id);
+    const handler = this.messageHandlers.get(id);
+    const content = message.trim();
+    if (!run || run.source === 'squad' || !isAgentRunActive(run) || run.cancelRequested
+      || !handler || !content || content.length > 8000) return false;
+    try {
+      const queued = await handler(content);
+      if (queued) this.emitLifecycle('message', id, content);
+      return queued;
+    } catch {
+      return false;
+    }
+  }
+
+  async waitForLifecycle(id: string): Promise<void> {
+    await Promise.all(this.lifecycleTasks.get(id) ?? []);
+  }
+
+  private emitLifecycle(type: AgentRunLifecycleEvent['type'], id: string, message?: string): void {
+    const run = this.runs.get(id);
+    if (!run || run.source === 'squad' || !this.options.onLifecycleEvent) return;
+    const snapshot = { ...run, ...(run.usage ? { usage: { ...run.usage } } : {}) };
+    const task = Promise.resolve().then(() => this.options.onLifecycleEvent?.({ type, run: snapshot, message })).then(() => {}, () => {});
+    const pending = this.lifecycleTasks.get(id) ?? new Set<Promise<void>>();
+    pending.add(task);
+    this.lifecycleTasks.set(id, pending);
+    void task.then(() => {
+      pending.delete(task);
+      if (pending.size === 0) this.lifecycleTasks.delete(id);
+    });
   }
 
   registerCancel(id: string, cancel: () => void | Promise<void>): () => void {
@@ -147,6 +210,7 @@ export class AgentRunStore {
     if (!run || !isAgentRunActive(run) || run.cancelRequested || !cancel) return false;
     this.runs.set(id, { ...run, cancelRequested: true });
     this.publish();
+    this.emitLifecycle('cancel-requested', id);
     try {
       await cancel();
       return true;
@@ -175,7 +239,7 @@ export class AgentRunStore {
     for (const run of runs.slice(-this.maxCompletedRuns)) {
       if (run.source !== 'squad' || this.runs.has(run.id)) continue;
       this.runs.set(run.id, {
-        ...run, cancellable: false,
+        ...run, cancellable: false, messageable: false,
         ...(run.usage ? { usage: { ...run.usage } } : {}),
         ...(run.output !== undefined ? { output: this.bounded(run.output) } : {}),
       });

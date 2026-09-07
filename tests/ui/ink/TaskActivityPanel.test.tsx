@@ -23,14 +23,14 @@ function renderPanel(items: ActivityItem[], maxVisible?: number, terminalRows?: 
 }
 
 describe('TaskActivityPanel', () => {
-  it('identifies sub-agents with text and status marks without decorative emoji', () => {
-    const { lastFrame } = renderPanel([
-      { id: 'reader', kind: 'subagent', label: 'reader: inspect the selected repository', status: 'in_progress' },
-    ]);
-    expect(lastFrame()).toContain('Workers · 1 running');
-    expect(lastFrame()).toContain('reader: inspect the selected repository');
-    expect(lastFrame()).not.toMatch(/\p{Extended_Pictographic}/u);
-  });
+  it.each(['pending', 'in_progress', 'completed', 'failed'] as const)(
+    'does not render a compact worker panel for %s sub-agents', (status) => {
+      const { lastFrame } = renderPanel([
+        { id: 'reader', kind: 'subagent', label: 'reader: inspect the selected repository', status },
+      ]);
+      expect(lastFrame()).toBe('');
+    },
+  );
 
   it('keeps only the summary and active task in a 14-row terminal', () => {
     expect(getTaskActivityMaxVisible(14)).toBe(1);
@@ -52,7 +52,8 @@ describe('TaskActivityPanel', () => {
     expect(frame).toContain('25%');
     expect(frame).toContain('in progress · 1');
     expect(frame).toContain('pending · 2');
-    expect(frame).toContain('Workers · 1 running');
+    expect(frame).not.toContain('Workers');
+    expect(frame).not.toContain('tui-reviewer');
     expect(frame.indexOf('Keep task progress visible')).toBeLessThan(frame.indexOf('Write the failing terminal test'));
     expect(frame.indexOf('Write the failing terminal test')).toBeLessThan(frame.indexOf('Validate the full proof gate'));
     expect(frame).not.toContain('Inspect the existing layout');

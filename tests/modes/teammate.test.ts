@@ -216,6 +216,37 @@ describe('headless teammate tool authorization', () => {
 });
 
 describe("teammate executeTask", () => {
+  it('loads project lessons and supplies the teammate executor with workspace-scoped memory', async () => {
+    const fs = await import('fs-extra');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const { MemoryManager } = await import('../../src/memory/MemoryManager.js');
+    const { ProviderFactory } = await import('../../src/providers/ProviderFactory.js');
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'teammate-project-lessons-'));
+    const memory = new MemoryManager(workspaceRoot);
+    const complete = vi.mocked(ProviderFactory.create({ provider: 'openrouter' }).complete);
+    const captured: { memoryManager?: InstanceType<typeof MemoryManager> } = {};
+    actionExecutorConstructor.mockImplementationOnce((deps: { memoryManager?: InstanceType<typeof MemoryManager> }) => {
+      captured.memoryManager = deps.memoryManager;
+    });
+    try {
+      await memory.store('The payment fixture verifies the selected checkout.', 'project');
+      complete.mockClear();
+      await executeTask({
+        teamName: 'lessons', name: 'reader', agentName: 'tester', leadSessionId: 'lead', workspacePath: workspaceRoot,
+      }, { id: 'lesson-task', subject: 'Review', description: 'Review the fixture without edits.', status: 'in_progress', blockedBy: [], createdAt: '' });
+
+      expect(captured.memoryManager).toBeInstanceOf(MemoryManager);
+      expect(complete.mock.calls[0][0].messages.map(message => String(message.content)).join('\n'))
+        .toContain('The payment fixture verifies the selected checkout.');
+      await captured.memoryManager?.store('The authorized writer verified the checkout build command.', 'project');
+      expect((await memory.list('project')).map(entry => entry.content))
+        .toContain('The authorized writer verified the checkout build command.');
+    } finally {
+      await fs.remove(workspaceRoot);
+    }
+  });
+
   it('preserves the original user request from IPC through the worker provider request', async () => {
     const { ProviderFactory } = await import('../../src/providers/ProviderFactory.js');
     const complete = vi.mocked(ProviderFactory.create({ provider: 'openrouter' }).complete);
@@ -669,6 +700,112 @@ describe("runTeammateModeWithStreams (keep-alive)", () => {
     expect(parseMessages(lines).some((message) => message.params.status === 'completed')).toBe(false);
   });
 
+  it('acknowledges only the active run and bounds its message inbox without dropping accepted messages', async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const lines = collectOutput(stdout);
+    let finish: (result: string) => void = () => {};
+    const execute = vi.fn<typeof executeTask>(() => new Promise<string>((resolve) => { finish = resolve; }));
+    const running = runTeammateModeWithStreams(defaultOpts, stdin, stdout, { execute });
+    try {
+      writeMessage(stdin, 'team.assignTask', { task: { ...taskFixture('task'), runId: 'attempt' } });
+      await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
+      const request = { taskId: 'task', runId: 'attempt', targetRunId: 'attempt', content: 'Inspect this path' };
+      writeMessage(stdin, 'team.runMessage', { ...request, requestId: 'stale', runId: 'old-attempt' });
+      writeMessage(stdin, 'team.runMessage', { ...request, requestId: 'oversized', content: 'x'.repeat(8_001) });
+      writeMessage(stdin, 'team.runMessage', { ...request, requestId: 'empty', content: '   ' });
+      for (let index = 0; index < 33; index++) {
+        writeMessage(stdin, 'team.runMessage', { ...request, requestId: `message-${index}`, content: `Message ${index}` });
+      }
+      const acknowledgements = parseMessages(lines).filter((message) => message.method === 'team.runMessageResult');
+      expect(acknowledgements).toHaveLength(36);
+      for (const requestId of ['stale', 'oversized', 'empty', 'message-32']) {
+        expect(acknowledgements).toContainEqual({ jsonrpc: '2.0', method: 'team.runMessageResult', params: expect.objectContaining({ requestId, accepted: false }) });
+      }
+      expect(acknowledgements.filter((message) => message.params.accepted)).toHaveLength(32);
+      const instructions = execute.mock.calls[0][2]?.getPendingInstructions?.();
+      expect(instructions).toHaveLength(32);
+      expect(instructions?.[0]).toContain('Message 0');
+      expect(instructions?.at(-1)).toContain('Message 31');
+      expect(execute.mock.calls[0][2]?.getPendingInstructions?.()).toEqual([]);
+      writeMessage(stdin, 'team.cancelTask', { taskId: 'task', runId: 'attempt' });
+      writeMessage(stdin, 'team.runMessage', { ...request, requestId: 'cancelled' });
+      expect(parseMessages(lines).at(-1)).toEqual({ jsonrpc: '2.0', method: 'team.runMessageResult', params: expect.objectContaining({ requestId: 'cancelled', accepted: false }) });
+    } finally {
+      finish('Stopped');
+      writeMessage(stdin, 'team.shutdown', {});
+      await running;
+    }
+  });
+
+  it('never carries unread run messages into a later task or accepts an old attempt after retry', async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const lines = collectOutput(stdout);
+    let finish: (result: string) => void = () => {};
+    const execute = vi.fn<typeof executeTask>(() => new Promise<string>((resolve) => { finish = resolve; }));
+    const running = runTeammateModeWithStreams(defaultOpts, stdin, stdout, { execute });
+    try {
+      writeMessage(stdin, 'team.assignTask', { task: { ...taskFixture('same-task'), runId: 'first-attempt' } });
+      await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
+      const oldRequest = { taskId: 'same-task', runId: 'first-attempt', targetRunId: 'first-attempt', content: 'Only the first attempt' };
+      writeMessage(stdin, 'team.runMessage', { ...oldRequest, requestId: 'queued' });
+      expect(parseMessages(lines).at(-1)).toEqual({ jsonrpc: '2.0', method: 'team.runMessageResult', params: expect.objectContaining({ requestId: 'queued', accepted: true }) });
+      finish('First completed');
+      await vi.waitFor(() => expect(parseMessages(lines).at(-1)?.method).toBe('team.idle'));
+      writeMessage(stdin, 'team.assignTask', { task: { ...taskFixture('same-task'), runId: 'second-attempt' } });
+      await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(2));
+      writeMessage(stdin, 'team.runMessage', { ...oldRequest, requestId: 'stale' });
+      expect(parseMessages(lines).at(-1)).toEqual({ jsonrpc: '2.0', method: 'team.runMessageResult', params: expect.objectContaining({ requestId: 'stale', accepted: false }) });
+      expect(execute.mock.calls[1][2]?.getPendingInstructions?.()).toEqual([]);
+    } finally {
+      finish('Second completed');
+      writeMessage(stdin, 'team.shutdown', {});
+      await running;
+    }
+  });
+
+  it('routes nested messages to the exact child callback and rejects stopped or previous-task children', async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const lines = collectOutput(stdout);
+    let finish: (result: string) => void = () => {};
+    const execute = vi.fn<typeof executeTask>(() => new Promise<string>((resolve) => { finish = resolve; }));
+    const running = runTeammateModeWithStreams(defaultOpts, stdin, stdout, { execute });
+    const sendMessage = vi.fn(() => true);
+    try {
+      writeMessage(stdin, 'team.assignTask', { task: { ...taskFixture('task'), runId: 'attempt' } });
+      await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
+      const runtime = execute.mock.calls[0][2];
+      const context = { subagentId: 'nested', subagentName: 'reader', subagentType: 'researcher', task: 'Read changes', parentId: 'attempt', sendMessage };
+      await runtime?.onSubagentStart?.(context);
+      expect(parseMessages(lines).at(-1)).toEqual({ jsonrpc: '2.0', method: 'team.subagentStart', params: expect.objectContaining({ subagentId: 'nested', messageable: true }) });
+      const request = { taskId: 'task', runId: 'attempt', targetRunId: 'nested', content: 'Inspect the nested scope' };
+      writeMessage(stdin, 'team.runMessage', { ...request, requestId: 'nested-message' });
+      expect(sendMessage).toHaveBeenCalledExactlyOnceWith('Inspect the nested scope');
+      expect(runtime?.getPendingInstructions?.()).toEqual([]);
+      expect(parseMessages(lines).at(-1)?.params).toMatchObject({ requestId: 'nested-message', accepted: true });
+      sendMessage.mockReturnValueOnce(false);
+      writeMessage(stdin, 'team.runMessage', { ...request, requestId: 'nested-full' });
+      expect(parseMessages(lines).at(-1)?.params).toMatchObject({ requestId: 'nested-full', accepted: false });
+      await runtime?.onSubagentStop?.({ ...context, success: true, result: 'Done', duration: 1 });
+      writeMessage(stdin, 'team.runMessage', { ...request, requestId: 'nested-stopped' });
+      expect(parseMessages(lines).at(-1)?.params).toMatchObject({ requestId: 'nested-stopped', accepted: false });
+      await runtime?.onSubagentStart?.({ ...context, subagentId: 'unread-child' });
+      finish('First done');
+      await vi.waitFor(() => expect(parseMessages(lines).at(-1)?.method).toBe('team.idle'));
+      writeMessage(stdin, 'team.assignTask', { task: { ...taskFixture('next-task'), runId: 'next-attempt' } });
+      await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(2));
+      writeMessage(stdin, 'team.runMessage', { ...request, taskId: 'next-task', runId: 'next-attempt', targetRunId: 'unread-child', requestId: 'previous-child' });
+      expect(parseMessages(lines).at(-1)?.params).toMatchObject({ requestId: 'previous-child', accepted: false });
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+    } finally {
+      finish('Stopped');
+      writeMessage(stdin, 'team.shutdown', {});
+      await running;
+    }
+  });
+
   it('echoes execution identifiers and ignores a stale cancellation for the same task', async () => {
     const stdin = new PassThrough();
     const stdout = new PassThrough();
@@ -687,6 +824,68 @@ describe("runTeammateModeWithStreams (keep-alive)", () => {
     expect(parseMessages(lines)).toContainEqual(expect.objectContaining({ method: 'team.idle', params: { lastTask: 'retried-task', runId: 'new-run' } }));
     writeMessage(stdin, 'team.shutdown', {});
     await running;
+  });
+
+  it('does not invoke a nested provider when the lead denies nested startup', async () => {
+    const { ProviderFactory } = await import('../../src/providers/ProviderFactory.js');
+    const provider = vi.mocked(ProviderFactory.create)({} as never);
+    const complete = vi.mocked(provider.complete);
+    complete.mockReset().mockResolvedValue({ content: 'Parent finished after cancellation' });
+    complete.mockResolvedValueOnce({ content: '', toolCalls: [{ id: 'nested-call', type: 'function', function: {
+      name: 'delegate_task', arguments: JSON.stringify({ agent_name: 'tester', task: 'Nested review' }),
+    } }] });
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const lines = collectOutput(stdout);
+    stdout.on('data', (chunk: Buffer) => {
+      for (const line of chunk.toString().trim().split('\n')) {
+        const message: { method: string; params: Record<string, unknown> } = JSON.parse(line);
+        if (message.method === 'team.runReady') writeMessage(stdin, 'team.runReadyResult', {
+          ...message.params, allowed: message.params.targetRunId === message.params.runId,
+        });
+        if (message.method === 'team.threadAcquire') writeMessage(stdin, 'team.threadResult', { requestId: message.params.requestId, granted: true });
+        if (message.method === 'team.authorizeTool') {
+          const call = message.params.call as { args: Record<string, unknown> };
+          writeMessage(stdin, 'team.authorizationResult', { requestId: message.params.requestId, result: { allowed: true, args: call.args } });
+        }
+        if (message.method === 'team.idle') writeMessage(stdin, 'team.shutdown', {});
+      }
+    });
+    const running = runTeammateModeWithStreams(defaultOpts, stdin, stdout);
+    try {
+      writeMessage(stdin, 'team.assignTask', { task: { ...taskFixture('nested-parent'), runId: 'parent-attempt' }, waitForRunReady: true });
+      await running;
+      expect(parseMessages(lines)).toContainEqual(expect.objectContaining({
+        method: 'team.subagentStop', params: expect.objectContaining({ status: 'cancelled', success: false }),
+      }));
+      expect(complete).toHaveBeenCalledTimes(2);
+    } finally {
+      writeMessage(stdin, 'team.shutdown', {});
+      await running;
+    }
+  });
+
+  it('ignores a mismatched readiness acknowledgement and stops waiting when stdout closes', async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const lines = collectOutput(stdout);
+    const execute = vi.fn<typeof executeTask>().mockResolvedValue('Must not launch');
+    const settled = vi.fn();
+    const running = runTeammateModeWithStreams(defaultOpts, stdin, stdout, { execute }).then(settled);
+    try {
+      writeMessage(stdin, 'team.assignTask', { task: { ...taskFixture('task'), runId: 'attempt' }, waitForRunReady: true });
+      await vi.waitFor(() => expect(parseMessages(lines).some((message) => message.method === 'team.runReady')).toBe(true));
+      const request = parseMessages(lines).find((message) => message.method === 'team.runReady');
+      writeMessage(stdin, 'team.runReadyResult', { ...request?.params, targetRunId: 'another-run', allowed: true });
+      await Promise.resolve();
+      expect(execute).not.toHaveBeenCalled();
+      stdout.destroy();
+      await vi.waitFor(() => expect(settled).toHaveBeenCalledOnce());
+      expect(execute).not.toHaveBeenCalled();
+    } finally {
+      stdin.end();
+      await running;
+    }
   });
 
   it("sends team.ready on startup", async () => {

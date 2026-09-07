@@ -129,6 +129,47 @@ describe('SubAgent', () => {
     expect(pending).toEqual([]);
   });
 
+  it.each([true, false])('consumes messages arriving during the final response before completing (native=%s)', async nativeToolCalling => {
+    const pending: string[] = [];
+    const requests: Array<Parameters<LLMProvider['complete']>[0]> = [];
+    const agent = new SubAgent({
+      name: 'reader', description: 'Read source', systemPrompt: 'Inspect source.', tools: [], path: '/tmp/reader.md',
+    }, {
+      getName: () => 'autohandai',
+      complete: async request => {
+        requests.push(request);
+        if (requests.length === 1) pending.push('Also review the test evidence.');
+        const response = requests.length === 1 ? 'Initial answer.' : 'Follow-up reviewed.';
+        return { content: nativeToolCalling ? response : JSON.stringify({ finalResponse: response }) };
+      },
+      getCapabilities: () => ({ nativeToolCalling }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, {} as ActionExecutor, {
+      clientContext: 'cli', depth: 1, maxDepth: 1, getPendingInstructions: () => pending.splice(0),
+    });
+    await expect(agent.run('Review source.')).resolves.toBe('Follow-up reviewed.');
+    expect(requests).toHaveLength(2);
+    expect(requests[1].messages).toContainEqual({ role: 'user', content: 'Also review the test evidence.' });
+  });
+
+  it('does not reset the iteration budget when messages keep arriving at completion', async () => {
+    const pending: string[] = [];
+    const complete = vi.fn(async () => {
+      pending.push('One more thing.');
+      return { content: 'Done.' };
+    });
+    const agent = new SubAgent({
+      name: 'reader', description: 'Reader', systemPrompt: 'Read.', tools: [], path: '/tmp/reader.md',
+    }, {
+      getName: () => 'autohandai', complete, getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, {} as ActionExecutor, {
+      clientContext: 'cli', depth: 1, maxDepth: 1, getPendingInstructions: () => pending.splice(0),
+    });
+    await expect(agent.run('Read')).rejects.toThrow('within 10 iterations');
+    expect(complete).toHaveBeenCalledTimes(10);
+  });
+
   it('publishes tool progress and cumulative token usage for the live run inspector', async () => {
     const onProgress = vi.fn();
     const complete = vi.fn()
@@ -173,6 +214,41 @@ describe('SubAgent', () => {
     });
 
     await expect(agent.run('Keep reading')).rejects.toThrow('within 10 iterations');
+  });
+
+  it('includes context queued by a progress hook in the immediately following provider request', async () => {
+    const pending: string[] = [];
+    let queued = false;
+    const complete = vi.fn(async () => ({ content: 'Verified.' }));
+    const agent = new SubAgent({
+      name: 'reader', description: 'Reader', systemPrompt: 'Read.', tools: [], path: '/tmp/reader.md',
+    }, {
+      getName: () => 'autohandai', complete, getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, {} as ActionExecutor, {
+      clientContext: 'cli', depth: 1, maxDepth: 1,
+      getPendingInstructions: () => pending.splice(0),
+      onProgress: async () => { if (!queued) { queued = true; pending.push('Check the policy.'); } },
+    });
+    await expect(agent.run('Read')).resolves.toBe('Verified.');
+    expect(complete).toHaveBeenCalledOnce();
+    expect(complete.mock.calls[0]?.[0].messages).toContainEqual({ role: 'user', content: 'Check the policy.' });
+  });
+
+  it('honours cancellation from a progress hook before starting the provider', async () => {
+    const controller = new AbortController();
+    const complete = vi.fn(async () => ({ content: 'Must not start.' }));
+    const agent = new SubAgent({
+      name: 'reader', description: 'Reader', systemPrompt: 'Read.', tools: [], path: '/tmp/reader.md',
+    }, {
+      getName: () => 'autohandai', complete, getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, {} as ActionExecutor, {
+      clientContext: 'cli', depth: 1, maxDepth: 1,
+      onProgress: async () => { controller.abort(); },
+    });
+    await expect(agent.run('Read', { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(complete).not.toHaveBeenCalled();
   });
 
   it('does not execute proposed tools after the parent aborts during a provider request', async () => {

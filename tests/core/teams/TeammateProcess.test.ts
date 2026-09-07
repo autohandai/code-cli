@@ -6,6 +6,7 @@ import { TeammateProcess } from '../../../src/core/teams/TeammateProcess.js';
 import { TeamManager } from '../../../src/core/teams/TeamManager.js';
 import { AgentRunStore } from '../../../src/core/agents/AgentRunStore.js';
 import type { TeamTask } from '../../../src/core/teams/types.js';
+import { executeTask, runTeammateModeWithStreams } from '../../../src/modes/teammate.js';
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
@@ -502,6 +503,150 @@ describe('TeammateProcess', () => {
     expect(write).toHaveBeenCalledTimes(1);
     child.emit('close', 1);
     await vi.runAllTimersAsync();
+  });
+
+  it('reports whether a protocol message reached a writable child transport', () => {
+    const child = createChild();
+    vi.mocked(spawn).mockReturnValue(child);
+    const tp = createTeammate();
+    const message = { method: 'team.runMessage', params: { content: 'Review this run' } };
+    expect(tp.send(message)).toBe(false);
+    tp.spawn(vi.fn(), vi.fn());
+    try {
+      expect(tp.send(message)).toBe(true);
+      vi.spyOn(child.stdin!, 'write').mockImplementation(() => { throw new Error('write EPIPE'); });
+      expect(tp.send(message)).toBe(false);
+      expect(tp.send(message)).toBe(false);
+    } finally {
+      child.emit('close', 1);
+    }
+    expect(tp.send(message)).toBe(false);
+  });
+
+  it('holds task and nested provider startup behind their lead lifecycle readiness acknowledgements', async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const child = Object.assign(createChild(), { stdin, stdout });
+    vi.mocked(spawn).mockReturnValue(child);
+    const releaseStarts = new Map<string, () => void>();
+    const runStore = new AgentRunStore({ onLifecycleEvent: (event) => {
+      if (event.type === 'start') return new Promise<void>((resolve) => { releaseStarts.set(event.run.id, resolve); });
+    } });
+    const manager = new TeamManager({ leadSessionId: 'lead', workspacePath: '/selected', runStore });
+    manager.createTeam('ready');
+    const task = manager.tasks.createTask({ subject: 'Review', description: 'Inspect code' });
+    manager.addTeammate({ name: 'worker', agentName: 'researcher' });
+    const nestedLaunched = vi.fn();
+    const nestedInstructions: string[] = [];
+    const parentInstructions: string[] = [];
+    const execute = vi.fn<typeof executeTask>(async (_opts, assigned, runtime) => {
+      parentInstructions.push(...(runtime?.getPendingInstructions?.() ?? []));
+      const context = {
+        subagentId: 'nested-ready', subagentName: 'reader', subagentType: 'researcher',
+        parentId: assigned.runId, task: 'Inspect a nested scope',
+        sendMessage: (message: string) => { nestedInstructions.push(message); return true; },
+      };
+      await runtime?.onSubagentStart?.(context);
+      nestedLaunched();
+      await runtime?.onSubagentStop?.({ ...context, success: true, duration: 1 });
+      return 'Reviewed';
+    });
+    const running = runTeammateModeWithStreams({ teamName: 'ready', name: 'worker', agentName: 'researcher', leadSessionId: 'lead' }, stdin, stdout, { execute });
+    try {
+      await vi.waitFor(() => expect(releaseStarts.has(task.runId!)).toBe(true));
+      expect(execute).not.toHaveBeenCalled();
+      await expect(runStore.sendMessage(task.runId!, 'Parent start-hook context')).resolves.toBe(true);
+      releaseStarts.get(task.runId!)?.();
+      await vi.waitFor(() => expect(releaseStarts.has('nested-ready')).toBe(true));
+      expect(nestedLaunched).not.toHaveBeenCalled();
+      await expect(runStore.sendMessage('nested-ready', 'Nested start-hook context')).resolves.toBe(true);
+      releaseStarts.get('nested-ready')?.();
+      await vi.waitFor(() => expect(task.status).toBe('completed'));
+      expect(nestedLaunched).toHaveBeenCalledOnce();
+      expect(parentInstructions).toContain('Parent start-hook context');
+      expect(nestedInstructions).toEqual(['Nested start-hook context']);
+    } finally {
+      for (const release of releaseStarts.values()) release();
+      stdin.write(JSON.stringify({ method: 'team.shutdown', params: {} }) + '\n');
+      await running;
+      child.emit('close', 0);
+    }
+  });
+
+  it('cancels startup without calling the provider while a lead hook is still pending', async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const child = Object.assign(createChild(), { stdin, stdout });
+    vi.mocked(spawn).mockReturnValue(child);
+    let releaseStart: () => void = () => {};
+    const runStore = new AgentRunStore({ onLifecycleEvent: (event) => {
+      if (event.type === 'start') return new Promise<void>((resolve) => { releaseStart = resolve; });
+    } });
+    const manager = new TeamManager({ leadSessionId: 'lead', workspacePath: '/selected', runStore });
+    manager.createTeam('cancel-ready');
+    const task = manager.tasks.createTask({ subject: 'Review', description: 'Inspect code' });
+    manager.addTeammate({ name: 'worker', agentName: 'researcher' });
+    const execute = vi.fn<typeof executeTask>().mockResolvedValue('Must not run');
+    const running = runTeammateModeWithStreams({ teamName: 'cancel-ready', name: 'worker', agentName: 'researcher', leadSessionId: 'lead' }, stdin, stdout, { execute });
+    try {
+      await vi.waitFor(() => expect(task.status).toBe('in_progress'));
+      manager.stopTask(task.id);
+      await vi.waitFor(() => expect(task.status).toBe('cancelled'));
+      expect(execute).not.toHaveBeenCalled();
+    } finally {
+      releaseStart();
+      stdin.write(JSON.stringify({ method: 'team.shutdown', params: {} }) + '\n');
+      await running;
+      child.emit('close', 0);
+    }
+  });
+
+  it.each(['task', 'nested'] as const)('waits for %s progress hooks before continuing work and honors their cancellation', async (target) => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const child = Object.assign(createChild(), { stdin, stdout });
+    vi.mocked(spawn).mockReturnValue(child);
+    let releaseProgress: () => void = () => {};
+    let heldRun: string | undefined;
+    const runStore = new AgentRunStore({ onLifecycleEvent: (event) => {
+      if (event.type === 'progress' && event.run.activity === 'test-boundary') {
+        heldRun = event.run.id;
+        return new Promise<void>((resolve) => { releaseProgress = resolve; });
+      }
+    } });
+    const manager = new TeamManager({ leadSessionId: 'lead', workspacePath: '/selected', runStore });
+    manager.createTeam('progress-ready');
+    const task = manager.tasks.createTask({ subject: 'Review', description: 'Inspect code' });
+    manager.addTeammate({ name: 'worker', agentName: 'researcher' });
+    const continuedWork = vi.fn();
+    const execute = vi.fn<typeof executeTask>(async (_opts, assigned, runtime) => {
+      const progress = { status: 'tool' as const, tool: 'test-boundary' };
+      if (target === 'task') await runtime?.onProgress?.(progress);
+      else {
+        const context = { subagentId: 'nested-progress', subagentName: 'reader', subagentType: 'researcher', parentId: assigned.runId, task: 'Inspect nested code', cancel: vi.fn() };
+        await runtime?.onSubagentStart?.(context);
+        try {
+          await runtime?.onSubagentProgress?.({ ...context, ...progress });
+        } finally {
+          await runtime?.onSubagentStop?.({ ...context, success: false, status: 'cancelled', duration: 1 });
+        }
+      }
+      continuedWork();
+      return 'Must not continue';
+    });
+    const running = runTeammateModeWithStreams({ teamName: 'progress-ready', name: 'worker', agentName: 'researcher', leadSessionId: 'lead' }, stdin, stdout, { execute });
+    try {
+      await vi.waitFor(() => expect(heldRun).toBeDefined());
+      expect(continuedWork).not.toHaveBeenCalled();
+      await expect(runStore.requestCancel(heldRun!)).resolves.toBe(true);
+      await vi.waitFor(() => expect(task.status).not.toBe('in_progress'));
+      expect(continuedWork).not.toHaveBeenCalled();
+    } finally {
+      releaseProgress();
+      stdin.write(JSON.stringify({ method: 'team.shutdown', params: {} }) + '\n');
+      await running;
+      child.emit('close', 0);
+    }
   });
 
   it('coalesces concurrent termination and cancels escalation after child close', async () => {

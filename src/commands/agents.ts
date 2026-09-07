@@ -51,7 +51,8 @@ export async function handler(args: string[] = [], deps: AgentsCommandDeps = {})
         return [
             'Agent commands:',
             '  /agents view              Inspect this session’s direct and team agent runs, results, and usage',
-            '                            ↑/↓ select · Enter details · c cancel (confirmation required) · Esc back',
+            '                            ↑/↓ select · Enter details · m message · c cancel (confirmation required) · Esc back',
+            '                            Messages are queued for the selected worker’s next model step, not marked as read.',
             '  /agents                   Watch global Autohand session heartbeats',
             '  /agents --once            Print one global heartbeat snapshot',
             '  /agents definitions       List configured agent definitions',
@@ -64,7 +65,7 @@ export async function handler(args: string[] = [], deps: AgentsCommandDeps = {})
     if (subcommand === 'view') {
         if (!deps.onToggleAgentRunsView) return 'The session agent inspector is available in an interactive Autohand session. Use /agents view there.';
         deps.onToggleAgentRunsView(true);
-        return 'Session agent inspector opened. Use arrows to select, Enter for details, and Esc to return.';
+        return 'Session agent inspector opened. Use arrows to select, Enter for details, m to message, c to cancel, and Esc to return.';
     }
     if (subcommand && DEFINITION_SUBCOMMANDS.has(subcommand)) {
         return listAgentDefinitions(deps.config);

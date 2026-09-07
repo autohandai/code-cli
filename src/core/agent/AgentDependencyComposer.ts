@@ -38,6 +38,7 @@ import { createToolsRegistry } from '../toolsRegistry.js';
 import type { AgentRuntime, HookEvent, ToolActionOutcome } from '../../types.js';
 import { AgentDelegator } from '../agents/AgentDelegator.js';
 import { AgentRunStore, type AgentRunsSnapshot, type AgentRunSource } from '../agents/AgentRunStore.js';
+import { createAgentRunLifecycleHandler } from '../agents/AgentRunLifecycle.js';
 import { attachTeamActivityBridge, enableAutomaticCoordinationMode } from './TeamActivityBridge.js';
 import { buildTeamTaskPayload, taskToolTruncatesDescriptions } from '../teams/taskPayload.js';
 import { ErrorLogger } from '../errorLogger.js';
@@ -550,7 +551,13 @@ export function initializeAgentDependencies(
     });
 
     // Initialize team manager for /team, /tasks, /message commands
-    host.agentRunStore = new AgentRunStore();
+    host.agentRunStore = new AgentRunStore({
+      onLifecycleEvent: createAgentRunLifecycleHandler({
+        executeHooks: (event, context) => host.hookManager.executeHooks(event, context),
+        sendMessage: (id, content) => host.agentRunStore.sendMessage(id, content),
+        requestCancel: (id) => host.agentRunStore.requestCancel(id),
+      }),
+    });
     host.agentRunStore.subscribe((snapshot: AgentRunsSnapshot) => {
       host.inkRenderer?.setAgentRuns?.(snapshot);
     });
@@ -736,6 +743,7 @@ export function initializeAgentDependencies(
       ?? (runtime.options.restricted ? 'restricted' : 'cli');
     host.delegator = new AgentDelegator(llm, host.actionExecutor, {
       workspaceRoot: runtime.workspaceRoot,
+      projectMemoryEnabled: !runtime.options.bare,
       getWorkspaceRoot: () => runtime.workspaceRoot,
       getUserRequest: () => host.currentInstructionText,
       threadBudget: host.sessionThreadBudget,
@@ -771,8 +779,10 @@ export function initializeAgentDependencies(
           source: 'delegate', name: context.subagentName, task: context.task,
           workspaceRoot: context.workspaceRoot, userRequest: context.userRequest,
           provider: context.provider, model: context.model,
+          agentType: context.subagentType,
         });
         if (context.cancel) host.agentRunStore.registerCancel(context.subagentId, context.cancel);
+        if (context.sendMessage) host.agentRunStore.registerMessage(context.subagentId, context.sendMessage);
         enableAutomaticCoordinationMode({
           isInteractive: !runtime.isCommandMode && !runtime.isRpcMode,
           getInteractionMode: () => host.getInteractionMode(),
@@ -789,12 +799,14 @@ export function initializeAgentDependencies(
             ? `${context.provider} · ${context.model}`
             : context.subagentType,
         });
+        await host.agentRunStore.waitForLifecycle(context.subagentId);
       },
-      onSubagentProgress: (context) => {
+      onSubagentProgress: async (context) => {
         host.agentRunStore.progress(context.subagentId, {
           status: 'running', activity: context.tool ?? 'Thinking', usage: context.usage,
           ...(context.output === undefined ? {} : { output: context.output }),
         });
+        await host.agentRunStore.waitForLifecycle(context.subagentId);
       },
       onSubagentStop: async (context) => {
         host.agentRunStore.finish(context.subagentId, {
@@ -810,14 +822,7 @@ export function initializeAgentDependencies(
             ? `${Math.max(0, Math.round(context.duration / 1000))}s`
             : context.error ?? 'failed',
         });
-        await host.hookManager.executeHooks('subagent-stop', {
-          subagentId: context.subagentId,
-          subagentName: context.subagentName,
-          subagentType: context.subagentType,
-          subagentSuccess: context.success,
-          subagentError: context.error,
-          subagentDuration: context.duration
-        });
+        await host.agentRunStore.waitForLifecycle(context.subagentId);
       }
     });
     host.specialistOrchestrator = new SpecialistOrchestrator(host.delegator, {

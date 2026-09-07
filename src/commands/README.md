@@ -24,7 +24,7 @@ Each command is a separate TypeScript file that exports:
 | `/memory` | `memory.ts` | List memory or inspect, zoom, forget derived summaries, rebuild projections, and delete entries |
 | `/feedback` | `feedback.ts` | Submit feedback |
 | `/agents` | `agents.ts` | Show active Autohand CLI instances |
-| `/agents view` | `agents.ts` | Inspect session agent runs, parentage, results, usage, and cancellation |
+| `/agents view` | `agents.ts` | Inspect live worker activity, results, and usage; message or cancel a selected run |
 | `/agents definitions` | `agents.ts` | List configured sub-agents |
 | `/pr-review` | `pr-review.ts` | Review the current diff, staged changes, or an explicit pull request without publishing a review |
 | `/deslop` | `deslop.ts` | Simplify scoped changes with behavior-preserving tests |
