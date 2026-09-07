@@ -35,6 +35,7 @@ export async function theme(ctx: ThemeContext): Promise<string | null> {
     dracula: 'Vibrant Dracula palette',
     sandy: 'Warm, earthy desert tones',
     tui: 'New Zealand-inspired colors',
+    tuatara: 'Tuatara-inspired lichen, warm stone, and soft amber',
     'github-dark': 'GitHub Dark terminal palette',
     cappadocia: 'Cappadocia-inspired rose valleys, dawn sky, and balloon colors',
     rio: 'Rio-inspired blue macaw, rainforest, and beach-light palette',

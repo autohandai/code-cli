@@ -572,7 +572,7 @@ Siehe [Workspace Safety](./workspace-safety.md) für alle Details.
 
 | Feld                        | Typ   | Standard | Beschreibung                                                                                    |
 | ---------------------------- | ------ | ------- | ---------------------------------------------------------------------------------------------- |
-| `theme`                      | string | `"dark"` | Farbschema für Terminal-Ausgabe. Eingebaute Schemas umfassen `dark`, `light`, `dracula`, `sandy`, `tui`, `github-dark`, `cappadocia`, `rio`, und `australia`. Legacy-Werte `turkey` und `brazil` werden weiterhin als Aliase geladen. |
+| `theme`                      | string | `"dark"` | Farbschema für Terminal-Ausgabe. Eingebaute Schemas umfassen `dark`, `light`, `dracula`, `sandy`, `tui`, `tuatara`, `github-dark`, `cappadocia`, `rio`, und `australia`. Legacy-Werte `turkey` und `brazil` werden weiterhin als Aliase geladen. |
 | `customThemes`               | object | `{}`    | Inline-Definitionen benutzerdefinierter Farbschemas, nach Themenname indiziert. Setzen Sie `theme` auf denselben Schlüssel, um eines zu verwenden.   |
 | `autoConfirm`                | boolean | `false` | Bestätigungsaufforderungen für sichere Operationen überspringen                                                  |
 | `readFileCharLimit`          | number | `300`   | Maximale Anzahl Zeichen, die aus read/find-Tool-Ausgaben angezeigt werden (der vollständige Inhalt wird weiterhin an das Modell gesendet) |

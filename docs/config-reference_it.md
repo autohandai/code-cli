@@ -536,7 +536,7 @@ Per i dettagli completi, consulta [Sicurezza sullo spazio di lavoro](./workspace
 ```
 | Campo | Digitare | Predefinito | Descrizione |
 | ---------------------- | ------ | ------- | ---------------------------------------------------------------------------------------- |
-| `theme` | stringa | `"dark"` | Tema colore per l'output del terminale. Le funzionalità integrate includono `dark`, `light`, `dracula`, `sandy`, `tui`, `github-dark`, `cappadocia`, `rio` e `australia`. I valori legacy `turkey` e `brazil` vengono ancora caricati come alias. |
+| `theme` | stringa | `"dark"` | Tema colore per l'output del terminale. Le funzionalità integrate includono `dark`, `light`, `dracula`, `sandy`, `tui`, `tuatara`, `github-dark`, `cappadocia`, `rio` e `australia`. I valori legacy `turkey` e `brazil` vengono ancora caricati come alias. |
 | `customThemes` | oggetto | `{}` | Definizioni di temi personalizzati incorporati con chiave in base al nome del tema. Imposta `theme` sulla stessa chiave per usarne uno.   |
 | `autoConfirm` | booleano | `false` | Salta le richieste di conferma per operazioni sicure |
 | `readFileCharLimit` | numero | `300` | Numero massimo di caratteri da visualizzare dall'output dello strumento di lettura/trova (il contenuto completo viene comunque inviato al modello) |

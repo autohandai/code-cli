@@ -536,7 +536,7 @@ Aby uzyskać szczegółowe informacje, zobacz [Bezpieczeństwo miejsca pracy](./
 ```
 | Pole | Wpisz | Domyślne | Opis |
 | ---------------------------- | ------ | -------- | -------------------------------------------------------------------------------------------------------- |
-| __AH_KOD_0__ | ciąg | __AH_KOD_1__ | Motyw kolorystyczny dla wyjścia terminala. Wbudowane funkcje obejmują `dark`, `light`, `dracula`, `sandy`, `tui`, `github-dark`, `cappadocia`, `rio` i `australia`. Starsze wartości `turkey` i `brazil` nadal są ładowane jako aliasy. |
+| __AH_KOD_0__ | ciąg | __AH_KOD_1__ | Motyw kolorystyczny dla wyjścia terminala. Wbudowane funkcje obejmują `dark`, `light`, `dracula`, `sandy`, `tui`, `tuatara`, `github-dark`, `cappadocia`, `rio` i `australia`. Starsze wartości `turkey` i `brazil` nadal są ładowane jako aliasy. |
 | __AH_KOD_13__ | obiekt | __AH_KOD_14__ | Wbudowane niestandardowe definicje motywów oznaczone nazwą motywu. Ustaw `theme` na ten sam klucz, aby go użyć.   |
 | __AH_KOD_16__ | wartość logiczna | __AH_KOD_17__ | Pomiń monity o potwierdzenie bezpiecznych operacji |
 | __AH_KOD_18__ | numer | __AH_KOD_19__ | Maksymalna liczba znaków do wyświetlenia z wyników narzędzia odczytu/wyszukiwania (pełna treść jest nadal wysyłana do modelu) |

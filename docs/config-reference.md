@@ -709,7 +709,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 
 | Field                        | Type   | Default | Description                                                                                    |
 | ---------------------------- | ------ | ------- | ---------------------------------------------------------------------------------------------- |
-| `theme`                      | string | `"dark"` | Color theme for terminal output. Built-ins include `dark`, `light`, `dracula`, `sandy`, `tui`, `github-dark`, `cappadocia`, `rio`, and `australia`. Legacy `turkey` and `brazil` values still load as aliases. |
+| `theme`                      | string | `"dark"` | Color theme for terminal output. Built-ins include `dark`, `light`, `dracula`, `sandy`, `tui`, `tuatara`, `github-dark`, `cappadocia`, `rio`, and `australia`. Legacy `turkey` and `brazil` values still load as aliases. |
 | `customThemes`               | object | `{}`    | Inline custom theme definitions keyed by theme name. Set `theme` to the same key to use one.   |
 | `autoConfirm`                | boolean | `false` | Skip confirmation prompts for safe operations                                                  |
 | `readFileCharLimit`          | number | `300`   | Max characters to display from read/find tool output (full content is still sent to the model) |
@@ -734,6 +734,28 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `terminalBell`               | boolean | `true`  | Ring terminal bell when task completes (shows badge on terminal tab/dock)                      |
 | `checkForUpdates`            | boolean | `true`  | Check for CLI updates on startup                                                               |
 | `updateCheckInterval`        | number | `24`    | Hours between update checks (uses cached result within interval)                               |
+
+### Tuatara theme
+
+Select `tuatara` from `/theme`, or set `"ui": { "theme": "tuatara" }` in your config. The selection takes effect immediately and persists across sessions.
+
+Tuatara uses lichen green for focus, warm stone for text, mist blue for functions and links, amber for warnings and numbers, and clay red for errors and removed lines. Its restrained palette draws on the [olive, brown, and orange-red colouring of New Zealand's tuatara](https://www.doc.govt.nz/nature/native-animals/reptiles-and-frogs/tuatara/).
+
+![Tuatara in the built CLI, showing a sample response, coloured diff, and dark olive composer.](./images/tuatara-theme.png)
+
+| Role | Colour |
+| --- | --- |
+| Focus and headings | `#b7c98a` lichen |
+| Main text | `#dfdfcf` warm stone |
+| Secondary text and comments | `#9da992` sage grey |
+| Input background | `#303c2d` dark olive |
+| Success and additions | `#9cba91` fern |
+| Errors and removals | `#e69a83` clay |
+| Warnings and numbers | `#d9bd7b` amber |
+
+Use a dark terminal background; `#171c17` is the reference background. Autohand styles its own input and tool surfaces but leaves the terminal's background setting to you. Tests check at least 4.5:1 contrast for text, syntax, and status colours against the reference background and these surfaces, and at least 7:1 for input text. These use the [W3C contrast calculation](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html); terminal palettes, transparency, and font rendering can affect the displayed result. Truecolor preserves the full palette; 256-colour and 16-colour terminals use the existing fallback conversion. Status labels and diff `+`/`-` markers remain readable when colour output is disabled.
+
+### Custom themes
 
 Custom themes can override any semantic color token. Missing tokens are inherited from the dark theme:
 

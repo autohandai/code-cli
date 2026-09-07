@@ -83,6 +83,7 @@ export {
 export {
   darkTheme,
   lightTheme,
+  tuataraTheme,
   githubDarkTheme,
   cappadociaTheme,
   rioTheme,
