@@ -510,12 +510,27 @@ Create `~/.autohand/config.json` or use `config.toml`, `config.yaml`, or `config
 Sessions are auto-saved to `~/.autohand/sessions/`:
 
 ```bash
-# Resume via command
-autohand resume <session-id>
+# Pick a session from the current project
+autohand resume
+
+# Resume the most recently active session in this project
+autohand resume --last
+
+# Browse all projects, or resume the most recently active session across them
+autohand resume --all
+autohand resume --last --all
+
+# Resume by full ID, unique ID prefix, or saved session directory/file
+autohand resume <reference>
+
+# Select sessions for a different workspace
+autohand resume --path /path/to/project
 
 # Or in interactive mode
 /resume
 ```
+
+The picker supports arrow keys, Enter, and page navigation for older sessions. Escape or Ctrl+C cancels without starting a session. `--last` uses the last activity time, falling back to creation time for older session metadata. Without a terminal, provide `--last` or an explicit reference. References cannot be combined with `--last` or `--all`; `-c` remains auto-commit.
 
 ## Entire Integration
 

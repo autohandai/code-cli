@@ -1,0 +1,11 @@
+
+ Choose a session
+
+ ▸ 1. Other project session
+      Jan 4 - 0 messages - elsewhere
+   2. Newer project session
+      Jan 3 - 0 messages - workspace
+   3. Active project session
+      Jan 1 - 0 messages - workspace
+
+ ↑↓ Navigate · ↵ Select · 1-9 Shortcut · ESC Cancel

@@ -236,15 +236,28 @@ export class SessionManager {
         return session;
     }
 
-    private getIndexedSessions(filter?: { project?: string; since?: Date }): SessionIndex['sessions'] {
+    private async getIndexedSessions(filter?: { project?: string; since?: Date }): Promise<SessionIndex['sessions']> {
         if (!this.index) return [];
 
         let sessions = [...this.index.sessions];
 
         if (filter?.project) {
             const projectPath = path.resolve(filter.project);
-            const sessionIds = this.index.byProject[projectPath] || [];
-            sessions = sessions.filter(s => sessionIds.includes(s.id));
+            const canonicalPath = await fs.realpath(projectPath).catch(() => projectPath);
+            const matches = await runWithConcurrency(
+                Object.entries(this.index.byProject).map(([indexedPath, ids]) => ({
+                    label: `resolve session project ${indexedPath}`,
+                    run: async (): Promise<string[]> => {
+                        const resolvedPath = path.resolve(indexedPath);
+                        if (resolvedPath === projectPath) return ids;
+                        const canonicalIndexedPath = await fs.realpath(resolvedPath).catch(() => resolvedPath);
+                        return canonicalIndexedPath === canonicalPath ? ids : [];
+                    },
+                })),
+                8,
+            );
+            const sessionIds = new Set(matches.flat());
+            sessions = sessions.filter(s => sessionIds.has(s.id));
         }
 
         if (filter?.since) {
@@ -278,7 +291,7 @@ export class SessionManager {
         await this.loadIndex();
         if (!this.index) return [];
 
-        const fullMetadata = await this.loadIndexedSessionMetadata(this.getIndexedSessions(filter));
+        const fullMetadata = await this.loadIndexedSessionMetadata(await this.getIndexedSessions(filter));
 
         return fullMetadata.sort((a, b) =>
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -292,12 +305,14 @@ export class SessionManager {
     async listRecentSessions(
         filter?: { project?: string; since?: Date },
         limit = 20,
+        offset = 0,
     ): Promise<{ sessions: SessionMetadata[]; total: number }> {
         await this.loadIndex();
         if (!this.index) return { sessions: [], total: 0 };
 
-        const indexedSessions = this.getIndexedSessions(filter);
-        const sessions = await this.loadIndexedSessionMetadata(indexedSessions.slice(0, Math.max(0, limit)));
+        const indexedSessions = await this.getIndexedSessions(filter);
+        const start = Math.max(0, offset);
+        const sessions = await this.loadIndexedSessionMetadata(indexedSessions.slice(start, start + Math.max(0, limit)));
 
         return {
             sessions: sessions.sort((a, b) =>
@@ -309,7 +324,13 @@ export class SessionManager {
 
     async getLastSession(projectPath?: string): Promise<SessionMetadata | null> {
         const sessions = await this.listSessions(projectPath ? { project: projectPath } : undefined);
-        return sessions[0] || null;
+        const activityTime = (metadata: SessionMetadata): number => {
+            const activeAt = Date.parse(metadata.lastActiveAt);
+            return Number.isFinite(activeAt) ? activeAt : Date.parse(metadata.createdAt) || 0;
+        };
+        return sessions.reduce<SessionMetadata | null>((latest, session) => {
+            return !latest || activityTime(session) > activityTime(latest) ? session : latest;
+        }, null);
     }
 
     async closeSession(summary?: string): Promise<void> {
