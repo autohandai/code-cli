@@ -6,6 +6,7 @@
 import crypto from 'node:crypto';
 
 import type { AutohandAgent } from '../../core/agent.js';
+import { AgentRegistry } from '../../core/agents/AgentRegistry.js';
 import type { HookContext } from '../../core/HookManager.js';
 import { resolveReviewCommand } from '../../commands/review.js';
 import {
@@ -109,6 +110,7 @@ import type {
   ApplyFlagSettingsResult,
   GetSupportedModelsResult,
   GetSupportedCommandsResult,
+  GetSupportedAgentsResult,
   GetToolsRegistryResult,
   GetContextUsageResult,
   ReloadPluginsResult,
@@ -2907,6 +2909,24 @@ export class RPCAdapter {
     return {
       tools: registry.getRegistryEntries({ includeDisabled: true }),
       diagnostics: registry.getDiagnostics(),
+    };
+  }
+
+  /** Return the same effective registry used by delegation, without agent prompts. */
+  handleGetSupportedAgents(): GetSupportedAgentsResult {
+    if (!this.agent) throw new Error('Agent not initialized');
+    return {
+      agents: AgentRegistry.getInstance().getAllAgents().map(agent => ({
+        id: agent.name,
+        name: agent.name,
+        description: agent.description,
+        tools: [...agent.tools],
+        model: agent.model,
+        source: agent.source,
+        extensionId: agent.extensionId,
+        extensionVersion: agent.extensionVersion,
+        extensionScope: agent.extensionScope,
+      })),
     };
   }
 

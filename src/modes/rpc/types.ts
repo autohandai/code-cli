@@ -5,6 +5,7 @@
  */
 import type { PermissionPromptDecision, PermissionPromptResult } from '../../permissions/types.js';
 import type { AuthUser, McpServerConfigEntry, ToolRegistryEntry } from '../../types.js';
+import type { AgentDefinition } from '../../core/agents/AgentRegistry.js';
 import type {
   ExperimentConstraintConfig,
   ExperimentRetentionConfig,
@@ -269,6 +270,7 @@ export const RPC_METHODS = {
   APPLY_FLAG_SETTINGS: 'autohand.applyFlagSettings',
   GET_SUPPORTED_MODELS: 'autohand.getSupportedModels',
   GET_SUPPORTED_COMMANDS: 'autohand.getSupportedCommands',
+  GET_SUPPORTED_AGENTS: 'autohand.getSupportedAgents',
   GET_TOOLS_REGISTRY: 'autohand.getToolsRegistry',
   GET_CONTEXT_USAGE: 'autohand.getContextUsage',
   RELOAD_PLUGINS: 'autohand.reloadPlugins',
@@ -1761,6 +1763,14 @@ export interface GetSupportedModelsResult {
  */
 export interface GetSupportedCommandsResult {
   commands: string[];
+}
+
+/** Effective agent definitions available for delegation in this runtime. */
+export interface GetSupportedAgentsResult {
+  agents: Array<Pick<AgentDefinition,
+    'name' | 'description' | 'tools' | 'model' | 'source' |
+    'extensionId' | 'extensionVersion' | 'extensionScope'
+  > & { id: string }>;
 }
 
 /**

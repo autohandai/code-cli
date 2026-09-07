@@ -88,6 +88,7 @@ vi.mock('../../../src/browser/chrome.js', () => ({
 // Import after mocks
 import { RPCAdapter } from '../../../src/modes/rpc/adapter.js';
 import { writeNotification } from '../../../src/modes/rpc/protocol.js';
+import { AgentRegistry } from '../../../src/core/agents/AgentRegistry.js';
 
 const originalDebugValue = process.env.AUTOHAND_DEBUG;
 
@@ -144,6 +145,33 @@ describe('RPC Adapter - P2 Handlers', () => {
     } else {
       process.env.AUTOHAND_DEBUG = originalDebugValue;
     }
+  });
+
+  describe('supported agents', () => {
+    it('returns effective agent metadata without exposing prompts or mutable registry arrays', () => {
+      const definitions = [
+        { name: 'reviewer', description: 'Review code', tools: ['read_file'], source: 'builtin' as const },
+        { name: 'inline-checker', description: 'Session helper', tools: ['*'], model: 'fantail', source: 'session' as const },
+        { name: 'extension-checker', description: 'Package helper', tools: ['read_file'], source: 'extension' as const,
+          extensionId: 'fixture', extensionVersion: '1.0.0', extensionScope: 'project' as const },
+      ].map(definition => ({ ...definition, path: '/private/definition.json', systemPrompt: 'private instructions' }));
+      const registry = vi.spyOn(AgentRegistry.getInstance(), 'getAllAgents').mockReturnValue(definitions);
+      try {
+        const result = adapter.handleGetSupportedAgents();
+        expect(result.agents).toEqual(definitions.map(({ name, description, tools, source, model, extensionId, extensionVersion, extensionScope }) => ({
+          id: name, name, description, tools, source, model, extensionId, extensionVersion, extensionScope,
+        })));
+        expect(JSON.stringify(result)).not.toContain('private');
+        result.agents[0].tools.push('run_command');
+        expect(definitions[0].tools).toEqual(['read_file']);
+      } finally {
+        registry.mockRestore();
+      }
+    });
+
+    it('does not report an empty registry before agent initialization', () => {
+      expect(() => new RPCAdapter().handleGetSupportedAgents()).toThrow('Agent not initialized');
+    });
   });
 
   describe('tool lifecycle notifications', () => {
