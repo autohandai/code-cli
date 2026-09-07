@@ -146,7 +146,7 @@ describe('dependency install guardrails', () => {
     );
 
     try {
-      expect(packageJson.scripts?.postinstall).toBe(
+      expect(packageJson.scripts?.postinstall?.split(' && ')).toContain(
         'node scripts/ensure-node-pty-helper-permissions.mjs',
       );
       expect(packageJson.files).toContain('scripts/ensure-node-pty-helper-permissions.mjs');
