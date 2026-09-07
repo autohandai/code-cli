@@ -773,6 +773,8 @@ export function AgentUI({
   const extensionKeybindings = state.extensionKeybindings ?? extensionKeybindingProps;
   const [input, setInput] = useState(state.currentInput || '');
   const [cursorOffset, setCursorOffset] = useState((state.currentInput || '').length);
+  const [isReadingHistory, setIsReadingHistory] = useState(false);
+  const readingHistoryRef = useRef(false);
   const [ctrlCCount, setCtrlCCount] = useState(0);
   const [planModeIndicator, setPlanModeIndicator] = useState('');
   const [planModeStatusKey, setPlanModeStatusKey] = useState('');
@@ -1003,6 +1005,8 @@ export function AgentUI({
   }, []);
 
   const insertPastedText = useCallback((pastedText: string) => {
+    readingHistoryRef.current = false;
+    setIsReadingHistory(false);
     const imageDetector = onImageDetectedRef.current;
     const processedText = imageDetector
       ? processImagesInText(pastedText, imageDetector, { announce: false })
@@ -1398,8 +1402,18 @@ export function AgentUI({
     if (mouseComposerCursor) {
       const mouseInput = parseSgrMouseInput(char);
       if (mouseInput) {
+        if (mouseInput.action === 'wheel') {
+          // Mouse reporting redirects the wheel away from native scrollback.
+          // Yield it until keyboard input resumes; background goal updates must
+          // not recapture the wheel or move the composer cursor while reading.
+          pendingMouseClickRef.current = null;
+          readingHistoryRef.current = true;
+          setIsReadingHistory(true);
+          return;
+        }
         if (
-          mouseInput.action === 'press'
+          !readingHistoryRef.current
+          && mouseInput.action === 'press'
           && mouseInput.button === 'left'
           && composerLayoutRef.current
         ) {
@@ -1480,6 +1494,8 @@ export function AgentUI({
       // (tmux without passthrough, a repaint racing the query). Drop the stale
       // click so a later CPR-shaped report cannot hijack the caret.
       pendingMouseClickRef.current = null;
+      readingHistoryRef.current = false;
+      setIsReadingHistory(false);
     }
 
     const pasteResult = consumeInkBracketedPasteInput(char, pasteStateRef.current);
@@ -2302,6 +2318,7 @@ export function AgentUI({
         nextPromptSuggestion={composerNextPromptSuggestion}
         inlineGhostSuffix={composerInlineGhostSuffix}
         mouseComposerCursor={mouseComposerCursor}
+        isReadingHistory={isReadingHistory}
         enableMouseTargetControls={mouseComposerCursor && (
           liveCommandItems.length > 0
           || (state.goalPanelVisible && goalItemsRef.current.length > 0)
@@ -3034,6 +3051,7 @@ interface FixedBottomProps {
   nextPromptSuggestion?: string;
   inlineGhostSuffix?: string;
   mouseComposerCursor?: boolean;
+  isReadingHistory: boolean;
   /** Keep mouse tracking active while a rendered block exposes a click target. */
   enableMouseTargetControls: boolean;
   onComposerLayoutChange?: (layout: ComposerOutputLayout | null) => void;
@@ -3142,6 +3160,7 @@ const FixedBottom = memo(function FixedBottom({
   nextPromptSuggestion,
   inlineGhostSuffix,
   mouseComposerCursor,
+  isReadingHistory,
   enableMouseTargetControls,
   onComposerLayoutChange,
   showShortcuts,
@@ -3202,9 +3221,9 @@ const FixedBottom = memo(function FixedBottom({
         placeholderText={placeholderText}
         nextPromptSuggestion={nextPromptSuggestion}
         inlineGhostSuffix={inlineGhostSuffix}
-        enableHardwareCursor={composerCursorIntent.enabled || enableMouseTargetControls}
-        refreshHardwareCursor={composerCursorIntent.refreshOnParentRender}
-        enableMouseCursor={mouseComposerCursor}
+        enableHardwareCursor={!isReadingHistory && (composerCursorIntent.enabled || enableMouseTargetControls)}
+        refreshHardwareCursor={!isReadingHistory && composerCursorIntent.refreshOnParentRender}
+        enableMouseCursor={mouseComposerCursor && !isReadingHistory}
         onLayoutChange={onComposerLayoutChange}
       />
       <FileMentionWrapper fileMentionDropdown={fileMentionDropdown} />
