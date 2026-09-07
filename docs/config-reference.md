@@ -1874,8 +1874,8 @@ Configuration for lifecycle hooks that run shell commands on agent events. Open 
         "filter": { "path": ["src/**/*.ts"] }
       },
       {
-        "event": "post-response",
-        "command": "curl -X POST https://api.example.com/webhook -d '{\"tokens\": $HOOK_TOKENS}'",
+        "event": "stop",
+        "command": "printf '%s\\n' \"$HOOK_TOKENS\" >> token-usage.log",
         "description": "Track token usage",
         "async": true
       }
@@ -1901,7 +1901,24 @@ Configuration for lifecycle hooks that run shell commands on agent events. Open 
 | `enabled`     | boolean | No       | `true`  | Whether hook is active           |
 | `timeout`     | number  | No       | `5000`  | Timeout in milliseconds          |
 | `async`       | boolean | No       | `false` | Run without blocking             |
+| `matcher`     | string  | No       | -       | Regular expression for the event's tool name, session type, notification type, or other supported context |
 | `filter`      | object  | No       | -       | Filter by tool or path           |
+| `importedFrom` | object | No       | -       | Import-generated source metadata used for compatibility, workspace scope, and deduplication |
+
+`filter.tool` accepts an array of Autohand tool names, and `filter.path` accepts an array of path globs. Imported hooks also apply their source event's matching rules and success/failure filters. See [Matchers](./hooks.md#matcher-regex-filtering) for event-specific matching.
+
+### Imported Hook Metadata
+
+The import feature writes `importedFrom` on each imported definition. Keep this metadata when editing a definition: it selects the source payload adapter and preserves project scope and duplicate detection.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | string | Generated identifier used to skip unchanged definitions on repeat imports |
+| `source` | string | `claude`, `codex`, `cursor`, or `grok` |
+| `event` | string | Original source event name, such as `PreToolUse` or `preToolUse` |
+| `configPath` | string | Path of the source configuration file |
+| `workspaceRoot` | string, optional | Restricts a project hook to its original workspace |
+| `workingDirectory` | string, optional | Retains a source-specific working directory, including Cursor user hooks |
 
 ### Hook Events
 
@@ -1910,10 +1927,27 @@ Configuration for lifecycle hooks that run shell commands on agent events. Open 
 | `pre-tool`      | Before any tool executes              |
 | `post-tool`     | After tool completes                  |
 | `file-modified` | When file is created/modified/deleted |
-| `pre-prompt`    | Before sending to LLM                 |
-| `post-response` | After LLM responds                    |
+| `pre-prompt`    | Before prompt preparation and model calls in interactive, command, ACP, and JSON-RPC turns |
+| `stop`         | After the agent finishes a turn, including configured ACP stop hooks |
+| `post-response` | Backward-compatible alias for `stop` |
+| `session-start` | When a session starts, resumes, or is cleared |
+| `session-end`   | When a session ends |
+| `pre-clear`     | Before memory extraction on `/clear` or `/new` |
+| `permission-request` | Before a permission prompt |
+| `notification` | When a notification is sent to the user |
 | `session-error` | When error occurs                     |
 | `rate-limit`    | When a rate limit ends the turn       |
+| `mode-change`   | When permission mode changes, with previous and current modes |
+| `pre-learn`     | Before a learn operation, including `/learn` analysis |
+| `post-learn`    | After a learn operation, with its success state |
+| `autoresearch:decision` | When an experiment decision is persisted |
+| `autoresearch:replay` | When an isolated candidate replay completes |
+| `autoresearch:rescore` | When stored measurements are rescored |
+| `autoresearch:prune` | When artifact retention is previewed or applied |
+
+This table lists common events and the recent wiring additions. Use `/hooks list` or the [complete event catalog](./hooks.md#hook-events) for all automode, autoresearch, team, review, and context events. Autoresearch decision, replay, rescore, and prune hooks also support matchers.
+
+A `pre-prompt` hook can prevent model work with a JSON `decision` of `deny` or `block`, `continue: false`, or exit code 2. Supported `additionalContext` is added to the conversation. Running prompt hooks can be canceled with Escape in the interactive CLI or through protocol cancellation. See [control flow responses](./hooks.md#control-flow-responses) for response fields and event-specific behavior.
 
 ### Environment Variables
 
@@ -1927,7 +1961,30 @@ When hooks execute, these environment variables are available:
 | `HOOK_ARGS`      | JSON-encoded tool args      |
 | `HOOK_SUCCESS`   | true/false (post-tool)      |
 | `HOOK_PATH`      | File path (file-modified)   |
-| `HOOK_TOKENS`    | Tokens used (post-response) |
+| `HOOK_TOKENS`    | Tokens used (`stop`) |
+| `HOOK_PREVIOUS_MODE` | Previous permission mode (`mode-change`) |
+| `HOOK_MODE` | Current permission mode (`mode-change`) |
+
+Hooks also receive JSON on stdin. Mode changes include `previous_mode` and `mode`. See the [complete environment-variable reference](./hooks.md#environment-variables) and source adapter notes for imported hooks.
+
+### Import Hooks from Another Coding Agent
+
+```sh
+autohand import claude --categories hooks
+autohand import codex --categories hooks
+autohand import cursor --categories hooks
+autohand import grok --categories hooks
+```
+
+Inside a session, use `/import claude --categories hooks` (or another source name). The slash command persists definitions and updates the current hook manager. The standalone CLI respects `--path`, `--config`, and `AUTOHAND_CONFIG`, including JSON, TOML, and YAML destination configs. Use `--dry-run` to scan without writing, or `--all --categories hooks` to restrict an all-source import to hooks.
+
+Imported command hooks are **saved with `enabled: false`**. Review their scripts, then enable selected entries through `/hooks manage`. The global `hooks.enabled` switch still applies. Importing does not execute commands, copy scripts, install dependencies, or inherit another agent's trust approvals. Unchanged repeat imports are skipped and preserve the enabled state of existing definitions.
+
+The importer reads user and current-project configurations for Claude Code, Codex, Cursor, and Grok. Codex supports both `hooks.json` and nested TOML hook definitions; Grok import currently handles hooks only. Project hooks retain their workspace scope. Source timeout values are converted from seconds to Autohand's milliseconds.
+
+Only compatible command hooks are translated. Unsupported source HTTP, prompt/agent, async, and `failClosed` handlers are reported as skipped, along with events that require unavailable behavior such as turn continuation or pre-compaction. Legacy Codex `notify` commands are detected and reported for manual porting because they receive JSON in argv. Source-specific payloads and tool schemas are not fully reproduced.
+
+See [hook import compatibility](./hooks.md#import-hooks-from-another-coding-agent) for source file locations, event mappings, timeout defaults, supported responses, and manual-porting limits.
 
 ---
 
