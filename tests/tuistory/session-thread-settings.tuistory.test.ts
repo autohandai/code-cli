@@ -6,7 +6,7 @@
 import fs from 'fs-extra';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
-import { configureSessionThreadLimit, setSessionThreadLimitDirectly } from '../../src/testing/scenarios/sessionThreadSettingsScenario.js';
+import { configureSessionThreadLimit, setSessionThreadLimitDirectly, submitSessionThreadLimitAlias } from '../../src/testing/scenarios/sessionThreadSettingsScenario.js';
 import { loadConfig } from '../../src/config.js';
 import {
   createTempAutohandHome,
@@ -24,6 +24,32 @@ afterEach(async () => {
 });
 
 describe('session thread settings Tuistory', () => {
+  it('echoes each settings submission once, including an intentionally repeated command', async () => {
+    const state = await createTempAutohandHome({
+      config: { ui: { promptSuggestions: false }, features: { automaticSpecialists: false } },
+    });
+    states.push(state);
+    const session = await launchBuiltAutohand([
+      '--path', state.workspaceRoot, '--config', state.configPath, '--yes',
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      cols: 120,
+      rows: 40,
+      waitForDataTimeout: 15_000,
+    });
+    sessions.push(session);
+
+    const first = await submitSessionThreadLimitAlias(session, 4);
+    expect(first.match(/\/settings max_agents 4/g)).toHaveLength(1);
+    await setSessionThreadLimitDirectly(session, 1);
+    const repeated = await submitSessionThreadLimitAlias(session, 4);
+    expect(repeated.match(/\/settings max_agents 4/g)).toHaveLength(2);
+
+    await exitInteractive(session);
+    sessions.splice(sessions.indexOf(session), 1);
+  }, 60_000);
+
   it('validates a Teams limit, saves it, and accepts the direct settings command', async () => {
     const state = await createTempAutohandHome({
       config: {

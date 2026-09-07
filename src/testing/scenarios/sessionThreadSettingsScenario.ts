@@ -41,3 +41,18 @@ export async function setSessionThreadLimitDirectly(session: Session, limit: num
   await session.press('enter');
   await waitForScreen(session, `Set features.multi_agent_v2.max_concurrent_threads_per_session = ${limit}`);
 }
+
+export async function submitSessionThreadLimitAlias(session: Session, limit: number): Promise<string> {
+  const command = `/settings max_agents ${limit}`;
+  const result = `Set features.multi_agent_v2.max_concurrent_threads_per_session = ${limit}`;
+  const priorResults = session.readAll().split(result).length - 1;
+  await waitForScreen(session, '❯');
+  await session.type(command);
+  await waitForScreen(session, command);
+  await session.press('enter');
+  await session.text({
+    timeout: 20_000,
+    waitFor: () => session.readAll().split(result).length - 1 > priorResults,
+  });
+  return session.readAll();
+}
