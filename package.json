@@ -21,6 +21,7 @@
   "files": [
     "dist",
     "scripts/ensure-node-pty-helper-permissions.mjs",
+    "scripts/ensure-ink-cursor-intent.mjs",
     "assets",
     "schema",
     "examples/extensions",
@@ -34,7 +35,7 @@
   "scripts": {
     "go": "./install-local.sh && echo \"COMPLETED\"",
     "build": "tsup",
-    "postinstall": "node scripts/ensure-node-pty-helper-permissions.mjs",
+    "postinstall": "node scripts/ensure-node-pty-helper-permissions.mjs && node scripts/ensure-ink-cursor-intent.mjs",
     "predev": "bun install --frozen-lockfile",
     "dev": "env -i PATH=\"$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\" HOME=\"$HOME\" AUTOHAND_VERSION_SOURCE=git AUTOHAND_DEBUG=\"$AUTOHAND_DEBUG\" ${AUTOHAND_HOME:+AUTOHAND_HOME=\"$AUTOHAND_HOME\"} ${AUTOHAND_CONFIG:+AUTOHAND_CONFIG=\"$AUTOHAND_CONFIG\"} ${AUTOHAND_API_URL:+AUTOHAND_API_URL=\"$AUTOHAND_API_URL\"} ${AUTOHAND_AUTH_URL:+AUTOHAND_AUTH_URL=\"$AUTOHAND_AUTH_URL\"} ${AUTOHAND_DISABLE_STATEFUL_READ:+AUTOHAND_DISABLE_STATEFUL_READ=\"$AUTOHAND_DISABLE_STATEFUL_READ\"} bun src/index.ts",
     "typecheck": "node ./node_modules/@typescript/native/bin/tsc --noEmit",
@@ -84,7 +85,7 @@
     "dotenv": "^17.4.2",
     "fs-extra": "^11.3.6",
     "ignore": "^7.0.6",
-    "ink": "^7.1.1",
+    "ink": "7.1.1",
     "ink-spinner": "^5.0.0",
     "minimatch": "^10.2.5",
     "node-notifier": "^10.0.1",
