@@ -1,0 +1,13 @@
+
+Goals · 3 total · Ctrl+G close
+
+Current
+  1. Repair failing goal tests… paused
+
+Queue · 1 pending
+› 2. Review the terminal layout… queued
+
+Other sessions
+○ Ship the documentation… active
+↑↓ navigate · enter edit · click edit · esc clear selection
+Manage: /goals pause · resume · complete · clear · queue

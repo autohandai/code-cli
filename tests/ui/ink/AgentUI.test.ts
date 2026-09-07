@@ -1644,7 +1644,10 @@ describe('AgentUI persistent goals panel', () => {
     });
   });
 
-  it('navigates to a queued goal and submits an edited objective', async () => {
+  it.each([
+    'ship the queued goal',
+    `ship the queued goal\n${'Preserve the full acceptance criteria. '.repeat(30)}`,
+  ])('navigates to a queued goal and submits its full edited objective (%#)', async (objective) => {
     const onEditGoalObjective = vi.fn();
     const state = {
       ...createInitialUIState(),
@@ -1662,7 +1665,7 @@ describe('AgentUI persistent goals panel', () => {
         },
         queue: [{
           queueId: 'queue-next',
-          objective: 'ship the queued goal',
+          objective,
           source: 'command' as const,
           createdAt: 2,
         }],
@@ -1706,7 +1709,7 @@ describe('AgentUI persistent goals panel', () => {
     expect(onEditGoalObjective).toHaveBeenCalledWith({
       id: 'queue-next',
       kind: 'queued',
-      objective: 'ship the queued goal after review',
+      objective: `${objective} after review`,
     });
   });
 });

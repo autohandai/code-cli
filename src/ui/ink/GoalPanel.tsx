@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import React, { memo, useEffect, useRef } from 'react';
+import { stripVTControlCharacters } from 'node:util';
 import { Box, Text, measureElement, useBoxMetrics, type DOMElement } from 'ink';
 import type { GoalSessionSnapshot } from '../../goals/types.js';
 import { useTheme } from '../theme/ThemeContext.js';
@@ -46,6 +47,14 @@ function goalTargetKey(target: GoalEditRequest): string {
   return `${target.kind}:${target.id}`;
 }
 
+function summarizeObjective(objective: string): string {
+  const normalized = stripVTControlCharacters(objective).trim();
+  const firstLine = normalized.split(/\r?\n/u, 1)[0]!.replace(/\s+/gu, ' ');
+  const characters = Array.from(firstLine);
+  const preview = characters.slice(0, 96).join('').trimEnd();
+  return characters.length > 96 || normalized.includes('\n') ? `${preview}…` : preview;
+}
+
 const GoalRow = memo(function GoalRow({
   target,
   index,
@@ -73,14 +82,20 @@ const GoalRow = memo(function GoalRow({
   }, [metrics.hasMeasured, metrics.height, metrics.left, metrics.top, metrics.width, onLayoutChange, target]);
 
   return (
-    <Box ref={rowRef} gap={1}>
-      <Text color={selected ? colors.accent : colors.muted} bold={selected}>
-        {selected ? '›' : ' '} {index + 1}.
-      </Text>
-      <Text color={selected ? colors.accent : colors.text} bold={selected}>
-        {target.objective}
-      </Text>
-      <Text color={colors.muted}>{status}</Text>
+    <Box ref={rowRef}>
+      <Box flexShrink={0}>
+        <Text color={selected ? colors.accent : colors.muted} bold={selected}>
+          {selected ? '›' : ' '} {index + 1}.{' '}
+        </Text>
+      </Box>
+      <Box flexShrink={1} minWidth={0}>
+        <Text color={selected ? colors.accent : colors.text} bold={selected} wrap="truncate-end">
+          {summarizeObjective(target.objective)}
+        </Text>
+      </Box>
+      <Box flexShrink={0}>
+        <Text color={colors.muted}> {status}</Text>
+      </Box>
     </Box>
   );
 });
@@ -138,12 +153,18 @@ export const GoalPanel = memo(function GoalPanel({
         <Box flexDirection="column" marginTop={1}>
           <Text color={colors.muted}>Other sessions</Text>
           {snapshot.peers.map((peer) => (
-            <Box key={peer.sessionId} gap={1}>
-              <Text color={peer.ownerAlive ? colors.warning : colors.muted}>
-                {peer.ownerAlive ? '●' : '○'}
-              </Text>
-              <Text>{peer.objective}</Text>
-              <Text color={colors.muted}>{peer.status}</Text>
+            <Box key={peer.sessionId}>
+              <Box flexShrink={0}>
+                <Text color={peer.ownerAlive ? colors.warning : colors.muted}>
+                  {peer.ownerAlive ? '●' : '○'}{' '}
+                </Text>
+              </Box>
+              <Box flexShrink={1} minWidth={0}>
+                <Text wrap="truncate-end">{summarizeObjective(peer.objective)}</Text>
+              </Box>
+              <Box flexShrink={0}>
+                <Text color={colors.muted}> {peer.status}</Text>
+              </Box>
             </Box>
           ))}
         </Box>
@@ -158,6 +179,9 @@ export const GoalPanel = memo(function GoalPanel({
           ↑↓ navigate · enter edit · click edit · esc clear selection
         </Text>
       ) : null}
+      <Text color={colors.muted}>
+        Manage: /goals pause · resume · complete · clear · queue
+      </Text>
     </Box>
   );
 });
