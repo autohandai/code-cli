@@ -10,6 +10,7 @@ import path from 'path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { AUTOHAND_PATHS } from '../../constants.js';
+import builtinSources from '../../agents/builtinSources.json' with { type: 'json' };
 import type { ExternalAgentsConfig, InlineAgentDefinition } from '../../types.js';
 import type { ExtensionAgentContribution, ExtensionScope } from '../../extensions/types.js';
 import {
@@ -379,10 +380,10 @@ export class AgentRegistry {
         }
     }
 
-    private async loadMarkdownAgent(filePath: string, source: AgentSource): Promise<void> {
+    private async loadMarkdownAgent(filePath: string, source: AgentSource, content?: string): Promise<void> {
         const name = path.basename(filePath, path.extname(filePath));
         try {
-            const content = await fs.readFile(filePath, 'utf-8');
+            content ??= await fs.readFile(filePath, 'utf-8');
             const parsed = parseMarkdownAgent(content);
             const resolvedSource = source === 'user' && isCatalogManagedContent(
                 name,
@@ -424,6 +425,9 @@ export class AgentRegistry {
                 await this.loadAgentsFromDir(builtinDir, 'builtin');
                 return;
             }
+        }
+        for (const [file, content] of Object.entries(builtinSources)) {
+            await this.loadMarkdownAgent(path.join(moduleDir, 'agents/builtin', file), 'builtin', content);
         }
     }
 }

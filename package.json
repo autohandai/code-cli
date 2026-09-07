@@ -33,7 +33,7 @@
   ],
   "scripts": {
     "go": "./install-local.sh && echo \"COMPLETED\"",
-    "build": "tsup",
+    "build": "node scripts/sync-builtin-agent-sources.mjs && tsup",
     "postinstall": "node scripts/ensure-node-pty-helper-permissions.mjs",
     "predev": "bun install --frozen-lockfile",
     "dev": "env -i PATH=\"$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\" HOME=\"$HOME\" AUTOHAND_VERSION_SOURCE=git AUTOHAND_DEBUG=\"$AUTOHAND_DEBUG\" ${AUTOHAND_HOME:+AUTOHAND_HOME=\"$AUTOHAND_HOME\"} ${AUTOHAND_CONFIG:+AUTOHAND_CONFIG=\"$AUTOHAND_CONFIG\"} ${AUTOHAND_API_URL:+AUTOHAND_API_URL=\"$AUTOHAND_API_URL\"} ${AUTOHAND_AUTH_URL:+AUTOHAND_AUTH_URL=\"$AUTOHAND_AUTH_URL\"} ${AUTOHAND_DISABLE_STATEFUL_READ:+AUTOHAND_DISABLE_STATEFUL_READ=\"$AUTOHAND_DISABLE_STATEFUL_READ\"} bun src/index.ts",

@@ -3,7 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { afterEach, describe, it, expect, beforeEach } from 'vitest';
+import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -43,6 +43,21 @@ describe('AgentRegistry built-in agents', () => {
     const registry = await loadIsolatedRegistry();
     const builtins = registry.getAgentsBySource('builtin');
     expect(builtins.length).toBeGreaterThanOrEqual(12);
+  });
+
+  it('loads identical builtins when compiled without adjacent asset directories', async () => {
+    const registry = await loadIsolatedRegistry();
+    const snapshot = () => registry.getAgentsBySource('builtin')
+      .map(({ name, description, systemPrompt, tools, model }) => ({ name, description, systemPrompt, tools, model }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const expected = snapshot();
+    const access = vi.spyOn(fs, 'access').mockRejectedValue(new Error('No asset directories'));
+    try {
+      await registry.loadAgents();
+      expect(snapshot()).toEqual(expected);
+    } finally {
+      access.mockRestore();
+    }
   });
 
   it('should include the original six and six specialist built-ins', async () => {
