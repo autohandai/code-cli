@@ -213,6 +213,19 @@ Write-Output (Probe -Current 'C:\\a; ${install} ;C:\\b' -Install '${install}')
     ]);
   });
 
+  powerShellTest('keeps quoted semicolons inside a PATH entry', () => {
+    const current = 'C:\\a;"C:\\tools;beta";C:\\b';
+    const result = runPowerShellProbe(`${installerWithoutEntrypoint}
+$existing = Get-UpdatedUserPath -CurrentPath '${current}' -InstallPath 'C:\\tools;beta'
+if ($null -eq $existing) { Write-Output '<unchanged>' } else { Write-Output $existing }
+Write-Output (Get-UpdatedUserPath -CurrentPath '${current}' -InstallPath 'beta')
+`);
+
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim().split(/\r?\n/u)).toEqual(['<unchanged>', `${current};beta`]);
+  });
+
   powerShellTest('handles empty, missing and malformed PATH values without producing a wipe', () => {
     const install = 'C:\\Users\\dev\\AppData\\Local\\autohand';
 

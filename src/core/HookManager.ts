@@ -958,6 +958,7 @@ export class HookManager {
     return new Promise((resolve) => {
       const child = spawn(hook.command, [], {
         shell: true,
+        detached: process.platform !== 'win32',
         cwd: hook.importedFrom?.workingDirectory ?? this.workspaceRoot,
         env,
         stdio: ['pipe', 'pipe', 'pipe'], // stdin enabled for JSON input
@@ -965,6 +966,7 @@ export class HookManager {
 
       let stdout = '';
       let stderr = '';
+      let stdinError: Error | undefined;
       let settled = false;
       let terminationReason: 'abort' | 'timeout' | undefined;
       let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
@@ -988,14 +990,28 @@ export class HookManager {
         resolve(result);
       };
 
+      const signalHook = (signal: NodeJS.Signals): void => {
+        if (process.platform !== 'win32' && child.pid !== undefined) {
+          try {
+            process.kill(-child.pid, signal);
+            return;
+          } catch {
+            child.kill(signal);
+            return;
+          }
+        }
+        child.kill(signal);
+      };
+
       const terminate = (reason: 'abort' | 'timeout'): void => {
         if (settled || terminationReason) return;
         terminationReason = reason;
-        child.kill('SIGTERM');
+        signalHook('SIGTERM');
+        if (settled) return;
         forceKillTimer = setTimeout(() => {
           forceKillTimer = undefined;
           if (!settled) {
-            child.kill('SIGKILL');
+            signalHook('SIGKILL');
           }
         }, killGracePeriodMs);
         forceKillTimer.unref?.();
@@ -1009,7 +1025,12 @@ export class HookManager {
       timeoutId.unref?.();
       options.signal?.addEventListener('abort', handleAbort, { once: true });
 
-      // Write JSON context to stdin
+      child.stdin?.on('error', (error: NodeJS.ErrnoException) => {
+        // Hooks may exit without reading their context; their exit status still applies.
+        if (error.code !== 'EPIPE' && error.code !== 'ERR_STREAM_DESTROYED') {
+          stdinError = error;
+        }
+      });
       child.stdin?.write(jsonInput);
       child.stdin?.end();
 
@@ -1036,7 +1057,7 @@ export class HookManager {
 
         const result: HookExecutionResult = {
           hook,
-          success: terminationReason === undefined && exitCode === 0,
+          success: terminationReason === undefined && stdinError === undefined && exitCode === 0,
           aborted: terminationReason === 'abort',
           stdout: stdout.trim() || undefined,
           stderr: stderr.trim() || undefined,
@@ -1046,7 +1067,7 @@ export class HookManager {
               ? `Hook timed out after ${timeout}ms`
             : isBlockingError
               ? stderr.trim() || 'Hook blocked execution'
-              : undefined,
+              : stdinError?.message,
           duration,
           exitCode,
           blockingError: isBlockingError,

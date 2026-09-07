@@ -132,7 +132,7 @@ describe('imported hooks in the built CLI', () => {
 
 describe('prompt hook cancellation', () => {
   it('cancels a running hook with Escape and accepts the next prompt', async () => {
-    const { session, state, server } = await launch([{ content: 'HOOK_CANCEL_RECOVERED' }], [{ event: 'pre-prompt', command: 'node prompt-wait.cjs', timeout: 30_000 }], async state => {
+    const { session, state, server } = await launch([{ content: 'HOOK_CANCEL_RECOVERED' }], [{ event: 'pre-prompt', command: 'node prompt-wait.cjs && echo HOOK_SHELL_FINISHED', timeout: 30_000 }], async state => {
       await fs.writeFile(path.join(state.workspaceRoot, 'prompt-wait.cjs'), `let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => {
         if (JSON.parse(input).instruction === 'wait for hook') {
           require('fs').writeFileSync('hook-started.txt', 'started');

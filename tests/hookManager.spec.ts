@@ -14,10 +14,12 @@ vi.mock('node:child_process', () => {
   return {
     spawn: vi.fn((command: string) => {
       const mockProcess = new EventEmitter() as EventEmitter & {
+        stdin: EventEmitter & { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> };
         stdout: EventEmitter;
         stderr: EventEmitter;
         kill: (signal?: NodeJS.Signals) => boolean;
       };
+      mockProcess.stdin = Object.assign(new EventEmitter(), { write: vi.fn(), end: vi.fn() });
       mockProcess.stdout = new EventEmitter();
       mockProcess.stderr = new EventEmitter();
       let closed = false;
@@ -389,6 +391,52 @@ describe('HookManager', () => {
 
       expect(results).toEqual([]);
       expect(spawn).not.toHaveBeenCalled();
+    });
+
+    it.each(['true', 'block request'])('preserves the exit result when %s closes stdin early', async (command) => {
+      await manager.addHook({ event: 'pre-prompt', command });
+      const resultsPromise = manager.executeHooks('pre-prompt', { instruction: 'Review changes' });
+      await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
+      const child = vi.mocked(spawn).mock.results[0]?.value;
+
+      expect(() => child.stdin.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }))).not.toThrow();
+      const [result] = await resultsPromise;
+
+      expect(result).toMatchObject(command === 'true'
+        ? { success: true, exitCode: 0 }
+        : { success: false, exitCode: 2, blockingError: true });
+    });
+
+    it.skipIf(process.platform === 'win32')('signals the hook process group when cancelling a shell hook', async () => {
+      await manager.addHook({ event: 'pre-prompt', command: 'slow hook' });
+      const controller = new AbortController();
+      const resultsPromise = manager.executeHooks('pre-prompt', {}, { signal: controller.signal });
+      await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
+      const child = vi.mocked(spawn).mock.results[0]?.value;
+      Object.defineProperty(child, 'pid', { value: 4321 });
+      const signal = vi.spyOn(process, 'kill').mockImplementation(() => {
+        child.emit('close', null, 'SIGTERM');
+        return true;
+      });
+      try {
+        controller.abort();
+        const [result] = await resultsPromise;
+        expect(signal).toHaveBeenCalledWith(-4321, 'SIGTERM');
+        expect(spawn).toHaveBeenCalledWith('slow hook', [], expect.objectContaining({ detached: true }));
+        expect(result).toMatchObject({ success: false, aborted: true });
+      } finally {
+        signal.mockRestore();
+      }
+    });
+
+    it('reports unexpected stdin errors as hook failures', async () => {
+      await manager.addHook({ event: 'pre-prompt', command: 'slow hook' });
+      const resultsPromise = manager.executeHooks('pre-prompt', {});
+      await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
+      const child = vi.mocked(spawn).mock.results[0]?.value;
+
+      expect(() => child.stdin.emit('error', Object.assign(new Error('write EIO'), { code: 'EIO' }))).not.toThrow();
+      expect((await resultsPromise)[0]).toMatchObject({ success: false, error: 'write EIO' });
     });
 
     it('still publishes an already-aborted post-tool lifecycle event without spawning user hooks', async () => {
