@@ -500,7 +500,7 @@ Tüm ayrıntılar için [Çalışma Alanı Güvenliği](./workspace-safety.md) k
 ```json
 {
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "customThemes": {
       "company": {
         "colors": {
@@ -536,7 +536,7 @@ Tüm ayrıntılar için [Çalışma Alanı Güvenliği](./workspace-safety.md) k
 ```
 | Alan | Tür | Varsayılan | Açıklama |
 | ---------------------------- | ------ | ------- | ---------------------------------------------------------------------------------------------- |
-| `theme` | dize | `"dark"` | Terminal çıkışı için renk teması. Yerleşikler arasında `dark`, `light`, `dracula`, `sandy`, `tui`, `tuatara`, `github-dark`, `cappadocia`, `rio` ve `australia` bulunur. Eski `turkey` ve `brazil` değerleri hâlâ takma ad olarak yükleniyor. |
+| `theme` | dize | `"aurora"` | Terminal çıkışı için renk teması. Yerleşikler arasında `aurora`, `dark`, `light`, `dracula`, `sandy`, `tui`, `tuatara`, `github-dark`, `cappadocia`, `rio` ve `australia` bulunur. Eski `turkey` ve `brazil` değerleri hâlâ takma ad olarak yükleniyor. |
 | `customThemes` | nesne | `{}` | Tema adına göre anahtarlanan satır içi özel tema tanımları. Birini kullanmak için `theme` değerini aynı tuşa ayarlayın.   |
 | `autoConfirm` | boole | `false` | Güvenli işlemler için onay istemlerini atlayın |
 | `readFileCharLimit` | sayı | `300` | Okuma/bulma aracı çıktısından görüntülenecek maksimum karakter (tam içerik hâlâ modele gönderilmektedir) |
@@ -1619,7 +1619,7 @@ autohand --no-browser       # Start with browser bridge disabled
     "allowDangerousOps": false
   },
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "autoConfirm": false,
     "showCompletionNotification": true,
     "showThinking": true,
@@ -1704,7 +1704,7 @@ workspace:
   allowDangerousOps: false
 
 ui:
-  theme: dark
+  theme: aurora
   autoConfirm: false
   showCompletionNotification: true
   showThinking: true
@@ -1789,7 +1789,7 @@ defaultRoot = "~/projects"
 allowDangerousOps = false
 
 [ui]
-theme = "dark"
+theme = "aurora"
 autoConfirm = false
 showCompletionNotification = true
 showThinking = true

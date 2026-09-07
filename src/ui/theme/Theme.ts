@@ -314,7 +314,7 @@ export function index256To16(index: number): number {
 
 /**
  * Global theme instance.
- * Initialized with dark theme by default, can be replaced via initTheme().
+ * Set during theme initialization and replaced via initTheme().
  */
 let globalTheme: Theme | null = null;
 const themeListeners = new Set<() => void>();

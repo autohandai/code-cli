@@ -3033,6 +3033,50 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
+  it('defaults to Aurora and restores an explicit Aurora selection after restart', async () => {
+    const authServer = await createMockAuthServer();
+    mockAuthServers.push(authServer);
+    const state = await createTempAutohandHome({ config: { ui: { promptSuggestions: false } } });
+    tempStates.push(state);
+    expect((await fs.readJson(state.configPath)).ui.theme).toBeUndefined();
+    const launch = () => trackSession(launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      env: {
+        NO_COLOR: undefined, FORCE_COLOR: '3', COLORTERM: 'truecolor', TERM: 'xterm-256color',
+        AUTOHAND_API_URL: authServer.baseUrl,
+        AUTOHAND_AUTH_URL: authServer.baseUrl,
+        AUTOHAND_AUTH_API_URL: `${authServer.baseUrl}/api/auth`,
+      },
+    }));
+    const session = await launch();
+    await waitForComposer(session);
+    await session.type('A calm place to build');
+    expect(await session.text({ only: { foreground: '#e4e5ec', background: '#222326' } }))
+      .toContain('A calm place to build');
+    expect(await session.text({ only: { foreground: '#9b9ef5' } })).toContain('▔');
+    await clearComposerInput(session);
+    await selectTheme(session, 'tuatara');
+    await selectTheme(session, 'aurora');
+    expect((await fs.readJson(state.configPath)).ui.theme).toBe('aurora');
+    await exitInteractive(session);
+
+    const restarted = await launch();
+    await waitForComposer(restarted);
+    await restarted.type('Aurora survives restart');
+    expect(await restarted.text({ only: { foreground: '#e4e5ec', background: '#222326' } }))
+      .toContain('Aurora survives restart');
+    expect(await restarted.text({ only: { foreground: '#9b9ef5' } })).toContain('▔');
+    await clearComposerInput(restarted);
+    await restarted.type('/theme');
+    await restarted.press('enter');
+    await restarted.waitForText('aurora (current)');
+    await restarted.press('escape');
+    await restarted.waitForText('Theme selection cancelled.');
+    expect((await fs.readJson(state.configPath)).ui.theme).toBe('aurora');
+    await exitInteractive(restarted);
+  });
+
   it('selects Tuatara, renders its composer, and restores it after restart', async () => {
     const authServer = await createMockAuthServer();
     mockAuthServers.push(authServer);

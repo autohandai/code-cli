@@ -298,7 +298,7 @@ Veja [Segurança do Workspace](./workspace-safety.md) para detalhes completos.
 ```json
 {
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "autoConfirm": false,
     "readFileCharLimit": 300,
     "showCompletionNotification": true,
@@ -313,7 +313,7 @@ Veja [Segurança do Workspace](./workspace-safety.md) para detalhes completos.
 
 | Campo                        | Tipo                  | Padrão   | Descrição                                                                                               |
 | ---------------------------- | --------------------- | -------- | ------------------------------------------------------------------------------------------------------- |
-| `theme`                      | `"dark"` \| `"light"` | `"dark"` | Tema de cores para saída do terminal                                                                    |
+| `theme`                      | string | `"aurora"` | Tema de cores para saída do terminal                                                                    |
 | `autoConfirm`                | boolean               | `false`  | Pular prompts de confirmação para operações seguras                                                     |
 | `readFileCharLimit`          | number                | `300`    | Máximo de caracteres exibidos em tools de leitura/busca (o conteúdo completo ainda é enviado ao modelo) |
 | `showCompletionNotification` | boolean               | `true`   | Mostrar notificação do sistema quando a tarefa terminar                                                 |
@@ -1159,7 +1159,7 @@ Para uma experiência interativa mais precisa, use `/learn` dentro de uma sessã
     "allowDangerousOps": false
   },
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "autoConfirm": false,
     "showCompletionNotification": true,
     "showThinking": true,
@@ -1260,7 +1260,7 @@ workspace:
   allowDangerousOps: false
 
 ui:
-  theme: dark
+  theme: aurora
   autoConfirm: false
   showCompletionNotification: true
   showThinking: true

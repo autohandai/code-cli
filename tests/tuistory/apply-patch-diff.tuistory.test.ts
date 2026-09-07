@@ -35,7 +35,7 @@ afterEach(async () => {
 });
 
 describe('apply_patch diff Tuistory', () => {
-  it('renders changed lines with the active diff palette', async () => {
+  it('renders changed lines with the default Aurora diff palette', async () => {
     const target = 'patch-target.ts';
     const completionMarker = 'PATCH_DIFF_RENDERED';
     const turns: MockNativeAssistantTurn[] = [];
@@ -119,8 +119,8 @@ describe('apply_patch diff Tuistory', () => {
     expect(output).toContain('✔ apply_patch');
     expect(output).toContain('│    1 -  const oldValue = true;');
     expect(output).toContain('│    1 +  const newValue = true;');
-    expect(rawOutput).toContain('\u001b[38;2;244;67;54m  │    1 -  const oldValue = true;');
-    expect(rawOutput).toContain('\u001b[38;2;76;175;80m  │    1 +  const newValue = true;');
+    expect(rawOutput).toContain('\u001b[38;2;237;154;154m  │    1 -  const oldValue = true;');
+    expect(rawOutput).toContain('\u001b[38;2;134;207;163m  │    1 +  const newValue = true;');
     await exitInteractive(session);
     sessions.splice(sessions.indexOf(session), 1);
   }, 60_000);

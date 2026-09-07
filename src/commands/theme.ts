@@ -7,7 +7,7 @@ import chalk from 'chalk';
 import { t } from '../i18n/index.js';
 import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import { listAvailableThemes, initTheme, getTheme, isThemeInitialized, CUSTOM_THEMES_DIR } from '../ui/theme/index.js';
-import { builtInThemes } from '../ui/theme/themes.js';
+import { builtInThemes, getDefaultThemeName } from '../ui/theme/themes.js';
 import type { LoadedConfig } from '../types.js';
 import { saveConfig } from '../config.js';
 
@@ -22,7 +22,7 @@ interface ThemeContext {
  */
 export async function theme(ctx: ThemeContext): Promise<string | null> {
   const themes = listAvailableThemes();
-  const currentTheme = isThemeInitialized() ? getTheme().name : (ctx.config.ui?.theme || 'dark');
+  const currentTheme = isThemeInitialized() ? getTheme().name : (ctx.config.ui?.theme || getDefaultThemeName());
 
   console.log(chalk.cyan(`\n🎨 ${t('commands.theme.title')}\n`));
   console.log(chalk.gray(t('commands.theme.currentTheme', { theme: chalk.white(currentTheme) })));
@@ -30,7 +30,8 @@ export async function theme(ctx: ThemeContext): Promise<string | null> {
 
   const descriptions: Record<string, string> = {
     // Built-in
-    dark: 'Default dark theme',
+    aurora: 'Default theme with charcoal, cool neutrals, and soft periwinkle',
+    dark: 'Classic dark theme',
     light: 'Light terminal backgrounds',
     dracula: 'Vibrant Dracula palette',
     sandy: 'Warm, earthy desert tones',

@@ -7,9 +7,10 @@
 import React, { act } from 'react';
 import { Text } from 'ink';
 import { render, cleanup } from 'ink-testing-library';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ThemeProvider, useTheme } from '../../../src/ui/theme/ThemeContext.js';
 import { initTheme } from '../../../src/ui/theme/loader.js';
+import * as themeState from '../../../src/ui/theme/Theme.js';
 
 function CurrentThemeName() {
   const { name } = useTheme();
@@ -19,10 +20,17 @@ function CurrentThemeName() {
 describe('ThemeProvider', () => {
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
     initTheme('dark');
   });
 
-  it.each(['light', 'tuatara'])('updates mounted Ink UI when the global theme changes to %s', async name => {
+  it('uses Aurora before global theme initialization', () => {
+    vi.spyOn(themeState, 'getThemeSnapshot').mockReturnValue(null);
+    const { lastFrame } = render(<ThemeProvider><CurrentThemeName /></ThemeProvider>);
+    expect(lastFrame()).toContain('aurora');
+  });
+
+  it.each(['light', 'tuatara', 'aurora'])('updates mounted Ink UI when the global theme changes to %s', async name => {
     initTheme('dark');
 
     const { lastFrame } = render(

@@ -7,7 +7,7 @@
 import type { ThemeDefinition } from './types.js';
 
 /**
- * Dark theme - default theme optimized for dark terminal backgrounds.
+ * Dark theme optimized for dark terminal backgrounds.
  * Uses vibrant colors for visibility against dark backgrounds.
  */
 export const darkTheme: ThemeDefinition = {
@@ -395,6 +395,68 @@ export const githubDarkTheme: ThemeDefinition = {
   },
 };
 
+export const auroraTheme: ThemeDefinition = {
+  name: 'aurora',
+  vars: {
+    background: '#111216',
+    surface: '#1b1c22',
+    raised: '#222326',
+    periwinkle: '#9b9ef5',
+    pearl: '#e4e5ec',
+    silver: '#bfc1cc',
+    slate: '#a4a6b2',
+    mint: '#86cfa3',
+    rose: '#ed9a9a',
+    amber: '#e2be80',
+    blue: '#a5b9e8',
+    violet: '#b8a5e5',
+    sage: '#9ccfb1',
+    border: '#505460',
+    borderMuted: '#34363f',
+  },
+  colors: {
+    accent: 'periwinkle',
+    border: 'border',
+    borderAccent: 'periwinkle',
+    borderMuted: 'borderMuted',
+    success: 'mint',
+    error: 'rose',
+    warning: 'amber',
+    muted: 'slate',
+    dim: 'silver',
+    text: 'pearl',
+    userMessageBg: 'raised',
+    userMessageText: 'pearl',
+    toolPendingBg: 'surface',
+    toolSuccessBg: '#22312b',
+    toolErrorBg: '#34242a',
+    toolTitle: 'periwinkle',
+    toolOutput: 'silver',
+    diffAdded: 'mint',
+    diffRemoved: 'rose',
+    diffContext: 'slate',
+    syntaxComment: 'slate',
+    syntaxKeyword: 'violet',
+    syntaxFunction: 'blue',
+    syntaxVariable: 'pearl',
+    syntaxString: 'sage',
+    syntaxNumber: 'amber',
+    syntaxType: 'periwinkle',
+    syntaxOperator: 'silver',
+    syntaxPunctuation: 'silver',
+    mdHeading: 'periwinkle',
+    mdLink: 'blue',
+    mdLinkUrl: 'slate',
+    mdCode: 'violet',
+    mdCodeBlock: 'pearl',
+    mdCodeBlockBorder: 'border',
+    mdQuote: 'silver',
+    mdQuoteBorder: 'border',
+    mdHr: 'borderMuted',
+    mdListBullet: 'periwinkle',
+  },
+};
+
 export const tuataraTheme: ThemeDefinition = {
   name: 'tuatara',
   vars: {
@@ -742,6 +804,7 @@ export const lightTheme: ThemeDefinition = {
  * Map of built-in theme names to their definitions.
  */
 export const builtInThemes: Record<string, ThemeDefinition> = {
+  aurora: auroraTheme,
   dark: darkTheme,
   light: lightTheme,
   dracula: draculaTheme,
@@ -784,5 +847,5 @@ export function getBuiltInThemeNames(): string[] {
  * Get the default theme name.
  */
 export function getDefaultThemeName(): string {
-  return 'dark';
+  return 'aurora';
 }

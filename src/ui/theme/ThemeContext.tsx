@@ -10,6 +10,7 @@ import type { Theme } from './Theme.js';
 import type { ColorToken, ResolvedColors } from './types.js';
 import { getThemeSnapshot, subscribeThemeChanges } from './Theme.js';
 import { loadTheme } from './loader.js';
+import { getDefaultThemeName } from './themes.js';
 
 /**
  * Theme context value.
@@ -86,7 +87,7 @@ export const ThemeProvider: FC<ThemeProviderProps> = ({ theme: providedTheme, th
     }
 
     // Load default theme without mutating global theme during render
-    return loadTheme('dark');
+    return loadTheme(getDefaultThemeName());
   }, [providedTheme, themeName, globalTheme]);
 
   const value = useMemo<ThemeContextValue>(

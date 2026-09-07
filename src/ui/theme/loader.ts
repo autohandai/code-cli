@@ -71,7 +71,7 @@ export function loadTheme(themeName: string): Theme {
 
 /**
  * Initialize the global theme from config.
- * Falls back to dark theme if specified theme is not found.
+ * Falls back to the default theme if specified theme is not found.
  */
 export function initTheme(themeName?: string): Theme {
   const name = themeName || getDefaultThemeName();
@@ -81,9 +81,9 @@ export function initTheme(themeName?: string): Theme {
     setTheme(theme);
     return theme;
   } catch (error) {
-    // Fall back to dark theme on error
-    console.warn(`Failed to load theme "${name}", falling back to dark theme:`, error instanceof Error ? error.message : error);
-    const theme = loadTheme('dark');
+    const defaultName = getDefaultThemeName();
+    console.warn(`Failed to load theme "${name}", falling back to ${defaultName} theme:`, error instanceof Error ? error.message : error);
+    const theme = loadTheme(defaultName);
     setTheme(theme);
     return theme;
   }
@@ -146,7 +146,7 @@ export function loadCustomTheme(filePath: string, themeName: string): ThemeDefin
 }
 
 /**
- * Validate a custom theme and merge with default theme.
+ * Validate a custom theme and merge with the base dark theme.
  */
 export function validateAndMergeTheme(partial: Partial<ThemeDefinition>, themeName: string): ThemeDefinition {
   // Ensure name is set
@@ -375,13 +375,12 @@ export function detectTerminalBackground(): 'dark' | 'light' {
  * Auto-detect and initialize theme.
  *
  * Priority:
- * 1. User's explicit theme from config (if not the default 'dark')
+ * 1. User's explicit theme from config
  * 2. Ghostty terminal theme (auto-detected from ~/.config/ghostty/config)
- * 3. Terminal background detection fallback
+ * 3. Light theme for detected light backgrounds, otherwise the default theme
  */
 export function autoInitTheme(themeName?: string): Theme {
-  // User explicitly chose a non-default theme — respect it
-  if (themeName && themeName !== getDefaultThemeName()) {
+  if (themeName) {
     return initTheme(themeName);
   }
 
@@ -395,10 +394,6 @@ export function autoInitTheme(themeName?: string): Theme {
     }
   }
 
-  // Fall back to user's config or terminal detection
-  if (themeName) {
-    return initTheme(themeName);
-  }
   const background = detectTerminalBackground();
-  return initTheme(background);
+  return initTheme(background === 'light' ? 'light' : getDefaultThemeName());
 }

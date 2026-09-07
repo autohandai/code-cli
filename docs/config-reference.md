@@ -670,7 +670,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 ```json
 {
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "customThemes": {
       "company": {
         "colors": {
@@ -709,7 +709,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 
 | Field                        | Type   | Default | Description                                                                                    |
 | ---------------------------- | ------ | ------- | ---------------------------------------------------------------------------------------------- |
-| `theme`                      | string | `"dark"` | Color theme for terminal output. Built-ins include `dark`, `light`, `dracula`, `sandy`, `tui`, `tuatara`, `github-dark`, `cappadocia`, `rio`, and `australia`. Legacy `turkey` and `brazil` values still load as aliases. |
+| `theme`                      | string | `"aurora"` | Color theme for terminal output. Built-ins include `aurora`, `dark`, `light`, `dracula`, `sandy`, `tui`, `tuatara`, `github-dark`, `cappadocia`, `rio`, and `australia`. Legacy `turkey` and `brazil` values still load as aliases. |
 | `customThemes`               | object | `{}`    | Inline custom theme definitions keyed by theme name. Set `theme` to the same key to use one.   |
 | `autoConfirm`                | boolean | `false` | Skip confirmation prompts for safe operations                                                  |
 | `readFileCharLimit`          | number | `300`   | Max characters to display from read/find tool output (full content is still sent to the model) |
@@ -734,6 +734,26 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `terminalBell`               | boolean | `true`  | Ring terminal bell when task completes (shows badge on terminal tab/dock)                      |
 | `checkForUpdates`            | boolean | `true`  | Check for CLI updates on startup                                                               |
 | `updateCheckInterval`        | number | `24`    | Hours between update checks (uses cached result within interval)                               |
+
+### Aurora theme
+
+Aurora is the default theme for new configurations and when no theme is selected. It combines charcoal surfaces, cool off-white text, soft periwinkle accents, and restrained mint, rose, and amber status colours. Existing saved theme selections are preserved.
+
+![Aurora in the built CLI, showing a sample response, coloured diff, and charcoal composer.](./images/aurora-theme.png)
+
+Select `aurora` from `/theme`, or set `"ui": { "theme": "aurora" }` in your config. Switching takes effect immediately and persists across sessions.
+
+| Role | Colour |
+| --- | --- |
+| Focus and headings | `#9b9ef5` periwinkle |
+| Main text | `#e4e5ec` cool pearl |
+| Secondary text and comments | `#a4a6b2` slate |
+| Input background | `#222326` charcoal |
+| Success and additions | `#86cfa3` mint |
+| Errors and removals | `#ed9a9a` rose |
+| Warnings and numbers | `#e2be80` amber |
+
+Use a dark terminal background; `#111216` is the reference background. Autohand styles its input and tool surfaces while leaving the terminal background setting to you. Text, syntax, and status colours are tested for at least 4.5:1 contrast on the reference background and theme surfaces; input text exceeds 7:1. Truecolor preserves the palette, with fallback conversion for 256-colour and 16-colour terminals. Status labels and diff markers also work without colour.
 
 ### Tuatara theme
 
@@ -2051,7 +2071,7 @@ autohand --no-browser       # Start with browser bridge disabled
     "allowDangerousOps": false
   },
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "autoConfirm": false,
     "showCompletionNotification": true,
     "showThinking": true,
@@ -2138,7 +2158,7 @@ workspace:
   allowDangerousOps: false
 
 ui:
-  theme: dark
+  theme: aurora
   autoConfirm: false
   showCompletionNotification: true
   showThinking: true
@@ -2225,7 +2245,7 @@ defaultRoot = "~/projects"
 allowDangerousOps = false
 
 [ui]
-theme = "dark"
+theme = "aurora"
 autoConfirm = false
 showCompletionNotification = true
 showThinking = true

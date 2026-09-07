@@ -297,7 +297,7 @@ cd ~/projects/my-app && autohand
 ```json
 {
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "autoConfirm": false,
     "readFileCharLimit": 300,
     "showCompletionNotification": true,
@@ -312,7 +312,7 @@ cd ~/projects/my-app && autohand
 
 | 字段                         | 类型                  | 默认值   | 描述                                                        |
 | ---------------------------- | --------------------- | -------- | ----------------------------------------------------------- |
-| `theme`                      | `"dark"` \| `"light"` | `"dark"` | 终端输出颜色主题                                            |
+| `theme`                      | string | `"aurora"` | 终端输出颜色主题                                            |
 | `autoConfirm`                | boolean               | `false`  | 跳过安全操作的确认提示                                      |
 | `readFileCharLimit`          | number                | `300`    | 读取/搜索工具输出中显示的最大字符数（完整内容仍发送给模型） |
 | `showCompletionNotification` | boolean               | `true`   | 任务完成时显示系统通知                                      |
@@ -1143,7 +1143,7 @@ autohand --auto-skill
     "allowDangerousOps": false
   },
   "ui": {
-    "theme": "dark",
+    "theme": "aurora",
     "autoConfirm": false,
     "showCompletionNotification": true,
     "showThinking": true,
@@ -1244,7 +1244,7 @@ workspace:
   allowDangerousOps: false
 
 ui:
-  theme: dark
+  theme: aurora
   autoConfirm: false
   showCompletionNotification: true
   showThinking: true

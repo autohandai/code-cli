@@ -750,9 +750,10 @@ describe("SetupWizard", () => {
       const result = await wizard.run({ skipWelcome: true });
 
       expect(result.skippedSteps).toContain("preferences");
+      expect(result.config.ui?.theme).toBe('aurora');
     });
 
-    it("should save preferences when user configures them", async () => {
+    it.each(['dark', 'aurora', null])("should save the selected theme or Aurora when cancelled: %s", async selectedTheme => {
       const wizard = new SetupWizard(testWorkspace);
 
       mockShowModal
@@ -767,7 +768,7 @@ describe("SetupWizard", () => {
         .mockResolvedValueOnce(true); // prefs=yes
 
       // Theme modal
-      mockShowModal.mockResolvedValueOnce({ value: "dark" });
+      mockShowModal.mockResolvedValueOnce(selectedTheme ? { value: selectedTheme } : null);
       mockShowConfirm
         .mockResolvedValueOnce(true) // autoConfirm
         .mockResolvedValueOnce(false) // checkForUpdates
@@ -778,7 +779,7 @@ describe("SetupWizard", () => {
 
       const result = await wizard.run({ skipWelcome: true });
 
-      expect(result.config.ui?.theme).toBe("dark");
+      expect(result.config.ui?.theme).toBe(selectedTheme ?? 'aurora');
       expect(result.config.ui?.autoConfirm).toBe(true);
       expect(result.config.ui?.checkForUpdates).toBe(false);
     });
@@ -791,6 +792,7 @@ describe("SetupWizard", () => {
 
       expect(result.success).toBe(true);
       expect(result.skippedSteps).toContain("preferences");
+      expect(result.config.ui?.theme).toBe('aurora');
     });
   });
 
