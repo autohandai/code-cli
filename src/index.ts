@@ -263,6 +263,8 @@ program
   .option('-c, --auto-commit', 'Auto-commit with LLM-generated message (runs lint & test first)', false)
   .option('--unrestricted', 'Run without any approval prompts (use with caution)', false)
   .option('--restricted', 'Deny all dangerous operations automatically', false)
+  .addOption(new Option('--plan', 'Start in read-only plan mode; require approval before execution')
+    .conflicts(['autoMode', 'yolo', 'autoCommit']))
   .option('--answer-only', 'Run the classified, tool-free Blueprint answer RPC profile', false)
   .option('--setup-only', 'Run only the scoped Autohand device-authorization RPC profile', false)
   .option('--client-context <context>', 'RPC client context: cli, vscode, browser, slack, api, restricted, or blueprint (default: cli)')

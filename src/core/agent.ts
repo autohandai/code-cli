@@ -537,7 +537,12 @@ export class AutohandAgent {
       },
       setPermissionProfile: (profile) => this.setInteractionModePermissionProfile(profile),
     });
-    this.interactionModeController.normalizeCurrentMode();
+    if (runtime.options.plan) {
+      getPlanModeManager().disable();
+      this.interactionModeController.setMode('plan');
+    } else {
+      this.interactionModeController.normalizeCurrentMode();
+    }
     this.sessionDiffStatsTracker = new SessionDiffStatsTracker(runtime.workspaceRoot);
     this.instructionRunner = new InstructionRunner(this as unknown as AgentInstructionHost);
   }

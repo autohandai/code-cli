@@ -121,6 +121,48 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
     getPlanModeManager().restore({ enabled: false, plan: null, phase: 'planning' });
   });
 
+  it.each([{}, { yes: true }, { unrestricted: true }])('starts in read-only plan mode with permission options %j', async (permissions) => {
+    const { internals } = createAgent({ ...permissions, plan: true });
+    internals.actionExecutor.executeForTool = vi.fn();
+
+    expect(internals.getInteractionMode()).toBe('plan');
+    expect(getPlanModeManager().getPhase()).toBe('planning');
+    const [result] = await internals.toolManager.execute([{
+      id: 'startup-write', tool: 'write_file', args: { path: 'blocked.txt', contents: 'blocked' },
+    }]);
+    expect(result).toMatchObject({ success: false, kind: 'authorization' });
+    expect(internals.actionExecutor.executeForTool).not.toHaveBeenCalled();
+  });
+
+  it('starts a new planning phase even when an earlier plan was accepted', () => {
+    getPlanModeManager().restore({ enabled: true, plan: null, phase: 'executing' });
+    const { internals } = createAgent({ plan: true });
+
+    expect(internals.getInteractionMode()).toBe('plan');
+    expect(getPlanModeManager().getPhase()).toBe('planning');
+  });
+
+  it.each([{}, { yes: true }, { unrestricted: true }])('keeps an explicit command-line plan pending review with %j', async (permissions) => {
+    const { internals } = createAgent({ ...permissions, plan: true, prompt: 'Plan a refactor' });
+    getPlanModeManager().restore({
+      enabled: true, phase: 'planning',
+      plan: {
+        id: 'startup-plan', rawText: '1. Refactor the module', createdAt: Date.now(),
+        steps: [{ number: 1, description: 'Refactor the module', status: 'pending' }],
+      },
+    });
+    internals.toolManager.register(EXIT_PLAN_MODE_TOOL_DEFINITION);
+    internals.conversation = { addSystemNote: vi.fn() };
+    internals.hookManager.executeHooks = vi.fn().mockResolvedValue([]);
+    internals.telemetryManager.trackToolUse = vi.fn().mockResolvedValue(undefined);
+
+    const [result] = await internals.toolManager.execute([{ id: 'plan-ready', tool: 'exit_plan_mode', args: {} }]);
+
+    expect(result).toMatchObject({ success: true, output: expect.stringContaining('Plan ready for review') });
+    expect(getPlanModeManager().getPhase()).toBe('planning');
+    expect(internals.conversation.addSystemNote).toHaveBeenCalledWith(expect.stringContaining('Do not execute'));
+  });
+
   it('uses the current sign-in token for account entitlement before a stale provider-local token', async () => {
     const { agent, runtime } = createAgent();
     runtime.config.auth = {

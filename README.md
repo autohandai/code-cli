@@ -213,6 +213,7 @@ events and writes exactly one final `result` or `error` object to stdout.
 | `--auto-skill`                  |       | Auto-generate skills based on project analysis                                   |
 | `--unrestricted`                |       | Run without approval prompts (use with caution)                                  |
 | `--restricted`                  |       | Deny all dangerous operations automatically                                      |
+| `--plan`                        |       | Start in read-only plan mode before the first prompt                             |
 | `--no-idle-logout`              |       | Disable authenticated idle logout for long-running agent sessions                |
 | `--config <path>`               |       | Path to config file                                                              |
 | `--temperature <value>`         |       | Sampling temperature for LLM                                                     |
@@ -550,6 +551,10 @@ entire disable --agent autohand-code
 Once enabled, Entire works automatically through the Autohand Code CLI hooks system. No changes to your workflow are needed. See the [Entire Integration Guide](docs/entire-integration.md) for setup details and troubleshooting.
 
 ## Security & Permissions
+
+Start with `autohand --plan` to investigate and plan before editing. For a one-shot plan, use `autohand --plan --prompt "Plan a refactor of the authentication module"`. The first model request receives the plan instructions and read-only tools; mutating tool calls are blocked.
+
+Interactive plans require an explicit acceptance decision, including with `--yes` or `--unrestricted`. One-shot and unattended plans remain pending review. Shift+Tab and `/plan on|off` still change the interaction mode. `--plan` cannot be combined with `--yolo`, `--auto-mode`, or `--auto-commit`.
 
 Autohand Code CLI includes a permission system for sensitive operations:
 

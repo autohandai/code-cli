@@ -998,6 +998,7 @@ export interface CLIOptions {
   /** Disable startup network operations while retaining local cached state. */
   offline?: boolean;
   path?: string;
+  plan?: boolean;
   yes?: boolean;
   dryRun?: boolean;
   debug?: boolean;
