@@ -85,6 +85,13 @@ export interface HookContext {
   subagentError?: string;
   /** Subagent duration ms (for subagent-stop) */
   subagentDuration?: number;
+  subagentParentId?: string;
+  subagentSource?: string;
+  subagentStatus?: string;
+  subagentWorkspace?: string;
+  subagentTask?: string;
+  subagentActivity?: string;
+  subagentMessage?: string;
 
   // Permission hooks
   /** Permission type (for permission-request) */
@@ -573,6 +580,10 @@ export class HookManager {
       case 'session-end':
         value = context.sessionEndReason ?? '';
         break;
+      case 'subagent-start':
+      case 'subagent-progress':
+      case 'subagent-message':
+      case 'subagent-cancel-requested':
       case 'subagent-stop':
         value = context.subagentType ?? '';
         break;
@@ -721,7 +732,16 @@ export class HookManager {
 
     // Subagent hooks
     if (context.subagentId) env.HOOK_SUBAGENT_ID = context.subagentId;
+    if (context.subagentName) env.HOOK_SUBAGENT_NAME = context.subagentName;
     if (context.subagentType) env.HOOK_SUBAGENT_TYPE = context.subagentType;
+    if (context.subagentParentId) env.HOOK_SUBAGENT_PARENT_ID = context.subagentParentId;
+    if (context.subagentSource) env.HOOK_SUBAGENT_SOURCE = context.subagentSource;
+    if (context.subagentStatus) env.HOOK_SUBAGENT_STATUS = context.subagentStatus;
+    if (context.subagentWorkspace) env.HOOK_SUBAGENT_WORKSPACE = context.subagentWorkspace;
+    if (context.subagentActivity) env.HOOK_SUBAGENT_ACTIVITY = context.subagentActivity;
+    if (context.subagentSuccess !== undefined) env.HOOK_SUBAGENT_SUCCESS = String(context.subagentSuccess);
+    if (context.subagentDuration !== undefined) env.HOOK_SUBAGENT_DURATION = String(context.subagentDuration);
+    if (context.subagentError !== undefined) env.HOOK_SUBAGENT_ERROR = context.subagentError.slice(0, 4_000);
 
     // Permission hooks
     if (context.permissionType) env.HOOK_PERMISSION_TYPE = context.permissionType;
@@ -850,6 +870,13 @@ export class HookManager {
       subagent_success: context.subagentSuccess,
       subagent_error: context.subagentError,
       subagent_duration: context.subagentDuration,
+      subagent_parent_id: context.subagentParentId,
+      subagent_source: context.subagentSource,
+      subagent_status: context.subagentStatus,
+      subagent_workspace: context.subagentWorkspace,
+      subagent_task: context.subagentTask,
+      subagent_activity: context.subagentActivity,
+      subagent_message: context.subagentMessage,
       // Permission context
       permission_type: context.permissionType,
       // Notification context

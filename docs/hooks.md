@@ -130,7 +130,11 @@ When running in RPC mode (VS Code, Zed, etc.), hook events are also emitted as J
 | `pre-clear` | Before memory extraction on `/clear` or `/new` | session id, cwd |
 | `session-error` | When an error occurs | error message, code, context |
 | `rate-limit` | When a provider rate limit ends the turn | error message, code, retryAfterMs, httpStatus, model, provider |
-| `subagent-stop` | When a subagent finishes execution | subagent id, name, type, success, duration |
+| `subagent-start` | Before a worker begins its task | run id, parent id, source, workspace, task, name, type |
+| `subagent-progress` | When a worker's actual activity changes | run identity, status, activity, usage |
+| `subagent-message` | When a message is queued for a worker | run identity, queued message |
+| `subagent-cancel-requested` | When a worker stop is requested | run identity, status |
+| `subagent-stop` | When a worker completes, fails, or is cancelled | run identity, status, success, duration, error |
 | `permission-request` | Before showing permission dialog | tool, path, permission type |
 | `notification` | When a notification is sent to user | notification type, message |
 | `automode:start` | When auto-mode starts | auto-mode session id, prompt, max iterations |
@@ -291,7 +295,7 @@ What the matcher matches against depends on the event type:
 | `notification` | Notification type |
 | `session-start` | Session type (startup/resume/clear) |
 | `session-end` | End reason (quit/clear/exit/error) |
-| `subagent-stop` | Subagent type |
+| `subagent-start`, `subagent-progress`, `subagent-message`, `subagent-cancel-requested`, `subagent-stop` | Subagent type |
 | `automode:*` | Event-specific auto-mode prompt, iteration, or reason |
 | `review:*` | Event-specific review path, scope, instructions, or error |
 | `team-created`, `team-shutdown` | Team name |
@@ -498,9 +502,14 @@ When your hook command executes, these environment variables are available:
 | `HOOK_PROVIDER` | Provider that reported the rate limit | rate-limit |
 | `HOOK_SESSION_TYPE` | startup, resume, or clear | session-start |
 | `HOOK_SESSION_END_REASON` | quit, clear, exit, or error | session-end |
-| `HOOK_SUBAGENT_ID` | Subagent task ID | subagent-stop |
-| `HOOK_SUBAGENT_NAME` | Subagent name | subagent-stop |
-| `HOOK_SUBAGENT_TYPE` | Subagent type | subagent-stop |
+| `HOOK_SUBAGENT_ID` | Exact worker run ID | subagent events |
+| `HOOK_SUBAGENT_NAME` | Subagent name | subagent events |
+| `HOOK_SUBAGENT_TYPE` | Subagent type | subagent events |
+| `HOOK_SUBAGENT_PARENT_ID` | Parent worker run ID, when nested | subagent events |
+| `HOOK_SUBAGENT_SOURCE` | `delegate` or `team` | subagent events |
+| `HOOK_SUBAGENT_STATUS` | Current worker status | subagent events |
+| `HOOK_SUBAGENT_WORKSPACE` | Selected execution workspace | subagent events |
+| `HOOK_SUBAGENT_ACTIVITY` | Actual model/tool activity, when available | subagent-progress |
 | `HOOK_SUBAGENT_SUCCESS` | "true" or "false" | subagent-stop |
 | `HOOK_SUBAGENT_ERROR` | Error message if failed | subagent-stop |
 | `HOOK_SUBAGENT_DURATION` | Duration in ms | subagent-stop |
@@ -622,7 +631,25 @@ echo '{"decision": "allow", "reason": "Read operations are safe"}'
 }
 ```
 
-### Track Subagent Performance
+### Track and control subagents
+
+Direct, nested, and team workers emit lifecycle events using their unique run IDs. These are the same runs displayed by `/agents view`; external Squad records remain read-only and do not emit local worker-control events. Task and queued message text are available as `subagent_task` and `subagent_message` in the JSON sent to a hook's stdin, rather than embedded in shell commands.
+
+Synchronous `subagent-start` and `subagent-progress` hooks can return the existing response fields on stdout:
+
+```json
+{ "additionalContext": "Verify the focused regression test before marking this task complete." }
+```
+
+This queues context for that worker's next safe model step. To stop only that worker:
+
+```json
+{ "continue": false, "stopReason": "The user has withdrawn this task." }
+```
+
+A stop response takes precedence over queued context. Messages are bounded to 8000 characters and the worker inbox is bounded; queued does not mean read. `subagent-message`, `subagent-cancel-requested`, and `subagent-stop` are observational: returned control fields are ignored to prevent recursive control loops. Use `async: true` only for observation, not returned control decisions. Hook failures are isolated, and frequent pending progress events may be coalesced. A cancellation request is not a completed cancellation; track `subagent-stop` with `subagent_status="cancelled"` for the final state.
+
+For example, add this hook definition to the configuration's `hooks.hooks` array to track completion:
 
 ```json
 {

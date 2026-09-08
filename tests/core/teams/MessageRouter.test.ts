@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { MessageRouter } from '../../../src/core/teams/MessageRouter.js';
 import { PassThrough } from 'node:stream';
 
@@ -59,5 +59,55 @@ describe('MessageRouter', () => {
     expect(chunks).toHaveLength(1);
     const parsed = JSON.parse(chunks[0].trim());
     expect(parsed.method).toBe('team.assignTask');
+  });
+
+  it('ignores malformed message shapes before calling the receiver', () => {
+    const stream = new PassThrough();
+    const receive = vi.fn();
+    const router = new MessageRouter();
+    router.onMessage(stream, receive);
+
+    for (const value of [null, [], { method: 3, params: {} }, { method: 'team.ready' },
+      { method: 'team.ready', params: null }, { method: 'team.ready', params: [] }]) {
+      stream.write(JSON.stringify(value) + '\n');
+    }
+    stream.write('{"method":"team.ready","params":{}}\n');
+
+    expect(receive).toHaveBeenCalledExactlyOnceWith({ method: 'team.ready', params: {} });
+  });
+
+  it('forwards readline input errors without an unhandled error event', () => {
+    const stream = new PassThrough();
+    const onError = vi.fn();
+    const router = new MessageRouter();
+    router.onMessage(stream, vi.fn(), onError);
+    const error = new Error('read failed');
+
+    expect(() => stream.emit('error', error)).not.toThrow();
+    expect(onError).toHaveBeenCalledExactlyOnceWith(error);
+  });
+
+  it('handles input errors when no error callback is provided', () => {
+    const stream = new PassThrough();
+    new MessageRouter().onMessage(stream, vi.fn());
+
+    expect(() => stream.emit('error', new Error('read failed'))).not.toThrow();
+  });
+
+  it('unsubscribes without retaining stream listeners or receiving further lines', () => {
+    const stream = new PassThrough();
+    const receive = vi.fn();
+    const existingErrorListener = vi.fn();
+    stream.on('error', existingErrorListener);
+    const before = stream.eventNames().map((event) => [event, stream.listenerCount(event)]);
+    const unsubscribe = new MessageRouter().onMessage(stream, receive);
+
+    unsubscribe();
+    unsubscribe();
+    stream.write('{"method":"team.ready","params":{}}\n');
+    stream.resume();
+
+    expect(receive).not.toHaveBeenCalled();
+    expect(stream.eventNames().map((event) => [event, stream.listenerCount(event)])).toEqual(before);
   });
 });

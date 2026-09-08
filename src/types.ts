@@ -381,6 +381,10 @@ export interface AutoReportSettings {
 }
 
 export interface FeatureFlagSettings {
+  multi_agent_v2?: {
+    /** Total session threads including the main agent. Integer 1–64; default 9. */
+    max_concurrent_threads_per_session?: number;
+  };
   /** Gate Autohand-hosted inference provider, models, setup, RPC, and ACP surfaces. */
   autohand_inference?: boolean;
   /** Remote feature flag environment (default: production) */
@@ -706,6 +710,10 @@ export type HookEvent =
   | 'post-response'     // Alias for 'stop' (backward compatibility)
   | 'session-error'
   | 'rate-limit'        // Provider rate limit ended the turn (no session retry)
+  | 'subagent-start'
+  | 'subagent-progress'
+  | 'subagent-message'
+  | 'subagent-cancel-requested'
   | 'subagent-stop'     // Subagent (Task tool) finished
   | 'session-start'     // Session begins (startup, resume, clear)
   | 'session-end'       // Session ends (quit, exit)
@@ -1199,12 +1207,8 @@ export interface LLMMessage {
  * Message with multimodal content for API requests
  * Used when converting LLMMessage to API format with images
  */
-export interface MultimodalMessage {
-  role: MessageRole;
+export interface MultimodalMessage extends Omit<LLMMessage, 'content'> {
   content: string | ContentPart[];
-  name?: string;
-  tool_call_id?: string;
-  tool_calls?: LLMToolCall[];
 }
 
 /**
@@ -1259,7 +1263,7 @@ export interface PromptCacheDirective {
 }
 
 export interface LLMRequest {
-  messages: LLMMessage[];
+  messages: MultimodalMessage[];
   temperature?: number;
   maxTokens?: number;
   stream?: boolean;
@@ -1574,8 +1578,8 @@ export type AgentAction =
   | { type: 'add_teammate'; name: string; agent_name: string; provider?: ProviderName; model?: string; requested_role?: string; agent_source?: string }
   | { type: 'create_task'; subject: string; description: string; blocked_by?: string[] }
   | { type: 'task_get'; task_id: string }
-  | { type: 'task_list'; status?: 'pending' | 'in_progress' | 'completed'; owner?: string }
-  | { type: 'task_update'; task_id: string; subject?: string; description?: string; blocked_by?: string[]; status?: 'pending' | 'in_progress' | 'completed' }
+  | { type: 'task_list'; status?: 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled'; owner?: string }
+  | { type: 'task_update'; task_id: string; subject?: string; description?: string; blocked_by?: string[]; status?: 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled' }
   | { type: 'task_stop'; task_id: string }
   | { type: 'task_output'; task_id: string; output: string }
   | { type: 'team_status' }
@@ -1585,6 +1589,13 @@ export type AgentAction =
   | { type: 'enter_worktree'; name?: string }
   | { type: 'exit_worktree'; keep?: boolean }
   // Web Search Operations
+  | {
+      type: 'capture_test_evidence';
+      url: string;
+      steps?: import('./testing/visualEvidence.js').VisualEvidenceStep[];
+      max_frames?: number;
+      timeout_ms?: number;
+    }
   | { type: 'web_search'; query: string; max_results?: number; search_type?: 'general' | 'packages' | 'docs' | 'changelog' }
   | { type: 'fetch_url'; url: string; selector?: string; max_length?: number }
   | { type: 'package_info'; package_name: string; registry?: 'npm' | 'pypi' | 'crates' | 'go' | 'rubygems'; version?: string }
@@ -1751,6 +1762,8 @@ export type ToolActionOutcome =
   | {
       success: true;
       output?: string;
+      /** Local artifact paths for runtime-only multimodal handoff; never image bytes or URLs. */
+      imagePaths?: string[];
     }
   | {
       success: false;
@@ -1758,6 +1771,7 @@ export type ToolActionOutcome =
       error: string;
       output?: string;
       exitCode?: number | null;
+      imagePaths?: string[];
     };
 
 export type ToolExecutionResult = {

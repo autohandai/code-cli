@@ -5,7 +5,7 @@
  */
 
 import type { LLMProvider } from './LLMProvider.js';
-import type { ContentPart, LLMRequest, LLMResponse, LLMToolCall, FunctionDefinition, ReasoningEffort, OpenAISettings, OpenAIChatGPTAuth } from '../types.js';
+import type { ContentPart, MultimodalMessage, LLMRequest, LLMResponse, LLMToolCall, FunctionDefinition, ReasoningEffort, OpenAISettings, OpenAIChatGPTAuth } from '../types.js';
 import { ApiError, classifyApiError, type ApiErrorCode } from './errors.js';
 import { isChatGPTAuthExpired, refreshChatGPTAuth } from './openaiAuth.js';
 import { normalizeLLMUsage } from './usage.js';
@@ -937,10 +937,10 @@ export class OpenAIProvider implements LLMProvider {
         return items;
     }
 
-    private buildCodexInstructions(messages: Array<{ role: string; content: string }>): string {
+    private buildCodexInstructions(messages: MultimodalMessage[]): string {
         const systemMessages = messages
-            .filter((msg) => msg.role === 'system' && typeof msg.content === 'string' && msg.content.trim())
-            .map((msg) => msg.content.trim());
+            .flatMap((msg) => msg.role === 'system' && typeof msg.content === 'string' && msg.content.trim()
+                ? [msg.content.trim()] : []);
 
         if (systemMessages.length === 0) {
             return DEFAULT_CODEX_INSTRUCTIONS;

@@ -242,6 +242,7 @@ const READ_FILE_MAX_LINE_CHARACTERS = 2_000;
 
 interface ToolOutcomeCapture {
   failure?: ToolFailureOutcome;
+  imagePaths?: string[];
 }
 
 interface ActionExecutionState {
@@ -864,27 +865,30 @@ export class ActionExecutor {
     }
 
     const capture: ToolOutcomeCapture = {};
+    const withImages = (outcome: ToolActionOutcome): ToolActionOutcome => capture.imagePaths?.length
+      ? { ...outcome, imagePaths: capture.imagePaths }
+      : outcome;
     try {
       const output = await this.withToolActivity(
         action,
         () => this.executeLegacy(action, context, capture),
       );
       if (context?.signal?.aborted) {
-        return this.createAbortedOutcome();
+        return withImages(this.createAbortedOutcome());
       }
       if (capture.failure) {
-        return capture.failure;
+        return withImages(capture.failure);
       }
-      return output === undefined ? { success: true } : { success: true, output };
+      return withImages(output === undefined ? { success: true } : { success: true, output });
     } catch (error) {
       if (this.isAbortFailure(error, context?.signal)) {
-        return this.createAbortedOutcome(error);
+        return withImages(this.createAbortedOutcome(error));
       }
-      return {
+      return withImages({
         success: false,
         kind: 'operational',
         error: this.normalizeToolError(error),
-      };
+      });
     }
   }
 
@@ -2958,6 +2962,25 @@ export class ActionExecutor {
         return result.message;
       }
       // Web Search Operations
+      case 'capture_test_evidence': {
+        const { captureVisualEvidence } = await import('../testing/visualEvidence.js');
+        const evidence = await captureVisualEvidence({
+          workspaceRoot: this.runtime.workspaceRoot,
+          url: action.url,
+          steps: action.steps,
+          maxFrames: action.max_frames,
+          timeoutMs: action.timeout_ms,
+          signal: context?.signal,
+        });
+        if (capture && evidence.screenshotPaths.length > 0) {
+          capture.imagePaths = [...evidence.screenshotPaths];
+        }
+        const output = JSON.stringify(evidence, null, 2);
+        if (evidence.status !== 'passed') {
+          return this.recordToolFailure(capture, 'operational', `${evidence.message}\n\nEvidence manifest:\n${output}`, output);
+        }
+        return output;
+      }
       case 'web_search': {
         if (!action.query) {
           throw new Error('web_search requires a "query" argument.');
@@ -3084,6 +3107,10 @@ export class ActionExecutor {
         console.log(chalk.cyan(`\nInstalling sub-agent: ${action.name}...`));
         const result = await installSubAgentFromCatalog(action.name, {
           overwrite: action.overwrite,
+          allowedTools: new Set([
+            ...DEFAULT_TOOL_DEFINITIONS,
+            ...this.getRegisteredTools(),
+          ].map((definition) => definition.name)),
         });
         const registry = AgentRegistry.getInstance();
         registry.configureExternalAgents(this.runtime.config.externalAgents);

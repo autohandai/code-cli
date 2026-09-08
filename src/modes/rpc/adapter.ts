@@ -132,6 +132,7 @@ import type {
   HookSessionStartNotificationParams,
   HookSessionEndNotificationParams,
   HookSubagentStopNotificationParams,
+  HookSubagentActivityNotificationParams,
   HookPermissionRequestNotificationParams,
   HookNotificationNotificationParams,
   HookContextCompactedNotificationParams,
@@ -1829,6 +1830,30 @@ export class RPCAdapter {
       case 'session-end':
         this.emitHookSessionEnd(context.sessionEndReason ?? 'exit', context.duration ?? 0);
         break;
+      case 'subagent-start':
+      case 'subagent-progress':
+      case 'subagent-message':
+      case 'subagent-cancel-requested': {
+        const notifications = {
+          'subagent-start': RPC_NOTIFICATIONS.HOOK_SUBAGENT_START,
+          'subagent-progress': RPC_NOTIFICATIONS.HOOK_SUBAGENT_PROGRESS,
+          'subagent-message': RPC_NOTIFICATIONS.HOOK_SUBAGENT_MESSAGE,
+          'subagent-cancel-requested': RPC_NOTIFICATIONS.HOOK_SUBAGENT_CANCEL_REQUESTED,
+        };
+        if (!this.notificationsSealed) writeNotification(notifications[context.event], {
+          subagentId: context.subagentId ?? '',
+          subagentName: context.subagentName ?? '',
+          subagentType: context.subagentType ?? '',
+          parentId: context.subagentParentId,
+          source: context.subagentSource,
+          status: context.subagentStatus,
+          workspace: context.subagentWorkspace,
+          activity: context.subagentActivity,
+          message: context.subagentMessage,
+          timestamp: createTimestamp(),
+        } satisfies HookSubagentActivityNotificationParams);
+        break;
+      }
       case 'subagent-stop':
         this.emitHookSubagentStop(
           context.subagentId ?? '',

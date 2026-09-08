@@ -1369,16 +1369,22 @@ export class AutohandAcpAdapter implements Agent {
             sessionId,
             update: {
               sessionUpdate: 'plan',
-              entries: snapshot.tasks.map((task) => ({
-                content: task.owner ? `${task.subject} → ${task.owner}` : task.subject,
-                priority: 'medium' as const,
-                status: task.status,
-                _meta: {
-                  teamName: snapshot.team?.name,
-                  taskId: task.id,
-                  ...(task.owner ? { owner: task.owner } : {}),
-                },
-              })),
+              entries: snapshot.tasks.map((task) => {
+                const status = task.status;
+                const interrupted = status === 'failed' || status === 'cancelled';
+                const content = task.owner ? `${task.subject} → ${task.owner}` : task.subject;
+                return {
+                  content: interrupted ? `[${status}] ${content}` : content,
+                  priority: 'medium' as const,
+                  status: interrupted ? 'pending' as const : status,
+                  _meta: {
+                    teamName: snapshot.team?.name,
+                    taskId: task.id,
+                    taskStatus: status,
+                    ...(task.owner ? { owner: task.owner } : {}),
+                  },
+                };
+              }),
               _meta: {
                 teamName: snapshot.team.name,
                 memberCount: snapshot.team.members.length,

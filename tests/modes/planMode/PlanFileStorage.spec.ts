@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import path from 'node:path';
 
 // Mock fs-extra before importing modules that use it
 vi.mock('fs-extra', () => ({
@@ -250,12 +251,25 @@ Created: 2025-01-19T10:00:00.000Z
   describe('getPlansDirectory', () => {
     it('should return the plans directory path', async () => {
       const { PlanFileStorage } = await import('../../../src/modes/planMode/PlanFileStorage.js');
+      const { AUTOHAND_PATHS } = await import('../../../src/constants.js');
       const storage = new PlanFileStorage();
 
       const dir = storage.getPlansDirectory();
 
-      expect(dir).toContain('.autohand');
-      expect(dir).toContain('plans');
+      expect(dir).toBe(AUTOHAND_PATHS.plans);
+    });
+
+    it('uses a configured home without requiring the default directory name', async () => {
+      const configuredHome = path.resolve('isolated-test-home');
+      vi.stubEnv('AUTOHAND_HOME', configuredHome);
+      vi.resetModules();
+      try {
+        const { PlanFileStorage } = await import('../../../src/modes/planMode/PlanFileStorage.js');
+        expect(new PlanFileStorage().getPlansDirectory()).toBe(path.join(configuredHome, 'plans'));
+      } finally {
+        vi.unstubAllEnvs();
+        vi.resetModules();
+      }
     });
   });
 });

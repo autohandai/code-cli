@@ -11,6 +11,12 @@ import type { MobileClaimedTurnContext } from '../../mobile/MobileRelay.js';
 import type { ReviewExecutionSurface } from '../../review/reviewLifecycle.js';
 import type { ReviewRequest } from '../../review/reviewRequest.js';
 import { nextQueuedWorkSequence } from '../../utils/queuedWorkSequence.js';
+import type { Intent } from '../IntentDetector.js';
+
+export interface QueuedInstructionPolicy {
+  environmentBootstrap?: 'skip';
+  intent?: Intent;
+}
 
 export interface PublishResearchPostTurnAction {
   kind: 'publish-research';
@@ -39,6 +45,7 @@ export interface QueuedAgentInstruction {
   text?: string;
   /** Whether this internal instruction should be echoed as a user transcript entry. */
   echoInTranscript?: boolean;
+  executionPolicy?: QueuedInstructionPolicy;
   postTurnAction?: PendingPostTurnAction;
   mobileTurn?: MobileClaimedTurnContext;
   mobileCommand?: QueuedMobileComposerCommand;

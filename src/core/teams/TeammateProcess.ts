@@ -35,6 +35,7 @@ export interface TeammateTerminationOptions {
 const DEFAULT_GRACEFUL_TIMEOUT_MS = 750;
 const DEFAULT_TERM_TIMEOUT_MS = 750;
 const DEFAULT_KILL_TIMEOUT_MS = 250;
+const MAX_STDERR_BYTES = 16 * 1024;
 
 /**
  * Manages spawning and communicating with a single autohand teammate child process.
@@ -52,9 +53,14 @@ const DEFAULT_KILL_TIMEOUT_MS = 250;
 export class TeammateProcess {
   private child: ChildProcess | null = null;
   private childClosed = false;
+  private childExited = false;
   private router = new MessageRouter();
   private _status: TeamMemberStatus = 'spawning';
   private exitCode: number | null | undefined;
+  private error?: string;
+  private transportFailed = false;
+  private termination?: Promise<void>;
+  private onMessage?: MessageHandler;
   private readonly opts: TeammateSpawnOptions;
 
   constructor(opts: TeammateSpawnOptions) {
@@ -73,7 +79,12 @@ export class TeammateProcess {
     return this.child?.pid ?? 0;
   }
 
+  get isRunning(): boolean {
+    return this.child !== null && this.isChildRunning(this.child);
+  }
+
   setStatus(status: TeamMemberStatus): void {
+    if (this.childExited) return;
     this._status = status;
   }
 
@@ -121,53 +132,108 @@ export class TeammateProcess {
    * via piped stdin/stdout using JSON-RPC.
    */
   spawn(onMessage: MessageHandler, onExit: (code: number | null) => void): void {
+    if (this.child) {
+      throw new Error(`Teammate "${this.name}" has already been spawned`);
+    }
     const args = TeammateProcess.buildSpawnArgs(this.opts);
     const binPath = process.argv[1];
-    this.child = spawn(process.execPath, [binPath, ...args], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: TeammateProcess.buildSpawnEnv(this.opts),
-    });
+    this.onMessage = onMessage;
     this.childClosed = false;
-
-    if (this.child.stdout) {
-      this.router.onMessage(this.child.stdout, onMessage);
-    }
-
-    if (this.child.stderr) {
-      const chunks: Buffer[] = [];
-      this.child.stderr.on('data', (chunk: Buffer) => {
-        chunks.push(chunk);
+    this.childExited = false;
+    this.transportFailed = false;
+    this.exitCode = undefined;
+    this.error = undefined;
+    this._status = 'spawning';
+    let child: ChildProcess;
+    try {
+      child = spawn(process.execPath, [binPath, ...args], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: TeammateProcess.buildSpawnEnv(this.opts),
       });
-      this.child.stderr.on('end', () => {
-        if (chunks.length > 0) {
-          const stderr = Buffer.concat(chunks).toString().trim();
-          if (stderr) {
-            onMessage({
-              method: 'team.log',
-              params: { level: 'error', text: `[${this.opts.name} stderr] ${stderr}` },
-            });
-          }
-        }
-      });
+    } catch (error) {
+      this.child = null;
+      this.childClosed = true;
+      this.childExited = true;
+      this.exitCode = null;
+      this._status = 'shutdown';
+      this.recordError(error);
+      throw error;
     }
+    this.child = child;
 
-    this.child.on('exit', (code) => {
+    let exitNotified = false;
+    const finish = (code: number | null): void => {
+      if (exitNotified) return;
+      exitNotified = true;
+      this.childExited = true;
       this.exitCode = code;
       this._status = 'shutdown';
       onExit(code);
+    };
+    child.on('error', (error: Error) => {
+      this.recordError(error);
+      if (child.pid === undefined) {
+        this.childClosed = true;
+        finish(null);
+      } else {
+        this.handleTransportFailure(error);
+      }
     });
-    this.child.on('close', () => {
+    child.on('exit', finish);
+
+    for (const stream of [child.stdin, child.stdout, child.stderr]) {
+      stream?.on('error', (error: Error) => this.handleTransportFailure(error));
+    }
+
+    const stopMessages = child.stdout
+      ? this.router.onMessage(child.stdout, (message) => {
+        if (!this.childClosed && !this.transportFailed) onMessage(message);
+      })
+      : undefined;
+
+    let stderrTail: Buffer = Buffer.alloc(0);
+    let stderrTruncated = false;
+    const flushStderr = (): void => {
+      const stderr = stderrTail.toString().trim();
+      stderrTail = Buffer.alloc(0);
+      if (!stderr) return;
+      const notice = stderrTruncated ? `[truncated; last ${MAX_STDERR_BYTES} bytes]\n` : '';
+      this.logError(`[${this.opts.name} stderr] ${notice}${stderr}`);
+    };
+    child.stderr?.on('data', (chunk: Buffer | string) => {
+      const bytes = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+      stderrTruncated ||= stderrTail.length + bytes.length > MAX_STDERR_BYTES;
+      stderrTail = bytes.length >= MAX_STDERR_BYTES
+        ? Buffer.from(bytes.subarray(bytes.length - MAX_STDERR_BYTES))
+        : Buffer.concat([stderrTail.subarray(Math.max(0, stderrTail.length + bytes.length - MAX_STDERR_BYTES)), bytes]);
+    });
+    child.stderr?.on('end', flushStderr);
+
+    child.on('close', (code: number | null) => {
       this.childClosed = true;
+      stopMessages?.();
+      try {
+        flushStderr();
+      } finally {
+        finish(code);
+      }
     });
   }
 
   /**
    * Send an arbitrary JSON-RPC message to the child process via stdin.
    */
-  send(msg: { method: string; params: Record<string, unknown> }): void {
-    if (this.child?.stdin && this.isChildRunning(this.child)) {
-      this.router.send(this.child.stdin, msg);
+  send(msg: { method: string; params: Record<string, unknown> }): boolean {
+    if (this.child?.stdin && this.isRunning && !this.transportFailed
+      && !this.child.stdin.destroyed && !this.child.stdin.writableEnded) {
+      try {
+        this.router.send(this.child.stdin, msg);
+        return true;
+      } catch (error) {
+        this.handleTransportFailure(error);
+      }
     }
+    return false;
   }
 
   /**
@@ -175,8 +241,9 @@ export class TeammateProcess {
    * sends a `team.assignTask` message.
    */
   assignTask(task: TeamTask): void {
+    if (this.childExited || this.transportFailed) return;
     this._status = 'working';
-    this.send({ method: 'team.assignTask', params: { task } });
+    this.send({ method: 'team.assignTask', params: { task, waitForRunReady: true } });
   }
 
   /**
@@ -186,11 +253,21 @@ export class TeammateProcess {
     this.send({ method: 'team.message', params: { from, content } });
   }
 
+  cancelTask(taskId: string, reason?: string, runId?: string): void {
+    this.send({ method: 'team.cancelTask', params: {
+      taskId, ...(reason !== undefined ? { reason } : {}), ...(runId !== undefined ? { runId } : {}),
+    } });
+  }
+
   /**
    * Push an updated task list to the teammate so it has current context
    * about overall team progress and dependencies.
    */
   sendContextUpdate(tasks: TeamTask[]): void {
+    this.updateContext(tasks);
+  }
+
+  updateContext(tasks: TeamTask[]): void {
     this.send({ method: 'team.updateContext', params: { tasks } });
   }
 
@@ -204,12 +281,27 @@ export class TeammateProcess {
 
   kill(signal: NodeJS.Signals = 'SIGTERM'): void {
     if (this.child && this.isChildRunning(this.child)) {
-      this.child.kill(signal);
+      try {
+        this.child.kill(signal);
+      } catch (error) {
+        this.recordError(error);
+      }
     }
   }
 
   /** Wait briefly for graceful exit, then escalate to SIGTERM and SIGKILL. */
   async terminate(options: TeammateTerminationOptions = {}): Promise<void> {
+    if (this.termination) return this.termination;
+    const termination = this.terminateChild(options);
+    this.termination = termination;
+    try {
+      await termination;
+    } finally {
+      if (this.termination === termination) this.termination = undefined;
+    }
+  }
+
+  private async terminateChild(options: TeammateTerminationOptions): Promise<void> {
     const child = this.child;
     if (!child || this.childClosed) return;
 
@@ -225,7 +317,28 @@ export class TeammateProcess {
   }
 
   private isChildRunning(child: ChildProcess): boolean {
-    return child.exitCode === null && child.signalCode === null;
+    return !this.childClosed && !this.childExited && child.exitCode === null && child.signalCode === null;
+  }
+
+  private recordError(error: unknown): void {
+    if (this.error !== undefined) return;
+    this.error = error instanceof Error ? error.message : String(error);
+    this.logError(`[${this.name}] ${this.error}`);
+  }
+
+  private logError(text: string): void {
+    try {
+      this.onMessage?.({ method: 'team.log', params: { level: 'error', text } });
+    } catch {
+      return;
+    }
+  }
+
+  private handleTransportFailure(error: unknown): void {
+    if (this.childExited || this.transportFailed) return;
+    this.transportFailed = true;
+    this.recordError(error);
+    void this.terminate({ gracefulTimeoutMs: 0 });
   }
 
   private waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
@@ -238,15 +351,20 @@ export class TeammateProcess {
         settled = true;
         clearTimeout(timeout);
         child.off('close', onClose);
+        child.off('error', onError);
         resolve(exited);
       };
       const onClose = (): void => {
         this.childClosed = true;
         finish(true);
       };
+      const onError = (): void => {
+        if (this.childClosed) finish(true);
+      };
       const timeout = setTimeout(() => finish(false), timeoutMs);
       timeout.unref?.();
       child.once('close', onClose);
+      child.on('error', onError);
 
       if (this.childClosed) finish(true);
     });
@@ -263,6 +381,7 @@ export class TeammateProcess {
       pid: this.pid,
       status: this._status,
       ...(this._status === 'shutdown' ? { exitCode: this.exitCode ?? null } : {}),
+      ...(this.error ? { error: this.error } : {}),
       provider: this.opts.provider,
       model: this.opts.model,
       modelSource: this.opts.modelSource,

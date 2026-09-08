@@ -5,9 +5,12 @@
  */
 
 import chalk from 'chalk';
-import { AgentDefinition } from './AgentRegistry.js';
+import { AgentRegistry, type AgentDefinition } from './AgentRegistry.js';
+import { formatAgentRoster } from './agentRoster.js';
+import { buildWorkerProjectMemoryContext } from './workerProjectMemory.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
 import { ConversationManager } from '../conversationManager.js';
+import { ToolImageStore } from '../ToolImageStore.js';
 import {
     ToolManager,
     DEFAULT_TOOL_DEFINITIONS,
@@ -22,8 +25,10 @@ import {
     AgentDelegator,
     type SubagentAssignmentResolver,
     type SubagentProviderFactory,
+    type DelegatorOptions,
 } from './AgentDelegator.js';
-import type { ClientContext, LLMMessage, LoadedConfig, ToolCallRequest } from '../../types.js';
+import type { ThreadBudget } from './SessionThreadBudget.js';
+import type { ClientContext, LLMMessage, LLMUsage, LoadedConfig, ToolCallRequest } from '../../types.js';
 import { isGoalFeatureEnabled } from '../../goals/feature.js';
 import { ReactionParser } from '../agent/ReactionParser.js';
 import {
@@ -36,6 +41,17 @@ import {
  * Options for creating a SubAgent with context inheritance
  */
 export interface SubAgentOptions {
+    workspaceRoot?: string;
+    projectMemoryEnabled?: boolean;
+    userRequest?: string;
+    allowedToolNames?: ReadonlySet<string>;
+    getPendingInstructions?: () => string[];
+    onProgress?: (progress: SubAgentProgress) => void | Promise<void>;
+    threadBudget?: ThreadBudget;
+    parentId?: string;
+    onSubagentStart?: DelegatorOptions['onSubagentStart'];
+    onSubagentStop?: DelegatorOptions['onSubagentStop'];
+    onSubagentProgress?: DelegatorOptions['onSubagentProgress'];
     /** Client context for tool filtering */
     clientContext: ClientContext;
     /** Current depth in the delegation hierarchy */
@@ -60,32 +76,34 @@ export interface SubAgentOptions {
     createSubagentProvider?: SubagentProviderFactory;
 }
 
-/** Tool definitions for delegation (added only if sub-agent can delegate further) */
-const DELEGATION_TOOL_DEFINITIONS: ToolDefinition[] = [
-    {
-        name: 'delegate_task',
-        description: 'Delegate a task to another specialized sub-agent',
-        parameters: {
-            type: 'object',
-            properties: {
-                agent_name: { type: 'string', description: 'Name of the agent to delegate to' },
-                task: { type: 'string', description: 'Task description for the sub-agent' }
-            },
-            required: ['agent_name', 'task']
-        }
-    },
-    {
-        name: 'delegate_parallel',
-        description: 'Run multiple sub-agents in parallel (max 5)',
-        parameters: {
-            type: 'object',
-            properties: {
-                tasks: { type: 'array', description: 'Array of {agent_name, task} objects' }
-            },
-            required: ['tasks']
-        }
+export interface SubAgentProgress {
+    status: 'thinking' | 'tool';
+    tool?: string;
+    output?: string;
+    usage?: LLMUsage;
+}
+
+export interface SubAgentRunOptions {
+    signal?: AbortSignal;
+}
+
+export class SubAgentExecutionError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'SubAgentExecutionError';
     }
-];
+}
+
+/** Tool definitions for delegation (added only if sub-agent can delegate further) */
+const DELEGATION_TOOL_NAMES = new Set(['delegate_task', 'delegate_parallel']);
+const DELEGATION_TOOL_DEFINITIONS = DEFAULT_TOOL_DEFINITIONS.filter(definition => DELEGATION_TOOL_NAMES.has(definition.name));
+const LEAD_ONLY_TOOL_NAMES = new Set([
+    'create_team', 'compose_team', 'add_teammate', 'create_task', 'task_get', 'task_list',
+    'task_update', 'task_stop', 'task_output', 'team_status', 'send_team_message',
+    'orchestrate_specialists', 'install_specialist_roster', 'skill', 'sleep',
+    'enter_worktree', 'exit_worktree', 'cron_create', 'cron_delete', 'list_schedules',
+    'cancel_schedule', 'exit_plan_mode', 'find_mcp_servers', 'install_mcp_server', 'install_agent_skill',
+]);
 
 function uniqueToolDefinitions(definitions: ToolDefinition[]): ToolDefinition[] {
     const names = new Set<string>();
@@ -100,12 +118,14 @@ function uniqueToolDefinitions(definitions: ToolDefinition[]): ToolDefinition[] 
 
 export class SubAgent {
     private conversation: ConversationManager;
+    private readonly toolImages: ToolImageStore;
     private toolManager: ToolManager;
     private delegator: AgentDelegator | null = null;
     private name: string;
     private options: SubAgentOptions;
     private readonly supportsNativeToolCalling: boolean;
     private readonly reactionParser = new ReactionParser();
+    private readonly usage: LLMUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
 
     constructor(
         private readonly config: AgentDefinition,
@@ -115,6 +135,7 @@ export class SubAgent {
     ) {
         this.name = config.name;
         this.options = options;
+        this.toolImages = new ToolImageStore(options.workspaceRoot ?? process.cwd());
         this.supportsNativeToolCalling = this.llm.getCapabilities?.().nativeToolCalling === true;
 
         // Determine if this sub-agent can delegate further
@@ -135,6 +156,9 @@ export class SubAgent {
         let definitions = allowedTools.has('*')
             ? availableDefinitions
             : availableDefinitions.filter(def => allowedTools.has(def.name));
+        definitions = definitions.filter(definition => !LEAD_ONLY_TOOL_NAMES.has(definition.name)
+            && !definition.name.startsWith('mcp__')
+            && (canDelegate || !DELEGATION_TOOL_NAMES.has(definition.name)));
 
         // Add delegation tools if sub-agent can delegate further
         if (canDelegate) {
@@ -144,12 +168,19 @@ export class SubAgent {
         // Apply context filter (slack, api, restricted modes)
         const toolFilter = new ToolFilter(options.clientContext);
         definitions = toolFilter.filterDefinitions(definitions);
+        if (options.allowedToolNames) {
+            definitions = definitions.filter(definition => options.allowedToolNames?.has(definition.name));
+        }
 
         // Create delegator if sub-agent can delegate
         if (canDelegate) {
             this.delegator = new AgentDelegator(llm, actionExecutor, {
+                workspaceRoot: options.workspaceRoot,
+                projectMemoryEnabled: options.projectMemoryEnabled,
+                getUserRequest: () => options.userRequest,
                 clientContext: options.clientContext,
                 currentDepth: options.depth,
+                allowedToolNames: new Set(definitions.map(definition => definition.name)),
                 maxDepth: options.maxDepth,
                 featureConfig: options.featureConfig,
                 authorization: options.authorization,
@@ -157,6 +188,11 @@ export class SubAgent {
                 getToolDefinitions: options.getToolDefinitions,
                 resolveSubagentAssignment: options.resolveSubagentAssignment,
                 createSubagentProvider: options.createSubagentProvider,
+                threadBudget: options.threadBudget,
+                parentId: options.parentId,
+                onSubagentStart: options.onSubagentStart,
+                onSubagentStop: options.onSubagentStop,
+                onSubagentProgress: options.onSubagentProgress,
             });
         }
 
@@ -173,11 +209,12 @@ export class SubAgent {
                 if (action.type === 'delegate_task' && this.delegator) {
                     return this.delegator.delegateTaskForTool(
                         action.agent_name,
-                        action.task
+                        action.task,
+                        { signal: context?.signal },
                     );
                 }
                 if (action.type === 'delegate_parallel' && this.delegator) {
-                    return this.delegator.delegateParallelForTool(action.tasks);
+                    return this.delegator.delegateParallelForTool(action.tasks, { signal: context?.signal });
                 }
                 return this.actionExecutor.executeForTool(action, context);
             },
@@ -189,7 +226,12 @@ export class SubAgent {
         });
 
         // Build enhanced system prompt with tool signatures
-        const enhancedSystemPrompt = this.buildSystemPrompt(config.systemPrompt, definitions);
+        const enhancedSystemPrompt = [
+            this.buildSystemPrompt(config.systemPrompt, definitions),
+            options.workspaceRoot ? `## Execution workspace\nYour tools execute in: ${JSON.stringify(options.workspaceRoot)}\nUse this selected repository, not the terminal launch directory. Read applicable repository instructions before making changes. If the request refers to another repository or the scope is ambiguous, report the mismatch to the lead instead of guessing or switching repositories.` : '',
+            'The delegated task is a bounded part of the original user request. Preserve the user\'s constraints; a review or diagnosis does not authorize edits. Report conflicts between the delegated task and the original request to the lead.',
+            formatAgentRoster(AgentRegistry.getInstance().getAllAgents(), new Set(definitions.map(definition => definition.name))),
+        ].filter(Boolean).join('\n\n');
         this.conversation = new ConversationManager();
         this.conversation.reset(enhancedSystemPrompt);
     }
@@ -262,9 +304,22 @@ export class SubAgent {
         return `- ${def.name}(${params}): ${def.description}`;
     }
 
-    public async run(task: string): Promise<string> {
-        console.log(chalk.cyan(`\n🤖 Sub-agent '${this.name}' starting task... (depth ${this.options.depth}/${this.options.maxDepth})`));
+    public async run(task: string, options: SubAgentRunOptions = {}): Promise<string> {
+        options.signal?.throwIfAborted();
+        console.log(chalk.cyan(`\nSub-agent '${this.name}' starting task... (depth ${this.options.depth}/${this.options.maxDepth})`));
 
+        const projectMemory = await buildWorkerProjectMemoryContext({
+            workspaceRoot: this.options.workspaceRoot,
+            enabled: this.options.projectMemoryEnabled,
+            canSaveMemory: this.toolManager.listDefinitions().some(tool => tool.name === 'save_memory'),
+            autoMemory: this.options.featureConfig?.agent?.autoMemory,
+        });
+        options.signal?.throwIfAborted();
+        if (projectMemory) this.conversation.addMessage({ role: 'system', content: projectMemory });
+
+        if (this.options.userRequest) {
+            this.conversation.addMessage({ role: 'user', content: `Original user request:\n${this.options.userRequest}` });
+        }
         this.conversation.addMessage({ role: 'user', content: task });
 
         // Get function definitions for LLM function calling
@@ -273,6 +328,11 @@ export class SubAgent {
         const reflectionGuard = new ToolReflectionGuard();
         const maxIterations = 10;
         for (let i = 0; i < maxIterations; i++) {
+            options.signal?.throwIfAborted();
+            this.consumePendingInstructions();
+            await this.options.onProgress?.({ status: 'thinking', usage: this.getUsage() });
+            options.signal?.throwIfAborted();
+            this.consumePendingInstructions();
             const requestTools = this.supportsNativeToolCalling
                 && !loopGuard.isForcingFinalResponse()
                 && tools.length > 0
@@ -280,12 +340,25 @@ export class SubAgent {
                 : undefined;
 
             const completion = await this.llm.complete({
-                messages: this.conversation.history(),
+                messages: this.toolImages.prepare(this.conversation.history()),
                 model: this.options.model ?? this.config.model,
                 temperature: 0.2,
+                signal: options.signal,
                 tools: requestTools,
                 toolChoice: requestTools ? 'auto' : undefined
             });
+            if (completion.usage) {
+                this.usage.promptTokens += completion.usage.promptTokens;
+                this.usage.completionTokens += completion.usage.completionTokens;
+                this.usage.totalTokens += completion.usage.totalTokens;
+                for (const field of ['cacheReadTokens', 'cacheWriteTokens'] as const) {
+                    if (completion.usage[field] !== undefined) {
+                        this.usage[field] = (this.usage[field] ?? 0) + completion.usage[field];
+                    }
+                }
+            }
+            await this.options.onProgress?.({ status: 'thinking', usage: this.getUsage() });
+            options.signal?.throwIfAborted();
 
             // Prefer native tool calls if available
             const payload = this.reactionParser.parseAssistantResponse(completion);
@@ -352,13 +425,18 @@ export class SubAgent {
                         + 'Stop calling tools and provide the final answer using the existing results.'
                     );
                     if (decision.type === 'reject' && decision.exhausted) {
-                        return `[${this.name}] Stopped repeated tool calls to prevent a loop and token waste.`;
+                        throw new SubAgentExecutionError(`[${this.name}] Stopped repeated tool calls to prevent a loop and token waste.`);
                     }
                     continue;
                 }
 
                 // Execute tools
-                const results = await this.toolManager.execute(payload.toolCalls);
+                await this.options.onProgress?.({
+                    status: 'tool', tool: payload.toolCalls.map(call => call.tool).join(', '), usage: this.getUsage(),
+                });
+                options.signal?.throwIfAborted();
+                const results = await this.toolManager.execute(payload.toolCalls, undefined, { signal: options.signal });
+                options.signal?.throwIfAborted();
 
                 for (let j = 0; j < results.length; j++) {
                     const result = results[j];
@@ -366,13 +444,20 @@ export class SubAgent {
                     const content = result.success
                         ? result.output ?? '(no output)'
                         : result.error ?? 'Tool failed';
+                    await this.options.onProgress?.({ status: 'tool', tool: result.tool, output: content, usage: this.getUsage() });
 
-                    this.conversation.addMessage({
+                    const message: LLMMessage = {
                         role: 'tool',
                         name: result.tool,
                         content,
                         tool_call_id: toolCall?.id
-                    });
+                    };
+                    if (result.imagePaths?.length) {
+                        const attachment = await this.toolImages.attach(message, result.imagePaths, options.signal);
+                        options.signal?.throwIfAborted();
+                        if (attachment.error) message.content += `\n[Image evidence unavailable] ${attachment.error.slice(0, 500)}`;
+                    }
+                    this.conversation.addMessage(message);
 
                     if (!result.success) {
                         console.log(chalk.red(`[${this.name}] Tool ${result.tool} failed: ${content}`));
@@ -388,13 +473,25 @@ export class SubAgent {
                 continue;
             }
 
+            if (this.consumePendingInstructions()) continue;
+
             // No tools, return final response
             const response = payload.finalResponse ?? payload.response ?? completion.content;
             console.log(chalk.cyan(`[${this.name}] Finished.`));
             return response;
         }
 
-        return `[${this.name}] Failed to complete task within ${maxIterations} iterations.`;
+        throw new SubAgentExecutionError(`[${this.name}] Failed to complete task within ${maxIterations} iterations.`);
+    }
+
+    public getUsage(): LLMUsage {
+        return { ...this.usage };
+    }
+
+    private consumePendingInstructions(): boolean {
+        const instructions = (this.options.getPendingInstructions?.() ?? []).filter(instruction => instruction.trim());
+        for (const content of instructions) this.conversation.addMessage({ role: 'user', content });
+        return instructions.length > 0;
     }
 
     private recordRejectedNativeToolCalls(calls: ToolCallRequest[], content: string): void {

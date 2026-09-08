@@ -9,6 +9,7 @@ import type { Session } from 'tuistory';
 import {
   setTaskListPositionDirectly,
   setTaskListPositionUp,
+  setTaskListPositionWithPicker,
 } from '../../src/testing/scenarios/taskListPositionScenario.js';
 import {
   createMockOpenRouterSequenceServer,
@@ -102,6 +103,17 @@ afterEach(async () => {
 });
 
 describe('task list position setting', () => {
+  it('isolates the composer for the direct position picker and restores input', async () => {
+    const { session, state } = await launchTaskListPositionSession('above-composer');
+
+    await setTaskListPositionWithPicker(session);
+
+    expect((await fs.readJson(state.configPath)).ui.taskListPosition).toBe('up');
+    await setTaskListPositionDirectly(session, 'above-composer');
+    expect((await fs.readJson(state.configPath)).ui.taskListPosition).toBe('above-composer');
+    await exitInteractive(session);
+  }, 60_000);
+
   it('moves live tasks above status after selecting up in /settings', async () => {
     const { session, state } = await launchTaskListPositionSession('above-composer');
 

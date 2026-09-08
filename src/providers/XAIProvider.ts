@@ -7,6 +7,7 @@
 import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
 import type {
     LLMRequest,
+    MultimodalMessage,
     LLMResponse,
     LLMToolCall,
     LLMUsage,
@@ -16,6 +17,7 @@ import type {
 } from '../types.js';
 import { ApiError, classifyApiError, type ApiErrorCode } from './errors.js';
 import { normalizeLLMUsage } from './usage.js';
+import { toTextOnlyContent } from './messagePayload.js';
 import {
     getProviderDefaultModel,
     getProviderModelIds,
@@ -394,16 +396,16 @@ export class XAIProvider implements LLMProvider {
     }
 
     private extractInstructions(
-        messages: Array<{ role: string; content: string }>,
+        messages: MultimodalMessage[],
     ): string | undefined {
         const parts = messages
-            .filter((msg) => msg.role === 'system' && typeof msg.content === 'string' && msg.content.trim())
-            .map((msg) => msg.content.trim());
+            .flatMap((msg) => msg.role === 'system' && typeof msg.content === 'string' && msg.content.trim()
+                ? [msg.content.trim()] : []);
         return parts.length > 0 ? parts.join('\n\n') : undefined;
     }
 
     // Convert the internal message format to xAI Responses API input items.
-    private toXAIInputItems(messages: Array<{ role: string; content: string; name?: string; tool_call_id?: string; tool_calls?: LLMToolCall[] }>): Array<Record<string, unknown>> {
+    private toXAIInputItems(messages: MultimodalMessage[]): Array<Record<string, unknown>> {
         const items: Array<Record<string, unknown>> = [];
 
         for (const msg of messages) {
@@ -412,11 +414,13 @@ export class XAIProvider implements LLMProvider {
                 continue;
             }
 
+            const content = toTextOnlyContent(msg.content);
+
             if (msg.role === 'tool' && msg.tool_call_id) {
                 items.push({
                     type: 'function_call_output',
                     call_id: msg.tool_call_id,
-                    output: typeof msg.content === 'string' ? msg.content : '',
+                    output: content,
                 });
                 continue;
             }
@@ -424,11 +428,11 @@ export class XAIProvider implements LLMProvider {
             if (msg.role === 'assistant' && msg.tool_calls?.length) {
                 // Replay prior native tool calls as top-level function_call items.
                 // Do not emit an empty assistant content message — Grok rejects noise.
-                if (typeof msg.content === 'string' && msg.content.trim()) {
+                if (content.trim()) {
                     items.push({
                         type: 'message',
                         role: 'assistant',
-                        content: [{ type: 'output_text', text: msg.content }],
+                        content: [{ type: 'output_text', text: content }],
                     });
                 }
                 for (const tc of msg.tool_calls) {
@@ -442,14 +446,14 @@ export class XAIProvider implements LLMProvider {
                 continue;
             }
 
-            if (msg.content && typeof msg.content === 'string' && msg.content.trim()) {
+            if (content.trim()) {
                 const role = msg.role === 'assistant' ? 'assistant' : 'user';
                 items.push({
                     type: 'message',
                     role,
                     content: [{
                         type: role === 'assistant' ? 'output_text' : 'input_text',
-                        text: msg.content,
+                        text: content,
                     }],
                 });
             }

@@ -29,6 +29,7 @@ import { loadLocalProjectSettings, type LocalProjectSettings } from "./permissio
 import { isAwsBedrockProviderEnabled } from "./features/featureRegistry.js";
 import { getCustomProviderConfig, isCustomProviderName } from "./providers/customProviders.js";
 import { getProviderDefaultModel, getProviderModelOptions, getProviderRuntimeDefaultModel, normalizeOpenRouterModelId } from "./providers/modelCatalog.js";
+import { DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION, MAX_CONCURRENT_THREADS_PER_SESSION, isValidSessionThreadLimit } from "./core/agents/SessionThreadBudget.js";
 
 const DEFAULT_CONFIG_PATH = AUTOHAND_FILES.configJson;
 const TOML_CONFIG_PATH = AUTOHAND_FILES.configToml;
@@ -154,6 +155,11 @@ function createDefaultConfig(): AutohandConfig {
     },
     agent: {
       toolSelectionCache: true,
+    },
+    features: {
+      multi_agent_v2: {
+        max_concurrent_threads_per_session: DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION,
+      },
     },
   };
 }
@@ -827,6 +833,19 @@ function isLegacyConfig(
 }
 
 function validateConfig(config: AutohandConfig, configPath: string): void {
+  const multiAgentConfig: unknown = config.features?.multi_agent_v2;
+  if (multiAgentConfig !== undefined) {
+    if (!isPlainObject(multiAgentConfig)) {
+      throw new Error(`features.multi_agent_v2 must be an object in ${configPath}`);
+    }
+    const threadLimit = multiAgentConfig.max_concurrent_threads_per_session;
+    if (threadLimit !== undefined && !isValidSessionThreadLimit(threadLimit)) {
+      throw new Error(
+        `features.multi_agent_v2.max_concurrent_threads_per_session must be an integer between 1 and ${MAX_CONCURRENT_THREADS_PER_SESSION} in ${configPath}`,
+      );
+    }
+  }
+
   if (config.blueprintLocal !== undefined) {
     if (!isPlainObject(config.blueprintLocal)) {
       throw new Error(`blueprintLocal must be an object in ${configPath}`);

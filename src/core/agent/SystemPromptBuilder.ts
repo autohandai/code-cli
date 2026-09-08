@@ -13,6 +13,8 @@ import { formatToolCapabilityCatalog } from '../toolFilter.js';
 import { configureAgentRegistry } from './dynamicRuntimeExtensions.js';
 import { isGoalFeatureEnabled } from '../../goals/feature.js';
 import type { SkillSource } from '../../skills/types.js';
+import type { AgentDefinition } from '../agents/AgentRegistry.js';
+import { formatAgentRoster } from '../agents/agentRoster.js';
 
 interface PromptSkillSummary {
   name: string;
@@ -437,18 +439,15 @@ export class SystemPromptBuilder {
       }
     }
 
-    const allAgents: Array<{ name: string; description: string }> = [];
+    const allAgents: AgentDefinition[] = [];
     if (!runtime.options.bare) {
       const agentRegistry = configureAgentRegistry(runtime);
       await agentRegistry.loadAgents();
       allAgents.push(...agentRegistry.getAllAgents());
     }
-    if (allAgents.length > 0) {
-      parts.push('', '## Available Agents');
-      parts.push('These agents can be spawned as teammates using create_team + add_teammate:');
-      for (const agent of allAgents) {
-        parts.push(`- **${agent.name}**: ${agent.description}`);
-      }
+    if (!runtime.options.bare) {
+      const roster = formatAgentRoster(allAgents, new Set(toolDefs.map((tool) => tool.name)));
+      if (roster) parts.push('', roster);
     }
 
     const activeTeam = this.options.getTeam();

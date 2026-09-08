@@ -15,7 +15,49 @@
  * modal renders.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { SlashCommandHandler } from '../../src/core/slashCommandHandler.js';
+import type { SlashCommandContext } from '../../src/core/slashCommandTypes.js';
+import * as settingsCommand from '../../src/commands/settings.js';
+
+afterEach(() => vi.restoreAllMocks());
+
+describe('/settings renderer lifecycle', () => {
+  it.each([
+    ['max_agents', '4'],
+    ['task_list', 'position', 'up'],
+    ['help'],
+    ['max_agents'],
+  ])('keeps the composer mounted for non-interactive arguments %j', async (...args) => {
+    const settings = vi.spyOn(settingsCommand, 'settings').mockResolvedValue('settings result');
+    const onBeforeModal = vi.fn();
+    const onAfterModal = vi.fn();
+    const config = { configPath: '/test/config.json' };
+    const handler = new SlashCommandHandler({ config, onBeforeModal, onAfterModal } as SlashCommandContext,
+      [settingsCommand.metadata]);
+
+    expect(await handler.handle('/settings', args)).toBe('settings result');
+    expect(settings).toHaveBeenCalledWith({ config }, args);
+    expect(onBeforeModal).not.toHaveBeenCalled();
+    expect(onAfterModal).not.toHaveBeenCalled();
+  });
+
+  it('isolates the interactive settings menu and restores the composer on failure', async () => {
+    const calls: string[] = [];
+    vi.spyOn(settingsCommand, 'settings').mockImplementation(async () => {
+      calls.push('settings');
+      throw new Error('menu failed');
+    });
+    const handler = new SlashCommandHandler({
+      config: { configPath: '/test/config.json' },
+      onBeforeModal: async () => { calls.push('pause'); },
+      onAfterModal: async () => { calls.push('resume'); },
+    } as SlashCommandContext, [settingsCommand.metadata]);
+
+    await expect(handler.handle('/settings', [])).resolves.toBeNull();
+    expect(calls).toEqual(['pause', 'settings', 'resume']);
+  });
+});
 
 describe('/settings modal isolation', () => {
   it('onBeforeModal is async and yields for React cleanup', async () => {

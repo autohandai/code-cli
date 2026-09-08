@@ -543,6 +543,8 @@ function requireAnswerOnlyRequest(request: LLMRequest): {
     request.messages.length !== 2
     || systemMessage?.role !== 'system'
     || userMessage?.role !== 'user'
+    || typeof systemMessage.content !== 'string'
+    || typeof userMessage.content !== 'string'
     || request.stream !== false
     || request.toolChoice !== 'none'
     || (request.tools?.length ?? 0) !== 0

@@ -32,7 +32,8 @@ vi.mock('../src/commands/usage.js', () => ({
 }));
 
 const mockSettings = vi.fn();
-vi.mock('../src/commands/settings.js', () => ({
+vi.mock('../src/commands/settings.js', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../src/commands/settings.js')>(),
   settings: mockSettings,
 }));
 
@@ -99,7 +100,7 @@ describe('SlashCommandHandler', () => {
     });
   });
 
-  it('forwards task list position arguments and restores the composer after settings', async () => {
+  it('forwards direct task list settings without remounting the composer', async () => {
     const ctx = createContext();
     const handler = new SlashCommandHandler(ctx, DEFAULT_COMMANDS);
     mockSettings.mockResolvedValueOnce('Task list position: up');
@@ -108,6 +109,21 @@ describe('SlashCommandHandler', () => {
 
     expect(result).toBe('Task list position: up');
     expect(mockSettings).toHaveBeenCalledWith({ config: ctx.config }, ['task_list', 'position', 'up']);
+    expect(ctx.onBeforeModal).not.toHaveBeenCalled();
+    expect(ctx.onAfterModal).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['task_list', 'position'],
+    ['task', 'list', 'position'],
+    ['ui.taskListPosition'],
+  ])('isolates the composer for the task position picker: %s', async (...args) => {
+    const ctx = createContext();
+    const handler = new SlashCommandHandler(ctx, DEFAULT_COMMANDS);
+    mockSettings.mockResolvedValueOnce('Task list position: up');
+
+    await handler.handle('/settings', args);
+
     expect(ctx.onBeforeModal).toHaveBeenCalledOnce();
     expect(ctx.onAfterModal).toHaveBeenCalledOnce();
   });

@@ -214,6 +214,52 @@ describe('InstructionRunner command mode UI', () => {
     });
   });
 
+  it('skips environment bootstrap for a trusted workflow while still executing the detected implementation turn', async () => {
+    const host = createHost();
+    host.intentDetector.detect = vi.fn(() => ({ intent: 'implementation', confidence: 1, reasons: [] }));
+
+    await expect(new InstructionRunner(host).run('Capture the implemented checkout journey', {
+      environmentBootstrap: 'skip',
+    })).resolves.toBe(true);
+
+    expect(host.runEnvironmentBootstrap).not.toHaveBeenCalled();
+    expect(host.runReactLoop).toHaveBeenCalledOnce();
+    expect(host.lastIntent).toBe('implementation');
+  });
+
+  it('continues to bootstrap ordinary implementation turns without trusted workflow metadata', async () => {
+    const host = createHost();
+    host.intentDetector.detect = vi.fn(() => ({ intent: 'implementation', confidence: 1, reasons: [] }));
+
+    await expect(new InstructionRunner(host).run('Implement the checkout form')).resolves.toBe(true);
+
+    expect(host.runEnvironmentBootstrap).toHaveBeenCalledOnce();
+    expect(host.runReactLoop).toHaveBeenCalledOnce();
+    expect(vi.mocked(host.runEnvironmentBootstrap).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(host.runReactLoop).mock.invocationCallOrder[0]);
+  });
+
+  it('keeps a trusted review diagnostic without bootstrap or automatic quality checks when files are marked modified', async () => {
+    const host = createHost();
+    host.filesModifiedThisSession = true;
+    host.lastIntent = 'implementation';
+    host.intentDetector.detect = vi.fn(() => ({ intent: 'implementation', confidence: 1, reasons: [] }));
+    host.runReactLoop = vi.fn(async () => {
+      host.filesModifiedThisSession = true;
+      return { status: 'completed' as const };
+    });
+
+    await expect(new InstructionRunner(host).run('Review the implementation and retain capture evidence', {
+      intent: 'diagnostic',
+      environmentBootstrap: 'skip',
+    })).resolves.toBe(true);
+
+    expect(host.lastIntent).toBe('diagnostic');
+    expect(host.displayIntentMode).toHaveBeenCalledWith(expect.objectContaining({ intent: 'diagnostic' }));
+    expect(host.runEnvironmentBootstrap).not.toHaveBeenCalled();
+    expect(host.runQualityPipeline).not.toHaveBeenCalled();
+    expect(host.runReactLoop).toHaveBeenCalledOnce();
+  });
+
   it('stops after provider setup is cancelled instead of recursively rerunning the instruction', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});

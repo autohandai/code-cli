@@ -777,6 +777,29 @@ describe("ProviderConfigManager openai auth mode", () => {
     expect(mockShowModal.mock.calls[1][0].initialIndex).toBe(3);
   });
 
+  it.each([
+    { limit: 9, effort: 'xhigh', warns: true },
+    { limit: 4, effort: 'xhigh', warns: false },
+    { limit: 9, effort: 'high', warns: false },
+  ])('reports the configured Moa maximum-reasoning thread cost at $limit threads and $effort effort', async ({ limit, effort, warns }) => {
+    runtime.config.provider = 'autohandai';
+    runtime.config.features = { autohand_inference: true, multi_agent_v2: { max_concurrent_threads_per_session: limit } };
+    runtime.config.autohandai = { plan: 'cloud', authMode: 'api-key', apiKey: 'test-key', model: 'moa', reasoningEffort: 'high' };
+    runtime.options.model = 'moa';
+    mockShowModal.mockResolvedValueOnce({ value: 'model' })
+      .mockResolvedValueOnce({ value: 'moa' }).mockResolvedValueOnce({ value: effort });
+
+    await manager.changeProviderModel('autohandai');
+
+    const output = consoleLogSpy.mock.calls.flat().join('\n');
+    expect(output.includes('concurrent threads with up to')).toBe(warns);
+    if (warns) {
+      expect(output).toContain('9 concurrent threads with up to 8 subagents');
+      expect(output).toContain('features.multi_agent_v2.max_concurrent_threads_per_session below 8');
+      expect(output).toContain('/settings max_agents');
+    }
+  });
+
   it("shows user-facing provider names in provider selection when no active provider is configured", async () => {
     runtime.config.provider = "zai";
     runtime.config.features = { autohand_inference: true };

@@ -19,6 +19,7 @@ import { GoalManager } from '../../goals/GoalManager.js';
 import type { SessionMessage, SessionTurnUsageInput } from '../../session/types.js';
 import type { MobileClaimedTurnContext } from '../../mobile/MobileRelay.js';
 import type { TurnMemoryReflectionOutcome } from '../../memory/extractSessionMemories.js';
+import type { QueuedInstructionPolicy } from './PostTurnActionCoordinator.js';
 import type {
   AgentLoopStep,
   ReactLoopControl,
@@ -169,7 +170,7 @@ export interface AgentInstructionHost {
   writeDebugLine?(message: string): void;
 }
 
-export interface RunInstructionOptions {
+export interface RunInstructionOptions extends QueuedInstructionPolicy {
   mentionedFiles?: string[];
   hookInstruction?: string;
   signal?: AbortSignal;
@@ -352,14 +353,16 @@ export class InstructionRunner {
     host.currentTurnHadUnavailableUsage = false;
 
     // Detect user intent (diagnostic vs implementation)
-    const intentResult = host.intentDetector.detect(instruction);
+    const intentResult: IntentResult = options.intent
+      ? { intent: options.intent, confidence: 1, keywords: [], reason: 'Trusted command execution policy' }
+      : host.intentDetector.detect(instruction);
     host.lastIntent = intentResult.intent;
 
     // Display mode indicator
     host.displayIntentMode(intentResult);
 
     // Run environment bootstrap for implementation mode
-    if (intentResult.intent === 'implementation') {
+    if (intentResult.intent === 'implementation' && options.environmentBootstrap !== 'skip') {
       const bootstrapResult = await host.runEnvironmentBootstrap();
       if (!bootstrapResult.success) {
         console.log(chalk.red('\n[BLOCKED] Environment setup failed. Fix issues before proceeding.'));

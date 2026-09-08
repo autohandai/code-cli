@@ -52,13 +52,13 @@ vi.mock('../../../src/ui/rawMode.js', () => ({
 import { render as renderInk } from 'ink';
 import { InkRenderer } from '../../../src/ui/ink/InkRenderer.js';
 
-function lastRenderedTaskListPosition(): unknown {
+function lastRenderedTaskListPositionProvider(): (() => unknown) | undefined {
   const root = vi.mocked(renderInk).mock.calls.at(-1)?.[0] as React.ReactElement<{
     children: React.ReactElement<{
-      children: React.ReactElement<{ taskListPosition?: unknown }>;
+      children: React.ReactElement<{ taskListPositionProvider?: () => unknown }>;
     }>;
   }> | undefined;
-  return root?.props.children.props.children.props.taskListPosition;
+  return root?.props.children.props.children.props.taskListPositionProvider;
 }
 
 describe('InkRenderer pause/resume cycle', () => {
@@ -247,13 +247,33 @@ describe('InkRenderer pause/resume cycle', () => {
     });
 
     renderer.start();
-    expect(lastRenderedTaskListPosition()).toBe('above-composer');
+    expect(lastRenderedTaskListPositionProvider()?.()).toBe('above-composer');
 
     renderer.pause();
     placement.current = 'up';
     await renderer.resume();
 
-    expect(lastRenderedTaskListPosition()).toBe('up');
+    expect(lastRenderedTaskListPositionProvider()?.()).toBe('up');
+  });
+
+  it('passes a live task list placement provider without requiring a remount', () => {
+    const placement = { current: 'above-composer' as const | 'up' };
+    const taskListPositionProvider = () => placement.current;
+    renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+      taskListPositionProvider,
+    });
+
+    renderer.start();
+    const mountedProvider = lastRenderedTaskListPositionProvider();
+    expect(mountedProvider).toBe(taskListPositionProvider);
+    expect(mountedProvider?.()).toBe('above-composer');
+
+    placement.current = 'up';
+
+    expect(mountedProvider?.()).toBe('up');
   });
 
   it('replays preserved chat messages after a modal while dropping legacy duplicate arrays', async () => {

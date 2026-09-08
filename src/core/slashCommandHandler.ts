@@ -175,14 +175,20 @@ export class SlashCommandHandler {
         }
         case '/agents': {
           const { handler } = await import('../commands/agents.js');
-          await this.ctx.onBeforeModal?.();
+          const isLiveView = args[0]?.toLowerCase() === 'view';
+          if (!isLiveView) await this.ctx.onBeforeModal?.();
           try {
-            const output = await handler(args, { config: this.ctx.config });
+            const output = await handler(args, {
+              config: this.ctx.config,
+              onToggleAgentRunsView: this.ctx.onToggleAgentRunsView
+                ? () => this.ctx.onToggleAgentRunsView?.(true)
+                : undefined,
+            });
             if (output) {
               console.log(output);
             }
           } finally {
-            await this.ctx.onAfterModal?.();
+            if (!isLiveView) await this.ctx.onAfterModal?.();
           }
           return null;
         }
@@ -267,10 +273,14 @@ export class SlashCommandHandler {
           });
         }
         case '/settings': {
-          const { settings } = await import('../commands/settings.js');
+          const { settings, normalizeSettingKey } = await import('../commands/settings.js');
           if (!this.ctx.config) {
             console.log(chalk.yellow('Config not available.'));
             return null;
+          }
+          const opensPositionPicker = normalizeSettingKey(args.join(' ')) === 'ui.taskListPosition';
+          if (args.length > 0 && !opensPositionPicker) {
+            return await settings({ config: this.ctx.config }, args);
           }
           // Pause the InkRenderer for the entire /settings session.
           // settings() runs its own while(true) loop with multiple showModal
@@ -412,6 +422,14 @@ export class SlashCommandHandler {
         case '/pr-review': {
           const { prReview } = await import('../commands/pr-review.js');
           return prReview(this.ctx, args);
+        }
+        case '/deslop': {
+          const { deslop } = await import('../commands/deslop.js');
+          return deslop(this.ctx, args);
+        }
+        case '/tester': {
+          const { tester } = await import('../commands/tester.js');
+          return tester(this.ctx, args);
         }
         case '/status': {
           const { status } = await import('../commands/status.js');
@@ -746,7 +764,11 @@ export class SlashCommandHandler {
         }
         case '/squad': {
           const { squad } = await import('../commands/squad.js');
-          return squad({ workspaceRoot: this.ctx.workspaceRoot, config: this.ctx.config }, args);
+          return squad({
+            workspaceRoot: this.ctx.workspaceRoot,
+            config: this.ctx.config,
+            onToggleAgentRunsView: this.ctx.onToggleAgentRunsView,
+          }, args);
         }
         default:
           usageOutcome = 'failed';

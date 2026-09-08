@@ -23,7 +23,7 @@ import type {
 } from "@anthropic-ai/sdk/resources/messages";
 import type {
   FunctionDefinition,
-  LLMMessage,
+  MultimodalMessage,
   ProviderReasoningBlock,
   ToolChoice,
 } from "../types.js";
@@ -132,14 +132,14 @@ function isReasoningBlock(value: unknown): value is ProviderReasoningBlock {
  * Replay reasoning blocks unchanged. Anthropic validates thinking-block
  * signatures and ordering, so blocks are emitted first and never rewritten.
  */
-function toReplayedReasoningBlocks(message: LLMMessage): ContentBlockParam[] {
+function toReplayedReasoningBlocks(message: MultimodalMessage): ContentBlockParam[] {
   if (!message.reasoningBlocks?.length) {
     return [];
   }
   return message.reasoningBlocks.filter(isReasoningBlock) as unknown as ContentBlockParam[];
 }
 
-function toToolResultBlock(message: LLMMessage): ToolResultBlockParam {
+function toToolResultBlock(message: MultimodalMessage): ToolResultBlockParam {
   const content = String(message.content ?? "");
   return {
     type: "tool_result",
@@ -195,7 +195,7 @@ function collapseBlocks(blocks: ContentBlockParam[]): MessageParam["content"] {
  * hoisting later notes would reorder the conversation and invalidate the
  * cached prefix on every turn, so they stay in place as tagged user content.
  */
-export function toAnthropicMessages(messages: LLMMessage[]): ConvertedConversation {
+export function toAnthropicMessages(messages: MultimodalMessage[]): ConvertedConversation {
   const systemParts: string[] = [];
   const turns: MessageParam[] = [];
   let seenConversationTurn = false;

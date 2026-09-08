@@ -21,6 +21,8 @@ export const metadata = {
     description: t('commands.agents.description'),
     implemented: true,
     subcommands: [
+        { name: 'help', description: 'show agent commands and keyboard controls' },
+        { name: 'view', description: 'inspect this session’s agent runs, results, and usage' },
         { name: 'provider [agent]', description: 'set the default provider/model or an agent-specific override' },
         { name: 'definitions', description: 'list configured sub-agent definitions' },
         { name: 'new', description: 'create a new sub-agent from a description' },
@@ -29,6 +31,7 @@ export const metadata = {
 };
 
 export interface AgentsCommandDeps {
+    onToggleAgentRunsView?: (visible: boolean) => void;
     registry?: ActiveAgentRegistry;
     input?: NodeJS.ReadStream;
     output?: NodeJS.WriteStream;
@@ -44,8 +47,28 @@ const TEAM_PROVIDER_SUBCOMMANDS = new Set(['provider', 'model']);
 
 export async function handler(args: string[] = [], deps: AgentsCommandDeps = {}): Promise<string | null> {
     const subcommand = args.find((arg) => !arg.startsWith('-'))?.toLowerCase();
+    if (subcommand === 'help' || args.includes('--help') || args.includes('-h')) {
+        return [
+            'Agent commands:',
+            '  /agents view              Inspect this session’s direct and team agent runs, results, and usage',
+            '                            ↑/↓ select · Enter details · m message · c cancel (confirmation required) · Esc back',
+            '                            Messages are queued for the selected worker’s next model step, not marked as read.',
+            '  /agents                   Watch global Autohand session heartbeats',
+            '  /agents --once            Print one global heartbeat snapshot',
+            '  /agents definitions       List configured agent definitions',
+            '  /agents provider [agent]  Set default or agent-specific provider/model',
+            '  /agents new               Create an agent definition',
+            '  /team view                Open the current team’s compact activity view',
+            '  /squad view               Inspect recorded external Squad runs (independent sessions; read-only)',
+        ].join('\n');
+    }
+    if (subcommand === 'view') {
+        if (!deps.onToggleAgentRunsView) return 'The session agent inspector is available in an interactive Autohand session. Use /agents view there.';
+        deps.onToggleAgentRunsView(true);
+        return 'Session agent inspector opened. Use arrows to select, Enter for details, m to message, c to cancel, and Esc to return.';
+    }
     if (subcommand && DEFINITION_SUBCOMMANDS.has(subcommand)) {
-        return listAgentDefinitions();
+        return listAgentDefinitions(deps.config);
     }
     if (subcommand && TEAM_PROVIDER_SUBCOMMANDS.has(subcommand)) {
         return configureTeamModelAssignment(args, deps);
@@ -157,9 +180,9 @@ function formatProviderName(provider: ProviderName): string {
     return provider === 'autohandai' ? 'Autohand AI' : provider;
 }
 
-export async function listAgentDefinitions(): Promise<string> {
+export async function listAgentDefinitions(activeConfig?: LoadedConfig): Promise<string> {
     const registry = AgentRegistry.getInstance();
-    const config = await loadConfig(undefined, process.cwd());
+    const config = activeConfig ?? await loadConfig(undefined, process.cwd());
     registry.configureExternalAgents(config.externalAgents);
     await registry.loadAgents();
     const agents = registry.getAllAgents();
@@ -171,7 +194,7 @@ export async function listAgentDefinitions(): Promise<string> {
     let output = chalk.bold(`${t('commands.agents.definitionsTitle') ?? 'Sub-Agent Definitions'}:\n\n`);
 
     for (const agent of agents) {
-        output += `${chalk.green('🤖 ' + agent.name)}\n`;
+        output += `${chalk.green(agent.name)}\n`;
         output += `  ${chalk.gray(agent.description)}\n`;
         output += `  ${chalk.blue('Path:')} ${agent.path}\n`;
         if (agent.model) {

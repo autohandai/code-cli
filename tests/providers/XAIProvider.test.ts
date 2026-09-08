@@ -4,13 +4,25 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { XAIProvider } from '../../src/providers/XAIProvider.js';
 import { ApiError } from '../../src/providers/errors.js';
 
 describe('XAIProvider', () => {
-  afterEach(() => {
+  let authDirectory: string;
+
+  beforeEach(async () => {
+    authDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-xai-provider-'));
+    vi.stubEnv('AUTOHAND_HOME', authDirectory);
+  });
+
+  afterEach(async () => {
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
+    await fs.rm(authDirectory, { recursive: true, force: true });
   });
 
   it('maps system prompts into instructions for sub-agent personas', async () => {
@@ -127,6 +139,27 @@ describe('XAIProvider', () => {
         output: '{"ok":true}',
       },
     ]);
+  });
+
+  it('reports unavailable image input instead of silently dropping screenshot evidence', async () => {
+    const provider = new XAIProvider({ apiKey: 'xai-key', model: 'grok-4.5' });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response([
+      'event: response.completed',
+      `data: ${JSON.stringify({ type: 'response.completed', response: {
+        id: 'resp-image', created_at: 123, output_text: 'Image unavailable.', output: [],
+      } })}`,
+      '',
+    ].join('\n'), { status: 200, headers: { 'Content-Type': 'text/event-stream' } }));
+    await provider.complete({ messages: [{ role: 'user', content: [
+      { type: 'text', text: 'Only claim visual inspection if the screenshot is accessible.' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } },
+    ] }] });
+    const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
+    expect(body.input).toContainEqual(expect.objectContaining({ role: 'user', content: [{
+      type: 'input_text', text: expect.stringContaining('does not support image inputs'),
+    }] }));
+    expect(JSON.stringify(body.input)).toContain('Only claim visual inspection');
+    expect(JSON.stringify(body.input)).not.toContain('data:image/');
   });
 
   it('surfaces xAI-specific authentication errors', async () => {
