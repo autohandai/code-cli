@@ -2,6 +2,11 @@
 
 This directory contains automated CI/CD workflows for the Autohand CLI project.
 
+CI and release jobs use Node.js 24 and the Bun version declared in the root
+`package.json` (`packageManager`). Update that declaration to change the compiler
+for every build platform together. Frozen installs preserve the committed dependency
+resolutions. Weekly Dependabot updates keep the GitHub Actions versions current.
+
 ## Workflows
 
 ### 🚀 Release (`release.yml`)

@@ -295,7 +295,7 @@ function Get-UpdatedUserPath {
     if (-not [string]::IsNullOrWhiteSpace($CurrentPath)) {
         # Split on semicolons, but respect quoted entries that may contain semicolons.
         # Use a simple regex that handles quoted paths.
-        $entries = [regex]::Split($CurrentPath, '(?<=^[^"]*"(?:[^"]*"[^"]*")*[^"]*$)')
+        $entries = [regex]::Split($CurrentPath, ';(?=(?:[^"]*"[^"]*")*[^"]*$)')
         foreach ($entry in $entries) {
             $normalized = $entry.Trim().Trim('"').TrimEnd('\', '/')
             if ([string]::IsNullOrWhiteSpace($normalized)) {
@@ -405,7 +405,7 @@ function Save-UserPathBackup {
     }
 
     $backupPath = Join-Path $BackupDirectory ("user-path-backup-" + (Get-Date).ToString("yyyyMMdd-HHmmss") + ".txt")
-    [System.IO.File]::WriteAllText($backupPath, $Value, [System.Text.Encoding]::UTF8)
+    [System.IO.File]::WriteAllText($backupPath, $Value, [System.Text.UTF8Encoding]::new($false))
     return $backupPath
 }
 

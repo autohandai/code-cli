@@ -30,11 +30,12 @@ describe("Sync Integration", () => {
 
     // Set up mock for global fetch
     mockFetch = vi.fn();
-    (global as any).fetch = mockFetch;
+    vi.stubGlobal("fetch", mockFetch);
   });
 
   afterEach(async () => {
     await fs.remove(tempDir).catch(() => {});
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
