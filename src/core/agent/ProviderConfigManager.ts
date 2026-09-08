@@ -3979,7 +3979,7 @@ export class ProviderConfigManager {
       !newModel ||
       (newModel === currentModel && provider === this.getActiveProvider())
     ) {
-      console.log(chalk.gray(t("providers.config.modelUnchanged")));
+      if (!this.runtime.isRpcMode) console.log(chalk.gray(t("providers.config.modelUnchanged")));
       return;
     }
 
@@ -4002,7 +4002,7 @@ export class ProviderConfigManager {
       ...this.getProviderTelemetryMetadata(provider, newModel, contextWindow),
     });
 
-    console.log(
+    if (!this.runtime.isRpcMode) console.log(
       chalk.green(
         "✓ " + t("providers.config.usingModel", { provider, model: newModel }),
       ),

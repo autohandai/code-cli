@@ -13,6 +13,7 @@ function installMobileSessionBoundaryFixtures(agent: any): void {
     config: { configPath: '/tmp/autohand-test-config.json' },
   };
   agent.activeProvider ??= 'openrouter';
+  agent.refreshAccountPlan = vi.fn().mockResolvedValue(undefined);
   agent.sessionStartedAt ??= Date.now();
   agent.hookManager ??= { executeHooks: vi.fn().mockResolvedValue([]) };
   agent.telemetryManager ??= {

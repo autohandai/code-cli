@@ -9,6 +9,7 @@ import os from 'node:os';
 import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import { FileActionManager } from '../actions/filesystem.js';
 import { getProviderConfig, saveConfig } from '../config.js';
+import { resolveAutohandAIModelForTier } from './agent/AutohandAIModelTierPolicy.js';
 import { getAuthClient } from '../auth/index.js';
 import {
   formatComposerPlanLabel,
@@ -17,7 +18,7 @@ import {
 } from '../billing/planSummary.js';
 
 /** Slow on purpose: the plan changes rarely and this must not add load. */
-const ACCOUNT_PLAN_REFRESH_MS = 5 * 60 * 1000;
+const ACCOUNT_PLAN_REFRESH_MS = 30_000;
 import { safePrompt } from '../utils/prompt.js';
 import { maybeOfferAutohandAISwitch } from '../commands/login.js';
 import { getFeatureState, isAwsBedrockProviderEnabled } from '../features/featureRegistry.js';
@@ -418,6 +419,8 @@ export class AutohandAgent {
   private sessionDiffStatsTracker?: SessionDiffStatsTracker;
   /** Account plan shown on the status line; refreshed so upgrades appear mid-session. */
   private accountPlan: PlanSummary | null = null;
+  private lastPaymentNotice: string | null = null;
+  private accountPlanRefresh?: Promise<void>;
   private accountPlanTimer?: ReturnType<typeof setInterval>;
   private activeAgentHeartbeat: ActiveAgentHeartbeat | null = null;
   private readonly peerAwareness: PeerAwarenessManager;
@@ -980,6 +983,7 @@ export class AutohandAgent {
   }
 
   async runInstruction(instruction: string, options?: RunInstructionOptions): Promise<boolean> {
+    await this.refreshAccountPlan();
     this.currentInstructionText = instruction;
     try {
       return await this.runInstructionWithPeerActivity(instruction, options);
@@ -1468,15 +1472,24 @@ export class AutohandAgent {
   }
 
   /**
-   * Sync the active provider and model into the Ink status line.
+   * Refresh the plan and payment notice without requiring a restart. At an idle
+   * instruction boundary, align the Cloud model with current access. Failed
+   * refreshes retain the last known display; the API enforces each request.
    */
-  /**
-   * Re-read the account plan and put it back on the status line. Runs at startup and
-   * on a slow timer, so an upgrade made in the console shows up without a restart.
-   * Never throws: the plan is decoration, not something worth interrupting a session for.
-   */
-  private async refreshAccountPlan(): Promise<void> {
-    const token = this.runtime.config.auth?.token;
+  private refreshAccountPlan(): Promise<void> {
+    if (this.accountPlanRefresh) return this.accountPlanRefresh;
+    const pending = this.readAccountPlan().finally(() => { this.accountPlanRefresh = undefined; });
+    this.accountPlanRefresh = pending;
+    return pending;
+  }
+
+  private async readAccountPlan(): Promise<void> {
+    const currentToken = () => this.activeProvider === 'autohandai' && this.runtime.config.autohandai?.plan === 'cloud'
+      ? (this.runtime.config.autohandai.authMode === 'account'
+          ? this.runtime.config.autohandai.accountToken ?? this.runtime.config.auth?.token
+          : this.runtime.config.autohandai.apiKey ?? this.runtime.config.auth?.token)
+      : this.runtime.config.auth?.token;
+    const token = currentToken();
     if (!token) {
       this.accountPlan = null;
       return;
@@ -1484,7 +1497,23 @@ export class AutohandAgent {
 
     try {
       const entitlement = await getAuthClient().fetchEntitlement(token);
+      if (!entitlement || token !== currentToken()) return;
       const next = planSummaryFromEntitlement(entitlement);
+      const payment = entitlement.paymentAccess;
+      const noticeId = payment ? `${payment.actionUrl}:${payment.since}` : null;
+      if (payment && noticeId !== this.lastPaymentNotice) {
+        const content = `${payment.message}\nManage billing: ${payment.actionUrl}`;
+        this.emitOutput({ type: 'message', content });
+        if (!this.runtime.isRpcMode) this.notifyUser(content);
+      }
+      this.lastPaymentNotice = noticeId;
+      const settings = this.runtime.config.autohandai;
+      const model = this.runtime.options.model ?? settings?.model;
+      const resolvedModel = resolveAutohandAIModelForTier({ provider: this.activeProvider, plan: settings?.plan, model, tier: entitlement.tier });
+      if (!this.isInstructionActive && model && resolvedModel !== model && this.providerConfigManager) {
+        if (settings) delete settings.reasoningEffort;
+        await this.providerConfigManager.applyModelChangeRemote('autohandai', resolvedModel);
+      }
       const changed =
         next?.tier !== this.accountPlan?.tier ||
         next?.interval !== this.accountPlan?.interval ||
