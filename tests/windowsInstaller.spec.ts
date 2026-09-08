@@ -201,11 +201,13 @@ Write-Output (Probe -Current 'C:\\a;${install};C:\\b' -Install '${install}')
 Write-Output (Probe -Current 'C:\\a;c:\\users\\dev\\appdata\\local\\AUTOHAND\\;C:\\b' -Install '${install}')
 Write-Output (Probe -Current 'C:\\a;"${install}";C:\\b' -Install '${install}')
 Write-Output (Probe -Current 'C:\\a; ${install} ;C:\\b' -Install '${install}')
+Write-Output (Probe -Current 'C:\\a;"C:\\tools;team\\autohand";C:\\b' -Install 'C:\\tools;team\\autohand')
 `);
 
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
     expect(result.stdout.trim().split(/\r?\n/u)).toEqual([
+      '<unchanged>',
       '<unchanged>',
       '<unchanged>',
       '<unchanged>',

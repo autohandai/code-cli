@@ -295,7 +295,7 @@ function Get-UpdatedUserPath {
     if (-not [string]::IsNullOrWhiteSpace($CurrentPath)) {
         # Split on semicolons, but respect quoted entries that may contain semicolons.
         # Use a simple regex that handles quoted paths.
-        $entries = [regex]::Split($CurrentPath, '(?<=^[^"]*"(?:[^"]*"[^"]*")*[^"]*$)')
+        $entries = [regex]::Split($CurrentPath, ';(?=(?:[^"]*"[^"]*")*[^"]*$)')
         foreach ($entry in $entries) {
             $normalized = $entry.Trim().Trim('"').TrimEnd('\', '/')
             if ([string]::IsNullOrWhiteSpace($normalized)) {
