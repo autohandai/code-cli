@@ -51,6 +51,7 @@ import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessio
 import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
 import { registerBrowserCommand, registerBrowserOptions } from './browser/cliCommand.js';
 import { registerReviewCommand } from './review/reviewCliCommand.js';
+import { registerTransferCommand } from './startup/transferCommand.js';
 import { registerResumeCommand } from './startup/resumeCommand.js';
 import type { ReviewCliExecution } from './review/reviewCliRuntime.js';
 import { formatDeprecatedBrowserOptionWarning } from './browser/compatibility.js';
@@ -668,6 +669,14 @@ registerReviewCommand(program, {
   serve: async (invocation) => {
     const { serveReviewReport } = await import('./review/reviewReportServer.js');
     await serveReviewReport(invocation);
+  },
+});
+
+registerTransferCommand(program, {
+  run: async ({ provider, ...opts }) => {
+    await refreshModelCatalogBeforeAgentStart(opts);
+    const authConfig = await ensureAuthenticated(await loadConfig(opts.config, opts.path));
+    await runCLI({ ...opts, _authConfig: { ...authConfig, provider, autohandai: { plan: 'cloud', authMode: 'account', accountToken: authConfig.auth?.token, model: opts.model } } });
   },
 });
 
