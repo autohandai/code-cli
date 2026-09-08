@@ -10,7 +10,7 @@ import { AutohandAgent } from '../../core/agent.js';
 import { ConversationManager } from '../../core/conversationManager.js';
 import { FileActionManager } from '../../actions/filesystem.js';
 import { ProviderFactory } from '../../providers/ProviderFactory.js';
-import { loadConfig, saveConfig } from '../../config.js';
+import { applyCliProviderOverride, loadConfig, saveConfig } from '../../config.js';
 import { checkAuthenticated } from '../../auth/index.js';
 import { prepareBareModeConfig } from '../../runtime/bareMode.js';
 import { checkWorkspaceSafety } from '../../startup/workspaceSafety.js';
@@ -524,8 +524,8 @@ export async function runRpcMode(options: CLIOptions): Promise<0 | 1> {
 
     // Load configuration
     const config = await prepareBareModeConfig(
-      (options as CLIOptions & { _authConfig?: LoadedConfig })._authConfig
-        ?? await loadConfig(options.config, process.cwd()),
+      applyCliProviderOverride((options as CLIOptions & { _authConfig?: LoadedConfig })._authConfig
+        ?? await loadConfig(options.config, process.cwd()), options.provider),
       options
     );
     configureSearchFromSettings(config.search, options.searchEngine);

@@ -32,7 +32,7 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { getProviderConfig, loadConfig, resolveRequestedWorkspaceRoot, resolveWorkspaceRoot, saveConfig } from './config.js';
+import { applyCliProviderOverride, getProviderConfig, loadConfig, resolveRequestedWorkspaceRoot, resolveWorkspaceRoot, saveConfig } from './config.js';
 import { reportCliCommand } from './telemetry/commandUsage.js';
 import { runStartupChecks, printStartupCheckResults, validateWorkspacePath } from './startup/checks.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/workspaceSafety.js';
@@ -1433,6 +1433,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       commandLifecycleController.signal,
     );
     startupTimeline.mark('config loaded');
+    config = applyCliProviderOverride(config, options.provider);
     if (options.bare) {
       config = await awaitCliLifecycleStep(
         prepareBareModeConfig(config, options),

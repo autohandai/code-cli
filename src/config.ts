@@ -129,6 +129,28 @@ function normalizeProviderName(provider: unknown): ProviderName | undefined {
   return undefined;
 }
 
+const runtimeProviderOverride = Symbol('runtimeProviderOverride');
+interface RuntimeProviderOverride {
+  selected: ProviderName;
+  previous: AutohandConfig['provider'];
+  generatedAccountSettings: boolean;
+}
+
+/** Select a provider for this process without changing the user's saved defaults. */
+export function applyCliProviderOverride<T extends AutohandConfig>(config: T, value: unknown): T {
+  if (value === undefined) return config;
+  const provider = normalizeProviderName(value);
+  if (!provider) throw new Error(`Unknown provider: ${String(value)}`);
+  return {
+    ...config,
+    provider,
+    [runtimeProviderOverride]: { selected: provider, previous: config.provider, generatedAccountSettings: provider === 'autohandai' && !config.autohandai },
+    ...(provider === 'autohandai' && !config.autohandai ? {
+      autohandai: { plan: 'cloud' as const, authMode: 'account' as const, model: getProviderRuntimeDefaultModel('autohandai') },
+    } : {}),
+  };
+}
+
 export function getDefaultConfigPath(): string {
   return DEFAULT_CONFIG_PATH;
 }
@@ -1944,7 +1966,8 @@ export async function saveConfig(
   config: LoadedConfig,
   options: SaveConfigOptions = {},
 ): Promise<void> {
-  const { configPath, workspaceOverlay, runOverlay, ...data } = config;
+  const { configPath, workspaceOverlay, runOverlay, [runtimeProviderOverride]: override, ...data } =
+    config as LoadedConfig & { [runtimeProviderOverride]?: RuntimeProviderOverride };
   delete (data as Partial<LoadedConfig>).isNewConfig;
   delete (data as Partial<LoadedConfig>).workspaceTrust;
   delete (data as Partial<LoadedConfig>).overlayWorkspaceRoot;
@@ -1953,6 +1976,12 @@ export async function saveConfig(
   }
   if (runOverlay) {
     restoreRunConfigOverlay(data as Record<string, unknown>, runOverlay);
+  }
+  // A --provider chosen for this run is not the saved provider.
+  if (override && data.provider === override.selected) {
+    if (override.previous === undefined) delete data.provider;
+    else data.provider = override.previous;
+    if (override.generatedAccountSettings) delete data.autohandai;
   }
 
   if (!options.writeAuth) {

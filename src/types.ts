@@ -1138,6 +1138,8 @@ export interface InlineAgentDefinition {
 }
 
 export interface CLIOptions {
+  /** Select a provider for this process without updating saved configuration. */
+  provider?: ProviderName;
   prompt?: string;
   /** Structured output mode for a one-shot command. */
   commandOutputFormat?: CommandOutputFormat;

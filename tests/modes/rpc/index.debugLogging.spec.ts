@@ -12,6 +12,7 @@ const rpcMocks = vi.hoisted(() => ({
 
 vi.mock('fs-extra', () => ({ default: {} }));
 vi.mock('../../../src/config.js', () => ({
+  applyCliProviderOverride: vi.fn((config: unknown) => config),
   loadConfig: vi.fn().mockResolvedValue({
     provider: 'openrouter',
     openrouter: { model: 'test-model' },

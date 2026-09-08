@@ -2533,6 +2533,7 @@ These flags override config file settings:
 | `--path <path>`               | Override workspace root                                                                        |
 | `--config <path>`             | Use custom config file                                                                         |
 | `--model <model>`             | Override model                                                                                 |
+| `--provider <provider>`       | Select the provider for this run or resumed session without changing the saved provider          |
 | `--temperature <n>`           | Set sampling temperature (0-1)                                                                  |
 | `--thinking [level]`          | Set thinking/reasoning depth (none, normal, extended)                                          |
 | `-y, --yes`                   | Auto-confirm prompts                                                                           |

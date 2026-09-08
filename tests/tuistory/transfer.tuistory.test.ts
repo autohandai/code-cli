@@ -15,6 +15,22 @@ async function launch(args: string[]) {
   }); sessions.push(session); return { state, session };
 }
 describe('standalone transfer terminal flow', () => {
+  it('resumes imported history with an explicit provider instead of the destination default', async () => {
+    const { state, session: importer } = await launch(['--accept', '--import-only']);
+    await waitForExit(importer);
+    const before = await fs.readFile(state.configPath, 'utf8');
+    const preload = await seedTransferScenario(state.autohandHome);
+    const session = await launchBuiltAutohand(['--provider', 'autohandai', 'resume', `web-${transferScenarioId}`, '--model', 'moa', '--config', state.configPath, '--offline'], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, env: { NODE_OPTIONS: `--import=${preload}` },
+    });
+    sessions.push(session);
+    await session.waitForText(`Resumed session web-${transferScenarioId}`, { timeout: 30_000 });
+    await session.waitForText('❯');
+    const active = JSON.parse(await fs.readFile(path.join(state.autohandHome, 'active-agents', `web-${transferScenarioId}.json`), 'utf8'));
+    expect(active).toMatchObject({ provider: 'autohandai', model: 'moa', mode: 'interactive' });
+    await exitInteractive(session);
+    expect(JSON.parse(await fs.readFile(state.configPath, 'utf8')).provider).toBe(JSON.parse(before).provider);
+  });
   it('documents import and review options in the built CLI', async () => {
     const { session } = await launch(['--help']); await waitForExit(session);
     expect(await session.readAll()).toContain('--import-only'); expect(await session.readAll()).toContain('--accept'); expect(session.exitInfo?.exitCode).toBe(0);
