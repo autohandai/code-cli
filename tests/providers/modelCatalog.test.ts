@@ -35,6 +35,7 @@ describe("modelCatalog", () => {
     expect(getBundledModelCatalogPath()).toMatch(/src\/providers\/models\.json$/);
     expect(getProviderDefaultModel("nvidia")).toBe("z-ai/glm-5.1");
     expect(getProviderModelIds("nvidia")).toContain("microsoft/phi-4-mini-instruct");
+    expect(getProviderModelIds("nvidia")).not.toContain("mistralai/mistral-small-4-119b-2603");
     expect(getProviderModelIds("openai")).toEqual(expect.arrayContaining([
       "gpt-5.6-sol",
       "gpt-5.6-terra",

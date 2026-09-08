@@ -19,6 +19,17 @@ describe('XAIProvider', () => {
     vi.stubEnv('AUTOHAND_HOME', authDirectory);
   });
 
+  it('reports an HTTP 400 incorrect API key as an authentication failure (GH #545)', async () => {
+    const provider = new XAIProvider({ apiKey: 'invalid-test-key', model: 'grok-4.20-0309-non-reasoning' });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      error: 'Incorrect API key provided. You can obtain an API key from https://console.x.ai.',
+    }), { status: 400 }));
+
+    await expect(provider.complete({ messages: [{ role: 'user', content: 'hello' }] }))
+      .rejects.toMatchObject({ code: 'auth_failed', httpStatus: 400, retryable: false, message: expect.stringContaining('xAI') });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
   afterEach(async () => {
     vi.unstubAllEnvs();
     vi.restoreAllMocks();

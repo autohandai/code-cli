@@ -265,8 +265,12 @@ export class MLXProvider implements LLMProvider {
             } catch {
                 // ignore
             }
+            const diagnostic = rawBody.trim()
+                ? `MLX server returned an invalid response. Raw: ${rawBody.slice(0, 500)}`
+                : `MLX server returned an empty response body (HTTP ${response.status}). `
+                    + 'Check the MLX server logs and confirm the selected model is loaded before retrying.';
             throw new ApiError(
-                `MLX server returned an invalid response. The model may have crashed or returned malformed output. Raw: ${rawBody.slice(0, 500)}`,
+                diagnostic,
                 'server_error',
                 response.status,
                 true,
@@ -312,6 +316,7 @@ export class MLXProvider implements LLMProvider {
 
     private async buildApiError(response: Response): Promise<ApiError> {
         let errorDetail = '';
+        const responseBody = typeof response.clone === 'function' ? response.clone() : response;
         try {
             const body = (await response.json()) as Record<string, unknown>;
             const maybeError = body?.error;
@@ -327,7 +332,7 @@ export class MLXProvider implements LLMProvider {
             }
         } catch {
             try {
-                errorDetail = await response.text();
+                errorDetail = await responseBody.text();
             } catch {
                 // Ignore
             }

@@ -198,6 +198,74 @@ describe('OpenRouterClient', () => {
       });
   });
 
+  describe('opaque provider errors', () => {
+    it.each([
+      ['context_length_exceeded', 'context_overflow'],
+      ['authentication', 'auth_failed'],
+      ['not_found', 'model_not_found'],
+      ['invalid_prompt', 'invalid_request'],
+      ['unprocessable', 'invalid_request'],
+    ])('preserves the %s diagnosis behind the generic wrapper', async (errorType, code) => {
+      const client = new OpenRouterClient({ apiKey: 'test-key', model: 'openrouter/auto' }, { maxRetries: 0 });
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(jsonResponse({ error: {
+        message: 'Provider returned error', metadata: { error_type: errorType },
+      } }, { status: 400 }));
+
+      await expect(client.complete({ messages: [{ role: 'user', content: 'hello' }] }))
+        .rejects.toMatchObject({ code, retryable: false, rawDetail: expect.stringContaining(errorType) });
+    });
+
+    it('rejects a provider failure embedded in HTTP 200 instead of returning an empty success', async () => {
+      const client = new OpenRouterClient({ apiKey: 'test-key', model: 'openrouter/auto' }, { maxRetries: 0 });
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(jsonResponse({ error: {
+        code: 502, message: 'Provider returned error', metadata: { error_type: 'provider_unavailable' },
+      } }));
+
+      await expect(client.complete({ messages: [{ role: 'user', content: 'hello' }] }))
+        .rejects.toMatchObject({ code: 'server_error', retryable: true });
+    });
+
+    it('rejects partial output with a terminal choice error', async () => {
+      const client = new OpenRouterClient({ apiKey: 'test-key', model: 'openrouter/auto' }, { maxRetries: 0 });
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(jsonResponse({ choices: [{
+        message: { content: 'partial' }, finish_reason: 'error',
+        error: { code: 400, message: 'Provider returned error', metadata: { error_type: 'invalid_prompt' } },
+      }] }));
+
+      await expect(client.complete({ messages: [{ role: 'user', content: 'hello' }] }))
+        .rejects.toMatchObject({ code: 'invalid_request', retryable: false });
+    });
+
+    it('retries typed token throttling and preserves its delay instead of compacting context', async () => {
+      const client = new OpenRouterClient({ apiKey: 'test-key', model: 'openrouter/auto' }, { maxRetries: 0 });
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(jsonResponse({ error: {
+        code: 429, message: 'Too many tokens per minute. Retry after 10 seconds.',
+        metadata: { error_type: 'rate_limit_exceeded' },
+      } }));
+
+      await expect(client.complete({ messages: [{ role: 'user', content: 'hello' }] }))
+        .rejects.toMatchObject({ code: 'rate_limited', retryable: true, retryAfterMs: 10000 });
+    });
+
+    it('does not retry typed unprocessable errors carried in HTTP 200', async () => {
+      const client = new OpenRouterClient({ apiKey: 'test-key', model: 'openrouter/auto' }, { maxRetries: 0 });
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(jsonResponse({ error: {
+        code: 422, message: 'Provider returned error', metadata: { error_type: 'unprocessable' },
+      } }));
+
+      await expect(client.complete({ messages: [{ role: 'user', content: 'hello' }] }))
+        .rejects.toMatchObject({ code: 'invalid_request', httpStatus: 422, retryable: false });
+    });
+
+    it('preserves a non-JSON provider rejection body', async () => {
+      const client = new OpenRouterClient({ apiKey: 'test-key', model: 'openrouter/auto' }, { maxRetries: 0 });
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('Invalid model ID', { status: 400 }));
+
+      await expect(client.complete({ messages: [{ role: 'user', content: 'hello' }] }))
+        .rejects.toMatchObject({ code: 'model_not_found', rawDetail: 'Invalid model ID' });
+    });
+  });
+
   it('rewrites retired Claude 5 model IDs before they reach the API', async () => {
     const client = new OpenRouterClient({
       apiKey: 'test-key',

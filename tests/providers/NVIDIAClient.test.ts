@@ -68,6 +68,20 @@ describe('NVIDIAClient', () => {
   });
 
   describe('complete', () => {
+    it('stops retrying a retired model and directs selection of another model (GH #544)', async () => {
+      const client = new NVIDIAClient({ apiKey: 'nvapi-test-key', model: 'mistralai/mistral-small-4-119b-2603' }, { maxRetries: 1, retryDelay: 0 });
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
+        status: 410,
+        title: 'Gone',
+        detail: "The model 'mistralai/mistral-small-4-119b-2603' has reached its end of life on 2026-07-27T00:00:00Z and is no longer available.",
+        type: 'about:blank',
+      }), { status: 410 }));
+
+      await expect(client.complete({ messages: [{ role: 'user', content: 'hello' }] }))
+        .rejects.toMatchObject({ code: 'model_not_found', httpStatus: 410, retryable: false, message: expect.stringContaining('/model') });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
     it('should make a successful request', async () => {
       const mockResponse = {
         id: 'test-id',

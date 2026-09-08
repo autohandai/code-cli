@@ -12,7 +12,7 @@ import type {
   FunctionDefinition,
   MultimodalMessage,
 } from "../types.js";
-import { ApiError, classifyApiError, type ApiErrorCode } from "./errors.js";
+import { ApiError, classifyApiError, createApiError, type ApiErrorCode } from "./errors.js";
 import { modelSupportsImages } from "./modelCapabilities.js";
 import {
   anthropicModelSupportsTemperature,
@@ -179,6 +179,26 @@ const OPENROUTER_TRANSIENT_ERROR_TYPES: Partial<Record<string, { code: ApiErrorC
     message: 'The upstream model provider encountered an internal error. Please try again.',
   },
 };
+
+const OPENROUTER_ERROR_CODES: Readonly<Partial<Record<string, ApiErrorCode>>> = {
+  context_length_exceeded: 'context_overflow',
+  string_too_long: 'context_overflow',
+  payload_too_large: 'context_overflow',
+  authentication: 'auth_failed',
+  permission_denied: 'access_denied',
+  payment_required: 'payment_required',
+  not_found: 'model_not_found',
+  rate_limit_exceeded: 'rate_limited',
+  invalid_request: 'invalid_request',
+  invalid_prompt: 'invalid_request',
+  unprocessable: 'invalid_request',
+};
+
+function asErrorRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
 
 export class OpenRouterClient {
   private readonly apiKey: string;
@@ -412,6 +432,10 @@ export class OpenRouterClient {
     }
 
     const json = (await response.json()) as any;
+    const embeddedError = json?.error ?? json?.choices?.find((choice: { error?: unknown }) => choice?.error)?.error;
+    if (embeddedError) {
+      throw await this.buildApiError(response, { error: embeddedError });
+    }
     const message = json?.choices?.[0]?.message;
     const text = message?.content ?? "";
     const finishReason = json?.choices?.[0]?.finish_reason;
@@ -445,24 +469,30 @@ export class OpenRouterClient {
     };
   }
 
-  private async buildApiError(response: Response): Promise<ApiError> {
-    const status = response.status;
+  private async buildApiError(response: Response, payload?: unknown): Promise<ApiError> {
+    let status = response.status;
 
     // Try to get the actual error message from the response
     let errorDetail = "";
     let errorType: string | undefined;
     try {
-      const body = (await response.json()) as any;
-      errorDetail = body?.error?.message || body?.error || body?.message || "";
-      if (typeof errorDetail === "object") {
-        errorDetail = JSON.stringify(errorDetail);
+      const body = asErrorRecord(payload ?? await response.clone().json());
+      const error = asErrorRecord(body?.error);
+      const metadata = asErrorRecord(error?.metadata);
+      const detail = error?.message ?? body?.error ?? body?.message;
+      errorDetail = typeof detail === 'string' ? detail : detail === undefined ? '' : JSON.stringify(detail);
+      if (response.ok) {
+        status = typeof error?.code === 'number' && error.code >= 400 && error.code <= 599
+          ? error.code
+          : 0;
       }
-      if (typeof body?.error?.metadata?.error_type === "string") {
-        errorType = body.error.metadata.error_type;
+      if (typeof metadata?.error_type === 'string') {
+        errorType = metadata.error_type;
+        errorDetail += `\nOpenRouter error type: ${errorType}`;
       }
       // OpenRouter's own message is often the opaque wrapper "Provider returned
       // error"; the upstream provider's actual complaint lives in metadata.
-      const upstreamDetail = extractUpstreamErrorDetail(body?.error?.metadata);
+      const upstreamDetail = extractUpstreamErrorDetail(metadata);
       if (upstreamDetail) {
         errorDetail = errorDetail ? `${errorDetail}\n${upstreamDetail}` : upstreamDetail;
       }
@@ -477,17 +507,21 @@ export class OpenRouterClient {
 
     const transient = errorType ? OPENROUTER_TRANSIENT_ERROR_TYPES[errorType] : undefined;
     if (transient) {
+      const classified = createApiError(transient.code, status, true, errorDetail, response.headers);
       return new ApiError(
         errorDetail ? `${transient.message}\n${errorDetail}` : transient.message,
         transient.code,
         status,
         true,
-        undefined,
+        classified.retryAfterMs,
         errorDetail,
       );
     }
 
-    return withOpenRouterMessage(classifyApiError(status, errorDetail, response.headers));
+    const typedCode = errorType ? OPENROUTER_ERROR_CODES[errorType] : undefined;
+    return withOpenRouterMessage(typedCode
+      ? createApiError(typedCode, status, typedCode === 'rate_limited', errorDetail, response.headers)
+      : classifyApiError(status, errorDetail, response.headers));
   }
 
   private isNonRetryableError(error: Error): boolean {

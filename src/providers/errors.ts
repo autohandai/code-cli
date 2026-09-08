@@ -135,6 +135,7 @@ const CONTEXT_OVERFLOW_PATTERNS = [
   'too many tokens',
   'tokens per minute',
   '(tpm)',
+  'prefill memory guard rejected',
 ] as const;
 
 /** Patterns that indicate cancellation in status-0 / unknown errors. */
@@ -175,6 +176,7 @@ const AUTH_FAILED_PATTERNS = [
   'authentication failed',
   'unauthorized',
   'invalid api key',
+  'incorrect api key',
   'bad api key',
   '401',
 ] as const;
@@ -250,6 +252,12 @@ export function classifyApiError(
     return makeError('model_not_found', httpStatus, false, errorBody, headers);
   }
 
+  if (httpStatus === 410) {
+    const retiredModel = /\bmodel\b/.test(lower)
+      && /\b(?:end of life|retired|no longer available)\b/.test(lower);
+    return makeError(retiredModel ? 'model_not_found' : 'invalid_request', httpStatus, false, errorBody, headers);
+  }
+
   if (httpStatus === 429) {
     if (matchesAny(lower, CONTEXT_OVERFLOW_PATTERNS)) {
       return makeError('context_overflow', httpStatus, false, errorBody, headers);
@@ -271,6 +279,10 @@ export function classifyApiError(
   // -------------------------------------------------------------------
 
   if (httpStatus === 400) {
+    if (/\b(?:incorrect|invalid|bad) api[ _-]?key\b/.test(lower)) {
+      return makeError('auth_failed', httpStatus, false, errorBody, headers);
+    }
+
     // 1. Model-not-found check runs FIRST
     if (matchesAny(lower, MODEL_NOT_FOUND_PATTERNS)) {
       return makeError('model_not_found', httpStatus, false, errorBody, headers);
@@ -366,6 +378,8 @@ function stripHtmlFromBody(body: string): string {
  * computed — keeps automatic retries bounded everywhere at once.
  */
 const MAX_RETRY_AFTER_MS = 60_000;
+
+export { makeError as createApiError };
 
 function makeError(
   code: ApiErrorCode,

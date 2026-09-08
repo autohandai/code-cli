@@ -397,7 +397,7 @@ export class NVIDIAClient {
     const friendlyMessage = FRIENDLY_ERRORS[status];
     const classified = classifyApiError(status === 422 ? 400 : status, errorDetail, response.headers);
     const classifiedStatus = status === 422 ? status : classified.httpStatus;
-    if (status === 400 || status === 422) {
+    if (status === 400 || status === 422 || classified.code === 'model_not_found') {
       const base = FRIENDLY_MESSAGES[classified.code];
       return new ApiError(
         errorDetail ? `${base}\n${errorDetail}` : `${base} (HTTP ${status})`,

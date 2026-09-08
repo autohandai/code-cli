@@ -13,6 +13,32 @@ import {
 } from "../../src/providers/errors.js";
 
 describe("classifyApiError", () => {
+  describe('reported provider rejections', () => {
+    it('recognizes an incorrect API key returned with HTTP 400', () => {
+      const error = classifyApiError(400, 'Incorrect API key provided. You can obtain an API key from https://console.x.ai.');
+      expect(error).toMatchObject({ code: 'auth_failed', httpStatus: 400, retryable: false });
+    });
+
+    it('does not infer authentication from unrelated numbers in an invalid request', () => {
+      expect(classifyApiError(400, 'Invalid input at messages.401').code).toBe('invalid_request');
+    });
+
+    it('recognizes a retired model and stops retrying HTTP 410', () => {
+      const error = classifyApiError(410, "The model 'mistralai/mistral-small-4-119b-2603' has reached its end of life and is no longer available.");
+      expect(error).toMatchObject({ code: 'model_not_found', httpStatus: 410, retryable: false });
+      expect(error.message).toContain('/model');
+    });
+
+    it('does not retry an unrelated permanently removed endpoint', () => {
+      expect(classifyApiError(410, 'Endpoint removed')).toMatchObject({ code: 'invalid_request', retryable: false });
+    });
+
+    it('treats the oMLX prefill memory guard as a prompt capacity rejection', () => {
+      expect(classifyApiError(400, 'oMLX prefill memory guard rejected this prompt: Prefill would require ~55.12 GB peak but metal_cap ceiling is 49.25 GB.'))
+        .toMatchObject({ code: 'context_overflow', httpStatus: 400, retryable: false });
+    });
+  });
+
   // =========================================================================
   // 400 — model_not_found (must be checked BEFORE context_overflow)
   // =========================================================================
