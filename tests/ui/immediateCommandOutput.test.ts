@@ -174,6 +174,24 @@ describe('immediateCommandRouter — routeOutput', () => {
     expect(writeAboveCalls[1]).toContain('next');
   });
 
+  it.each(['buffered', 'block'])('bounds a newline-free stream in the %s writer', (kind) => {
+    const opts = { persistentInputActiveTurn: true, terminalRegionsDisabled: false, writeAbove };
+    const buffered = kind === 'buffered' ? createBufferedRouteOutput(opts) : undefined;
+    const block = kind === 'block' ? createImmediateShellCommandBlockWriter('verbose command', opts) : undefined;
+    const push = (chunk: string) => buffered ? buffered.push(chunk) : block?.pushStdout(chunk);
+    push('line-start');
+    for (let index = 0; index < 32; index += 1) push('x'.repeat(64 * 1024));
+    push('line-end');
+    buffered?.flush();
+    block?.flush();
+
+    const output = writeAboveCalls.at(-1)!;
+    expect(output.length).toBeLessThanOrEqual(1024 * 1024 + 128);
+    expect(output).toContain('line-start');
+    expect(output).toContain('[output truncated:');
+    expect(output).toContain('line-end');
+  });
+
   it('flushes carriage-return shell chunks as visible updates', () => {
     const writer = createBufferedRouteOutput({
       persistentInputActiveTurn: true,

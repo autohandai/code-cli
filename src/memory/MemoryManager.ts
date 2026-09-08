@@ -32,6 +32,13 @@ const MEMORY_INDEX_LOCK_OPTIONS = {
   retryDelayMs: 10,
 } as const;
 
+function isStorageCapacityError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error.code === 'ENOSPC' || error.code === 'EDQUOT');
+}
+
 export interface MemoryManagerOptions {
   userMemoryDir?: string;
 }
@@ -56,11 +63,16 @@ export class MemoryManager {
   }
 
   async initialize(): Promise<void> {
-    await fs.ensureDir(this.userMemoryDir);
-    await this.initializeLevel('user');
-    if (this.projectMemoryDir) {
-      await fs.ensureDir(this.projectMemoryDir);
-      await this.initializeLevel('project');
+    const levels: MemoryLevel[] = this.projectMemoryDir ? ['user', 'project'] : ['user'];
+    for (const level of levels) {
+      try {
+        await fs.ensureDir(this.getMemoryDir(level));
+        await this.initializeLevel(level);
+      } catch (error) {
+        if (!isStorageCapacityError(error)) {
+          throw error;
+        }
+      }
     }
   }
 
@@ -389,7 +401,12 @@ export class MemoryManager {
       await this.appendContextLevel(parts, 'user', user, limit);
     }
 
-    const capabilities = (await this.getLearnedProjectCapabilities(10))
+    const capabilities = (await this.getLearnedProjectCapabilities(10).catch((error: unknown) => {
+      if (!isStorageCapacityError(error)) {
+        throw error;
+      }
+      return [];
+    }))
       .filter((capability) => capability.successfulUses > 0)
       .slice(0, 5);
     if (capabilities.length > 0) {
@@ -609,24 +626,30 @@ export class MemoryManager {
     entries: MemoryEntry[],
     limit: number,
   ): Promise<void> {
-    if (entries.length <= limit) {
-      parts.push(level === 'project' ? '## Project Memories' : '## User Preferences');
-      for (const entry of entries.slice(0, limit)) {
-        parts.push(`- ${entry.content}`);
+    if (entries.length > limit) {
+      try {
+        const outline = await this.getMemoryOutline(level, {
+          maxLines: Math.max(1, limit),
+          maxChars: 4_000,
+          recentRawCount: Math.min(3, Math.max(1, limit - 1)),
+        });
+        parts.push(
+          level === 'project' ? '## Project Memory Outline' : '## User Memory Outline',
+          `[snapshot=${outline.snapshotId} events=${outline.eventCount ?? 0} memories=${outline.totalEntries}]`,
+          outline.text,
+        );
+        return;
+      } catch (error) {
+        if (!isStorageCapacityError(error)) {
+          throw error;
+        }
       }
-      return;
     }
 
-    const outline = await this.getMemoryOutline(level, {
-      maxLines: Math.max(1, limit),
-      maxChars: 4_000,
-      recentRawCount: Math.min(3, Math.max(1, limit - 1)),
-    });
-    parts.push(
-      level === 'project' ? '## Project Memory Outline' : '## User Memory Outline',
-      `[snapshot=${outline.snapshotId} events=${outline.eventCount ?? 0} memories=${outline.totalEntries}]`,
-      outline.text,
-    );
+    parts.push(level === 'project' ? '## Project Memories' : '## User Preferences');
+    for (const entry of entries.slice(0, limit)) {
+      parts.push(`- ${entry.content}`);
+    }
   }
 
   private toIndexEntry(entry: MemoryEntry): MemoryIndex['entries'][number] {

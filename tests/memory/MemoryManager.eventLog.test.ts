@@ -6,7 +6,8 @@
 import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { promises as nodeFs } from 'node:fs';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryManager } from '../../src/memory/MemoryManager.js';
 import { MemoryEventLog } from '../../src/memory/MemoryEventLog.js';
 import { SYNC_EXCLUDE_ALWAYS } from '../../src/sync/types.js';
@@ -30,10 +31,51 @@ async function createManager(): Promise<{
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(temporaryRoots.splice(0).map((root) => fs.remove(root)));
 });
 
 describe('MemoryManager event log integration', () => {
+  it('keeps startup available when memory initialization runs out of disk space', async () => {
+    const { manager } = await createManager();
+    await manager.store('Existing user preference', 'user');
+    vi.spyOn(nodeFs, 'mkdir').mockRejectedValue(Object.assign(new Error('Disk full'), { code: 'ENOSPC' }));
+
+    await expect(manager.initialize()).resolves.toBeUndefined();
+    await expect(manager.getContextMemories()).resolves.toContain('Existing user preference');
+  });
+
+  it.each(['ENOSPC', 'EDQUOT'])('keeps prompt memories readable when lock creation fails with %s', async (code) => {
+    const { manager } = await createManager();
+    await manager.store('Keep the existing project convention', 'project');
+    const storageError = Object.assign(new Error('No space left for a memory lock'), { code });
+    vi.spyOn(nodeFs, 'mkdir').mockRejectedValue(storageError);
+
+    await expect(manager.getContextMemories()).resolves.toContain('Keep the existing project convention');
+    await expect(manager.store('Do not silently discard this write', 'project')).rejects.toBe(storageError);
+  });
+
+  it('falls back to bounded raw memories when a context outline cannot acquire its disk lock', async () => {
+    const { manager } = await createManager();
+    for (let index = 0; index < 6; index += 1) {
+      await manager.store(`uniqueconvention${index} preference${index} setting${index}`, 'project');
+    }
+    vi.spyOn(nodeFs, 'mkdir').mockRejectedValue(Object.assign(new Error('Disk full'), { code: 'ENOSPC' }));
+
+    const context = await manager.getContextMemories(3);
+
+    expect(context).toContain('## Project Memories');
+    expect(context.match(/^- /gm)).toHaveLength(3);
+    expect(context).not.toContain('snapshot=');
+  });
+
+  it('does not hide event-log corruption behind the disk-full context fallback', async () => {
+    const { manager, memoryDir } = await createManager();
+    await fs.writeFile(path.join(memoryDir, 'events', 'LOG.jsonl'), '{"version":1,"broken":true}\n');
+
+    await expect(manager.getContextMemories()).rejects.toThrow(/corrupt/i);
+  });
+
   it('keeps transient memory lock directories out of sync manifests', () => {
     expect(SYNC_EXCLUDE_ALWAYS).toContain('memory/index.json.lock');
     expect(SYNC_EXCLUDE_ALWAYS).not.toContain('memory/events/');

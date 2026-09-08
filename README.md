@@ -158,6 +158,7 @@ Features:
 - Type `@` for file autocomplete (e.g., `@src/index.ts`)
 - Type `$` for skill autocomplete (e.g., `$frontend-design`)
 - Type `!` to run terminal commands (e.g., `! git status`, `! ls -la`)
+- Large command results retain the first and last portions of each output stream, up to 1,048,576 characters, with an omission marker. The same limit applies to individual displayed lines; redirect output to a file when you need the complete result.
 - **Smart Paste**: Paste any amount of code (5+ lines shows compact indicator, full content sent to LLM)
 - Press `ESC` to cancel in-flight requests
 - Press `Ctrl+C` twice to exit

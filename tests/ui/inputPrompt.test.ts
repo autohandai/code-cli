@@ -1528,7 +1528,7 @@ describe('idle prompt shell commands', () => {
     vi.restoreAllMocks();
   });
 
-  it('prints the new shell command block header in the idle composer and keeps the prompt session alive', async () => {
+  it.each(['normal', 'large'])('prints bounded %s shell output in the idle composer and keeps the prompt session alive', async (size) => {
     const writes: string[] = [];
     const stdOutput = new EventEmitter() as NodeJS.WriteStream & { columns: number; write: (chunk: string | Buffer) => boolean };
     stdOutput.columns = 80;
@@ -1589,15 +1589,20 @@ describe('idle prompt shell commands', () => {
     await Promise.resolve();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    rl.emit('line', '! echo main');
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    expect(writes.join('')).toContain('You ran echo main');
-    expect(writes.join('')).not.toContain('$ echo main');
-    expect(writes.join('')).toContain('main');
-
+    const command = size === 'normal'
+      ? 'echo main'
+      : `node -e 'process.stdout.write("shell-start" + "x".repeat(2 * 1024 * 1024) + "shell-end")'`;
+    rl.emit('line', `! ${command}`);
+    await vi.waitFor(() => expect(writes.join('')).toContain(size === 'normal' ? '└ main' : '└ shell-start'), { timeout: 5_000 });
     promptInterrupt('done');
     await expect(promptPromise).resolves.toBe('done');
+
+    expect(writes.join('')).toContain(`You ran ${command}`);
+    if (size === 'large') {
+      expect(writes.join('').length).toBeLessThan(1024 * 1024 + 4096);
+      expect(writes.join('')).toContain('[output truncated:');
+    }
+
   });
 });
 

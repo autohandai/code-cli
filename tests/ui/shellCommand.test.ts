@@ -169,6 +169,24 @@ describe('parseShellCommand', () => {
 });
 
 describe('executeStreamingShellCommand', () => {
+  it('bounds newline-free shell output without suppressing live stream chunks', async () => {
+    const count = 2 * 1024 * 1024;
+    const script = `process.stdout.write('shell-start' + 'x'.repeat(${count}) + 'shell-end')`;
+    let streamedLength = 0;
+    const result = await executeStreamingShellCommand(
+      `'${process.execPath.replaceAll("'", "'\\''")}' -e '${script.replaceAll("'", "'\\''")}'`,
+      tmpdir(),
+      { preferPty: false, onStdout: (chunk) => { streamedLength += chunk.length; } },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.output?.length).toBeLessThanOrEqual(1024 * 1024 + 128);
+    expect(result.output?.startsWith('shell-start')).toBe(true);
+    expect(result.output?.endsWith('shell-end')).toBe(true);
+    expect(result.output).toContain('[output truncated:');
+    expect(streamedLength).toBe(count + 'shell-startshell-end'.length);
+  });
+
   it('repairs the node-pty native helper before PTY execution', async () => {
     const nodePtyRoot = mkdtempSync(join(tmpdir(), 'autohand-node-pty-runtime-'));
     const nativeDirectory = join(nodePtyRoot, 'prebuilds', 'darwin-arm64');
@@ -467,6 +485,31 @@ describe('executeStreamingShellCommand', () => {
         }),
       };
     }
+
+    it('bounds PTY capture while preserving the first and final output and all live chunks', async () => {
+      const capture: Parameters<typeof fakePty>[0] = {};
+      setNodePtyLoaderForTests(async () => fakePty(capture));
+      let streamedLength = 0;
+      const result = await withTty(async () => {
+        const pending = executeStreamingShellCommand('verbose build', tmpdir(), {
+          preferPty: true,
+          onStdout: (chunk) => { streamedLength += chunk.length; },
+        });
+        await vi.waitFor(() => expect(capture.exit).toBeDefined());
+        capture.data?.('pty-start');
+        for (let index = 0; index < 32; index += 1) capture.data?.('x'.repeat(64 * 1024));
+        capture.data?.('pty-end');
+        capture.exit?.({ exitCode: 0 });
+        return pending;
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.output?.length).toBeLessThanOrEqual(1024 * 1024 + 128);
+      expect(result.output?.startsWith('pty-start')).toBe(true);
+      expect(result.output?.endsWith('pty-end')).toBe(true);
+      expect(result.output).toContain('[output truncated:');
+      expect(streamedLength).toBe(2 * 1024 * 1024 + 'pty-startpty-end'.length);
+    });
 
     async function runWithDebug(debugEnabled: boolean): Promise<string[]> {
       const previous = process.env.AUTOHAND_DEBUG;

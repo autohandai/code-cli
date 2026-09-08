@@ -21,6 +21,7 @@ import {
 import { buildAutohandChildProcessEnv } from '../utils/childProcessEnv.js';
 import { writeAutohandDebugLine } from '../utils/debugLog.js';
 import { getCommandCoordination, prepareCommandCoordination, signalCoordinatedProcess, spawnCoordinatedProcess, waitForProcessPublication } from '../session/peers/CommandCoordinationGate.js';
+import { CommandOutputCapture } from '../utils/commandOutputCapture.js';
 
 export type { BackgroundProcessCompletion } from '../actions/command.js';
 
@@ -577,8 +578,8 @@ export async function executeShellCommandAsync(
   }, options.signal);
 
   return new Promise<ShellCommandResult>((resolve, reject) => {
-    let stdout = '';
-    let stderr = '';
+    const stdout = new CommandOutputCapture();
+    const stderr = new CommandOutputCapture();
     let resolved = false;
     let timedOut = false;
     let timeoutId: NodeJS.Timeout | undefined;
@@ -611,7 +612,7 @@ export async function executeShellCommandAsync(
       if (resolved) return;
       resolved = true;
       cleanup();
-      reject(new ShellCommandAbortedError(stdout, stderr));
+      reject(new ShellCommandAbortedError(stdout.toString(), stderr.toString()));
     };
 
     const terminate = (reason: 'abort' | 'timeout'): void => {
@@ -643,13 +644,13 @@ export async function executeShellCommandAsync(
 
     child.stdout?.on('data', (chunk: Buffer | string) => {
       const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-      stdout += text;
+      stdout.append(text);
       options.onStdout?.(text);
     });
 
     child.stderr?.on('data', (chunk: Buffer | string) => {
       const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-      stderr += text;
+      stderr.append(text);
       options.onStderr?.(text);
     });
 
@@ -660,7 +661,7 @@ export async function executeShellCommandAsync(
       }
       finish({
         success: false,
-        error: stderr || error.stderr?.toString() || error.message || 'Unknown error'
+        error: stderr.toString() || error.stderr?.toString() || error.message || 'Unknown error'
       });
     });
 
@@ -672,14 +673,14 @@ export async function executeShellCommandAsync(
       if (code === 0) {
         finish({
           success: true,
-          output: stdout
+          output: stdout.toString()
         });
         return;
       }
 
       const errorMessage = timedOut
         ? `Command timed out after ${timeout}ms`
-        : stderr || (signal ? `Command terminated by ${signal}` : `Command failed with exit code ${code ?? 'unknown'}`);
+        : stderr.toString() || (signal ? `Command terminated by ${signal}` : `Command failed with exit code ${code ?? 'unknown'}`);
 
       finish({
         success: false,
@@ -894,7 +895,7 @@ export async function executeStreamingShellCommand(
   );
 
   return new Promise((resolve, reject) => {
-    let output = '';
+    const output = new CommandOutputCapture();
     let settled = false;
     let sawOutput = false;
     function cleanup(): void {
@@ -916,7 +917,7 @@ export async function executeStreamingShellCommand(
       );
       ptyProcess.kill();
       cleanup();
-      reject(new ShellCommandAbortedError(output.replace(/\r\n/g, '\n')));
+      reject(new ShellCommandAbortedError(output.toString().replace(/\r\n/g, '\n')));
     }
     const dataDisposable: PtyDisposable = ptyProcess.onData((data) => {
       if (!sawOutput) {
@@ -925,14 +926,14 @@ export async function executeStreamingShellCommand(
           `[pty] first-output pid=${ptyProcess.pid ?? 'unknown'} after=${sincePtyStart()}ms bytes=${data.length}`,
         );
       }
-      output += data;
+      output.append(data);
       options.onStdout?.(data);
     });
     const exitDisposable: PtyDisposable = ptyProcess.onExit((event) => {
       writeAutohandDebugLine(
         `[pty] exit pid=${ptyProcess.pid ?? 'unknown'} code=${event.exitCode} signal=${event.signal ?? 'none'} after=${sincePtyStart()}ms bytes=${output.length} sawOutput=${sawOutput}`,
       );
-      const normalized = output.replace(/\r\n/g, '\n');
+      const normalized = output.toString().replace(/\r\n/g, '\n');
       if (event.exitCode === 0) {
         finish({
           success: true,

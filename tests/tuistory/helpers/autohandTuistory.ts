@@ -100,6 +100,9 @@ export async function createTempAutohandHome(options: CreateTempAutohandHomeOpti
 
   const baseConfig: JsonRecord = {
     provider: 'openrouter',
+    autoReport: {
+      enabled: false,
+    },
     openrouter: {
       apiKey: 'tuistory-test-api-key',
       model: 'openai/gpt-4o-mini',
@@ -1175,6 +1178,7 @@ export async function launchBuiltAutohand(
     FORCE_COLOR: '0',
     AUTOHAND_NO_BANNER: '1',
     AUTOHAND_SKIP_PING: '1',
+    AUTOHAND_DISABLE_AUTO_REPORT: '1',
     AUTOHAND_SKIP_UPDATE_CHECK: '1',
     AUTOHAND_OFFLINE: '1',
     AUTOHAND_NO_BROWSER: '1',
@@ -1221,7 +1225,19 @@ const SESSION_TEARDOWN_MARKER = 'Ending Autohand session';
 
 export async function exitInteractive(session: Session): Promise<void> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const confirmingExit = (await session.text({ immediate: true })).includes('Press Ctrl+C again to exit');
+    if (session.exitInfo) {
+      expectCleanExit(session);
+      return;
+    }
+
+    const screen = await session.text({ immediate: true });
+    if (screen.includes(SESSION_TEARDOWN_MARKER) || screen.includes('Ending Autohand session') || screen.includes('Session saved')) {
+      await waitForExit(session);
+      expectCleanExit(session);
+      return;
+    }
+
+    const confirmingExit = screen.includes('Press Ctrl+C again to exit');
     await session.press(['ctrl', 'c']);
     if (confirmingExit) {
       await waitForExit(session);
@@ -1232,6 +1248,7 @@ export async function exitInteractive(session: Session): Promise<void> {
       await waitForExit(session, 1_000);
     } catch {
       // The first Ctrl+C may clear composer text or show the exit warning.
+      continue;
     }
     if (session.exitInfo) {
       expectCleanExit(session);

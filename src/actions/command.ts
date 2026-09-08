@@ -9,6 +9,7 @@ import { existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { buildAutohandChildProcessEnv } from '../utils/childProcessEnv.js';
 import { prepareCommandCoordination } from '../session/peers/CommandCoordinationGate.js';
+import { CommandOutputCapture } from '../utils/commandOutputCapture.js';
 
 const DEFAULT_KILL_GRACE_PERIOD_MS = 1_000;
 
@@ -276,8 +277,8 @@ export async function runCommand(
       return;
     }
 
-    let stdout = '';
-    let stderr = '';
+    const stdout = new CommandOutputCapture();
+    const stderr = new CommandOutputCapture();
     let timeoutId: NodeJS.Timeout | undefined;
     let forceKillId: NodeJS.Timeout | undefined;
     let settled = false;
@@ -359,19 +360,19 @@ export async function runCommand(
       child.stdout?.setEncoding('utf8');
       child.stderr?.setEncoding('utf8');
       child.stdout?.on('data', (chunk: string) => {
-        stdout += chunk;
+        stdout.append(chunk);
         options.onStdout?.(chunk);
       });
 
       child.stderr?.on('data', (chunk: string) => {
-        stderr += chunk;
+        stderr.append(chunk);
         options.onStderr?.(chunk);
       });
     }
 
     child.once('error', (error: NodeJS.ErrnoException) => {
       if (terminationReason === 'abort') {
-        finishWithError(new CommandAbortedError(stdout, stderr));
+        finishWithError(new CommandAbortedError(stdout.toString(), stderr.toString()));
         return;
       }
       finishWithError(toCommandSpawnError(error, cmd, workDir));
@@ -379,10 +380,10 @@ export async function runCommand(
 
     child.once('close', (code, signal) => {
       if (terminationReason === 'abort') {
-        finishWithError(new CommandAbortedError(stdout, stderr));
+        finishWithError(new CommandAbortedError(stdout.toString(), stderr.toString()));
         return;
       }
-      finishWithResult({ stdout, stderr, code, signal });
+      finishWithResult({ stdout: stdout.toString(), stderr: stderr.toString(), code, signal });
     });
   });
 }

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { CommandOutputLineBuffer } from '../utils/commandOutputCapture.js';
 
 export interface RouteOutputOptions {
   persistentInputActiveTurn: boolean;
@@ -59,7 +60,7 @@ export function createBufferedRouteOutput(
   opts: RouteOutputOptions,
   transform: (text: string) => string = (text) => text
 ): { push: (chunk: string) => void; flush: () => void } {
-  let pending = '';
+  const pending = new CommandOutputLineBuffer();
 
   const flushLine = (line: string): void => {
     routeOutput(transform(line), opts);
@@ -67,29 +68,10 @@ export function createBufferedRouteOutput(
 
   return {
     push(chunk: string): void {
-      pending += chunk;
-
-      while (true) {
-        const newlineIndex = pending.indexOf('\n');
-        const carriageIndex = pending.indexOf('\r');
-        const boundaryCandidates = [newlineIndex, carriageIndex].filter((value) => value >= 0);
-        if (boundaryCandidates.length === 0) {
-          break;
-        }
-
-        const boundaryIndex = Math.min(...boundaryCandidates);
-        const boundaryWidth = pending[boundaryIndex] === '\r' && pending[boundaryIndex + 1] === '\n' ? 2 : 1;
-        const line = pending.slice(0, boundaryIndex);
-        pending = pending.slice(boundaryIndex + boundaryWidth);
-        flushLine(line);
-      }
+      pending.push(chunk, flushLine);
     },
     flush(): void {
-      if (!pending) {
-        return;
-      }
-      flushLine(pending);
-      pending = '';
+      pending.flush(flushLine);
     }
   };
 }
@@ -106,7 +88,7 @@ export function createImmediateShellCommandBlockWriter(
   pushStderr: (chunk: string) => void;
   flush: () => void;
 } {
-  let pending = '';
+  const pending = new CommandOutputLineBuffer();
   let pendingStream: 'stdout' | 'stderr' = 'stdout';
   let lineIndex = 0;
 
@@ -121,22 +103,7 @@ export function createImmediateShellCommandBlockWriter(
 
   const push = (chunk: string, stream: 'stdout' | 'stderr'): void => {
     pendingStream = stream;
-    pending += chunk;
-
-    while (true) {
-      const newlineIndex = pending.indexOf('\n');
-      const carriageIndex = pending.indexOf('\r');
-      const boundaryCandidates = [newlineIndex, carriageIndex].filter((value) => value >= 0);
-      if (boundaryCandidates.length === 0) {
-        break;
-      }
-
-      const boundaryIndex = Math.min(...boundaryCandidates);
-      const boundaryWidth = pending[boundaryIndex] === '\r' && pending[boundaryIndex + 1] === '\n' ? 2 : 1;
-      const line = pending.slice(0, boundaryIndex);
-      pending = pending.slice(boundaryIndex + boundaryWidth);
-      flushLine(line, stream);
-    }
+    pending.push(chunk, (line) => flushLine(line, stream));
   };
 
   return {
@@ -147,11 +114,7 @@ export function createImmediateShellCommandBlockWriter(
       push(chunk, 'stderr');
     },
     flush(): void {
-      if (!pending) {
-        return;
-      }
-      flushLine(pending, pendingStream);
-      pending = '';
+      pending.flush((line) => flushLine(line, pendingStream));
     },
   };
 }

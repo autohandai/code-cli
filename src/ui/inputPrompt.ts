@@ -15,6 +15,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import os from 'node:os';
 import stringWidth from 'string-width';
+import { CommandOutputLineBuffer } from '../utils/commandOutputCapture.js';
 import { TerminalResizeWatcher } from './terminalResize.js';
 import {
   isShellCommand,
@@ -85,7 +86,7 @@ function createPromptShellCommandBlockWriter(
   pushStderr: (chunk: string) => void;
   flush: () => void;
 } {
-  let pending = '';
+  const pending = new CommandOutputLineBuffer();
   let pendingStream: 'stdout' | 'stderr' = 'stdout';
   let lineIndex = 0;
 
@@ -97,22 +98,7 @@ function createPromptShellCommandBlockWriter(
 
   const push = (chunk: string, stream: 'stdout' | 'stderr'): void => {
     pendingStream = stream;
-    pending += chunk;
-
-    while (true) {
-      const newlineIndex = pending.indexOf('\n');
-      const carriageIndex = pending.indexOf('\r');
-      const boundaryCandidates = [newlineIndex, carriageIndex].filter((value) => value >= 0);
-      if (boundaryCandidates.length === 0) {
-        break;
-      }
-
-      const boundaryIndex = Math.min(...boundaryCandidates);
-      const boundaryWidth = pending[boundaryIndex] === '\r' && pending[boundaryIndex + 1] === '\n' ? 2 : 1;
-      const line = pending.slice(0, boundaryIndex);
-      pending = pending.slice(boundaryIndex + boundaryWidth);
-      flushLine(line, stream);
-    }
+    pending.push(chunk, (line) => flushLine(line, stream));
   };
 
   return {
@@ -123,11 +109,7 @@ function createPromptShellCommandBlockWriter(
       push(chunk, 'stderr');
     },
     flush(): void {
-      if (!pending) {
-        return;
-      }
-      flushLine(pending, pendingStream);
-      pending = '';
+      pending.flush((line) => flushLine(line, pendingStream));
     },
   };
 }
@@ -3362,7 +3344,7 @@ function renderPromptLine(
     for (let i = 0; i < blockSize; i++) {
       readline.clearLine(output, 0);
       if (i < blockSize - 1) {
-        readline.moveCursor(output, 0, 1);
+        output.write('\n');
       }
     }
     // Return to starting row

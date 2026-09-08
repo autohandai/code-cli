@@ -88,6 +88,28 @@ describe('runCommand', () => {
     expect(result.code).toBe(0);
   });
 
+  it('bounds large newline-free output while preserving both ends and delivering every stream chunk', async () => {
+    const count = 2 * 1024 * 1024;
+    let stdoutLength = 0;
+    let stderrLength = 0;
+    const script = `process.stdout.write('stdout-start' + 'x'.repeat(${count}) + 'stdout-end'); process.stderr.write('stderr-start' + 'y'.repeat(${count}) + 'stderr-end')`;
+
+    const result = await runCommand(process.execPath, ['-e', script], testDir, {
+      onStdout: (chunk) => { stdoutLength += chunk.length; },
+      onStderr: (chunk) => { stderrLength += chunk.length; },
+    });
+
+    expect(result.code).toBe(0);
+    for (const [text, label] of [[result.stdout, 'stdout'], [result.stderr, 'stderr']]) {
+      expect(text.length).toBeLessThanOrEqual(1024 * 1024 + 128);
+      expect(text.startsWith(`${label}-start`)).toBe(true);
+      expect(text.endsWith(`${label}-end`)).toBe(true);
+      expect(text).toContain('[output truncated:');
+    }
+    expect(stdoutLength).toBe(count + 'stdout-startstdout-end'.length);
+    expect(stderrLength).toBe(count + 'stderr-startstderr-end'.length);
+  });
+
   it('preserves UTF-8 code points split across foreground output chunks', async () => {
     const script = [
       "const value = Buffer.from('🌍')",
