@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isRecord } from './record.js';
-import { parseSessionTransfer, parseTransferReceipt, type SessionTransfer, type TransferReceipt } from './session-transfer.js';
+import { parseSessionTransfer, parseTransferReceipt, transferMessageContent, type SessionTransfer, type TransferReceipt } from './session-transfer.js';
 
 /** Recover the CLI's owner-record lock format without removing an active owner's files. */
 async function recoverExitedImporter(lock: string): Promise<void> {
@@ -65,7 +65,8 @@ export async function importTransferSession(snapshot: SessionTransfer, receipt: 
         createdAt: value.createdAt, lastActiveAt: new Date().toISOString(), messageCount: value.messages.length, status: 'completed', summary: value.title,
         client: 'web', importedFrom: { source: 'Autohand Code Web', originalId: transfer.id, accountId: transfer.accountId, importedAt: new Date().toISOString() } };
       await fs.writeFile(path.join(temporary, 'metadata.json'), JSON.stringify(metadata, null, 2), { mode: 0o600 });
-      await fs.writeFile(path.join(temporary, 'conversation.jsonl'), value.messages.map(message => JSON.stringify({ role: message.role, content: message.content, timestamp: message.createdAt })).join('\n') + '\n', { mode: 0o600 });
+      await fs.writeFile(path.join(temporary, 'conversation.jsonl'), value.messages.map(message => JSON.stringify({ role: message.role, content: transferMessageContent(message),
+        ...(message.images?.length ? { attachmentNames: message.images.map(image => image.name) } : {}), timestamp: message.createdAt })).join('\n') + '\n', { mode: 0o600 });
       await fs.rename(temporary, destination); temporary = undefined;
     }
     // Recover an interrupted index update without rewriting an already resumed conversation.

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { SessionManager } from '../../src/session/SessionManager.js';
 import { importTransferSession } from '../../src/session/transfer/transfer-session-store.js';
 import type { SessionTransfer } from '../../src/session/transfer/session-transfer.js';
 vi.unmock('node:fs');
@@ -11,6 +12,20 @@ const snapshot: SessionTransfer = { version: 1, source: 'web', sourceSessionId: 
 const transfer = { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', accountId: 'personal_ada', expiresAt: '2026-09-09T00:00:00.000Z' };
 afterEach(async () => { vi.restoreAllMocks(); await Promise.all(roots.splice(0).map(root => fs.rm(root, { recursive: true, force: true }))); });
 describe('transfer session index recovery', () => {
+  it('loads imported image bytes into the actual CLI session and preserves them when the user continues', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'transfer-image-')); roots.push(root);
+    const image = { name: 'Parser.png', data: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=' };
+    const value = { ...snapshot, version: 2 as const, messages: [{ ...snapshot.messages[0]!, content: '', images: [image] }] };
+    const directory = path.join(root, 'sessions'), id = await importTransferSession(value, transfer, root, directory);
+    const manager = new SessionManager(directory); await manager.initialize();
+    const session = await manager.loadSession(id);
+    expect(session.getMessages()[0]?.content).toEqual([{ type: 'image_url', image_url: { url: image.data } }]);
+    await session.append({ role: 'user', content: 'Continue with the screenshot.', timestamp: new Date().toISOString() });
+    await importTransferSession(value, transfer, root, directory);
+    const resumed = await manager.loadSession(id);
+    expect(resumed.getMessages()).toHaveLength(2);
+    expect(resumed.getMessages()[0]?.content).toEqual(session.getMessages()[0]?.content);
+  });
   it('recovers the session index after a dead importer leaves an old owner record', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'transfer-session-')); roots.push(root);
     const directory = path.join(root, 'sessions'), lock = path.join(directory, 'index.json.lock');
