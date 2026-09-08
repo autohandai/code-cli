@@ -53,7 +53,29 @@ export interface AccountQuota {
   message?: string;
 }
 
+export interface PaymentAccessNotice {
+  status: 'suspended';
+  reason: 'stripe_blocked';
+  effectiveTier: 'free';
+  planName: string;
+  since: string;
+  message: string;
+  actionUrl: string;
+}
+
+function parsePaymentAccess(value: unknown): PaymentAccessNotice | undefined {
+  if (!isRecord(value) || value.status !== 'suspended' || value.reason !== 'stripe_blocked'
+    || value.effectiveTier !== 'free' || !isSafeText(value.planName)
+    || !isSafeText(value.since) || !isSafeText(value.message, 2000) || !isSafeText(value.actionUrl, 1000)) return undefined;
+  try {
+    const url = new URL(value.actionUrl);
+    if (url.origin !== 'https://console.autohand.ai' || url.pathname !== '/billing') return undefined;
+  } catch { return undefined; }
+  return { status: 'suspended', reason: 'stripe_blocked', effectiveTier: 'free', planName: value.planName, since: value.since, message: value.message, actionUrl: value.actionUrl };
+}
+
 export interface AccountEntitlement {
+  paymentAccess?: PaymentAccessNotice;
   tier: string;
   accountName?: string;
   freeRemaining: number | null;
@@ -602,6 +624,7 @@ export class AuthClient {
       const directAccountName = isSafeText(entitlement?.accountName) ? entitlement.accountName.trim() : undefined;
       const accountName = directAccountName
         ?? (tier === 'team' ? await this.fetchActiveAccountName(token) : undefined);
+      const paymentAccess = parsePaymentAccess(entitlement?.paymentAccess);
       const freeRemaining = entitlement?.freeRemaining;
       const limits = parseAccountEntitlementLimits(entitlement?.limits);
       const quota = parseAccountQuota(entitlement?.quota);
@@ -611,6 +634,7 @@ export class AuthClient {
       return {
         tier,
         ...(accountName ? { accountName } : {}),
+        ...(paymentAccess ? { paymentAccess } : {}),
         freeRemaining: typeof freeRemaining === 'number' ? freeRemaining : null,
         // Omitted rather than null when unknown, matching the other optional fields.
         ...(cycle ? { interval: cycle } : {}),
