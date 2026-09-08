@@ -756,6 +756,66 @@ describe("ProviderConfigManager openai auth mode", () => {
     expect(runtime.config.customProviders).toBeUndefined();
   });
 
+  it("keeps the OpenAI model when switching from Moa and changing ChatGPT authentication", async () => {
+    const persistedConfigs: unknown[] = [];
+    mockSaveConfig.mockImplementationOnce(async (config: unknown) => {
+      persistedConfigs.push(structuredClone(config));
+    });
+    runtime.config.provider = "autohandai";
+    runtime.config.features = { autohand_inference: true };
+    runtime.config.autohandai = {
+      plan: "cloud",
+      authMode: "api-key",
+      apiKey: "autohand-test-key",
+      model: "moa",
+    };
+    runtime.options.model = "moa";
+    runtime.config.openai = {
+      authMode: "chatgpt",
+      model: "gpt-5.3-codex",
+      chatgptAuth: { accessToken: "old-token", accountId: "old-account" },
+    };
+    mockAuthenticateOpenAIChatGPT.mockResolvedValue({
+      accessToken: "renewed-token",
+      accountId: "renewed-account",
+    });
+    mockShowModal
+      .mockResolvedValueOnce({ value: "provider" })
+      .mockResolvedValueOnce({ value: "openai" })
+      .mockResolvedValueOnce({ value: "auth" })
+      .mockResolvedValueOnce({ value: "chatgpt" });
+
+    await manager.promptModelSelection();
+
+    expect(runtime.config.provider).toBe("openai");
+    expect(runtime.config.openai.model).toBe("gpt-5.3-codex");
+    expect(runtime.options.model).toBe("gpt-5.3-codex");
+    expect(runtime.config.autohandai.model).toBe("moa");
+    expect(runtime.config.openai.chatgptAuth.accountId).toBe("renewed-account");
+    expect(persistedConfigs).toEqual([expect.objectContaining({
+      provider: "openai",
+      openai: expect.objectContaining({ model: "gpt-5.3-codex" }),
+    })]);
+  });
+
+  it("keeps an active OpenAI runtime model override when changing reasoning", async () => {
+    runtime.config.provider = "openai";
+    runtime.config.openai = {
+      authMode: "api-key",
+      apiKey: "sk-openai-key-1234567890",
+      model: "gpt-5.4",
+    };
+    runtime.options.model = "gpt-5.3-codex";
+    mockShowModal
+      .mockResolvedValueOnce({ value: "reasoning" })
+      .mockResolvedValueOnce({ value: "high" });
+
+    await manager.promptModelSelection();
+
+    expect(runtime.config.openai.model).toBe("gpt-5.3-codex");
+    expect(runtime.options.model).toBe("gpt-5.3-codex");
+  });
+
   it("updates OpenAI reasoning effort from the configured provider menu", async () => {
     runtime.config.provider = "openai";
     runtime.config.openai = {
