@@ -26,6 +26,7 @@ describe('GoalPanel summaries', () => {
     expect(output).toContain('› 2. Review the terminal layout… queued');
     expect(output).toContain('Ship the documentation… active');
     expect(output).toContain('enter edit');
+    expect(output).toContain('Ctrl+G close · ↑↓ navigate');
     expect(output).toContain('/goals');
     expect(output.split('\n').length).toBeLessThanOrEqual(19);
     expect(onRowLayoutChange).toHaveBeenCalledWith(
@@ -37,6 +38,14 @@ describe('GoalPanel summaries', () => {
         import.meta.dirname, '../../../src/testing/snapshots/goals-summary.txt',
       ));
     }
+  });
+
+  it('shows the close shortcut in the footer when no goals are editable', () => {
+    const snapshot = createLongGoalsSnapshot();
+    snapshot.goal = null;
+    snapshot.queue = [];
+    const screen = renderInkScreen(<GoalPanel snapshot={snapshot} selectedIndex={null} />);
+    expect(stripAnsi(screen.lastFrame() ?? '')).toContain('\nCtrl+G close\nManage:');
   });
 
   it.each([

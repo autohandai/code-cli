@@ -174,11 +174,10 @@ export const GoalPanel = memo(function GoalPanel({
         <Text color={colors.muted}>No active or queued goals.</Text>
       ) : null}
 
-      {editable.length > 0 ? (
-        <Text color={colors.muted}>
-          ↑↓ navigate · enter edit · click edit · esc clear selection
-        </Text>
-      ) : null}
+      <Text color={colors.muted}>
+        <Text color={colors.text}>Ctrl+G close</Text>
+        {editable.length > 0 ? ' · ↑↓ navigate · enter edit · click edit · esc clear selection' : ''}
+      </Text>
       <Text color={colors.muted}>
         Manage: /goals pause · resume · complete · clear · queue
       </Text>

@@ -58,6 +58,7 @@ describe('goals summary Tuistory', () => {
     const viewport = session.getTerminalData().lines.slice(-24)
       .map((line) => line.spans.map((span) => span.text).join('')).join('\n');
     expect(viewport).toContain('Goals · 3 total');
+    expect(viewport).toContain('Ctrl+G close · ↑↓ navigate');
     expect(viewport).toContain('❯');
 
     await editSecondGoalSummary(session);
