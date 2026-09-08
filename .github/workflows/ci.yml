@@ -18,10 +18,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.2.22
+          bun-version-file: package.json
 
       - name: Install build tools (Ubuntu)
         if: runner.os == 'Linux'
@@ -45,10 +51,16 @@ jobs:
           # release tag, which they find with `git tag --merged HEAD`.
           fetch-depth: 0
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.2.22
+          bun-version-file: package.json
 
       - name: Install build tools (Ubuntu)
         run: sudo apt-get update && sudo apt-get install -y build-essential python3 make g++
@@ -71,10 +83,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.2.22
+          bun-version-file: package.json
 
       - name: Install build tools (Ubuntu)
         if: runner.os == 'Linux'

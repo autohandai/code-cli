@@ -49,6 +49,20 @@ function hasFullHistoryCheckout(job: WorkflowJob): boolean {
  * release workflow kept failing because it runs the same suite from its own job.
  */
 describe('CI workflow checkout', () => {
+  it('uses the declared Bun toolchain in every build and release job', () => {
+    const packageJson: { packageManager?: string } = JSON.parse(
+      readFileSync(path.join(WORKFLOW_DIR, '../../package.json'), 'utf8'),
+    );
+    expect(packageJson.packageManager).toMatch(/^bun@\d+\.\d+\.\d+$/u);
+
+    const bunJobs = readWorkflowJobs().filter((job) => job.body.includes('oven-sh/setup-bun@'));
+    expect(bunJobs.length).toBeGreaterThan(0);
+    for (const job of bunJobs) {
+      expect(job.body, `${job.workflow}:${job.name}`).toMatch(/bun-version-file:\s*package\.json/u);
+      expect(job.body, `${job.workflow}:${job.name}`).not.toMatch(/\bbun-version:/u);
+    }
+  });
+
   it('finds at least one job running the built terminal tests', () => {
     const tuistoryJobs = readWorkflowJobs().filter((job) => job.body.includes('test:tuistory'));
     expect(tuistoryJobs.length).toBeGreaterThan(0);
