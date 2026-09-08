@@ -1430,7 +1430,7 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(promptRow).toBeGreaterThan(0);
     expect(screenLines[promptRow - 1]).toContain('▔');
     expect(screenLines[promptRow + 1]).toContain('▁');
-    expect(screenLines[promptRow + 2]).toContain('autohand (');
+    expect(screenLines[promptRow + 2]).toContain('Autohand (');
 
     await exitInteractive(session);
   });
@@ -1968,14 +1968,14 @@ describe('interactive built CLI Tuistory tests', () => {
       timeout: 10_000,
       waitFor: (text) => (
         text.includes('❯') &&
-        text.includes('autohand (') &&
+        text.includes('Autohand (') &&
         !text.includes('Wandering')
       ),
       trimEnd: true,
     });
 
     expect(linesContaining(screen, '❯'), screen).toHaveLength(1);
-    expect(linesContaining(screen, 'autohand ('), screen).toHaveLength(1);
+    expect(linesContaining(screen, 'Autohand ('), screen).toHaveLength(1);
     expect(screen).not.toContain('Wandering');
 
     await exitInteractive(session);
@@ -2993,11 +2993,11 @@ describe('interactive built CLI Tuistory tests', () => {
     await session.waitForText(`Using ollama model ${selectedModel}`, { timeout: 10_000 });
     await session.text({
       timeout: 10_000,
-      waitFor: (text) => text.includes(`autohand (Ollama, ${selectedModel})`),
+      waitFor: (text) => text.includes(`Autohand (Pro) (Ollama, ${selectedModel})`),
     });
 
     const screen = await session.text({ trimEnd: true });
-    expect(screen).toContain(`autohand (Ollama, ${selectedModel})`);
+    expect(screen).toContain(`Autohand (Pro) (Ollama, ${selectedModel})`);
 
     await exitInteractive(session);
 
@@ -3012,10 +3012,10 @@ describe('interactive built CLI Tuistory tests', () => {
     await waitForComposer(restartedSession);
     const restartedScreen = await restartedSession.text({
       timeout: 10_000,
-      waitFor: (text) => text.includes(`autohand (Ollama, ${selectedModel})`),
+      waitFor: (text) => text.includes(`Autohand (Pro) (Ollama, ${selectedModel})`),
       trimEnd: true,
     });
-    expect(restartedScreen).toContain(`autohand (Ollama, ${selectedModel})`);
+    expect(restartedScreen).toContain(`Autohand (Pro) (Ollama, ${selectedModel})`);
     await exitInteractive(restartedSession);
   });
 
@@ -3059,10 +3059,10 @@ describe('interactive built CLI Tuistory tests', () => {
     await session.waitForText('Anthropic configured successfully!', { timeout: 10_000 });
     const screen = await session.text({
       timeout: 10_000,
-      waitFor: (text) => text.includes(`autohand (Anthropic, ${selectedModel})`),
+      waitFor: (text) => text.includes(`Autohand (Pro) (Anthropic, ${selectedModel})`),
       trimEnd: true,
     });
-    expect(screen).toContain(`autohand (Anthropic, ${selectedModel})`);
+    expect(screen).toContain(`Autohand (Pro) (Anthropic, ${selectedModel})`);
 
     await exitInteractive(session);
 
@@ -3080,10 +3080,10 @@ describe('interactive built CLI Tuistory tests', () => {
     await waitForComposer(restartedSession);
     const restartedScreen = await restartedSession.text({
       timeout: 10_000,
-      waitFor: (text) => text.includes(`autohand (Anthropic, ${selectedModel})`),
+      waitFor: (text) => text.includes(`Autohand (Pro) (Anthropic, ${selectedModel})`),
       trimEnd: true,
     });
-    expect(restartedScreen).toContain(`autohand (Anthropic, ${selectedModel})`);
+    expect(restartedScreen).toContain(`Autohand (Pro) (Anthropic, ${selectedModel})`);
     await exitInteractive(restartedSession);
   });
 
@@ -3140,11 +3140,11 @@ describe('interactive built CLI Tuistory tests', () => {
     await session.waitForText('Autohand AI configured successfully!', { timeout: 10_000 });
     await session.text({
       timeout: 10_000,
-      waitFor: (text) => text.includes(`autohand (Autohand AI, ${selectedModel})`),
+      waitFor: (text) => text.includes(`Autohand (Pro) (Autohand AI, ${selectedModel})`),
     });
 
     const screen = await session.text({ trimEnd: true });
-    expect(screen).toContain(`autohand (Autohand AI, ${selectedModel})`);
+    expect(screen).toContain(`Autohand (Pro) (Autohand AI, ${selectedModel})`);
 
     await exitInteractive(session);
 
@@ -3159,10 +3159,10 @@ describe('interactive built CLI Tuistory tests', () => {
     await waitForComposer(restartedSession);
     const restartedScreen = await restartedSession.text({
       timeout: 10_000,
-      waitFor: (text) => text.includes(`autohand (Autohand AI, ${selectedModel})`),
+      waitFor: (text) => text.includes(`Autohand (Pro) (Autohand AI, ${selectedModel})`),
       trimEnd: true,
     });
-    expect(restartedScreen).toContain(`autohand (Autohand AI, ${selectedModel})`);
+    expect(restartedScreen).toContain(`Autohand (Pro) (Autohand AI, ${selectedModel})`);
     await exitInteractive(restartedSession);
   });
 });
