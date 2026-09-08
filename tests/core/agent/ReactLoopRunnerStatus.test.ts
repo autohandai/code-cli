@@ -17,6 +17,45 @@ import type { ToolCallRequest } from '../../../src/types.js';
 import { ReactionParser } from '../../../src/core/agent/ReactionParser.js';
 
 describe('ReactLoopRunner composer status', () => {
+  it.each([
+    { attached: 1, error: undefined },
+    { attached: 0, error: 'Screenshot was removed before visual inspection.' },
+  ])('attaches captured tool images before saving text-only observations ($attached)', async (attachment) => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const llmComplete = vi.fn()
+      .mockResolvedValueOnce({
+        id: 'capture', created: 1, raw: {},
+        content: JSON.stringify({ toolCalls: [{ tool: 'capture_test_evidence', args: { url: 'http://localhost:3000' } }] }),
+      })
+      .mockResolvedValueOnce({ id: 'answer', created: 2, raw: {}, content: '{"finalResponse":"Evidence captured."}' });
+    const host = createReactLoopTestHost(llmComplete, new ReactionParser());
+    const attachToolImages = vi.fn(async () => attachment);
+    Object.assign(host, { attachToolImages });
+    const imagePaths = ['.autohand/test-evidence/run-proof/frame-001.png'];
+    host.toolManager.execute = vi.fn().mockResolvedValue([
+      { tool: 'capture_test_evidence', success: true, output: 'Capture passed; visual inspection pending.', imagePaths },
+    ]);
+    const controller = new AbortController();
+
+    try {
+      await runAgentReactLoop(host, controller);
+
+      const toolMessage = vi.mocked(host.conversation.addMessage).mock.calls
+        .map(([message]) => message).find((message) => message.role === 'tool');
+      expect(toolMessage).toBeDefined();
+      expect(attachToolImages).toHaveBeenCalledWith(toolMessage, imagePaths, controller.signal);
+      expect(attachToolImages.mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(host.saveToolMessage).mock.invocationCallOrder[0],
+      );
+      expect(typeof toolMessage?.content).toBe('string');
+      expect(toolMessage?.content).not.toContain('base64');
+      if (attachment.error) expect(toolMessage?.content).toContain(attachment.error);
+      expect(host.saveToolMessage).toHaveBeenCalledWith('capture_test_evidence', toolMessage?.content, toolMessage?.tool_call_id);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it('omits prompt cache affinity while the experimental gate is disabled', async () => {
     const parser = new ReactionParser();
     const llmComplete = vi.fn().mockResolvedValue({

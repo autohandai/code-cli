@@ -115,4 +115,45 @@ describe('Coding Agent control plane', () => {
     expect(config.permissions?.mode).toBe('restricted');
     expect(config.search?.braveApiKey).toBe('local-secret');
   });
+
+  it.each([0, -1, 1.5, 65])('ignores an invalid session thread limit of %s without changing the live configuration', (limit) => {
+    const config: LoadedConfig = {
+      configPath: '/tmp/autohand/config.json',
+      features: { multi_agent_v2: { max_concurrent_threads_per_session: 9 } },
+    };
+
+    const applied = applyCodingAgentSettingsProfile(config, {
+      id: 'profile-1',
+      name: 'Thread limit',
+      settings: { 'features.multi_agent_v2.max_concurrent_threads_per_session': limit },
+      isDefault: true,
+      createdAt: '2026-08-31T00:00:00.000Z',
+      updatedAt: '2026-08-31T00:00:00.000Z',
+    });
+
+    expect(applied).toEqual({ changed: false, appliedKeys: [] });
+    expect(config.features?.multi_agent_v2?.max_concurrent_threads_per_session).toBe(9);
+  });
+
+  it.each([1, 9, 64])('applies a valid session thread limit of %s', (limit) => {
+    const config: LoadedConfig = {
+      configPath: '/tmp/autohand/config.json',
+      features: { multi_agent_v2: { max_concurrent_threads_per_session: 4 } },
+    };
+
+    const applied = applyCodingAgentSettingsProfile(config, {
+      id: 'profile-1',
+      name: 'Thread limit',
+      settings: { 'features.multi_agent_v2.max_concurrent_threads_per_session': limit },
+      isDefault: true,
+      createdAt: '2026-08-31T00:00:00.000Z',
+      updatedAt: '2026-08-31T00:00:00.000Z',
+    });
+
+    expect(applied).toEqual({
+      changed: true,
+      appliedKeys: ['features.multi_agent_v2.max_concurrent_threads_per_session'],
+    });
+    expect(config.features?.multi_agent_v2?.max_concurrent_threads_per_session).toBe(limit);
+  });
 });

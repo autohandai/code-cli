@@ -76,6 +76,7 @@ import type {
 import type { LLMProvider } from "../../providers/LLMProvider.js";
 import type { TelemetryManager } from "../../telemetry/TelemetryManager.js";
 import { AgentDelegator } from "../agents/AgentDelegator.js";
+import { DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION } from "../agents/SessionThreadBudget.js";
 import type { ActionExecutor } from "../actionExecutor.js";
 import { authenticateOpenAIChatGPT } from "../../providers/openaiAuth.js";
 import {
@@ -3767,6 +3768,7 @@ export class ProviderConfigManager {
     });
 
     if (!result) return undefined;
+    this.warnAboutMaxReasoningConcurrency(result.value);
     return result.value as ReasoningEffort;
   }
 
@@ -3799,7 +3801,18 @@ export class ProviderConfigManager {
     });
 
     if (!result) return undefined;
+    this.warnAboutMaxReasoningConcurrency(result.value);
     return result.value as ReasoningEffort;
+  }
+
+  private warnAboutMaxReasoningConcurrency(effort: string): void {
+    const maxThreads = this.runtime.config.features?.multi_agent_v2?.max_concurrent_threads_per_session
+      ?? DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION;
+    if (effort !== 'xhigh' || maxThreads < 8) return;
+    console.log(chalk.yellow(
+      `This session is configured for ${maxThreads} concurrent threads with up to ${maxThreads - 1} subagents, which can increase usage quickly. `
+      + 'Consider setting features.multi_agent_v2.max_concurrent_threads_per_session below 8. Use /settings max_agents 4 to change this limit.',
+    ));
   }
 
   /**
@@ -4193,15 +4206,10 @@ export class ProviderConfigManager {
     const delegatorContext =
       this.runtime.options.clientContext ??
       (this.runtime.options.restricted ? "restricted" : "cli");
-    const newDelegator = new AgentDelegator(newLlm, this.actionExecutor, {
+    const newDelegator = this.getDelegator()?.withProvider(newLlm) ?? new AgentDelegator(newLlm, this.actionExecutor, {
       clientContext: delegatorContext,
       maxDepth: 3,
       featureConfig: this.runtime.config,
-      authorization: this.getDelegator()?.getAuthorizationOptions(),
-      confirmApproval: this.getDelegator()?.getConfirmApproval(),
-      getToolDefinitions: this.getDelegator()?.getRuntimeToolDefinitions(),
-      resolveSubagentAssignment: this.getDelegator()?.getSubagentAssignmentResolver(),
-      createSubagentProvider: this.getDelegator()?.getSubagentProviderFactory(),
     });
     this.setDelegator(newDelegator);
     this.setActiveProvider(provider);

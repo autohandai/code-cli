@@ -37,6 +37,8 @@ import { ProjectManager } from '../../session/ProjectManager.js';
 import { createToolsRegistry } from '../toolsRegistry.js';
 import type { AgentRuntime, HookEvent, ToolActionOutcome } from '../../types.js';
 import { AgentDelegator } from '../agents/AgentDelegator.js';
+import { AgentRunStore, type AgentRunsSnapshot, type AgentRunSource } from '../agents/AgentRunStore.js';
+import { createAgentRunLifecycleHandler } from '../agents/AgentRunLifecycle.js';
 import { attachTeamActivityBridge, enableAutomaticCoordinationMode } from './TeamActivityBridge.js';
 import { buildTeamTaskPayload, taskToolTruncatesDescriptions } from '../teams/taskPayload.js';
 import { ErrorLogger } from '../errorLogger.js';
@@ -64,6 +66,8 @@ import { HookAuthoringService } from '../HookAuthoringService.js';
 import { executeHookTool, HOOK_TOOL_DEFINITIONS, isHookAction } from '../hookTools.js';
 import { isAllowedPermissionPrompt, normalizePermissionPromptResponse, type PermissionMode } from '../../permissions/types.js';
 import { TeamManager } from '../teams/TeamManager.js';
+import { authorizeTeammateTool, createTeammateConfirmation } from '../teams/TeammateAuthorization.js';
+import { SessionThreadBudget, DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION } from '../agents/SessionThreadBudget.js';
 import type { TeamMember, TeamTask } from '../teams/types.js';
 import { resolveTeamModelAssignment } from '../teams/TeamModelPolicy.js';
 import { RepeatManager } from '../RepeatManager.js';
@@ -105,6 +109,8 @@ import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { SuggestionEngine } from '../SuggestionEngine.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { configureAgentRegistry, syncDynamicRuntimeExtensions } from './dynamicRuntimeExtensions.js';
+import { runCancellableAgentCommand } from './AgentCommandRuntime.js';
+import { SquadRunMonitor } from '../agents/SquadRunSnapshot.js';
 import { extensionRuntimeHost } from '../../extensions/ExtensionRuntimeHost.js';
 import { ExtensionService } from '../../extensions/ExtensionService.js';
 import type {
@@ -119,6 +125,7 @@ import type { MobileAgentSessionExecutionContext } from './AgentLifecycleRunner.
 import {
   createQueuedAgentInstruction,
   type PendingPostTurnAction,
+  type QueuedInstructionPolicy,
   type QueuedMobileComposerCommand,
 } from './PostTurnActionCoordinator.js';
 
@@ -495,7 +502,9 @@ export function initializeAgentDependencies(
         runtime.config.hooks = hooks;
       },
       onHookOutput: (result) => {
-        if (result.response?.additionalContext && !['pre-tool', 'pre-prompt', 'permission-request'].includes(result.hook.event)) {
+        if (result.response?.additionalContext && ![
+          'pre-tool', 'pre-prompt', 'permission-request', 'subagent-start', 'subagent-progress',
+        ].includes(result.hook.event)) {
           host.conversation.addSystemNote(result.response.additionalContext, '[Hook Context]');
         }
         // In RPC mode, stdout must only contain JSON-RPC messages
@@ -554,11 +563,39 @@ export function initializeAgentDependencies(
     });
 
     // Initialize team manager for /team, /tasks, /message commands
+    host.agentRunStore = new AgentRunStore({
+      onLifecycleEvent: createAgentRunLifecycleHandler({
+        executeHooks: (event, context) => host.hookManager.executeHooks(event, context),
+        sendMessage: (id, content) => host.agentRunStore.sendMessage(id, content),
+        requestCancel: (id) => host.agentRunStore.requestCancel(id),
+      }),
+    });
+    host.agentRunStore.subscribe((snapshot: AgentRunsSnapshot) => {
+      host.inkRenderer?.setAgentRuns?.(snapshot);
+    });
+    const squadRunMonitor = new SquadRunMonitor(host.agentRunStore, {
+      workspaceRoot: runtime.workspaceRoot,
+      getWorkspaceRoot: () => runtime.workspaceRoot,
+      signal: host.runtimeResourceShutdownController?.signal,
+      isVisible: () => host.inkRenderer?.getState?.().agentRunsPanelVisible === true,
+    });
+    host.sessionThreadBudget = new SessionThreadBudget(() =>
+      runtime.config.features?.multi_agent_v2?.max_concurrent_threads_per_session
+        ?? DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION);
     host.teamManager = new TeamManager({
-      leadSessionId: randomUUID(),
+      runStore: host.agentRunStore,
+      leadSessionId: () => host.sessionManager?.getCurrentSession?.()?.metadata?.sessionId,
+      threadBudget: host.sessionThreadBudget,
       workspacePath: runtime.workspaceRoot,
+      getWorkspacePath: () => runtime.workspaceRoot,
       configPath: runtime.config.configPath,
       maxTeammates: runtime.config.teams?.maxTeammates,
+      authorizeTool: (call, signal) => authorizeTeammateTool(call, {
+        definitions: host.toolManager?.listDefinitions() ?? [],
+        clientContext: runtime.options.clientContext ?? (runtime.options.restricted ? 'restricted' : 'cli'),
+        authorization: toolAuthorization,
+        confirmApproval: createTeammateConfirmation(runtime, (message, context) => host.confirmDangerousAction(message, context)),
+      }, signal),
       onTeammateMessage: (from, msg) => {
         if (msg.method === 'team.log') {
           const { level, text } = msg.params as { level: string; text: string };
@@ -717,6 +754,11 @@ export function initializeAgentDependencies(
     const delegatorContext = runtime.options.clientContext
       ?? (runtime.options.restricted ? 'restricted' : 'cli');
     host.delegator = new AgentDelegator(llm, host.actionExecutor, {
+      workspaceRoot: runtime.workspaceRoot,
+      projectMemoryEnabled: !runtime.options.bare,
+      getWorkspaceRoot: () => runtime.workspaceRoot,
+      getUserRequest: () => host.currentInstructionText,
+      threadBudget: host.sessionThreadBudget,
       clientContext: delegatorContext,
       maxDepth: 3,
       featureConfig: runtime.config,
@@ -744,6 +786,15 @@ export function initializeAgentDependencies(
         return subagentProvider;
       },
       onSubagentStart: async (context) => {
+        host.agentRunStore.start({
+          id: context.subagentId, parentId: context.parentId, depth: context.depth,
+          source: 'delegate', name: context.subagentName, task: context.task,
+          workspaceRoot: context.workspaceRoot, userRequest: context.userRequest,
+          provider: context.provider, model: context.model,
+          agentType: context.subagentType,
+        });
+        if (context.cancel) host.agentRunStore.registerCancel(context.subagentId, context.cancel);
+        if (context.sendMessage) host.agentRunStore.registerMessage(context.subagentId, context.sendMessage);
         enableAutomaticCoordinationMode({
           isInteractive: !runtime.isCommandMode && !runtime.isRpcMode,
           getInteractionMode: () => host.getInteractionMode(),
@@ -760,8 +811,20 @@ export function initializeAgentDependencies(
             ? `${context.provider} · ${context.model}`
             : context.subagentType,
         });
+        await host.agentRunStore.waitForLifecycle(context.subagentId);
+      },
+      onSubagentProgress: async (context) => {
+        host.agentRunStore.progress(context.subagentId, {
+          status: 'running', activity: context.tool ?? 'Thinking', usage: context.usage,
+          ...(context.output === undefined ? {} : { output: context.output }),
+        });
+        await host.agentRunStore.waitForLifecycle(context.subagentId);
       },
       onSubagentStop: async (context) => {
+        host.agentRunStore.finish(context.subagentId, {
+          status: context.status ?? (context.success ? 'completed' : 'failed'),
+          result: context.result, error: context.error, usage: context.usage,
+        });
         host.inkRenderer?.upsertActivityItem?.({
           id: context.subagentId,
           kind: 'subagent',
@@ -771,14 +834,7 @@ export function initializeAgentDependencies(
             ? `${Math.max(0, Math.round(context.duration / 1000))}s`
             : context.error ?? 'failed',
         });
-        await host.hookManager.executeHooks('subagent-stop', {
-          subagentId: context.subagentId,
-          subagentName: context.subagentName,
-          subagentType: context.subagentType,
-          subagentSuccess: context.success,
-          subagentError: context.error,
-          subagentDuration: context.duration
-        });
+        await host.agentRunStore.waitForLifecycle(context.subagentId);
       }
     });
     host.specialistOrchestrator = new SpecialistOrchestrator(host.delegator, {
@@ -927,7 +983,7 @@ export function initializeAgentDependencies(
       },
       {
         name: 'delegate_parallel',
-        description: 'Run multiple sub-agents in parallel (max 5, swarm mode)',
+        description: 'Run independent sub-agents in parallel within the configured shared session thread limit.',
         parameters: {
           type: 'object',
           properties: {
@@ -1024,7 +1080,7 @@ export function initializeAgentDependencies(
         parameters: {
           type: 'object',
           properties: {
-            status: { type: 'string', description: 'Optional status filter', enum: ['pending', 'in_progress', 'completed'] },
+            status: { type: 'string', description: 'Optional status filter', enum: ['pending', 'in_progress', 'completed', 'failed', 'cancelled'] },
             owner: { type: 'string', description: 'Optional owner filter' }
           }
         },
@@ -1040,7 +1096,7 @@ export function initializeAgentDependencies(
             subject: { type: 'string', description: 'Updated task title' },
             description: { type: 'string', description: 'Updated task description' },
             blocked_by: { type: 'array', description: 'Updated dependency task IDs', items: { type: 'string' } },
-            status: { type: 'string', description: 'Updated task status', enum: ['pending', 'in_progress', 'completed'] }
+            status: { type: 'string', description: 'Updated task status', enum: ['pending', 'in_progress', 'completed', 'failed', 'cancelled'] }
           },
           required: ['task_id']
         },
@@ -1048,7 +1104,7 @@ export function initializeAgentDependencies(
       },
       {
         name: 'task_stop',
-        description: 'Stop an active team task and return it to pending.',
+        description: 'Cancel a team task and stop its executing teammate. Cancelled work is not retried automatically.',
         parameters: {
           type: 'object',
           properties: {
@@ -1160,11 +1216,11 @@ export function initializeAgentDependencies(
               }),
             }, context?.signal);
           } else if (action.type === 'delegate_task') {
-            outcome = await host.delegator.delegateTaskForTool(action.agent_name, action.task);
+            outcome = await host.delegator.delegateTaskForTool(action.agent_name, action.task, { signal: context?.signal });
           } else if (action.type === 'delegate_parallel') {
-            outcome = await host.delegator.delegateParallelForTool(action.tasks);
+            outcome = await host.delegator.delegateParallelForTool(action.tasks, { signal: context?.signal });
           } else if (action.type === 'orchestrate_specialists') {
-            result = await host.orchestrateSpecialistsFromTool(action.objective, action.requested_roles);
+            result = await host.orchestrateSpecialistsFromTool(action.objective, action.requested_roles, context?.signal);
           } else if (action.type === 'install_specialist_roster') {
             const installation = await host.specialistOrchestrator.installStagedCatalogSelections(
               action.plan_id,
@@ -1257,6 +1313,8 @@ export function initializeAgentDependencies(
                 host.teamManager.tasks.createTask({
                   subject: task.subject,
                   description: task.description,
+                  userRequest: host.currentInstructionText,
+                  workspaceRoot: runtime.workspaceRoot,
                   blockedBy: task.blockedBy,
                 });
               }
@@ -1296,6 +1354,8 @@ export function initializeAgentDependencies(
             const task = host.teamManager.tasks.createTask({
               subject: action.subject,
               description: action.description,
+              userRequest: host.currentInstructionText,
+              workspaceRoot: runtime.workspaceRoot,
               blockedBy: action.blocked_by,
             });
             // Auto-assign to idle teammates
@@ -1326,7 +1386,7 @@ export function initializeAgentDependencies(
               truncateDescriptions: taskToolTruncatesDescriptions(action.type),
             });
           } else if (action.type === 'task_update') {
-            const task = host.teamManager.tasks.updateTask(action.task_id, {
+            const task = host.teamManager.updateTask(action.task_id, {
               subject: action.subject,
               description: action.description,
               blockedBy: action.blocked_by,
@@ -1343,22 +1403,10 @@ export function initializeAgentDependencies(
               const error = `Task "${action.task_id}" not found.`;
               outcome = { success: false, kind: 'validation', error, output: error };
             } else {
-              const previousOwner = existingTask.owner;
-              const task = host.teamManager.tasks.stopTask(action.task_id);
-              if (previousOwner) {
-                try {
-                  host.teamManager.sendMessageTo(
-                    previousOwner,
-                    'lead',
-                    `Stop working on ${task.id} (${task.subject}) and return to idle.`,
-                  );
-                } catch {
-                  // Best-effort notification only; task state update is authoritative.
-                }
-              }
+              const task = host.teamManager.stopTask(action.task_id);
               result = buildTeamTaskPayload({
                 tasks: [task],
-                headline: `Task ${task.id} stopped and returned to pending.`,
+                headline: task.cancelRequested ? `Cancellation requested for task ${task.id}.` : `Task ${task.id} cancelled.`,
                 truncateDescriptions: taskToolTruncatesDescriptions(action.type),
               });
             }
@@ -1878,7 +1926,9 @@ export function initializeAgentDependencies(
       get provider() {
         return host.activeProvider;
       },
-      config: runtime.config,
+      get config() {
+        return runtime.config;
+      },
       getContextPercentLeft: () => host.contextPercentLeft,
       getTotalTokensUsed: () => {
         const currentTurnTokens = host.currentTurnActualUsage?.kind === 'actual'
@@ -1993,15 +2043,31 @@ export function initializeAgentDependencies(
       },
       // Team manager for /team, /tasks, /message commands
       teamManager: host.teamManager,
+      runCancellableOperation: <T>(operation: (signal: AbortSignal) => Promise<T>) => runCancellableAgentCommand({
+        get activeAbortController() { return host.activeAbortController; },
+        set activeAbortController(value) { host.activeAbortController = value; },
+        get currentInkAbortController() { return host.currentInkAbortController; },
+        set currentInkAbortController(value) { host.currentInkAbortController = value; },
+        get currentInkOnCancel() { return host.currentInkOnCancel; },
+        set currentInkOnCancel(value) { host.currentInkOnCancel = value; },
+        runtimeResourceShutdownController: host.runtimeResourceShutdownController,
+        inkRenderer: host.inkRenderer,
+        setupEscListener: (controller, onCancel, ctrlCInterrupt) => host.setupEscListener(controller, onCancel, ctrlCInterrupt),
+      }, operation),
       onToggleTeamView: (visible: boolean) => host.inkRenderer?.setTeamPanelVisible?.(visible),
+      onToggleAgentRunsView: (visible: boolean, source?: AgentRunSource) => {
+        host.inkRenderer?.setAgentRunsPanelVisible?.(visible, source);
+        if (visible && (source === undefined || source === 'squad')) squadRunMonitor.start();
+      },
       onToggleGoalView: (visible: boolean) => host.inkRenderer?.setGoalPanelVisible?.(visible),
       // Repeat manager for /repeat recurring prompt scheduling
       repeatManager: host.repeatManager,
       // Queue an instruction to be sent to the LLM silently (e.g. /review)
-      queueInstruction: (instruction: string, postTurnAction?: PendingPostTurnAction) => {
+      queueInstruction: (instruction: string, postTurnAction?: PendingPostTurnAction, policy?: QueuedInstructionPolicy) => {
         host.pendingInkInstructions.push(createQueuedAgentInstruction({
           text: instruction,
           echoInTranscript: false,
+          ...(policy ? { executionPolicy: { ...policy } } : {}),
           ...(postTurnAction ? { postTurnAction } : {}),
         }));
       },

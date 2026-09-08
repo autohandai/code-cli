@@ -5,6 +5,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import {
   authenticateXAIOAuth,
@@ -32,12 +35,18 @@ function makeJwt(expiresInSeconds = 3600): string {
 }
 
 describe('xaiAuth', () => {
-  beforeEach(() => {
+  let authDirectory: string;
+
+  beforeEach(async () => {
     vi.clearAllMocks();
+    authDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-xai-auth-'));
+    vi.stubEnv('AUTOHAND_HOME', authDirectory);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    await fs.rm(authDirectory, { recursive: true, force: true });
   });
 
   it('exposes the public Grok CLI OAuth client and endpoints', () => {
@@ -159,6 +168,8 @@ describe('xaiAuth', () => {
     expect(result.idToken).toBe('id-token-1');
     expect(result.expiresAt).toBeTruthy();
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(await fs.readFile(path.join(authDirectory, 'xai-oauth.json'), 'utf8')))
+      .toMatchObject({ accessToken, refreshToken: 'refresh-token-1' });
 
     const tokenBody = (fetchSpy.mock.calls[1]?.[1] as RequestInit).body as string;
     expect(tokenBody).toContain('grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code');
@@ -183,6 +194,8 @@ describe('xaiAuth', () => {
 
     expect(refreshed.accessToken).toBe(accessToken);
     expect(refreshed.refreshToken).toBe('rotated-refresh');
+    expect(JSON.parse(await fs.readFile(path.join(authDirectory, 'xai-oauth.json'), 'utf8')))
+      .toMatchObject({ accessToken, refreshToken: 'rotated-refresh' });
     expect(fetchSpy).toHaveBeenCalledWith(
       XAI_OAUTH_TOKEN_URL,
       expect.objectContaining({ method: 'POST' }),

@@ -33,6 +33,7 @@ import { isAutohandDebugEnabled, writeAutohandDebugLine } from '../utils/debugLo
 import type { UIManager } from '../ui/UIManager.js';
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
 import { ConversationManager } from './conversationManager.js';
+import { ToolImageStore } from './ToolImageStore.js';
 import { ContextOrchestrator } from './context/orchestrator.js';
 import {
   BROWSER_V2_TOOL_DEFINITIONS,
@@ -50,6 +51,7 @@ import type {
   AgentRuntime,
   AgentAction,
   LLMMessage,
+  MultimodalMessage,
   AgentStatusSnapshot,
   AgentOutputEvent,
   ToolCallRequest,
@@ -98,6 +100,8 @@ import {
 } from '../permissions/types.js';
 import { HookManager } from './HookManager.js';
 import { TeamManager } from './teams/TeamManager.js';
+import type { AgentRunStore } from './agents/AgentRunStore.js';
+import type { SessionThreadBudget } from './agents/SessionThreadBudget.js';
 import { RepeatManager } from './RepeatManager.js';
 import type { SessionWorktreeInfo } from '../utils/sessionWorktree.js';
 import { ActivityIndicator } from '../ui/activityIndicator.js';
@@ -409,6 +413,8 @@ export class AutohandAgent {
   private notificationService!: NotificationService;
   private versionCheckResult?: VersionCheckResult;
   private teamManager!: TeamManager;
+  private agentRunStore!: AgentRunStore;
+  private sessionThreadBudget!: SessionThreadBudget;
   private repeatManager!: RepeatManager;
   private shutdownPromise: Promise<void> | null = null;
   private teamShutdownPromise: Promise<void> | null = null;
@@ -481,6 +487,7 @@ export class AutohandAgent {
 
   // New feature modules
   private imageManager!: ImageManager;
+  private toolImages?: { workspaceRoot: string; store: ToolImageStore };
   private intentDetector!: IntentDetector;
   private environmentBootstrap!: EnvironmentBootstrap;
   private codeQualityPipeline!: CodeQualityPipeline;
@@ -1281,6 +1288,7 @@ export class AutohandAgent {
       ensureSpinnerRunning: () => agent.ensureSpinnerRunning(),
       forceRenderSpinner: () => agent.forceRenderSpinner(),
       getMessagesWithImages: () => agent.getMessagesWithImages(),
+      attachToolImages: (message, imagePaths, signal) => agent.getToolImageStore().attach(message, imagePaths, signal),
       getReactionParser: () => agent.getReactionParser(),
       handleSmartContextCrop: (call) => agent.handleSmartContextCrop(call),
       isContextOverflowError: (errorOrMessage) => agent.isContextOverflowError(errorOrMessage),
@@ -1354,7 +1362,7 @@ export class AutohandAgent {
 
     const request = detectSpecialistRequest(instruction);
     if (!request) {
-      const continuation = await this.specialistOrchestrator.continueInterview(instruction);
+      const continuation = await this.specialistOrchestrator.continueInterview(instruction, { signal: this.activeAbortController?.signal });
       return continuation ? formatSpecialistResults(continuation) : undefined;
     }
 
@@ -1364,14 +1372,21 @@ export class AutohandAgent {
   private async orchestrateSpecialistsFromTool(
     objective: string,
     requestedRoles: string[],
+    signal?: AbortSignal,
   ): Promise<string> {
     return this.runSpecialistOrchestration(
       createSpecialistRequest(objective, requestedRoles, 'tool'),
+      signal,
     );
   }
 
-  private async runSpecialistOrchestration(request: SpecialistRequest): Promise<string> {
+  private async runSpecialistOrchestration(
+    request: SpecialistRequest,
+    signal = this.activeAbortController?.signal,
+  ): Promise<string> {
+    signal?.throwIfAborted();
     const plan = await this.specialistOrchestrator.resolve(request);
+    signal?.throwIfAborted();
     console.log(`\n${formatSpecialistRoster(plan)}\n`);
     const stagedInstallation = this.specialistOrchestrator.stageCatalogInstallation(plan);
     if (stagedInstallation) {
@@ -1381,16 +1396,17 @@ export class AutohandAgent {
           plan_id: stagedInstallation.planId,
           agent_names: stagedInstallation.agentNames,
         },
-      }]);
-      if (!installation.success) {
+      }], undefined, { signal });
+      if (!installation?.success) {
         this.specialistOrchestrator.declineStagedCatalogInstallation(stagedInstallation.planId);
       }
+      signal?.throwIfAborted();
     }
     if (plan.selectedAgents.length === 0) {
       return formatSpecialistResults({ plan, batches: [], completed: false });
     }
 
-    const result = await this.specialistOrchestrator.execute(plan);
+    const result = await this.specialistOrchestrator.execute(plan, { signal });
     return formatSpecialistResults(result);
   }
 
@@ -2308,22 +2324,20 @@ export class AutohandAgent {
     return parseAgentSlashCommand(this, input);
   }
 
-  /**
-   * Get messages with images included for the LLM API call.
-   * Modifies the last user message to include any images from the session.
-   * Uses ImageManager.toOpenAIFormat() which applies size limits to prevent
-   * the 53MB+ payload overflow issue (Issue #81).
-   * The returned messages may have multimodal content (array of text/image parts)
-   * which is supported by OpenAI/OpenRouter APIs but not strictly typed.
-   * @returns Messages formatted for API with multimodal content
-   */
-  private async getMessagesWithImages(): Promise<LLMMessage[]> {
+  private getToolImageStore(): ToolImageStore {
+    const workspaceRoot = this.runtime.workspaceRoot;
+    if (this.toolImages?.workspaceRoot !== workspaceRoot) {
+      this.toolImages = { workspaceRoot, store: new ToolImageStore(workspaceRoot) };
+    }
+    return this.toolImages.store;
+  }
+
+  private async getMessagesWithImages(): Promise<MultimodalMessage[]> {
     const messages = this.conversation.history();
     const images = this.imageManager.getAll();
 
-    // If no images, return messages as-is
     if (images.length === 0) {
-      return messages;
+      return this.getToolImageStore().prepare(messages);
     }
 
     // Find the last user message to attach images to
@@ -2338,27 +2352,17 @@ export class AutohandAgent {
     // Use ImageManager's size-limited format (prevents 53MB+ payloads)
     const imageContents = await this.imageManager.toOpenAIFormat();
 
-    // Clone messages and modify the last user message to include images
-    const result: LLMMessage[] = messages.map((msg, i) => {
+    const result: MultimodalMessage[] = messages.map((msg, i) => {
       if (i === lastUserMessageIndex && imageContents.length > 0) {
-        // Create multimodal content array
-        // Note: content will be an array, which the API accepts but our type says string
-        // This is intentional for multimodal support
-        const contentParts = [
-          { type: 'text', text: msg.content },
-          ...imageContents,
-        ];
-
         return {
           ...msg,
-          // Cast to string to satisfy type, API actually accepts array
-          content: contentParts as unknown as string
+          content: [{ type: 'text', text: msg.content }, ...imageContents],
         };
       }
-      return { ...msg };
+      return msg;
     });
 
-    return result;
+    return this.getToolImageStore().prepare(result);
   }
 
 

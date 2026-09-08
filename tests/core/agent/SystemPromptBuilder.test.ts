@@ -5,6 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { SystemPromptBuilder } from '../../../src/core/agent/SystemPromptBuilder.js';
+import { DEFAULT_TOOL_DEFINITIONS } from '../../../src/core/toolManager.js';
 
 describe('SystemPromptBuilder', () => {
   function createBuilder(overrides: Partial<ConstructorParameters<typeof SystemPromptBuilder>[0]> = {}) {
@@ -68,6 +69,24 @@ describe('SystemPromptBuilder', () => {
     await builder.build();
 
     expect(events.slice(0, 2)).toEqual(['extensions', 'tools']);
+  });
+
+  it.each([true, false])('makes lifecycle specialists and approved discovery usable with native tools=%s', async (supportsNativeToolCalling) => {
+    const names = new Set(['delegate_task', 'delegate_parallel', 'find_sub_agents', 'install_sub_agent']);
+    const prompt = await createBuilder({
+      supportsNativeToolCalling,
+      getToolDefinitions: () => DEFAULT_TOOL_DEFINITIONS.filter((definition) => names.has(definition.name)),
+    }).build();
+
+    expect(prompt).toContain('software-architect');
+    expect(prompt).toContain('requirements-translator');
+    expect(prompt).toContain('delegate_task');
+    expect(prompt).toContain('exact installed agent name');
+    expect(prompt).toContain('bounded objective and owned scope');
+    expect(prompt).toContain('find_sub_agents');
+    expect(prompt).toContain('explicit approval');
+    expect(prompt).toContain('use the installed agent immediately');
+    expect(prompt).not.toContain('These agents can be spawned as teammates using create_team + add_teammate');
   });
 
   it('keeps the JSON toolCalls protocol for providers without native tool calling', async () => {

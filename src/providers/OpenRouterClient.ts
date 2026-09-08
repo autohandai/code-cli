@@ -10,7 +10,7 @@ import type {
   OpenRouterSettings,
   NetworkSettings,
   FunctionDefinition,
-  LLMMessage,
+  MultimodalMessage,
 } from "../types.js";
 import { ApiError, classifyApiError, type ApiErrorCode } from "./errors.js";
 import { modelSupportsImages } from "./modelCapabilities.js";
@@ -32,7 +32,7 @@ import { normalizeLLMUsage } from "./usage.js";
  * - name (for function messages, optional)
  * Excludes internal fields like priority, metadata.
  */
-function messageContainsImageContent(messages: LLMMessage[]): boolean {
+function messageContainsImageContent(messages: MultimodalMessage[]): boolean {
   return messages.some((msg) =>
     Array.isArray(msg.content) &&
     msg.content.some(
@@ -65,7 +65,7 @@ function getTextContent(content: unknown): string {
 }
 
 function sanitizeMessages(
-  messages: LLMMessage[],
+  messages: MultimodalMessage[],
   allowImageInputs: boolean
 ): Record<string, unknown>[] {
   return normalizeOutboundMessages(messages, {

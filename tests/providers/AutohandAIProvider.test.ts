@@ -5,6 +5,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ContentPart } from "../../src/types.js";
 import {
   AUTOHAND_AI_CLOUD_MODELS,
   AUTOHAND_AI_DEFAULT_BASE_URL,
@@ -173,13 +174,13 @@ describe("AutohandAIProvider", () => {
       apiKey: "test-autohand-key",
       model: "moa",
     });
-    const parts = [
+    const parts: ContentPart[] = [
       { type: "text", text: "What is wrong in this screenshot?" },
       { type: "image_url", image_url: { url: "data:image/png;base64,AA==" } },
     ];
 
     await provider.complete({
-      messages: [{ role: "user", content: parts }] as unknown as Parameters<typeof provider.complete>[0]["messages"],
+      messages: [{ role: "user", content: parts }],
     });
 
     const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {

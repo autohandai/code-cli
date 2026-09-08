@@ -10,7 +10,7 @@ import type {
   AzureAuthMethod,
   NetworkSettings,
   FunctionDefinition,
-  LLMMessage,
+  MultimodalMessage,
 } from "../types.js";
 import { AzureTokenManager } from "./azure/tokenManager.js";
 import { normalizeLLMUsage } from "./usage.js";
@@ -41,7 +41,7 @@ export interface AzureClientOptions {
  * - name (for function messages, optional)
  * Excludes internal fields like priority, metadata.
  */
-function sanitizeMessages(messages: LLMMessage[]): Record<string, unknown>[] {
+function sanitizeMessages(messages: MultimodalMessage[]): Record<string, unknown>[] {
   return messages.map((msg) => {
     const sanitized: Record<string, unknown> = {
       role: msg.role,

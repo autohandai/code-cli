@@ -29,6 +29,7 @@ describe('interactive review execution', () => {
       'review instruction',
       {
         echoInTranscript: false,
+        executionPolicy: { environmentBootstrap: 'skip', intent: 'diagnostic' },
         postTurnAction: {
           kind: 'review-lifecycle',
           surface: 'interactive',
@@ -51,6 +52,8 @@ describe('interactive review execution', () => {
     ]);
     expect(runInstruction).toHaveBeenCalledWith('review instruction', {
       echoInTranscript: false,
+      environmentBootstrap: 'skip',
+      intent: 'diagnostic',
     });
     expect(executeHooks).toHaveBeenCalledWith('review:start', expect.objectContaining({
       sessionId: 'interactive-session',
@@ -65,12 +68,29 @@ describe('interactive review execution', () => {
     await executeAgentInstructionTurn(
       { runInstruction },
       'ordinary instruction',
-      { echoInTranscript: false, mobileTurn } as never,
+      {
+        echoInTranscript: false,
+        mobileTurn,
+        executionPolicy: { environmentBootstrap: 'skip' },
+      } as never,
     );
 
     expect(runInstruction).toHaveBeenCalledWith('ordinary instruction', {
       mobileTurn,
       echoInTranscript: false,
+      environmentBootstrap: 'skip',
+    });
+  });
+
+  it('preserves a queued execution policy without mobile or transcript options', async () => {
+    const runInstruction = vi.fn().mockResolvedValue(true);
+
+    await executeAgentInstructionTurn({ runInstruction }, 'queued instruction', {
+      executionPolicy: { environmentBootstrap: 'skip' },
+    });
+
+    expect(runInstruction).toHaveBeenCalledWith('queued instruction', {
+      environmentBootstrap: 'skip',
     });
   });
 });

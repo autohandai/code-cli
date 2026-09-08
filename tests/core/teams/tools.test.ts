@@ -16,12 +16,15 @@ vi.mock('../../../src/core/teams/TeammateProcess.js', () => {
         this.status = 'spawning' as string;
         this.pid = 0;
         this.setStatus = vi.fn((s: string) => { this.status = s; });
-        this.spawn = vi.fn();
+        this.spawn = vi.fn((_onMessage: unknown, onExit: (code: number) => void) => {
+          this.onExit = onExit;
+        });
         this.send = vi.fn();
         this.assignTask = vi.fn();
         this.sendMessage = vi.fn();
+        this.cancelTask = vi.fn();
         this.requestShutdown = vi.fn();
-        this.kill = vi.fn();
+        this.kill = vi.fn(() => this.onExit?.(0));
       }
       toMember() {
         return {
@@ -182,15 +185,15 @@ describe('Team tool execution paths', () => {
       expect(updated.completedAt).toBeDefined();
     });
 
-    it('stops an assigned task and returns it to pending', () => {
+    it('cancels an assigned task without silently retrying it', () => {
       manager.createTeam('test');
       const task = manager.tasks.createTask({ subject: 'Long run', description: '' });
       manager.tasks.assignTask(task.id, 'worker');
 
-      const stopped = manager.tasks.stopTask(task.id);
+      const stopped = manager.stopTask(task.id);
 
-      expect(stopped.status).toBe('pending');
-      expect(stopped.owner).toBeUndefined();
+      expect(stopped.status).toBe('cancelled');
+      expect(stopped.owner).toBe('worker');
     });
 
     it('stores task output for later inspection', () => {

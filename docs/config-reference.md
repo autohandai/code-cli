@@ -1545,6 +1545,60 @@ Detected patterns include:
 
 ---
 
+## Multi-agent Session Limits
+
+`features.multi_agent_v2.max_concurrent_threads_per_session` sets the total number of simultaneous threads in a session, including the main agent. The default is `9`: one main agent plus up to eight subagents. Choose an integer from `1` to `64`. Setting `1` keeps the main agent available and disables delegation.
+
+Open `/settings` → **Teams** → **Session thread limit (main agent included)**, or set it directly:
+
+```text
+/settings features.multi_agent_v2.max_concurrent_threads_per_session 4
+/settings max_agents 4
+```
+
+The non-interactive equivalent is `autohand config set features.multi_agent_v2.max_concurrent_threads_per_session 4`. Settings are persisted in the existing configuration format:
+
+```json
+{
+  "features": {
+    "multi_agent_v2": {
+      "max_concurrent_threads_per_session": 4
+    }
+  }
+}
+```
+
+```yaml
+features:
+  multi_agent_v2:
+    max_concurrent_threads_per_session: 4
+```
+
+```toml
+[features.multi_agent_v2]
+max_concurrent_threads_per_session = 4
+```
+
+`teams.maxTeammates` remains a separate, narrower teammate limit. Raising it does not bypass the session-wide thread budget. Lower limits can reduce simultaneous provider usage, but this setting is not a token or spending cap.
+
+Teammate tools are authorized by the lead session's current tool capabilities, permission rules, and hooks. Headless teammates never silently approve an unresolved interactive request: authorize a specific rule in the lead session or perform that operation in the lead. Existing explicit automatic-approval settings remain subject to policy and hook denials. Missing authorization, a disconnected lead, or a stale task attempt fails closed.
+
+Background processes belong to the teammate task that started them. Failed or cancelled attempts stop their owned processes before reassignment; successful background servers may remain available until teammate shutdown. Shutdown stops all remaining teammate-owned processes without stopping unrelated processes.
+
+Selecting maximum reasoning shows a usage warning when the configured limit is eight or more. At the default, it identifies nine concurrent threads including up to eight subagents and recommends setting `features.multi_agent_v2.max_concurrent_threads_per_session` below eight. Reducing the limit blocks new children once capacity is exhausted; it does not interrupt existing work.
+
+Use `/agents view` to inspect direct and team runs, their live activity, parentage, model/provider, usage, output, and errors. The list updates as workers wait for model responses, read files, search, or run commands. Worker summaries no longer appear on the main screen; `ui.taskListPosition` continues to control ordinary task lists.
+
+Arrow keys select a run, Enter opens details, `m` opens its message editor, and `c` requests cancellation with confirmation. Enter queues a message for that exact worker's next model step; it does not mean the worker has already read it. Escape closes the message editor or returns from details/confirmation to the list; unsent drafts are discarded, but submitted messages are not recalled. Escape from the list restores the main composer and its draft. Finished, stopping, and unavailable workers cannot receive new messages. `/squad view` displays the native daemon's recorded runs for this workspace; these are independent, read-only sessions with their own budgets, not children charged against this CLI session's limit.
+
+Run details distinguish the execution workspace, original user request (when available), and delegated task. New workers use the currently selected workspace, including worktrees; nested workers and queued team tasks retain the initiating request and its constraints. Queued team tasks are bound to the workspace where they were created and remain pending when no matching worker is available; `task_get` includes that workspace. Finish or stop existing workers before switching workspaces. New workers cannot start while a workspace switch is in progress. `/agents definitions` uses the active session configuration, and `/squad view` follows the selected workspace.
+
+Workers receive a bounded set of saved project lessons from `<selected workspace>/.autohand/memory`. Lessons are reference data to verify against the current task, not instructions that override it. An authorized worker with `save_memory` can save a concise, evidence-backed lesson with `level="project"`; read-only workers and workers without that tool report lesson candidates to the lead. Worker tool allowlists are not expanded, and raw responses, logs, credentials, and speculative conclusions are not automatically stored. Bare mode disables project-memory bootstrap; `agent.autoMemory=false` does not authorize automatic lesson saving.
+
+For the evidence-driven review, cleanup, and testing commands, see [Lifecycle workflows](guides/lifecycle-workflows.md).
+
+---
+
 ## API Settings
 
 Backend API configuration for team features.
@@ -2545,7 +2599,9 @@ The picker loads twenty sessions per page and provides **More sessions** and **P
 
 | Command       | Description                                           |
 | ------------- | ----------------------------------------------------- |
-| `/agents`     | List available sub-agents                             |
+| `/agents`     | Watch active Autohand sessions                         |
+| `/agents definitions` | List installed sub-agent definitions          |
+| `/agents view` | Inspect direct and team runs                          |
 | `/agents provider [agent]` | Choose and confirm the provider/model default for new teammates, or an override for one sub-agent definition |
 | `/agents-new` | Create a new agent via wizard                         |
 | `/squad`      | Open/manage the standalone Autohand Squad runtime     |

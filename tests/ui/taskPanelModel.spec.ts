@@ -56,6 +56,10 @@ describe('normalizeTaskPanelRow', () => {
     expect(normalizeTaskPanelRow({ subject: 'A' })?.status).toBe('pending');
   });
 
+  it.each(['failed', 'cancelled'] as const)('preserves the terminal %s status', (status) => {
+    expect(normalizeTaskPanelRow({ subject: 'Stopped work', status })?.status).toBe(status);
+  });
+
   it('treats a non-array blockedBy as empty', () => {
     expect(normalizeTaskPanelRow({ subject: 'A', blockedBy: 'task-1' })?.blockedBy).toEqual([]);
   });
@@ -166,6 +170,19 @@ describe('buildTaskPanelModel', () => {
     expect(model.failed).toBe(1);
     expect(model.groups.map((group) => group.status)).toEqual(['failed', 'completed']);
   });
+
+  it('keeps cancelled tasks visible without counting them as pending or completed', () => {
+    const model = buildTaskPanelModel([
+      row({ title: 'Stopped', status: 'cancelled' }),
+      row({ title: 'Failed', status: 'failed' }),
+      row({ title: 'Done', status: 'completed' }),
+    ]);
+
+    expect(model).toMatchObject({ total: 3, done: 1, failed: 1, cancelled: 1, percent: 33 });
+    expect(model.groups.map((group) => group.status)).toEqual(['failed', 'cancelled', 'completed']);
+    expect(buildTaskPanelModel([row({ title: 'Stopped', status: 'cancelled' })], { maxRows: 0 }).hiddenLabel)
+      .toBe('+1 cancelled');
+  });
 });
 
 describe('taskStatusGlyph', () => {
@@ -174,5 +191,6 @@ describe('taskStatusGlyph', () => {
     expect(taskStatusGlyph('in_progress')).toBe('▣');
     expect(taskStatusGlyph('pending')).toBe('□');
     expect(taskStatusGlyph('failed')).toBe('✕');
+    expect(taskStatusGlyph('cancelled')).toBe('⊘');
   });
 });

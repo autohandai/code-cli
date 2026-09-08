@@ -12,7 +12,7 @@
  * on the way out rather than depended upon upstream.
  */
 
-import type { LLMMessage } from "../types.js";
+import type { MultimodalMessage } from "../types.js";
 
 export const EMPTY_TOOL_RESULT_PLACEHOLDER = "(no output)";
 export const UNANSWERED_TOOL_CALL_PLACEHOLDER =
@@ -58,14 +58,14 @@ export interface NormalizeOutboundMessagesOptions {
    * parts to text when the target model has no image input. Defaults to
    * passing content through unchanged.
    */
-  transformContent?: (content: LLMMessage["content"]) => unknown;
+  transformContent?: (content: MultimodalMessage["content"]) => unknown;
   /**
    * How to handle a tool result whose tool call is no longer in history.
    * `drop` (default) removes it; `recover` re-homes it so its content survives.
    */
   orphanedToolResults?: "drop" | "recover";
   /** Builds the replacement message when `orphanedToolResults` is `recover`. */
-  recoverOrphanedToolResult?: (message: LLMMessage) => Record<string, unknown>;
+  recoverOrphanedToolResult?: (message: MultimodalMessage) => Record<string, unknown>;
 }
 
 export function isBlankContent(content: unknown): boolean {
@@ -79,8 +79,8 @@ export function isBlankContent(content: unknown): boolean {
 }
 
 function toOutboundMessage(
-  message: LLMMessage,
-  transformContent: (content: LLMMessage["content"]) => unknown,
+  message: MultimodalMessage,
+  transformContent: (content: MultimodalMessage["content"]) => unknown,
 ): Record<string, unknown> {
   const outbound: Record<string, unknown> = {
     role: message.role,
@@ -123,7 +123,7 @@ function toOutboundMessage(
  * - the conversation never opens on an assistant turn
  */
 export function normalizeOutboundMessages(
-  messages: LLMMessage[],
+  messages: MultimodalMessage[],
   options: NormalizeOutboundMessagesOptions = {},
 ): Record<string, unknown>[] {
   const transformContent = options.transformContent ?? ((content) => content);

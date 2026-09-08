@@ -8,6 +8,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { AgentRegistry } from '../../../src/core/agents/AgentRegistry.js';
+import { DEFAULT_TOOL_DEFINITIONS } from '../../../src/core/toolManager.js';
 
 describe('AgentRegistry built-in agents', () => {
   const tempRoots: string[] = [];
@@ -103,6 +104,54 @@ describe('AgentRegistry built-in agents', () => {
     expect(researcher!.tools).toContain('fff_grep');
     expect(researcher!.tools).toContain('fff_find');
     expect(researcher!.source).toBe('builtin');
+  });
+
+  it('ships an offline delivery lifecycle with evidence-based specialist handoffs', async () => {
+    const registry = await loadIsolatedRegistry();
+    for (const name of ['requirements-translator', 'software-architect', 'implementer']) {
+      expect(registry.getAgent(name)?.source).toBe('builtin');
+    }
+    for (const definition of registry.getAgentsBySource('builtin')) {
+      expect(definition.systemPrompt).toContain('## Evidence and handoff');
+      expect(definition.systemPrompt).toContain('Never invent a test result');
+      expect(definition.systemPrompt).toContain('owned scope');
+      expect(definition.model).toBeUndefined();
+    }
+    expect(registry.getAgent('software-architect')?.systemPrompt).toContain('plain language');
+    expect(registry.getAgent('software-architect')?.systemPrompt).toContain('CTO');
+    expect(registry.getAgent('tester')?.systemPrompt).toContain('Playwright');
+    expect(registry.getAgent('tester')?.systemPrompt).toContain('WebP');
+    expect(registry.getAgent('tester')?.tools).toContain('capture_test_evidence');
+  });
+
+  it('gives review and cleanup specialists distinct bounded verification contracts', async () => {
+    const registry = await loadIsolatedRegistry();
+    expect(registry.getAgent('reviewer')?.systemPrompt).toContain('confidence');
+    expect(registry.getAgent('reviewer')?.systemPrompt).toContain('Do not post');
+    expect(registry.getAgent('reviewer')?.tools).not.toContain('apply_patch');
+    expect(registry.getAgent('security-auditor')?.tools).not.toContain('run_command');
+    expect(registry.getAgent('code-cleaner')?.systemPrompt).toContain('behavior-preserving');
+    expect(registry.getAgent('code-cleaner')?.tools).toContain('run_command');
+    expect(registry.getAgent('product-interviewer')?.systemPrompt).toContain('complete: false');
+    expect(registry.getAgent('product-interviewer')?.systemPrompt).toContain('complete: true');
+  });
+
+  it('declares only real executable runtime tools in bundled allowlists', async () => {
+    const registry = await loadIsolatedRegistry();
+    const supportedNames = new Set<string>(DEFAULT_TOOL_DEFINITIONS.map((definition) => definition.name));
+    const unsupported = registry.getAgentsBySource('builtin').flatMap((agent) => (
+      agent.tools.filter((name) => !supportedNames.has(name)).map((name) => `${agent.name}: ${name}`)
+    ));
+    expect(unsupported).toEqual([]);
+  });
+
+  it('keeps discovery, diagnosis, documentation, and backlog work grounded in delivery evidence', async () => {
+    const registry = await loadIsolatedRegistry();
+    expect(registry.getAgent('researcher')?.systemPrompt).toContain('entrypoint');
+    expect(registry.getAgent('debugger')?.systemPrompt).toContain('discriminating');
+    expect(registry.getAgent('docs-writer')?.systemPrompt).toContain('executable examples');
+    expect(registry.getAgent('todo-resolver')?.systemPrompt).toContain('not authorization');
+    expect(registry.getAgent('product-interviewer')?.systemPrompt).toContain('non-goals');
   });
 
   it('should not overwrite user agents with built-ins', async () => {

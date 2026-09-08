@@ -24,12 +24,17 @@ Each command is a separate TypeScript file that exports:
 | `/memory` | `memory.ts` | List memory or inspect, zoom, forget derived summaries, rebuild projections, and delete entries |
 | `/feedback` | `feedback.ts` | Submit feedback |
 | `/agents` | `agents.ts` | Show active Autohand CLI instances |
+| `/agents view` | `agents.ts` | Inspect live worker activity, results, and usage; message or cancel a selected run |
 | `/agents definitions` | `agents.ts` | List configured sub-agents |
+| `/pr-review` | `pr-review.ts` | Review the current diff, staged changes, or an explicit pull request without publishing a review |
+| `/deslop` | `deslop.ts` | Simplify scoped changes with behavior-preserving tests |
+| `/tester` | `tester.ts` | Verify acceptance criteria, run declared project tests, and capture browser evidence |
 | `/tools` | `tools.ts` | Manage persisted meta-tools |
 | `/experiments` | `features.ts` | List and toggle experiments |
 | `/goal` | `goal.ts` | Manage session-attached persistent goals, budgets, templates, and queued work; bare `/goal` recovers a stranded queue only when no live peer owns it. Requires `slash_goal`. |
 | `/goals` | `goal.ts` | Open the live goal queue with keyboard and mouse editing. Accepts `/goal` subcommands and returns the queue as text without an interactive panel. Shares `slash_goal`; `/experiments enable slash_goals` enables the same local experiment. |
 | `/squad` | `squad.ts` | Open/manage the standalone Autohand Squad runtime. |
+| `/squad view` | `squad.ts` | Inspect recorded independent Squad sessions for the current workspace |
 | `/usage` | `usage.ts` | Show Autohand plan limits and project token activity |
 | `/statusline` | `statusline.ts` | Configure composer status-line fields |
 | `/whatsnew` | `whatsnew.ts` | View and dismiss active CLI announcements |

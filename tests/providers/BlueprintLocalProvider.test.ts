@@ -229,6 +229,18 @@ describe('BlueprintLocalProvider', () => {
     );
   });
 
+  it('rejects image-bearing requests before entering the text-only Blueprint engine', async () => {
+    const { settings } = await modelFixture();
+    const createEngine = vi.fn();
+    const provider = new BlueprintLocalProvider(settings, createEngine, vi.fn(async () => nativeIdentity()));
+    const request = answerRequest();
+    request.messages[1].content = [{ type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } }];
+    await expect(provider.complete(request)).rejects.toMatchObject({
+      kind: 'inference_failed', message: expect.stringContaining('strict, tool-free answer request'),
+    });
+    expect(createEngine).not.toHaveBeenCalled();
+  });
+
   it('keeps blueprint-local out of the normal provider factory', async () => {
     const { settings } = await modelFixture();
     const config = {

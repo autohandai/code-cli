@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import type { Session } from 'tuistory';
+import { inspectTerminalTeamOutcomes } from '../../src/testing/scenarios/teamTerminalStatusScenario.js';
 import {
   createTempAutohandHome,
   exitInteractive,
@@ -18,7 +19,7 @@ const sessions: Session[] = [];
 const tempStates: TuistoryTempState[] = [];
 const servers: Server[] = [];
 
-async function createTeamSequenceServer(): Promise<string> {
+async function createTeamSequenceServer(failTeammate = false): Promise<string> {
   let leadTurn = 0;
   const server = createServer((request, response) => {
     const chunks: Buffer[] = [];
@@ -35,7 +36,7 @@ async function createTeamSequenceServer(): Promise<string> {
       };
       const isSecurityTeammate = payload.messages?.some(
         (message) => message.role === 'system'
-          && message.content?.includes('You are a security auditor.'),
+          && /You are a (?:read-only )?security auditor\./.test(message.content ?? ''),
       ) ?? false;
 
       let content: string;
@@ -72,6 +73,25 @@ async function createTeamSequenceServer(): Promise<string> {
               },
             }],
           },
+          ...(failTeammate ? [
+            {
+              reflection: 'The authentication task is running.',
+              thought: 'Create dependent work to cancel.',
+              toolCalls: [{
+                tool: 'create_task',
+                args: {
+                  subject: 'Cancelled documentation review',
+                  description: 'This dependent task will be cancelled.',
+                  blocked_by: ['task-1'],
+                },
+              }],
+            },
+            {
+              reflection: 'The dependent task exists.',
+              thought: 'Cancel the dependent task.',
+              toolCalls: [{ tool: 'task_stop', args: { task_id: 'task-2' } }],
+            },
+          ] : []),
           { finalResponse: 'TEAM_BACKGROUND_WORK_STARTED', toolCalls: [] },
         ];
         content = JSON.stringify(
@@ -80,6 +100,11 @@ async function createTeamSequenceServer(): Promise<string> {
       }
 
       setTimeout(() => {
+        if (failTeammate && isSecurityTeammate) {
+          response.writeHead(400, { 'content-type': 'application/json' });
+          response.end(JSON.stringify({ error: { message: 'SECURITY_TASK_FAILED', type: 'invalid_request_error' } }));
+          return;
+        }
         response.writeHead(200, { 'content-type': 'application/json' });
         response.end(JSON.stringify({
           id: `chatcmpl-team-${leadTurn}`,
@@ -173,6 +198,41 @@ describe('interactive team activity', () => {
       waitFor: (text) => text.includes('Tasks [1/1 done]'),
     });
     expect(completedScreen).toContain('Review authentication');
+
+    await exitInteractive(session);
+  }, 90_000);
+
+  it('preserves failed and cancelled tasks in the team view, /tasks, and final summary', async () => {
+    const baseUrl = await createTeamSequenceServer(true);
+    const state = await createTempAutohandHome({
+      config: {
+        openrouter: { baseUrl, model: 'openai/gpt-4o-mini' },
+        agent: { maxIterations: 8, sessionRetryLimit: 0 },
+        ui: { promptSuggestions: false },
+        features: { automaticSpecialists: false },
+      },
+    });
+    tempStates.push(state);
+    const session = await launchBuiltAutohand([
+      '--path', state.workspaceRoot,
+      '--config', state.configPath,
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      rows: 40,
+      waitForDataTimeout: 15_000,
+    });
+    sessions.push(session);
+
+    const screens = await inspectTerminalTeamOutcomes(session);
+
+    expect(screens.team).toContain('Review authentication [failed]');
+    expect(screens.team).toContain('Cancelled documentation review [cancelled]');
+    expect(screens.tasks).toContain('failed · 1');
+    expect(screens.tasks).toContain('cancelled · 1');
+    expect(screens.tasks).toContain('0/2 done');
+    expect(session.readAll()).toContain('Team "team-e2e" finished: 0/2 completed, 1 failed, 1 cancelled.');
+    expect(session.readAll()).not.toContain('completed 2/2 tasks');
 
     await exitInteractive(session);
   }, 90_000);

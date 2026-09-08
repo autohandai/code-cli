@@ -216,7 +216,7 @@ export class ToolReflectionGuard {
 }
 
 export function inspectExpectedNativeToolResults(
-  messages: LLMMessage[],
+  messages: ReadonlyArray<Pick<LLMMessage, 'role' | 'tool_calls' | 'tool_call_id'>>,
   expectedToolCallIds: string[],
 ): NativeToolResultIntegrity {
   const assistantCalls = new Map<string, AgentAction['type']>();

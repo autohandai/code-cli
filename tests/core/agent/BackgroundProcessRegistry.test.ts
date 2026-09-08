@@ -89,4 +89,29 @@ describe('BackgroundProcessRegistry', () => {
 
     expect(killProcessGroupSpy).not.toHaveBeenCalled();
   });
+
+  it('stops a late registration after shutdown has begun', async () => {
+    const killProcessGroupSpy = vi.spyOn(commandActions, 'killProcessGroup').mockResolvedValue(undefined);
+    const registry = new BackgroundProcessRegistry();
+
+    await registry.shutdown(250);
+    registry.register(4242, 'late child');
+
+    await vi.waitFor(() => expect(registry.list()).toEqual([]));
+    expect(killProcessGroupSpy).toHaveBeenCalledWith(4242, 250);
+  });
+
+  it('coalesces overlapping stop and shutdown requests for the same owned process', async () => {
+    let finish!: () => void;
+    const kill = vi.spyOn(commandActions, 'killProcessGroup').mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    const registry = new BackgroundProcessRegistry();
+    const id = registry.register(4242, 'in-flight command');
+    const stopping = registry.stop(id, 250);
+    const shutdown = registry.shutdown(250);
+
+    expect(kill).toHaveBeenCalledOnce();
+    finish();
+    await Promise.all([stopping, shutdown]);
+    expect(registry.list()).toEqual([]);
+  });
 });

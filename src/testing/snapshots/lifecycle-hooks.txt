@@ -10,13 +10,13 @@
    6.  post-tool                 0          0       After a tool completes
    7.  file-modified             0          0       When files are changed
    8.  stop                      0          0       When a turn completes
-   9.  subagent-stop             0          0       When a subagent finishes
-   10. permission-request        0          0       When permission is requested
-   11. notification              0          0       When notifications are shown
-   12. session-error             0          0       When an error occurs
-   13. rate-limit                0          0       When a provider rate limit ends the turn (no
-   14. automode:start            0          0       When auto-mode loop starts
-   15. automode:iteration        0          0       Each auto-mode iteration
-   ↓ 38 more below
+   9.  subagent-start            0          0       When a subagent starts; can queue context or
+   10. subagent-progress         0          0       When a subagent changes activity; can queue c
+   11. subagent-message          0          0       When a message is queued for a subagent
+   12. subagent-cancel-requested 0          0       When cancellation is requested for a subagent
+   13. subagent-stop             0          0       When a subagent finishes
+   14. permission-request        0          0       When permission is requested
+   15. notification              0          0       When notifications are shown
+   ↓ 42 more below
 
  ↑/↓ navigate · Enter describe a hook · Esc close · /hooks manage for existing hooks

@@ -327,7 +327,11 @@ export function createCodingAgentSettingsSnapshot(config: LoadedConfig, deviceId
 function acceptsProfileValue(setting: SettingDef, value: unknown): value is string | number | boolean {
   if (setting.type === 'password') return false;
   if (setting.type === 'boolean') return typeof value === 'boolean';
-  if (setting.type === 'number') return typeof value === 'number' && Number.isFinite(value);
+  if (setting.type === 'number') {
+    return typeof value === 'number'
+      && Number.isFinite(value)
+      && (!setting.validate || setting.validate(String(value)) === true);
+  }
   if (setting.type === 'enum') return typeof value === 'string' && Boolean(setting.enumValues?.includes(value));
   return typeof value === 'string';
 }

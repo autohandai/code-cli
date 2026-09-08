@@ -35,11 +35,14 @@ export function formatBackgroundProcessEntry(entry: BackgroundProcessEntry): str
 export class BackgroundProcessRegistry {
   private nextId = 1;
   private readonly entries = new Map<number, BackgroundProcessEntry>();
+  private readonly stopping = new Map<number, Promise<StopResult>>();
+  private shutdownOptions?: { gracePeriodMs?: number };
 
   register(pid: number, command: string, directory?: string): number {
     const id = this.nextId;
     this.nextId += 1;
     this.entries.set(id, { id, pid, command, directory, startedAt: Date.now() });
+    if (this.shutdownOptions) void this.stop(id, this.shutdownOptions.gracePeriodMs);
     return id;
   }
 
@@ -61,18 +64,28 @@ export class BackgroundProcessRegistry {
   // could be signaled. Same limitation every pid-based process manager has; not
   // portably fixable, and accepted here.
   async stop(id: number, gracePeriodMs?: number): Promise<StopResult> {
+    const pending = this.stopping.get(id);
+    if (pending) return pending;
     const entry = this.entries.get(id);
     if (!entry) {
       return { ok: false, message: `No background process with index ${id}.` };
     }
 
-    await killProcessGroup(entry.pid, gracePeriodMs);
-    this.entries.delete(id);
-    return { ok: true, message: `Stopped "${entry.command}" (pid ${entry.pid}).` };
+    const stopping = killProcessGroup(entry.pid, gracePeriodMs).then(() => {
+      this.entries.delete(id);
+      return { ok: true, message: `Stopped "${entry.command}" (pid ${entry.pid}).` };
+    }).finally(() => { this.stopping.delete(id); });
+    this.stopping.set(id, stopping);
+    return stopping;
   }
 
   async killAll(gracePeriodMs?: number): Promise<void> {
     const ids = [...this.entries.keys()];
     await Promise.all(ids.map((id) => this.stop(id, gracePeriodMs)));
+  }
+
+  async shutdown(gracePeriodMs?: number): Promise<void> {
+    this.shutdownOptions = { gracePeriodMs };
+    await this.killAll(gracePeriodMs);
   }
 }

@@ -5,13 +5,15 @@
  */
 
 import chalk from 'chalk';
+import { randomUUID } from 'node:crypto';
 import { AgentRegistry, type AgentDefinition } from './AgentRegistry.js';
-import { SubAgent, type SubAgentOptions } from './SubAgent.js';
+import { SubAgent, type SubAgentOptions, type SubAgentProgress } from './SubAgent.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
 import { ActionExecutor } from '../actionExecutor.js';
-import type { ClientContext, LoadedConfig, ToolActionOutcome } from '../../types.js';
+import type { ClientContext, LLMUsage, LoadedConfig, ToolActionOutcome } from '../../types.js';
 import type { ToolAuthorizationOptions, ToolDefinition, ToolManagerOptions } from '../toolManager.js';
 import type { TeamModelAssignment } from '../teams/TeamModelPolicy.js';
+import { getSessionThreadBudget, SessionThreadLimitError, type ThreadBudget, type ThreadLease } from './SessionThreadBudget.js';
 
 /** Default maximum delegation depth to prevent infinite loops */
 const DEFAULT_MAX_DEPTH = 3;
@@ -19,17 +21,25 @@ const DEFAULT_MAX_DEPTH = 3;
 export type SubagentAssignmentResolver = (definition: AgentDefinition) => TeamModelAssignment;
 export type SubagentProviderFactory = (assignment: TeamModelAssignment) => LLMProvider;
 
+export interface DelegationExecutionOptions {
+    signal?: AbortSignal;
+}
+
 type ParallelDelegationResult =
     | { success: true; text: string }
     | {
         success: false;
-        kind: 'validation' | 'operational';
+        kind: 'validation' | 'operational' | 'aborted';
         text: string;
         error: string;
     };
 
 /** Context published when a subagent begins execution. */
 export interface SubagentStartContext {
+    cancel?: () => void;
+    sendMessage?: (message: string) => boolean;
+    parentId?: string;
+    depth?: number;
     /** Unique identifier for the subagent run */
     subagentId: string;
     /** Name of the agent that ran */
@@ -38,6 +48,8 @@ export interface SubagentStartContext {
     subagentType: string;
     /** Delegated task text */
     task: string;
+    workspaceRoot?: string;
+    userRequest?: string;
     /** Provider selected for this execution when an explicit assignment was resolved. */
     provider?: string;
     /** Model selected for this execution when an explicit assignment was resolved. */
@@ -48,15 +60,28 @@ export interface SubagentStartContext {
 
 /** Context passed to the subagent-stop hook callback */
 export interface SubagentStopContext extends SubagentStartContext {
+    result?: string;
+    usage?: LLMUsage;
     /** Whether the subagent completed successfully */
     success: boolean;
     /** Error message if failed */
     error?: string;
     /** Duration in milliseconds */
     duration: number;
+    status?: 'completed' | 'failed' | 'cancelled';
 }
 
+export interface SubagentProgressContext extends SubagentStartContext, SubAgentProgress {}
+
 export interface DelegatorOptions {
+    workspaceRoot?: string;
+    projectMemoryEnabled?: boolean;
+    getWorkspaceRoot?: () => string;
+    getUserRequest?: () => string | undefined;
+    allowedToolNames?: ReadonlySet<string>;
+    threadBudget?: ThreadBudget;
+    parentId?: string;
+    onSubagentProgress?: (context: SubagentProgressContext) => void | Promise<void>;
     /** Client context for tool filtering (inherited by sub-agents) */
     clientContext?: ClientContext;
     /** Current depth in the delegation hierarchy */
@@ -94,12 +119,12 @@ export class AgentDelegator {
     private readonly getToolDefinitions?: () => ToolDefinition[];
     private readonly resolveSubagentAssignment?: SubagentAssignmentResolver;
     private readonly createSubagentProvider?: SubagentProviderFactory;
-    private subagentCounter = 0;
+    private readonly threadBudget: ThreadBudget;
 
     constructor(
         private readonly llm: LLMProvider,
         private readonly actionExecutor: ActionExecutor,
-        options: DelegatorOptions = {}
+        private readonly options: DelegatorOptions = {}
     ) {
         this.registry = AgentRegistry.getInstance();
         this.clientContext = options.clientContext ?? 'cli';
@@ -113,17 +138,20 @@ export class AgentDelegator {
         this.getToolDefinitions = options.getToolDefinitions;
         this.resolveSubagentAssignment = options.resolveSubagentAssignment;
         this.createSubagentProvider = options.createSubagentProvider;
+        this.threadBudget = options.threadBudget ?? getSessionThreadBudget(options.featureConfig);
     }
 
     private generateSubagentId(): string {
-        return `subagent-${Date.now()}-${++this.subagentCounter}`;
+        return `subagent-${randomUUID()}`;
     }
 
     public async delegateTask(agentName: string, task: string): Promise<string> {
         return this.toLegacyOutput(await this.delegateTaskForTool(agentName, task));
     }
 
-    public async delegateTaskForTool(agentName: string, task: string): Promise<ToolActionOutcome> {
+    public async delegateTaskForTool(
+        agentName: string, task: string, options: DelegationExecutionOptions = {},
+    ): Promise<ToolActionOutcome> {
         // Check depth limit to prevent infinite delegation loops
         if (this.currentDepth >= this.maxDepth) {
             const error = `Maximum delegation depth (${this.maxDepth}) reached. Cannot delegate to '${agentName}'.`;
@@ -138,8 +166,20 @@ export class AgentDelegator {
             return { success: false, kind: 'validation', error, output: `Error: ${error}` };
         }
 
-        // Create sub-agent options with inherited context and incremented depth
+        return this.runRegisteredTask(agentConfig, agentName, task, options);
+    }
+
+    private async runRegisteredTask(
+        agentConfig: AgentDefinition, agentName: string, task: string,
+        options: DelegationExecutionOptions,
+    ): Promise<ToolActionOutcome> {
+        const workspaceRoot = this.options.getWorkspaceRoot?.() ?? this.options.workspaceRoot;
+        const userRequest = this.options.getUserRequest?.();
         const subAgentOptions: SubAgentOptions = {
+            workspaceRoot,
+            projectMemoryEnabled: this.options.projectMemoryEnabled,
+            userRequest,
+            allowedToolNames: this.options.allowedToolNames,
             clientContext: this.clientContext,
             depth: this.currentDepth + 1,
             maxDepth: this.maxDepth,
@@ -149,64 +189,103 @@ export class AgentDelegator {
             getToolDefinitions: this.getToolDefinitions,
             resolveSubagentAssignment: this.resolveSubagentAssignment,
             createSubagentProvider: this.createSubagentProvider,
+            threadBudget: this.threadBudget,
+            onSubagentStart: this.onSubagentStart,
+            onSubagentStop: this.onSubagentStop,
+            onSubagentProgress: this.options.onSubagentProgress,
         };
 
         const subagentId = this.generateSubagentId();
+        const controller = new AbortController();
+        const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
+        const pendingInstructions: string[] = [];
+        let acceptingMessages = true;
         const startTime = Date.now();
-        const assignment = this.resolveSubagentAssignment?.(agentConfig);
-        const agent = new SubAgent(
-            agentConfig,
-            assignment && this.createSubagentProvider
-                ? this.createSubagentProvider(assignment)
-                : this.llm,
-            this.actionExecutor,
-            {
-                ...subAgentOptions,
-                ...(assignment ? { model: assignment.model } : {}),
-            },
-        );
-        const startContext: SubagentStartContext = {
+        let lease: ThreadLease | undefined;
+        let started = false;
+        let agent: SubAgent | undefined;
+        let startContext: SubagentStartContext = {
             subagentId,
             subagentName: agentName,
             subagentType: agentConfig.source ?? 'user',
             task,
-            ...(assignment ? {
-                provider: assignment.provider,
-                model: assignment.model,
-                modelSource: assignment.source,
-            } : {}),
+            workspaceRoot,
+            userRequest,
+            parentId: this.options.parentId,
+            depth: this.currentDepth + 1,
+            cancel: () => controller.abort(),
+            sendMessage: (message) => {
+                const content = message.trim();
+                if (!acceptingMessages || signal.aborted || !content || content.length > 8000 || pendingInstructions.length >= 32) return false;
+                pendingInstructions.push(content);
+                return true;
+            },
         };
-
-        await this.onSubagentStart?.(startContext);
-
         try {
-            const result = await agent.run(task);
+            signal.throwIfAborted();
+            lease = await this.threadBudget.tryAcquire(subagentId);
+            signal.throwIfAborted();
+            const assignment = this.resolveSubagentAssignment?.(agentConfig);
+            if (assignment) {
+                startContext = { ...startContext, provider: assignment.provider, model: assignment.model, modelSource: assignment.source };
+            }
+            started = true;
+            await this.notifyObserver(this.onSubagentStart, startContext);
+            agent = new SubAgent(
+                agentConfig,
+                assignment && this.createSubagentProvider ? this.createSubagentProvider(assignment) : this.llm,
+                this.actionExecutor,
+                {
+                    ...subAgentOptions, parentId: subagentId,
+                    getPendingInstructions: () => pendingInstructions.splice(0),
+                    ...(assignment ? { model: assignment.model } : {}),
+                    onProgress: progress => this.notifyObserver(this.options.onSubagentProgress, { ...startContext, ...progress }),
+                },
+            );
+            const result = await agent.run(task, { signal });
+            acceptingMessages = false;
 
             // Fire subagent-stop hook on success
-            if (this.onSubagentStop) {
-                await this.onSubagentStop({
+            if (started && this.onSubagentStop) {
+                await this.notifyObserver(this.onSubagentStop, {
                     ...startContext,
                     success: true,
+                    status: 'completed',
+                    result,
+                    usage: agent.getUsage(),
                     duration: Date.now() - startTime
                 });
             }
 
             return { success: true, output: result };
         } catch (error) {
-            const errorMessage = (error as Error).message;
+            acceptingMessages = false;
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const cancelled = signal.aborted
+                || (error instanceof Error && error.name === 'AbortError');
 
             // Fire subagent-stop hook on failure
-            if (this.onSubagentStop) {
-                await this.onSubagentStop({
+            if (started && this.onSubagentStop) {
+                await this.notifyObserver(this.onSubagentStop, {
                     ...startContext,
                     success: false,
+                    status: cancelled ? 'cancelled' : 'failed',
+                    usage: agent?.getUsage(),
                     error: errorMessage,
                     duration: Date.now() - startTime
                 });
             }
 
             const output = `Error running agent '${agentName}': ${errorMessage}`;
-            return { success: false, kind: 'operational', error: errorMessage, output };
+            return {
+                success: false,
+                kind: cancelled ? 'aborted' : error instanceof SessionThreadLimitError ? 'validation' : 'operational',
+                error: errorMessage, output,
+            };
+        } finally {
+            acceptingMessages = false;
+            pendingInstructions.length = 0;
+            await lease?.release();
         }
     }
 
@@ -215,7 +294,8 @@ export class AgentDelegator {
     }
 
     public async delegateParallelForTool(
-        tasks: Array<{ agent_name: string; task: string }>
+        tasks: Array<{ agent_name: string; task: string }>,
+        options: DelegationExecutionOptions = {},
     ): Promise<ToolActionOutcome> {
         // Check depth limit
         if (this.currentDepth >= this.maxDepth) {
@@ -223,25 +303,7 @@ export class AgentDelegator {
             return { success: false, kind: 'validation', error, output: `Error: ${error}` };
         }
 
-        if (tasks.length > 5) {
-            const error = `Maximum 5 parallel agents allowed. You requested ${tasks.length}.`;
-            return { success: false, kind: 'validation', error, output: `Error: ${error}` };
-        }
-
         await this.registry.loadAgents();
-
-        // Sub-agent options with inherited context
-        const subAgentOptions: SubAgentOptions = {
-            clientContext: this.clientContext,
-            depth: this.currentDepth + 1,
-            maxDepth: this.maxDepth,
-            featureConfig: this.featureConfig,
-            authorization: this.authorization,
-            confirmApproval: this.confirmApproval,
-            getToolDefinitions: this.getToolDefinitions,
-            resolveSubagentAssignment: this.resolveSubagentAssignment,
-            createSubagentProvider: this.createSubagentProvider,
-        };
 
         const promises = tasks.map(async ({ agent_name, task }): Promise<ParallelDelegationResult> => {
             const agentConfig = this.registry.getAgent(agent_name);
@@ -255,67 +317,15 @@ export class AgentDelegator {
                 };
             }
 
-            const subagentId = this.generateSubagentId();
-            const startTime = Date.now();
-            const assignment = this.resolveSubagentAssignment?.(agentConfig);
-            const agent = new SubAgent(
-                agentConfig,
-                assignment && this.createSubagentProvider
-                    ? this.createSubagentProvider(assignment)
-                    : this.llm,
-                this.actionExecutor,
-                {
-                    ...subAgentOptions,
-                    ...(assignment ? { model: assignment.model } : {}),
-                },
-            );
-            const startContext: SubagentStartContext = {
-                subagentId,
-                subagentName: agent_name,
-                subagentType: agentConfig.source ?? 'user',
-                task,
-                ...(assignment ? {
-                    provider: assignment.provider,
-                    model: assignment.model,
-                    modelSource: assignment.source,
-                } : {}),
-            };
-
-            await this.onSubagentStart?.(startContext);
-
-            try {
-                const result = await agent.run(task);
-
-                // Fire subagent-stop hook on success
-                if (this.onSubagentStop) {
-                    await this.onSubagentStop({
-                        ...startContext,
-                        success: true,
-                        duration: Date.now() - startTime
-                    });
-                }
-
-                return { success: true, text: `[${agent_name}] Result:\n${result}` };
-            } catch (error) {
-                const errorMessage = (error as Error).message;
-
-                // Fire subagent-stop hook on failure
-                if (this.onSubagentStop) {
-                    await this.onSubagentStop({
-                        ...startContext,
-                        success: false,
-                        error: errorMessage,
-                        duration: Date.now() - startTime
-                    });
-                }
-
-                return {
+            const result = await this.runRegisteredTask(agentConfig, agent_name, task, options);
+            return result.success
+                ? { success: true, text: `[${agent_name}] Result:\n${result.output ?? ''}` }
+                : {
                     success: false,
-                    kind: 'operational',
-                    text: `[${agent_name}] Failed: ${errorMessage}`,
-                    error: errorMessage,
+                    kind: result.kind === 'aborted' || result.kind === 'validation' ? result.kind : 'operational',
+                    text: `[${agent_name}] Failed: ${result.error}`,
+                    error: result.error,
                 };
-            }
         });
 
         const results = await Promise.all(promises);
@@ -325,9 +335,8 @@ export class AgentDelegator {
         if (failures.length > 0) {
             return {
                 success: false,
-                kind: failures.some(result => result.kind === 'operational')
-                    ? 'operational'
-                    : 'validation',
+                kind: failures.some(result => result.kind === 'aborted') ? 'aborted'
+                    : failures.some(result => result.kind === 'operational') ? 'operational' : 'validation',
                 error: failures.map(result => result.error ?? 'Delegated task failed.').join('; '),
                 output,
             };
@@ -337,6 +346,14 @@ export class AgentDelegator {
 
     private toLegacyOutput(outcome: ToolActionOutcome): string {
         return outcome.output ?? (outcome.success ? '' : outcome.error);
+    }
+
+    private async notifyObserver<T>(observer: ((context: T) => void | Promise<void>) | undefined, context: T): Promise<void> {
+        try {
+            await observer?.(context);
+        } catch {
+            // Observability failures must not change execution outcomes or abandon sibling work.
+        }
     }
 
     public getAuthorizationOptions(): ToolAuthorizationOptions | undefined {
@@ -357,6 +374,10 @@ export class AgentDelegator {
 
     public getSubagentProviderFactory(): SubagentProviderFactory | undefined {
         return this.createSubagentProvider;
+    }
+
+    public withProvider(provider: LLMProvider): AgentDelegator {
+        return new AgentDelegator(provider, this.actionExecutor, { ...this.options, threadBudget: this.threadBudget });
     }
 
     /**

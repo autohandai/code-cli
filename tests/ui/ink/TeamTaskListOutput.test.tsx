@@ -120,6 +120,22 @@ describe('TeamTaskListOutput', () => {
     expect(frame).toContain('50%');
   });
 
+  it('renders failed and cancelled tool results with separate groups', () => {
+    const tasks: TeamTask[] = [
+      { ...reviewTasks[0]!, status: 'failed', subject: 'Failed review' },
+      { ...reviewTasks[1]!, status: 'cancelled', subject: 'Cancelled review' },
+      { ...reviewTasks[2]!, status: 'completed', subject: 'Finished review' },
+    ];
+    const frame = renderWithTheme(<TeamTaskListOutput output={buildTeamTaskPayload({ tasks })} />).lastFrame() ?? '';
+
+    expect(frame).toContain('1/3 done');
+    expect(frame).toContain('failed · 1');
+    expect(frame).toContain('cancelled · 1');
+    expect(frame).toContain('✕ task-1 Failed review');
+    expect(frame).toContain('⊘ task-2 Cancelled review');
+    expect(frame).not.toContain('pending');
+  });
+
   it('renders the headline for mutation results', () => {
     const output = buildTeamTaskPayload({ tasks: [reviewTasks[0]!], headline: 'Task task-1 updated' });
     const frame = renderWithTheme(<TeamTaskListOutput output={output} />).lastFrame() ?? '';

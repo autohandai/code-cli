@@ -270,7 +270,7 @@ describe('OpenRouterClient', () => {
                 url: 'data:image/png;base64,ZmFrZS1pbWFnZQ==',
               },
             },
-          ] as unknown as string,
+          ],
         },
       ],
     });
@@ -340,7 +340,7 @@ describe('OpenRouterClient', () => {
                 url: 'data:image/png;base64,ZmFrZS1pbWFnZQ==',
               },
             },
-          ] as unknown as string,
+          ],
         },
       ],
     });

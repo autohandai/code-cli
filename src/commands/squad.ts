@@ -14,6 +14,8 @@ import { arch as osArch, homedir, platform as osPlatform } from 'node:os';
 import path from 'node:path';
 import type { SlashCommand } from '../core/slashCommands.js';
 import type { LoadedConfig } from '../types.js';
+import { readSquadRunSnapshot } from '../core/agents/SquadRunSnapshot.js';
+import type { AgentRunSource } from '../core/agents/AgentRunStore.js';
 
 const DEFAULT_API_BASE_URL = 'https://api.autohand.ai';
 const DEFAULT_CHANNEL = 'stable';
@@ -27,6 +29,7 @@ type SquadAction = 'start' | 'status' | 'restart' | 'stop' | 'queue' | 'open' | 
 interface SquadContext {
   config?: LoadedConfig;
   workspaceRoot: string;
+  onToggleAgentRunsView?: (visible: boolean, source?: AgentRunSource) => void;
 }
 
 interface SquadDeps {
@@ -106,6 +109,7 @@ export const metadata: SlashCommand = {
   command: '/squad',
   description: 'open and manage the local Autohand Squad runtime',
   implemented: true,
+  subcommands: [{ name: 'view', description: 'inspect recorded workspace runs from independent Squad sessions' }],
 };
 
 export async function squad(
@@ -122,6 +126,15 @@ export async function runSquadCommand(
   args: string[] = [],
   deps: SquadDeps = {},
 ): Promise<SquadCommandResult> {
+  if (args.length === 1 && args[0] === 'view') {
+    const snapshot = await readSquadRunSnapshot({ workspaceRoot: ctx.workspaceRoot, env: deps.env });
+    ctx.onToggleAgentRunsView?.(true, 'squad');
+    return {
+      code: 0,
+      output: [snapshot.message, ...snapshot.runs.map(run =>
+        `${run.agentName} · ${run.status} · ${run.task}`)].join('\n'),
+    };
+  }
   const parsed = parseSquadCommand(args);
   const env = deps.env ?? process.env;
   const paths = squadPaths(env, deps.homeDir);

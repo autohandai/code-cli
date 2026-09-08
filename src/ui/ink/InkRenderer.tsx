@@ -42,6 +42,7 @@ import {
 } from '../../core/agent/WorkspaceChangeCapture.js';
 import type { InteractionMode } from '../../core/agent/InteractionModeController.js';
 import type { TeamActivitySnapshot } from '../../core/teams/types.js';
+import type { AgentRunsSnapshot, AgentRunSource } from '../../core/agents/AgentRunStore.js';
 import type { GoalSessionSnapshot } from '../../goals/types.js';
 import type { TaskListPosition } from '../../types.js';
 import type { LineExtension, LineSegment } from './StatusLine.js';
@@ -79,6 +80,8 @@ export interface InkRendererOptions {
   mouseComposerCursor?: boolean;
   taskListPositionProvider?: () => TaskListPosition;
   onEditGoalObjective?: (request: GoalEditRequest) => void | Promise<void>;
+  onCancelAgentRun?: (id: string) => void | Promise<unknown>;
+  onMessageAgentRun?: (id: string, text: string) => Promise<boolean>;
 }
 
 export interface SetWorkingOptions {
@@ -193,6 +196,9 @@ interface AgentUIWrapperProps {
   onDismissAnnouncement?: (id: string) => void;
   onToggleLiveCommandExpanded: (id?: string) => void;
   onToggleTeamPanel: () => void;
+  onCloseAgentRunsPanel: () => void;
+  onCancelAgentRun?: (id: string) => void | Promise<unknown>;
+  onMessageAgentRun?: (id: string, text: string) => Promise<boolean>;
   onToggleGoalPanel: () => void;
   onEditGoalObjective?: (request: GoalEditRequest) => void | Promise<void>;
   onInputChange: (input: string) => void;
@@ -211,7 +217,7 @@ interface AgentUIWrapperProps {
   getInteractionMode?: () => InteractionMode;
   onCycleInteractionMode?: () => InteractionMode;
   mouseComposerCursor?: boolean;
-  taskListPosition: TaskListPosition;
+  taskListPositionProvider?: () => TaskListPosition;
 }
 
 /**
@@ -228,6 +234,9 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       onDismissAnnouncement,
       onToggleLiveCommandExpanded,
       onToggleTeamPanel,
+      onCloseAgentRunsPanel,
+      onCancelAgentRun,
+      onMessageAgentRun,
       onToggleGoalPanel,
       onEditGoalObjective,
       onInputChange,
@@ -246,7 +255,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       getInteractionMode,
       onCycleInteractionMode,
       mouseComposerCursor,
-      taskListPosition,
+      taskListPositionProvider,
     } = props;
 
     const [state, setState] = useState<AgentUIState>(initialState);
@@ -279,6 +288,9 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         onDismissAnnouncement={onDismissAnnouncement}
         onToggleLiveCommandExpanded={onToggleLiveCommandExpanded}
         onToggleTeamPanel={onToggleTeamPanel}
+        onCloseAgentRunsPanel={onCloseAgentRunsPanel}
+        onCancelAgentRun={onCancelAgentRun}
+        onMessageAgentRun={onMessageAgentRun}
         onToggleGoalPanel={onToggleGoalPanel}
         onEditGoalObjective={onEditGoalObjective}
         onInputChange={handleInputChange}
@@ -297,7 +309,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         getInteractionMode={getInteractionMode}
         onCycleInteractionMode={onCycleInteractionMode}
         mouseComposerCursor={mouseComposerCursor}
-        taskListPosition={taskListPosition}
+        taskListPosition={taskListPositionProvider?.() ?? 'above-composer'}
       />
     );
   }
@@ -461,6 +473,9 @@ export class InkRenderer {
             onDismissAnnouncement={this.options.onDismissAnnouncement}
             onToggleLiveCommandExpanded={(id) => this.toggleActiveLiveCommandExpanded(id)}
             onToggleTeamPanel={() => this.toggleTeamPanel()}
+            onCloseAgentRunsPanel={() => this.setAgentRunsPanelVisible(false)}
+            onCancelAgentRun={this.options.onCancelAgentRun}
+            onMessageAgentRun={this.options.onMessageAgentRun}
             onToggleGoalPanel={() => this.toggleGoalPanel()}
             onEditGoalObjective={this.options.onEditGoalObjective}
             onInputChange={this.handleInputChange}
@@ -479,7 +494,7 @@ export class InkRenderer {
             getInteractionMode={this.options.getInteractionMode}
             onCycleInteractionMode={this.options.onCycleInteractionMode}
             mouseComposerCursor={this.options.mouseComposerCursor}
-            taskListPosition={this.options.taskListPositionProvider?.() ?? 'above-composer'}
+            taskListPositionProvider={this.options.taskListPositionProvider}
           />
         </I18nProvider>
       </ThemeProvider>,
@@ -1122,6 +1137,14 @@ export class InkRenderer {
     this.updateState({ teamActivity });
   }
 
+  setAgentRuns(agentRuns: AgentRunsSnapshot): void {
+    this.updateState({ agentRuns });
+  }
+
+  setAgentRunsPanelVisible(visible: boolean, source?: AgentRunSource): void {
+    this.updateState({ agentRunsPanelVisible: visible, agentRunsSource: source });
+  }
+
   setTeamPanelVisible(visible: boolean): void {
     this.updateState({ teamPanelVisible: visible });
   }
@@ -1330,6 +1353,9 @@ export class InkRenderer {
               onDismissAnnouncement={this.options.onDismissAnnouncement}
               onToggleLiveCommandExpanded={(id) => this.toggleActiveLiveCommandExpanded(id)}
               onToggleTeamPanel={() => this.toggleTeamPanel()}
+              onCloseAgentRunsPanel={() => this.setAgentRunsPanelVisible(false)}
+              onCancelAgentRun={this.options.onCancelAgentRun}
+              onMessageAgentRun={this.options.onMessageAgentRun}
               onToggleGoalPanel={() => this.toggleGoalPanel()}
               onEditGoalObjective={this.options.onEditGoalObjective}
               onInputChange={this.handleInputChange}
@@ -1348,7 +1374,7 @@ export class InkRenderer {
               getInteractionMode={this.options.getInteractionMode}
               onCycleInteractionMode={this.options.onCycleInteractionMode}
               mouseComposerCursor={this.options.mouseComposerCursor}
-              taskListPosition={this.options.taskListPositionProvider?.() ?? 'above-composer'}
+              taskListPositionProvider={this.options.taskListPositionProvider}
             />
           </I18nProvider>
         </ThemeProvider>,

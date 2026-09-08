@@ -17,6 +17,7 @@ export const TeamMemberSchema = z.object({
   pid: z.number().int().nonnegative(),
   status: TeamMemberStatusSchema,
   exitCode: z.number().int().nullable().optional(),
+  error: z.string().optional(),
   provider: z.string().min(1).optional(),
   model: z.string().optional(),
   modelSource: z.enum(['member-override', 'environment', 'agent-override', 'team-default', 'agent-definition', 'active-session']).optional(),
@@ -42,19 +43,24 @@ export type Team = z.infer<typeof TeamSchema>;
 
 // --- Task ---
 
-export const TaskStatusSchema = z.enum(['pending', 'in_progress', 'completed']);
+export const TaskStatusSchema = z.enum(['pending', 'in_progress', 'completed', 'failed', 'cancelled']);
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 
 export const TeamTaskSchema = z.object({
   id: z.string().min(1),
+  runId: z.string().optional(),
   subject: z.string().min(1),
   description: z.string(),
+  userRequest: z.string().optional(),
+  workspaceRoot: z.string().optional(),
   status: TaskStatusSchema,
   owner: z.string().optional(),
   blockedBy: z.array(z.string()),
   createdAt: z.string(),
   completedAt: z.string().optional(),
+  cancelRequested: z.boolean().optional(),
   output: z.string().optional(),
+  error: z.string().optional(),
 });
 export type TeamTask = z.infer<typeof TeamTaskSchema>;
 
@@ -121,12 +127,16 @@ export type TeammateIncoming =
   | { method: 'team.assignTask'; params: { task: TeamTask } }
   | { method: 'team.message'; params: { from: string; content: string } }
   | { method: 'team.shutdown'; params: { reason: string } }
-  | { method: 'team.updateContext'; params: { tasks: TeamTask[] } };
+  | { method: 'team.cancelTask'; params: { taskId: string; runId?: string; reason?: string } }
+  | { method: 'team.updateContext'; params: { tasks: TeamTask[] } }
+  | { method: 'team.threadResult'; params: { requestId: string; granted: boolean; error?: string } };
 
 export type TeammateOutgoing =
   | { method: 'team.ready'; params: { name: string } }
-  | { method: 'team.taskUpdate'; params: { taskId: string; status: TaskStatus; result?: string } }
+  | { method: 'team.taskUpdate'; params: { taskId: string; runId?: string; status: TaskStatus; result?: string; error?: string } }
+  | { method: 'team.threadAcquire'; params: { requestId: string; runId: string } }
+  | { method: 'team.threadRelease'; params: { requestId: string } }
   | { method: 'team.message'; params: { to: string; content: string } }
-  | { method: 'team.idle'; params: { lastTask?: string } }
+  | { method: 'team.idle'; params: { lastTask?: string; runId?: string } }
   | { method: 'team.shutdownAck'; params: Record<string, never> }
   | { method: 'team.log'; params: { level: string; text: string } };

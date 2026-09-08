@@ -26,6 +26,8 @@ import { ShortcutsHelpPanel } from './ShortcutsHelpPanel.js';
 import { SitrepMessage, parseSitrepText } from './SitrepMessage.js';
 import { TaskActivityPanel, type ActivityItem } from './TaskActivityPanel.js';
 import { TeamPanel } from './TeamPanel.js';
+import { AgentRunsPanel } from './AgentRunsPanel.js';
+import type { AgentRunsSnapshot, AgentRunSource } from '../../core/agents/AgentRunStore.js';
 import type { TeamActivitySnapshot } from '../../core/teams/types.js';
 import { GoalPanel, getEditableGoalItems, type GoalEditRequest } from './GoalPanel.js';
 import type { GoalSessionSnapshot } from '../../goals/types.js';
@@ -182,6 +184,9 @@ export interface AgentUIState {
   teamActivity?: TeamActivitySnapshot;
   /** Whether the expanded team view is visible. */
   teamPanelVisible: boolean;
+  agentRuns?: AgentRunsSnapshot;
+  agentRunsPanelVisible: boolean;
+  agentRunsSource?: AgentRunSource;
   /** Live persistent goal state for the current session. */
   goalActivity?: GoalSessionSnapshot;
   /** Whether the expanded persistent goals view is visible. */
@@ -208,6 +213,9 @@ export interface AgentUIProps {
   onToggleLiveCommandExpanded?: (id?: string) => void;
   /** Toggle the expanded live team view. */
   onToggleTeamPanel?: () => void;
+  onCloseAgentRunsPanel?: () => void;
+  onCancelAgentRun?: (id: string) => void | Promise<unknown>;
+  onMessageAgentRun?: (id: string, text: string) => Promise<boolean>;
   /** Toggle the expanded persistent goals view. */
   onToggleGoalPanel?: () => void;
   /** Persist a composer edit for an active or queued goal. */
@@ -750,6 +758,9 @@ export function AgentUI({
   onDismissAnnouncement,
   onToggleLiveCommandExpanded,
   onToggleTeamPanel,
+  onCloseAgentRunsPanel,
+  onCancelAgentRun,
+  onMessageAgentRun,
   onToggleGoalPanel,
   onEditGoalObjective,
   onInputChange,
@@ -2148,17 +2159,17 @@ export function AgentUI({
   }, []);
 
   const handlePaste = useCallback((pastedText: string) => {
-    if (isWorkingRef.current && !enableQueueInputRef.current) {
+    if (state.agentRunsPanelVisible || (isWorkingRef.current && !enableQueueInputRef.current)) {
       return;
     }
     insertPastedText(pastedText);
-  }, [insertPastedText]);
+  }, [insertPastedText, state.agentRunsPanelVisible]);
 
   // Ink owns bracketed-paste framing at the stdin parser boundary. Its paste
   // channel buffers split protocol markers and keeps pasted bytes out of
   // useInput, so the composer receives the complete payload exactly once.
   usePaste(handlePaste);
-  useInput(stableHandleInput);
+  useInput(stableHandleInput, { isActive: !state.agentRunsPanelVisible });
 
   // Memoize tool outputs to prevent unnecessary re-renders
   // Static items use the entry id as key and never re-render
@@ -2322,7 +2333,18 @@ export function AgentUI({
       <NotificationStack notifications={state.notifications} />
 
       {/* Fixed bottom section - always renders for layout stability */}
-      <FixedBottom
+      {state.agentRunsPanelVisible ? (
+        <AgentRunsPanel
+          snapshot={state.agentRuns ?? { runs: [], updatedAt: 0 }}
+          source={state.agentRunsSource}
+          terminalRows={windowSize.rows}
+          terminalColumns={windowSize.columns}
+          onClose={() => onCloseAgentRunsPanel?.()}
+          onCancel={onCancelAgentRun}
+          onMessage={onMessageAgentRun}
+          onCtrlC={onCtrlC}
+        />
+      ) : <FixedBottom
         announcement={state.announcement}
         terminalColumns={windowSize.columns ?? process.stdout.columns ?? 80}
         terminalRows={windowSize.rows}
@@ -2391,7 +2413,7 @@ export function AgentUI({
         modeIndicator={interactionModeIndicator}
         modeDescription={interactionModeDescription}
         taskListPosition={taskListPosition}
-      />
+      />}
     </Box>
   );
 }
@@ -3345,6 +3367,7 @@ export function createInitialUIState(): AgentUIState {
     showModeLabel: true,
     activityItems: [],
     teamPanelVisible: false,
+    agentRunsPanelVisible: false,
     goalPanelVisible: false,
   };
 }

@@ -68,7 +68,9 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | `/undo` | Revert the last recorded agent file mutation and conversation turn |
 | `/memory` | View stored memories |
 | `/init` | Create `AGENTS.md` file |
-| `/agents` | List sub-agents |
+| `/agents` | Watch active Autohand sessions |
+| `/agents definitions` | List installed sub-agent definitions |
+| `/agents view` | Inspect direct and team runs |
 | `/agents-new` | Create new agent via wizard |
 | `/feedback` | Send feedback |
 | `/help` | Display help |
@@ -215,8 +217,8 @@ effect immediately — no restart required.
 ## Sub-Agent Architecture
 - [x] Agent registry from `~/.autohand/agents/`
 - [x] Task delegation (`delegate_task`)
-- [x] Parallel execution up to 5 agents (`delegate_parallel`)
-- [x] `/agents` command for discovery
+- [x] Parallel execution within the session thread budget (`delegate_parallel`); eight child threads by default, shared with teams and nested agents
+- [x] `/agents definitions` for installed specialists and `/agents view` for runtime inspection
 
 ## Tool System
 - [x] File system: read, write, edit, create, delete, move, copy

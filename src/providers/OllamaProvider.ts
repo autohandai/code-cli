@@ -8,7 +8,7 @@ import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
 import type {
     LLMRequest,
     LLMResponse,
-    LLMMessage,
+    MultimodalMessage,
     LLMToolCall,
     ProviderSettings,
     NetworkSettings,
@@ -418,7 +418,7 @@ export class OllamaProvider implements LLMProvider {
         return classifyApiError(response.status, errorBody, response.headers);
     }
 
-    private buildMessages(messages: LLMMessage[], includeToolMetadata: boolean): Record<string, unknown>[] {
+    private buildMessages(messages: MultimodalMessage[], includeToolMetadata: boolean): Record<string, unknown>[] {
         if (!includeToolMetadata) {
             return this.sanitizeMessagesForToollessMode(messages);
         }
@@ -465,7 +465,7 @@ export class OllamaProvider implements LLMProvider {
         return { __raw_arguments: rawArguments };
     }
 
-    private sanitizeMessagesForToollessMode(messages: Array<LLMMessage | Record<string, unknown>>): Record<string, unknown>[] {
+    private sanitizeMessagesForToollessMode(messages: Array<MultimodalMessage | Record<string, unknown>>): Record<string, unknown>[] {
         return messages.map((msg) => {
             const role = typeof msg.role === 'string' ? msg.role : 'user';
             const content = toTextOnlyContent(msg.content);

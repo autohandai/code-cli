@@ -45,3 +45,15 @@ export async function setTaskListPositionUp(session: Session): Promise<void> {
   await session.press('escape');
   await waitForScreen(session, '❯');
 }
+
+export async function setTaskListPositionWithPicker(session: Session): Promise<void> {
+  const command = '/settings task_list position';
+  await waitForScreen(session, '❯');
+  await session.type(command);
+  await waitForScreen(session, command);
+  await session.press('enter');
+  await waitForScreen(session, 'Task list position');
+  await session.press('1');
+  await waitForScreen(session, 'Task list position: up');
+  await waitForScreen(session, '❯');
+}

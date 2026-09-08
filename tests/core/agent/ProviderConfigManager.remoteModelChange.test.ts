@@ -9,6 +9,8 @@ import type { ActionExecutor } from '../../../src/core/actionExecutor.js';
 import type { LLMProvider } from '../../../src/providers/LLMProvider.js';
 import { TelemetryManager } from '../../../src/telemetry/TelemetryManager.js';
 import type { AgentRuntime } from '../../../src/types.js';
+import { AgentDelegator } from '../../../src/core/agents/AgentDelegator.js';
+import { AgentRegistry } from '../../../src/core/agents/AgentRegistry.js';
 
 var mockSaveConfig = vi.fn();
 var mockCreate = vi.fn();
@@ -122,6 +124,29 @@ describe('ProviderConfigManager.applyModelChangeRemote', () => {
     expect(setLlm).toHaveBeenCalled();
     expect(setDelegator).toHaveBeenCalled();
     expect(setActiveProvider).toHaveBeenCalledWith('openrouter');
+  });
+
+  it('preserves live subagent observers after switching the provider model', async () => {
+    const registry = AgentRegistry.getInstance();
+    vi.spyOn(registry, 'loadAgents').mockResolvedValue();
+    vi.spyOn(registry, 'getAgent').mockReturnValue({
+      name: 'reader', description: 'Reader', systemPrompt: 'Read source.',
+      tools: ['read_file'], path: '/tmp/reader.md',
+    });
+    const onSubagentStart = vi.fn();
+    const onSubagentStop = vi.fn();
+    const previous = new AgentDelegator(createMockLlm(), {} as ActionExecutor, { onSubagentStart, onSubagentStop });
+    manager = new ProviderConfigManager(
+      runtime, createMockLlm, setLlm, () => 'openrouter', setActiveProvider,
+      () => previous, setDelegator, new TelemetryManager({ enabled: false }),
+      {} as ActionExecutor, vi.fn(), vi.fn(), vi.fn(),
+    );
+
+    await manager.applyModelChangeRemote('openrouter', 'anthropic/claude-sonnet-4.5');
+    const changed: AgentDelegator = setDelegator.mock.calls[0]![0];
+    await changed.delegateTaskForTool('reader', 'Read source.');
+    expect(onSubagentStart).toHaveBeenCalledOnce();
+    expect(onSubagentStop).toHaveBeenCalledOnce();
   });
 
   it('rejects an unrecognized provider without touching runtime state', async () => {

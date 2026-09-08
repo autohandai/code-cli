@@ -53,6 +53,13 @@ describe('CAPABILITY_DEFINITIONS', () => {
 });
 
 describe('analyzeTask', () => {
+  it('maps plain-language requirements and CTO design requests to lifecycle roles', () => {
+    const request = analyzeTask('Translate requirements into acceptance criteria, then ask a software architect for system design and an implementer to build it');
+    expect(request.requestedRoles).toEqual(expect.arrayContaining([
+      'requirements-translator', 'software-architect', 'implementer',
+    ]));
+    expect(analyzeTask('deslop this change').requestedRoles).toContain('code-cleaner');
+  });
   it('infers testing and security capabilities from task language without explicit roles', () => {
     const request = analyzeTask('add tests for the auth middleware');
     expect(request.requestedRoles).toEqual(['testing', 'security']);
