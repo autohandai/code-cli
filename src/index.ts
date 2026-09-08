@@ -555,14 +555,14 @@ program
       const config = await loadConfig(opts.config, process.cwd());
       const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
 
-      const workspacePathValidation = await validateWorkspacePath(workspaceRoot);
-      if (!workspacePathValidation.valid) {
-        console.error(chalk.red(`Error: ${workspacePathValidation.error}`));
-        process.exit(1);
-      }
       const safetyCheck = checkWorkspaceSafety(workspaceRoot);
       if (!safetyCheck.safe) {
         printDangerousWorkspaceWarning(workspaceRoot, safetyCheck);
+        process.exit(1);
+      }
+      const workspacePathValidation = await validateWorkspacePath(workspaceRoot);
+      if (!workspacePathValidation.valid) {
+        console.error(chalk.red(`Error: ${workspacePathValidation.error}`));
         process.exit(1);
       }
 
@@ -628,14 +628,14 @@ program
     {
       const preAuthConfig = await loadConfig(opts.config, process.cwd());
       const workspaceRoot = resolveWorkspaceRoot(preAuthConfig, opts.path);
-      const workspacePathValidation = await validateWorkspacePath(workspaceRoot);
-      if (!workspacePathValidation.valid) {
-        console.error(chalk.red(`Error: ${workspacePathValidation.error}`));
-        process.exit(1);
-      }
       const safetyCheck = checkWorkspaceSafety(workspaceRoot);
       if (!safetyCheck.safe) {
         printDangerousWorkspaceWarning(workspaceRoot, safetyCheck);
+        process.exit(1);
+      }
+      const workspacePathValidation = await validateWorkspacePath(workspaceRoot);
+      if (!workspacePathValidation.valid) {
+        console.error(chalk.red(`Error: ${workspacePathValidation.error}`));
         process.exit(1);
       }
     }

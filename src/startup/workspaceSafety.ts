@@ -66,16 +66,13 @@ const DANGEROUS_PATHS = {
   wsl: ['/mnt/c', '/mnt/d', '/mnt/e', '/mnt/f'],
 };
 
-/**
- * Normalize a path for comparison:
- * - Resolve to absolute path
- * - Resolve symlinks
- * - Remove trailing slashes
- * - Normalize separators
- */
+function isWindowsAbsolutePath(inputPath: string): boolean {
+  return /^[A-Za-z]:[/\\]|^\\\\/.test(inputPath);
+}
+
 function normalizePath(inputPath: string): string {
-  // Resolve to absolute path
-  let normalized = path.resolve(inputPath);
+  const pathModule = isWindowsAbsolutePath(inputPath) ? path.win32 : path;
+  let normalized = pathModule.resolve(inputPath.replace(/^\\\\\?\\/, ''));
 
   // Try to resolve symlinks (ignore errors for non-existent paths)
   try {
@@ -84,9 +81,10 @@ function normalizePath(inputPath: string): string {
     // Path doesn't exist or can't be resolved, use as-is
   }
 
-  // Remove trailing slash (except for root)
-  if (normalized.length > 1 && normalized.endsWith(path.sep)) {
-    normalized = normalized.slice(0, -1);
+  normalized = normalized.replace(/^\\\\\?\\/, '');
+  const resolvedPathModule = isWindowsAbsolutePath(normalized) ? path.win32 : path;
+  if (normalized !== resolvedPathModule.parse(normalized).root) {
+    normalized = normalized.replace(/[/\\]+$/, '');
   }
 
   return normalized;
@@ -100,7 +98,7 @@ function pathsEqual(path1: string, path2: string): boolean {
   const normalized2 = normalizePath(path2);
 
   // macOS and Windows are case-insensitive
-  if (process.platform === 'darwin' || process.platform === 'win32') {
+  if (process.platform === 'darwin' || process.platform === 'win32' || isWindowsAbsolutePath(normalized1)) {
     return normalized1.toLowerCase() === normalized2.toLowerCase();
   }
 
@@ -159,11 +157,29 @@ function isParentOfHome(workspacePath: string): boolean {
   return normalizedHome.startsWith(normalized + path.sep);
 }
 
-/**
- * Check if path is a system directory
- */
+function isWindowsSystemDirectory(workspacePath: string): boolean {
+  if (!isWindowsAbsolutePath(workspacePath)) return false;
+  const driveRoot = path.win32.parse(workspacePath).root;
+  const defaultSystemPaths = /^[A-Za-z]:\\$/.test(driveRoot)
+    ? DANGEROUS_PATHS.windows.map((systemPath) =>
+      path.win32.join(driveRoot, path.win32.relative('C:\\', systemPath)))
+    : [];
+  const systemPaths = [
+    ...defaultSystemPaths,
+    process.env.SystemRoot,
+    process.env.windir,
+  ];
+  const normalized = workspacePath.toLowerCase();
+  return systemPaths.some((systemPath) => {
+    if (!systemPath || !isWindowsAbsolutePath(systemPath)) return false;
+    const protectedPath = normalizePath(systemPath).toLowerCase();
+    return normalized === protectedPath || normalized.startsWith(`${protectedPath}\\`);
+  });
+}
+
 function isSystemDirectory(workspacePath: string): boolean {
   const normalized = normalizePath(workspacePath);
+  if (isWindowsSystemDirectory(normalized)) return true;
 
   // Always check all dangerous paths regardless of platform
   // This ensures Windows paths are rejected even when testing on Unix

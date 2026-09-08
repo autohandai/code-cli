@@ -3,7 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import os from 'os';
 import path from 'path';
 import { checkWorkspaceSafety } from '../src/startup/workspaceSafety.js';
@@ -32,6 +32,7 @@ function restorePlatform() {
 describe('WorkspaceSafety', () => {
   afterEach(() => {
     restorePlatform();
+    vi.unstubAllEnvs();
   });
 
   describe('filesystem roots', () => {
@@ -226,6 +227,55 @@ describe('WorkspaceSafety', () => {
     it('handles case insensitivity on Windows', () => {
       const result = checkWorkspaceSafety('c:\\windows');
       expect(result.safe).toBe(false);
+    });
+
+    it.each([
+      'C:\\Windows\\System32',
+      'C:\\WINDOWS\\system32',
+      'c:/windows/system32/',
+      'C:\\Windows\\SysWOW64',
+      'C:\\Windows\\System32\\drivers\\etc',
+      'C:\\Windows\\Temp\\..\\System32',
+      '\\\\?\\C:\\Windows\\System32',
+      'D:\\Windows\\System32',
+      'C:\\Program Files\\Autohand',
+      'C:\\ProgramData\\Autohand',
+    ])('blocks protected Windows subdirectory %s', (workspacePath) => {
+      const result = checkWorkspaceSafety(workspacePath);
+      expect(result.safe).toBe(false);
+      expect(result.suggestion).toContain('project');
+    });
+
+    it('blocks a custom Windows installation directory and its descendants', () => {
+      vi.stubEnv('SystemRoot', 'D:\\WinNT');
+      expect(checkWorkspaceSafety('D:\\WinNT\\System32').safe).toBe(false);
+    });
+
+    it.each([
+      'C:\\WindowsProjects\\app',
+      'C:\\Program Files Backup\\app',
+      'C:\\Users\\developer\\projects\\app',
+      'D:\\work\\Windows\\app',
+    ])('allows bounded project directory %s', (workspacePath) => {
+      expect(checkWorkspaceSafety(workspacePath).safe).toBe(true);
+    });
+
+    it.each([
+      String.raw`\\fileserver\projects\Windows\app`,
+      String.raw`\\fileserver\projects\Program Files\app`,
+      String.raw`\\fileserver\projects\ProgramData\app`,
+    ])('allows a network project with a system-like folder name %s', (workspacePath) => {
+      expect(checkWorkspaceSafety(workspacePath).safe).toBe(true);
+    });
+
+    it('retains explicit system-directory protection for a network path', () => {
+      vi.stubEnv('SystemRoot', String.raw`\\fileserver\system\Windows`);
+      expect(checkWorkspaceSafety(String.raw`\\fileserver\system\Windows\System32`).safe).toBe(false);
+    });
+
+    it('checks Windows paths with Windows semantics on non-Windows hosts', () => {
+      mockPlatform('linux');
+      expect(checkWorkspaceSafety('c:/WINDOWS/system32').safe).toBe(false);
     });
 
     it('handles forward slashes on Windows', () => {

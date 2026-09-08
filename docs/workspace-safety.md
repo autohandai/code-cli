@@ -42,10 +42,12 @@ Autohand will refuse to start in these locations:
 - `/Volumes` - Mounted volumes
 
 **Windows:**
-- `C:\Windows` - Windows system files
+- `C:\Windows` and its subdirectories (including `System32` and `SysWOW64`) - Windows system files
 - `C:\Program Files` - 64-bit programs
 - `C:\Program Files (x86)` - 32-bit programs
 - `C:\ProgramData` - Application data
+
+Windows system paths are checked case-insensitively, including alternate installation drives and the `SystemRoot`/`windir` directory. Subdirectories under Windows program and application-data locations are also blocked. Launch Autohand from your project folder or supply `--path` when your terminal starts in `System32`.
 
 **WSL (Windows Subsystem for Linux):**
 - `/mnt/c`, `/mnt/d`, etc. - Windows drive mounts
