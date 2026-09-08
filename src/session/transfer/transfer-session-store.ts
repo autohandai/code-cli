@@ -5,6 +5,30 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { isRecord } from './record.js';
 import { parseSessionTransfer, parseTransferReceipt, type SessionTransfer, type TransferReceipt } from './session-transfer.js';
 
+/** Recover the CLI's owner-record lock format without removing an active owner's files. */
+async function recoverExitedImporter(lock: string): Promise<void> {
+  try {
+    const stat = await fs.lstat(lock);
+    if (!stat.isDirectory()) { return; }
+    const entries = await fs.readdir(lock, { withFileTypes: true });
+    if (!entries.length) { if (Date.now() - stat.mtimeMs >= 300_000) { await fs.rmdir(lock); } return; }
+    for (const entry of entries) {
+      if (!entry.isFile() || !/^[0-9a-f-]{36}\.owner$/.test(entry.name)) { return; }
+      let owner: unknown;
+      try { owner = JSON.parse(await fs.readFile(path.join(lock, entry.name), 'utf8')); } catch { return; }
+      if (!isRecord(owner) || owner.version !== 1 || entry.name !== `${String(owner.ownerId)}.owner`
+        || typeof owner.createdAt !== 'number' || !Number.isFinite(owner.createdAt) || Date.now() - owner.createdAt < 300_000
+        || typeof owner.pid !== 'number' || !Number.isInteger(owner.pid) || owner.pid <= 0) { return; }
+      try { process.kill(owner.pid, 0); return; }
+      catch (error) { if (!isRecord(error) || error.code !== 'ESRCH') { return; } }
+    }
+    for (const entry of entries) { await fs.unlink(path.join(lock, entry.name)); }
+    await fs.rmdir(lock);
+  } catch (error) {
+    if (!isRecord(error) || !['ENOENT', 'ENOTEMPTY', 'EEXIST', 'ENOTDIR'].includes(String(error.code))) { throw error; }
+  }
+}
+
 /** Import once into the CLI's durable session format; no imported prompt is executed. */
 export async function importTransferSession(snapshot: SessionTransfer, receipt: TransferReceipt, workspace: string, directory: string): Promise<string> {
   const value = parseSessionTransfer(snapshot), transfer = parseTransferReceipt(receipt);
@@ -16,7 +40,10 @@ export async function importTransferSession(snapshot: SessionTransfer, receipt: 
   const deadline = Date.now() + 10_000;
   while (true) {
     try { await fs.mkdir(lock, { mode: 0o700 }); break; }
-    catch (error) { if (!isRecord(error) || error.code !== 'EEXIST' || Date.now() >= deadline) { throw error; } await delay(25); }
+    catch (error) {
+      if (!isRecord(error) || error.code !== 'EEXIST' || Date.now() >= deadline) { throw error; }
+      await recoverExitedImporter(lock); await delay(25);
+    }
   }
   let temporary: string | undefined;
   try {
