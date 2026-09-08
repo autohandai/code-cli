@@ -509,6 +509,52 @@ describe('initializeAgentForRPC', () => {
     });
   });
 
+  it('loads a requested persistent session without creating an orphan session', async () => {
+    const loadedSession = {
+      metadata: {
+        sessionId: 'persisted-session-123',
+        model: 'openai/gpt-4o-mini',
+      },
+    };
+    const host = {
+      runtime: {
+        config: {
+          provider: 'openrouter',
+          openrouter: { model: 'openai/gpt-4o-mini' },
+          mcp: { enabled: true, servers: [] },
+        },
+        options: {},
+        workspaceRoot: '/workspace',
+      },
+      activeProvider: 'openrouter',
+      initializeManagers: vi.fn().mockResolvedValue(undefined),
+      mcpManager: { connectAll: vi.fn().mockResolvedValue(undefined) },
+      syncMcpTools: vi.fn(),
+      mcpStartupCoordinator: { markSummaryPending: vi.fn() },
+      skillsRegistry: { setWorkspace: vi.fn().mockResolvedValue(undefined) },
+      resetConversationContext: vi.fn().mockResolvedValue(undefined),
+      sessionManager: {
+        createSession: vi.fn(),
+        loadSession: vi.fn().mockResolvedValue(loadedSession),
+      },
+      startActiveAgentHeartbeat: vi.fn().mockResolvedValue(undefined),
+      injectSessionBootstrap: vi.fn().mockResolvedValue(undefined),
+      telemetryManager: { startSession: vi.fn().mockResolvedValue(undefined) },
+      hookManager: { executeHooks: vi.fn().mockResolvedValue(undefined) },
+      sessionStartedAt: 0,
+      mcpReady: null,
+    };
+
+    await initializeAgentForRPC(host, undefined, 'persisted-session-123');
+
+    expect(host.sessionManager.loadSession).toHaveBeenCalledWith('persisted-session-123');
+    expect(host.sessionManager.createSession).not.toHaveBeenCalled();
+    expect(host.hookManager.executeHooks).toHaveBeenCalledWith('session-start', {
+      sessionId: 'persisted-session-123',
+      sessionType: 'resume',
+    });
+  });
+
   it('registers tools from a real stdio MCP server before session startup', async () => {
     const mcpManager = new McpClientManager();
     const registeredToolNames: string[] = [];

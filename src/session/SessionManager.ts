@@ -95,6 +95,7 @@ export function isSessionIndex(value: unknown): value is SessionIndex {
 export interface BranchSessionOptions {
     type: 'fork' | 'clone';
     userMessageOrdinal?: number;
+    projectPath?: string;
 }
 
 export class SessionManager {
@@ -200,6 +201,7 @@ export class SessionManager {
         const createdAt = new Date().toISOString();
         const sessionId = this.generateSessionId();
         const sessionDir = path.join(this.sessionsDir, sessionId);
+        const projectPath = path.resolve(options.projectPath ?? sourceSession.metadata.projectPath);
         await fs.ensureDir(sessionDir);
 
         const metadata: SessionMetadata = {
@@ -207,6 +209,8 @@ export class SessionManager {
             sessionId,
             createdAt,
             lastActiveAt: createdAt,
+            projectPath,
+            projectName: path.basename(projectPath),
             closedAt: undefined,
             messageCount: copiedMessages.length,
             status: 'active',
@@ -227,7 +231,10 @@ export class SessionManager {
         await session.replaceMessages(copiedMessages);
         const sourceState = sourceSession.getState();
         if (sourceState) {
-            await session.updateState(sourceState);
+            await session.updateState({
+                ...sourceState,
+                workspaceRoot: projectPath,
+            });
         }
         await session.save();
 

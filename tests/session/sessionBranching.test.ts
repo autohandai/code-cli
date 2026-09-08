@@ -48,6 +48,29 @@ describe('SessionManager branching', () => {
     expect(manager.getCurrentSession()?.metadata.sessionId).toBe(cloned.metadata.sessionId);
   });
 
+  it('moves a branch into an explicitly requested workspace', async () => {
+    const source = await manager.createSession('/workspace/project', 'test-model');
+    await source.updateState({
+      workspaceRoot: '/workspace/project',
+      workspaceFiles: ['src/a.ts'],
+      contextUsed: 100,
+      contextLimit: 1000,
+    });
+
+    const cloned = await manager.branchSession(source.metadata.sessionId, {
+      type: 'clone',
+      projectPath: '/workspace/forked-project',
+    });
+
+    expect(cloned.metadata.projectPath).toBe('/workspace/forked-project');
+    expect(cloned.metadata.projectName).toBe('forked-project');
+    expect(cloned.getState()).toEqual(expect.objectContaining({
+      workspaceRoot: '/workspace/forked-project',
+    }));
+    expect(await manager.listSessions({ project: '/workspace/forked-project' }))
+      .toEqual([expect.objectContaining({ sessionId: cloned.metadata.sessionId })]);
+  });
+
   it('forks a session at a user-message ordinal', async () => {
     const source = await manager.createSession('/workspace/project', 'test-model');
     await source.append({ role: 'user', content: 'First turn', timestamp: '2026-01-01T00:00:00.000Z' });

@@ -141,6 +141,7 @@ export const SYNC_EXCLUDE_ALWAYS = [
   'version-*.json',
   '.sync-lock',
   '.sync-state.json',
+  '.account-skills/',
   'sessions/index.json.lock',
   'memory/index.json.lock',
   'memory/events/.LOG.jsonl.lock',

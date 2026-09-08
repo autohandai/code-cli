@@ -993,6 +993,7 @@ function createCommandFinalizationDeadline(
 export async function initializeAgentForRPC(
   host: AgentLifecycleHost,
   signal?: AbortSignal,
+  existingSessionId?: string,
 ): Promise<void> {
     // Initialize managers in parallel for faster startup
     await awaitLifecycleStep(Promise.resolve(host.initializeManagers()), signal);
@@ -1012,13 +1013,16 @@ export async function initializeAgentForRPC(
       signal,
     );
     const providerSettings = getHostProviderSettings(host);
-    const model = host.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
+    const configuredModel = host.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
     const providerTelemetryMetadata = buildProviderTelemetryMetadata(providerSettings);
     host.sessionStartedAt = Date.now();
     const [, session] = await awaitLifecycleStep(Promise.all([
       host.resetConversationContext(),
-      host.sessionManager.createSession(host.runtime.workspaceRoot, model),
+      existingSessionId
+        ? host.sessionManager.loadSession(existingSessionId)
+        : host.sessionManager.createSession(host.runtime.workspaceRoot, configuredModel),
     ]), signal);
+    const model = session?.metadata?.model ?? configuredModel;
     await awaitLifecycleStep(startHostActiveAgentHeartbeat(host), signal);
 
     await awaitLifecycleStep(Promise.resolve(host.injectSessionBootstrap()), signal);
@@ -1043,7 +1047,7 @@ export async function initializeAgentForRPC(
     // Fire session-start hook
     await awaitLifecycleStep(host.hookManager.executeHooks('session-start', {
       sessionId: session?.metadata.sessionId,
-      sessionType: 'startup',
+      sessionType: existingSessionId ? 'resume' : 'startup',
     }), signal);
   }
 

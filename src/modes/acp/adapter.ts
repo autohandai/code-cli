@@ -38,6 +38,7 @@ import { PROTOCOL_VERSION, RequestError } from '@agentclientprotocol/sdk';
 import { AutohandAgent } from '../../core/agent.js';
 import { isLikelyFilePathSlashInput } from '../../core/slashInputDetection.js';
 import { ConversationManager } from '../../core/conversationManager.js';
+import type { ImageMimeType } from '../../core/ImageManager.js';
 import { FileActionManager } from '../../actions/filesystem.js';
 import { ProviderFactory } from '../../providers/ProviderFactory.js';
 import { loadConfig } from '../../config.js';
@@ -114,6 +115,15 @@ const AUTOHAND_ACP_AUTH_METHODS: NonNullable<InitializeResponse['authMethods']> 
     args: ['--setup'],
   },
 ];
+
+function isSupportedImageMimeType(mimeType: string): mimeType is ImageMimeType {
+  return (
+    mimeType === 'image/png'
+    || mimeType === 'image/jpeg'
+    || mimeType === 'image/gif'
+    || mimeType === 'image/webp'
+  );
+}
 
 function stringField(record: Record<string, unknown>, field: string): string | undefined {
   const value = record[field];
@@ -232,6 +242,19 @@ export class AutohandAcpAdapter implements Agent {
     return DEFAULT_ACP_COMMANDS.filter((cmd) => cmd.name !== 'goal');
   }
 
+  private async publishSessionCommands(sessionId: string, config: LoadedConfig): Promise<void> {
+    await this.connection.sessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: 'available_commands_update',
+        availableCommands: this.getSessionCommands(config).map((command) => ({
+          name: command.name,
+          description: command.description,
+        })),
+      },
+    });
+  }
+
   private cloneConfigOptions(options: SessionConfigOption[]): SessionConfigOption[] {
     return structuredClone(options);
   }
@@ -248,6 +271,39 @@ export class AutohandAcpAdapter implements Agent {
     if (option?.type === 'select') {
       option.currentValue = modelId;
     }
+  }
+
+  private async applySessionModel(sessionId: string, modelId: string): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    const agent = this.agents.get(sessionId);
+    if (!session || !agent) {
+      throw RequestError.invalidParams({ message: 'Session not found' });
+    }
+
+    const config = await this.ensureConfig();
+    this.validateModel(config, modelId);
+
+    const persistedSession = agent.getSessionManager().getCurrentSession();
+    if (!persistedSession) {
+      throw RequestError.invalidParams({ message: 'Session persistence is unavailable' });
+    }
+
+    const previousModel = persistedSession.metadata.model;
+    const previousLastActiveAt = persistedSession.metadata.lastActiveAt;
+    persistedSession.metadata.model = modelId;
+    persistedSession.metadata.lastActiveAt = new Date().toISOString();
+    try {
+      await persistedSession.save();
+    } catch (error) {
+      persistedSession.metadata.model = previousModel;
+      persistedSession.metadata.lastActiveAt = previousLastActiveAt;
+      throw error;
+    }
+
+    session.modelId = modelId;
+    this.updateModelConfigOption(sessionId, modelId);
+    agent.applyAcpModel(modelId);
+    process.stderr.write(`[ACP] Session ${sessionId} model set to: ${modelId}\n`);
   }
 
   private validateMode(modeId: string): void {
@@ -304,7 +360,7 @@ export class AutohandAcpAdapter implements Agent {
     await agent.connectAcpMcpServers(converted);
   }
 
-  private resolveWorkspaceRoot(sessionId: string, cwd: string): string {
+  private resolveWorkspaceRoot(cwd: string): string {
     let workspaceRoot = cwd;
 
     if (isSessionWorktreeEnabled(this.cliOptions.worktree)) {
@@ -315,7 +371,7 @@ export class AutohandAcpAdapter implements Agent {
       });
       workspaceRoot = sessionWorktree.worktreePath;
       process.stderr.write(
-        `[ACP] Session ${sessionId} using git worktree ${sessionWorktree.worktreePath} (${sessionWorktree.branchName})\n`
+        `[ACP] Using git worktree ${sessionWorktree.worktreePath} (${sessionWorktree.branchName})\n`
       );
     }
 
@@ -323,8 +379,8 @@ export class AutohandAcpAdapter implements Agent {
   }
 
   private async createManagedSession(
-    sessionId: string,
-    workspaceRoot: string
+    workspaceRoot: string,
+    existingSessionId?: string,
   ): Promise<{ config: LoadedConfig; state: AcpSessionState; agent: AutohandAgent }> {
     const config = await this.ensureConfig();
 
@@ -354,11 +410,17 @@ export class AutohandAcpAdapter implements Agent {
     const provider = ProviderFactory.create(config);
     const files = new FileActionManager(workspaceRoot);
     const agent = new AutohandAgent(provider, files, runtime);
-    await agent.initializeForRPC();
+    await agent.initializeForRPC(undefined, existingSessionId);
     agent.applyAcpMode(modeId);
 
+    const activeSession = agent.getSessionManager().getCurrentSession();
+    if (!activeSession) {
+      throw new Error('Agent initialization did not create or load a persistent session');
+    }
+    const managedSessionId = existingSessionId ?? activeSession.metadata.sessionId;
+
     const state: AcpSessionState = {
-      sessionId,
+      sessionId: managedSessionId,
       modeId,
       modelId,
       workspaceRoot,
@@ -367,24 +429,25 @@ export class AutohandAcpAdapter implements Agent {
       promptCount: 0,
     };
 
-    this.sessions.set(sessionId, state);
-    this.agents.set(sessionId, agent);
-    this.sessionConfigOptions.set(sessionId, buildConfigOptions(config));
+    this.sessions.set(managedSessionId, state);
+    this.agents.set(managedSessionId, agent);
+    this.sessionConfigOptions.set(managedSessionId, buildConfigOptions(config));
 
     agent.setOutputListener((event: AgentOutputEvent) => {
-      this.handleAgentOutput(sessionId, event);
+      this.handleAgentOutput(managedSessionId, event);
     });
 
     const permBridge = createPermissionBridge({
       connection: this.connection,
-      sessionId,
+      sessionId: managedSessionId,
       modeId,
     });
 
     agent.setConfirmationCallback(async (message, context) => {
       return permBridge.confirmAction(message, context);
     });
-    this.permissionBridges.set(sessionId, permBridge);
+    this.permissionBridges.set(managedSessionId, permBridge);
+    await this.publishSessionCommands(managedSessionId, config);
 
     return { config, state, agent };
   }
@@ -493,19 +556,26 @@ export class AutohandAcpAdapter implements Agent {
     cwd: string,
     mcpServers?: McpServer[]
   ): Promise<{ config: LoadedConfig; state: AcpSessionState; messages: SessionMessage[] }> {
-    const workspaceRoot = this.resolveWorkspaceRoot(sessionId, cwd);
-    const { config, state, agent } = await this.createManagedSession(sessionId, workspaceRoot);
+    const workspaceRoot = this.resolveWorkspaceRoot(cwd);
+    const { config, state, agent } = await this.createManagedSession(
+      workspaceRoot,
+      sessionId,
+    );
     await this.connectSessionMcpServers(agent, mcpServers);
     const sessionManager = agent.getSessionManager();
 
     try {
-      const loadedSession = await sessionManager.loadSession(sessionId);
+      const loadedSession = sessionManager.getCurrentSession();
+      if (!loadedSession) {
+        throw new Error(`Session not found after initialization: ${sessionId}`);
+      }
       const messages = loadedSession.getMessages();
       this.restoreConversation(messages);
 
       if (loadedSession.metadata.model) {
         state.modelId = loadedSession.metadata.model;
         this.updateModelConfigOption(sessionId, state.modelId);
+        agent.applyAcpModel(state.modelId);
       }
 
       this.sessions.set(sessionId, state);
@@ -584,9 +654,9 @@ export class AutohandAcpAdapter implements Agent {
   // ==========================================================================
 
   async newSession(params: NewSessionRequest): Promise<ResponseWithLegacyModels<NewSessionResponse>> {
-    const sessionId = crypto.randomUUID();
-    const workspaceRoot = this.resolveWorkspaceRoot(sessionId, params.cwd);
-    const { config, state, agent } = await this.createManagedSession(sessionId, workspaceRoot);
+    const workspaceRoot = this.resolveWorkspaceRoot(params.cwd);
+    const { config, state, agent } = await this.createManagedSession(workspaceRoot);
+    const { sessionId } = state;
     await this.connectSessionMcpServers(agent, params.mcpServers);
     this.emitHookSessionStart(sessionId, 'startup');
 
@@ -624,14 +694,37 @@ export class AutohandAcpAdapter implements Agent {
 
     // Resolve prompt text from content blocks
     let instruction = '';
+    const appendInstructionPart = (part: string): void => {
+      const separator = instruction && !instruction.endsWith('\n') ? '\n' : '';
+      instruction += `${separator}${part}`;
+    };
+    const imageManager = agent.getImageManager();
+    imageManager.clear();
     if (params.prompt) {
       for (const block of params.prompt) {
         if (block.type === 'text') {
-          instruction += block.text;
+          appendInstructionPart(block.text);
+        } else if (block.type === 'image') {
+          if (!isSupportedImageMimeType(block.mimeType)) {
+            throw RequestError.invalidParams({
+              message: `Unsupported image MIME type: ${block.mimeType}`,
+            });
+          }
+          const imageBytes = Buffer.from(block.data, 'base64');
+          if (imageBytes.length === 0) {
+            throw RequestError.invalidParams({ message: 'ACP image data is empty' });
+          }
+          const imageId = imageManager.add(imageBytes, block.mimeType);
+          const placeholder = imageManager.formatPlaceholder(imageId);
+          appendInstructionPart(placeholder);
         } else if (block.type === 'resource') {
-          // Append resource URI context
-          const resourceUri = (block as any).resource?.uri ?? '';
-          instruction += `\n[Resource: ${resourceUri}]`;
+          const embeddedText =
+            'text' in block.resource && block.resource.text
+              ? `\n${block.resource.text}`
+              : '';
+          appendInstructionPart(`[Resource: ${block.resource.uri}]${embeddedText}`);
+        } else if (block.type === 'resource_link') {
+          appendInstructionPart(`[Resource: ${block.uri}]`);
         }
       }
     }
@@ -844,21 +937,7 @@ export class AutohandAcpAdapter implements Agent {
   async unstable_setSessionModel(
     params: LegacySetSessionModelRequest,
   ): Promise<LegacySetSessionModelResponse> {
-    const session = this.sessions.get(params.sessionId);
-    const agent = this.agents.get(params.sessionId);
-    if (!session) {
-      throw RequestError.invalidParams({ message: 'Session not found' });
-    }
-    if (!agent) {
-      throw RequestError.invalidParams({ message: 'Session agent not found' });
-    }
-    const config = await this.ensureConfig();
-    this.validateModel(config, params.modelId);
-
-    session.modelId = params.modelId;
-    this.updateModelConfigOption(params.sessionId, params.modelId);
-    agent.applyAcpModel(params.modelId);
-    process.stderr.write(`[ACP] Session ${params.sessionId} model set to: ${params.modelId}\n`);
+    await this.applySessionModel(params.sessionId, params.modelId);
     return {};
   }
 
@@ -895,15 +974,11 @@ export class AutohandAcpAdapter implements Agent {
       });
     }
 
-    option.currentValue = params.value;
     if (params.configId === 'model') {
       const modelId = String(params.value);
-      const config = await this.ensureConfig();
-      this.validateModel(config, modelId);
-      session.modelId = modelId;
-      agent.applyAcpModel(modelId);
-      process.stderr.write(`[ACP] Session ${params.sessionId} model set to: ${modelId}\n`);
+      await this.applySessionModel(params.sessionId, modelId);
     } else {
+      option.currentValue = params.value;
       agent.applyAcpConfigOption(params.configId, String(params.value));
     }
 
@@ -1017,15 +1092,19 @@ export class AutohandAcpAdapter implements Agent {
       }
     }
 
-    // Create a new session based on the source
-    // For now, create a fresh session at the same workspace
-    const newSessionResponse = await this.newSession({
-      cwd: sourceSession.workspaceRoot,
-      mcpServers: [],
+    const { SessionManager } = await import('../../session/SessionManager.js');
+    const persistentSessionManager = new SessionManager();
+    await persistentSessionManager.initialize();
+    const forkedSession = await persistentSessionManager.branchSession(params.sessionId, {
+      type: 'fork',
+      projectPath: params.cwd,
     });
+    const forkedSessionId = forkedSession.metadata.sessionId;
+    await this.restoreSession(forkedSessionId, params.cwd, params.mcpServers);
+    this.emitHookSessionStart(forkedSessionId, 'startup');
 
     return {
-      sessionId: newSessionResponse.sessionId,
+      sessionId: forkedSessionId,
     };
   }
 

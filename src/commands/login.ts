@@ -351,6 +351,7 @@ async function checkAndRestoreSyncData(
   try {
     // Create sync service to check for cloud data
     const syncService = createSyncService({
+      controlPlaneConfigPath: config.configPath,
       authToken: token,
       userId,
       config: {
