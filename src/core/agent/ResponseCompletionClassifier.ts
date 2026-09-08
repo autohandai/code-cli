@@ -131,10 +131,43 @@ function normalizeForClassification(value: string): string {
     .trim();
 }
 
-function splitStatements(normalized: string): string[] {
-  return normalized
-    .split(/\n|[.!?]+/u)
-    .map((line) => line.replace(/^[-*]\s*/, '').trim())
+function extractCompletionProse(response: string): string {
+  let fence: string | undefined;
+  return response
+    .split('\n')
+    .map((line) => {
+      const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+      if (fence) {
+        if (marker?.[0] === fence[0] && marker.length >= fence.length && /^\s*(`+|~+)\s*$/u.test(line)) {
+          fence = undefined;
+          return '';
+        }
+        return line.trim() ? 'quoted answer content' : '';
+      }
+      if (marker) {
+        fence = marker;
+        return '';
+      }
+      return /^\s*>/u.test(line) ? (line.replace(/^\s*>+\s*/u, '') ? 'quoted answer content' : '') : line;
+    })
+    .join('\n')
+    .replace(/(`+)([\s\S]*?)\1/g, (_match: string, _delimiter: string, content: string, offset: number, source: string) => {
+      const prefix = splitStatements(source.slice(0, offset)).at(-1) ?? '';
+      const followsActionIntent = ACTION_INTENT_OPENERS.some((opener) => prefix.endsWith(opener))
+        || /^(?:next(?: steps?)?|status|blocked)\s*:\s*$/u.test(prefix);
+      const normalized = normalizeForClassification(content);
+      const containsIntent = hasActionAnnouncement(normalized)
+        || isOperationalNextStep(normalized)
+        || BLOCKED_WITHOUT_TOOLS_PHRASES.some((phrase) => hasPhrase(normalized, phrase));
+      return containsIntent && !followsActionIntent ? 'quoted answer content' : content;
+    });
+}
+
+function splitStatements(response: string): string[] {
+  return response
+    .replace(/\b(?:e\.g|i\.e)\./giu, (abbreviation) => abbreviation.replaceAll('.', ''))
+    .split(/\n|[!?]+|\.(?=\s|$)/u)
+    .map(normalizeForClassification)
     .filter((line) => line.length > 0);
 }
 
@@ -163,10 +196,6 @@ function findOperationalActionIndex(statement: string): number {
   return indexes.length === 0 ? -1 : Math.min(...indexes);
 }
 
-function hasOperationalAction(statement: string): boolean {
-  return findOperationalActionIndex(statement) >= 0;
-}
-
 function hasActionAnnouncement(statement: string): boolean {
   const actionIndex = findOperationalActionIndex(statement);
   if (actionIndex < 0) {
@@ -188,18 +217,10 @@ function hasActionAnnouncement(statement: string): boolean {
 }
 
 function isOperationalNextStep(statement: string): boolean {
-  if (!hasOperationalAction(statement)) {
-    return false;
-  }
-
-  return (
-    statement.startsWith('next ') ||
-    statement.startsWith('next:') ||
-    statement.startsWith('status ') ||
-    statement.startsWith('status:') ||
-    statement.startsWith('blocked ') ||
-    statement.startsWith('blocked:')
-  );
+  const nextStep = /^(?:next(?: steps?)?|status|blocked)(?:\s*:|\s)\s*(.*)$/u.exec(statement)?.[1];
+  return nextStep !== undefined
+    && findOperationalActionIndex(nextStep) === 0
+    && !/(?:^|\s)(?:complete|completed|verified|passed|implemented|done|finished|restored|successful|succeeded)(?:\s+(?:successfully|verification|checks|tests))?$/u.test(nextStep);
 }
 
 function hasAnswerContinuation(statementIndex: number, statements: readonly string[]): boolean {
@@ -255,20 +276,18 @@ function classifyBlockedWithoutTools({ normalized, response }: ResponseCompletio
 }
 
 function classifyAnnouncedActionWithoutTools({
-  response,
   statements,
 }: ResponseCompletionContext): ResponseCompletionClassification | undefined {
-  if (
-    statements.some((statement, index) =>
-      hasActionAnnouncement(statement) ||
-      isOperationalNextStep(statement) ||
-      isAnswerPromiseInsteadOfAnswer(statement, index, statements)
-    )
-  ) {
+  const rejectedStatement = statements.find((statement, index) =>
+    hasActionAnnouncement(statement) ||
+    isOperationalNextStep(statement) ||
+    isAnswerPromiseInsteadOfAnswer(statement, index, statements)
+  );
+  if (rejectedStatement !== undefined) {
     return {
       kind: 'invalid_deferred_action',
       reason: 'announced_action_without_tool',
-      excerpt: getExcerpt(response),
+      excerpt: getExcerpt(rejectedStatement),
     };
   }
 
@@ -288,12 +307,13 @@ export function classifyResponseCompletion(
   }: ResponseCompletionInput,
   hooks: readonly ResponseCompletionHook[] = DEFAULT_RESPONSE_COMPLETION_HOOKS,
 ): ResponseCompletionClassification {
-  const normalized = normalizeForClassification(response);
+  const prose = extractCompletionProse(response);
+  const normalized = normalizeForClassification(prose);
   const context: ResponseCompletionContext = {
     response,
     toolCalls: toolCalls ?? [],
     normalized,
-    statements: normalized ? splitStatements(normalized) : [],
+    statements: normalized ? splitStatements(prose) : [],
   };
 
   for (const hook of hooks) {

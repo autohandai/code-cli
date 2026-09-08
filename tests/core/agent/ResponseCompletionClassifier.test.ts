@@ -81,6 +81,19 @@ describe('ResponseCompletionClassifier', () => {
     ['I should check', 'I should check the git status and test output first.'],
     ['Blocked by no tools', 'Status: blocked by this turn s no-tool constraint.'],
     ['Edit after reviewing', 'I will edit the classifier after reviewing the loop contract.'],
+    ['Action after an explanation', 'Let me explain the result. I will run the tests now.'],
+    ['Action after quoted evidence', 'The saved example is `I will inspect the file`. I will run the tests now.'],
+    ['Next step with a code argument', 'Next: inspect `src/index.ts`.'],
+    ['Action verb formatted as code', 'I will `run` the tests now.'],
+    ['Action phrase formatted as code', 'I will `run the test suite` now.'],
+    ['Next step formatted as code', 'Next: `inspect src/index.ts`.'],
+    ['Next step with quoted first-person intent', 'Next: `I will inspect src/index.ts`.'],
+    ['Action with an example abbreviation', 'I will e.g. run the tests now.'],
+    ['Action with a clarification abbreviation', 'I will, i.e. I need to, run the tests now.'],
+    ['Explicit action in a status line', 'Status: I will inspect the remaining file now.'],
+    ['Imperative action in a status line', 'Status: inspect the remaining configuration now.'],
+    ['Imperative action in a blocked line', 'Blocked: inspect the remaining configuration first.'],
+    ['Promise followed by empty code', 'I will provide the implementation for you:\n```ts\n\n```'],
     [
       'Promise to answer later',
       'I now have a comprehensive understanding of the repository. Let me provide a clear summary to the user.',
@@ -144,6 +157,31 @@ describe('ResponseCompletionClassifier', () => {
     const result = classifyResponseCompletion({ response });
 
     expect(result).toEqual({ kind: 'final_answer' });
+  });
+
+  it.each([
+    ['completed search app', '✓ Act I — Search App: complete and verified.\nStatus: search and review flows passed verification.'],
+    ['completed persistence', '✓ localStorage persistence implemented in app.js.\nStatus: read and write persistence verified.'],
+    ['saved memory text', 'Done. The Demo Off memory now contains:\n> I will remove the demo data when Demo Off is requested.'],
+    ['inline memory text', 'Done. Saved `I will remove the demo data when Demo Off is requested` in both memory scopes.'],
+    ['code example', 'The test now covers this response:\n```text\nI will run the tests now.\n```\nVerification passed.'],
+    ['tilde code example', 'The test now covers this response:\n~~~text\nI will run the tests now.\n~~~\nVerification passed.'],
+    ['quoted tool limitation', 'The old failure message was:\n> Tools unavailable\nThe connection is now restored.'],
+    ['application behavior', 'Done. The search app is ready.\nNext: the results update automatically when you type.'],
+    ['separate answer sentences', 'I will leave it there. The search implementation is complete.'],
+    ['delivered code answer', 'I will provide the implementation for you:\n```ts\nexport const hello = 1;\n```'],
+    ['delivered quote answer', 'I will provide the exact message for you:\n> I will inspect the remaining file now.'],
+  ])('accepts %s without treating reported content as an action promise', (_name, response) => {
+    expect(classifyResponseCompletion({ response })).toEqual({ kind: 'final_answer' });
+  });
+
+  it('reports the triggering statement instead of an unrelated completed-work prefix', () => {
+    const response = `${'The implemented search and persistence checks passed. '.repeat(6)}\nI will inspect the remaining file now.`;
+
+    expect(classifyResponseCompletion({ response })).toMatchObject({
+      kind: 'invalid_deferred_action',
+      excerpt: 'i will inspect the remaining file now',
+    });
   });
 
   it('keeps the legacy deferred-response helper backed by the classifier', () => {
