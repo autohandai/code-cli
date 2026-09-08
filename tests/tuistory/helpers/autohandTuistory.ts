@@ -77,6 +77,7 @@ export interface MockAuthServer {
 }
 
 export interface MockAuthServerOptions {
+  paymentBlocked?: () => boolean;
   authorizeAfterPolls?: number;
   deviceAuthSchemaVersion?: 1 | 2;
 }
@@ -942,7 +943,10 @@ export async function createMockAuthServer(
           email: 'tuistory@example.com',
           name: 'Tuistory Test',
         },
-        entitlement: {
+        entitlement: options.paymentBlocked?.() ? {
+          tier: 'free', freeRemaining: 20,
+          paymentAccess: { status: 'suspended', reason: 'stripe_blocked', effectiveTier: 'free', planName: 'Autohand Code Pro', since: '2026-09-08T00:00:00Z', message: 'Stripe blocked your payment. Your paid plan is suspended and your account is now on Free.', actionUrl: 'https://console.autohand.ai/billing?account=personal_tuistory' },
+        } : {
           tier: 'pro',
           freeRemaining: null,
           limits: {
