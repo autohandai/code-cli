@@ -10,6 +10,8 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import { AUTOHAND_HOME } from '../constants.js';
 import { loadConfig } from '../config.js';
+import { syncAccountSkills } from './AccountSkills.js';
+import { getOrCreateCodingAgentDeviceId } from './CodingAgentControlPlane.js';
 import type { McpSettings } from '../types.js';
 import {
   syncCodingAgentControlPlane,
@@ -75,6 +77,8 @@ class SyncOperationStoppedError extends Error {
 }
 
 export interface SyncServiceOptions {
+  /** The CLI profile whose account owns managed connectors and skills. */
+  controlPlaneConfigPath?: string;
   /** Auth token for API calls */
   authToken: string;
   /** User ID from auth */
@@ -137,6 +141,7 @@ export class SyncService {
   private readonly onAuthFailure: (() => void) | undefined;
   private readonly onControlPlaneMcpApplied: ((mcp: McpSettings | undefined) => Promise<void> | void) | undefined;
   private readonly basePath: string;
+  private readonly controlPlaneConfigPath: string;
 
   private timer: ReturnType<typeof setInterval> | null = null;
   private syncing = false;
@@ -158,6 +163,7 @@ export class SyncService {
     this.onAuthFailure = options.onAuthFailure;
     this.onControlPlaneMcpApplied = options.onControlPlaneMcpApplied;
     this.basePath = AUTOHAND_HOME;
+    this.controlPlaneConfigPath = options.controlPlaneConfigPath ?? path.join(this.basePath, 'config.json');
   }
 
   /**
@@ -302,7 +308,7 @@ export class SyncService {
     try {
       this.assertOperationActive(context);
       this.onEvent({ type: 'sync_started' });
-      await this.syncCodingAgentControlPlane(context);
+      const accountSkillError = await this.syncCodingAgentControlPlane(context);
       this.assertOperationActive(context);
 
       // 1. Build local manifest
@@ -413,7 +419,8 @@ export class SyncService {
       this.assertOperationActive(context);
 
       const result: SyncResult = {
-        success: true,
+        success: !accountSkillError,
+        ...(accountSkillError ? { error: accountSkillError } : {}),
         uploaded,
         downloaded,
         conflicts,
@@ -454,13 +461,21 @@ export class SyncService {
     }
   }
 
-  private async syncCodingAgentControlPlane(context: SyncOperationContext): Promise<void> {
+  private async syncCodingAgentControlPlane(context: SyncOperationContext): Promise<string | undefined> {
     // Account-managed connectors belong to the user's global Coding Agent
     // configuration. Project and test sync roots must remain file-sync only.
     if (path.resolve(this.basePath) !== path.resolve(AUTOHAND_HOME)) return;
-    const config = await loadConfig(path.join(this.basePath, 'config.json'));
+    const config = await loadConfig(this.controlPlaneConfigPath);
     this.assertOperationActive(context);
     if (!config.auth?.token) return;
+    let skillSyncError: string | undefined;
+    try {
+      await syncAccountSkills(config, this.authToken, await getOrCreateCodingAgentDeviceId(), { signal: context.signal });
+    } catch (error) {
+      this.assertOperationActive(context);
+      skillSyncError = error instanceof Error ? error.message : 'Account skill sync failed';
+      this.emitOperationEvent(context, { type: 'download_error', path: '.account-skills/snapshot.json', error: skillSyncError });
+    }
     await syncCodingAgentControlPlane(config, this.authToken, {
       signal: context.signal,
       onMcpApplied: async (mcp) => {
@@ -473,6 +488,7 @@ export class SyncService {
       },
     });
     this.assertOperationActive(context);
+    return skillSyncError;
   }
 
   private isOperationActive(context: SyncOperationContext): boolean {

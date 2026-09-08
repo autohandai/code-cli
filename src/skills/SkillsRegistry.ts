@@ -8,6 +8,7 @@
 import fs from 'fs-extra';
 import path from 'node:path';
 import { SkillParser } from './SkillParser.js';
+import { readAccountSkills } from '../sync/AccountSkills.js';
 import type {
   SkillDefinition,
   SkillSource,
@@ -45,6 +46,8 @@ export interface SkillSearchLocation {
 }
 
 export interface SkillsRegistryOptions {
+  /** Bind account skills to this CLI profile; another process cannot select its account. */
+  accountConfigPath?: string;
   /**
    * Overrides the user-level discovery locations. Tests and embedded callers can
    * use this to keep discovery scoped to temporary directories.
@@ -658,14 +661,15 @@ export class SkillsRegistry {
    * List all available skills
    */
   listSkills(): SkillDefinition[] {
-    return Array.from(this.skills.values());
+    const account = readAccountSkills(path.dirname(this.userSkillsDir), this.options.accountConfigPath);
+    return [...Array.from(this.skills.values()).filter(skill => !account.names.has(skill.name)), ...account.enabled];
   }
 
   /**
    * Get a specific skill by name
    */
   getSkill(name: string): SkillDefinition | null {
-    return this.skills.get(name) ?? null;
+    return this.listSkills().find(skill => skill.name === name) ?? null;
   }
 
   /**
@@ -680,7 +684,7 @@ export class SkillsRegistry {
    * Activate a skill by name
    */
   activateSkill(name: string, origin: CapabilityUsageOrigin = 'user'): boolean {
-    const skill = this.skills.get(name);
+    const skill = this.getSkill(name);
     if (!skill) {
       return false;
     }
@@ -719,7 +723,7 @@ export class SkillsRegistry {
    * Deactivate a skill by name
    */
   deactivateSkill(name: string): boolean {
-    const skill = this.skills.get(name);
+    const skill = this.getSkill(name);
     if (!skill) {
       return false;
     }
@@ -732,7 +736,7 @@ export class SkillsRegistry {
    * Deactivate all active skills
    */
   deactivateAll(): void {
-    for (const skill of this.skills.values()) {
+    for (const skill of this.listSkills()) {
       skill.isActive = false;
     }
   }
@@ -741,7 +745,7 @@ export class SkillsRegistry {
    * Get all currently active skills
    */
   getActiveSkills(): SkillDefinition[] {
-    return Array.from(this.skills.values()).filter(s => s.isActive);
+    return this.listSkills().filter(s => s.isActive);
   }
 
   /**
@@ -751,7 +755,7 @@ export class SkillsRegistry {
     const queryTokens = this.tokenize(query);
     const matches: SkillSimilarityMatch[] = [];
 
-    for (const skill of this.skills.values()) {
+    for (const skill of this.listSkills()) {
       // Combine name and description for similarity matching
       const skillText = `${skill.name} ${skill.description}`;
       const skillTokens = this.tokenize(skillText);
@@ -797,14 +801,14 @@ export class SkillsRegistry {
    * Get the number of loaded skills
    */
   get size(): number {
-    return this.skills.size;
+    return this.listSkills().length;
   }
 
   /**
    * Check if a skill exists by name
    */
   hasSkill(name: string): boolean {
-    return this.skills.has(name);
+    return this.getSkill(name) !== null;
   }
 
   /**

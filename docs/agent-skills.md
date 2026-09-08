@@ -83,6 +83,27 @@ While research is running, `/deep-research status` (or `/deep-search status`) sh
 
 ## Skill Discovery
 
+### Account skills from Console
+
+All plans can add skills from Skilled, create or import their own SKILL.md instructions,
+edit them, enable or disable them, and remove them in Console under Configure > Skills.
+Account-managed instructions synchronize automatically at startup and during the normal
+background sync interval (5 minutes by default), when Code is signed in and sync is enabled.
+Use the same `api.accountId` as Console when working with a team account.
+
+The account copy lives in a separate `.account-skills/` cache. A running registry rechecks
+that snapshot when listing or activating skills, so disabled or removed account skills are
+no longer available after sync without restarting Code. Independently installed and project
+skills are preserved. An account skill with the same name takes precedence while it is
+present in the account library, including when disabled. Logout or switching the configured
+account hides the previous account cache. Offline use keeps the last successfully synced
+snapshot until connectivity returns.
+
+Console's Skills Usage page shows reported CLI skill events. Telemetry is optional and is
+not required for managing or synchronizing skills. Console only marks a revision applied
+after the CLI has persisted it and acknowledged it. The API skill-library migration and
+a CLI version containing account-skill sync must be released before this works in production.
+
 Skills are discovered from multiple locations, with later sources taking precedence:
 
 | Location | Source ID | Description |

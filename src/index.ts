@@ -1619,6 +1619,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
         createSyncService: async (authUser) => {
           const { createSyncService, DEFAULT_SYNC_CONFIG, SyncApiClient } = await import('./sync/index.js');
           return createSyncService({
+            controlPlaneConfigPath: config.configPath,
             authToken: config.auth?.token ?? '',
             userId: authUser.id,
             apiClient: new SyncApiClient({ baseUrl: config.api?.baseUrl }),

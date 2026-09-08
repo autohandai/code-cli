@@ -794,7 +794,7 @@ export function initializeAgentDependencies(
       apiBaseUrl: runtime.config.api?.baseUrl || 'https://api.autohand.ai',
       cliVersion: packageJson.version
     });
-    host.skillsRegistry = new SkillsRegistry(AUTOHAND_PATHS.skills);
+    host.skillsRegistry = new SkillsRegistry(AUTOHAND_PATHS.skills, 'autohand-user', { accountConfigPath: runtime.config.configPath });
     if (!runtime.options.bare) {
       host.skillsRegistry.setCapabilityUsageRecorder((usage: CapabilityUsageInput) =>
         host.memoryManager.recordCapabilityUse(usage)

@@ -692,8 +692,8 @@ export class AutohandAgent {
   /**
    * Initialize the agent for RPC mode (no interactive loop or command mode)
    */
-  async initializeForRPC(signal?: AbortSignal): Promise<void> {
-    return initializeAgentForRPC(this, signal);
+  async initializeForRPC(signal?: AbortSignal, existingSessionId?: string): Promise<void> {
+    return initializeAgentForRPC(this, signal, existingSessionId);
   }
 
   async runCommandMode(
