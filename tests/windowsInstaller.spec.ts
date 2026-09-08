@@ -299,11 +299,30 @@ ${probes}
     });
   });
 
+  powerShellTest('backs up the exact PATH text without an encoding prefix', () => {
+    const backupDirectory = mkdtempSync(join(tmpdir(), 'autohand-path-backup-text-'));
+    const seeded = '%LOCALAPPDATA%\\Microsoft\\WindowsApps;C:\\tools\\restic';
+    try {
+      const result = runPowerShellProbe(`${installerWithoutEntrypoint}
+Write-Output (Save-UserPathBackup -Value '${seeded}' -BackupDirectory '${backupDirectory}')
+`);
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+      expect(readFileSync(result.stdout.trim(), 'utf8')).toBe(seeded);
+    } finally {
+      rmSync(backupDirectory, { recursive: true, force: true });
+    }
+  });
+
   powerShellTest('fails closed without writing when the existing PATH cannot be read', () => {
-    // A read failure must never be mistaken for "PATH is empty" - that is precisely how a
-    // wipe happens. Off-Windows the registry API throws, which exercises the same branch.
+    // A missing key is a valid empty PATH on Windows. Simulate an actual read
+    // failure explicitly so every platform exercises the fail-closed branch.
     const result = runPowerShellProbe(`${installerWithoutEntrypoint}
 $script:writeAttempts = 0
+function Get-RawUserPath {
+    param($SubKeyName)
+    throw "fixture registry read failure"
+}
 function Set-RawUserPath {
     param($Value, $Kind, $SubKeyName)
     $script:writeAttempts++

@@ -405,7 +405,7 @@ function Save-UserPathBackup {
     }
 
     $backupPath = Join-Path $BackupDirectory ("user-path-backup-" + (Get-Date).ToString("yyyyMMdd-HHmmss") + ".txt")
-    [System.IO.File]::WriteAllText($backupPath, $Value, [System.Text.Encoding]::UTF8)
+    [System.IO.File]::WriteAllText($backupPath, $Value, [System.Text.UTF8Encoding]::new($false))
     return $backupPath
 }
 
