@@ -22,6 +22,7 @@ repository, that directory becomes the workspace directly.
 - `--config <path>` selects your CLI configuration.
 
 Retrying an already imported transfer reopens its existing local session. Expired
-or revoked links must be exported again on Web. Transfers currently support text
-messages and Git changes within the explicit snapshot size limits; unsupported
-attachments are rejected. The command requires a CLI build containing this feature.
+or revoked links must be exported again on Web. Transfers support text, embedded PNG/JPEG/WebP/GIF images (up to four 1 MB images
+per message), and Git changes within the 8 MB snapshot limit. Image transfers use
+format version 2; text transfers remain compatible with version 1. Remote image
+URLs and other structured attachments are rejected explicitly. The command requires a CLI build containing this feature.
