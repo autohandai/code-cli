@@ -169,30 +169,28 @@ export function findCoherentRemovalIndices(
   targetIndices: number[]
 ): number[] {
   const toRemove = new Set(targetIndices);
+  const exchangeByCallId = new Map<string, Set<number>>();
+  const exchangeByIndex = new Map<number, Set<number>>();
 
-  // If removing a tool result, also remove the matching assistant tool_call
-  for (const idx of [...toRemove]) {
-    const msg = messages[idx];
-    if (msg.role === 'tool' && msg.tool_call_id) {
-      const assistantIdx = messages.findIndex(
-        (m) =>
-          m.role === 'assistant' &&
-          m.tool_calls?.some((tc) => tc.id === msg.tool_call_id)
-      );
-      if (assistantIdx >= 0) toRemove.add(assistantIdx);
+  for (const [index, message] of messages.entries()) {
+    if (message.role === 'assistant' && message.tool_calls?.length) {
+      const exchange = new Set([index]);
+      exchangeByIndex.set(index, exchange);
+      for (const call of message.tool_calls) {
+        exchangeByCallId.set(call.id, exchange);
+      }
+    } else if (message.role === 'tool' && message.tool_call_id) {
+      const exchange = exchangeByCallId.get(message.tool_call_id);
+      if (exchange) {
+        exchange.add(index);
+        exchangeByIndex.set(index, exchange);
+      }
     }
   }
 
-  // If removing an assistant with tool_calls, also remove all its tool results
-  for (const idx of [...toRemove]) {
-    const msg = messages[idx];
-    if (msg.role === 'assistant' && msg.tool_calls) {
-      for (const tc of msg.tool_calls) {
-        const toolIdx = messages.findIndex(
-          (m) => m.role === 'tool' && m.tool_call_id === tc.id
-        );
-        if (toolIdx >= 0) toRemove.add(toolIdx);
-      }
+  for (const index of targetIndices) {
+    for (const member of exchangeByIndex.get(index) ?? []) {
+      toRemove.add(member);
     }
   }
 

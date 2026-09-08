@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { LLMMessage } from '../types.js';
+import { findCoherentRemovalIndices } from './context/priority.js';
 
 export class ConversationManager {
   private static instance: ConversationManager | null = null;
@@ -78,26 +79,39 @@ export class ConversationManager {
       return [];
     }
 
-    if (direction === 'top') {
-      const removable = Math.max(0, lastUserIndex - 1);
-      const removeCount = Math.min(removable, Math.floor(amount));
-      if (!removeCount) {
-        return [];
+    const unmatchedToolResultIds = new Set<string>();
+    const pendingAssistantIndices: number[] = [];
+    for (let index = this.messages.length - 1; index >= 0; index -= 1) {
+      const message = this.messages[index];
+      if (message.role === 'tool' && message.tool_call_id) {
+        unmatchedToolResultIds.add(message.tool_call_id);
+      } else if (message.role === 'assistant' && message.tool_calls?.length) {
+        if (message.tool_calls.some((call) => !unmatchedToolResultIds.has(call.id))) {
+          pendingAssistantIndices.push(index);
+        }
+        for (const call of message.tool_calls) {
+          unmatchedToolResultIds.delete(call.id);
+        }
       }
-      return this.messages.splice(1, removeCount);
     }
+    // A crop tool runs before its own result is appended. Keep that pending
+    // assistant and any completed sibling results until the whole exchange ends.
+    const protectedIndices = new Set([
+      lastUserIndex,
+      ...findCoherentRemovalIndices(this.messages, pendingAssistantIndices),
+    ]);
 
     const toRemove: number[] = [];
-    for (let i = this.messages.length - 1; i >= 1 && toRemove.length < amount; i -= 1) {
-      if (i === lastUserIndex) {
-        continue;
+    if (direction === 'top') {
+      for (let index = 1; index < lastUserIndex && toRemove.length < Math.floor(amount); index += 1) {
+        if (!protectedIndices.has(index)) toRemove.push(index);
       }
-      toRemove.push(i);
+    } else {
+      for (let index = this.messages.length - 1; index >= 1 && toRemove.length < Math.floor(amount); index -= 1) {
+        if (!protectedIndices.has(index)) toRemove.push(index);
+      }
     }
-    if (!toRemove.length) {
-      return [];
-    }
-    return this.removeIndices(toRemove);
+    return this.removeIndices(findCoherentRemovalIndices(this.messages, toRemove));
   }
 
   replaceMessage(index: number, message: LLMMessage): void {
