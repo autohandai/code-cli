@@ -8,6 +8,7 @@ import { atomicRemoveFile, atomicWriteFile, atomicWriteJson, withFileLock } from
 import { assertCommunityPathSymlinkSafe } from '../skills/communitySkillPaths.js';
 import type { SkillDefinition } from '../skills/types.js';
 import type { LoadedConfig } from '../types.js';
+import { syncLocalSkillLibrary } from './LocalSkillLibrary.js';
 
 const identifier = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,99}$/);
 const snapshotSchema = z.object({
@@ -18,6 +19,7 @@ const snapshotSchema = z.object({
   && new Set(value.skills.map(skill => skill.id)).size === value.skills.length
   && value.skills.reduce((size, skill) => size + skill.instructions.length, 0) <= 4_000_000, 'Invalid account skill snapshot');
 const cacheSchema = snapshotSchema.and(z.object({ tokenHash: z.string(), requestedAccountId: z.string(), configPath: z.string() }));
+export type AccountSkillSnapshot = z.infer<typeof snapshotSchema>;
 const authConfigSchema = z.object({ auth: z.object({ token: z.string().optional() }).optional(), api: z.object({ accountId: z.string().optional() }).optional() });
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 const cachePath = (root: string, configPath = path.join(root, 'config.json')) => path.resolve(configPath) === path.resolve(root, 'config.json')
@@ -60,7 +62,16 @@ export function readAccountSkills(root: string, configPath = path.join(root, 'co
   } catch { return empty; }
 }
 
-export async function syncAccountSkills(config: LoadedConfig, token: string, deviceId: string, options: { root?: string; signal?: AbortSignal } = {}): Promise<void> {
+async function readSnapshot(response: Response): Promise<AccountSkillSnapshot> {
+  if (!response.body) throw new Error('Account skill sync response was empty');
+  const reader = response.body.getReader(); const chunks: Uint8Array[] = []; let size = 0;
+  try { while (true) { const { done, value } = await reader.read(); if (done) break;
+    size += value.byteLength; if (size > 20_000_000) throw new Error('Account skill snapshot exceeded the size limit'); chunks.push(value); }
+  } finally { await reader.cancel(); }
+  return snapshotSchema.parse(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+}
+
+export async function syncAccountSkills(config: LoadedConfig, token: string, deviceId: string, options: { root?: string; homeDir?: string; signal?: AbortSignal } = {}): Promise<void> {
   if (config.sync?.enabled === false) return;
   const root = options.root ?? AUTOHAND_HOME;
   const base = new URL(config.api?.baseUrl?.trim() || process.env.AUTOHAND_API_URL?.trim() || 'https://api.autohand.ai');
@@ -73,12 +84,7 @@ export async function syncAccountSkills(config: LoadedConfig, token: string, dev
   // A pre-rollout API must not break existing connector and file synchronization.
   if (response.status === 404) return;
   if (!response.ok) throw new Error(`Account skill sync failed (${response.status})`);
-  if (!response.body) throw new Error('Account skill sync response was empty');
-  const reader = response.body.getReader(); const chunks: Uint8Array[] = []; let size = 0;
-  try { while (true) { const { done, value } = await reader.read(); if (done) break;
-    size += value.byteLength; if (size > 20_000_000) throw new Error('Account skill snapshot exceeded the size limit'); chunks.push(value); }
-  } finally { await reader.cancel(); }
-  const snapshot = snapshotSchema.parse(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+  let snapshot = await readSnapshot(response);
   if (requestedAccountId && requestedAccountId !== snapshot.accountId) throw new Error('Account skill snapshot belongs to a different account');
   const destination = cachePath(root, config.configPath);
   const cacheRoot = await fs.lstat(path.dirname(destination)).catch(() => null);
@@ -89,6 +95,17 @@ export async function syncAccountSkills(config: LoadedConfig, token: string, dev
     signal.throwIfAborted();
     const previous = cacheSchema.safeParse(await fs.readJson(destination).catch(() => null));
     if (previous.success && previous.data.accountId === snapshot.accountId && previous.data.revision > snapshot.revision) throw new Error('Account skill revision is older than the local cache');
+    if (options.root === undefined || options.homeDir !== undefined) {
+      const accountId = snapshot.accountId;
+      snapshot = await syncLocalSkillLibrary({ root, cacheDirectory: path.dirname(destination), homeDir: options.homeDir, exclude: config.sync?.exclude,
+        base, headers, signal, snapshot, refresh: async () => {
+          const updated = await fetch(new URL('/v1/skill-library', base), { headers: { ...headers, 'X-Autohand-Account-Id': accountId }, signal, redirect: 'error' });
+          if (!updated.ok) throw new Error(`Account skill refresh failed (${updated.status})`);
+          const value = await readSnapshot(updated);
+          if (value.accountId !== accountId) throw new Error('Account skill refresh belongs to a different account');
+          return value;
+        } });
+    }
     for (const skill of snapshot.skills) {
       if (!skill.enabled) continue;
       const file = skillPath(root, snapshot.accountId, skill.id, config.configPath);
