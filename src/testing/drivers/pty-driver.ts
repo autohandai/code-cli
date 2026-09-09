@@ -22,10 +22,10 @@ export class PtyDriver {
   snapshot(): string { return stripVTControlCharacters(this.output); }
   close(): void { this.terminal?.kill(); }
 
-  async waitFor(expected: string | RegExp, timeout = 10_000): Promise<void> {
+  async waitFor(expected: string | RegExp, timeout = 10_000, after = 0): Promise<void> {
     const deadline = Date.now() + timeout;
     while (Date.now() < deadline) {
-      const output = this.snapshot();
+      const output = this.snapshot().slice(after);
       if (typeof expected === 'string' ? output.includes(expected) : expected.test(output)) return;
       await new Promise<void>(resolve => setTimeout(resolve, 30));
     }
