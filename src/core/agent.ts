@@ -1461,8 +1461,12 @@ export class AutohandAgent {
     // Remove **Thought:** prefix pattern
     cleaned = cleaned.replace(/^\*\*Thought:\*\*\s*/i, '');
 
-    // Remove trailing JSON-like fragments
-    cleaned = cleaned.replace(/\}\s*\]\s*\}?\s*$/g, '');
+    // A valid structured answer can end in the same brackets as a leaked fragment.
+    try {
+      JSON.parse(cleaned);
+    } catch {
+      cleaned = cleaned.replace(/\}\s*\]\s*\}?\s*$/g, '');
+    }
 
     // Clean up excessive whitespace
     cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();

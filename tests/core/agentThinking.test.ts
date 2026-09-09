@@ -118,6 +118,13 @@ describe('usedThoughtAsResponse logic', () => {
 });
 
 describe('cleanupModelResponse does not mangle thought text', () => {
+  it('preserves a structured answer containing nested arrays and objects', () => {
+    const agent = createMinimalAgent();
+    const response = JSON.stringify({ schemaVersion: 1, recommendations: [{ evidence: ['package.json'], score: 70 }] });
+
+    expect(agent.cleanupModelResponse(response)).toBe(response);
+  });
+
   it('preserves meaningful text content through cleanup', () => {
     const agent = createMinimalAgent();
     const thought = 'The user wants help with their code. Let me analyze the structure.';
