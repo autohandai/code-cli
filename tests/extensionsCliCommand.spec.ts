@@ -8,6 +8,8 @@ import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import packageJson from '../package.json' with { type: 'json' };
+import { createStalledGitVersionPreload } from '../src/testing/scenarios/gitVersionScenario.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const CLI_ENTRY = path.join(ROOT, 'src/index.ts');
@@ -56,7 +58,7 @@ describe('extensions CLI command', () => {
     await fs.remove(tempRoot);
   });
 
-  function runCli(args: string[]) {
+  function runCli(args: string[], env: Record<string, string> = {}) {
     const runnerArgs = USES_BUN
       ? [CLI_ENTRY, ...args]
       : ['--import', TSX_LOADER, CLI_ENTRY, ...args];
@@ -70,6 +72,7 @@ describe('extensions CLI command', () => {
         AUTOHAND_HOME: path.join(tempRoot, 'home'),
         AUTOHAND_DISABLE_AUTO_REPORT: '1',
         AUTOHAND_NO_BANNER: '1',
+        ...env,
       },
     });
     return {
@@ -77,6 +80,17 @@ describe('extensions CLI command', () => {
       code: result.status ?? 1,
     };
   }
+
+  it('falls back to packaged version metadata when Git stalls during startup', async () => {
+    const result = runCli(['--version'], {
+      NODE_OPTIONS: await createStalledGitVersionPreload(tempRoot),
+      AUTOHAND_VERSION_SOURCE: 'git',
+      BUILD_GIT_COMMIT: '',
+    });
+
+    expect(result, result.output).toMatchObject({ code: 0 });
+    expect(result.output.trim()).toBe(`${packageJson.version} (unknown)`);
+  });
 
   it('renders the complete extension lifecycle help tree', () => {
     const result = runCli(['extensions', '--help']);

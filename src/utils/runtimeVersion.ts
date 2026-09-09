@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import packageJson from '../../package.json' with { type: 'json' };
 
 const STABLE_VERSION_TAG = /^v(\d+)\.(\d+)\.(\d+)$/;
+export const GIT_VERSION_LOOKUP_TIMEOUT_MS = 1_000;
 
 interface RuntimeVersionOptions {
   manifestVersion?: string;
@@ -71,6 +72,8 @@ function readReachableRepositoryTags(): string[] {
       cwd: process.cwd(),
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: GIT_VERSION_LOOKUP_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
     },
   );
 

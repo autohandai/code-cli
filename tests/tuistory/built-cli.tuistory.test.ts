@@ -18,6 +18,7 @@ import { SLASH_COMMANDS } from '../../src/core/slashCommands.js';
 import { hasTerminalProcessPid } from '../../src/testing/assertions/terminalOutput.js';
 import { openGoalsPanel } from '../../src/testing/scenarios/goalsCommandScenario.js';
 import { selectTheme } from '../../src/testing/scenarios/themeScenario.js';
+import { createStalledGitVersionPreload } from '../../src/testing/scenarios/gitVersionScenario.js';
 import { getHelpOrderedSlashCommands } from '../../src/ui/inputPrompt.js';
 import {
   clearComposerInput,
@@ -571,6 +572,26 @@ describe('built CLI Tuistory smoke tests', () => {
 
     expect(output).not.toContain('missing contextWindow');
     await waitForExit(session);
+    expectCleanExit(session);
+  });
+
+  it('renders the packaged version when the Git metadata subprocess stalls', async () => {
+    const state = await createTempAutohandHome({ initializeGit: false });
+    tempStates.push(state);
+    const session = await trackSession(launchBuiltAutohand(['--version'], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      env: {
+        NODE_OPTIONS: await createStalledGitVersionPreload(state.autohandHome),
+        AUTOHAND_VERSION_SOURCE: 'git',
+      },
+      waitForDataTimeout: 15_000,
+    }));
+
+    await waitForExit(session, 15_000);
+    const output = session.readAll();
+    expect(output).toContain(`${packageJson.version} (`);
+    expect(output).not.toContain('999.0.0');
     expectCleanExit(session);
   });
 
