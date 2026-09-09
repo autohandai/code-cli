@@ -1048,6 +1048,13 @@ queues it, and the queue advances automatically as each goal completes.
 If a migration or interrupted session leaves queued work without a live owner,
 bare `/goal` starts the next item instead of leaving the backlog stranded.
 
+Use `/goals` or `/goals view` (`/goal view` also works) to inspect compact goal
+summaries and edit full objectives. Close the panel with `Ctrl+G` (`Cmd+G` on
+macOS). `Esc` clears a goal selection or cancels its unsaved edit; it does not
+close the panel. Closing the view does not pause the goal; use `/goals pause`
+for that. See [viewing and managing goals](features.md#viewing-and-managing-goals)
+for keyboard controls and the queue, edit, resume, complete, and clear commands.
+
 To keep the normal turn-by-turn loop while goals are active:
 
 ```json
