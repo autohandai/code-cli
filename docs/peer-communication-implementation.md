@@ -45,25 +45,25 @@ unrelated site edits were preserved. Nothing has been deployed by this task.
 
 ## Validation record
 
-Validation logs are retained locally under `.tmp/peer-communication-validation/`.
-The results below distinguish focused checks from the aggregate release gate.
+Logs are retained locally under `.tmp/peer-communication-validation/`.
 
-- The first focused run covered 42 files and 524 cases. It exposed two integration
-  issues in offline outgoing intent and uncertain process ownership; both were fixed.
-- The initial aggregate proof ran 683 files: 9,898 passed, 20 failed, 41 skipped.
-  Subsequent fixes corrected the coordinated-worktree mock and callback metadata
-  expectations. A targeted rerun passed 209 of 210 cases across the affected 15 files.
-  Its remaining failure was the unchanged Blueprint identity reader, which reads loose
-  refs but misses this worktree's packed branch ref.
-- Real built-CLI Tuistory validation exposed reply restoration timing and an empty
-  recipient-directory snapshot on the receiving session. Both paths were repaired;
-  all three built-CLI peer scenarios now pass, including send, inbox, correlated reply,
-  draft preservation, peer exit, and disabled-startup compatibility.
-- The final composer/runtime regression group passes all 76 tests across five files.
-  Repository lint and typecheck pass.
-- The docs build and discovery audit pass; 284 pages are indexed with no discovery
-  errors. JavaScript and declaration builds pass. These results do not substitute for
-  the complete CLI proof or live-provider/platform evidence.
+| Check | Result |
+| --- | --- |
+| Full unit suite, including real peer IPC, processes and resource coordination | 9,918 passed, 41 skipped across 683 files. |
+| Repository lint and typecheck | Passed. |
+| JavaScript and declaration builds | Passed. |
+| Built CLI peer scenarios | All three passed: direct send, inbox/reply, draft preservation, peer exit, and disabled startup. |
+| Final composer/runtime regression group | All 76 tests passed across five files. |
+| Aggregate terminal suite | 158 passed, one skipped; a sync/connector transition timed out. |
+| Sync close repair plus peer terminal regressions | All four passed together after preventing late sync redraws and accepting autocomplete explicitly in the scenario. |
+| Docs build and discovery | Passed; 284 pages indexed, no discovery errors, configuration port table included in HTML and Markdown. |
+| Full 2/10/50-peer benchmark attempt | No valid result produced. No latency or throughput claim is made; no benchmark fixture processes remained after the attempt. |
+
+The aggregate proof rerun after the sync repair passed lint/typecheck, then reported
+CLI subprocess, coordinated-command/PTY, and project-test-run failures. It was stopped
+with SIGINT (exit 130) after repeated failures; see `completion-proof.log`. The
+previous full unit pass and repaired terminal scenarios are useful evidence, but the
+latest aggregate proof is incomplete. This branch is not certified release-ready.
 
 ## Current limits
 

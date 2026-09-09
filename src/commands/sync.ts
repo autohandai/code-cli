@@ -99,6 +99,7 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
   return new Promise((resolve) => {
     const tabs: TabName[] = ['Status', 'Settings', 'Activity'];
     let currentTab = 0;
+    let closed = false;
     // const _needsRefresh = false;
 
     const input = process.stdin as NodeJS.ReadStream;
@@ -122,6 +123,7 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
     }
 
     const render = () => {
+      if (closed) return;
       const theme = createCommandTheme();
       process.stdout.write('\x1B[2J\x1B[H');
 
@@ -131,6 +133,7 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
     };
 
     const handler = async (_str: string, key: readline.Key) => {
+      if (closed) return;
       const char = (_str || '').toLowerCase();
 
       if (key.name === 'escape' || (key.name === 'c' && key.ctrl)) {
@@ -164,6 +167,7 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
           console.log(theme.accent('\nSyncing...'));
           try {
             const result = await data.syncService.sync();
+            if (closed) return;
             if (result.success) {
               console.log(theme.success(`Sync complete! Uploaded: ${result.uploaded}, Downloaded: ${result.downloaded}`));
             } else {
@@ -173,7 +177,7 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
             const config = await loadConfig();
             Object.assign(data, await gatherSyncData(ctx, config));
           } catch (err) {
-            console.log(theme.error(`Sync error: ${err}`));
+            if (!closed) console.log(theme.error(`Sync error: ${err}`));
           }
           await sleep(1500);
           render();
@@ -188,18 +192,21 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
           const newEnabled = config.sync?.enabled === false;
           config.sync = { ...config.sync, enabled: newEnabled };
           await saveConfig(config);
+          if (closed) return;
           data.enabled = newEnabled;
           console.log(createCommandTheme().accent(`\n${newEnabled ? t('commands.sync.enabled') : t('commands.sync.disabled')}`));
           await sleep(1000);
           render();
         } catch (err) {
-          console.log(createCommandTheme().error(`Error toggling sync: ${err}`));
+          if (!closed) console.log(createCommandTheme().error(`Error toggling sync: ${err}`));
         }
         return;
       }
     };
 
     const cleanup = () => {
+      if (closed) return;
+      closed = true;
       input.off('keypress', handler as any);
       if (isTTY && !wasRaw && typeof input.setRawMode === 'function') {
         try { input.setRawMode(false); } catch { /* TTY may be gone */ }
