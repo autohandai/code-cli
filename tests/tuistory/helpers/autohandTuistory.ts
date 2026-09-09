@@ -1221,13 +1221,21 @@ const SESSION_TEARDOWN_MARKER = 'Ending Autohand session';
 
 export async function exitInteractive(session: Session): Promise<void> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    const confirmingExit = (await session.text({ immediate: true })).includes('Press Ctrl+C again to exit');
     await session.press(['ctrl', 'c']);
-    try {
-      await waitForExit(session, 1_000);
+    if (confirmingExit) {
+      await waitForExit(session);
       expectCleanExit(session);
       return;
+    }
+    try {
+      await waitForExit(session, 1_000);
     } catch {
       // The first Ctrl+C may clear composer text or show the exit warning.
+    }
+    if (session.exitInfo) {
+      expectCleanExit(session);
+      return;
     }
     // Once teardown has started Ink has released raw mode, so another Ctrl+C
     // would reach the process as a real SIGINT and turn a clean exit into 130.

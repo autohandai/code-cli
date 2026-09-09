@@ -63,6 +63,8 @@ describe('resume startup Tuistory', () => {
     ));
     await session.waitForText(`Resumed session ${expected}`, { timeout: 30_000 });
     await session.waitForText('❯');
+    await session.type('resume draft');
+    await session.waitForText('❯ resume draft');
     await exitInteractive(session);
   });
 
