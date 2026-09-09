@@ -58,7 +58,7 @@ The six cloud closures verify previously deployed fixes and successful current m
 
 ## Validation
 
-Aggregate proof is **not green**. Focused regression suites, lint, type checking and builds pass, but aggregate runs have subprocess/test-worker failures. Timeout thresholds and clean-exit requirements were preserved; incorrect fixture expectations were corrected against the renderer contracts.
+Aggregate proof is **not green**. Focused regression suites, lint, type checking and builds pass, but aggregate runs have subprocess/test-worker failures and a live registry DNS failure. Timeout thresholds and clean-exit requirements were preserved; incorrect fixture expectations were corrected against the renderer contracts.
 
 | Check | Result |
 | --- | --- |
@@ -67,10 +67,14 @@ Aggregate proof is **not green**. Focused regression suites, lint, type checking
 | Second CI proof | 9,168 tests passed, 2 timed out, 36 skipped; 623 files passed, 2 failed, 2 skipped. Exited 1 after 801.97 seconds. |
 | Standard local proof | 9,124 tests passed, 3 failed, 36 skipped; 620 files passed, 3 failed, 2 skipped. Two additional files could not start workers. Exited 1 after 868.30 seconds. |
 | Standard-proof failure rerun | All 96 tests in the 5 affected files passed without source changes, using one CI worker. This does not replace aggregate proof. |
+| Monitored standard proof | 9,167 tests passed, 3 failed, 36 skipped; 623 files passed, 2 failed, 2 skipped. Exited 1 after 842.61 seconds in Vitest. Lint and type checking passed. |
+| Monitored-proof failure rerun | All 47 tests in the 2 affected files passed in 3.42 seconds without source changes, using one CI worker. Aggregate proof remains failed. |
 | Final focused terminal regressions | Resource scenarios passed 3/3, including Ink and legacy output, a second shell command and clean exit. Unchanged resume scenarios passed 10/10. |
 | Final build and full Tuistory | Passed: all 34 files; 156 tests passed and 1 Windows-only test skipped. Exited 0 after 1,203.82 seconds. |
 
 The second CI run timed out in the unchanged Bash completion test (`tests/completions/shellCompletion.spec.ts`) and imported Claude hook test (`tests/import/hooks.test.ts`). Standard local proof failed the unchanged grouped-diff case (`tests/core/agent/ReactLoopRunnerStatus.test.ts`), restricted Blueprint process (`tests/modes/rpc/blueprintProcess.integration.test.ts`), and lifecycle-hook execution (`tests/lifecycleHookAuthoring.spec.ts`). Workers did not start for `tests/mcpClientManager.spec.ts` and `tests/releaseNotes.test.ts`. The grouped-diff fixture invokes real repository Git snapshots while the changed classifier and rendering paths are disabled or mocked. A read-only host audit did not establish the exact cause of the process delays.
+
+The subsequent monitored standard run failed two hook-output assertions in unchanged `tests/core/agent/AgentDependencyComposer.outcomes.test.ts`. Their shell `printf` commands reached durations matching the five-second hook deadline. During the same run, an independent Python subprocess probe of `/bin/sh -c true` exceeded ten seconds outside Vitest and the CLI. A 200 ms heartbeat recorded no scheduling gaps over 800 ms. This independently reproduces a process delay without establishing its operating-system cause or attributing every historical failure to it. The third failure was `getaddrinfo ENOTFOUND raw.githubusercontent.com` in the unchanged live registry test, before registry assertions ran. Both affected files passed on the immediate isolated rerun. No timeout, worker, runtime, or dependency settings were changed.
 
 The first combined terminal run passed 9 tests with 1 Windows-only skip. The first full terminal run then passed 152 tests, failed 3 and skipped 1. Its failures exposed fixture mistakes: the large-output test expected the wrong Ink marker and closed a mock twice, and the shared exit helper sent a third Ctrl+C after graceful shutdown had begun. The added legacy-renderer variant then reproduced the composer overwriting final output at the terminal bottom. The final fixtures distinguish the two renderers and wait for clean shutdown. The composer now reserves initial rows with newlines so terminal scrolling preserves completed output.
 
@@ -85,6 +89,8 @@ New terminal scenarios cover native context cropping, completed replies, provide
 Cloudflare deployment metadata: deployment `8e1f54b1-c34e-453b-89c6-a12c7ec24321`, version `d7663d35-4720-4057-871b-cfbceee28f89` at 100%, tag `monthly-cd35d53`. Current Fantail binding is `@cf/qwen/qwen3.8-27b`; `CODING_DYNAMIC_ROUTE`, `FANTAIL_DYNAMIC_ROUTE`, and `AUTO_DYNAMIC_ROUTE` are absent. A single authenticated Fantail request through api.autohand.ai returned HTTP 200 and a nonempty completion with a 64-token output cap. This proves current minimal inference as well as routing configuration, not replay of historical sessions.
 
 Local audit artifacts are under `.autohand/issue-sweep-20260909/` in the primary checkout. They contain the frozen scope and independent legacy-closure verification.
+
+A fresh authenticated check of OpenRouter reports #569, #566, #561, #549, #513 and #512, and empty-body MLX reports #560 and #543 found unchanged bodies, unchanged update timestamps and zero comments. No upstream request or generation IDs were recovered. Exact diagnosis still requires the original OpenRouter error metadata or corresponding MLX server logs and request/response details.
 
 NVIDIA confirms the [Mistral Small 4 hosted endpoint is deprecated](https://build.nvidia.com/mistralai/mistral-small-4-119b-2603/playground). Manual model IDs and custom inference endpoints remain available.
 
