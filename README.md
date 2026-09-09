@@ -163,6 +163,7 @@ Features:
 - Press `Ctrl+C` twice to exit
 - Press `Shift+Tab` to cycle edit, plan, YOLO, and auto modes
 - Press `?` to toggle keyboard shortcuts panel
+- Use `/goals` to open the [goals view](#viewing-and-managing-goals); press `Ctrl+G` (`Cmd+G` on macOS) to toggle it open or closed
 - Press `Up` to recall older typed messages and `Down` for newer messages or your unfinished draft. In multiline drafts, `Up` moves the cursor until it reaches the first visual row.
 - Use `/whatityped` to select a message from any working directory and load it into the composer for editing. The latest 200 submissions are saved locally in `~/.autohand/typed-message-history.json` (or your `AUTOHAND_HOME`), starting when you use this feature.
 - Press `Enter` or `Shift+Enter` for newlines in multi-line input
@@ -354,6 +355,15 @@ See [Agent Skills Documentation](docs/agent-skills.md) for creating custom skill
 | `/autoresearch`    | Run replayable benchmark loops with history, replay, comparison, and Pareto analysis |
 | `/goal`            | Set a session-attached persistent goal and continue until it reaches a terminal state |
 | `/goal writer`     | Draft one or more well-specified goals with the built-in `$goal-writer` skill    |
+| `/goals`, `/goals view` | Open the live goals view with compact summaries and statuses                  |
+| `/goal view`       | Alias for `/goals view`                                                          |
+| `/goals edit <id> <objective>` | Update this session's goal or a queued goal by ID                     |
+| `/goals queue [objective]` | List queued goals and their IDs, or add an objective to the queue          |
+| `/goals pause`     | Pause this session's current goal                                               |
+| `/goals resume`    | Resume this session's goal, or start queued work when it has no current goal     |
+| `/goals complete`  | Mark the current goal complete and advance queued work when completion requirements are met |
+| `/goals clear`     | Clear this session's current goal while retaining queued work                   |
+| `/goals templates` | List reusable goal templates                                                    |
 | `/squad`           | Open/manage the local Autohand Squad runtime                                     |
 | `/go`              | Pair this session with the Autohand Code iOS app                                 |
 | `/sync`            | Sync settings across devices                                                     |
@@ -413,6 +423,36 @@ session before running the prompt; a missing or different-workspace target
 fails the task instead of silently starting fresh or continuing another
 session. The phone remains paired to the existing live CLI connection while
 the resumed session is identified in task progress and results.
+
+### Viewing and managing goals
+
+Enable the experimental goals feature, then open the live view:
+
+```text
+/experiments enable slash_goal
+/goals view
+```
+
+`/goals` and `/goal view` also open this view. It groups the current goal, queued
+goals, and goals from other sessions into short, single-line previews with
+statuses. The full objectives remain available for editing. Other-session rows
+are informational; editing applies to this session's goal and the shared queue.
+
+| Control | Action |
+|---------|--------|
+| `Ctrl+G` (`Cmd+G` on macOS) | Open or close the goals view |
+| `Up` / `Down`, with an empty composer | Select an editable goal |
+| `Enter` on a selected goal, or click its row | Load the full objective into the composer |
+| `Enter` while editing | Save the edited objective |
+| `Esc` with a goal selected or being edited | Clear the selection or cancel the unsaved edit; the view stays open |
+
+The footer shows **`Ctrl+G close`** beside the editing controls. Closing the view
+hides the panel; use `/goals pause` to pause the current goal. All goal subcommands
+accept either `/goal` or `/goals`. Bare `/goals` opens the view, while bare `/goal`
+can start the goal writer or queued work, depending on the current session state.
+
+See [goal commands and examples](docs/features.md#viewing-and-managing-goals) and
+[goals and auto mode](docs/config-reference.md#goals-and-auto-mode) for more details.
 
 ## Tool System
 
