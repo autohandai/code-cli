@@ -862,7 +862,8 @@ export function initializeAgentDependencies(
       enableSessionSync: runtime.config.telemetry?.enableSessionSync !== false,
       companySecret: runtime.config.telemetry?.companySecret || runtime.config.api?.companySecret || '',
       authToken: runtime.config.auth?.token,
-      clientVersion: packageJson.version
+      clientVersion: packageJson.version,
+      offline: runtime.options.offline === true || runtime.options.bare === true,
     });
     host.featureFlagManager = new RemoteFeatureFlagManager(runtime.config);
     if (!runtime.options.bare) {
