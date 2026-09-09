@@ -20,6 +20,10 @@ import { SlashCommandDropdown, matchSlashCommand, buildSlashSuggestions, buildSu
 import { SkillMentionDropdown, matchSkillMention, buildSkillSuggestions, type SkillSuggestion } from './SkillMentionDropdown.js';
 import { MessageTargetDropdown } from './MessageTargetDropdown.js';
 import { buildTargetSuggestions, matchTargetMention, type MessageTarget, type MessageTargetSuggestion } from '../messageTargets.js';
+import { usePeerComposer } from './usePeerComposer.js';
+import { PeerMentionDropdown } from './PeerMentionDropdown.js';
+import type { PeerDescriptor, PeerReceipt, PeerScope } from '../../session/peers/PeerProtocol.js';
+import type { PeerComposerDraft, PeerInstructionMetadata } from '../peerMention.js';
 import type { SlashCommand } from '../../core/slashCommandTypes.js';
 import type { ExtensionKeybinding } from '../../extensions/ExtensionRuntimeHost.js';
 import type { SkillMentionInfo } from '../mentionFilter.js';
@@ -148,6 +152,7 @@ export interface CommandResultState {
 }
 
 export interface AgentUIState {
+  peerDirectoryVersion?: number;
   isWorking: boolean;
   status: string;
   elapsed: string;
@@ -156,6 +161,7 @@ export interface AgentUIState {
   liveCommands: LiveCommandEntry[];
   thinking: string | null;
   queuedInstructions: string[];
+  queuedInstructionMetadata?: Array<PeerInstructionMetadata | undefined>;
   /** User messages displayed in the conversation */
   userMessages: string[];
   /** Completed user/assistant turns displayed in order. */
@@ -167,6 +173,8 @@ export interface AgentUIState {
   /** Changes whenever canonical chat history is replaced so Ink Static keys stay unique. */
   chatHistoryEpoch: number;
   currentInput: string;
+  peerInputMetadata?: PeerInstructionMetadata;
+  peerDraft?: PeerComposerDraft;
   finalResponse: string | null;
   streamingResponse?: string | null;
   /** Completion stats shown after work finishes */
@@ -231,11 +239,15 @@ export interface AgentUILineExtensions {
 export interface AgentUIProps {
   state: AgentUIState;
   typedMessageHistory?: TypedMessageHistory;
-  onInstruction: (text: string) => void;
   /** Sends the composer text into the running turn (Shift+Enter while working). */
   onSteer?: (text: string) => void;
   /** Enter while working steers (default) or queues; Shift+Enter does the other. */
   enterWhileWorking?: 'steer' | 'queue';
+  onInstruction: (text: string, metadata?: PeerInstructionMetadata) => void;
+  peerScopes?: PeerScope[];
+  peersProvider?: (scope?: PeerScope) => PeerDescriptor[];
+  onPeersRefresh?: (scope?: PeerScope) => Promise<unknown>;
+  onPeerMessage?: (input: { to: string; content: string; replyTo?: string }) => Promise<PeerReceipt>;
   onEscape: () => void;
   onCtrlC: () => void;
   /** Dismiss the currently rendered announcement without changing composer input. */
@@ -250,7 +262,7 @@ export interface AgentUIProps {
   onToggleGoalPanel?: () => void;
   /** Persist a composer edit for an active or queued goal. */
   onEditGoalObjective?: (request: GoalEditRequest) => void | Promise<void>;
-  onInputChange?: (input: string) => void;
+  onInputChange?: (input: string, metadata?: PeerInstructionMetadata) => void;
   enableQueueInput?: boolean;
   /** Called when a dragged/dropped image is detected in the input */
   onImageDetected?: (data: Buffer, mimeType: string, filename?: string) => number;
@@ -273,7 +285,7 @@ export interface AgentUIProps {
   /** Trusted extension shortcuts routed through registered slash commands. */
   extensionKeybindings?: ExtensionKeybinding[];
   /** Replace a queued instruction owned by the renderer. */
-  onReplaceQueuedInstruction?: (index: number, text: string) => void;
+  onReplaceQueuedInstruction?: (index: number, text: string, metadata?: PeerInstructionMetadata) => void;
   /** Remove a queued instruction owned by the renderer. */
   onRemoveQueuedInstruction?: (index: number) => void;
   /** Read the canonical interaction mode owned by the agent session. */
@@ -820,6 +832,10 @@ export function AgentUI({
   slashCommands: slashCommandProps,
   skillsProvider,
   messageTargetsProvider,
+  peerScopes,
+  peersProvider,
+  onPeersRefresh,
+  onPeerMessage,
   workspaceRoot,
   suggestionProvider,
   lineExtensions,
@@ -848,6 +864,7 @@ export function AgentUI({
     col: number;
     hiddenContent: string | null;
     hiddenPastes: InkPasteState['hiddenPastes'];
+    peerMetadata: PeerInstructionMetadata;
   } | null>(null);
   useEffect(() => { void inputHistory.refresh().catch(() => {}); }, [inputHistory]);
   const [isReadingHistory, setIsReadingHistory] = useState(false);
@@ -984,6 +1001,8 @@ export function AgentUI({
   onCycleInteractionModeRef.current = onCycleInteractionMode;
   const queuedInstructionsRef = useRef(state.queuedInstructions);
   queuedInstructionsRef.current = state.queuedInstructions;
+  const queuedInstructionMetadataRef = useRef(state.queuedInstructionMetadata);
+  queuedInstructionMetadataRef.current = state.queuedInstructionMetadata;
   const queueSelectionIndexRef = useRef(queueSelectionIndex);
   queueSelectionIndexRef.current = queueSelectionIndex;
   const editingQueueIndexRef = useRef(editingQueueIndex);
@@ -1048,7 +1067,8 @@ export function AgentUI({
     pendingInputSyncRef.current = null;
     setInput(pending.text);
     setCursorOffset(pending.offset);
-    onInputChangeRef.current?.(pending.text);
+    if (peersProviderRef.current) onInputChangeRef.current?.(pending.text, pending.text ? peerComposerRef.current.snapshotMetadata() : undefined);
+    else onInputChangeRef.current?.(pending.text);
   }, []);
 
   const syncInputFromBuffer = useCallback(() => {
@@ -1259,7 +1279,8 @@ export function AgentUI({
 
   // Sync input changes to parent for preservation across pause/resume
   useEffect(() => {
-    onInputChange?.(input);
+    if (peersProviderRef.current) onInputChange?.(input, input ? peerComposerRef.current.snapshotMetadata() : undefined);
+    else onInputChange?.(input);
   }, [input, onInputChange]);
 
   // Sync viewport on every render. Terminal resize flows through
@@ -1376,6 +1397,27 @@ export function AgentUI({
       }
     };
   }, [input, onImageDetected, syncInputFromBuffer]);
+
+  const peerComposer = usePeerComposer({
+    initialMetadata: state.peerInputMetadata,
+    peerScopes, peersProvider, onPeersRefresh, onPeerMessage, onInstruction,
+    read: () => ({ text: textBufferRef.current.getText(), cursor: getTextBufferCursorOffset(textBufferRef.current) }),
+    replace: (text, cursor) => {
+      const buffer = textBufferRef.current;
+      buffer.setText(text);
+      const prefix = text.slice(0, cursor).split('\n');
+      buffer.setCursorPosition(prefix.length - 1, prefix.at(-1)?.length ?? 0);
+      if (!text) clearInkHiddenPastes(pasteStateRef.current);
+      syncInputFromBuffer();
+    },
+    onSubmitted: (text, metadata) => { void inputHistory.record(text, workspaceRootRef.current ?? process.cwd(), metadata).catch(() => {}); },
+  });
+  const peerComposerRef = useRef(peerComposer);
+  peerComposerRef.current = peerComposer;
+  const peersProviderRef = useRef(peersProvider);
+  peersProviderRef.current = peersProvider;
+  useEffect(() => { peerComposer.update(input, cursorOffset); }, [input, cursorOffset, peersProvider, state.peerDirectoryVersion, peerComposer.update]);
+  useEffect(() => { if (state.peerDraft) peerComposer.applyDraft(state.peerDraft); }, [state.peerDraft, peerComposer.applyDraft]);
 
   // Update file mention suggestions when input changes
   useEffect(() => {
@@ -1722,6 +1764,8 @@ export function AgentUI({
       return;
     }
 
+    if (peerComposerRef.current.handleKey(key)) return;
+
     // Cycle the interaction mode (Shift+Tab in every profile)
     if (activeKeybindings.matches('cycleMode', keyEvent)) {
       const cycleInteractionMode = onCycleInteractionModeRef.current;
@@ -1918,6 +1962,7 @@ export function AgentUI({
       const selectedInstruction = queuedInstructionsRef.current[selectedQueueIndex];
       if (selectedInstruction !== undefined) {
         textBufferRef.current.setText(selectedInstruction);
+        peerComposerRef.current.restoreMetadata(queuedInstructionMetadataRef.current?.[selectedQueueIndex]);
         editingQueueIndexRef.current = selectedQueueIndex;
         setEditingQueueIndex(selectedQueueIndex);
         syncInputFromBuffer();
@@ -1995,6 +2040,7 @@ export function AgentUI({
           row: buffer.getCursorRow(), col: buffer.getCursorCol(),
           hiddenContent: pasteStateRef.current.hiddenContent,
           hiddenPastes: [...(pasteStateRef.current.hiddenPastes ?? [])],
+          peerMetadata: peerComposerRef.current.snapshotMetadata(),
         };
         historyNavigationRef.current = navigation;
       }
@@ -2008,9 +2054,11 @@ export function AgentUI({
           buffer.setCursor(navigation.row, navigation.col);
           pasteStateRef.current.hiddenContent = navigation.hiddenContent;
           pasteStateRef.current.hiddenPastes = navigation.hiddenPastes;
+          peerComposerRef.current.restoreMetadata(navigation.peerMetadata);
           historyNavigationRef.current = null;
         } else {
           buffer.setText(navigation.entries[navigation.index].text);
+          peerComposerRef.current.restoreMetadata(navigation.entries[navigation.index]);
         }
         dismissAutocompleteState();
         syncInputFromBuffer();
@@ -2179,6 +2227,18 @@ export function AgentUI({
       const editingIndex = editingQueueIndexRef.current;
 
       if (editingIndex !== null) {
+        if (text && peerComposerRef.current.submit(text, {
+          onInstruction: (value, metadata) => onReplaceQueuedInstructionRef.current?.(editingIndex, value, metadata),
+          onAccepted: kind => {
+            if (kind === 'direct') onRemoveQueuedInstructionRef.current?.(editingIndex);
+            if (editingQueueIndexRef.current !== editingIndex) return;
+            dismissAutocompleteState();
+            queueSelectionIndexRef.current = null;
+            editingQueueIndexRef.current = null;
+            setQueueSelectionIndex(null);
+            setEditingQueueIndex(null);
+          },
+        })) return;
         clearInkComposerInputForSubmit(buffer, pasteState, {
           setInput,
           setCursorOffset,
@@ -2208,6 +2268,7 @@ export function AgentUI({
       if (!text) {
         return;
       }
+      if (peerComposerRef.current.submit(text)) return;
       clearInkComposerInputForSubmit(buffer, pasteState, {
         setInput,
         setCursorOffset,
@@ -2234,6 +2295,7 @@ export function AgentUI({
       // before React effects have run the derived suggestion pass.
       const currentText = buffer.getText();
       const currentOffset = getTextBufferCursorOffset(buffer);
+      peerComposerRef.current.update(currentText, currentOffset);
       if (currentText.trim() === '') {
         dismissAutocompleteState();
         return;
@@ -2630,6 +2692,7 @@ export function AgentUI({
             visible={fileMentionVisible && enableQueueInput}
           />
         }
+        peerMentionDropdown={<PeerMentionDropdown {...peerComposer.view} />}
         skillMentionDropdown={
           <SkillMentionDropdown
             suggestions={skillSuggestions}
@@ -3436,6 +3499,7 @@ interface FixedBottomProps {
   configuredLineExtensions?: AgentUILineExtensions;
   runtimeLineExtensions?: AgentUILineExtensions;
   fileMentionDropdown?: React.ReactNode;
+  peerMentionDropdown?: React.ReactNode;
   slashCommandDropdown?: React.ReactNode;
   skillMentionDropdown?: React.ReactNode;
   messageTargetDropdown?: React.ReactNode;
@@ -3550,6 +3614,7 @@ const FixedBottom = memo(function FixedBottom({
   configuredLineExtensions,
   runtimeLineExtensions,
   fileMentionDropdown,
+  peerMentionDropdown,
   slashCommandDropdown,
   skillMentionDropdown,
   messageTargetDropdown,
@@ -3629,6 +3694,7 @@ const FixedBottom = memo(function FixedBottom({
         onLayoutChange={onComposerLayoutChange}
       />
       <FileMentionWrapper fileMentionDropdown={fileMentionDropdown} />
+      {peerMentionDropdown}
       <SlashCommandWrapper slashCommandDropdown={slashCommandDropdown} />
       <SkillMentionWrapper skillMentionDropdown={skillMentionDropdown} />
       <MessageTargetWrapper messageTargetDropdown={messageTargetDropdown} />

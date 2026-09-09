@@ -37,9 +37,11 @@ For local repository scanning and credential reuse during workflow uploads, see
 - [UI Settings](#ui-settings)
 - [Agent Settings](#agent-settings)
 - [Concurrent Session Awareness](#concurrent-session-awareness)
+- [Local Peer Communication](#local-peer-communication)
 - [Permissions Settings](#permissions-settings)
 - [Patch Mode](#patch-mode)
 - [Network Settings](#network-settings)
+- [Required Ports and Agent Transports](#required-ports-and-agent-transports)
 - [Telemetry Settings](#telemetry-settings)
 - [External Agents](#external-agents)
 - [Skills System](#skills-system)
@@ -1179,6 +1181,51 @@ When `enableRequestQueue` is enabled, you can continue typing messages while the
 
 ---
 
+
+## Local Peer Communication
+
+Communication is independent of `sessions.awareness` and defaults off. Enable it to
+address other local sessions and published workers with the `:` composer or peer tools.
+Peer communication uses local Unix-domain sockets on macOS/Linux and requires no TCP
+or UDP port. See [Required Ports and Agent Transports](#required-ports-and-agent-transports)
+for agent IPC, local model servers, browser integration, and optional HTTP listeners.
+
+```json
+{
+  "sessions": {
+    "communication": {
+      "enabled": true,
+      "scope": "workspace",
+      "idleBehavior": "notify",
+      "alias": "builder"
+    }
+  }
+}
+```
+
+| Option | Default | Behavior |
+| --- | --- | --- |
+| `enabled` | `false` | Start authenticated local IPC and peer tools. |
+| `scope` | `workspace` | Maximum authorized scope: workspace, repository, or machine. Both peer policies must allow it. |
+| `idleBehavior` | `notify` | Notify while idle; `auto` explicitly allows peer-triggered turns within existing budgets. |
+| `alias` | Generated | Up to 64 letters, digits, dashes and underscores; starts with a letter. |
+| `coordinationDirectory` | `AUTOHAND_HOME` | Shared discovery/resource namespace; private inboxes stay in each profile. |
+| `allowResourceControl` | `false` | Permit explicit controller policy installation and resource grants. |
+| `resourceWaitTimeoutMs` | `300000` | Maximum parked command-admission wait. |
+| `limits` | Built-in bounded limits | Positive integer overrides documented in the protocol reference. |
+
+Use `/peers list workspace`, `/peers list repository`, or `/peers list machine` to
+choose a directory. The listing includes your own ID for controller setup. `/peers send`,
+`/peers inbox`, `/peers reply`, and `/peers status` expose delivery without requiring the
+user to relay model-to-model messages. Leading `:peer message` sends immediately; an
+inline selected `:peer` supplies an exact reference to the local model.
+
+See [the user guide](peer-communication.md), [resource coordination](peer-resource-coordination.md),
+[the technical reference](peer-communication-protocol.md), and [the two-session lab](peer-communication-lab.md).
+The Unix IPC adapter is implemented for macOS/Linux. Windows communication remains
+unavailable until private pipe and process-job adapters are implemented; keep communication
+disabled there. Changing auto-confirmation never bypasses an enabled resource policy.
+
 ## Permissions Settings
 
 Fine-grained control over tool permissions.
@@ -1473,6 +1520,81 @@ Variables Autohand needs to run its own tooling (`AUTOHAND_*`, `AUTOHAND_CLI`, `
 | `maxRetries` | number | `3`     | `5` | Retry attempts for failed API requests |
 | `timeout`    | number | `30000` | -   | Request timeout in milliseconds        |
 | `retryDelay` | number | `1000`  | -   | Delay between retries in milliseconds  |
+
+### Required Ports and Agent Transports
+
+Autohand Code has no single required inbound TCP port. Normal cloud inference uses
+outbound HTTPS, usually TCP **443**. Local agent communication does not open a TCP
+listener. Additional ports depend on the provider and optional features you enable.
+The `network` settings above control retries and timeouts; they do not configure a
+listener, peer port, or firewall rule.
+
+| Feature | Connection and default port | Configuration and when it is needed |
+| --- | --- | --- |
+| Peer messages, discovery queries, receipts, and resource coordination | Local Unix-domain sockets; **no TCP/UDP port** | Opt in with `sessions.communication.enabled`. Each root session owns a private socket, normally under `<coordinationDirectory>/peer-runtime/`; the directory defaults to `AUTOHAND_HOME`. Long paths use a verified private temporary directory. There is no `sessions.communication.port` setting. |
+| In-process subagents and teammate communication | In-process calls or parent/child stdio; **no TCP/UDP port** | Workers use their owning root's peer runtime. Running more agents does not require allocating a port per agent. Their model requests still use the selected provider's connection. |
+| RPC and ACP agent interfaces | JSON messages over stdin/stdout; **no TCP/UDP port** | The embedding application launches the CLI and owns its stdio pipes. These modes do not start an HTTP or WebSocket server. |
+| MCP tools over `stdio` | Child-process stdin/stdout; **no CLI transport port** | Configure `mcp.servers[].command` and `args`. A tool server may make its own network connections. |
+| MCP tools over `http` or `sse` | Outbound to `mcp.servers[].url`; HTTPS **443**, HTTP **80**, or the explicit URL port | Autohand is the client. A local MCP server must already listen on the port in its URL; there is no fixed Autohand MCP listener. |
+| Cloud inference, account sign-in/sync, downloads, and enabled online services | Outbound HTTPS, normally TCP **443** | Use the selected provider's `baseUrl` and the relevant service URL. `api.baseUrl` / `AUTOHAND_API_URL` select the account API; `AUTOHAND_AUTH_URL` selects the sign-in origin. Custom URLs can use other ports. |
+| Ollama | CLI connects to `http://localhost:11434`; TCP **11434** | `ollama.baseUrl`, or `ollama.port` when no explicit base URL is set. Only required when using that server. |
+| llama.cpp server | CLI connects to `http://localhost:8080`; TCP **8080** | `llamacpp.baseUrl`, or `llamacpp.port` when no explicit base URL is set. Setup can discover an existing server on another port, including **80**. |
+| MLX server | CLI connects to `http://localhost:8080`; TCP **8080** | `mlx.baseUrl`, or `mlx.port` when no explicit base URL is set. The server must use the same address and port. |
+| Autohand AI Local | Local model server, normally `http://127.0.0.1:8080`; TCP **8080** | `autohandai.baseUrl` and `autohandai.port`. Setup may start the chosen model on the next port, normally **8081**, if a reachable server is serving another model; it saves the resulting endpoint. |
+| OpenAI ChatGPT browser sign-in | Temporary callback listener on `127.0.0.1:1455`; TCP **1455** | If occupied, the CLI asks the OS for a free port. The browser uses the actual `http://localhost:<port>/auth/callback` redirect. No public inbound rule is needed; the listener closes after sign-in or failure. Device-code sign-in does not use this listener. |
+| `autohand review serve` | HTTP listener on `127.0.0.1`; **OS-assigned port** by default | `--port 0` selects a free port; `--port <1–65535>` selects a fixed one. Use the URL printed by the command. The host stays loopback-only. |
+| Chrome extension / native messaging bridge | Native messaging and local IPC; **no fixed TCP port** | `chrome` settings and `--browser` enable the integration. This is separate from the browser-profile search fallback below. |
+| Browser-profile search's headless Chrome fallback | Browser debugging TCP port randomly selected from **9222–10221** | Used when this fallback launches Chrome with `--remote-debugging-port`. There is no CLI setting to pin that port. It is unrelated to agent messaging; the browser also needs outbound access to the search site. |
+| Optional Squad runtime | Separate runtime; CLI fallback URL is `http://127.0.0.1:19821` | Check the separate runtime's status for its actual listener. `/squad` forwards `--host` and `--port`; `AUTOHAND_SQUAD_FIXED_PORT` is passed through runtime configuration. Core CLI peer messaging does not depend on Squad or port **19821**. |
+
+#### Peer communication across sessions and profiles
+
+Peers communicate on the **same machine, under the same OS user**. The `workspace`,
+`repository`, and `machine` scopes control which local peers can discover and address
+each other; `machine` does not enable LAN or cross-host communication. No router
+forwarding, public inbound rule, or reserved TCP port is required for peers.
+
+Profiles using different `AUTOHAND_HOME` directories must set the same
+`sessions.communication.coordinationDirectory` to discover one another. Each profile
+retains its private inbox in its own home. The runtime requires a private local
+directory and access to its Unix sockets; a shared network folder or opened firewall
+port does not create cross-host peer support. Windows peer communication is currently
+unavailable.
+
+#### Choosing ports and diagnosing conflicts
+
+For a local provider, an explicit `baseUrl` takes precedence over the provider's
+`port`. Change the server's listening port and the matching CLI URL together. For
+example, after starting Ollama on port `11435`, use:
+
+```json
+{
+  "provider": "ollama",
+  "ollama": {
+    "baseUrl": "http://127.0.0.1:11435",
+    "model": "your-installed-model"
+  },
+  "sessions": {
+    "communication": {
+      "enabled": true,
+      "scope": "workspace"
+    }
+  }
+}
+```
+
+For a predictable review URL, run `autohand review serve --port 4173`. If that port
+is occupied, choose another or use `--port 0`. Local providers that default to
+`8080` need distinct ports when running as separate servers at the same time.
+Optional local listeners should remain reachable only where you intend to use them.
+
+On macOS/Linux, `lsof -nP -iTCP:11434 -sTCP:LISTEN` identifies the process listening
+on a model port; substitute the port you are diagnosing. For peer failures, use
+`/peers list` and check communication enablement, scope, the shared coordination
+directory, and socket permissions instead of opening a TCP port. Project dev servers,
+hooks, external tools, and third-party MCP servers can need additional ports defined
+by those programs. `--offline` suppresses startup network refreshes; it is not a
+firewall and does not force a cloud provider or tool to run locally.
 
 ---
 

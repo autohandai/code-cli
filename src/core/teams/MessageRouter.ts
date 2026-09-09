@@ -4,8 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
+
+const MAX_CHANNEL_BYTES = 1024 * 1024;
 
 interface RpcMessage {
   jsonrpc?: '2.0';
@@ -39,7 +40,9 @@ export class MessageRouter {
     callback: (msg: RpcMessage) => void,
     onError?: (error: Error) => void,
   ): () => void {
-    const rl = createInterface({ input: stream, crlfDelay: Infinity });
+    let pending: Buffer = Buffer.alloc(0);
+    let stopped = false;
+    let failed = false;
     const handleError = (error: Error): void => { onError?.(error); };
     const handleLine = (line: string): void => {
       const trimmed = line.trim();
@@ -56,12 +59,39 @@ export class MessageRouter {
         // Ignore non-JSON lines (stderr leakage, debug output, etc.)
       }
     };
-    rl.on('error', handleError);
-    rl.on('line', handleLine);
+    const handleData = (data: Buffer | string): void => {
+      if (stopped || failed) return;
+      const bytes = typeof data === 'string' ? Buffer.from(data) : data;
+      let offset = 0;
+      while (offset < bytes.length) {
+        const newline = bytes.indexOf(10, offset);
+        const end = newline < 0 ? bytes.length : newline;
+        if (pending.length + end - offset > MAX_CHANNEL_BYTES) {
+          failed = true;
+          pending = Buffer.alloc(0);
+          handleError(new Error('Teammate input frame exceeds the channel limit.'));
+          return;
+        }
+        pending = Buffer.concat([pending, bytes.subarray(offset, end)]);
+        if (newline < 0) return;
+        handleLine(pending.toString('utf8'));
+        pending = Buffer.alloc(0);
+        offset = newline + 1;
+      }
+    };
+    const handleEnd = (): void => {
+      if (!stopped && !failed && pending.length) handleLine(pending.toString('utf8'));
+      pending = Buffer.alloc(0);
+    };
+    stream.on('error', handleError);
+    stream.on('data', handleData);
+    stream.on('end', handleEnd);
     return () => {
-      rl.off('line', handleLine);
-      rl.close();
-      rl.off('error', handleError);
+      stopped = true;
+      pending = Buffer.alloc(0);
+      stream.off('data', handleData);
+      stream.off('end', handleEnd);
+      stream.off('error', handleError);
     };
   }
 
@@ -71,6 +101,11 @@ export class MessageRouter {
    */
   send(stream: Writable, msg: { method: string; params: Record<string, unknown> }): void {
     const line = MessageRouter.encode(msg) + '\n';
+    const bytes = Buffer.byteLength(line);
+    if (bytes > MAX_CHANNEL_BYTES || stream.writableLength + bytes > MAX_CHANNEL_BYTES) {
+      throw new Error('Teammate output exceeds the bounded channel queue.');
+    }
+    if (stream.destroyed || stream.writableEnded) throw new Error('Teammate output is closed.');
     stream.write(line);
   }
 }

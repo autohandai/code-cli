@@ -188,7 +188,7 @@ export class TeammateProcess {
     const stopMessages = child.stdout
       ? this.router.onMessage(child.stdout, (message) => {
         if (!this.childClosed && !this.transportFailed) onMessage(message);
-      })
+      }, error => this.handleTransportFailure(error))
       : undefined;
 
     let stderrTail: Buffer = Buffer.alloc(0);

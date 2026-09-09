@@ -125,6 +125,22 @@ describe('InstructionRunner command mode UI', () => {
     }
   });
 
+  it('completes provider setup cleanup before retrying within the same admitted turn', async () => {
+    const host = createHost();
+    host.runtime.isCommandMode = false;
+    host.runtime.options.prompt = undefined;
+    vi.mocked(host.providerConfigManager.promptModelSelection).mockResolvedValue(true);
+    vi.mocked(host.runReactLoop).mockRejectedValueOnce(new ProviderNotConfiguredError('openai')).mockImplementationOnce(async () => {
+      expect(host.cleanupUI).toHaveBeenCalled();
+      expect(host.isInstructionActive).toBe(true);
+      return { status: 'completed' };
+    });
+    expect(await new InstructionRunner(host).run('retry provider setup')).toBe(true);
+    expect(host.runInstruction).not.toHaveBeenCalled();
+    expect(host.runReactLoop).toHaveBeenCalledTimes(2);
+    expect(host.isInstructionActive).toBe(false);
+  });
+
   it('exposes the prompt hook to cancellation and clears active state afterwards', async () => {
     const host = createHost();
     host.hookManager = new HookManager({ workspaceRoot: '/tmp' });

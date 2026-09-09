@@ -19,6 +19,7 @@ Each command is a separate TypeScript file that exports:
 | `/quit` | `quit.ts` | Exit Autohand |
 | `/exit` | `quit.ts` | Exit Autohand |
 | `/help` | `help.ts` | Show available commands |
+| `/peers` | `peers.ts` | Scoped discovery, colon recipients, direct messages, inbox, correlated replies and delivery status |
 | `/sessions` | `sessions.ts` | List saved sessions |
 | `/rename` | `rename.ts` | Name the current session for /sessions and /resume |
 | `/resume` | `resume.ts` | Resume a previous session |

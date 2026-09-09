@@ -37,6 +37,8 @@ import type { ToolManager } from '../toolManager.js';
 import type { ToolsRegistry } from '../toolsRegistry.js';
 import { calculateContextUsage } from '../context/tokenizer.js';
 import { filterToolsByRelevance } from '../toolFilter.js';
+import type { PeerCommunicationRuntime } from './PeerCommunicationRuntime.js';
+import type { AgentPeerRuntime } from './AgentPeerRuntime.js';
 import { EXIT_PLAN_MODE_TOOL_DEFINITION, PLAN_TOOL_DEFINITION } from '../toolManager.js';
 import {
   buildHostTokenUsageStatus,
@@ -161,6 +163,8 @@ export interface ReactLoopInkRenderer {
 }
 
 export interface AgentReactLoopHost {
+  peerCommunicationRuntime?: PeerCommunicationRuntime;
+  peerRuntime?: AgentPeerRuntime;
   activeProvider?: ProviderName;
   autoReportManager: Pick<AutoReportManager, 'reportError'>;
   consecutiveCancellations: number;
@@ -628,6 +632,8 @@ export async function runAgentReactLoop(
       drainSteering();
 
       // Filter tools by relevance to reduce token overhead
+      await host.peerCommunicationRuntime?.safeBoundary();
+      if (abortController.signal.aborted) break;
       const messages = host.conversation.history();
       let tools = filterToolsByRelevance(allTools, messages, {
         cache: host.runtime.config.agent?.toolSelectionCache !== false,
@@ -1203,7 +1209,7 @@ export async function runAgentReactLoop(
               if (group.items.length >= group.expected) {
                 flushToolGroup(group);
               }
-            }, { signal: abortController.signal });
+            }, { signal: abortController.signal, ...(host.peerRuntime?.automatic ? { peerAutomatic: true } : {}) });
           } finally {
             if (workspaceChangeCapture && checkpoint) {
               workspaceChanges = await workspaceChangeCapture.finish(checkpoint).catch((error: unknown) => {
@@ -1451,6 +1457,7 @@ export async function runAgentReactLoop(
       if (drainSteering()) {
         continue;
       }
+      if ((await host.peerCommunicationRuntime?.finishTurn())?.continueTurn) continue;
       renderFinalResponse(turnOutcome.response, {
         thought: payload.thought,
         usedThoughtAsResponse: turnOutcome.usedThoughtAsResponse,

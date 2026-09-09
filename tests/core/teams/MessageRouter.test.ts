@@ -1,8 +1,30 @@
 import { describe, it, expect, vi } from 'vitest';
 import { MessageRouter } from '../../../src/core/teams/MessageRouter.js';
-import { PassThrough } from 'node:stream';
+import { PassThrough, Writable } from 'node:stream';
 
 describe('MessageRouter', () => {
+  it('bounds an unterminated incoming frame and stops dispatch after overflow', () => {
+    const stream = new PassThrough();
+    const receive = vi.fn();
+    const onError = vi.fn();
+    const unsubscribe = new MessageRouter().onMessage(stream, receive, onError);
+    stream.write('x'.repeat(1024 * 1024 + 1));
+    stream.write('\n{"method":"team.ready","params":{}}\n');
+    expect(onError).toHaveBeenCalledOnce();
+    expect(receive).not.toHaveBeenCalled();
+    unsubscribe();
+  });
+
+  it('refuses outgoing frames and queued writes beyond the channel budget', () => {
+    const router = new MessageRouter();
+    const stream = new Writable({ highWaterMark: 1, write: () => {} });
+    const message = { method: 'team.peerRequest', params: { content: 'x'.repeat(600_000) } };
+    expect(() => router.send(stream, { ...message, params: { content: 'x'.repeat(1024 * 1024) } })).toThrow();
+    router.send(stream, message);
+    expect(() => router.send(stream, message)).toThrow();
+    stream.destroy();
+  });
+
   it('should encode a JSON-RPC notification', () => {
     const line = MessageRouter.encode({
       method: 'team.ready',

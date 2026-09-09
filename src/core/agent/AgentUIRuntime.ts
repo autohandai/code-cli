@@ -1,3 +1,4 @@
+import { allowedPeerScopes } from '../../session/peers/PeerScope.js';
 /**
  * @license
  * Copyright 2025 Autohand AI LLC
@@ -32,6 +33,9 @@ import {
 import { createQueuedAgentInstruction } from './PostTurnActionCoordinator.js';
 import { renderAgentSlashCommandResult } from './AgentCommandRuntime.js';
 import { GoalManager } from '../../goals/GoalManager.js';
+import { parsePeerInput, type PeerInstructionMetadata } from '../../ui/peerMention.js';
+import type { PeerClient } from '../../session/peers/PeerMessaging.js';
+import { withCommandCoordination } from '../../session/peers/CommandCoordinationGate.js';
 
 export interface AgentUIRuntimeHost {
   [key: string]: any;
@@ -248,8 +252,14 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
     if (host.useInkRenderer && isTTY) {
       // Create Ink UIManager
       const inkUIManager = createInkUIManager({
-        onInstruction: (text: string) => { void host.handleInkSubmittedInstruction(text); },
+        onInstruction: (text, metadata) => { void handleAgentInkSubmittedInstruction(host, text, metadata); },
         onSteer: (text: string) => { void steerAgentActiveInstruction(host, text); },
+        ...(host.runtime?.config?.sessions?.communication?.enabled === true ? {
+          peerScopes: allowedPeerScopes(host.runtime.config.sessions?.communication?.scope ?? 'workspace'),
+          peersProvider: scope => host.peerMessaging?.cachedPeers(scope) ?? [],
+          onPeersRefresh: scope => host.peerMessaging?.list({ scope }) ?? Promise.resolve(),
+          onPeerMessage: (input: { to: string; content: string; replyTo?: string }) => host.peerMessaging.send(input),
+        } : {}),
         onEscape: () => {
           const ctrl = host.currentInkAbortController;
           if (ctrl && !ctrl.signal.aborted) {
@@ -586,8 +596,8 @@ export async function showAgentFeedbackWithPause(host: AgentUIRuntimeHost, trigg
         host.persistentInput.resume();
       }
       if (needsInkPause) {
-        host.modalActive = false;
         await host.inkRenderer.resume();
+        host.modalActive = false;
       }
     }
   }
@@ -626,7 +636,14 @@ export async function steerAgentActiveInstruction(host: AgentUIRuntimeHost, text
     return true;
 }
 
-export async function handleAgentInkSubmittedInstruction(host: AgentUIRuntimeHost, text: string): Promise<void> {
+export async function handleAgentInkSubmittedInstruction(host: AgentUIRuntimeHost, text: string, metadata?: PeerInstructionMetadata): Promise<void> {
+    const peerInput = parsePeerInput(text);
+    const messaging: PeerClient | undefined = host.peerMessaging;
+    if (peerInput.kind === 'direct' && messaging?.policy.enabled) {
+      const receipt = await messaging.send({ to: peerInput.alias, content: peerInput.content });
+      host.inkRenderer?.addAssistantMessage?.(`To :${peerInput.alias} · ${receipt.state}`);
+      return;
+    }
     if (isShellCommand(text)) {
       await host.executeImmediateShellCommand(parseShellCommand(text));
       return;
@@ -658,7 +675,8 @@ export async function handleAgentInkSubmittedInstruction(host: AgentUIRuntimeHos
     }
 
     echoInkSubmittedInstructionImmediately(host, text);
-    host.inkRenderer?.addQueuedInstruction(text);
+    if (metadata?.peerReferences.length) host.inkRenderer?.addQueuedInstruction(text, metadata);
+    else host.inkRenderer?.addQueuedInstruction(text);
 
     // If the interactive loop is idle-waiting for the next Composer input,
     // resolve the promise so it can dequeue and process host instruction.
@@ -673,11 +691,12 @@ export function shouldAgentPreferPtyForImmediateShellCommands(_host: AgentUIRunt
   }
 
 export async function executeAgentImmediateShellCommand(host: AgentUIRuntimeHost, shellCmd: string, routeOpts?: ImmediateShellRouteOptions): Promise<ShellCommandResult> {
-    if (host.inkRenderer) {
-      return host.executeImmediateShellCommandForInk(shellCmd);
-    }
-
-    return host.executeImmediateShellCommandForComposer(shellCmd, routeOpts);
+    const execute = () => host.inkRenderer ? host.executeImmediateShellCommandForInk(shellCmd)
+      : host.executeImmediateShellCommandForComposer(shellCmd, routeOpts);
+    return host.resourceCoordinator ? withCommandCoordination({ coordinator: host.resourceCoordinator,
+      waitTimeoutMs: host.runtime.config.sessions?.communication?.resourceWaitTimeoutMs,
+      onWaiting: activity => host.notifyUser?.(`Waiting for resource ${activity.resource} · ${activity.requestId}`),
+    }, execute) : execute();
   }
 
 export async function executeAgentImmediateShellCommandForComposer(host: AgentUIRuntimeHost, shellCmd: string, routeOpts?: ImmediateShellRouteOptions): Promise<ShellCommandResult> {

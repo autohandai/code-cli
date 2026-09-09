@@ -10,7 +10,7 @@ const mockPrepareSessionWorktree = vi.fn();
 const mockWorktreeRemove = vi.fn();
 
 vi.mock('../../src/utils/sessionWorktree.js', () => ({
-  prepareSessionWorktree: mockPrepareSessionWorktree,
+  prepareCoordinatedSessionWorktree: mockPrepareSessionWorktree,
 }));
 
 vi.mock('../../src/actions/worktree.js', () => ({

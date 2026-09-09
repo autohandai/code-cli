@@ -71,6 +71,91 @@ describe('TeamManager', () => {
     vi.useRealTimers();
   });
 
+  it('waits for exact peer retirement before completing team shutdown', async () => {
+    const { createPeerHarness } = await import('../../../src/testing/scenarios/peerCommunicationHarness.js');
+    const { AgentPeerRuntime } = await import('../../../src/core/agent/AgentPeerRuntime.js');
+    const h = await createPeerHarness();
+    const root = (await AgentPeerRuntime.start({ home: h.home, workspaceRoot: h.workspaceRoot, sessionId: 'team-drain', policy: { enabled: true },
+      appendContext: async () => {}, addContext: () => {}, notify: () => {}, emitOutput: () => {}, requestAutoTurn: async () => {},
+    }))!;
+    let retire = () => {};
+    const gate = new Promise<void>(resolve => { retire = resolve; });
+    const bindPeerRun = vi.fn((id: string, name: string) => {
+      const runtime = root.bindRun(id, name);
+      return { ...runtime, close: async () => { await gate; await runtime.close(); } };
+    });
+    const team = new TeamManager({ leadSessionId: 'team-drain', workspacePath: h.workspaceRoot, bindPeerRun });
+    team.createTeam('drain');
+    const worker = team.addTeammate({ name: 'worker', agentName: 'tester' });
+    Object.assign(worker, { terminate: vi.fn(async () => {}) });
+    emit(worker, 'team.ready', {});
+    team.tasks.createTask({ subject: 'Wait', description: 'Keep exact run active.' });
+    team.tryAssignIdleTeammate();
+    let shutdown: Promise<void> | undefined;
+    try {
+      await vi.waitFor(() => expect(bindPeerRun).toHaveBeenCalled());
+      await new Promise(resolve => setTimeout(resolve, 10));
+      exitTeammate(worker, 0);
+      let settled = false;
+      shutdown = team.shutdown();
+      void shutdown.then(() => { settled = true; });
+      await new Promise(resolve => setTimeout(resolve, 30));
+      expect(settled).toBe(false);
+    } finally { retire(); await shutdown; await root.close(); await h.close(); }
+  });
+
+  it('publishes the exact task peer before readiness and wires real teammate stream tools and retirement', async () => {
+    const { createPeerHarness } = await import('../../../src/testing/scenarios/peerCommunicationHarness.js');
+    const { AgentPeerRuntime } = await import('../../../src/core/agent/AgentPeerRuntime.js');
+    const { MessageRouter } = await import('../../../src/core/teams/MessageRouter.js');
+    const h = await createPeerHarness();
+    const peer = await h.create();
+    const root = (await AgentPeerRuntime.start({ home: h.home, workspaceRoot: h.workspaceRoot, sessionId: 'team-root', policy: { enabled: true },
+      appendContext: async () => {}, addContext: () => {}, notify: () => {}, emitOutput: () => {}, requestAutoTurn: async () => {},
+    }))!;
+    const manager = new TeamManager({ leadSessionId: 'team-root', workspacePath: h.workspaceRoot, bindPeerRun: (id, name) => root.bindRun(id, name) });
+    manager.createTeam('peers');
+    const worker = manager.addTeammate({ name: 'worker', agentName: 'tester' });
+    const task = manager.tasks.createTask({ subject: 'Collaborate', description: 'Reply to the exact sender.' });
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const router = new MessageRouter();
+    const transport = worker as unknown as { send: ReturnType<typeof vi.fn>; assignTask: ReturnType<typeof vi.fn> };
+    transport.send.mockImplementation(message => { router.send(input, message); return true; });
+    transport.assignTask.mockImplementation(task => router.send(input, { method: 'team.assignTask', params: { task, waitForRunReady: true } }));
+    const stop = router.onMessage(output, message => emit(worker, message.method, message.params));
+    let target = '';
+    const child = runTeammateModeWithStreams({ teamName: 'peers', name: 'worker', agentName: 'tester', leadSessionId: 'team-root', workspacePath: h.workspaceRoot }, input, output, {
+      execute: async (_opts, task, runtime) => {
+        const client = runtime?.peerMessaging;
+        if (!client) throw new Error('The task has no parent-bound peer client.');
+        target = client.self.peerId;
+        expect((await peer.list()).peers).toContainEqual(expect.objectContaining({ peerId: target, runId: task.runId }));
+        const receipt = await peer.send({ to: target, content: 'Private task instruction' });
+        const messages = await client.messages({ consume: false });
+        await client.consumeMessages(messages.messages, accepted => client.recordContext(accepted));
+        await client.send({ to: peer.self.peerId, content: 'Task reply', replyTo: receipt.messageId });
+        return 'Coordinated';
+      },
+    });
+    try {
+      await vi.waitFor(() => expect(['completed', 'failed']).toContain(manager.tasks.getTask(task.id)?.status), { timeout: 10_000 });
+      expect(manager.tasks.getTask(task.id)).toMatchObject({ status: 'completed', output: 'Coordinated' });
+      expect((await peer.messages()).messages).toEqual([expect.objectContaining({ from: target, content: 'Task reply' })]);
+      expect((await root.messaging.messages({ consume: false })).messages).toEqual([]);
+      await expect(peer.send({ to: target, content: 'Late reply' })).rejects.toMatchObject({ code: 'TARGET_ENDED' });
+    } finally {
+      input.end();
+      await child;
+      stop();
+      exitTeammate(worker, 0);
+      await manager.shutdown();
+      await root.close();
+      await h.close();
+      input.destroy(); output.destroy();
+    }
+  });
+
   it('should create a team', () => {
     const team = manager.createTeam('code-cleanup');
     expect(team.name).toBe('code-cleanup');

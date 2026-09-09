@@ -80,6 +80,10 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   exit_worktree: 'meta',
   team_status: 'meta',
   send_team_message: 'meta',
+  list_peers: 'read',
+  send_peer_message: 'write',
+  peer_messages: 'read',
+  coordinate_resource: 'write',
   ask_followup_question: 'meta',
   find_agent_skills: 'meta',
   request_directory_access: 'meta',
@@ -443,6 +447,10 @@ export type RelevanceCategory =
  * Map tools to relevance categories
  */
 const RELEVANCE_CATEGORIES: Record<string, RelevanceCategory> = {
+  list_peers: 'always',
+  send_peer_message: 'always',
+  peer_messages: 'always',
+  coordinate_resource: 'always',
   // Always include
   read_file: 'always',
   fff_find: 'always',

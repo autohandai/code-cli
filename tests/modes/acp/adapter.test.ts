@@ -313,6 +313,33 @@ describe("AutohandAcpAdapter", () => {
   // initialize()
   // -------------------------------------------------------------------------
 
+  describe("peer communication events", () => {
+    it("negotiates the peer extension and forwards idle events with structured provenance", async () => {
+      config.sessions = { communication: { enabled: true } };
+      const initialized = await adapter.initialize(makeInitRequest({
+        clientCapabilities: { _meta: { autohandPeerEvents: 1 } },
+      }));
+      expect(initialized._meta).toMatchObject({ peerCommunication: { version: 1 } });
+      const session = await adapter.newSession(makeNewSessionRequest());
+      const outputListener = mockAgent.setOutputListener.mock.calls[0][0];
+      const event = { type: 'message', messageId: 'peer-message-1', from: 'peer-a', to: 'peer-b', state: 'accepted', cursor: '1' };
+      await outputListener({ type: 'peer_update', peerEvent: event });
+      await vi.waitFor(() => expect(connection.extNotification).toHaveBeenCalledWith(
+        'autohand.peerUpdate', expect.objectContaining({ sessionId: session.sessionId, event }),
+      ));
+    });
+
+    it("does not send unsolicited peer extension notifications to a legacy client", async () => {
+      config.sessions = { communication: { enabled: true } };
+      await adapter.initialize(makeInitRequest());
+      await adapter.newSession(makeNewSessionRequest());
+      vi.mocked(connection.extNotification).mockClear();
+      const outputListener = mockAgent.setOutputListener.mock.calls[0][0];
+      await outputListener({ type: 'peer_update', peerEvent: { type: 'receipt', messageId: 'peer-message-1', state: 'consumed', cursor: '1' } });
+      expect(vi.mocked(connection.extNotification).mock.calls.some(([method]) => method === 'autohand.peerUpdate')).toBe(false);
+    });
+  });
+
   describe("initialize()", () => {
     it("returns correct protocol version", async () => {
       const result = await adapter.initialize(makeInitRequest());

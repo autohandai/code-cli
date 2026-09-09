@@ -6,6 +6,7 @@
 import fs from 'fs-extra';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { open } from 'node:fs/promises';
 import type {
     SessionMetadata,
     SessionMessage,
@@ -563,6 +564,7 @@ export class Session {
     public metadata: SessionMetadata;
     private messages: SessionMessage[] = [];
     private state: WorkspaceState | null = null;
+    private contextAppend: Promise<void> = Promise.resolve();
 
     /** False for an ephemeral session: every write stays in memory. */
     private readonly persist: boolean;
@@ -601,6 +603,27 @@ export class Session {
         await this.ensureSessionDir();
         const conversationPath = path.join(this.sessionDir, 'conversation.jsonl');
         await fs.appendFile(conversationPath, JSON.stringify(message) + '\n');
+    }
+
+    appendContext(message: SessionMessage, recordId: string): Promise<void> {
+        const pending = this.contextAppend.catch(() => {}).then(async () => {
+            if (this.messages.some(entry => entry._meta?.recordId === recordId)) return;
+            await this.ensureSessionDir();
+            const entry = { ...message, _meta: { ...message._meta, recordId } };
+            const handle = await open(path.join(this.sessionDir, 'conversation.jsonl'), 'a', 0o600);
+            try {
+                await handle.writeFile(JSON.stringify(entry) + '\n');
+                await handle.sync();
+            } finally {
+                await handle.close();
+            }
+            this.messages.push(entry);
+            this.metadata.messageCount = this.messages.length;
+            this.metadata.lastActiveAt = entry.timestamp;
+            await this.save().catch(() => {});
+        });
+        this.contextAppend = pending;
+        return pending;
     }
 
     async replaceMessages(messages: SessionMessage[]): Promise<void> {

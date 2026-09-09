@@ -384,6 +384,7 @@ export interface AgentSettings {
 export interface SessionsSettings {
   /** How this session reacts to other sessions in the same workspace (default: warn). */
   awareness?: 'passive' | 'warn' | 'coordinate';
+  communication?: import('./session/peers/PeerSettings.js').PeerCommunicationSettings;
 }
 
 export interface TelemetrySettings {
@@ -1789,6 +1790,10 @@ export type AgentAction =
   | { type: 'task_output'; task_id: string; output: string }
   | { type: 'team_status' }
   | { type: 'send_team_message'; to: string; content: string }
+  | ({ type: 'list_peers' } & import('./session/peers/PeerDirectory.js').PeerListQuery)
+  | { type: 'send_peer_message'; to: string; content: string; topic?: string; replyTo?: string }
+  | { type: 'peer_messages'; after?: string; from?: string; replyTo?: string; messageId?: string; waitMs?: number }
+  | ({ type: 'coordinate_resource' } & import('./session/peers/ResourceCoordinator.js').ResourceOperation)
   | { type: 'skill'; command: 'list' | 'info' | 'activate' | 'deactivate'; name?: string }
   | { type: 'sleep'; seconds: number; reason?: string }
   | { type: 'enter_worktree'; name?: string }
@@ -1984,6 +1989,9 @@ export type ToolExecutionResult = {
 } & ToolActionOutcome;
 
 export interface ToolExecutionContext {
+  peerMessaging?: import('./session/peers/PeerMessaging.js').PeerClient;
+  resourceCoordinator?: import('./session/peers/ResourceCoordinator.js').ResourceCoordinatorClient;
+  peerAutomatic?: boolean;
   toolCallId?: string;
   tool?: AgentAction['type'];
   /** Whether approval was already handled by the caller */
@@ -2026,7 +2034,9 @@ export interface AgentStatusSnapshot {
 }
 
 export interface AgentOutputEvent {
-  type: 'message' | 'thinking' | 'tool_start' | 'tool_end' | 'error' | 'schedule_triggered' | 'file_modified' | 'team_update';
+  type: 'message' | 'thinking' | 'tool_start' | 'tool_end' | 'error' | 'schedule_triggered' | 'file_modified' | 'team_update' | 'peer_update' | 'resource_update';
+  peerEvent?: import('./session/peers/PeerProtocol.js').PeerEvent;
+  resourceEvent?: import('./session/peers/PeerProtocol.js').PeerEvent;
   content?: string;
   thought?: string;
   toolName?: string;

@@ -20,6 +20,7 @@ import {
 } from '../actions/command.js';
 import { buildAutohandChildProcessEnv } from '../utils/childProcessEnv.js';
 import { writeAutohandDebugLine } from '../utils/debugLog.js';
+import { getCommandCoordination, prepareCommandCoordination, signalCoordinatedProcess, spawnCoordinatedProcess, waitForProcessPublication } from '../session/peers/CommandCoordinationGate.js';
 
 export type { BackgroundProcessCompletion } from '../actions/command.js';
 
@@ -530,6 +531,7 @@ export function executeShellCommand(
   const trimmedCommand = command.trim();
 
   try {
+    if (getCommandCoordination()) throw new Error('Synchronous shell execution cannot wait for peer coordination. Use the asynchronous command API.');
     const result = execSync(trimmedCommand, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -570,7 +572,11 @@ export async function executeShellCommandAsync(
     throw new ShellCommandAbortedError();
   }
 
-  return new Promise((resolve, reject) => {
+  const child = await spawnCoordinatedProcess({ file: trimmedCommand, args: [], cwd: cwd ?? process.cwd() }, {
+    shell: true, detached: SUPPORTS_PROCESS_GROUP_SIGNALS, stdio: ['ignore', 'pipe', 'pipe'], env: buildAutohandChildProcessEnv(),
+  }, options.signal);
+
+  return new Promise<ShellCommandResult>((resolve, reject) => {
     let stdout = '';
     let stderr = '';
     let resolved = false;
@@ -607,24 +613,6 @@ export async function executeShellCommandAsync(
       cleanup();
       reject(new ShellCommandAbortedError(stdout, stderr));
     };
-
-    let child: ReturnType<typeof spawn>;
-    try {
-      child = spawn(trimmedCommand, {
-        cwd: cwd ?? process.cwd(),
-        shell: true,
-        detached: SUPPORTS_PROCESS_GROUP_SIGNALS,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: buildAutohandChildProcessEnv(),
-      });
-    } catch (error) {
-      const execError = error as ExecAsyncError;
-      finish({
-        success: false,
-        error: execError.stderr?.toString() || execError.message || 'Unknown error'
-      });
-      return;
-    }
 
     const terminate = (reason: 'abort' | 'timeout'): void => {
       if (resolved || aborted || timedOut) return;
@@ -698,7 +686,7 @@ export async function executeShellCommandAsync(
         error: errorMessage
       });
     });
-  });
+  }).finally(() => waitForProcessPublication(child));
 }
 
 export async function executeInteractiveShellCommand(
@@ -711,27 +699,14 @@ export async function executeInteractiveShellCommand(
     throw new ShellCommandAbortedError();
   }
 
-  return new Promise((resolve, reject) => {
+  const child = await spawnCoordinatedProcess({ file: trimmedCommand, args: [], cwd: cwd ?? process.cwd() }, {
+    shell: true, stdio: 'inherit', env: buildAutohandChildProcessEnv(),
+  }, options.signal);
+
+  return new Promise<ShellCommandResult>((resolve, reject) => {
     let settled = false;
     let forceKillId: NodeJS.Timeout | undefined;
     let aborted = false;
-    let child: ReturnType<typeof spawn>;
-    try {
-      child = spawn(trimmedCommand, {
-        cwd: cwd ?? process.cwd(),
-        shell: true,
-        stdio: 'inherit',
-        env: buildAutohandChildProcessEnv(),
-      });
-    } catch (error) {
-      const execError = error as ExecAsyncError;
-      resolve({
-        success: false,
-        error: execError.stderr?.toString() || execError.message || 'Unknown error'
-      });
-      return;
-    }
-
     const cleanup = (): void => {
       if (forceKillId) clearTimeout(forceKillId);
       options.signal?.removeEventListener('abort', handleAbort);
@@ -751,9 +726,9 @@ export async function executeInteractiveShellCommand(
     function handleAbort(): void {
       if (settled || aborted) return;
       aborted = true;
-      child.kill('SIGTERM');
+      signalCoordinatedProcess(child, 'SIGTERM');
       forceKillId = setTimeout(() => {
-        if (!settled) child.kill('SIGKILL');
+        if (!settled) signalCoordinatedProcess(child, 'SIGKILL');
       }, Math.max(0, options.killGracePeriodMs ?? DEFAULT_KILL_GRACE_PERIOD_MS));
       forceKillId.unref?.();
     }
@@ -788,7 +763,7 @@ export async function executeInteractiveShellCommand(
         error: signal ? `Command terminated by ${signal}` : `Command failed with exit code ${code ?? 'unknown'}`
       });
     });
-  });
+  }).finally(() => waitForProcessPublication(child));
 }
 
 export async function loadNodePty(): Promise<NodePtyModule | null> {
@@ -888,8 +863,10 @@ export async function executeStreamingShellCommand(
   }
 
   const { file, args } = getPtyShellLaunch(trimmedCommand);
+  const coordinated = await prepareCommandCoordination({ file, args, cwd: cwd ?? process.cwd() }, options.signal);
   let ptyProcess: PtyProcess;
   try {
+    options.signal?.throwIfAborted();
     ptyProcess = nodePty.spawn(file, args, {
       name: process.env.TERM || 'xterm-256color',
       cols: Math.max(20, options.columns ?? process.stdout.columns ?? 80),
@@ -898,11 +875,14 @@ export async function executeStreamingShellCommand(
       env: buildAutohandChildProcessEnv(),
     });
   } catch (error) {
+    await coordinated?.failed(error);
+    if (options.signal?.aborted) throw new ShellCommandAbortedError();
     writeAutohandDebugLine(
       `[pty] spawn failed, using non-PTY execution: ${error instanceof Error ? error.message : String(error)}`,
     );
     return executeShellCommandAsync(trimmedCommand, cwd, DEFAULT_SHELL_TIMEOUT, options);
   }
+  coordinated?.observePty(ptyProcess);
 
   // A PTY that never reports exit leaves no trace of how far it got. These lines
   // are the difference between "it hung" and knowing whether the child ever

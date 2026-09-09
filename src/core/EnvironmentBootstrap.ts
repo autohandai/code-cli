@@ -9,8 +9,17 @@ import { join } from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { getTheme, isThemeInitialized } from '../ui/theme/index.js';
+import { getCommandCoordination } from '../session/peers/CommandCoordinationGate.js';
+import { runCommand } from '../actions/command.js';
 
 const execAsync = promisify(exec);
+
+async function executeBootstrapCommand(command: string, options: { cwd: string; timeout?: number }): Promise<{ stdout: string }> {
+  if (!getCommandCoordination()) return execAsync(command, options);
+  const result = await runCommand(command, [], options.cwd, { shell: true, timeout: options.timeout });
+  if (result.code !== 0) throw new Error(result.stderr || `Bootstrap command failed with exit code ${result.code}`);
+  return result;
+}
 
 /**
  * Supported package managers
@@ -229,15 +238,15 @@ export class EnvironmentBootstrap {
       }
 
       // Fetch from remote
-      await execAsync('git fetch --all --prune', { cwd: root, timeout: 30000 });
+      await executeBootstrapCommand('git fetch --all --prune', { cwd: root, timeout: 30000 });
 
       // Check git status
-      const { stdout: statusOutput } = await execAsync('git status -uno', { cwd: root });
+      const { stdout: statusOutput } = await executeBootstrapCommand('git status -uno', { cwd: root });
 
       if (statusOutput.includes('Your branch is behind')) {
         // Try fast-forward pull
         try {
-          await execAsync('git pull --ff-only', { cwd: root, timeout: 60000 });
+          await executeBootstrapCommand('git pull --ff-only', { cwd: root, timeout: 60000 });
           step.detail = 'Pulled latest changes';
         } catch {
           step.detail = 'Behind remote (pull failed, may need manual merge)';
@@ -271,7 +280,7 @@ export class EnvironmentBootstrap {
 
     try {
       const cmd = this.installCommands[pm];
-      await execAsync(cmd, { cwd: root, timeout: 120000 });
+      await executeBootstrapCommand(cmd, { cwd: root, timeout: 120000 });
       step.status = 'success';
       step.detail = cmd;
       step.duration = Date.now() - start;
@@ -287,7 +296,7 @@ export class EnvironmentBootstrap {
       if (isLockfileError) {
         try {
           const fallbackCmd = this.fallbackInstallCommands[pm];
-          await execAsync(fallbackCmd, { cwd: root, timeout: 120000 });
+          await executeBootstrapCommand(fallbackCmd, { cwd: root, timeout: 120000 });
           step.status = 'success';
           step.detail = `${fallbackCmd} (lockfile updated)`;
           step.duration = Date.now() - start;

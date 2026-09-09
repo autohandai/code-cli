@@ -11,6 +11,7 @@ import * as https from 'https';
 import * as http from 'http';
 import { existsSync } from 'fs';
 import { spawn } from 'child_process';
+import { getCommandCoordination, signalCoordinatedProcess, spawnCoordinatedProcess, waitForProcessPublication } from '../session/peers/CommandCoordinationGate.js';
 import { hasBrowserBridgeOutput } from '../browser/browserToolBridge.js';
 
 export interface WebSearchResult {
@@ -284,8 +285,10 @@ async function executeChromeDom(
 ): Promise<string> {
   throwIfAborted(signal);
 
+  const proc = getCommandCoordination()
+    ? await spawnCoordinatedProcess({ file: chromePath, args, cwd: process.cwd() }, { stdio: ['ignore', 'pipe', 'pipe'] }, signal)
+    : spawn(chromePath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
   return new Promise((resolve, reject) => {
-    const proc = spawn(chromePath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     let settled = false;
@@ -309,10 +312,10 @@ async function executeChromeDom(
     const terminate = (reason: 'abort' | 'timeout' | 'truncated'): void => {
       if (settled || terminationReason) return;
       terminationReason = reason;
-      proc.kill('SIGTERM');
+      signalCoordinatedProcess(proc, 'SIGTERM');
       forceKillTimer = setTimeout(() => {
         forceKillTimer = undefined;
-        if (!settled) proc.kill('SIGKILL');
+        if (!settled) signalCoordinatedProcess(proc, 'SIGKILL');
       }, 1000);
       forceKillTimer.unref?.();
     };
@@ -325,14 +328,15 @@ async function executeChromeDom(
     timeoutTimer.unref?.();
     signal?.addEventListener('abort', handleAbort, { once: true });
 
-    proc.stdout.on('data', (data: Buffer) => {
+    proc.stdout?.on('data', (data: Buffer) => {
       stdout += data.toString();
       if (stdout.length > 500000) terminate('truncated');
     });
-    proc.stderr.on('data', (data: Buffer) => {
+    proc.stderr?.on('data', (data: Buffer) => {
       stderr += data.toString();
     });
     proc.on('close', (code) => {
+      void waitForProcessPublication(proc).then(() => {
       if (terminationReason === 'abort') {
         finish(new WebActionAbortedError());
       } else if (terminationReason === 'timeout') {
@@ -344,11 +348,13 @@ async function executeChromeDom(
       } else {
         finish(undefined, stdout);
       }
+      }, error => finish(error instanceof Error ? error : new Error(String(error))));
     });
     proc.on('error', (error) => {
       if (terminationReason === 'abort') finish(new WebActionAbortedError());
       else finish(new Error(`Failed to launch Chrome: ${error.message}`));
     });
+    if (signal?.aborted) handleAbort();
   });
 }
 

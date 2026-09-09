@@ -2,8 +2,9 @@
  * Hook Manager - Executes lifecycle hooks based on config
  * @license Apache-2.0
  */
-import { spawn } from 'node:child_process';
 import { buildAutohandChildProcessEnv } from '../utils/childProcessEnv.js';
+import type { ChildProcess } from 'node:child_process';
+import { spawnCoordinatedProcess, waitForProcessPublication } from '../session/peers/CommandCoordinationGate.js';
 import { matchesImportedHook, importedHookInput, importedHookEnvironment, importedHookResponse } from './ImportedHookAdapter.js';
 import { HOOK_EVENTS, canonicalHookEvent, hookIdentifier } from './hookEvents.js';
 import { legacyHookMatches, normalizeHooksSettings, renderHookCommandTemplate, resolveHookEvents } from './legacyHookEvents.js';
@@ -985,15 +986,16 @@ export class HookManager {
       };
     }
 
-    return new Promise((resolve) => {
-      const child = spawn(hook.command, [], {
-        shell: true,
-        detached: process.platform !== 'win32',
-        cwd: hook.importedFrom?.workingDirectory ?? this.workspaceRoot,
-        env,
-        stdio: ['pipe', 'pipe', 'pipe'], // stdin enabled for JSON input
-      });
+    let child: ChildProcess;
+    try {
+      child = await spawnCoordinatedProcess({ file: hook.command, args: [], cwd: hook.importedFrom?.workingDirectory ?? this.workspaceRoot }, {
+        shell: true, detached: process.platform !== 'win32', env, stdio: ['pipe', 'pipe', 'pipe'],
+      }, options.signal);
+    } catch (error) {
+      return { hook, success: false, aborted: options.signal?.aborted, error: error instanceof Error ? error.message : String(error), duration: Date.now() - startTime, exitCode: -1 };
+    }
 
+    return new Promise<HookExecutionResult>((resolve) => {
       let stdout = '';
       let stderr = '';
       let stdinError: Error | undefined;
@@ -1017,7 +1019,7 @@ export class HookManager {
         if (!options.signal?.aborted) {
           this.onHookOutput?.(result);
         }
-        resolve(result);
+        void waitForProcessPublication(child).then(() => resolve(result), error => resolve({ ...result, success: false, error: error instanceof Error ? error.message : String(error) }));
       };
 
       const signalHook = (signal: NodeJS.Signals): void => {
@@ -1054,6 +1056,7 @@ export class HookManager {
       const timeoutId = setTimeout(() => terminate('timeout'), timeout);
       timeoutId.unref?.();
       options.signal?.addEventListener('abort', handleAbort, { once: true });
+      if (options.signal?.aborted) handleAbort();
 
       child.stdin?.on('error', (error: NodeJS.ErrnoException) => {
         // Hooks may exit without reading their context; their exit status still applies.

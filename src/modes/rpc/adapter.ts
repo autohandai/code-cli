@@ -3258,6 +3258,14 @@ export class RPCAdapter {
     );
     const prompt = this.activePrompt;
     switch (event.type) {
+      case 'peer_update':
+      case 'resource_update': {
+        const update = event.type === 'peer_update' ? event.peerEvent : event.resourceEvent;
+        if (update) writeNotification(event.type === 'peer_update' ? 'autohand.peerUpdate' : 'autohand.resourceUpdate', {
+          event: update, timestamp: createTimestamp(),
+        });
+        break;
+      }
       case 'thinking':
         if (event.thought
           && prompt

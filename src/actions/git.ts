@@ -3,7 +3,13 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncOptionsWithStringEncoding } from 'node:child_process';
+import { executeCoordinatedFile, getCommandCoordination } from '../session/peers/CommandCoordinationGate.js';
+
+async function runGit(file: string, args: string[], options: SpawnSyncOptionsWithStringEncoding) {
+  if (!getCommandCoordination()) return spawnSync(file, args, options);
+  return executeCoordinatedFile({ file, args, cwd: String(options.cwd ?? process.cwd()) }, { input: typeof options.input === 'string' ? options.input : undefined });
+}
 
 /**
  * Git safety configuration to prevent dangerous operations
@@ -37,8 +43,8 @@ function getCommitsAhead(cwd: string, remote: string = 'origin', branch?: string
   return parseInt(result.stdout?.trim() || '0', 10) || 0;
 }
 
-export function applyGitPatch(cwd: string, patch: string): string {
-  const result = spawnSync('git', ['apply', '-'], {
+export async function applyGitPatch(cwd: string, patch: string): Promise<string> {
+  const result = await runGit('git', ['apply', '-'], {
     cwd,
     input: patch,
     encoding: 'utf8'
@@ -68,8 +74,8 @@ export function diffWorkspace(cwd: string): string {
   return result.stdout || 'No diff';
 }
 
-export function checkoutFile(cwd: string, file: string): void {
-  const result = spawnSync('git', ['checkout', '--', file], { cwd, encoding: 'utf8' });
+export async function checkoutFile(cwd: string, file: string): Promise<void> {
+  const result = await runGit('git', ['checkout', '--', file], { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || `git checkout failed for ${file}`);
   }
@@ -131,25 +137,25 @@ export function gitListWorktrees(cwd: string): string {
   return result.stdout || 'No worktrees.';
 }
 
-export function gitAddWorktree(cwd: string, pathArg: string, ref?: string): string {
+export async function gitAddWorktree(cwd: string, pathArg: string, ref?: string): Promise<string> {
   const args = ['worktree', 'add', pathArg];
   if (ref) {
     args.push(ref);
   }
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const result = await runGit('git', args, { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git worktree add failed');
   }
   return result.stdout || `Added worktree at ${pathArg}`;
 }
 
-export function gitRemoveWorktree(cwd: string, pathArg: string, force = false): string {
+export async function gitRemoveWorktree(cwd: string, pathArg: string, force = false): Promise<string> {
   const args = ['worktree', 'remove'];
   if (force) {
     args.push('--force');
   }
   args.push(pathArg);
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const result = await runGit('git', args, { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git worktree remove failed');
   }
@@ -164,7 +170,7 @@ export interface GitStashOptions {
   keepIndex?: boolean;
 }
 
-export function gitStash(cwd: string, options: GitStashOptions = {}): string {
+export async function gitStash(cwd: string, options: GitStashOptions = {}): Promise<string> {
   const args = ['stash', 'push'];
   if (options.includeUntracked) {
     args.push('--include-untracked');
@@ -175,7 +181,7 @@ export function gitStash(cwd: string, options: GitStashOptions = {}): string {
   if (options.message) {
     args.push('-m', options.message);
   }
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const result = await runGit('git', args, { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git stash failed');
   }
@@ -190,36 +196,36 @@ export function gitStashList(cwd: string): string {
   return result.stdout || 'No stashes';
 }
 
-export function gitStashPop(cwd: string, stashRef?: string): string {
+export async function gitStashPop(cwd: string, stashRef?: string): Promise<string> {
   const args = ['stash', 'pop'];
   if (stashRef) {
     args.push(stashRef);
   }
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const result = await runGit('git', args, { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git stash pop failed');
   }
   return result.stdout || 'Applied and dropped stash';
 }
 
-export function gitStashApply(cwd: string, stashRef?: string): string {
+export async function gitStashApply(cwd: string, stashRef?: string): Promise<string> {
   const args = ['stash', 'apply'];
   if (stashRef) {
     args.push(stashRef);
   }
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const result = await runGit('git', args, { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git stash apply failed');
   }
   return result.stdout || 'Applied stash';
 }
 
-export function gitStashDrop(cwd: string, stashRef?: string): string {
+export async function gitStashDrop(cwd: string, stashRef?: string): Promise<string> {
   const args = ['stash', 'drop'];
   if (stashRef) {
     args.push(stashRef);
   }
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const result = await runGit('git', args, { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git stash drop failed');
   }
@@ -228,7 +234,7 @@ export function gitStashDrop(cwd: string, stashRef?: string): string {
 
 // ============ Branch Operations ============
 
-export function gitBranch(cwd: string, branchName?: string, options: { delete?: boolean; force?: boolean } = {}): string {
+export async function gitBranch(cwd: string, branchName?: string, options: { delete?: boolean; force?: boolean } = {}): Promise<string> {
   const args = ['branch'];
   if (options.delete) {
     args.push(options.force ? '-D' : '-d');
@@ -236,20 +242,20 @@ export function gitBranch(cwd: string, branchName?: string, options: { delete?: 
   if (branchName) {
     args.push(branchName);
   }
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const result = await runGit('git', args, { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git branch failed');
   }
   return result.stdout || 'Branch operation completed';
 }
 
-export function gitSwitch(cwd: string, branchName: string, options: { create?: boolean } = {}): string {
+export async function gitSwitch(cwd: string, branchName: string, options: { create?: boolean } = {}): Promise<string> {
   const args = ['switch'];
   if (options.create) {
     args.push('-c');
   }
   args.push(branchName);
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const result = await runGit('git', args, { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git switch failed');
   }
@@ -263,7 +269,7 @@ export interface GitCherryPickOptions {
   mainline?: number;
 }
 
-export function gitCherryPick(cwd: string, commits: string[], options: GitCherryPickOptions = {}): string {
+export async function gitCherryPick(cwd: string, commits: string[], options: GitCherryPickOptions = {}): Promise<string> {
   const args = ['cherry-pick'];
   if (options.noCommit) {
     args.push('--no-commit');
@@ -272,23 +278,23 @@ export function gitCherryPick(cwd: string, commits: string[], options: GitCherry
     args.push('-m', String(options.mainline));
   }
   args.push(...commits);
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const result = await runGit('git', args, { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git cherry-pick failed');
   }
   return result.stdout || `Cherry-picked ${commits.join(', ')}`;
 }
 
-export function gitCherryPickAbort(cwd: string): string {
-  const result = spawnSync('git', ['cherry-pick', '--abort'], { cwd, encoding: 'utf8' });
+export async function gitCherryPickAbort(cwd: string): Promise<string> {
+  const result = await runGit('git', ['cherry-pick', '--abort'], { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git cherry-pick --abort failed');
   }
   return 'Cherry-pick aborted';
 }
 
-export function gitCherryPickContinue(cwd: string): string {
-  const result = spawnSync('git', ['cherry-pick', '--continue'], { cwd, encoding: 'utf8' });
+export async function gitCherryPickContinue(cwd: string): Promise<string> {
+  const result = await runGit('git', ['cherry-pick', '--continue'], { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git cherry-pick --continue failed');
   }
@@ -303,7 +309,7 @@ export interface GitRebaseOptions {
   autosquash?: boolean;
 }
 
-export function gitRebase(cwd: string, upstream: string, options: GitRebaseOptions = {}): string {
+export async function gitRebase(cwd: string, upstream: string, options: GitRebaseOptions = {}): Promise<string> {
   const currentBranch = getCurrentBranch(cwd);
 
   // SAFETY: Warn when rebasing a protected branch
@@ -324,31 +330,31 @@ export function gitRebase(cwd: string, upstream: string, options: GitRebaseOptio
   }
   // Note: --interactive is not supported in non-TTY mode
   args.push(upstream);
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const result = await runGit('git', args, { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git rebase failed');
   }
   return result.stdout || `Rebased onto ${upstream}`;
 }
 
-export function gitRebaseAbort(cwd: string): string {
-  const result = spawnSync('git', ['rebase', '--abort'], { cwd, encoding: 'utf8' });
+export async function gitRebaseAbort(cwd: string): Promise<string> {
+  const result = await runGit('git', ['rebase', '--abort'], { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git rebase --abort failed');
   }
   return 'Rebase aborted';
 }
 
-export function gitRebaseContinue(cwd: string): string {
-  const result = spawnSync('git', ['rebase', '--continue'], { cwd, encoding: 'utf8' });
+export async function gitRebaseContinue(cwd: string): Promise<string> {
+  const result = await runGit('git', ['rebase', '--continue'], { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git rebase --continue failed');
   }
   return 'Rebase continued';
 }
 
-export function gitRebaseSkip(cwd: string): string {
-  const result = spawnSync('git', ['rebase', '--skip'], { cwd, encoding: 'utf8' });
+export async function gitRebaseSkip(cwd: string): Promise<string> {
+  const result = await runGit('git', ['rebase', '--skip'], { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git rebase --skip failed');
   }
@@ -364,10 +370,10 @@ export interface GitMergeOptions {
   message?: string;
 }
 
-export function gitMerge(cwd: string, branch: string, options: GitMergeOptions = {}): string {
+export async function gitMerge(cwd: string, branch: string, options: GitMergeOptions = {}): Promise<string> {
   // SAFETY: Validate branch exists locally or as a known remote branch
-  const localBranches = spawnSync('git', ['branch', '--list'], { cwd, encoding: 'utf8' });
-  const remoteBranches = spawnSync('git', ['branch', '-r', '--list'], { cwd, encoding: 'utf8' });
+  const localBranches = await runGit('git', ['branch', '--list'], { cwd, encoding: 'utf8' });
+  const remoteBranches = await runGit('git', ['branch', '-r', '--list'], { cwd, encoding: 'utf8' });
   const allBranches = (localBranches.stdout || '') + (remoteBranches.stdout || '');
 
   // Check if branch exists (locally or remotely)
@@ -398,15 +404,15 @@ export function gitMerge(cwd: string, branch: string, options: GitMergeOptions =
     args.push('-m', options.message);
   }
   args.push(branch);
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const result = await runGit('git', args, { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git merge failed');
   }
   return result.stdout || `Merged ${branch}`;
 }
 
-export function gitMergeAbort(cwd: string): string {
-  const result = spawnSync('git', ['merge', '--abort'], { cwd, encoding: 'utf8' });
+export async function gitMergeAbort(cwd: string): Promise<string> {
+  const result = await runGit('git', ['merge', '--abort'], { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git merge --abort failed');
   }
@@ -421,7 +427,7 @@ export interface GitCommitOptions {
   allowEmpty?: boolean;
 }
 
-export function gitCommit(cwd: string, options: GitCommitOptions): string {
+export async function gitCommit(cwd: string, options: GitCommitOptions): Promise<string> {
   const args = ['commit', '-m', options.message];
   if (options.amend) {
     args.push('--amend');
@@ -429,23 +435,23 @@ export function gitCommit(cwd: string, options: GitCommitOptions): string {
   if (options.allowEmpty) {
     args.push('--allow-empty');
   }
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const result = await runGit('git', args, { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git commit failed');
   }
   return result.stdout || 'Committed';
 }
 
-export function gitAdd(cwd: string, paths: string[]): string {
+export async function gitAdd(cwd: string, paths: string[]): Promise<string> {
   const args = ['add', ...paths];
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const result = await runGit('git', args, { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git add failed');
   }
   return result.stdout || `Staged ${paths.join(', ')}`;
 }
 
-export function gitReset(cwd: string, mode: 'soft' | 'mixed' | 'hard' = 'mixed', ref?: string): string {
+export async function gitReset(cwd: string, mode: 'soft' | 'mixed' | 'hard' = 'mixed', ref?: string): Promise<string> {
   // Safety check: block hard reset on protected branches
   if (mode === 'hard') {
     const currentBranch = getCurrentBranch(cwd);
@@ -462,7 +468,7 @@ export function gitReset(cwd: string, mode: 'soft' | 'mixed' | 'hard' = 'mixed',
   if (ref) {
     args.push(ref);
   }
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const result = await runGit('git', args, { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git reset failed');
   }
@@ -638,14 +644,14 @@ function generateCommitMessage(added: string[], modified: string[], deleted: str
 /**
  * Execute the actual commit with the given message
  */
-export function executeAutoCommit(cwd: string, message: string, stageAll = true): AutoCommitResult {
+export async function executeAutoCommit(cwd: string, message: string, stageAll = true): Promise<AutoCommitResult> {
   // Get current changes count
-  const statusResult = spawnSync('git', ['status', '--porcelain'], { cwd, encoding: 'utf8' });
+  const statusResult = await runGit('git', ['status', '--porcelain'], { cwd, encoding: 'utf8' });
   const changes = statusResult.stdout?.trim().split('\n').filter(Boolean) || [];
 
   // Stage all changes if requested
   if (stageAll) {
-    const addResult = spawnSync('git', ['add', '-A'], { cwd, encoding: 'utf8' });
+    const addResult = await runGit('git', ['add', '-A'], { cwd, encoding: 'utf8' });
     if (addResult.status !== 0) {
       return {
         success: false,
@@ -656,7 +662,7 @@ export function executeAutoCommit(cwd: string, message: string, stageAll = true)
   }
 
   // Create the commit
-  const commitResult = spawnSync('git', ['commit', '-m', message], { cwd, encoding: 'utf8' });
+  const commitResult = await runGit('git', ['commit', '-m', message], { cwd, encoding: 'utf8' });
   if (commitResult.status !== 0) {
     return {
       success: false,
@@ -666,7 +672,7 @@ export function executeAutoCommit(cwd: string, message: string, stageAll = true)
   }
 
   // Get the commit hash
-  const hashResult = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd, encoding: 'utf8' });
+  const hashResult = await runGit('git', ['rev-parse', '--short', 'HEAD'], { cwd, encoding: 'utf8' });
   const commitHash = hashResult.stdout?.trim();
 
   return {
@@ -680,7 +686,7 @@ export function executeAutoCommit(cwd: string, message: string, stageAll = true)
 /**
  * @deprecated Use getAutoCommitInfo + executeAutoCommit instead
  */
-export function autoCommit(cwd: string, options: { message: string; stageAll?: boolean }): AutoCommitResult {
+export async function autoCommit(cwd: string, options: { message: string; stageAll?: boolean }): Promise<AutoCommitResult> {
   return executeAutoCommit(cwd, options.message, options.stageAll);
 }
 
@@ -716,7 +722,7 @@ export function gitLog(cwd: string, options: GitLogOptions = {}): string {
 
 // ============ Remote Operations ============
 
-export function gitFetch(cwd: string, remote?: string, branch?: string): string {
+export async function gitFetch(cwd: string, remote?: string, branch?: string): Promise<string> {
   const args = ['fetch'];
   if (remote) {
     args.push(remote);
@@ -724,14 +730,14 @@ export function gitFetch(cwd: string, remote?: string, branch?: string): string 
       args.push(branch);
     }
   }
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const result = await runGit('git', args, { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git fetch failed');
   }
   return result.stdout || result.stderr || 'Fetched';
 }
 
-export function gitPull(cwd: string, remote?: string, branch?: string): string {
+export async function gitPull(cwd: string, remote?: string, branch?: string): Promise<string> {
   const args = ['pull'];
   if (remote) {
     args.push(remote);
@@ -739,14 +745,14 @@ export function gitPull(cwd: string, remote?: string, branch?: string): string {
       args.push(branch);
     }
   }
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const result = await runGit('git', args, { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git pull failed');
   }
   return result.stdout || 'Pulled';
 }
 
-export function gitPush(cwd: string, remote?: string, branch?: string, options: { force?: boolean; setUpstream?: boolean } = {}): string {
+export async function gitPush(cwd: string, remote?: string, branch?: string, options: { force?: boolean; setUpstream?: boolean } = {}): Promise<string> {
   const targetRemote = remote || 'origin';
   const targetBranch = branch || getCurrentBranch(cwd);
 
@@ -781,7 +787,7 @@ export function gitPush(cwd: string, remote?: string, branch?: string, options: 
       args.push(branch);
     }
   }
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const result = await runGit('git', args, { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
     throw new Error(result.stderr || 'git push failed');
   }

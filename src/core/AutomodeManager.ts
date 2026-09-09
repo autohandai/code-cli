@@ -9,6 +9,7 @@
  */
 import { EventEmitter } from 'events';
 import { execSync } from 'child_process';
+import { getCommandCoordination, executeCoordinatedFile } from '../session/peers/CommandCoordinationGate.js';
 import path from 'path';
 import chalk from 'chalk';
 import crypto from 'crypto';
@@ -620,6 +621,12 @@ export class AutomodeManager extends EventEmitter {
   /**
    * Set up git worktree for isolation
    */
+  private async executeGitMutation(command: string, options: { cwd: string; encoding: string }): Promise<void> {
+    if (!getCommandCoordination()) { execSync(command, { cwd: options.cwd, encoding: 'utf8' }); return; }
+    const result = await executeCoordinatedFile({ file: '/bin/sh', args: ['-c', command], cwd: options.cwd });
+    if (result.status !== 0) throw new Error(result.stderr || 'Git operation failed.');
+  }
+
   private async setupWorktree(_sessionId: string): Promise<void> {
     // Save original branch
     try {
@@ -640,7 +647,7 @@ export class AutomodeManager extends EventEmitter {
 
     try {
       // Create new branch and worktree
-      execSync(`git worktree add -b ${this.branchName} ${tempDir}`, {
+      await this.executeGitMutation(`git worktree add -b ${this.branchName} ${tempDir}`, {
         cwd: this.workspaceRoot,
         encoding: 'utf-8',
       });
@@ -672,11 +679,11 @@ export class AutomodeManager extends EventEmitter {
       }
 
       // Stage all changes
-      execSync('git add -A', { cwd: workDir, encoding: 'utf-8' });
+      await this.executeGitMutation('git add -A', { cwd: workDir, encoding: 'utf-8' });
 
       // Create commit
       const message = `automode: checkpoint at iteration ${iteration}`;
-      execSync(`git commit -m "${message}"`, { cwd: workDir, encoding: 'utf-8' });
+      await this.executeGitMutation(`git commit -m "${message}"`, { cwd: workDir, encoding: 'utf-8' });
 
       // Get commit hash
       const hash = execSync('git rev-parse --short HEAD', {
@@ -716,13 +723,13 @@ export class AutomodeManager extends EventEmitter {
       console.log(chalk.cyan(`\n🔀 Merging ${this.branchName} to ${this.originalBranch}...`));
 
       // Switch back to original branch
-      execSync(`git checkout ${this.originalBranch}`, {
+      await this.executeGitMutation(`git checkout ${this.originalBranch}`, {
         cwd: this.workspaceRoot,
         encoding: 'utf-8',
       });
 
       // Merge the automode branch
-      execSync(`git merge ${this.branchName} --no-edit`, {
+      await this.executeGitMutation(`git merge ${this.branchName} --no-edit`, {
         cwd: this.workspaceRoot,
         encoding: 'utf-8',
       });
@@ -745,13 +752,13 @@ export class AutomodeManager extends EventEmitter {
 
     try {
       // Remove worktree
-      execSync(`git worktree remove ${this.worktreePath} --force`, {
+      await this.executeGitMutation(`git worktree remove ${this.worktreePath} --force`, {
         cwd: this.workspaceRoot,
         encoding: 'utf-8',
       });
 
       // Delete branch
-      execSync(`git branch -d ${this.branchName}`, {
+      await this.executeGitMutation(`git branch -d ${this.branchName}`, {
         cwd: this.workspaceRoot,
         encoding: 'utf-8',
       });

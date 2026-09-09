@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { chmod, mkdtemp, readdir, rm, stat } from 'node:fs/promises';
+import { chmod, mkdtemp, readdir, rm, stat, symlink, writeFile, lstat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -15,6 +15,8 @@ import {
 } from '../../src/session/ActiveAgentRegistry.js';
 import { Session } from '../../src/session/SessionManager.js';
 import type { AgentRuntime } from '../../src/types.js';
+import { createTransportIdentity } from '../../src/session/peers/PeerIdentity.js';
+import type { PeerAdvertisement } from '../../src/session/peers/PeerProtocol.js';
 
 describe('ActiveAgentRegistry', () => {
   let tempRoot: string;
@@ -53,6 +55,47 @@ describe('ActiveAgentRegistry', () => {
     }));
 
     expect(await registry.listActive()).toEqual([]);
+  });
+
+  it('keeps two live incarnations of one persisted session independently addressable', async () => {
+    const registry = new ActiveAgentRegistry(tempRoot, { isPidAlive: () => true, now: () => new Date('2026-01-01T00:00:01.000Z') });
+    const first = createTransportIdentity();
+    const second = createTransportIdentity();
+    for (const identity of [first, second]) {
+      await registry.write(createRecord({ sessionId: 'resumed', communication: {
+        protocol: 1, instanceId: identity.instanceId, publicKey: identity.publicKey,
+        endpoint: path.join(tempRoot, `${identity.instanceId}.sock`), capabilities: ['message.receive'],
+      } }));
+    }
+    expect(await registry.listActive()).toHaveLength(2);
+    await registry.remove('resumed', first.instanceId);
+    expect((await registry.listActive()).map(record => record.communication?.instanceId)).toEqual([second.instanceId]);
+  });
+
+  it('does not unlink a symlink discovered in the registry', async () => {
+    const registry = new ActiveAgentRegistry(tempRoot, { isPidAlive: () => true });
+    const target = path.join(tempRoot, 'keep.txt');
+    const link = path.join(tempRoot, 'foreign.json');
+    await writeFile(target, '{}');
+    await symlink(target, link);
+    await registry.listActive();
+    expect((await lstat(link)).isSymbolicLink()).toBe(true);
+  });
+
+  it('withdraws only the heartbeat incarnation that owns a resumed-session record', async () => {
+    const registry = new ActiveAgentRegistry(tempRoot, { isPidAlive: () => true });
+    const session = createSession('shared-heartbeat-session');
+    const identities = [createTransportIdentity(), createTransportIdentity()];
+    const heartbeats = identities.map(identity => createHeartbeat(registry, () => session, {
+      protocol: 1, instanceId: identity.instanceId, publicKey: identity.publicKey,
+      endpoint: path.join(tempRoot, `${identity.instanceId}.sock`), capabilities: ['message.receive'],
+    }));
+    try {
+      await Promise.all(heartbeats.map(heartbeat => heartbeat.update()));
+      expect(await registry.listActive()).toHaveLength(2);
+      await heartbeats[0].stop();
+      expect((await registry.listActive()).map(record => record.communication?.instanceId)).toEqual([identities[1].instanceId]);
+    } finally { await Promise.all(heartbeats.map(heartbeat => heartbeat.stop())); }
   });
 
   it('prunes records whose process is no longer alive', async () => {
@@ -304,6 +347,7 @@ function tempRootForSession(sessionId: string): string {
 function createHeartbeat(
   registry: ActiveAgentRegistry,
   getSession: () => Session,
+  communication?: PeerAdvertisement,
 ): ActiveAgentHeartbeat {
   return new ActiveAgentHeartbeat(registry, {
     runtime: {
@@ -313,6 +357,7 @@ function createHeartbeat(
     } as AgentRuntime,
     getProvider: () => 'openrouter',
     getSession,
+    getCommunication: () => communication,
     getStatusSnapshot: () => ({
       model: 'openai/gpt-4o-mini',
       workspace: '/repo',

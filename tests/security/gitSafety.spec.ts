@@ -52,37 +52,37 @@ async function initTestRepo(): Promise<string> {
 
 describe('Git Safety', () => {
   describe('GIT_SAFETY constants', () => {
-    it('should have PROTECTED_BRANCHES defined', () => {
+    it('should have PROTECTED_BRANCHES defined', async () => {
       expect(GIT_SAFETY.PROTECTED_BRANCHES).toBeDefined();
       expect(Array.isArray(GIT_SAFETY.PROTECTED_BRANCHES)).toBe(true);
     });
 
-    it('should protect main branch', () => {
+    it('should protect main branch', async () => {
       expect(GIT_SAFETY.PROTECTED_BRANCHES).toContain('main');
     });
 
-    it('should protect master branch', () => {
+    it('should protect master branch', async () => {
       expect(GIT_SAFETY.PROTECTED_BRANCHES).toContain('master');
     });
 
-    it('should protect develop branch', () => {
+    it('should protect develop branch', async () => {
       expect(GIT_SAFETY.PROTECTED_BRANCHES).toContain('develop');
     });
 
-    it('should protect production branch', () => {
+    it('should protect production branch', async () => {
       expect(GIT_SAFETY.PROTECTED_BRANCHES).toContain('production');
     });
 
-    it('should protect staging branch', () => {
+    it('should protect staging branch', async () => {
       expect(GIT_SAFETY.PROTECTED_BRANCHES).toContain('staging');
     });
 
-    it('should have MAX_COMMITS_PER_PUSH defined', () => {
+    it('should have MAX_COMMITS_PER_PUSH defined', async () => {
       expect(GIT_SAFETY.MAX_COMMITS_PER_PUSH).toBeDefined();
       expect(GIT_SAFETY.MAX_COMMITS_PER_PUSH).toBeGreaterThan(0);
     });
 
-    it('should have reasonable MAX_COMMITS_PER_PUSH value', () => {
+    it('should have reasonable MAX_COMMITS_PER_PUSH value', async () => {
       expect(GIT_SAFETY.MAX_COMMITS_PER_PUSH).toBe(50);
     });
   });
@@ -98,53 +98,41 @@ describe('Git Safety', () => {
       await fs.remove(testDir);
     });
 
-    it('should block force push to main branch', () => {
+    it('should block force push to main branch', async () => {
       git(['checkout', '-b', 'main'], testDir);
 
-      expect(() => {
-        gitPush(testDir, 'origin', 'main', { force: true });
-      }).toThrow(/Force push to protected branch "main" is blocked/);
+      await expect(gitPush(testDir, 'origin', 'main', { force: true })).rejects.toThrow(/Force push to protected branch "main" is blocked/);
     });
 
-    it('should block force push to master branch', () => {
+    it('should block force push to master branch', async () => {
       git(['checkout', '-b', 'master'], testDir);
 
-      expect(() => {
-        gitPush(testDir, 'origin', 'master', { force: true });
-      }).toThrow(/Force push to protected branch "master" is blocked/);
+      await expect(gitPush(testDir, 'origin', 'master', { force: true })).rejects.toThrow(/Force push to protected branch "master" is blocked/);
     });
 
-    it('should block force push to develop branch', () => {
+    it('should block force push to develop branch', async () => {
       git(['checkout', '-b', 'develop'], testDir);
 
-      expect(() => {
-        gitPush(testDir, 'origin', 'develop', { force: true });
-      }).toThrow(/Force push to protected branch "develop" is blocked/);
+      await expect(gitPush(testDir, 'origin', 'develop', { force: true })).rejects.toThrow(/Force push to protected branch "develop" is blocked/);
     });
 
-    it('should block force push to production branch', () => {
+    it('should block force push to production branch', async () => {
       git(['checkout', '-b', 'production'], testDir);
 
-      expect(() => {
-        gitPush(testDir, 'origin', 'production', { force: true });
-      }).toThrow(/Force push to protected branch "production" is blocked/);
+      await expect(gitPush(testDir, 'origin', 'production', { force: true })).rejects.toThrow(/Force push to protected branch "production" is blocked/);
     });
 
-    it('should allow force push to feature branches', () => {
+    it('should allow force push to feature branches', async () => {
       git(['checkout', '-b', 'feature/my-feature'], testDir);
 
       // This will fail because no remote, but should not throw protection error
-      expect(() => {
-        gitPush(testDir, 'origin', 'feature/my-feature', { force: true });
-      }).toThrow(/does not appear to be a git repository|git push failed/); // Fails for different reason (no remote)
+      await expect(gitPush(testDir, 'origin', 'feature/my-feature', { force: true })).rejects.toThrow(/does not appear to be a git repository|git push failed/); // Fails for different reason (no remote)
     });
 
-    it('should include protected branches list in error message', () => {
+    it('should include protected branches list in error message', async () => {
       git(['checkout', '-b', 'main'], testDir);
 
-      expect(() => {
-        gitPush(testDir, 'origin', 'main', { force: true });
-      }).toThrow(/Protected branches:/);
+      await expect(gitPush(testDir, 'origin', 'main', { force: true })).rejects.toThrow(/Protected branches:/);
     });
   });
 
@@ -159,36 +147,28 @@ describe('Git Safety', () => {
       await fs.remove(testDir);
     });
 
-    it('should block rebase when on main branch', () => {
+    it('should block rebase when on main branch', async () => {
       git(['checkout', '-b', 'main'], testDir);
 
-      expect(() => {
-        gitRebase(testDir, 'HEAD~1');
-      }).toThrow(/Rebasing protected branch "main" is blocked/);
+      await expect(gitRebase(testDir, 'HEAD~1')).rejects.toThrow(/Rebasing protected branch "main" is blocked/);
     });
 
-    it('should block rebase when on master branch', () => {
+    it('should block rebase when on master branch', async () => {
       git(['checkout', '-b', 'master'], testDir);
 
-      expect(() => {
-        gitRebase(testDir, 'HEAD~1');
-      }).toThrow(/Rebasing protected branch "master" is blocked/);
+      await expect(gitRebase(testDir, 'HEAD~1')).rejects.toThrow(/Rebasing protected branch "master" is blocked/);
     });
 
-    it('should block rebase when on develop branch', () => {
+    it('should block rebase when on develop branch', async () => {
       git(['checkout', '-b', 'develop'], testDir);
 
-      expect(() => {
-        gitRebase(testDir, 'HEAD~1');
-      }).toThrow(/Rebasing protected branch "develop" is blocked/);
+      await expect(gitRebase(testDir, 'HEAD~1')).rejects.toThrow(/Rebasing protected branch "develop" is blocked/);
     });
 
-    it('should suggest using merge instead', () => {
+    it('should suggest using merge instead', async () => {
       git(['checkout', '-b', 'main'], testDir);
 
-      expect(() => {
-        gitRebase(testDir, 'HEAD~1');
-      }).toThrow(/Use merge instead/);
+      await expect(gitRebase(testDir, 'HEAD~1')).rejects.toThrow(/Use merge instead/);
     });
 
     it('should allow rebase on feature branches', async () => {
@@ -201,7 +181,7 @@ describe('Git Safety', () => {
       // Should not throw protection error
       // May fail for other reasons but not the protection
       try {
-        gitRebase(testDir, 'HEAD~1');
+        await gitRebase(testDir, 'HEAD~1');
       } catch (e: any) {
         expect(e.message).not.toMatch(/Rebasing protected branch/);
       }
@@ -219,22 +199,16 @@ describe('Git Safety', () => {
       await fs.remove(testDir);
     });
 
-    it('should block merge of non-existent branch', () => {
-      expect(() => {
-        gitMerge(testDir, 'non-existent-branch');
-      }).toThrow(/Branch "non-existent-branch" not found/);
+    it('should block merge of non-existent branch', async () => {
+      await expect(gitMerge(testDir, 'non-existent-branch')).rejects.toThrow(/Branch "non-existent-branch" not found/);
     });
 
-    it('should include security message for non-existent branch', () => {
-      expect(() => {
-        gitMerge(testDir, 'attacker-branch');
-      }).toThrow(/For security, only existing branches can be merged/);
+    it('should include security message for non-existent branch', async () => {
+      await expect(gitMerge(testDir, 'attacker-branch')).rejects.toThrow(/For security, only existing branches can be merged/);
     });
 
-    it('should suggest git fetch for remote branches', () => {
-      expect(() => {
-        gitMerge(testDir, 'remote-branch');
-      }).toThrow(/Run 'git fetch' first/);
+    it('should suggest git fetch for remote branches', async () => {
+      await expect(gitMerge(testDir, 'remote-branch')).rejects.toThrow(/Run 'git fetch' first/);
     });
 
     it('should allow merge of existing local branch', async () => {
@@ -246,13 +220,13 @@ describe('Git Safety', () => {
       git(['checkout', '-'], testDir); // Go back to previous branch
 
       // Should not throw - merge should work
-      const result = gitMerge(testDir, 'feature');
+      const result = await gitMerge(testDir, 'feature');
       expect(result).toMatch(/Fast-forward|Merge|Updating/);
     });
   });
 
   describe('Force push uses --force-with-lease', () => {
-    it('should use --force-with-lease instead of --force', () => {
+    it('should use --force-with-lease instead of --force', async () => {
       // This is a design verification test
       // The implementation should use --force-with-lease for safer force pushing
       // We verify this by checking the GIT_SAFETY documentation/constants exist
@@ -271,43 +245,37 @@ describe('Git Safety', () => {
       await fs.remove(testDir);
     });
 
-    it('should block hard reset on main branch', () => {
+    it('should block hard reset on main branch', async () => {
       git(['checkout', '-b', 'main'], testDir);
 
-      expect(() => {
-        gitReset(testDir, 'hard', 'HEAD~1');
-      }).toThrow(/Hard reset on protected branch "main" is blocked/);
+      await expect(gitReset(testDir, 'hard', 'HEAD~1')).rejects.toThrow(/Hard reset on protected branch "main" is blocked/);
     });
 
-    it('should block hard reset on master branch', () => {
+    it('should block hard reset on master branch', async () => {
       git(['checkout', '-b', 'master'], testDir);
 
-      expect(() => {
-        gitReset(testDir, 'hard');
-      }).toThrow(/Hard reset on protected branch "master" is blocked/);
+      await expect(gitReset(testDir, 'hard')).rejects.toThrow(/Hard reset on protected branch "master" is blocked/);
     });
 
-    it('should block hard reset on develop branch', () => {
+    it('should block hard reset on develop branch', async () => {
       git(['checkout', '-b', 'develop'], testDir);
 
-      expect(() => {
-        gitReset(testDir, 'hard', 'HEAD~1');
-      }).toThrow(/Hard reset on protected branch "develop" is blocked/);
+      await expect(gitReset(testDir, 'hard', 'HEAD~1')).rejects.toThrow(/Hard reset on protected branch "develop" is blocked/);
     });
 
-    it('should allow soft reset on protected branches', () => {
+    it('should allow soft reset on protected branches', async () => {
       git(['checkout', '-b', 'main'], testDir);
 
       // Soft reset should not throw
-      const result = gitReset(testDir, 'soft');
+      const result = await gitReset(testDir, 'soft');
       expect(result).toContain('Reset soft');
     });
 
-    it('should allow mixed reset on protected branches', () => {
+    it('should allow mixed reset on protected branches', async () => {
       git(['checkout', '-b', 'main'], testDir);
 
       // Mixed reset should not throw
-      const result = gitReset(testDir, 'mixed');
+      const result = await gitReset(testDir, 'mixed');
       expect(result).toContain('Reset mixed');
     });
 
@@ -319,16 +287,14 @@ describe('Git Safety', () => {
       git(['commit', '-q', '-m', 'Another commit'], testDir);
 
       // Hard reset on feature branch should work (returns git's output or our message)
-      const result = gitReset(testDir, 'hard', 'HEAD~1');
+      const result = await gitReset(testDir, 'hard', 'HEAD~1');
       expect(result).toMatch(/HEAD is now at|Reset hard/);
     });
 
-    it('should include suggestion for alternatives in error message', () => {
+    it('should include suggestion for alternatives in error message', async () => {
       git(['checkout', '-b', 'main'], testDir);
 
-      expect(() => {
-        gitReset(testDir, 'hard');
-      }).toThrow(/Use soft or mixed reset instead/);
+      await expect(gitReset(testDir, 'hard')).rejects.toThrow(/Use soft or mixed reset instead/);
     });
   });
 });

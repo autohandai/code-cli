@@ -8,6 +8,7 @@ import { resolveRunToolScope } from '../../permissions/runToolScope.js';
 import { RunBudget } from './RunBudget.js';
 import { SessionAutoNamer } from './SessionAutoNamer.js';
 import { syncAgentTerminalTitleName } from './AgentSessionTitle.js';
+import type { PeerComposerDraft } from '../../ui/peerMention.js';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { FileActionManager } from '../../actions/filesystem.js';
@@ -20,6 +21,7 @@ import { shouldUseInkRenderer } from '../../ui/inkMode.js';
 import { getContextWindow } from '../context/tokenizer.js';
 import { GitIgnoreParser } from '../../utils/gitIgnore.js';
 import { createToolFilter } from '../toolFilter.js';
+import { PEER_TOOL_NAMES } from '../peerTools.js';
 import { ConversationManager } from '../conversationManager.js';
 import { ContextOrchestrator } from '../context/orchestrator.js';
 import {
@@ -394,9 +396,11 @@ export function initializeAgentDependencies(
       getParallelismLimit: () => host.getParallelismLimit(),
     });
     host.simpleChatHandler = new SimpleChatHandler(host as unknown as SimpleChatAgent);
+    const enabledToolDefinitions = DEFAULT_TOOL_DEFINITIONS.filter(definition => !PEER_TOOL_NAMES.has(definition.name)
+      || runtime.config.sessions?.communication?.enabled === true);
     const featureGatedToolDefinitions = isGoalFeatureEnabled(runtime.config)
-      ? [...DEFAULT_TOOL_DEFINITIONS, ...GOAL_TOOL_DEFINITIONS]
-      : DEFAULT_TOOL_DEFINITIONS;
+      ? [...enabledToolDefinitions, ...GOAL_TOOL_DEFINITIONS]
+      : enabledToolDefinitions;
 
     // Initialize suggestion engine if enabled in config.
     // Derive allowed tools from the user's permission config so suggestions
@@ -612,6 +616,7 @@ export function initializeAgentDependencies(
       runtime.config.features?.multi_agent_v2?.max_concurrent_threads_per_session
         ?? DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION);
     host.teamManager = new TeamManager({
+      bindPeerRun: (runId, alias) => host.peerRuntime?.bindRun(runId, alias),
       runStore: host.agentRunStore,
       leadSessionId: () => host.sessionManager?.getCurrentSession?.()?.metadata?.sessionId,
       threadBudget: host.sessionThreadBudget,
@@ -671,6 +676,8 @@ export function initializeAgentDependencies(
       },
       backgroundProcessRegistry: host.backgroundProcessRegistry,
       peerAwareness: host.peerAwareness,
+      peerMessaging: () => host.peerMessaging,
+      resourceCoordinator: () => host.resourceCoordinator,
       onPeerWarning: (warning) => host.emitPeerWarning(warning),
       onToolActivity: (activity) => host.setPeerToolActivity(activity),
       readStateStore: {
@@ -783,6 +790,7 @@ export function initializeAgentDependencies(
     const delegatorContext = runtime.options.clientContext
       ?? (runtime.options.restricted ? 'restricted' : 'cli');
     host.delegator = new AgentDelegator(llm, host.actionExecutor, {
+      bindPeerRun: (runId, alias) => host.peerRuntime?.bindRun(runId, alias),
       workspaceRoot: runtime.workspaceRoot,
       projectMemoryEnabled: !runtime.options.bare,
       getWorkspaceRoot: () => runtime.workspaceRoot,
@@ -1939,6 +1947,8 @@ export function initializeAgentDependencies(
       // reference above; omitting it here left the command reporting peer
       // awareness as unavailable while peer warnings were firing normally.
       peerAwareness: host.peerAwareness,
+      get peerMessaging() { return host.peerMessaging; },
+      onPeerDraft: (draft: PeerComposerDraft) => host.inkRenderer?.setPeerDraft(draft),
       llm: host.llm,
       workspaceRoot: runtime.workspaceRoot,
       get model() {
@@ -2064,7 +2074,6 @@ export function initializeAgentDependencies(
           `[DEBUG] onAfterModal: inkRenderer exists=${!!host.inkRenderer}, persistentInputActive=${host.persistentInputActiveTurn}`,
           host.writeDebugLine?.bind(host)
         );
-        host.modalActive = false;
         if (host.persistentInputActiveTurn) {
           try {
             host.persistentInput.resumeFromModal();
@@ -2075,6 +2084,7 @@ export function initializeAgentDependencies(
         if (host.inkRenderer) {
           await host.inkRenderer.resume();
         }
+        host.modalActive = false;
         writeAutohandDebugLine('[DEBUG] onAfterModal completed', host.writeDebugLine?.bind(host));
       },
       // After /learn recommends a skill, seed the next prompt with the install command

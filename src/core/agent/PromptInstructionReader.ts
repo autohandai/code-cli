@@ -5,7 +5,7 @@
  */
 import chalk from 'chalk';
 import { deliverAgentTargetMessage, type MessageTargetHost } from './AgentMessageTargets.js';
-import { readInstruction } from '../../ui/inputPrompt.js';
+import { readInstruction, type PromptDraft } from '../../ui/inputPrompt.js';
 import { renderTerminalMarkdown } from '../immediateCommandRouter.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { SLASH_COMMANDS } from '../slashCommands.js';
@@ -15,8 +15,13 @@ import { extensionRuntimeHost } from '../../extensions/ExtensionRuntimeHost.js';
 import type { AgentRuntime } from '../../types.js';
 import type { ImageMimeType } from '../ImageManager.js';
 import type { InteractionMode } from './InteractionModeController.js';
+import type { PeerClient } from '../../session/peers/PeerMessaging.js';
+import type { PeerReference } from '../../ui/peerMention.js';
+import { allowedPeerScopes } from '../../session/peers/PeerScope.js';
 
 export interface AgentPromptInstructionHost extends MessageTargetHost {
+  peerMessaging?: PeerClient;
+  setPeerReferences?: (references: PeerReference[]) => void;
   flushDeferredDebugLines(): void;
   formatStatusLine(): { left: string; right: string } | string;
   handleMemoryStore(content: string): Promise<void>;
@@ -31,6 +36,8 @@ export interface AgentPromptInstructionHost extends MessageTargetHost {
   parseSlashCommand(input: string): { command: string; args: string[] };
   pendingSuggestion: Promise<void> | null;
   promptSeedInput: string;
+  promptSeedDraft?: PromptDraft;
+  hasPendingInstruction?: () => boolean;
   readlinePromptActive: boolean;
   resolveLlmShellSuggestion(input: string): Promise<string | null>;
   runSlashCommandWithInput(command: string, args: string[]): Promise<string | null>;
@@ -63,7 +70,9 @@ export async function promptForAgentInstruction(host: AgentPromptInstructionHost
     host.workspaceFileCollector.collectWorkspaceFiles().catch(() => {});
     const statusLine = host.formatStatusLine();
     const initialValue = host.promptSeedInput;
+    const initialDraft = host.promptSeedDraft ? { ...host.promptSeedDraft, text: initialValue } : undefined;
     host.promptSeedInput = '';
+    host.promptSeedDraft = undefined;
     // Wait for the pending suggestion LLM call to finish.
     // Startup: don't block — show the prompt instantly. The user wants to
     // start typing immediately. If the suggestion resolved already, great;
@@ -101,7 +110,10 @@ export async function promptForAgentInstruction(host: AgentPromptInstructionHost
           })),
         ],
         statusLine,
-        { onCycleInteractionMode: () => host.cycleInteractionMode() },
+        { onCycleInteractionMode: () => host.cycleInteractionMode(), initialDraft,
+          shouldSuspend: () => host.hasPendingInstruction?.() ?? false,
+          onSuspend: draft => { host.promptSeedInput = draft.text; host.promptSeedDraft = draft; },
+        },
         (data, mimeType, filename) => host.imageManager.add(data, mimeType, filename),
         host.runtime.workspaceRoot,
         initialValue,
@@ -115,6 +127,13 @@ export async function promptForAgentInstruction(host: AgentPromptInstructionHost
             isActive: s.isActive,
             source: s.source,
           })),
+        host.peerMessaging ? {
+          scopes: allowedPeerScopes(host.peerMessaging.policy.scope),
+          peersProvider: scope => host.peerMessaging!.cachedPeers(scope),
+          refresh: scope => host.peerMessaging!.list({ scope }),
+          send: (input, options) => host.peerMessaging!.send(input, options),
+          onReferences: references => host.setPeerReferences?.(references),
+        } : undefined,
       );
     } finally {
       host.readlinePromptActive = false;

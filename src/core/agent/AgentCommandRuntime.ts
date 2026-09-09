@@ -10,7 +10,7 @@ import { getContextWindow } from '../context/tokenizer.js';
 import type { AgentAction, ToolActionOutcome } from '../../types.js';
 import type { McpServerConfig } from '../../mcp/types.js';
 import { GitIgnoreParser } from '../../utils/gitIgnore.js';
-import { prepareSessionWorktree } from '../../utils/sessionWorktree.js';
+import { prepareCoordinatedSessionWorktree } from '../../utils/sessionWorktree.js';
 import { WorktreeManager } from '../../actions/worktree.js';
 import { getPlanModeManager } from '../../commands/plan.js';
 import { showDirectoryAccessModal } from '../../ui/directoryAccessModal.js';
@@ -235,7 +235,7 @@ export async function runAgentSlashCommandWithInput(host: AgentCommandRuntimeHos
         host.persistentInputActiveTurn = false;
       }
       cleanupConsoleBridge();
-      if (isInteractive && command !== '/whatityped' && host.inkRenderer?.isRunning()) {
+      if (isInteractive && command !== '/whatityped' && command !== '/peers' && host.inkRenderer?.isRunning()) {
         host.inkRenderer.clearInput();
       }
     }
@@ -688,7 +688,7 @@ export async function enterAgentSessionWorktree(host: AgentCommandRuntimeHost, n
     const workspaceChange: ThreadLease | undefined = host.sessionThreadBudget?.beginWorkspaceChange();
     try {
       const originalWorkspaceRoot = host.runtime.workspaceRoot;
-      const info = prepareSessionWorktree({
+      const info = await prepareCoordinatedSessionWorktree({
         cwd: originalWorkspaceRoot,
         worktree: name ?? true,
         mode: 'cli',

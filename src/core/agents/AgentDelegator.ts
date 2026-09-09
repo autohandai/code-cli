@@ -16,6 +16,7 @@ import type { ClientContext, LLMUsage, LoadedConfig, ToolActionOutcome } from '.
 import type { ToolAuthorizationOptions, ToolDefinition, ToolManagerOptions } from '../toolManager.js';
 import type { TeamModelAssignment } from '../teams/TeamModelPolicy.js';
 import { getSessionThreadBudget, SessionThreadLimitError, type ThreadBudget, type ThreadLease } from './SessionThreadBudget.js';
+import type { PeerRunRuntime, PeerRunRuntimeFactory } from '../agent/PeerCommunicationRuntime.js';
 
 /** Default maximum delegation depth to prevent infinite loops */
 const DEFAULT_MAX_DEPTH = 3;
@@ -77,6 +78,7 @@ export interface SubagentStopContext extends SubagentStartContext {
 export interface SubagentProgressContext extends SubagentStartContext, SubAgentProgress {}
 
 export interface DelegatorOptions {
+    bindPeerRun?: PeerRunRuntimeFactory;
     workspaceRoot?: string;
     projectMemoryEnabled?: boolean;
     getWorkspaceRoot?: () => string;
@@ -213,6 +215,7 @@ export class AgentDelegator {
         let lease: ThreadLease | undefined;
         let started = false;
         let agent: SubAgent | undefined;
+        let peerRun: PeerRunRuntime | undefined;
         let startContext: SubagentStartContext = {
             subagentId,
             subagentName: agentName,
@@ -234,6 +237,8 @@ export class AgentDelegator {
             signal.throwIfAborted();
             lease = await this.threadBudget.tryAcquire(subagentId);
             signal.throwIfAborted();
+            peerRun = await this.options.bindPeerRun?.(subagentId, agentName);
+            signal.throwIfAborted();
             const assignment = this.resolveSubagentAssignment?.(agentConfig);
             if (assignment) {
                 startContext = {
@@ -249,6 +254,11 @@ export class AgentDelegator {
                 this.actionExecutor,
                 {
                     ...subAgentOptions, parentId: subagentId,
+                    ...(peerRun ? {
+                        peerMessaging: peerRun.messaging, resourceCoordinator: peerRun.coordinator,
+                        bindPeerRun: peerRun.bindRun, onPeerEvent: peerRun.notify, peerAutomatic: peerRun.automatic,
+                        recordPeerContext: messages => peerRun!.messaging.recordContext(messages),
+                    } : {}),
                     getPendingInstructions: () => pendingInstructions.splice(0),
                     ...(assignment ? { model: assignment.model } : {}),
                     onProgress: progress => this.notifyObserver(this.options.onSubagentProgress, { ...startContext, ...progress }),
@@ -297,7 +307,7 @@ export class AgentDelegator {
         } finally {
             acceptingMessages = false;
             pendingInstructions.length = 0;
-            await lease?.release();
+            try { await peerRun?.close(); } finally { await lease?.release(); }
         }
     }
 

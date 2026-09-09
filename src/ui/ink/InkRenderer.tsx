@@ -51,6 +51,8 @@ import type { TeamActivitySnapshot } from '../../core/teams/types.js';
 import type { AgentRunsSnapshot, AgentRunSource } from '../../core/agents/AgentRunStore.js';
 import type { GoalSessionSnapshot } from '../../goals/types.js';
 import type { TaskListPosition } from '../../types.js';
+import type { PeerDescriptor, PeerReceipt, PeerScope } from '../../session/peers/PeerProtocol.js';
+import type { PeerComposerDraft, PeerInstructionMetadata, PeerReference } from '../peerMention.js';
 import type { LineExtension, LineSegment } from './StatusLine.js';
 import {
   createSequencedQueuedWork,
@@ -58,8 +60,12 @@ import {
 } from '../../utils/queuedWorkSequence.js';
 
 export interface InkRendererOptions {
-  onInstruction: (text: string) => void;
   onSteer?: (text: string) => void;
+  onInstruction: (text: string, metadata?: PeerInstructionMetadata) => void;
+  peerScopes?: PeerScope[];
+  peersProvider?: (scope?: PeerScope) => PeerDescriptor[];
+  onPeersRefresh?: (scope?: PeerScope) => Promise<unknown>;
+  onPeerMessage?: (input: { to: string; content: string; replyTo?: string }) => Promise<PeerReceipt>;
   onEscape: () => void;
   onCtrlC: () => void;
   onDismissAnnouncement?: (id: string) => void;
@@ -197,8 +203,12 @@ export interface AgentUIWrapperHandle {
 
 interface AgentUIWrapperProps {
   initialState: AgentUIState;
-  onInstruction: (text: string) => void;
   onSteer?: (text: string) => void;
+  onInstruction: InkRendererOptions['onInstruction'];
+  peerScopes?: InkRendererOptions['peerScopes'];
+  peersProvider?: InkRendererOptions['peersProvider'];
+  onPeersRefresh?: InkRendererOptions['onPeersRefresh'];
+  onPeerMessage?: InkRendererOptions['onPeerMessage'];
   onEscape: () => void;
   onCtrlC: () => void;
   onDismissAnnouncement?: (id: string) => void;
@@ -209,7 +219,7 @@ interface AgentUIWrapperProps {
   onMessageAgentRun?: (id: string, text: string) => Promise<boolean>;
   onToggleGoalPanel: () => void;
   onEditGoalObjective?: (request: GoalEditRequest) => void | Promise<void>;
-  onInputChange: (input: string) => void;
+  onInputChange: (input: string, metadata?: PeerInstructionMetadata) => void;
   enableQueueInput?: boolean;
   onImageDetected?: (data: Buffer, mimeType: string, filename?: string) => number;
   filesProvider?: () => string[];
@@ -221,7 +231,7 @@ interface AgentUIWrapperProps {
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
   lineExtensions?: AgentUILineExtensions;
   extensionKeybindings?: ExtensionKeybinding[];
-  onReplaceQueuedInstruction: (index: number, text: string) => void;
+  onReplaceQueuedInstruction: (index: number, text: string, metadata?: PeerInstructionMetadata) => void;
   onRemoveQueuedInstruction: (index: number) => void;
   getInteractionMode?: () => InteractionMode;
   onCycleInteractionMode?: () => InteractionMode;
@@ -257,6 +267,10 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       slashCommands,
       skillsProvider,
       messageTargetsProvider,
+      peerScopes,
+  peersProvider,
+      onPeersRefresh,
+      onPeerMessage,
       workspaceRoot,
       suggestionProvider,
       resolveShellSuggestion,
@@ -286,9 +300,9 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
     }), []); // Empty deps - functions are stable
 
     // Handle input changes - sync to parent for pause/resume preservation
-    const handleInputChange = useCallback((input: string) => {
-      setState(prev => ({ ...prev, currentInput: input }));
-      onInputChange(input);
+    const handleInputChange = useCallback((input: string, metadata?: PeerInstructionMetadata) => {
+      setState(prev => ({ ...prev, currentInput: input, peerInputMetadata: metadata, peerDraft: undefined }));
+      onInputChange(input, metadata);
     }, [onInputChange]);
 
     return (
@@ -314,6 +328,10 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         slashCommands={slashCommands}
         skillsProvider={skillsProvider}
         messageTargetsProvider={messageTargetsProvider}
+        peerScopes={peerScopes}
+        peersProvider={peersProvider}
+        onPeersRefresh={onPeersRefresh}
+        onPeerMessage={onPeerMessage}
         workspaceRoot={workspaceRoot}
         suggestionProvider={suggestionProvider}
         resolveShellSuggestion={resolveShellSuggestion}
@@ -425,7 +443,7 @@ export class InkRenderer {
   private unpatchedStdout: (() => void) | null = null;
 
   private lastQueuedInstruction: { text: string; at: number } | null = null;
-  private queuedInstructionEntries: SequencedQueuedWork[] = [];
+  private queuedInstructionEntries: Array<SequencedQueuedWork & Partial<PeerInstructionMetadata>> = [];
 
   constructor(options: InkRendererOptions) {
     this.options = options;
@@ -442,8 +460,8 @@ export class InkRenderer {
   /**
    * Handle input changes from AgentUI to preserve across pause/resume
    */
-  private handleInputChange = (input: string): void => {
-    this.state = { ...this.state, currentInput: input };
+  private handleInputChange = (input: string, metadata?: PeerInstructionMetadata): void => {
+    this.state = { ...this.state, currentInput: input, peerInputMetadata: metadata, peerDraft: undefined };
   };
 
 /**
@@ -515,12 +533,16 @@ export class InkRenderer {
             slashCommands={this.options.slashCommands}
             skillsProvider={this.options.skillsProvider}
             messageTargetsProvider={this.options.messageTargetsProvider}
+            peerScopes={this.options.peerScopes}
+            peersProvider={this.options.peersProvider}
+            onPeersRefresh={this.options.onPeersRefresh}
+            onPeerMessage={this.options.onPeerMessage}
             workspaceRoot={this.options.workspaceRoot}
             suggestionProvider={this.options.suggestionProvider}
             resolveShellSuggestion={this.options.resolveShellSuggestion}
             lineExtensions={this.options.lineExtensions}
             extensionKeybindings={this.options.extensionKeybindings}
-            onReplaceQueuedInstruction={(index, text) => this.replaceQueuedInstruction(index, text)}
+            onReplaceQueuedInstruction={(index, text, metadata) => this.replaceQueuedInstruction(index, text, metadata)}
             onRemoveQueuedInstruction={(index) => this.removeQueuedInstruction(index)}
             getInteractionMode={this.options.getInteractionMode}
             onCycleInteractionMode={this.options.onCycleInteractionMode}
@@ -1319,11 +1341,27 @@ export class InkRenderer {
    * Clear the composer input (e.g. after a slash command completes)
    */
   clearInput(): void {
-    this.updateState({ currentInput: '' });
+    this.updateState({ currentInput: '', peerDraft: undefined, peerInputMetadata: undefined });
   }
 
   setInput(text: string): void {
-    this.updateState({ currentInput: text });
+    this.updateState({ currentInput: text, peerDraft: undefined, peerInputMetadata: undefined });
+  }
+
+  setPeerDraft(draft: PeerComposerDraft): void {
+    this.updateState({
+      currentInput: draft.text ?? `:${draft.reference.alias} `,
+      peerDraft: structuredClone(draft),
+      peerInputMetadata: {
+        peerReferences: [structuredClone(draft.reference)],
+        peerScope: draft.scope ?? this.state.peerInputMetadata?.peerScope ?? 'workspace',
+        ...(draft.replyTo ? { peerReplyTo: draft.replyTo } : {}),
+      },
+    });
+  }
+
+  refreshPeers(): void {
+    this.updateState({ peerDirectoryVersion: (this.state.peerDirectoryVersion ?? 0) + 1 });
   }
 
   setPendingSuggestion(pendingSuggestion?: Promise<void>): void {
@@ -1455,12 +1493,16 @@ export class InkRenderer {
               slashCommands={this.options.slashCommands}
               skillsProvider={this.options.skillsProvider}
               messageTargetsProvider={this.options.messageTargetsProvider}
+              peerScopes={this.options.peerScopes}
+            peersProvider={this.options.peersProvider}
+              onPeersRefresh={this.options.onPeersRefresh}
+              onPeerMessage={this.options.onPeerMessage}
               workspaceRoot={this.options.workspaceRoot}
               suggestionProvider={this.options.suggestionProvider}
               resolveShellSuggestion={this.options.resolveShellSuggestion}
               lineExtensions={this.options.lineExtensions}
               extensionKeybindings={this.options.extensionKeybindings}
-              onReplaceQueuedInstruction={(index, text) => this.replaceQueuedInstruction(index, text)}
+              onReplaceQueuedInstruction={(index, text, metadata) => this.replaceQueuedInstruction(index, text, metadata)}
               onRemoveQueuedInstruction={(index) => this.removeQueuedInstruction(index)}
               getInteractionMode={this.options.getInteractionMode}
               onCycleInteractionMode={this.options.onCycleInteractionMode}
@@ -1485,7 +1527,7 @@ export class InkRenderer {
   /**
    * Add a queued instruction
    */
-  addQueuedInstruction(instruction: string): void {
+  addQueuedInstruction(instruction: string, metadata?: PeerInstructionMetadata): void {
     const now = Date.now();
     if (
       this.lastQueuedInstruction?.text === instruction &&
@@ -1495,9 +1537,10 @@ export class InkRenderer {
     }
 
     this.lastQueuedInstruction = { text: instruction, at: now };
-    this.queuedInstructionEntries.push(createSequencedQueuedWork(instruction));
+    this.queuedInstructionEntries.push({ ...createSequencedQueuedWork(instruction), ...(metadata?.peerReferences.length ? structuredClone(metadata) : {}) });
     this.updateState({
-      queuedInstructions: [...this.state.queuedInstructions, instruction]
+      queuedInstructions: [...this.state.queuedInstructions, instruction],
+      queuedInstructionMetadata: this.queueMetadata()
     });
     // Resolve any pending waiter so the main loop can continue
     if (this._instructionWaiter) {
@@ -1510,7 +1553,7 @@ export class InkRenderer {
   /**
    * Replace an existing queued instruction while preserving queue order.
    */
-  replaceQueuedInstruction(index: number, instruction: string): boolean {
+  replaceQueuedInstruction(index: number, instruction: string, metadata?: PeerInstructionMetadata): boolean {
     if (index < 0 || index >= this.state.queuedInstructions.length) {
       return false;
     }
@@ -1520,11 +1563,12 @@ export class InkRenderer {
     const queuedEntry = this.queuedInstructionEntries[index];
     if (queuedEntry) {
       this.queuedInstructionEntries[index] = {
-        ...queuedEntry,
+        sequence: queuedEntry.sequence,
         text: instruction,
+        ...(metadata?.peerReferences.length ? structuredClone(metadata) : {}),
       };
     }
-    this.updateState({ queuedInstructions });
+    this.updateState({ queuedInstructions, queuedInstructionMetadata: this.queueMetadata() });
     return true;
   }
 
@@ -1538,27 +1582,31 @@ export class InkRenderer {
 
     const queuedInstructions = this.state.queuedInstructions.filter((_, idx) => idx !== index);
     this.queuedInstructionEntries = this.queuedInstructionEntries.filter((_, idx) => idx !== index);
-    this.updateState({ queuedInstructions });
+    this.updateState({ queuedInstructions, queuedInstructionMetadata: this.queueMetadata() });
     return true;
   }
 
   /**
    * Remove and return the next queued instruction
    */
+  private queueMetadata(): Array<PeerInstructionMetadata | undefined> {
+    return this.queuedInstructionEntries.map(entry => entry.peerReferences ? { peerReferences: structuredClone(entry.peerReferences), ...(entry.peerScope ? { peerScope: entry.peerScope } : {}) } : undefined);
+  }
+
   dequeueInstruction(): string | undefined {
     return this.dequeueQueuedInstruction()?.text;
   }
 
   /** Inspect the oldest queued instruction without mutating the editable UI queue. */
-  peekQueuedInstruction(): Readonly<SequencedQueuedWork> | undefined {
+  peekQueuedInstruction(): Readonly<SequencedQueuedWork & Partial<PeerInstructionMetadata>> | undefined {
     return this.queuedInstructionEntries[0];
   }
 
   /** Remove the oldest queued instruction while retaining its global FIFO ordinal. */
-  dequeueQueuedInstruction(): SequencedQueuedWork | undefined {
+  dequeueQueuedInstruction(): (SequencedQueuedWork & Partial<PeerInstructionMetadata>) | undefined {
     const next = this.queuedInstructionEntries.shift();
     if (!next) return undefined;
-    this.updateState({ queuedInstructions: this.state.queuedInstructions.slice(1) });
+    this.updateState({ queuedInstructions: this.state.queuedInstructions.slice(1), queuedInstructionMetadata: this.queueMetadata() });
     return next;
   }
 
@@ -1581,7 +1629,7 @@ export class InkRenderer {
    */
   clearQueue(): void {
     this.queuedInstructionEntries = [];
-    this.updateState({ queuedInstructions: [] });
+    this.updateState({ queuedInstructions: [], queuedInstructionMetadata: [] });
   }
 
   /**

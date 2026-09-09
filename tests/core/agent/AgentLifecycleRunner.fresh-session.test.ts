@@ -392,7 +392,7 @@ describe('mobile agent context boundary', () => {
 
     await expect(agent.runInstruction(turn.prompt, { mobileTurn })).resolves.toBe(true);
 
-    expect(agent.instructionRunner.run).toHaveBeenCalledWith(turn.prompt, { mobileTurn });
+    expect(agent.instructionRunner.run).toHaveBeenCalledWith(turn.prompt, { mobileTurn, signal: expect.any(AbortSignal) });
   });
 
   it('clears prior images then hydrates only the executing fresh turn attachments', async () => {
@@ -478,7 +478,7 @@ describe('mobile agent context boundary', () => {
 
     expect(host.sessionManager.closeSession).not.toHaveBeenCalled();
     expect(host.sessionManager.createSession).not.toHaveBeenCalled();
-    expect(agent.instructionRunner.run).toHaveBeenCalledWith(turn.prompt, { mobileTurn });
+    expect(agent.instructionRunner.run).toHaveBeenCalledWith(turn.prompt, { mobileTurn, signal: expect.any(AbortSignal) });
   });
 
   it('restores an exact local same-workspace session before executing resume work', async () => {

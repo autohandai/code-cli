@@ -7,6 +7,8 @@ import { execFileSync } from 'node:child_process';
 import fs from 'fs-extra';
 import path from 'node:path';
 import type { GoalTemplateMetadata } from './types.js';
+import { getCommandCoordination } from '../session/peers/CommandCoordinationGate.js';
+import { runCommand } from '../actions/command.js';
 
 const TEMPLATE_DIR = '.pi-goals';
 const DEFAULT_COMMAND_TIMEOUT_MS = 10_000;
@@ -74,7 +76,7 @@ export async function resolveGoalTemplateByName(
 
   const template = matches[0];
   try {
-    const objective = resolveInlineCommands(interpolate(template.body, { ...flags, args }), template, root).trim();
+    const objective = (await resolveInlineCommands(interpolate(template.body, { ...flags, args }), template, root)).trim();
     return { ok: true, template: { name: template.name, path: template.path, objective, flags: { ...flags }, args } };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -178,17 +180,33 @@ function interpolate(text: string, values: Record<string, string>): string {
   });
 }
 
-function resolveInlineCommands(text: string, template: GoalTemplate, cwd: string): string {
-  return text.replace(/!`([^`]+)`/g, (_match, command: string) => {
+async function resolveInlineCommands(text: string, template: GoalTemplate, cwd: string): Promise<string> {
+  let result = '';
+  let previous = 0;
+  for (const match of text.matchAll(/!`([^`]+)`/g)) {
+    const command = match[1];
     if (!template.allowCommands) throw new Error(`Template ${template.name} uses inline commands but allow_commands is not true.`);
-    const output = execFileSync('/bin/bash', ['-lc', command], {
+    const output = getCommandCoordination() ? await executeTemplateCommand(command, template, cwd) : execFileSync('/bin/bash', ['-lc', command], {
       cwd,
       encoding: 'utf8',
       timeout: template.commandTimeoutMs,
       maxBuffer: template.commandOutputLimit + 1024,
     });
-    return output.length > template.commandOutputLimit ? `${output.slice(0, template.commandOutputLimit)}\n[output truncated]` : output;
+    result += text.slice(previous, match.index) + (output.length > template.commandOutputLimit ? `${output.slice(0, template.commandOutputLimit)}\n[output truncated]` : output);
+    previous = match.index + match[0].length;
+  }
+  return result + text.slice(previous);
+}
+
+async function executeTemplateCommand(command: string, template: GoalTemplate, cwd: string): Promise<string> {
+  const controller = new AbortController();
+  let bytes = 0;
+  const observe = (chunk: string) => { bytes += Buffer.byteLength(chunk); if (bytes > template.commandOutputLimit + 1024) controller.abort(); };
+  const result = await runCommand('/bin/bash', ['-lc', command], cwd, {
+    timeout: template.commandTimeoutMs, signal: controller.signal, onStdout: observe, onStderr: observe,
   });
+  if (result.code !== 0) throw new Error(result.stderr || `Template command failed with exit code ${result.code}`);
+  return result.stdout;
 }
 
 function findRequiredPlaceholders(text: string): string[] {

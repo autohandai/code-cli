@@ -2,9 +2,9 @@
 
 Date: 2026-09-09
 
-Status: Draft following a source and test audit; proposed behavior is not implemented.
+Status: Design implemented for the Unix peer runtime, colon composer, worker adapters, and managed resource coordination. See [implementation and evidence](peer-communication-implementation.md) for validation and outstanding platform/performance limits. Windows named pipes and job ownership remain future work.
 
-Audit baseline: `a03584f6`, including the staged agent-runtime changes present in this worktree.
+Historical audit baseline: `a03584f6`. The implementation below was developed from `bebd0857`; the original audit is retained to explain the design decisions.
 
 ## Recommendation
 
@@ -20,11 +20,11 @@ send and receive messages. It does not require replacing the existing child runt
 
 The [August agent-runtime draft](plans/2026-08-11-agent-run-runtime-design.md) explicitly
 deferred cross-session messaging. This document designs that extension against the
-current implementation. Its older inventory of missing child capabilities is no
+then-current implementation. Its older inventory of missing child capabilities is no
 longer a reliable description of this worktree. This draft does not adopt the older
 proposal's entire `rlm`, worktree, or lifecycle migration.
 
-## What exists today
+## Historical implementation audit (before this feature)
 
 | Area | Current implementation and evidence | Consequence for this feature |
 | --- | --- | --- |

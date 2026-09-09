@@ -679,6 +679,10 @@ docker run -it autohand
 - [Autohand Code extensions](docs/extensions.md) - Validate, install, inspect, and manage declarative extension packages
 - [Extension authoring](docs/extension-authoring.md) - Package tools and agents for the public extension ecosystem
 - [Model catalog updates](docs/model-catalog.md) - Automatic refresh, offline fallback, Pi-compatible publication, and admin PR workflow
+- [Local peer communication](docs/peer-communication.md) - Colon composer, exact recipients, inbox and replies
+- [Build resource coordination](docs/peer-resource-coordination.md) - Controllers, grants and process ownership
+- [Peer protocol and runtime](docs/peer-communication-protocol.md) - Security, storage, worker adapters and limits
+- [Two-session peer lab](docs/peer-communication-lab.md) - Verify the complete terminal workflow
 - [Configuration Reference](docs/config-reference.md) - All config options
   - [English](docs/config-reference.md)
   - [日本語](docs/config-reference_ja.md)

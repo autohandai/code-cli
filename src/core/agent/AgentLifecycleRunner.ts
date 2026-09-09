@@ -94,6 +94,7 @@ export interface RunAgentCommandModeOptions {
 }
 
 export interface ExecuteAgentInstructionTurnOptions {
+  peerReferences?: import('../../ui/peerMention.js').PeerReference[];
   echoInTranscript?: boolean;
   postTurnAction?: PendingPostTurnAction;
   mobileTurn?: MobileClaimedTurnContext;
@@ -106,6 +107,12 @@ export async function executeAgentInstructionTurn(
   options: ExecuteAgentInstructionTurnOptions = {},
 ): Promise<boolean> {
   const execute = (): Promise<boolean> => {
+    if (options.peerReferences?.length) {
+      return host.runInstruction(instruction, { ...options.executionPolicy, peerReferences: options.peerReferences,
+        ...(options.mobileTurn ? { mobileTurn: options.mobileTurn } : {}),
+        ...(options.echoInTranscript === false ? { echoInTranscript: false } : {}),
+      });
+    }
     if (options.mobileTurn) {
       return host.runInstruction(instruction, {
         ...options.executionPolicy,
@@ -748,6 +755,11 @@ export async function shutdownAgentRuntimeResources(host: AgentLifecycleHost): P
       host.activeAgentHeartbeat = null;
 
       if (heartbeat) cleanupTasks.push(callResourceCleanup(() => heartbeat.stop()));
+      if (host.peerRuntime) {
+        const peers = host.peerRuntime;
+        host.peerRuntime = undefined;
+        cleanupTasks.push(callResourceCleanup(() => peers.close()));
+      }
       if (host.teamManager) cleanupTasks.push(callResourceCleanup(() => host.teamManager.shutdown()));
       if (host.mcpManager) cleanupTasks.push(callResourceCleanup(() => host.mcpManager.disconnectAll()));
       if (host.backgroundProcessRegistry) {
@@ -1595,6 +1607,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         let instruction: string | null = null;
         let echoInTranscript: boolean | undefined;
         let executionPolicy: QueuedInstructionPolicy | undefined;
+        let peerReferences: ExecuteAgentInstructionTurnOptions['peerReferences'];
         let postTurnAction: PendingPostTurnAction | undefined;
         let mobileTurn: MobileClaimedTurnContext | undefined;
         let mobileCommand: QueuedMobileComposerCommand | undefined;
@@ -1610,6 +1623,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
           instruction = nextQueuedWork.queued.text ?? null;
           echoInTranscript = nextQueuedWork.queued.echoInTranscript;
           executionPolicy = nextQueuedWork.queued.executionPolicy;
+          peerReferences = nextQueuedWork.queued.peerReferences;
           postTurnAction = nextQueuedWork.queued.postTurnAction;
           mobileTurn = nextQueuedWork.queued.mobileTurn;
           mobileCommand = nextQueuedWork.queued.mobileCommand;
@@ -1679,6 +1693,8 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
             }
             writeAutohandDebugLine('[DEBUG] Calling promptForInstruction in readline mode', host.writeDebugLine?.bind(host));
             instruction = await host.promptForInstruction();
+            peerReferences = host.promptPeerReferences;
+            host.promptPeerReferences = undefined;
             writeAutohandDebugLine(`[DEBUG] promptForInstruction returned: ${instruction}`, host.writeDebugLine?.bind(host));
           }
         }
@@ -1788,7 +1804,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
               );
               if (host.ui || host.inkRenderer) {
                 host.setComposerIdle();
-                if (command !== '/whatityped') host.clearComposerInput();
+                if (command !== '/whatityped' && command !== '/peers') host.clearComposerInput();
                 // Return to the top of the loop so the idle-wait path can await
                 // the next Composer submission without falling through to
                 // instruction.startsWith('/') which would throw on null.
@@ -1855,6 +1871,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         const turnStartTime = Date.now();
         await autoNameAgentSessionFromInstruction(host, instruction);
         const turnSucceeded = await executeAgentInstructionTurn(host, instruction, {
+          ...(peerReferences?.length ? { peerReferences } : {}),
           ...(executionPolicy ? { executionPolicy } : {}),
           ...(mobileTurn ? { mobileTurn } : {}),
           ...(echoInTranscript !== undefined ? { echoInTranscript } : {}),

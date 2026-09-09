@@ -33,6 +33,10 @@ import type { ThreadBudget } from './SessionThreadBudget.js';
 import type { ClientContext, LLMMessage, LLMUsage, LoadedConfig, ToolCallRequest } from '../../types.js';
 import { isGoalFeatureEnabled } from '../../goals/feature.js';
 import { ReactionParser } from '../agent/ReactionParser.js';
+import type { PeerClient, PeerEvent } from '../../session/peers/PeerMessaging.js';
+import type { ResourceCoordinatorClient } from '../../session/peers/ResourceCoordinator.js';
+import { PeerCommunicationRuntime, formatPeerContext, type PeerContextEnvelope } from '../agent/PeerCommunicationRuntime.js';
+import { peerToolAvailable } from '../peerTools.js';
 import {
     resolveAssistantToolCalls,
     ToolLoopGuard,
@@ -43,6 +47,12 @@ import {
  * Options for creating a SubAgent with context inheritance
  */
 export interface SubAgentOptions {
+    bindPeerRun?: DelegatorOptions['bindPeerRun'];
+    peerAutomatic?: boolean;
+    peerMessaging?: PeerClient;
+    resourceCoordinator?: ResourceCoordinatorClient;
+    onPeerEvent?: (event: PeerEvent) => void;
+    recordPeerContext?: (messages: PeerContextEnvelope[]) => Promise<void>;
     workspaceRoot?: string;
     projectMemoryEnabled?: boolean;
     userRequest?: string;
@@ -165,6 +175,7 @@ export class SubAgent {
             : availableDefinitions.filter(def => allowedTools.has(def.name));
         this.skills = options.skillsRegistry ? new SubAgentSkills(options.skillsRegistry, config.skills ?? []) : null;
         definitions = definitions.filter(definition => !LEAD_ONLY_TOOL_NAMES.has(definition.name)
+            && peerToolAvailable(definition.name, options.peerMessaging)
             && !definition.name.startsWith('mcp__')
             && (definition.name !== 'skill' || this.skills !== null)
             && (canDelegate || !DELEGATION_TOOL_NAMES.has(definition.name)));
@@ -187,6 +198,7 @@ export class SubAgent {
         // Create delegator if sub-agent can delegate
         if (canDelegate) {
             this.delegator = new AgentDelegator(llm, actionExecutor, {
+                bindPeerRun: options.bindPeerRun,
                 workspaceRoot: options.workspaceRoot,
                 projectMemoryEnabled: options.projectMemoryEnabled,
                 getUserRequest: () => options.userRequest,
@@ -233,7 +245,7 @@ export class SubAgent {
                 if (action.type === 'skill' && this.skills) {
                     return this.skills.handle(action);
                 }
-                return this.actionExecutor.executeForTool(action, context);
+                return this.actionExecutor.executeForTool(action, { ...context, peerMessaging: options.peerMessaging, resourceCoordinator: options.resourceCoordinator, peerAutomatic: options.peerAutomatic });
             },
             confirmApproval: options.confirmApproval ?? (async () => false),
             definitions,
@@ -330,6 +342,24 @@ export class SubAgent {
     }
 
     public async run(task: string, options: SubAgentRunOptions = {}): Promise<string> {
+        const runtime = this.options.peerMessaging ? new PeerCommunicationRuntime({
+            messaging: this.options.peerMessaging,
+            notify: event => this.options.onPeerEvent?.(event),
+            requestAutoTurn: async () => {},
+            commitContext: async messages => {
+                if (this.options.recordPeerContext) await this.options.recordPeerContext(messages);
+                else await this.options.peerMessaging!.recordContext(messages);
+                this.conversation.addMessage({ role: 'user', content: formatPeerContext(messages) });
+            },
+        }) : undefined;
+        const aborted = () => runtime?.setPaused('cancelled', true);
+        options.signal?.addEventListener('abort', aborted, { once: true });
+        runtime?.beginTurn();
+        try { return await this.runTask(task, options, runtime); }
+        finally { options.signal?.removeEventListener('abort', aborted); await runtime?.close(); }
+    }
+
+    private async runTask(task: string, options: SubAgentRunOptions, peerRuntime?: PeerCommunicationRuntime): Promise<string> {
         options.signal?.throwIfAborted();
         console.log(chalk.cyan(`\nSub-agent '${this.name}' starting task... (depth ${this.options.depth}/${this.options.maxDepth})`));
 
@@ -359,6 +389,7 @@ export class SubAgent {
             options.signal?.throwIfAborted();
             this.consumePendingInstructions();
             this.refreshSkillsPrompt();
+            await peerRuntime?.safeBoundary();
             const requestTools = this.supportsNativeToolCalling
                 && !loopGuard.isForcingFinalResponse()
                 && tools.length > 0
@@ -504,6 +535,7 @@ export class SubAgent {
             }
 
             if (this.consumePendingInstructions()) continue;
+            if ((await peerRuntime?.finishTurn())?.continueTurn) continue;
 
             // No tools, return final response
             const response = payload.finalResponse ?? payload.response ?? completion.content;

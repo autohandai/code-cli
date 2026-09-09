@@ -5,6 +5,8 @@
  */
 import fse from 'fs-extra';
 import path from 'node:path';
+import { atomicWriteJson, withFileLock } from '../utils/atomicFile.js';
+import { validatePeerAdvertisement, type PeerAdvertisement } from './peers/PeerProtocol.js';
 import { AUTOHAND_PATHS } from '../constants.js';
 import type { AgentRuntime, ProviderName, TokenUsageStatus } from '../types.js';
 import type { Session } from './SessionManager.js';
@@ -48,6 +50,7 @@ export interface ActiveAgentRecord {
   tokensUsageStatus?: TokenUsageStatus;
   sessionTokensUsed?: number;
   activity?: ActiveAgentActivity;
+  communication?: PeerAdvertisement;
 }
 
 export interface ActiveAgentStatusSnapshot {
@@ -77,20 +80,29 @@ export class ActiveAgentRegistry {
   }
 
   async write(record: ActiveAgentRecord): Promise<void> {
-    await fse.ensureDir(this.dir, { mode: 0o700 });
-    await fse.chmod(this.dir, 0o700).catch(() => {});
-    const filePath = this.recordPath(record.sessionId);
-    await fse.writeJson(filePath, record, { spaces: 2, mode: 0o600 });
-    await fse.chmod(filePath, 0o600).catch(() => {});
+    await this.prepareDirectory();
+    const communication = validatePeerAdvertisement(record.communication);
+    const published: ActiveAgentRecord = { ...record };
+    if (communication) published.communication = communication;
+    else delete published.communication;
+    const filePath = this.recordPath(record.sessionId, communication?.instanceId);
+    await withFileLock(`${filePath}.lock`, async () => {
+      if (await fse.pathExists(filePath) && !await this.isOwnedFile(filePath)) throw new Error('Active-agent record is not a private regular file.');
+      await atomicWriteJson(filePath, published);
+      await fse.chmod(filePath, 0o600).catch(error => { if (process.platform !== 'win32') throw error; });
+    }, { waitTimeoutMs: 2_000, retryDelayMs: 5 });
   }
 
-  async remove(sessionId: string): Promise<void> {
-    await fse.remove(this.recordPath(sessionId));
+  async remove(sessionId: string, instanceId?: string): Promise<void> {
+    const filePath = this.recordPath(sessionId, instanceId);
+    if (!await this.isOwnedFile(filePath)) return;
+    await withFileLock(`${filePath}.lock`, async () => {
+      if (await this.isOwnedFile(filePath)) await fse.unlink(filePath);
+    }, { waitTimeoutMs: 2_000, retryDelayMs: 5 });
   }
 
   async listActive(): Promise<ActiveAgentRecord[]> {
-    await fse.ensureDir(this.dir, { mode: 0o700 });
-    await fse.chmod(this.dir, 0o700).catch(() => {});
+    await this.prepareDirectory();
     const filenames = await fse.readdir(this.dir);
     const records: ActiveAgentRecord[] = [];
 
@@ -98,15 +110,18 @@ export class ActiveAgentRegistry {
       .filter((filename) => filename.endsWith('.json'))
       .map(async (filename) => {
         const filePath = path.join(this.dir, filename);
+        if (!await this.isOwnedFile(filePath)) return;
         try {
-          const record = await fse.readJson(filePath) as ActiveAgentRecord;
+          const record: unknown = await fse.readJson(filePath);
           if (!isValidActiveAgentRecord(record) || this.isStale(record)) {
-            await fse.remove(filePath);
+            await this.pruneStaleFile(filePath);
             return;
           }
-          records.push(record);
+          const { communication: extension, ...presence } = record;
+          const communication = validatePeerAdvertisement(extension);
+          records.push({ ...presence, ...(communication ? { communication } : {}) });
         } catch {
-          await fse.remove(filePath).catch(() => {});
+          await this.pruneStaleFile(filePath).catch(() => {});
         }
       }));
 
@@ -120,9 +135,42 @@ export class ActiveAgentRegistry {
     return this.now().getTime() - Date.parse(record.updatedAt) > ACTIVE_AGENT_STALE_MS;
   }
 
-  private recordPath(sessionId: string): string {
+  private async prepareDirectory(): Promise<void> {
+    await fse.ensureDir(this.dir, { mode: 0o700 });
+    const info = await fse.lstat(this.dir);
+    if (!info.isDirectory() || info.isSymbolicLink() || process.platform !== 'win32' && info.uid !== process.geteuid?.()) throw new Error('Active-agent registry must be a directory owned by the current OS user.');
+    await fse.chmod(this.dir, 0o700).catch(error => { if (process.platform !== 'win32') throw error; });
+  }
+
+  private async isOwnedFile(filename: string): Promise<boolean> {
+    try {
+      const info = await fse.lstat(filename);
+      return info.isFile() && !info.isSymbolicLink() && info.nlink === 1 && info.size <= 131_072
+        && (process.platform === 'win32' || info.uid === process.geteuid?.() && (info.mode & 0o077) === 0);
+    } catch { return false; }
+  }
+
+  private async pruneStaleFile(filename: string): Promise<void> {
+    await withFileLock(`${filename}.lock`, async () => {
+      if (!await this.isOwnedFile(filename)) return;
+      try {
+        const current: unknown = await fse.readJson(filename);
+        if (isValidActiveAgentRecord(current)) {
+          if (this.isStale(current)) await fse.unlink(filename);
+          return;
+        }
+      } catch {
+        // Older clients publish non-atomically; a fresh incomplete write is not stale.
+      }
+      const info = await fse.lstat(filename);
+      if (this.now().getTime() - info.mtimeMs > ACTIVE_AGENT_STALE_MS) await fse.unlink(filename);
+    }, { waitTimeoutMs: 100, retryDelayMs: 5 });
+  }
+
+  private recordPath(sessionId: string, instanceId?: string): string {
     const safeName = sessionId.replace(/[^a-zA-Z0-9_.-]/g, '_');
-    return path.join(this.dir, `${safeName}.json`);
+    const suffix = instanceId ? `.${instanceId.replace(/[^a-zA-Z0-9-]/g, '_')}` : '';
+    return path.join(this.dir, `${safeName}${suffix}.json`);
   }
 }
 
@@ -132,6 +180,7 @@ export interface ActiveAgentHeartbeatOptions {
   getSession: () => Session | null;
   getStatusSnapshot: () => ActiveAgentStatusSnapshot;
   getActivity?: () => ActiveAgentActivity | undefined;
+  getCommunication?: () => PeerAdvertisement | undefined;
   onHeartbeat?: (record: ActiveAgentRecord) => Promise<void> | void;
 }
 
@@ -142,7 +191,7 @@ export class ActiveAgentHeartbeat {
   private stopPromise: Promise<void> | null = null;
   private readonly pendingUpdates = new Set<Promise<void>>();
   private updateChain: Promise<void> = Promise.resolve();
-  private readonly registeredSessionIds = new Set<string>();
+  private readonly registeredRecords = new Map<string, { sessionId: string; instanceId?: string }>();
 
   constructor(
     private readonly registry: ActiveAgentRegistry,
@@ -170,6 +219,7 @@ export class ActiveAgentHeartbeat {
     const now = new Date().toISOString();
     const sessionId = session.metadata.sessionId;
     const activity = this.options.getActivity?.();
+    const communication = this.options.getCommunication?.();
     const record: ActiveAgentRecord = {
       version: 1,
       pid: process.pid,
@@ -188,6 +238,7 @@ export class ActiveAgentHeartbeat {
       tokensUsageStatus: snapshot.tokensUsageStatus,
       sessionTokensUsed: snapshot.sessionTokensUsed,
       ...(activity ? { activity } : {}),
+      ...(communication ? { communication } : {}),
     };
     const updatePromise = this.updateChain.then(() => this.writeUpdate(record));
     this.updateChain = updatePromise.catch(() => {});
@@ -213,17 +264,18 @@ export class ActiveAgentHeartbeat {
 
   private async writeUpdate(record: ActiveAgentRecord): Promise<void> {
     await this.registry.write(record);
-    this.registeredSessionIds.add(record.sessionId);
+    const identity = { sessionId: record.sessionId, instanceId: record.communication?.instanceId };
+    const key = JSON.stringify(identity);
+    this.registeredRecords.set(key, identity);
     if (this.stopped) {
       await this.removeRegisteredSessions();
       return;
     }
 
-    const priorSessionIds = [...this.registeredSessionIds]
-      .filter((sessionId) => sessionId !== record.sessionId);
-    await Promise.all(priorSessionIds.map(async (sessionId) => {
-      await this.registry.remove(sessionId);
-      this.registeredSessionIds.delete(sessionId);
+    const priorRecords = [...this.registeredRecords].filter(([registered]) => registered !== key);
+    await Promise.all(priorRecords.map(async ([registered, previous]) => {
+      await this.registry.remove(previous.sessionId, previous.instanceId);
+      this.registeredRecords.delete(registered);
     }));
     try {
       await this.options.onHeartbeat?.(record);
@@ -238,10 +290,10 @@ export class ActiveAgentHeartbeat {
   }
 
   private async removeRegisteredSessions(): Promise<void> {
-    const registeredSessionIds = [...this.registeredSessionIds];
-    await Promise.all(registeredSessionIds.map(async (sessionId) => {
-      await this.registry.remove(sessionId);
-      this.registeredSessionIds.delete(sessionId);
+    const records = [...this.registeredRecords];
+    await Promise.all(records.map(async ([key, record]) => {
+      await this.registry.remove(record.sessionId, record.instanceId);
+      this.registeredRecords.delete(key);
     }));
   }
 }

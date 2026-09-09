@@ -17,6 +17,7 @@ import { BackgroundProcessRegistry } from '../core/agent/BackgroundProcessRegist
 import type { SubAgentOptions } from '../core/agents/SubAgent.js';
 import { checkWorkspaceSafety } from '../startup/workspaceSafety.js';
 import { validateWorkspacePath } from '../startup/checks.js';
+import { TeammatePeerClient } from '../core/teams/TeammatePeerBridge.js';
 
 export interface TeammateOptions {
   teamName: string;
@@ -30,7 +31,8 @@ export interface TeammateOptions {
 }
 
 export interface TeammateTaskRuntime extends Pick<SubAgentOptions,
-  'threadBudget' | 'getPendingInstructions' | 'onProgress' | 'onSubagentStart' | 'onSubagentProgress' | 'onSubagentStop'> {
+  'threadBudget' | 'getPendingInstructions' | 'onProgress' | 'onSubagentStart' | 'onSubagentProgress' | 'onSubagentStop'
+  | 'peerMessaging' | 'resourceCoordinator' | 'bindPeerRun' | 'onPeerEvent' | 'recordPeerContext' | 'peerAutomatic'> {
   signal?: AbortSignal;
   authorizeTool?: (context: PreToolHookContext) => Promise<TeammateAuthorizationResult>;
   backgroundProcessRegistry?: BackgroundProcessRegistry;
@@ -252,10 +254,11 @@ export async function runTeammateModeWithStreams(
     taskId: string;
     runId: string;
     targetRunId: string;
-    finish: (allowed: boolean) => void;
+    finish: (allowed: boolean, peer?: unknown) => void;
   }>();
   let pendingContext: string | undefined;
   let active: { taskId: string; runId?: string; controller: AbortController; promise: Promise<void>; messages: string[] } | undefined;
+  let peerClient: TeammatePeerClient | undefined;
   let closing = false;
   let resolveShutdown!: () => void;
   const stopped = new Promise<void>((resolve) => { resolveShutdown = resolve; });
@@ -267,6 +270,7 @@ export async function runTeammateModeWithStreams(
     active?.controller.abort(new Error('Teammate shutting down'));
     budget.disconnect();
     authorizationBroker.disconnect();
+    peerClient?.disconnect();
     resolveShutdown();
   };
 
@@ -278,15 +282,15 @@ export async function runTeammateModeWithStreams(
       const runId = task.runId;
       if (!runId || !targetRunId || pendingReadiness.size >= 32) throw new Error('Cannot request lead approval for this run');
       const requestId = randomUUID();
-      await new Promise<void>((resolve, reject) => {
+      return new Promise<unknown>((resolve, reject) => {
         const timeout = setTimeout(() => finish(false), 30_000);
         timeout.unref?.();
         const onAbort = () => finish(false);
-        const finish = (allowed: boolean) => {
+        const finish = (allowed: boolean, peer?: unknown) => {
           if (!pendingReadiness.delete(requestId)) return;
           clearTimeout(timeout);
           signal.removeEventListener('abort', onAbort);
-          if (allowed && !signal.aborted) resolve();
+          if (allowed && !signal.aborted) resolve(peer);
           else reject(signal.reason ?? new Error('Lead did not approve run continuation'));
         };
         pendingReadiness.set(requestId, { taskId: task.id, runId, targetRunId, finish });
@@ -301,8 +305,15 @@ export async function runTeammateModeWithStreams(
     if (controller.signal.aborted) stopTaskProcesses();
     sendToLead('team.taskUpdate', { ...execution, status: 'in_progress' });
     try {
-      await waitForRunReady(task.runId, controller.signal);
+      const binding = await waitForRunReady(task.runId, controller.signal);
+      if (binding && task.runId) peerClient = new TeammatePeerClient({ taskId: task.id, runId: task.runId }, binding, sendToLead);
+      const peerRuntime = peerClient?.root;
       const result = await (dependencies.execute ?? executeTask)(opts, task, {
+        ...(peerRuntime ? {
+          peerMessaging: peerRuntime.messaging, resourceCoordinator: peerRuntime.coordinator,
+          bindPeerRun: peerRuntime.bindRun, peerAutomatic: peerRuntime.automatic, onPeerEvent: peerRuntime.notify,
+          recordPeerContext: messages => peerRuntime.messaging.recordContext(messages),
+        } : {}),
         signal: controller.signal,
         threadBudget: budget,
         authorizeTool: (context) => authorizationBroker.authorize(context, execution),
@@ -350,6 +361,7 @@ export async function runTeammateModeWithStreams(
         },
       });
       controller.signal.throwIfAborted();
+      await peerRuntime?.close();
       sendToLead('team.taskUpdate', { ...execution, status: 'completed', result });
     } catch (error) {
       await backgroundProcessRegistry.shutdown(250);
@@ -359,6 +371,8 @@ export async function runTeammateModeWithStreams(
         error: (error instanceof Error ? error.message : String(error)).slice(0, 4_000),
       });
     } finally {
+      peerClient?.disconnect();
+      peerClient = undefined;
       controller.signal.removeEventListener('abort', stopTaskProcesses);
       if (backgroundProcessRegistry.list().length === 0) backgroundRegistries.delete(backgroundProcessRegistry);
       nestedCancels.clear();
@@ -370,6 +384,7 @@ export async function runTeammateModeWithStreams(
   };
 
   const unsubscribe = router.onMessage(stdin, ({ method, params }) => {
+    if (peerClient?.handle(method, params)) return;
     if (method === 'team.authorizationResult') {
       authorizationBroker.handleResult(params);
       return;
@@ -382,7 +397,7 @@ export async function runTeammateModeWithStreams(
       const { requestId, taskId, runId, targetRunId, allowed } = params;
       if (typeof requestId !== 'string' || typeof allowed !== 'boolean') return;
       const pending = pendingReadiness.get(requestId);
-      if (pending && pending.taskId === taskId && pending.runId === runId && pending.targetRunId === targetRunId) pending.finish(allowed);
+      if (pending && pending.taskId === taskId && pending.runId === runId && pending.targetRunId === targetRunId) pending.finish(allowed, params.peer);
       return;
     }
     if (method === 'team.runMessage') {

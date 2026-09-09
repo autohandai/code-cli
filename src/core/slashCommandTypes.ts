@@ -141,6 +141,8 @@ export interface SlashCommandContext {
     onToggleGoalView?: (visible: boolean) => void;
     /** Peer awareness manager for /peers command */
     peerAwareness?: import('../session/peers/PeerAwarenessManager.js').PeerAwarenessManager;
+    peerMessaging?: import('../session/peers/PeerMessaging.js').PeerClient;
+    onPeerDraft?: (draft: import('../ui/peerMention.js').PeerComposerDraft) => void;
     /** Repeat manager for /repeat recurring prompt scheduling */
     repeatManager?: RepeatManager;
     /** Queue an instruction to be sent to the LLM on the next turn (not displayed to user) */

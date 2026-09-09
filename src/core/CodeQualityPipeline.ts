@@ -6,7 +6,7 @@
 
 import fs from 'fs-extra';
 import { join } from 'path';
-import { spawn } from 'child_process';
+import { signalCoordinatedProcess, spawnCoordinatedProcess, waitForProcessPublication } from '../session/peers/CommandCoordinationGate.js';
 
 /**
  * Quality check types
@@ -276,17 +276,14 @@ export class CodeQualityPipeline {
     let output = '';
 
     try {
+      const child = await spawnCoordinatedProcess({ file: cmd, args, cwd: root }, {
+        stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CI: '1', FORCE_COLOR: '0' },
+      });
       await new Promise<void>((resolve, reject) => {
-        const child = spawn(cmd, args, {
-          cwd: root,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: { ...process.env, CI: '1', FORCE_COLOR: '0' },
-        });
-
         const timeout = setTimeout(() => {
-          child.kill('SIGTERM');
+          signalCoordinatedProcess(child, 'SIGTERM');
           setTimeout(() => {
-            if (!child.killed) child.kill('SIGKILL');
+            if (child.exitCode === null && child.signalCode === null) signalCoordinatedProcess(child, 'SIGKILL');
           }, 2000);
           reject(new Error(`Timeout after ${this.defaultTimeout}ms`));
         }, this.defaultTimeout);
@@ -312,7 +309,7 @@ export class CodeQualityPipeline {
             reject(new Error(`Process exited with code ${code}`));
           }
         });
-      });
+      }).finally(() => waitForProcessPublication(child));
 
       check.status = 'passed';
       check.output = this.truncateOutput(output);
@@ -349,15 +346,12 @@ export class CodeQualityPipeline {
     for (const fixScript of fixScripts) {
       try {
         const [cmd, args] = this.buildRunCommand(pm, fixScript);
+        const child = await spawnCoordinatedProcess({ file: cmd, args, cwd: root }, {
+          stdio: ['ignore', 'ignore', 'ignore'], env: { ...process.env, CI: '1' },
+        });
         await new Promise<void>((resolve, reject) => {
-          const child = spawn(cmd, args, {
-            cwd: root,
-            stdio: ['ignore', 'ignore', 'ignore'],
-            env: { ...process.env, CI: '1' },
-          });
-
           const timeout = setTimeout(() => {
-            child.kill('SIGTERM');
+            signalCoordinatedProcess(child, 'SIGTERM');
             reject(new Error('Timeout'));
           }, 60000);
 
@@ -371,7 +365,7 @@ export class CodeQualityPipeline {
             if (code === 0) resolve();
             else reject();
           });
-        });
+        }).finally(() => waitForProcessPublication(child));
         return; // Success, stop trying
       } catch {
         // Try next pattern

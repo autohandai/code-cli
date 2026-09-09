@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { spawn } from 'node:child_process';
+import { getCommandCoordination, prepareCommandCoordination, waitForProcessPublication } from '../session/peers/CommandCoordinationGate.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { assertTestEvidenceDirectory, createTestEvidenceDirectory } from './evidenceDirectory.js';
@@ -57,71 +58,82 @@ async function executeScript(
   command: string[],
   manifest: ProjectTestRunManifest,
 ): Promise<string> {
-  return new Promise<string>((resolve) => {
-    const child = spawn(command[0]!, command.slice(1), {
-      cwd: options.workspaceRoot,
-      shell: false,
-      detached: process.platform !== 'win32',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, COREPACK_ENABLE_NETWORK: '0', npm_config_offline: 'true', CI: 'true' },
+  const launch = getCommandCoordination() ? await prepareCommandCoordination({ file: command[0]!, args: command.slice(1), cwd: options.workspaceRoot }, options.signal) : undefined;
+  try {
+    return await new Promise<string>((resolve) => {
+      const child = spawn(command[0]!, command.slice(1), {
+        cwd: options.workspaceRoot,
+        shell: false,
+        detached: process.platform !== 'win32',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, COREPACK_ENABLE_NETWORK: '0', npm_config_offline: 'true', CI: 'true' },
+      });
+      launch?.observe(child);
+      let output = '';
+      let outputBytes = 0;
+      let stopped: 'cancelled' | 'timed out' | undefined;
+      let settled = false;
+      let killTimer: ReturnType<typeof setTimeout> | undefined;
+      const capture = (chunk: Buffer): void => {
+        const remaining = 2_000_000 - outputBytes;
+        if (chunk.byteLength > remaining) manifest.logTruncated = true;
+        if (remaining <= 0) return;
+        const kept = chunk.subarray(0, remaining);
+        output += kept.toString('utf8');
+        outputBytes += kept.byteLength;
+      };
+      child.stdout.on('data', capture);
+      child.stderr.on('data', capture);
+      const terminate = (signal: NodeJS.Signals): void => {
+        try {
+          if (child.pid && process.platform !== 'win32') process.kill(-child.pid, signal);
+          else child.kill(signal);
+        } catch {
+          // The process may exit between cancellation and the signal delivery.
+        }
+      };
+      const stop = (reason: 'cancelled' | 'timed out'): void => {
+        if (settled || stopped) return;
+        stopped = reason;
+        terminate('SIGTERM');
+        killTimer = setTimeout(() => terminate('SIGKILL'), 1_000);
+        killTimer.unref();
+      };
+      const abort = (): void => stop('cancelled');
+      options.signal?.addEventListener('abort', abort, { once: true });
+      const timer = setTimeout(() => stop('timed out'), options.timeoutMs ?? 120_000);
+      timer.unref();
+      const finish = (): void => {
+        settled = true;
+        clearTimeout(timer);
+        if (killTimer) clearTimeout(killTimer);
+        options.signal?.removeEventListener('abort', abort);
+        void waitForProcessPublication(child).then(() => resolve(output), error => {
+          manifest.status = 'failed';
+          manifest.message = error instanceof Error ? error.message : String(error);
+          resolve(output);
+        });
+      };
+      child.on('error', (error) => {
+        manifest.status = 'not-run';
+        manifest.message = `Could not start the installed project test runner: ${error.message}`;
+        finish();
+      });
+      child.on('close', (code) => {
+        if (settled) return;
+        manifest.exitCode = code;
+        manifest.status = code === 0 && !stopped ? 'passed' : 'failed';
+        manifest.message = stopped
+          ? `Project test script ${stopped}; partial logs are retained.`
+          : `Project script exited with code ${code ?? 'unavailable'}. This is the script result, not independent proof of test coverage.`;
+        finish();
+      });
+      if (options.signal?.aborted) abort();
     });
-    let output = '';
-    let outputBytes = 0;
-    let stopped: 'cancelled' | 'timed out' | undefined;
-    let settled = false;
-    let killTimer: ReturnType<typeof setTimeout> | undefined;
-    const capture = (chunk: Buffer): void => {
-      const remaining = 2_000_000 - outputBytes;
-      if (chunk.byteLength > remaining) manifest.logTruncated = true;
-      if (remaining <= 0) return;
-      const kept = chunk.subarray(0, remaining);
-      output += kept.toString('utf8');
-      outputBytes += kept.byteLength;
-    };
-    child.stdout.on('data', capture);
-    child.stderr.on('data', capture);
-    const terminate = (signal: NodeJS.Signals): void => {
-      try {
-        if (child.pid && process.platform !== 'win32') process.kill(-child.pid, signal);
-        else child.kill(signal);
-      } catch {
-        // The process may exit between cancellation and the signal delivery.
-      }
-    };
-    const stop = (reason: 'cancelled' | 'timed out'): void => {
-      if (settled || stopped) return;
-      stopped = reason;
-      terminate('SIGTERM');
-      killTimer = setTimeout(() => terminate('SIGKILL'), 1_000);
-      killTimer.unref();
-    };
-    const abort = (): void => stop('cancelled');
-    options.signal?.addEventListener('abort', abort, { once: true });
-    const timer = setTimeout(() => stop('timed out'), options.timeoutMs ?? 120_000);
-    timer.unref();
-    const finish = (): void => {
-      settled = true;
-      clearTimeout(timer);
-      if (killTimer) clearTimeout(killTimer);
-      options.signal?.removeEventListener('abort', abort);
-      resolve(output);
-    };
-    child.on('error', (error) => {
-      manifest.status = 'not-run';
-      manifest.message = `Could not start the installed project test runner: ${error.message}`;
-      finish();
-    });
-    child.on('close', (code) => {
-      if (settled) return;
-      manifest.exitCode = code;
-      manifest.status = code === 0 && !stopped ? 'passed' : 'failed';
-      manifest.message = stopped
-        ? `Project test script ${stopped}; partial logs are retained.`
-        : `Project script exited with code ${code ?? 'unavailable'}. This is the script result, not independent proof of test coverage.`;
-      finish();
-    });
-    if (options.signal?.aborted) abort();
-  });
+  } catch (error) {
+    await launch?.failed(error);
+    throw error;
+  }
 }
 
 export async function runProjectTestScript(options: ProjectTestRunOptions): Promise<ProjectTestRunManifest> {

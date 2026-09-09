@@ -36,6 +36,20 @@ describe('TeammateProcess', () => {
     vi.useRealTimers();
   });
 
+  it('terminates a teammate whose input exceeds the bounded protocol frame', async () => {
+    const child = createChild();
+    vi.mocked(spawn).mockReturnValue(child);
+    const tp = createTeammate();
+    const received = vi.fn();
+    tp.spawn(received, () => {});
+    child.stdout?.emit('data', Buffer.alloc(1024 * 1024 + 1, 65));
+    child.stdout?.emit('data', Buffer.from('\n{"method":"team.ready","params":{}}\n'));
+    await vi.waitFor(() => expect(child.kill).toHaveBeenCalledWith('SIGTERM'));
+    expect(tp.toMember().error).toContain('channel limit');
+    expect(received).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'team.ready' }));
+    child.emit('exit', 1); child.emit('close', 1);
+  });
+
   it('launches in the selected workspace without assigning queued work from another repository', async () => {
     const child = createChild();
     vi.mocked(spawn).mockReturnValue(child);

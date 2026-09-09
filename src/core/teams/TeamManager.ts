@@ -15,8 +15,11 @@ import type { TeamModelAssignmentSource } from './TeamModelPolicy.js';
 import { SessionThreadBudget, type ThreadLease } from '../agents/SessionThreadBudget.js';
 import type { AgentRunStore } from '../agents/AgentRunStore.js';
 import { TeammateAuthorizationRequestSchema, type TeammateAuthorizationResult, type TeammateToolCall } from './TeammateAuthorization.js';
+import { TeammatePeerHost } from './TeammatePeerBridge.js';
+import type { PeerRunRuntimeFactory } from '../agent/PeerCommunicationRuntime.js';
 
 interface TeamManagerOptions {
+  bindPeerRun?: PeerRunRuntimeFactory;
   leadSessionId: string | (() => string | undefined);
   workspacePath: string;
   getWorkspacePath?: () => string;
@@ -93,6 +96,8 @@ export class TeamManager {
   private readonly nestedRuns = new Map<TeammateProcess, Set<string>>();
   private readonly authorizations = new Map<TeammateProcess, Map<string, { taskId: string; controller: AbortController }>>();
   private readonly runMessages = new Map<TeammateProcess, Map<string, PendingRunMessage>>();
+  private readonly peerHosts = new Map<TeammateProcess, Promise<TeammatePeerHost | undefined>>();
+  private readonly peerRetirements = new Set<Promise<void>>();
 
   constructor(opts: TeamManagerOptions) {
     this.opts = opts;
@@ -238,6 +243,11 @@ export class TeamManager {
   private handleTeammateMessage(from: string, msg: { method: string; params: Record<string, unknown> }): void {
     const tp = this.teammates.get(from);
     if (!tp || !this.processLeases.has(tp)) return;
+
+    if (msg.method.startsWith('team.peer')) {
+      void this.peerHosts.get(tp)?.then(host => host?.handle(msg.method, msg.params)).catch(() => {});
+      return;
+    }
 
     switch (msg.method) {
       case 'team.ready':
@@ -425,6 +435,18 @@ export class TeamManager {
       this._tasks.assignTask(task.id, name, runId);
       this.taskRuns.set(task.id, runId);
       this.lastAssignedRuns.set(tp, runId);
+      if (this.opts.bindPeerRun) {
+        const execution = { taskId: task.id, runId, targetRunId: runId };
+        const peerHost = Promise.resolve().then(() => this.opts.bindPeerRun?.(runId, name)).then(async runtime => {
+          if (!runtime) return undefined;
+          if (!this.canMessageRun(tp, execution)) { await runtime.close(); return undefined; }
+          return new TeammatePeerHost(execution, runtime, (method, params) => {
+            if (!tp.send({ method, params })) throw new Error('The teammate peer channel closed.');
+          }, () => this.canMessageRun(tp, execution));
+        });
+        this.peerHosts.set(tp, peerHost);
+        void peerHost.catch(() => {});
+      }
       const member = tp.toMember();
       this.opts.runStore?.start({
         id: runId,
@@ -506,7 +528,10 @@ export class TeamManager {
     if (!runId || (status !== 'completed' && status !== 'failed' && status !== 'cancelled')) return;
     this.opts.runStore?.finish(runId, { status, result: task.output, error });
     const teammate = task.owner ? this.teammates.get(task.owner) : undefined;
-    if (teammate) this.rejectRunMessages(teammate, task.id);
+    if (teammate) {
+      this.rejectRunMessages(teammate, task.id);
+      this.closePeerHost(teammate);
+    }
     this.taskRuns.delete(task.id);
   }
 
@@ -591,7 +616,15 @@ export class TeamManager {
       allowed = this.canMessageRun(tp, target) && (!this.opts.runStore || Boolean(run
         && (run.status === 'running' || run.status === 'pending') && !run.cancelRequested));
     }
-    tp.send({ method: 'team.runReadyResult', params: { requestId, ...target, allowed } });
+    let peer: unknown;
+    if (allowed) {
+      try {
+        const host = await this.peerHosts.get(tp);
+        if (targetRunId === runId) peer = host?.binding();
+      } catch { allowed = false; }
+      allowed &&= this.canMessageRun(tp, target);
+    }
+    tp.send({ method: 'team.runReadyResult', params: { requestId, ...target, allowed, ...(peer ? { peer } : {}) } });
   }
 
   private sendRunMessage(tp: TeammateProcess, taskId: string, runId: string, targetRunId: string, content: string): Promise<boolean> {
@@ -681,6 +714,7 @@ export class TeamManager {
   }
 
   private releaseProcessLeases(tp: TeammateProcess): void {
+    this.closePeerHost(tp);
     this.rejectRunMessages(tp);
     for (const entry of this.authorizations.get(tp)?.values() ?? []) entry.controller.abort();
     this.authorizations.delete(tp);
@@ -691,6 +725,15 @@ export class TeamManager {
     this.nestedLeases.delete(tp);
     if (processLease) leases.push(processLease);
     for (const lease of leases) void Promise.resolve(lease.release()).catch(() => {});
+  }
+
+  private closePeerHost(tp: TeammateProcess): void {
+    const host = this.peerHosts.get(tp);
+    this.peerHosts.delete(tp);
+    if (!host) return;
+    const retirement = host.then(peer => peer?.close());
+    this.peerRetirements.add(retirement);
+    void retirement.then(() => this.peerRetirements.delete(retirement), () => {});
   }
 
   /**
@@ -743,6 +786,7 @@ export class TeamManager {
       if (this.processLeases.size > 0) {
         throw new Error('Teammates have not stopped; their session thread reservations are retained.');
       }
+      await Promise.all(this.peerRetirements);
       this.team.status = 'completed';
       this.notifyStateChanged();
       const tasks = this._tasks.listTasks();

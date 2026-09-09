@@ -630,6 +630,8 @@ export class AutohandAcpAdapter implements Agent {
         version: packageJson.version,
       },
       authMethods: AUTOHAND_ACP_AUTH_METHODS,
+      ...(this.config.sessions?.communication?.enabled && this.clientCapabilities?._meta?.autohandPeerEvents === 1
+        ? { _meta: { peerCommunication: { version: 1 } } } : {}),
     };
   }
 
@@ -1342,6 +1344,15 @@ export class AutohandAcpAdapter implements Agent {
   private async handleAgentOutput(sessionId: string, event: AgentOutputEvent): Promise<void> {
     try {
       switch (event.type) {
+        case 'peer_update':
+        case 'resource_update': {
+          const update = event.type === 'peer_update' ? event.peerEvent : event.resourceEvent;
+          if (update && this.sessions.has(sessionId) && this.config?.sessions?.communication?.enabled
+            && this.clientCapabilities?._meta?.autohandPeerEvents === 1) {
+            await this.connection.extNotification(event.type === 'peer_update' ? 'autohand.peerUpdate' : 'autohand.resourceUpdate', { sessionId, event: update });
+          }
+          break;
+        }
         case 'thinking':
           if (event.thought) {
             await this.connection.sessionUpdate({

@@ -20,6 +20,14 @@ describe('InkRenderer live command blocks', () => {
     expect(renderer.getState().streamingResponse).toBeNull();
   });
 
+  it('retires an applied reply draft when the composer is cleared', () => {
+    const renderer = new InkRenderer({ onInstruction: () => {}, onEscape: () => {}, onCtrlC: () => {} });
+    renderer.setPeerDraft({ reference: { alias: 'builder', start: 0, end: 8, peerId: 'builder', instanceId: 'original' }, replyTo: 'message-1' });
+    renderer.clearInput();
+    expect(renderer.getState().peerDraft).toBeUndefined();
+    expect(renderer.getState().currentInput).toBe('');
+  });
+
   it('advances the static chat identity when session history is replaced', () => {
     const renderer = new InkRenderer({
       onInstruction: () => {},

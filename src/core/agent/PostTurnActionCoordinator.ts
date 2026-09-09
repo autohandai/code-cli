@@ -14,6 +14,7 @@ import { nextQueuedWorkSequence } from '../../utils/queuedWorkSequence.js';
 import type { Intent } from '../IntentDetector.js';
 
 export interface QueuedInstructionPolicy {
+  peerAutomatic?: boolean;
   environmentBootstrap?: 'skip';
   intent?: Intent;
 }
@@ -41,6 +42,7 @@ export interface QueuedMobileComposerCommand {
 }
 
 export interface QueuedAgentInstruction {
+  peerReferences?: import('../../ui/peerMention.js').PeerReference[];
   sequence?: number;
   text?: string;
   /** Whether this internal instruction should be echoed as a user transcript entry. */

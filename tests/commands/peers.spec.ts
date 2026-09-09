@@ -79,11 +79,11 @@ describe('/peers command', () => {
     // The peers screen owns the alternate buffer, so the handler must hand the
     // modal hooks through: without them the main Composer keeps racing the
     // screen for stdin and the session can exit after the screen closes.
-    expect(mockPeers).toHaveBeenCalledWith({
+    expect(mockPeers).toHaveBeenCalledWith(expect.objectContaining({
       peerAwareness: manager,
       onBeforeModal: ctx.onBeforeModal,
       onAfterModal: ctx.onAfterModal,
-    });
+    }), []);
     expect(result).toBe('PEERS_OUTPUT');
   });
 

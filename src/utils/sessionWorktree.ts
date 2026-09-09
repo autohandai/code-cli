@@ -5,6 +5,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
+import { executeCoordinatedFile, getCommandCoordination } from '../session/peers/CommandCoordinationGate.js';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -94,7 +95,7 @@ export function isSessionWorktreeEnabled(worktree: SessionWorktreeOption): workt
   return worktree !== undefined && worktree !== false;
 }
 
-export function prepareSessionWorktree(input: SessionWorktreeInput): SessionWorktreeInfo {
+function planSessionWorktree(input: SessionWorktreeInput): { info: SessionWorktreeInfo; args: string[] } {
   const repoRoot = ensureGitRepo(input.cwd);
   const branchName = typeof input.worktree === 'string'
     ? sanitizeName(input.worktree)
@@ -110,16 +111,26 @@ export function prepareSessionWorktree(input: SessionWorktreeInput): SessionWork
     ? ['worktree', 'add', worktreePath, branchName]
     : ['worktree', 'add', '-b', branchName, worktreePath];
 
-  const result = runGit(repoRoot, args);
+  return { info: { repoRoot, worktreePath, branchName, createdBranch: !existingBranch }, args };
+}
+
+function checkWorktreeResult(result: GitResult): void {
   if (result.status !== 0) {
     const details = result.stderr.trim() || result.stdout.trim() || 'unknown error';
     throw new Error(`Failed to create git worktree: ${details}`);
   }
+}
 
-  return {
-    repoRoot,
-    worktreePath,
-    branchName,
-    createdBranch: !existingBranch,
-  };
+export function prepareSessionWorktree(input: SessionWorktreeInput): SessionWorktreeInfo {
+  if (getCommandCoordination()) throw new Error('Use prepareCoordinatedSessionWorktree during an enrolled session.');
+  const { info, args } = planSessionWorktree(input);
+  checkWorktreeResult(runGit(info.repoRoot, args));
+  return info;
+}
+
+export async function prepareCoordinatedSessionWorktree(input: SessionWorktreeInput): Promise<SessionWorktreeInfo> {
+  if (!getCommandCoordination()) return prepareSessionWorktree(input);
+  const { info, args } = planSessionWorktree(input);
+  checkWorktreeResult(await executeCoordinatedFile({ file: 'git', args, cwd: info.repoRoot }));
+  return info;
 }

@@ -106,6 +106,10 @@ import { PlanFileStorage } from '../modes/planMode/PlanFileStorage.js';
 import type { Plan, PlanStep } from '../modes/planMode/types.js';
 import { getPlanModeManager } from '../commands/plan.js';
 import { randomUUID } from 'node:crypto';
+import { withCommandCoordination, type CommandCoordinationContext } from '../session/peers/CommandCoordinationGate.js';
+import type { ResourceCoordinatorClient } from '../session/peers/ResourceCoordinator.js';
+import type { PeerClient } from '../session/peers/PeerMessaging.js';
+import { executePeerTool, PEER_TOOL_NAMES, validatePeerToolAction } from './peerTools.js';
 import { GoalManager } from '../goals/GoalManager.js';
 import type { GoalStatus } from '../goals/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, isGoalFeatureEnabled } from '../goals/feature.js';
@@ -152,6 +156,10 @@ export interface PermissionHookResponse {
 }
 
 export interface ActionExecutorOptions {
+  peerMessaging?: () => PeerClient | undefined;
+  resourceCoordinator?: () => ResourceCoordinatorClient | undefined;
+  resourceWaitTimeoutMs?: number;
+  onResourceWaiting?: CommandCoordinationContext['onWaiting'];
   runtime: AgentRuntime;
   files: FileActionManager;
   resolveWorkspacePath: (relativePath: string) => string;
@@ -614,6 +622,8 @@ export class ActionExecutor {
     }
 
     const values = action as unknown as Record<string, unknown>;
+    const peerFailure = validatePeerToolAction(action);
+    if (peerFailure) return { success: false, kind: 'validation', error: peerFailure, output: peerFailure };
     if (action.type === 'read_file') {
       for (const field of ['offset', 'limit'] as const) {
         const value = values[field];
@@ -1037,6 +1047,10 @@ export class ActionExecutor {
     const command = this.commandForPeerGuard(action);
     const executionState: ActionExecutionState = { started: false };
     try {
+      const coordinator = context?.resourceCoordinator ?? this.deps.resourceCoordinator?.();
+      if (PEER_TOOL_NAMES.has(action.type)) return await executePeerTool(action, context?.peerMessaging ?? this.deps.peerMessaging?.(), coordinator, context);
+      if (coordinator) return await withCommandCoordination({ coordinator, signal: context?.signal, waitTimeoutMs: this.deps.resourceWaitTimeoutMs,
+        onWaiting: this.deps.onResourceWaiting }, () => this.executeAction(action, context, capture, executionState));
       return await this.executeAction(action, context, capture, executionState);
     } finally {
       if (executionState.started && command && isGitMutationCommand(command)) {
@@ -2237,7 +2251,7 @@ export class ActionExecutor {
         }
         this.resolveWorkspacePath(action.path);
         const oldCheckoutContent = await this.files.readFile(action.path).catch(() => '');
-        checkoutFile(this.runtime.workspaceRoot, action.path);
+        await checkoutFile(this.runtime.workspaceRoot, action.path);
         const newCheckoutContent = await this.files.readFile(action.path).catch(() => '');
         if (oldCheckoutContent !== newCheckoutContent) {
           console.log(chalk.cyan(`\n↩️ ${action.path}:`));
@@ -2265,7 +2279,7 @@ export class ActionExecutor {
         if (!patch) {
           throw new Error('git_apply_patch requires patch or diff content.');
         }
-        applyGitPatch(this.runtime.workspaceRoot, patch);
+        await applyGitPatch(this.runtime.workspaceRoot, patch);
         return 'Applied git patch.';
       }
       case 'git_worktree_list':
@@ -2563,7 +2577,7 @@ export class ActionExecutor {
 
         if (autoApproveCommit) {
           console.log(chalk.gray('Auto-commit approval enabled; committing without prompt.'));
-          const result = executeAutoCommit(this.runtime.workspaceRoot, commitMessage, action.stage_all !== false);
+          const result = await executeAutoCommit(this.runtime.workspaceRoot, commitMessage, action.stage_all !== false);
           if (result.success) {
             console.log(chalk.green(`\n✓ ${result.message}`));
             return result.message;
@@ -2620,7 +2634,7 @@ export class ActionExecutor {
         }
 
         // Execute the commit
-        const result = executeAutoCommit(this.runtime.workspaceRoot, commitMessage, action.stage_all !== false);
+        const result = await executeAutoCommit(this.runtime.workspaceRoot, commitMessage, action.stage_all !== false);
 
         if (result.success) {
           console.log(chalk.green(`\n✓ ${result.message}`));

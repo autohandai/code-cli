@@ -7,6 +7,7 @@
  */
 
 import { execFile } from 'node:child_process';
+import { executeCoordinatedFile, getCommandCoordination } from '../session/peers/CommandCoordinationGate.js';
 
 /** JSON fields requested per action */
 const ISSUE_LIST_FIELDS = 'number,title,state,assignees,labels,createdAt,url';
@@ -32,6 +33,11 @@ interface ProjectTrackerAction {
  * Throws with a user-friendly message on failure.
  */
 async function runGh(args: string[]): Promise<string> {
+  if (getCommandCoordination()) {
+    const result = await executeCoordinatedFile({ file: 'gh', args, cwd: process.cwd() }, { timeoutMs: 30_000, maxBuffer: 5 * 1024 * 1024 });
+    if (result.status !== 0) throw new Error(`gh command failed: ${result.stderr.trim()}`);
+    return result.stdout;
+  }
   return new Promise((resolve, reject) => {
     execFile('gh', args, {
       timeout: 30_000,

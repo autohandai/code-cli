@@ -21,6 +21,8 @@ import type { SessionMessage, SessionTurnUsageInput } from '../../session/types.
 import type { MobileClaimedTurnContext } from '../../mobile/MobileRelay.js';
 import type { TurnMemoryReflectionOutcome } from '../../memory/extractSessionMemories.js';
 import type { QueuedInstructionPolicy } from './PostTurnActionCoordinator.js';
+import type { PeerCommunicationRuntime } from './PeerCommunicationRuntime.js';
+import type { PeerReference } from '../../ui/peerMention.js';
 import type {
   AgentLoopStep,
   ReactLoopControl,
@@ -82,6 +84,8 @@ function readCompletedTurnUsage(host: AgentInstructionHost): TurnUsage {
 }
 
 export interface AgentInstructionHost {
+  peerCommunicationRuntime?: PeerCommunicationRuntime;
+  recordPeerReferences?: (instruction: string, references: PeerReference[]) => Promise<void>;
   isInstructionActive: boolean;
   filesModifiedThisSession: boolean;
   lastAssistantResponseForNotification: string;
@@ -172,6 +176,7 @@ export interface AgentInstructionHost {
 }
 
 export interface RunInstructionOptions extends QueuedInstructionPolicy {
+  peerReferences?: PeerReference[];
   mentionedFiles?: string[];
   hookInstruction?: string;
   signal?: AbortSignal;
@@ -194,6 +199,13 @@ export class InstructionRunner {
   constructor(private readonly host: AgentInstructionHost) {}
 
   async run(instruction: string, options: RunInstructionOptions = {}): Promise<boolean> {
+    while (true) {
+      const result = await this.runAttempt(instruction, options);
+      if (result !== 'retry-provider') return result;
+    }
+  }
+
+  private async runAttempt(instruction: string, options: RunInstructionOptions): Promise<boolean | 'retry-provider'> {
     if (options.signal?.aborted) {
       return false;
     }
@@ -238,6 +250,10 @@ export class InstructionRunner {
       forwardExternalAbort();
     }
 
+    host.peerCommunicationRuntime?.beginTurn();
+    const pausePeers = () => host.peerCommunicationRuntime?.setPaused('cancelled', true);
+    abortController.signal.addEventListener('abort', pausePeers, { once: true });
+
     try {
       return await this.runWithController(
         instruction,
@@ -247,6 +263,8 @@ export class InstructionRunner {
         finalizeResearch,
       );
     } finally {
+      abortController.signal.removeEventListener('abort', pausePeers);
+      host.peerCommunicationRuntime?.endTurn(abortController.signal.aborted);
       options.signal?.removeEventListener('abort', forwardExternalAbort);
       if (deepResearch.runId && !deepResearch.finalized && !deepResearch.deferFinalization) {
         await finalizeResearch(false);
@@ -260,7 +278,7 @@ export class InstructionRunner {
     options: RunInstructionOptions,
     deepResearch: DeepResearchInstructionState,
     finalizeResearch: FinalizeResearch,
-  ): Promise<boolean> {
+  ): Promise<boolean | 'retry-provider'> {
     const host = this.host;
 
     if (abortController.signal.aborted) {
@@ -479,6 +497,7 @@ export class InstructionRunner {
 
       // Save user message to session
       await host.saveUserMessage(instruction);
+      if (options.peerReferences?.length) await host.recordPeerReferences?.(instruction, options.peerReferences);
 
       host.updateContextUsage(host.conversation.history());
       const loopResult = await host.runReactLoop(abortController, {
@@ -544,7 +563,7 @@ export class InstructionRunner {
         // After configuration, retry the instruction
         deepResearch.deferFinalization = true;
         reflectionSuperseded = true;
-        return host.runInstruction(instruction, options);
+        return 'retry-provider';
       }
 
       // Loop guard aborts are handled gracefully inside runReactLoop

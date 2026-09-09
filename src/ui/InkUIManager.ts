@@ -20,9 +20,13 @@ import type { InteractionMode } from '../core/agent/InteractionModeController.js
 import type { TaskListPosition } from '../types.js';
 
 export interface InkUIManagerOptions {
-  onInstruction: (text: string) => void;
   onSteer?: (text: string) => void;
   enterWhileWorking?: 'steer' | 'queue';
+  onInstruction: InkRendererOptions['onInstruction'];
+  peerScopes?: InkRendererOptions['peerScopes'];
+  peersProvider?: InkRendererOptions['peersProvider'];
+  onPeersRefresh?: InkRendererOptions['onPeersRefresh'];
+  onPeerMessage?: InkRendererOptions['onPeerMessage'];
   onEscape: () => void;
   onCtrlC: () => void;
   onDismissAnnouncement?: (id: string) => void;
@@ -69,14 +73,14 @@ export class InkUIManager extends BaseUIManager implements UIManager {
     const { rendererFactory, onInstruction, ...rendererOptionBase } = this.options;
     const rendererOptions: InkRendererOptions = {
       ...rendererOptionBase,
-      onInstruction: (text: string) => {
+      onInstruction: (text, metadata) => {
         if (this.inputWaiter) {
           const waiter = this.inputWaiter;
           this.inputWaiter = null;
           waiter(text);
           return;
         }
-        onInstruction(text);
+        onInstruction(text, metadata);
       },
     };
 

@@ -98,7 +98,7 @@ describe('InkUIManager', () => {
     await manager.start();
     onRendererInstruction?.('slash prompt');
 
-    expect(onInstruction).toHaveBeenCalledWith('slash prompt');
+    expect(onInstruction).toHaveBeenCalledWith('slash prompt', undefined);
     expect(renderer.addQueuedInstruction).not.toHaveBeenCalled();
   });
 

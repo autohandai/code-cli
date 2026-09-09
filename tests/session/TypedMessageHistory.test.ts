@@ -19,6 +19,20 @@ async function historyFile() {
 }
 
 describe('TypedMessageHistory', () => {
+  it('persists the exact selected peer identity and rejects malformed reference records', async () => {
+    const file = await historyFile();
+    const metadata = { peerReferences: [{ start: 5, end: 13, alias: 'builder', peerId: 'peer-selected', instanceId: 'selected-instance' }] };
+    await new TypedMessageHistory(file).record('Tell :builder to review', '/workspace', metadata);
+    const history = new TypedMessageHistory(file);
+    await history.refresh();
+    expect(history.entries()[0]).toMatchObject(metadata);
+    const saved = JSON.parse(await readFile(file, 'utf8'));
+    await writeFile(file, JSON.stringify([{ ...saved[0], peerReferences: [{ alias: 'builder' }] }]));
+    const invalid = new TypedMessageHistory(file);
+    await invalid.refresh();
+    expect(invalid.entries()).toEqual([]);
+  });
+
   it('persists exact multiline prompts across cwd and service instances', async () => {
     const file = await historyFile();
     await new TypedMessageHistory(file).record('hello\n世界 🌍', '/project/one');

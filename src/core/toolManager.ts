@@ -32,6 +32,7 @@ import {
 import { getPlanModeManager } from '../commands/plan.js';
 import { randomUUID } from 'node:crypto';
 import { HOOK_TOOL_NAMES } from './hookTools.js';
+import { PEER_TOOL_DEFINITIONS } from './peerTools.js';
 
 type ReadyToolExecutionTask = {
   call: ToolCallRequest;
@@ -386,6 +387,7 @@ export const GOAL_TOOL_DEFINITIONS: ToolDefinition[] = [
 ];
 
 export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
+  ...PEER_TOOL_DEFINITIONS,
   {
     name: 'tools_registry',
     description: 'List all available tools (built-in and meta)'
@@ -2634,7 +2636,7 @@ export class ToolManager {
   async execute(
     toolCalls: ToolCallRequest[],
     onToolComplete?: (index: number, result: ToolExecutionResult) => void,
-    executionContext: Pick<ToolExecutionContext, 'signal'> = {},
+    executionContext: Omit<ToolExecutionContext, 'toolCallId'> = {},
   ): Promise<ToolExecutionResult[]> {
     const signal = executionContext.signal;
     const results = new Map<number, ToolExecutionResult>();
@@ -2927,7 +2929,7 @@ export class ToolManager {
       const execResults = await this.executeScheduled(
         readyToExecute,
         onToolComplete,
-        signal,
+        executionContext,
       );
       for (const [index, result] of execResults) {
         results.set(index, result);
@@ -3311,7 +3313,7 @@ export class ToolManager {
   private async executeScheduled(
     tasks: ReadyToolExecutionTask[],
     onToolComplete?: (index: number, result: ToolExecutionResult) => void,
-    signal?: AbortSignal,
+    executionContext: Omit<ToolExecutionContext, 'toolCallId'> = {},
   ): Promise<Map<number, ToolExecutionResult>> {
     const results = new Map<number, ToolExecutionResult>();
     let parallelBatch: ReadyToolExecutionTask[] = [];
@@ -3330,7 +3332,7 @@ export class ToolManager {
         parallelBatch,
         this.maxConcurrency,
         onToolComplete,
-        signal,
+        executionContext,
       );
       mergeResults(batchResults);
       parallelBatch = [];
@@ -3347,7 +3349,7 @@ export class ToolManager {
         [task],
         1,
         onToolComplete,
-        signal,
+        executionContext,
       );
       mergeResults(sequentialResult);
     }
@@ -3367,8 +3369,9 @@ export class ToolManager {
     tasks: ReadyToolExecutionTask[],
     maxConcurrency: number,
     onToolComplete?: (index: number, result: ToolExecutionResult) => void,
-    signal?: AbortSignal,
+    executionContext: Omit<ToolExecutionContext, 'toolCallId'> = {},
   ): Promise<Map<number, ToolExecutionResult>> {
+    const signal = executionContext.signal;
     const results = new Map<number, ToolExecutionResult>();
     let cursor = 0;
 
@@ -3384,6 +3387,7 @@ export class ToolManager {
           if (!this.isProviderAllowed(call.tool)) throw new Error('Lifecycle hook tools are available only with the Autohand AI provider.');
           const action = this.toAction(call);
           const outcome = this.normalizeToolOutcome(await this.executor(action, {
+            ...executionContext,
             toolCallId: call.id,
             tool: call.tool,
             approvalHandled: true,

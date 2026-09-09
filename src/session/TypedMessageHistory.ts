@@ -9,8 +9,9 @@ import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { AUTOHAND_HOME } from '../constants.js';
 import { atomicWriteJson, withFileLock } from '../utils/atomicFile.js';
+import { isPeerReference, type PeerInstructionMetadata } from '../ui/peerMention.js';
 
-export interface TypedMessageEntry {
+export interface TypedMessageEntry extends Partial<PeerInstructionMetadata> {
   id: string;
   text: string;
   cwd: string;
@@ -23,7 +24,10 @@ function isEntry(value: unknown): value is TypedMessageEntry {
     && 'text' in value && typeof value.text === 'string' && value.text.trim().length > 0
     && 'cwd' in value && typeof value.cwd === 'string'
     && 'createdAt' in value && typeof value.createdAt === 'string'
-    && Number.isFinite(Date.parse(value.createdAt));
+    && Number.isFinite(Date.parse(value.createdAt))
+    && (!('peerReferences' in value) || Array.isArray(value.peerReferences) && value.peerReferences.length <= 128 && value.peerReferences.every(isPeerReference))
+    && (!('peerScope' in value) || ['workspace', 'repository', 'machine'].includes(String(value.peerScope)))
+    && (!('peerReplyTo' in value) || typeof value.peerReplyTo === 'string' && value.peerReplyTo.length > 0 && value.peerReplyTo.length <= 256 && !/[\x00-\x1f\x7f]/.test(value.peerReplyTo));
 }
 
 function mergeEntries(...groups: ReadonlyArray<readonly TypedMessageEntry[]>): TypedMessageEntry[] {
@@ -42,9 +46,9 @@ export class TypedMessageHistory {
     return this.recent;
   }
 
-  record(text: string, cwd: string): Promise<void> {
+  record(text: string, cwd: string, metadata?: PeerInstructionMetadata): Promise<void> {
     if (!text.trim() || /^\/whatityped(?:\s|$)/.test(text.trim())) return Promise.resolve();
-    const entry = { id: randomUUID(), text, cwd, createdAt: new Date().toISOString() };
+    const entry = { id: randomUUID(), text, cwd, createdAt: new Date().toISOString(), ...(metadata?.peerReferences.length ? structuredClone(metadata) : {}) };
     this.recent = mergeEntries([entry], this.recent);
     return this.enqueue(async () => {
       if (!this.filePath) return;

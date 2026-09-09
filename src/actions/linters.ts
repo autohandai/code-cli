@@ -6,9 +6,9 @@
  * Code Linters
  * Supports eslint, pylint, clippy, golangci-lint, and more
  */
-import { spawn } from 'node:child_process';
 import path from 'node:path';
 import chalk from 'chalk';
+import { signalCoordinatedProcess, spawnCoordinatedProcess, waitForProcessPublication } from '../session/peers/CommandCoordinationGate.js';
 
 export interface LintIssue {
   file: string;
@@ -106,20 +106,18 @@ export const LINTERS: Record<string, LinterInfo> = {
  * Check if a command is available in PATH
  */
 async function isCommandAvailable(command: string, args: string[] = ['--version']): Promise<boolean> {
-  return new Promise((resolve) => {
-    const proc = spawn(command, args, {
-      stdio: 'ignore',
-      shell: process.platform === 'win32',
-    });
+  const proc = await spawnCoordinatedProcess({ file: command, args, cwd: process.cwd() }, {
+    stdio: 'ignore', shell: process.platform === 'win32',
+  });
+  return new Promise<boolean>((resolve) => {
+    proc.on('error', () => { clearTimeout(timer); resolve(false); });
+    proc.on('close', (code) => { clearTimeout(timer); resolve(code === 0); });
 
-    proc.on('error', () => resolve(false));
-    proc.on('close', (code) => resolve(code === 0));
-
-    setTimeout(() => {
-      proc.kill();
+    const timer = setTimeout(() => {
+      signalCoordinatedProcess(proc);
       resolve(false);
     }, 3000);
-  });
+  }).finally(() => waitForProcessPublication(proc));
 }
 
 /**
@@ -130,38 +128,37 @@ async function runLinter(
   args: string[],
   cwd?: string
 ): Promise<{ stdout: string; stderr: string; code: number }> {
-  return new Promise((resolve) => {
-    const proc = spawn(command, args, {
-      cwd,
-      shell: process.platform === 'win32',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
+  const proc = await spawnCoordinatedProcess({ file: command, args, cwd: cwd ?? process.cwd() }, {
+    shell: process.platform === 'win32', stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  return new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
     let stdout = '';
     let stderr = '';
 
-    proc.stdout.on('data', (data) => {
+    proc.stdout?.on('data', (data) => {
       stdout += data.toString();
     });
 
-    proc.stderr.on('data', (data) => {
+    proc.stderr?.on('data', (data) => {
       stderr += data.toString();
     });
 
     proc.on('error', (err) => {
+      clearTimeout(timer);
       resolve({ stdout: '', stderr: err.message, code: 1 });
     });
 
     proc.on('close', (code) => {
+      clearTimeout(timer);
       resolve({ stdout, stderr, code: code ?? 1 });
     });
 
     // Timeout after 60 seconds
-    setTimeout(() => {
-      proc.kill();
+    const timer = setTimeout(() => {
+      signalCoordinatedProcess(proc);
       resolve({ stdout, stderr: 'Linter timed out', code: 1 });
     }, 60000);
-  });
+  }).finally(() => waitForProcessPublication(proc));
 }
 
 /**
@@ -442,7 +439,9 @@ export async function checkAvailableLinters(): Promise<Record<string, boolean>> 
     }
   });
 
-  await Promise.all(checks);
+  const settled = await Promise.allSettled(checks);
+  const failed = settled.find(result => result.status === 'rejected');
+  if (failed?.status === 'rejected') throw failed.reason;
   return results;
 }
 
