@@ -88,6 +88,8 @@ export interface SessionMetadata {
         source: string;
         originalId: string;
         importedAt: string;
+        /** Account used for a private Web transfer, retained for a return handoff. */
+        accountId?: string;
     };
     /** Branch provenance: set when the session was forked or cloned from another session. */
     branch?: {

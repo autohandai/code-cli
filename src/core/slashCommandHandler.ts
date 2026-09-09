@@ -371,6 +371,17 @@ export class SlashCommandHandler {
             applyPermissionMode: this.ctx.applyMobilePermissionMode,
           }, args);
         }
+        case '/handoff web': {
+          const { handoffWeb } = await import('../commands/handoff-web.js');
+          return handoffWeb({
+            sessionManager: this.ctx.sessionManager,
+            currentSession: this.ctx.currentSession,
+            workspaceRoot: this.ctx.workspaceRoot,
+            model: this.ctx.model,
+            provider: this.ctx.provider,
+            config: this.ctx.config,
+          }, args);
+        }
         case '/handoff session': {
           const { handoffSession } = await import('../commands/go.js');
           return handoffSession({
