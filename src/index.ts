@@ -26,7 +26,7 @@ import chalk from 'chalk';
 import fs from 'fs-extra';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { execSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { getProviderConfig, loadConfig, resolveWorkspaceRoot, saveConfig } from './config.js';
 import { runStartupChecks, printStartupCheckResults, validateWorkspacePath } from './startup/checks.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/workspaceSafety.js';
@@ -95,7 +95,7 @@ import { AgentsGenerator } from './onboarding/agentsGenerator.js';
 import { buildAutomodeIterationPrompt } from './core/automodePrompt.js';
 import { looksLikeInlineAgents, parseInlineAgents } from './core/agents/AgentRegistry.js';
 import { getCustomProviderConfig, isCustomProviderName } from './providers/customProviders.js';
-import { runtimeVersion } from './utils/runtimeVersion.js';
+import { GIT_VERSION_LOOKUP_TIMEOUT_MS, runtimeVersion } from './utils/runtimeVersion.js';
 import {
   getAnnouncementManager,
   renderLaunchAnnouncement,
@@ -160,7 +160,12 @@ function getGitCommit(): string {
   }
   // Fallback for development (running from source)
   try {
-    return execSync('git rev-parse --short HEAD', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: GIT_VERSION_LOOKUP_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
+    }).trim();
   } catch {
     return 'unknown';
   }
