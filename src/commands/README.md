@@ -21,6 +21,7 @@ Each command is a separate TypeScript file that exports:
 | `/help` | `help.ts` | Show available commands |
 | `/sessions` | `sessions.ts` | List saved sessions |
 | `/resume` | `resume.ts` | Resume a previous session |
+| `/handoff web` | `handoff-web.ts` | Continue this conversation in Web; `--workspace` includes repository changes and `--no-open` prints the link |
 | `/memory` | `memory.ts` | List memory or inspect, zoom, forget derived summaries, rebuild projections, and delete entries |
 | `/feedback` | `feedback.ts` | Submit feedback |
 | `/agents` | `agents.ts` | Show active Autohand CLI instances |

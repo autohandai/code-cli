@@ -34,4 +34,21 @@ describe('standalone transfer terminal flow', () => {
     expect(messages.map(message => message.content)).toEqual(['Keep the parser history', 'The parser context is saved.']);
     expect(JSON.parse(await fs.readFile(path.join(directory, 'metadata.json'), 'utf8')).model).toBe('moa');
   });
+  it('offers /handoff web and transfers the resumed conversation back without losing its history', async () => {
+    const { state, session } = await launch(['--accept']);
+    await session.waitForText(`Resumed session web-${transferScenarioId}`, { timeout: 30000 });
+    await session.waitForText('❯');
+    await session.type('/handoff');
+    await session.waitForText('/handoff web');
+    await session.press('esc');
+    await session.type(' web --no-open');
+    await session.press('enter');
+    await session.waitForText('Continue in Autohand Web');
+    await session.waitForText('private transfer expires in 24 hours');
+    const uploaded = JSON.parse(await fs.readFile(path.join(state.autohandHome, 'handoff-upload.json'), 'utf8'));
+    expect(uploaded.snapshot).toMatchObject({ source: 'cli', sourceSessionId: `web-${transferScenarioId}`, model: 'moa', repository: null });
+    expect(uploaded.snapshot.messages.map((message: { content: string }) => message.content)).toEqual(['Keep the parser history', 'The parser context is saved.']);
+    expect(JSON.stringify(uploaded)).not.toContain('tuistory-test-token');
+    await exitInteractive(session);
+  });
 });

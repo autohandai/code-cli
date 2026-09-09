@@ -32,6 +32,9 @@ function overrideStreamTTY(
 }
 
 describe('parseAgentSlashCommand', () => {
+  it('parses /handoff web with its workspace and browser options', () => {
+    expect(parseAgentSlashCommand({} as never, '/handoff web --workspace --no-open')).toEqual({ command: '/handoff web', args: ['--workspace', '--no-open'] });
+  });
   it('parses /handoff session as a two-word command', () => {
     const parsed = parseAgentSlashCommand({} as never, '/handoff session --queue');
 

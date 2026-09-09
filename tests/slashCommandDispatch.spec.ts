@@ -120,6 +120,12 @@ describe('slash command dispatch – output vs instruction', () => {
     expect(result).toContain('MCP');
   });
 
+  it('/handoff web is registered and returns terminal guidance without invoking the model', async () => {
+    const handler = new SlashCommandHandler(createMinimalContext(), SLASH_COMMANDS);
+    expect(handler.isCommandSupported('/handoff web')).toBe(true);
+    expect(await handler.handle('/handoff web')).toContain('/login');
+  });
+
   it('/go returns display output instead of an LLM instruction', async () => {
     const ctx = createMinimalContext();
     const handler = new SlashCommandHandler(ctx, SLASH_COMMANDS);

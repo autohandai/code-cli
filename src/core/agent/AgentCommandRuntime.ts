@@ -289,7 +289,7 @@ export function parseAgentSlashCommand(_host: AgentCommandRuntimeHost, input: st
     const parts = trimmed.split(/\s+/);
 
     // Check for two-word commands like "/skills install", "/mcp install"
-    const twoWordCommands = ['/skills install', '/skills new', '/skills use', '/agents new', '/mcp install', '/handoff session'];
+    const twoWordCommands = ['/skills install', '/skills new', '/skills use', '/agents new', '/mcp install', '/handoff session', '/handoff web'];
     const potentialTwoWord = parts.slice(0, 2).join(' ');
 
     if (twoWordCommands.includes(potentialTwoWord)) {
