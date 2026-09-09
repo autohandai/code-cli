@@ -340,6 +340,7 @@ export class TelemetryClient {
    * Check if online
    */
   private async isOnline(signal?: AbortSignal): Promise<boolean> {
+    if (this.config.offline) return false;
     try {
       const response = await this.fetchWithTimeout(
         `${this.config.apiBaseUrl}/health`,

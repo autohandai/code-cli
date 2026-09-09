@@ -124,6 +124,23 @@ describe('TelemetryClient session sync', () => {
     );
   });
 
+  it('queues session snapshots locally without any network request when configured offline', async () => {
+    const client = createClient({
+      enabled: false,
+      enableSessionSync: true,
+      offline: true,
+      apiBaseUrl: 'https://api.example.test',
+      authToken: 'auth-token-123',
+    });
+
+    const result = await client.uploadSession(sessionSnapshot('session-offline'));
+
+    expect(result).toEqual({ success: false, error: 'Offline - queued for sync' });
+    expect(fetch).not.toHaveBeenCalled();
+    const queued = await fs.readJson(`${tempRoot}/telemetry/session-sync-queue.json`);
+    expect(queued.map((entry: { sessionId: string }) => entry.sessionId)).toEqual(['session-offline']);
+  });
+
   it('preserves enriched usage metadata in the history payload', async () => {
     const client = createClient({
       enabled: false,
