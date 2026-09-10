@@ -4,9 +4,10 @@
  */
 import { spawn } from 'node:child_process';
 import { matchesImportedHook, importedHookInput, importedHookEnvironment, importedHookResponse } from './ImportedHookAdapter.js';
-import { HOOK_EVENTS } from './hookEvents.js';
+import { HOOK_EVENTS, canonicalHookEvent } from './hookEvents.js';
+import { legacyHookMatches, normalizeHooksSettings, renderHookCommandTemplate, resolveHookEvents } from './legacyHookEvents.js';
 import { minimatch } from 'minimatch';
-import type { HooksSettings, HookDefinition, HookEvent, HookFilter, HookResponse } from '../types.js';
+import type { HooksSettings, HookDefinition, HookEvent, HookFilter, HookResponse, HookEventName } from '../types.js';
 import type { ExtensionRuntimeHook } from '../extensions/ExtensionRuntimeHost.js';
 
 /** Context passed to hooks via environment variables and JSON stdin */
@@ -270,7 +271,7 @@ export class HookManager {
   private extensionHooks: ExtensionRuntimeHook[] = [];
 
   constructor(options: HookManagerOptions) {
-    this.settings = options.settings ?? { enabled: true, hooks: [] };
+    this.settings = normalizeHooksSettings(options.settings) ?? { enabled: true, hooks: [] };
     this.workspaceRoot = options.workspaceRoot;
     this.onPersist = options.onPersist;
     this.onHookOutput = options.onHookOutput;
@@ -488,7 +489,7 @@ export class HookManager {
   /**
    * Remove a hook by index within its event type
    */
-  async removeHook(event: HookEvent, index: number): Promise<boolean> {
+  async removeHook(event: HookEventName, index: number): Promise<boolean> {
     const hooks = this.settings.hooks ?? [];
     const eventHooks = hooks.filter(h => h.event === event);
 
@@ -513,7 +514,7 @@ export class HookManager {
   /**
    * Toggle a hook's enabled status
    */
-  async toggleHook(event: HookEvent, index: number): Promise<boolean> {
+  async toggleHook(event: HookEventName, index: number): Promise<boolean> {
     const hooks = this.settings.hooks ?? [];
     const eventHooks = hooks.filter(h => h.event === event);
 
@@ -524,7 +525,7 @@ export class HookManager {
     return this.setHookEnabled(event, index, eventHooks[index].enabled === false);
   }
 
-  async setHookEnabled(event: HookEvent, index: number, enabled: boolean): Promise<boolean> {
+  async setHookEnabled(event: HookEventName, index: number, enabled: boolean): Promise<boolean> {
     const hooks = this.settings.hooks ?? [];
     const hook = hooks.filter(candidate => candidate.event === event)[index];
     if (!Number.isInteger(index) || index < 0 || !hook) return false;
@@ -1129,17 +1130,8 @@ export class HookManager {
    * Get hooks for an event, including alias handling
    */
   getHooksForEvent(event: HookEvent): HookDefinition[] {
-    const hooks = this.getHooks().filter(h => h.enabled !== false);
-
-    // Handle 'stop' and 'post-response' as aliases (backward compatibility)
-    if (event === 'stop') {
-      return hooks.filter(h => h.event === 'stop' || h.event === 'post-response');
-    }
-    if (event === 'post-response') {
-      return hooks.filter(h => h.event === 'stop' || h.event === 'post-response');
-    }
-
-    return hooks.filter(h => h.event === event);
+    const [canonical] = resolveHookEvents(event);
+    return this.getHooks().filter(h => h.enabled !== false && resolveHookEvents(h.event).includes(canonical));
   }
 
   /**
@@ -1181,8 +1173,10 @@ export class HookManager {
 
     // Get hooks for event, then filter by both filter and matcher
     const hooks = this.getHooksForEvent(event).filter(h =>
-      this.matchesFilter(h.filter, fullContext) && (h.importedFrom ? matchesImportedHook(h, fullContext) : this.matchesMatcher(h, fullContext))
-    );
+      legacyHookMatches(h.event, fullContext)
+      && this.matchesFilter(h.filter, fullContext)
+      && (h.importedFrom ? matchesImportedHook(h, fullContext) : this.matchesMatcher(h, fullContext))
+    ).map(h => ({ ...h, event: fullContext.event, command: renderHookCommandTemplate(h.command, fullContext) }));
 
     if (hooks.length === 0) {
       return runtimeResults;
@@ -1270,7 +1264,7 @@ export class HookManager {
    */
   async testHook(hook: HookDefinition, options: HookExecutionOptions = {}): Promise<HookExecutionResult> {
     const context: HookContext = {
-      event: hook.event,
+      event: canonicalHookEvent(hook.event),
       workspace: this.workspaceRoot,
       tool: 'test_tool',
       toolCallId: 'test_123',
@@ -1292,7 +1286,7 @@ export class HookManager {
     const summary: Record<HookEvent, { total: number; enabled: number }> = {} as Record<HookEvent, { total: number; enabled: number }>;
 
     for (const event of HOOK_EVENTS) {
-      const eventHooks = this.getHooks().filter(h => h.event === event);
+      const eventHooks = this.getHooks().filter(h => resolveHookEvents(h.event).includes(event));
       summary[event] = {
         total: eventHooks.length,
         enabled: eventHooks.filter(h => h.enabled !== false).length,
