@@ -24,6 +24,56 @@ describe('PermissionManager', () => {
     await fs.remove(tempWorkspaceRoot);
   });
 
+  describe('command prefix approvals', () => {
+    it('stores a project-scoped prefix rule that covers the same executable with other arguments', async () => {
+      const manager = new PermissionManager({ settings: {}, workspaceRoot: tempWorkspaceRoot });
+      await manager.initLocalSettings();
+
+      await manager.applyPromptDecision(
+        { tool: 'run_command', command: 'git', args: ['status', '--porcelain'] },
+        { decision: 'allow_prefix_project' },
+      );
+
+      const stored = await fs.readJson(path.join(tempWorkspaceRoot, '.autohand', 'settings.local.json'));
+      expect(stored.allowList).toEqual(['run_command:git:*']);
+
+      const reloaded = new PermissionManager({ settings: {}, workspaceRoot: tempWorkspaceRoot });
+      await reloaded.initLocalSettings();
+      expect(reloaded.checkPermission({ tool: 'run_command', command: 'git', args: ['commit', '-m', 'x'] }).allowed).toBe(true);
+      expect(reloaded.checkPermission({ tool: 'run_command', command: 'gitea', args: ['serve'] }).allowed).toBe(false);
+      expect(reloaded.checkPermission({ tool: 'run_command', command: 'yarn', args: ['install'] }).allowed).toBe(false);
+    });
+
+    it('derives the prefix from the first word of a full shell command line for user-scoped rules', async () => {
+      const onPersist = vi.fn();
+      const manager = new PermissionManager({ settings: {}, onPersist });
+
+      await manager.applyPromptDecision(
+        { tool: 'shell', command: '  npm run build --watch' },
+        { decision: 'allow_prefix_user' },
+      );
+
+      expect(manager.getAllowList()).toEqual(['shell:npm:*']);
+      expect(onPersist).toHaveBeenCalledWith(expect.objectContaining({ allowList: ['shell:npm:*'] }));
+      expect(manager.checkPermission({ tool: 'shell', command: 'npm test' }).allowed).toBe(true);
+      expect(manager.checkPermission({ tool: 'shell', command: 'npmx test' }).allowed).toBe(false);
+      expect(manager.checkPermission({ tool: 'run_command', command: 'npm', args: ['test'] }).allowed).toBe(false);
+    });
+
+    it('ignores prefix approvals for contexts without a command', async () => {
+      const onPersist = vi.fn();
+      const manager = new PermissionManager({ settings: {}, onPersist });
+
+      await manager.applyPromptDecision(
+        { tool: 'write_file', path: '/project/src/example.ts' },
+        { decision: 'allow_prefix_user' },
+      );
+
+      expect(manager.getAllowList()).toEqual([]);
+      expect(onPersist).not.toHaveBeenCalled();
+    });
+  });
+
   describe('basic permission checks', () => {
     it('allows allowList patterns', () => {
       const manager = new PermissionManager({
