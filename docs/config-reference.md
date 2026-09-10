@@ -1988,6 +1988,18 @@ Configuration for lifecycle hooks that run shell commands on agent events. Open 
 
 `filter.tool` accepts an array of Autohand tool names, and `filter.path` accepts an array of path globs. Imported hooks also apply their source event's matching rules and success/failure filters. See [Matchers](./hooks.md#matcher-regex-filtering) for event-specific matching.
 
+### Legacy Shape and Template Variables
+
+The original event-keyed shape is still accepted: any key under `hooks` other than `enabled` and `hooks` is treated as an event name whose value is a command string, an array of command strings, or an array of definition objects. Legacy names such as `on_file_change`, `before_tool_call`, and `on_session_end` map onto the lifecycle events, and `{{file}}`-style placeholders in any command are replaced before it runs. See [Legacy Event Names, Config Shape, and Template Variables](./hooks.md#legacy-event-names-config-shape-and-template-variables).
+
+```json
+{
+  "hooks": {
+    "on_file_change": ["eslint {{file}} --fix"]
+  }
+}
+```
+
 ### Imported Hook Metadata
 
 The import feature writes `importedFrom` on each imported definition. Keep this metadata when editing a definition: it selects the source payload adapter and preserves project scope and duplicate detection.

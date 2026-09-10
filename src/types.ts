@@ -719,6 +719,7 @@ export type HookEvent =
   | 'session-end'       // Session ends (quit, exit)
   | 'pre-clear'          // Fires before memory extraction on /clear or /new
   | 'permission-request' // Permission dialog shown
+  | 'permission-denied'  // User or policy refused a permission request
   | 'notification'      // Notification sent to user
   // Auto-mode events
   | 'automode:start'    // Auto-mode loop started
@@ -789,10 +790,25 @@ export interface ImportedHookOrigin {
 }
 
 /** Hook definition for config-based hooks */
+/** Event names from the original hooks documentation; each maps onto real lifecycle events. */
+export type LegacyHookEvent =
+  | 'on_session_start' | 'on_session_end' | 'on_session_resume'
+  | 'before_tool_call' | 'after_tool_call' | 'on_tool_error'
+  | 'on_file_change' | 'on_file_create' | 'on_file_delete' | 'on_file_read'
+  | 'before_command' | 'after_command'
+  | 'on_user_message' | 'on_agent_response'
+  | 'on_error' | 'on_permission_denied'
+  | 'on_automode_start' | 'on_automode_stop' | 'on_automode_iteration'
+  | 'on_subagent_start' | 'on_subagent_stop'
+  | 'on_permission_request' | 'on_notification';
+
+/** Any name a hook may be configured under: a lifecycle event or a legacy alias. */
+export type HookEventName = HookEvent | LegacyHookEvent;
+
 export interface HookDefinition {
   importedFrom?: ImportedHookOrigin;
-  /** Event to hook into */
-  event: HookEvent;
+  /** Event to hook into (lifecycle event or legacy alias) */
+  event: HookEventName;
   /** Shell command to execute (receives context via env vars and JSON via stdin) */
   command: string;
   /** Description for /hooks display */

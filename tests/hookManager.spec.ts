@@ -635,3 +635,40 @@ describe('autoresearch decision matching', () => {
     expect(await manager.executeHooks('autoresearch:decision', { autoresearchAttemptId: 'attempt-42', autoresearchDecision: 'discard' })).toEqual([]);
   });
 });
+
+describe('legacy hook names and templates', () => {
+  it('fires legacy-named hooks on their real events with the documented conditions', async () => {
+    const manager = new HookManager({ workspaceRoot: '/ws', settings: { enabled: true, hooks: [
+      { event: 'on_file_create', command: 'echo created {{file}}' },
+      { event: 'before_command', command: 'echo cmd {{command}}' },
+    ] } });
+    vi.mocked(spawn).mockClear();
+
+    await manager.executeHooks('file-modified', { path: 'src/new.ts', changeType: 'modify' });
+    expect(spawn).not.toHaveBeenCalled();
+
+    await manager.executeHooks('file-modified', { path: 'src/new.ts', changeType: 'create' });
+    expect(spawn).toHaveBeenCalledWith('echo created src/new.ts', [], expect.anything());
+
+    await manager.executeHooks('pre-tool', { tool: 'read_file', args: { path: 'x' } });
+    expect(spawn).toHaveBeenCalledTimes(1);
+
+    await manager.executeHooks('pre-tool', { tool: 'shell', args: { command: 'npm test' } });
+    expect(spawn).toHaveBeenLastCalledWith(`echo cmd 'npm test'`, [], expect.anything());
+  });
+
+  it('accepts the event-keyed settings shape and counts those hooks under their real events', async () => {
+    const manager = new HookManager({ workspaceRoot: '/ws', settings: {
+      on_file_change: ['eslint {{file}} --fix'],
+      on_session_end: ['notify-send done'],
+    } as unknown as HooksSettings });
+
+    expect(manager.getHooks()).toEqual([
+      { event: 'on_file_change', command: 'eslint {{file}} --fix' },
+      { event: 'on_session_end', command: 'notify-send done' },
+    ]);
+    expect(manager.getSummary()['file-modified']).toEqual({ total: 1, enabled: 1 });
+    expect(manager.getSummary()['session-end']).toEqual({ total: 1, enabled: 1 });
+    expect(manager.getHooksForEvent('session-end')).toHaveLength(1);
+  });
+});

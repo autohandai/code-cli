@@ -17,7 +17,7 @@ export interface HooksCommandContext {
   isNonInteractive?: boolean;
 }
 
-import { HOOK_EVENTS, EVENT_DESCRIPTIONS, getLifecycleHookInventory, type LifecycleHookRow } from '../core/hookEvents.js';
+import { HOOK_EVENTS, EVENT_DESCRIPTIONS, getLifecycleHookInventory, type LifecycleHookRow, canonicalHookEvent } from '../core/hookEvents.js';
 export { HOOK_EVENTS } from '../core/hookEvents.js';
 
 // Icons for built-in hooks (matched by script name or description keywords)
@@ -86,7 +86,7 @@ function getHookIcon(hook: HookDefinition): string {
     'goal-written:completed': '🏁',
   };
 
-  return eventIcons[hook.event] || '•';
+  return eventIcons[canonicalHookEvent(hook.event)] || '•';
 }
 
 /**
@@ -131,7 +131,7 @@ function displayHooksList(allHooks: HookDefinition[]): void {
   // Group hooks by event
   const hooksByEvent = new Map<HookEvent, HookDefinition[]>();
   for (const hook of allHooks) {
-    const event = hook.event === 'post-response' ? 'stop' : hook.event;
+    const event = canonicalHookEvent(hook.event);
     if (!hooksByEvent.has(event)) {
       hooksByEvent.set(event, []);
     }

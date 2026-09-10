@@ -136,6 +136,7 @@ When running in RPC mode (VS Code, Zed, etc.), hook events are also emitted as J
 | `subagent-cancel-requested` | When a worker stop is requested | run identity, status |
 | `subagent-stop` | When a worker completes, fails, or is cancelled | run identity, status, success, duration, error |
 | `permission-request` | Before showing permission dialog | tool, path, permission type |
+| `permission-denied` | After the user refuses a permission request | tool, path, command, refusing decision |
 | `notification` | When a notification is sent to user | notification type, message |
 | `automode:start` | When auto-mode starts | auto-mode session id, prompt, max iterations |
 | `automode:iteration` | On each auto-mode iteration | iteration, actions, files created/modified, cost |
@@ -301,6 +302,98 @@ What the matcher matches against depends on the event type:
 | `team-created`, `team-shutdown` | Team name |
 | `teammate-spawned`, `teammate-idle` | Team name, teammate name, or teammate agent name |
 | `task-assigned`, `task-completed` | Task id, task owner, or task result |
+
+---
+
+## Legacy Event Names, Config Shape, and Template Variables
+
+The first hooks documentation described an event-keyed config shape, `on_*` /
+`before_*` / `after_*` event names, and `{{variable}}` placeholders. All three
+still work and are rewritten onto the lifecycle events above, so an older
+configuration keeps firing without changes.
+
+### Legacy config shape
+
+Commands may be listed directly under an event name. Each string (or object
+with a `command`) becomes a hook definition for that event; the array form and
+the event-keyed form can be mixed. The next time hooks are saved from `/hooks`
+the file is written in the array form.
+
+```json
+{
+  "hooks": {
+    "on_file_change": [
+      "eslint {{file}} --fix",
+      { "command": "prettier --write {{file}}", "async": true }
+    ],
+    "on_session_end": ["notify-send \"Autohand session finished\""]
+  }
+}
+```
+
+### Legacy event names
+
+| Legacy name | Fires on | Only when |
+|-------------|----------|-----------|
+| `on_session_start` | `session-start` | — |
+| `on_session_end` | `session-end` | — |
+| `on_session_resume` | `session-start` | session type is `resume` |
+| `before_tool_call` | `pre-tool` | — |
+| `after_tool_call` | `post-tool` | — |
+| `on_tool_error` | `post-tool` | the tool failed |
+| `on_file_change` | `file-modified` | — |
+| `on_file_create` | `file-modified` | change type is `create` |
+| `on_file_delete` | `file-modified` | change type is `delete` |
+| `on_file_read` | `post-tool` | tool is `read_file` |
+| `before_command` | `pre-tool` | tool is `run_command`, `shell`, or `custom_command` |
+| `after_command` | `post-tool` | tool is `run_command`, `shell`, or `custom_command` |
+| `on_user_message` | `pre-prompt` | — |
+| `on_agent_response` | `stop` | — |
+| `on_error` | `session-error` | — |
+| `on_permission_denied` | `permission-denied` | — |
+| `on_automode_start` | `automode:start` | — |
+| `on_automode_stop` | `automode:complete`, `automode:cancel`, `automode:error` | — |
+| `on_automode_iteration` | `automode:iteration` | — |
+| `on_subagent_start` | `subagent-start` | — |
+| `on_subagent_stop` | `subagent-stop` | — |
+| `on_permission_request` | `permission-request` | — |
+| `on_notification` | `notification` | — |
+
+Legacy hooks receive the same environment variables and JSON input as the
+lifecycle event they map to, and their results are reported under that event.
+`/hooks` lists them under the mapped event.
+
+### Template variables
+
+Any hook command may contain `{{variable}}` placeholders. They are replaced
+before the command runs, so they work alongside the `$HOOK_*` environment
+variables. Values that are not a single plain word are single-quoted for the
+shell, so `eslint {{file}}` is safe for paths with spaces. Unknown variables
+become empty strings.
+
+| Variable | Value | Source |
+|----------|-------|--------|
+| `{{file}}`, `{{path}}`, `{{resource}}` | File path | `HOOK_PATH` |
+| `{{action}}` | Change type (`create`, `modify`, `delete`) or permission decision | `HOOK_CHANGE_TYPE`, `HOOK_PERMISSION_TYPE` |
+| `{{tool}}` | Tool name | `HOOK_TOOL` |
+| `{{args}}` | JSON-encoded tool arguments | `HOOK_ARGS` |
+| `{{command}}` | Shell command being run or approved | `HOOK_ARGS` (`command`), permission context |
+| `{{cwd}}`, `{{project}}` | Workspace root | `HOOK_WORKSPACE` |
+| `{{session_id}}` | Session ID | `HOOK_SESSION_ID` |
+| `{{timestamp}}` | ISO timestamp at execution | — |
+| `{{duration}}` | Duration in ms (tool, turn, or subagent) | `HOOK_DURATION`, `HOOK_TURN_DURATION`, `HOOK_SUBAGENT_DURATION` |
+| `{{result}}`, `{{output}}`, `{{response}}` | Tool output | `HOOK_OUTPUT` |
+| `{{exit_code}}` | `0` when the tool succeeded, `1` when it failed | `HOOK_SUCCESS` |
+| `{{error}}` | Error message | `HOOK_ERROR`, `HOOK_SUBAGENT_ERROR`, `HOOK_REVIEW_ERROR` |
+| `{{context}}` | Error code | `HOOK_ERROR_CODE` |
+| `{{message}}` | User instruction, notification message, or queued subagent message | `HOOK_INSTRUCTION`, `HOOK_NOTIFICATION_MSG` |
+| `{{tokens}}` | Tokens used in the turn | `HOOK_TOKENS` |
+| `{{level}}` | Notification type | `HOOK_NOTIFICATION_TYPE` |
+| `{{agent}}` | Subagent name or type | `HOOK_SUBAGENT_NAME`, `HOOK_SUBAGENT_TYPE` |
+| `{{task}}` | Subagent task or auto-mode prompt | `HOOK_AUTOMODE_PROMPT` |
+| `{{iteration}}`, `{{iterations}}` | Current auto-mode or auto-research iteration | `HOOK_AUTOMODE_ITERATION` |
+| `{{total}}`, `{{max_iterations}}` | Maximum iterations | `HOOK_AUTOMODE_MAX_ITERATIONS` |
+| `{{reason}}` | Cancel reason, context reason, or session end reason | `HOOK_AUTOMODE_CANCEL_REASON`, `HOOK_SESSION_END_REASON` |
 
 ---
 
@@ -480,13 +573,13 @@ When your hook command executes, these environment variables are available:
 | `HOOK_EVENT` | Event name (e.g., "pre-tool") | All events |
 | `HOOK_WORKSPACE` | Workspace root path | All events |
 | `HOOK_SESSION_ID` | Current session ID | All events |
-| `HOOK_TOOL` | Tool name | pre-tool, post-tool, permission-request |
+| `HOOK_TOOL` | Tool name | pre-tool, post-tool, permission-request, permission-denied |
 | `HOOK_TOOL_CALL_ID` | Unique tool call ID | pre-tool, post-tool |
 | `HOOK_ARGS` | JSON-encoded tool arguments | pre-tool, post-tool |
 | `HOOK_SUCCESS` | "true" or "false" | post-tool |
 | `HOOK_OUTPUT` | Tool output/result | post-tool |
 | `HOOK_DURATION` | Execution time in ms | post-tool, stop, session-end |
-| `HOOK_PATH` | File path | file-modified, permission-request |
+| `HOOK_PATH` | File path | file-modified, permission-request, permission-denied |
 | `HOOK_CHANGE_TYPE` | "create", "modify", or "delete" | file-modified |
 | `HOOK_INSTRUCTION` | User instruction | pre-prompt |
 | `HOOK_MENTIONED_FILES` | JSON array of mentioned files | pre-prompt |
@@ -513,7 +606,7 @@ When your hook command executes, these environment variables are available:
 | `HOOK_SUBAGENT_SUCCESS` | "true" or "false" | subagent-stop |
 | `HOOK_SUBAGENT_ERROR` | Error message if failed | subagent-stop |
 | `HOOK_SUBAGENT_DURATION` | Duration in ms | subagent-stop |
-| `HOOK_PERMISSION_TYPE` | Permission type being requested | permission-request |
+| `HOOK_PERMISSION_TYPE` | Permission type being requested, or the refusing decision (`deny_once`, `deny_session`, ...) | permission-request, permission-denied |
 | `HOOK_NOTIFICATION_TYPE` | Type of notification | notification |
 | `HOOK_NOTIFICATION_MSG` | Notification message | notification |
 | `HOOK_AUTOMODE_SESSION_ID` | Auto-mode session ID | automode:* |
