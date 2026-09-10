@@ -1,6 +1,17 @@
 import { spawn } from 'node:child_process';
 import { z } from 'zod';
 
+const STDERR_TAIL_LIMIT = 2_000;
+
+/** Keeps the child's last stderr lines readable and free of secrets and control characters. */
+function describeDiagnostics(diagnostics: string): string {
+  const tail = diagnostics
+    .replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, ' ')
+    .replace(/\bahc_[\w-]+|\bsk-[\w-]+|-----BEGIN[^-]*PRIVATE KEY-----/g, '[redacted]')
+    .trim();
+  return tail ? `\n  Analysis stderr (tail): ${tail}` : '';
+}
+
 const resultSchema = z.object({
   type: z.literal('result'),
   content: z.string().max(256_000),
@@ -52,6 +63,7 @@ export function createDiscoveryAnalyzer(options: {
     );
     let output = '';
     let bytes = 0;
+    let diagnostics = '';
     let failure: Error | undefined;
     let grace: ReturnType<typeof setTimeout> | undefined;
     const stop = (error: Error) => {
@@ -78,7 +90,10 @@ export function createDiscoveryAnalyzer(options: {
         stop(new Error('Discovery analysis exceeded its output limit.'));
       else output += data;
     });
-    child.stderr.on('data', () => {});
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (data: string) => {
+      diagnostics = `${diagnostics}${data}`.slice(-STDERR_TAIL_LIMIT);
+    });
     child.stdin.on('error', (error: NodeJS.ErrnoException) => {
       if (error.code !== 'EPIPE')
         stop(
@@ -96,7 +111,7 @@ export function createDiscoveryAnalyzer(options: {
       if (failure) throw failure;
       if (code !== 0)
         throw new Error(
-          'Discovery analysis failed. Check the configured provider; local drafts are unchanged.'
+          `Discovery analysis failed. Check the configured provider; local drafts are unchanged.${describeDiagnostics(diagnostics)}`
         );
       try {
         return resultSchema.parse(JSON.parse(output)).content;

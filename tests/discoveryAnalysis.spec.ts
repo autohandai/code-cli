@@ -52,4 +52,19 @@ describe('bounded discovery analysis child', () => {
       })('{}')
     ).rejects.toThrow(/structured/);
   });
+  it('surfaces a redacted stderr tail when the analysis child fails', async () => {
+    const { cwd, entry } = await fixture(
+      'console.error("provider rejected key ahc_secret_value_1234 for model x\\x1b[31m!"); process.exit(2);'
+    );
+    const failure = await createDiscoveryAnalyzer({
+      cwd,
+      executable: process.execPath,
+      prefix: [entry],
+    })('{}').catch((error: Error) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toContain('local drafts are unchanged');
+    expect((failure as Error).message).toContain('provider rejected key [redacted] for model x');
+    expect((failure as Error).message).not.toContain('ahc_secret');
+    expect((failure as Error).message).not.toContain('\x1b');
+  });
 });
