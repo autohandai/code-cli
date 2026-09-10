@@ -8,12 +8,13 @@ import { readFileSync } from 'node:fs';
 import {
   type AgentReactLoopHost,
   collapseToolCallLogLines,
+  createRetryWaitStatus,
   formatComposerToolCallStatus,
   isDeferredFinalResponse,
   runAgentReactLoop,
   shouldDisplayToolOutput,
 } from '../../../src/core/agent/ReactLoopRunner.js';
-import type { ToolCallRequest } from '../../../src/types.js';
+import type { LLMRetryEvent, ToolCallRequest } from '../../../src/types.js';
 import { ReactionParser } from '../../../src/core/agent/ReactionParser.js';
 
 describe('ReactLoopRunner composer status', () => {
@@ -53,6 +54,69 @@ describe('ReactLoopRunner composer status', () => {
       expect(host.saveToolMessage).toHaveBeenCalledWith('capture_test_evidence', toolMessage?.content, toolMessage?.tool_call_id);
     } finally {
       logSpy.mockRestore();
+    }
+  });
+
+  it('pauses the periodic status while the provider waits on a rate limit and resumes when the retry is sent', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const llmComplete = vi.fn().mockImplementationOnce(async (request: { onRetry?: (event: LLMRetryEvent) => void }) => {
+      request.onRetry?.({ phase: 'waiting', delayMs: 2_000, attempt: 1, maxAttempts: 3, reason: 'Autohand AI uncached input-token throughput' });
+      request.onRetry?.({ phase: 'retrying', attempt: 1, maxAttempts: 3 });
+      return { id: 'answer', created: 1, raw: {}, content: '{"finalResponse":"Done."}' };
+    });
+    const host = createReactLoopTestHost(llmComplete, new ReactionParser());
+
+    try {
+      await runAgentReactLoop(host, new AbortController());
+
+      expect(host.stopStatusUpdates).toHaveBeenCalled();
+      expect(host.setSpinnerStatus).toHaveBeenCalledWith(
+        'Waiting 2s for Autohand AI uncached input-token throughput (retry 1/3)... (esc to interrupt)',
+      );
+      const stopOrder = vi.mocked(host.stopStatusUpdates).mock.invocationCallOrder[0];
+      const resumeOrder = vi.mocked(host.startStatusUpdates).mock.invocationCallOrder
+        .find((order) => order > stopOrder);
+      expect(resumeOrder).toBeDefined();
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('counts down the wait once a second and stops updating when the retry starts', () => {
+    vi.useFakeTimers();
+    const host = {
+      inkRenderer: { setStatus: vi.fn() } as unknown as AgentReactLoopHost['inkRenderer'],
+      setSpinnerStatus: vi.fn(),
+      startStatusUpdates: vi.fn(),
+      stopStatusUpdates: vi.fn(),
+    };
+
+    try {
+      const wait = createRetryWaitStatus(host);
+      wait.handle({ phase: 'waiting', delayMs: 3_000, attempt: 2, maxAttempts: 3, reason: 'Autohand AI request rate limit' });
+      expect(host.stopStatusUpdates).toHaveBeenCalledTimes(1);
+      expect(host.setSpinnerStatus).toHaveBeenLastCalledWith(
+        'Waiting 3s for Autohand AI request rate limit (retry 2/3)... (esc to interrupt)',
+      );
+      vi.advanceTimersByTime(1_000);
+      expect(host.setSpinnerStatus).toHaveBeenLastCalledWith(
+        'Waiting 2s for Autohand AI request rate limit (retry 2/3)... (esc to interrupt)',
+      );
+      expect(host.inkRenderer?.setStatus).toHaveBeenLastCalledWith(
+        'Waiting 2s for Autohand AI request rate limit (retry 2/3)... (esc to interrupt)',
+      );
+
+      wait.handle({ phase: 'retrying', attempt: 2, maxAttempts: 3 });
+      expect(host.startStatusUpdates).toHaveBeenCalledTimes(1);
+      const renders = host.setSpinnerStatus.mock.calls.length;
+      vi.advanceTimersByTime(5_000);
+      expect(host.setSpinnerStatus.mock.calls.length).toBe(renders);
+
+      // Disposing after a resume must not resume twice.
+      wait.dispose();
+      expect(host.startStatusUpdates).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
     }
   });
 

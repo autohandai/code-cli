@@ -1284,7 +1284,25 @@ export interface LLMRequest {
   promptCache?: PromptCacheDirective;
   /** Chat template kwargs for NVIDIA reasoning models (DeepSeek, Z.ai GLM) */
   chatTemplateKwargs?: NvidiaChatTemplateKwargs;
+  /**
+   * Called by providers that retry transient failures internally, once before each wait and
+   * once when the retry is sent, so the UI can show the pause instead of a silent stall.
+   */
+  onRetry?: (event: LLMRetryEvent) => void;
 }
+
+export type LLMRetryEvent =
+  | {
+      phase: 'waiting';
+      /** How long the provider will sleep before the next attempt. */
+      delayMs: number;
+      /** 1-based retry number. */
+      attempt: number;
+      maxAttempts: number;
+      /** Short human-readable cause, e.g. "Autohand AI uncached input-token throughput". */
+      reason: string;
+    }
+  | { phase: 'retrying'; attempt: number; maxAttempts: number };
 
 /** Token usage statistics from LLM response */
 export interface LLMUsage {

@@ -22,6 +22,7 @@ import type {
   TurnUsage,
   ToolCallRequest,
   ToolExecutionResult,
+  LLMRetryEvent,
 } from '../../types.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
 import type { MemoryManager } from '../../memory/MemoryManager.js';
@@ -64,6 +65,64 @@ import {
 } from './WorkspaceChangeCapture.js';
 import { stripAnsiCodes } from '../../ui/displayUtils.js';
 import { getSessionPromptCacheDirective as deriveSessionPromptCacheDirective } from './PromptCache.js';
+
+/**
+ * Turns provider retry events into a visible countdown. The periodic status renderer rewrites
+ * the spinner line every second from its own verb and elapsed time, so it is paused for the
+ * duration of the wait and resumed the moment the retry is sent.
+ */
+export function createRetryWaitStatus(
+  host: Pick<AgentReactLoopHost, 'inkRenderer' | 'setSpinnerStatus' | 'startStatusUpdates' | 'stopStatusUpdates'>,
+): { handle: (event: LLMRetryEvent) => void; dispose: () => void } {
+  let countdown: ReturnType<typeof setInterval> | null = null;
+  let waiting = false;
+
+  const clearCountdown = () => {
+    if (countdown) {
+      clearInterval(countdown);
+      countdown = null;
+    }
+  };
+  const resume = () => {
+    clearCountdown();
+    if (waiting) {
+      waiting = false;
+      host.startStatusUpdates();
+    }
+  };
+  const render = (remainingMs: number, event: Extract<LLMRetryEvent, { phase: 'waiting' }>) => {
+    const seconds = Math.max(1, Math.ceil(remainingMs / 1000));
+    const label = `Waiting ${seconds}s for ${event.reason} (retry ${event.attempt}/${event.maxAttempts})... (esc to interrupt)`;
+    host.setSpinnerStatus(label);
+    host.inkRenderer?.setStatus(label);
+  };
+
+  return {
+    handle(event) {
+      if (event.phase !== 'waiting') {
+        resume();
+        return;
+      }
+      clearCountdown();
+      if (!waiting) {
+        waiting = true;
+        host.stopStatusUpdates();
+      }
+      const endsAt = Date.now() + event.delayMs;
+      render(event.delayMs, event);
+      countdown = setInterval(() => {
+        const remaining = endsAt - Date.now();
+        if (remaining <= 0) {
+          clearCountdown();
+          return;
+        }
+        render(remaining, event);
+      }, 1000);
+      countdown.unref?.();
+    },
+    dispose: resume,
+  };
+}
 
 class LoopAbortedError extends Error {
   constructor(message: string) {
@@ -648,17 +707,23 @@ export async function runAgentReactLoop(
 
         const requestTools = supportsNativeToolCalling && tools.length > 0 ? tools : undefined;
 
-        completion = await host.llm.complete({
-          messages: messagesWithImages,
-          temperature: host.runtime.options.temperature ?? 0.2,
-          model: host.runtime.options.model,
-          signal: abortController.signal,
-          tools: requestTools,
-          toolChoice: requestTools ? 'auto' : undefined,
-          maxTokens: 16000,  // Allow large outputs for file generation
-          thinkingLevel,
-          promptCache: getSessionPromptCacheDirective(host),
-        });
+        const retryWait = createRetryWaitStatus(host);
+        try {
+          completion = await host.llm.complete({
+            messages: messagesWithImages,
+            temperature: host.runtime.options.temperature ?? 0.2,
+            model: host.runtime.options.model,
+            signal: abortController.signal,
+            tools: requestTools,
+            toolChoice: requestTools ? 'auto' : undefined,
+            maxTokens: 16000,  // Allow large outputs for file generation
+            thinkingLevel,
+            promptCache: getSessionPromptCacheDirective(host),
+            onRetry: retryWait.handle,
+          });
+        } finally {
+          retryWait.dispose();
+        }
         if (abortController.signal.aborted) {
           host.stopStatusUpdates();
           host.runtime.spinner?.stop();
