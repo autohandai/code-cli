@@ -2,6 +2,7 @@
  * Permission Manager - Handles tool/command approval with allow/deny lists
  * @license Apache-2.0
  */
+import { getCommandPrefix } from './types.js';
 import type {
   PermissionSettings,
   PermissionDecision,
@@ -500,22 +501,14 @@ export class PermissionManager {
         };
         return;
       }
-      case 'allow_always_project': {
-        if (!this.workspaceRoot) {
-          this.addToAllowList(pattern);
-          if (dirPattern) this.addToAllowList(dirPattern);
-          if (this.onPersist) {
-            await this.onPersist(this.settings);
-          }
-          return;
-        }
-        for (const entry of allowPatterns) {
-          await addToLocalAllowList(this.workspaceRoot, entry);
-        }
-        if (!this.localSettings) {
-          this.localSettings = this.normalizeSettings({});
-        }
-        this.localSettings.allowList = Array.from(new Set([...(this.localSettings.allowList ?? []), ...allowPatterns]));
+      case 'allow_always_project':
+        await this.persistAllowPatterns('project', allowPatterns);
+        return;
+      case 'allow_prefix_project':
+      case 'allow_prefix_user': {
+        const prefixPattern = this.commandPrefixPattern(context);
+        if (!prefixPattern) return;
+        await this.persistAllowPatterns(result.decision === 'allow_prefix_user' ? 'user' : 'project', [prefixPattern]);
         return;
       }
       case 'deny_always_project': {
@@ -534,11 +527,7 @@ export class PermissionManager {
         return;
       }
       case 'allow_always_user':
-        this.addToAllowList(pattern);
-        if (dirPattern) this.addToAllowList(dirPattern);
-        if (this.onPersist) {
-          await this.onPersist(this.settings);
-        }
+        await this.persistAllowPatterns('user', allowPatterns);
         return;
       case 'deny_always_user':
         this.addToDenyList(pattern);
@@ -547,6 +536,34 @@ export class PermissionManager {
         }
         return;
     }
+  }
+
+  private async persistAllowPatterns(scope: 'project' | 'user', patterns: string[]): Promise<void> {
+    if (scope === 'user' || !this.workspaceRoot) {
+      for (const entry of patterns) {
+        this.addToAllowList(entry);
+      }
+      if (this.onPersist) {
+        await this.onPersist(this.settings);
+      }
+      return;
+    }
+    for (const entry of patterns) {
+      await addToLocalAllowList(this.workspaceRoot, entry);
+    }
+    if (!this.localSettings) {
+      this.localSettings = this.normalizeSettings({});
+    }
+    this.localSettings.allowList = Array.from(new Set([...(this.localSettings.allowList ?? []), ...patterns]));
+  }
+
+  /**
+   * Pattern that approves every invocation of the context's executable
+   * (e.g. run_command:git:*), regardless of its arguments.
+   */
+  private commandPrefixPattern(context: PermissionContext): string | null {
+    const prefix = getCommandPrefix(context.command);
+    return prefix ? PermissionManager.createPrefixPattern(context.tool, prefix) : null;
   }
 
   /**

@@ -11,7 +11,7 @@ import type {
   PermissionPromptResult,
   PermissionPromptResponse,
 } from '../permissions/types.js';
-import { normalizePermissionPromptResponse } from '../permissions/types.js';
+import { getCommandPrefix, normalizePermissionPromptResponse } from '../permissions/types.js';
 import { t } from '../i18n/index.js';
 
 /**
@@ -108,14 +108,19 @@ export async function confirm(
   }
 
   // Interactive mode - use Modal
+  const commandPrefix = getCommandPrefix(context?.command);
+  const alternativeKind = commandPrefix ? 'Command' : 'Path';
   const options: ModalOption[] = [
     { label: t('commands.permissions.prompt.yes'), value: 'allow_once' },
     { label: t('commands.permissions.prompt.no'), value: 'deny_once' },
     { label: t('commands.permissions.prompt.allowOnce'), value: 'allow_session' },
     { label: t('commands.permissions.prompt.denyOnce'), value: 'deny_session' },
     { label: t('commands.permissions.prompt.allowAlways'), value: 'allow_always' },
+    ...(commandPrefix
+      ? [{ label: t('commands.permissions.prompt.allowPrefixAlways', { prefix: commandPrefix }), value: 'allow_prefix' }]
+      : []),
     { label: t('commands.permissions.prompt.denyAlways'), value: 'deny_always' },
-    { label: t('commands.permissions.prompt.alternative'), value: 'alternative' }
+    { label: t(`commands.permissions.prompt.alternative${alternativeKind}`), value: 'alternative' }
   ];
 
   const result = await showModal({
@@ -128,7 +133,7 @@ export async function confirm(
     return { decision: 'deny_once' };
   }
 
-  if (result.value === 'allow_always' || result.value === 'deny_always') {
+  if (result.value === 'allow_always' || result.value === 'deny_always' || result.value === 'allow_prefix') {
     const scope = await showModal({
       title: t('commands.permissions.prompt.scopeTitle'),
       options: [
@@ -150,7 +155,7 @@ export async function confirm(
 
   if (result.value === 'alternative') {
     const altAnswer = await showInput({
-      title: t('commands.permissions.prompt.alternativeTitle')
+      title: t(`commands.permissions.prompt.alternative${alternativeKind}Title`)
     });
 
     if (altAnswer?.trim()) {

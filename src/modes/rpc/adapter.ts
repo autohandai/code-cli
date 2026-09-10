@@ -1467,6 +1467,8 @@ export class RPCAdapter {
         'deny_session',
         'allow_always_project',
         'allow_always_user',
+        'allow_prefix_project',
+        'allow_prefix_user',
         'deny_always_project',
         'deny_always_user',
         'alternative',
