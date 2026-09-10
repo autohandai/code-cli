@@ -177,6 +177,8 @@ export type PermissionPromptDecision =
   | 'deny_session'
   | 'allow_always_project'
   | 'allow_always_user'
+  | 'allow_prefix_project'
+  | 'allow_prefix_user'
   | 'deny_always_project'
   | 'deny_always_user'
   | 'alternative';
@@ -195,6 +197,8 @@ const PERMISSION_PROMPT_DECISIONS = new Set<PermissionPromptDecision>([
   'deny_session',
   'allow_always_project',
   'allow_always_user',
+  'allow_prefix_project',
+  'allow_prefix_user',
   'deny_always_project',
   'deny_always_user',
   'alternative',
@@ -251,5 +255,15 @@ export function isAllowedPermissionPrompt(result: PermissionPromptResult): boole
     || result.decision === 'allow_session'
     || result.decision === 'allow_always_project'
     || result.decision === 'allow_always_user'
+    || result.decision === 'allow_prefix_project'
+    || result.decision === 'allow_prefix_user'
     || result.decision === 'alternative';
+}
+
+/**
+ * The executable a command line starts with, used for "always allow this
+ * command regardless of its arguments" approvals.
+ */
+export function getCommandPrefix(command: string | undefined): string | undefined {
+  return command?.trim().split(/\s+/, 1)[0] || undefined;
 }

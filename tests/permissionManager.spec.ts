@@ -35,7 +35,7 @@ describe('PermissionManager', () => {
       );
 
       const stored = await fs.readJson(path.join(tempWorkspaceRoot, '.autohand', 'settings.local.json'));
-      expect(stored.allowList).toEqual(['run_command:git:*']);
+      expect(stored.permissions.allowList).toEqual(['run_command:git:*']);
 
       const reloaded = new PermissionManager({ settings: {}, workspaceRoot: tempWorkspaceRoot });
       await reloaded.initLocalSettings();

@@ -322,13 +322,16 @@ export async function confirmAgentDangerousAction(host: AgentCommandRuntimeHost,
       return { decision: 'allow_once' };
     }
 
+    const promptContext = context?.tool
+      ? { tool: context.tool, path: context.path, command: context.command }
+      : undefined;
     let decision: PermissionPromptResult;
 
     // Use confirmation callback if set (e.g., RPC mode)
     if (host.confirmationCallback) {
       decision = normalizePermissionPromptResponse(await host.confirmationCallback(message, context));
     } else if (isExternalCallbackEnabled()) {
-      decision = normalizePermissionPromptResponse(await unifiedConfirm(message));
+      decision = normalizePermissionPromptResponse(await unifiedConfirm(message, promptContext));
     } else {
       host.notificationService.notify(
         { body: message, reason: 'confirmation' },
@@ -341,7 +344,7 @@ export async function confirmAgentDangerousAction(host: AgentCommandRuntimeHost,
         if (wasRaw) {
           safeSetRawMode(process.stdin as NodeJS.ReadStream, false);
         }
-        return unifiedConfirm(message);
+        return unifiedConfirm(message, promptContext);
       });
     }
 

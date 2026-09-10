@@ -397,11 +397,20 @@ export async function createMockAutohandAINativeSequenceServer(
 export async function createMockOpenRouterSequenceServer(
   responseContents: string[],
   delayMs = 0
-): Promise<MockOpenRouterServer> {
+): Promise<MockOpenRouterServer & { requests: Array<Record<string, unknown>> }> {
   let completionCalls = 0;
+  const requests: Array<Record<string, unknown>> = [];
   const server = createServer((request, response) => {
     if (request.url === '/chat/completions' && request.method === 'POST') {
-      request.resume();
+      const chunks: Buffer[] = [];
+      request.on('data', (chunk: Buffer | string) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+      request.on('end', () => {
+        try {
+          requests.push(recordOrEmpty(JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown));
+        } catch {
+          requests.push({});
+        }
+      });
       setTimeout(() => {
         const index = Math.min(completionCalls, responseContents.length - 1);
         completionCalls += 1;
@@ -444,6 +453,7 @@ export async function createMockOpenRouterSequenceServer(
 
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
+    requests,
     close: async () => {
       await new Promise<void>((resolve, reject) => {
         server.close((error?: Error) => {

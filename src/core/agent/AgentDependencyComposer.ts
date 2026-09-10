@@ -628,7 +628,7 @@ export function initializeAgentDependencies(
       resolveWorkspacePath: (relativePath) => host.resolveWorkspacePath(relativePath),
       confirmDangerousAction: async (message, context) => {
         const result = await host.confirmDangerousAction(message, context);
-        return result.decision === 'allow_once' || result.decision === 'allow_session' || result.decision === 'allow_always_project' || result.decision === 'allow_always_user';
+        return isAllowedPermissionPrompt(result) && result.decision !== 'alternative';
       },
       onExploration: (entry) => host.recordExploration(entry),
       onToolOutput: (chunk) => host.handleToolOutput(chunk),

@@ -43,15 +43,15 @@ describe('permission prompt command prefix approval', () => {
   it('always allows a command prefix so the next call with other arguments runs without a prompt', async () => {
     server = await createMockOpenRouterSequenceServer([
       JSON.stringify({ toolCalls: [{ tool: 'shell', args: { command: 'echo PREFIX_FIRST_RUN' } }] }),
-      JSON.stringify({ toolCalls: [{ tool: 'shell', args: { command: 'echo PREFIX_SECOND_RUN --other args' } }] }),
-      JSON.stringify({ toolCalls: [], finalResponse: 'PREFIX_TURN_COMPLETE' }),
+      JSON.stringify({ reflection: 'First echo done.', toolCalls: [{ tool: 'shell', args: { command: 'echo PREFIX_SECOND_RUN --other args' } }] }),
+      JSON.stringify({ reflection: 'Second echo done.', toolCalls: [], finalResponse: 'PREFIX_TURN_COMPLETE' }),
     ]);
     state = await createTempAutohandHome({ config: {
       openrouter: { baseUrl: server.baseUrl },
       agent: { autoMemory: false, maxIterations: 4, sessionRetryLimit: 0 },
       ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
     } });
-    session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+    session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '--offline'], {
       autohandHome: state.autohandHome,
       cwd: state.workspaceRoot,
       cols: 110,
@@ -79,10 +79,11 @@ describe('permission prompt command prefix approval', () => {
     await session.waitForText('PREFIX_FIRST_RUN', { timeout: 20_000 });
     await session.waitForText('PREFIX_SECOND_RUN', { timeout: 20_000 });
     await session.waitForText('PREFIX_TURN_COMPLETE', { timeout: 20_000 });
-    expect(session.readAll().split('Run this shell command').length - 1).toBe(1);
+    // The second command only reaches its output because nobody answered a second prompt.
+    expect(server.requests).toHaveLength(3);
 
     const stored = await fs.readJson(path.join(state.workspaceRoot, '.autohand', 'settings.local.json'));
-    expect(stored.allowList).toContain('shell:echo:*');
+    expect(stored.permissions.allowList).toContain('shell:echo:*');
 
     await exitInteractive(session);
   }, 90_000);
