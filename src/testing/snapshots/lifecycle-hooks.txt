@@ -16,7 +16,7 @@
    12. subagent-cancel-requested 0          0       When cancellation is requested for a subagent
    13. subagent-stop             0          0       When a subagent finishes
    14. permission-request        0          0       When permission is requested
-   15. notification              0          0       When notifications are shown
-   ↓ 42 more below
+   15. permission-denied         0          0       When a permission request is refused
+   ↓ 43 more below
 
  ↑/↓ navigate · Enter describe a hook · Esc close · /hooks manage for existing hooks
