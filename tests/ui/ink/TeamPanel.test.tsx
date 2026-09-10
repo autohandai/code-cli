@@ -6,10 +6,13 @@
 
 import { describe, it, expect } from 'vitest';
 import React from 'react';
+import { stripVTControlCharacters } from 'node:util';
 import { render } from 'ink-testing-library';
 import { TeamPanel } from '../../../src/ui/ink/TeamPanel.js';
 import { TeammateView } from '../../../src/ui/ink/TeammateView.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
+import { Theme } from '../../../src/ui/theme/Theme.js';
+import { loadTheme } from '../../../src/ui/theme/loader.js';
 import type { Team, TeamTask } from '../../../src/core/teams/types.js';
 
 const mockTeam: Team = {
@@ -47,14 +50,17 @@ describe('TeamPanel', () => {
     expect(output).toContain('1/3 done');
   });
 
-  it('labels failed and cancelled tasks without inflating the completed count', () => {
+  it.each(['none', 'truecolor'] as const)('labels failed and cancelled tasks without inflating the completed count in %s mode', (colorMode) => {
     const tasks: TeamTask[] = [
       { ...mockTasks[0]!, subject: 'Completed review', status: 'completed' },
       { ...mockTasks[1]!, subject: 'Failed review', status: 'failed' },
       { ...mockTasks[2]!, subject: 'Cancelled review', status: 'cancelled' },
     ];
-    const { lastFrame } = renderWithTheme(<TeamPanel team={mockTeam} tasks={tasks} />);
-    const output = lastFrame() ?? '';
+    const theme = new Theme('dark', loadTheme('dark').colors, colorMode);
+    const { lastFrame } = render(
+      <ThemeProvider theme={theme}><TeamPanel team={mockTeam} tasks={tasks} /></ThemeProvider>
+    );
+    const output = stripVTControlCharacters(lastFrame() ?? '');
 
     expect(output).toContain('1/3 done');
     expect(output).toContain('× Failed review [failed]');

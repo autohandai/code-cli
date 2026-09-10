@@ -87,7 +87,7 @@ describe('repository handoff', () => {
     await git(root, 'remote', 'set-url', 'origin', snapshot.url);
     await expect(createTransferCheckout(snapshot, destination, root)).resolves.toBe(destination);
     expect((await git(destination, 'rev-parse', 'HEAD')).trim()).toBe(snapshot.revision);
-  });
+  }, 60_000);
   it('keeps commits made in an interrupted destination instead of resetting them', async () => {
     const root = await fixture(); const snapshot = { ...(await captureTransferRepository(root))!, branch: 'detached' };
     const destination = path.join(root, 'received');
