@@ -104,7 +104,8 @@ describe('composer caret stability', () => {
     state = await createTempAutohandHome({ config: {
       openrouter: { baseUrl: server.baseUrl },
       agent: { autoMemory: false, maxIterations: 2, sessionRetryLimit: 0 },
-      ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+      // Click-to-position is what keeps the hardware caret on beside a live command; iTerm2 defaults it off.
+      ui: { mouseComposerCursor: true, promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
     } });
     session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '--y'], {
       autohandHome: state.autohandHome,
