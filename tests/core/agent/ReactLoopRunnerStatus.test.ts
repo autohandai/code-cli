@@ -996,7 +996,7 @@ describe('ReactLoopRunner composer status', () => {
     const emitOutput = vi.fn();
     const toolListAnswer = [
       "I'll provide the tools I have for you:",
-      '- read_file and fff_grep for source inspection',
+      '- read_file and find_grep for source inspection',
       '- apply_patch for focused edits',
       '- shell for validation commands',
     ].join('\n');

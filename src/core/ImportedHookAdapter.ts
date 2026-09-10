@@ -6,12 +6,12 @@ const CLAUDE_TOOLS: Readonly<Record<string, string>> = {
   run_command: 'Bash', shell: 'Bash', read_file: 'Read', write_file: 'Write',
   append_file: 'Write', search_replace: 'Edit', apply_patch: 'Edit',
   glob: 'Glob', search: 'Grep', search_code: 'Grep', grep: 'Grep',
-  web_search: 'WebSearch', fetch_url: 'WebFetch', delegate_task: 'Agent', ask_followup_question: 'AskUserQuestion', fff_grep: 'Grep', fff_find: 'Glob',
+  web_search: 'WebSearch', fetch_url: 'WebFetch', delegate_task: 'Agent', ask_followup_question: 'AskUserQuestion', find_grep: 'Grep', fff_find: 'Glob',
 };
 const CURSOR_TOOLS: Readonly<Record<string, string>> = {
   run_command: 'Shell', shell: 'Shell', read_file: 'Read', write_file: 'Write',
   append_file: 'Write', search_replace: 'Write', apply_patch: 'Write',
-  search: 'Grep', search_code: 'Grep', grep: 'Grep', delete_path: 'Delete', delegate_task: 'Task', fff_grep: 'Grep',
+  search: 'Grep', search_code: 'Grep', grep: 'Grep', delete_path: 'Delete', delegate_task: 'Task', find_grep: 'Grep',
 };
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);

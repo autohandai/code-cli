@@ -730,7 +730,7 @@ Contrôlez le comportement de l’agent et les limites d’itération.
 
 Autohand n'envoie pas tous les schémas d'outils complets à chaque demande LLM. L'invite système comprend un catalogue compact de capacités d'outils, et chaque requête n'expose qu'un petit ensemble de schémas concrets sélectionnés parmi :
 
-- Outils de découverte de base tels que `tool_search`, `read_file`, `fff_find` et `fff_grep`
+- Outils de découverte de base tels que `tool_search`, `read_file`, `fff_find` et `find_grep`
 - Outils adaptés à l'intention pour le travail d'édition, de vérification, de git, de navigateur, de Web, de dépendance ou de suivi de projet
 - Outils demandés lors d'appels `tool_search` récents ou explicitement mentionnés par leur nom
 

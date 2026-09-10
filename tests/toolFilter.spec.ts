@@ -17,7 +17,7 @@ describe('ToolFilter', () => {
   const sampleTools: ToolDefinition[] = [
     { name: 'read_file', description: 'Read a file' },
     { name: 'fff_find', description: 'Find files by name or path' },
-    { name: 'fff_grep', description: 'Search file contents' },
+    { name: 'find_grep', description: 'Search file contents' },
     { name: 'tool_search', description: 'Search available tools' },
     { name: 'ask_followup_question', description: 'Ask the user a question' },
     { name: 'write_file', description: 'Write a file' },
@@ -36,7 +36,7 @@ describe('ToolFilter', () => {
     it('returns correct categories for known tools', () => {
       expect(getToolCategory('read_file')).toBe('read');
       expect(getToolCategory('fff_find')).toBe('read');
-      expect(getToolCategory('fff_grep')).toBe('read');
+      expect(getToolCategory('find_grep')).toBe('read');
       expect(getToolCategory('write_file')).toBe('write');
       expect(getToolCategory('delete_path')).toBe('delete');
       expect(getToolCategory('run_command')).toBe('shell');
@@ -201,7 +201,7 @@ describe('ToolFilter', () => {
         'tool_search',
         'read_file',
         'fff_find',
-        'fff_grep',
+        'find_grep',
         'ask_followup_question',
       ]));
       expect(names).not.toContain('write_file');
@@ -218,7 +218,7 @@ describe('ToolFilter', () => {
 
       expect(names).toEqual(expect.arrayContaining([
         'read_file',
-        'fff_grep',
+        'find_grep',
         'apply_patch',
         'write_file',
         'git_status',

@@ -31,7 +31,7 @@ const registry = {
       description: 'Use when a task needs API contract design, evolution planning, or compatibility review before implementation starts.',
       category: '01-core-development',
       path: 'categories/01-core-development/api-designer.md',
-      tools: ['read_file', 'fff_grep', 'fff_find'],
+      tools: ['read_file', 'find_grep', 'fff_find'],
       model: 'gpt-5.4',
     },
     {
@@ -39,7 +39,7 @@ const registry = {
       description: 'Use when a task needs scoped backend implementation or backend bug fixes after the owning path is known.',
       category: '01-core-development',
       path: 'categories/01-core-development/backend-developer.md',
-      tools: ['read_file', 'fff_grep', 'fff_find', 'apply_patch', 'search_replace', 'run_command'],
+      tools: ['read_file', 'find_grep', 'fff_find', 'apply_patch', 'search_replace', 'run_command'],
       model: 'gpt-5.4',
     },
     {
@@ -47,7 +47,7 @@ const registry = {
       description: 'Use when a task needs concrete UI decisions, interaction design, and implementation-ready design guidance before or during development.',
       category: '01-core-development',
       path: 'categories/01-core-development/ui-designer.md',
-      tools: ['read_file', 'fff_grep', 'fff_find'],
+      tools: ['read_file', 'find_grep', 'fff_find'],
       model: 'gpt-5.4',
     },
     {
@@ -55,7 +55,7 @@ const registry = {
       description: 'Use when a task needs modern React implementation patterns, component architecture, or React-specific debugging.',
       category: '02-language-specialists',
       path: 'categories/02-language-specialists/react-specialist.md',
-      tools: ['read_file', 'fff_grep', 'fff_find', 'apply_patch', 'search_replace', 'run_command'],
+      tools: ['read_file', 'find_grep', 'fff_find', 'apply_patch', 'search_replace', 'run_command'],
       model: 'gpt-5.4',
     },
     {
@@ -63,7 +63,7 @@ const registry = {
       description: 'Use when a task needs Expo and React Native mobile development.',
       category: '02-language-specialists',
       path: 'categories/02-language-specialists/expo-react-native-expert.md',
-      tools: ['read_file', 'fff_grep', 'fff_find', 'apply_patch'],
+      tools: ['read_file', 'find_grep', 'fff_find', 'apply_patch'],
       model: 'gpt-5.4',
     },
     {
@@ -71,7 +71,7 @@ const registry = {
       description: 'Use when a task needs security vulnerability review and hardening guidance.',
       category: '04-quality-security',
       path: 'categories/04-quality-security/security-auditor.md',
-      tools: ['read_file', 'fff_grep', 'fff_find'],
+      tools: ['read_file', 'find_grep', 'fff_find'],
       model: 'gpt-5.4',
     },
     {
@@ -79,7 +79,7 @@ const registry = {
       description: 'Use when a task needs AI writing pattern audit and rewrite guidance.',
       category: '04-quality-security',
       path: 'categories/04-quality-security/ai-writing-auditor.md',
-      tools: ['read_file', 'fff_grep'],
+      tools: ['read_file', 'find_grep'],
       model: 'gpt-5.3-codex-spark',
     },
     {
@@ -87,7 +87,7 @@ const registry = {
       description: 'Use when a task needs Node.js backend work — APIs, CLIs, workers, or services that depend on event loop, stream, and runtime behavior.',
       category: '02-language-specialists',
       path: 'categories/02-language-specialists/node-specialist.md',
-      tools: ['read_file', 'fff_grep', 'fff_find', 'apply_patch', 'search_replace', 'run_command'],
+      tools: ['read_file', 'find_grep', 'fff_find', 'apply_patch', 'search_replace', 'run_command'],
       model: 'gpt-5.4',
     },
   ],
@@ -96,7 +96,7 @@ const registry = {
 const uiDesignerMarkdown = [
   '---',
   'description: Use when a task needs concrete UI decisions, interaction design, and implementation-ready design guidance before or during development.',
-  'tools: read_file, fff_grep, fff_find',
+  'tools: read_file, find_grep, fff_find',
   'model: gpt-5.4',
   '---',
   '',
@@ -572,7 +572,7 @@ describe('sub-agent catalog actions', () => {
     await expect(installSubAgentFromCatalog('ui-designer', {
       destinationDir: root,
       fetchImpl: mockFetch(uiDesignerMarkdown.replace('fff_find', 'unknown_catalog_tool')),
-      allowedTools: new Set(['read_file', 'fff_grep', 'fff_find']),
+      allowedTools: new Set(['read_file', 'find_grep', 'fff_find']),
     })).rejects.toThrow('unsupported tool');
 
     expect(await fs.readdir(root)).toEqual([]);

@@ -119,7 +119,7 @@ export const CHROME_TOOL_POLICY = {
     "browser_extract_links",
     "read_file",
     "write_file",
-    "fff_grep",
+    "find_grep",
     "fff_find",
     "search",
     "list_tree",

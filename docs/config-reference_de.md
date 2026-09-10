@@ -790,7 +790,7 @@ Steuern Sie das Agentenverhalten und die Iterationslimits.
 
 Autohand sendet nicht jedes vollständige Tool-Schema bei jeder LLM-Anfrage. Der System-Prompt enthält einen kompakten Tool-Fähigkeitenkatalog, und jede Anfrage legt nur eine kleine Menge konkreter Schemas offen, ausgewählt aus:
 
-- Kern-Erkennungstools wie `tool_search`, `read_file`, `fff_find`, und `fff_grep`
+- Kern-Erkennungstools wie `tool_search`, `read_file`, `fff_find`, und `find_grep`
 - Absichtsübereinstimmende Tools für Bearbeitungs-, Verifizierungs-, Git-, Browser-, Web-, Abhängigkeits- oder Projekt-Tracking-Arbeit
 - Tools, die über kürzliche `tool_search`-Aufrufe angefordert wurden oder explizit namentlich erwähnt wurden
 

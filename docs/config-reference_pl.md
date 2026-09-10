@@ -730,7 +730,7 @@ Kontroluj zachowanie agenta i limity iteracji.
 
 Autohand nie wysyła każdego pełnego schematu narzędzia na każde żądanie LLM. Podpowiedź systemowa zawiera kompaktowy katalog możliwości narzędzi, a każde żądanie udostępnia tylko niewielki zestaw konkretnych schematów wybranych spośród:
 
-- Podstawowe narzędzia do wykrywania, takie jak `tool_search`, `read_file`, `fff_find` i `fff_grep`
+- Podstawowe narzędzia do wykrywania, takie jak `tool_search`, `read_file`, `fff_find` i `find_grep`
 - Dopasowane narzędzia do edycji, weryfikacji, git, przeglądarki, sieci, zależności lub śledzenia projektów
 - Narzędzia wymagane w ramach ostatnich wywołań `tool_search` lub wyraźnie wymienione z nazwy
 

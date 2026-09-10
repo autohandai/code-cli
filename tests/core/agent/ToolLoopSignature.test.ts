@@ -15,10 +15,10 @@ describe('ToolLoopSignature', () => {
   it('builds stable call signatures independent of call and object key ordering', () => {
     const first = buildToolLoopCallSignature([
       { id: '1', tool: 'git_log', args: { max_count: 1, oneline: true } },
-      { id: '2', tool: 'fff_grep', args: { query: 'TODO', path: 'src' } },
+      { id: '2', tool: 'find_grep', args: { query: 'TODO', path: 'src' } },
     ]);
     const second = buildToolLoopCallSignature([
-      { id: '2', tool: 'fff_grep', args: { path: 'src', query: 'TODO' } },
+      { id: '2', tool: 'find_grep', args: { path: 'src', query: 'TODO' } },
       { id: '1', tool: 'git_log', args: { oneline: true, max_count: 1 } },
     ]);
 
@@ -45,7 +45,7 @@ describe('ToolLoopSignature', () => {
   it('extracts useful display labels from tool calls', () => {
     expect(getToolCallLabel({ tool: 'read_file', args: { path: 'src/index.ts' } })).toBe('src/index.ts');
     expect(getToolCallLabel({ tool: 'run_command', args: { command: 'bun', args: ['test'] } })).toBe('bun test');
-    expect(getToolCallLabel({ tool: 'fff_grep', args: { query: 'TODO' } })).toBe('TODO');
+    expect(getToolCallLabel({ tool: 'find_grep', args: { query: 'TODO' } })).toBe('TODO');
   });
 
   it('truncates long signatures with an ellipsis', () => {

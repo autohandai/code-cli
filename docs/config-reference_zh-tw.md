@@ -730,7 +730,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 
 Autohand 不會在每個 LLM 請求上傳送每個完整的工具架構。系統提示包含一個緊湊的工具功能目錄，每個請求僅公開選自以下內容的一小組特定模式：
 
-- 核心發現工具，如 `tool_search`、`read_file`、`fff_find` 和 `fff_grep`
+- 核心發現工具，如 `tool_search`、`read_file`、`fff_find` 和 `find_grep`
 - 用於編輯、驗證、git、瀏覽器、網路、依賴項或專案追蹤工作的意圖匹配工具
 - 透過最近的 `tool_search` 呼叫請求的工具或透過名稱明確提及的工具
 

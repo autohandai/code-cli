@@ -75,7 +75,7 @@ describe('AgentRegistry built-in agents', () => {
     });
     expect(review?.tools).toEqual(expect.arrayContaining([
       'read_file',
-      'fff_grep',
+      'find_grep',
       'fff_find',
       'list_tree',
       'git_status',
@@ -101,7 +101,7 @@ describe('AgentRegistry built-in agents', () => {
     expect(researcher).toBeDefined();
     expect(researcher!.description).toContain('searching and understanding');
     expect(researcher!.tools).toContain('read_file');
-    expect(researcher!.tools).toContain('fff_grep');
+    expect(researcher!.tools).toContain('find_grep');
     expect(researcher!.tools).toContain('fff_find');
     expect(researcher!.source).toBe('builtin');
   });
@@ -182,7 +182,7 @@ describe('AgentRegistry built-in agents', () => {
     await fs.writeFile(path.join(externalDir, 'code-reviewer.json'), JSON.stringify({
       description: 'Expert code reviewer',
       systemPrompt: 'Review code with care.',
-      tools: ['read_file', 'fff_grep'],
+      tools: ['read_file', 'find_grep'],
       model: 'review-model'
     }));
 
@@ -204,7 +204,7 @@ describe('AgentRegistry built-in agents', () => {
     expect(jsonAgent).toMatchObject({
       description: 'Expert code reviewer',
       source: 'external',
-      tools: ['read_file', 'fff_grep'],
+      tools: ['read_file', 'find_grep'],
       model: 'review-model'
     });
   });

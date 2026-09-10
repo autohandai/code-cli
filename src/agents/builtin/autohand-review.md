@@ -1,6 +1,6 @@
 ---
 description: Public-beta, evidence-led code and architecture reviewer for repositories of any size
-tools: read_file, fff_grep, fff_find, list_tree, git_status, git_list_untracked, git_diff, git_diff_range, git_log
+tools: read_file, find_grep, fff_find, list_tree, git_status, git_list_untracked, git_diff, git_diff_range, git_log
 ---
 
 # Autohand Review

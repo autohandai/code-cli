@@ -126,7 +126,7 @@ export function scoreAgentForTask(
   // Tool coverage: write tools for mutating objectives, read tools otherwise.
   const mutating = /\b(implement|fix|change|modify|edit|write|create|delete|remove|refactor|migrate|upgrade|install)\b/i.test(objective);
   const writeTools = new Set(['write_file', 'apply_patch', 'search_replace', 'create_directory', 'run_command', 'shell']);
-  const readTools = new Set(['read_file', 'fff_find', 'fff_grep', 'list_tree', 'search']);
+  const readTools = new Set(['read_file', 'fff_find', 'find_grep', 'list_tree', 'search']);
   const agentTools = new Set(agent.tools);
   if (mutating && [...writeTools].some((tool) => agentTools.has(tool))) score += 60;
   if (!mutating && [...readTools].some((tool) => agentTools.has(tool))) score += 30;

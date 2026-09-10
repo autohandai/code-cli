@@ -21,7 +21,7 @@ export const AVAILABLE_TOOLS = {
     'write_file',
     'append_file',
     'apply_patch',
-    'fff_grep',
+    'find_grep',
     'fff_find',
     'search',
     'search_replace',
