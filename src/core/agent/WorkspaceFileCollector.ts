@@ -18,6 +18,12 @@ import type { GitIgnoreParser } from '../../utils/gitIgnore.js';
  */
 
 const WORKSPACE_FILES_CACHE_TTL = 30000; // 30 seconds
+/**
+ * Upper bound for one workspace scan (git ls-files or the walk fallback). The
+ * scan runs inside startup init, which the first instruction waits on, so a huge
+ * or slow tree yields a partial list instead of holding the first turn.
+ */
+const DEFAULT_WORKSPACE_SCAN_BUDGET_MS = 5_000;
 const MAX_MOBILE_QUERY_RESULTS = 20;
 const MAX_MOBILE_QUERY_CANDIDATES = 50_000;
 const MAX_MOBILE_QUERY_TIMEOUT_MS = 2_000;
@@ -54,6 +60,10 @@ export interface MobileWorkspaceFileQueryResult {
 export interface MobileWorkspaceFileQueryOptions {
   limit?: number;
   timeoutMs?: number;
+}
+
+export interface WorkspaceFileCollectorOptions {
+  scanBudgetMs?: number;
 }
 
 export function isSafeMobileWorkspaceRelativePath(value: string): boolean {
@@ -124,7 +134,8 @@ export class WorkspaceFileCollector {
 
   constructor(
     private workspaceRoot: string,
-    private ignoreFilter: GitIgnoreParser
+    private ignoreFilter: GitIgnoreParser,
+    private readonly options: WorkspaceFileCollectorOptions = {},
   ) {}
 
   setWorkspace(workspaceRoot: string, ignoreFilter: GitIgnoreParser): void {
@@ -170,8 +181,9 @@ export class WorkspaceFileCollector {
 
     // Load files silently without spinner to avoid blocking startup
     // The 30-second cache ensures this is fast on subsequent calls
+    const deadline = now + (this.options.scanBudgetMs ?? DEFAULT_WORKSPACE_SCAN_BUDGET_MS);
     try {
-      const files = await this.gitLsFiles();
+      const files = await this.gitLsFiles(deadline);
       if (files.length > 0) {
         this.workspaceFiles = files;
         this.workspaceFilesCachedAt = now;
@@ -180,7 +192,7 @@ export class WorkspaceFileCollector {
 
       // Fallback to filesystem walk if git fails
       const walkedFiles: string[] = [];
-      await this.walkWorkspace(this.workspaceRoot, walkedFiles);
+      await this.walkWorkspace(this.workspaceRoot, walkedFiles, deadline);
       this.workspaceFiles = walkedFiles;
       this.workspaceFilesCachedAt = now;
       return walkedFiles;
@@ -288,7 +300,7 @@ export class WorkspaceFileCollector {
   /**
    * Use git ls-files to get tracked and untracked files (respecting .gitignore)
    */
-  private async gitLsFiles(): Promise<string[]> {
+  private async gitLsFiles(deadline: number): Promise<string[]> {
     return new Promise((resolve) => {
       const files: string[] = [];
       const ignoreFilter = this.ignoreFilter;
@@ -298,6 +310,34 @@ export class WorkspaceFileCollector {
       });
 
       let stdout = '';
+      let settled = false;
+      const settle = (): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(budgetTimer);
+        resolve(files);
+      };
+      const collect = (text: string): void => {
+        text
+          .split(/\r?\n/)
+          .map((file) => file.trim())
+          .filter(Boolean)
+          .forEach((file) => {
+            if (!ignoreFilter.isIgnored(file)) {
+              files.push(file);
+            }
+          });
+      };
+
+      // Settle on the budget rather than on 'close': a killed git may leave a
+      // grandchild holding the stdout pipe, and 'close' would wait for it.
+      const budgetTimer = setTimeout(() => {
+        proc.kill('SIGKILL');
+        // Keep only complete lines; the kill may have landed mid-entry.
+        collect(stdout.endsWith('\n') ? stdout : stdout.slice(0, stdout.lastIndexOf('\n') + 1));
+        settle();
+      }, Math.max(0, deadline - Date.now()));
+      budgetTimer.unref?.();
 
       proc.stdout?.on('data', (chunk) => {
         stdout += chunk.toString();
@@ -305,21 +345,13 @@ export class WorkspaceFileCollector {
 
       proc.on('close', (code) => {
         if (code === 0 && stdout) {
-          stdout
-            .split(/\r?\n/)
-            .map((file) => file.trim())
-            .filter(Boolean)
-            .forEach((file) => {
-              if (!ignoreFilter.isIgnored(file)) {
-                files.push(file);
-              }
-            });
+          collect(stdout);
         }
-        resolve(files);
+        settle();
       });
 
       proc.on('error', () => {
-        resolve([]);
+        settle();
       });
     });
   }
@@ -327,7 +359,10 @@ export class WorkspaceFileCollector {
   /**
    * Recursively walk workspace directory tree
    */
-  private async walkWorkspace(current: string, acc: string[]): Promise<void> {
+  private async walkWorkspace(current: string, acc: string[], deadline: number): Promise<void> {
+    if (Date.now() >= deadline) {
+      return;
+    }
     let entries: string[];
     try {
       entries = await fs.readdir(current);
@@ -336,6 +371,9 @@ export class WorkspaceFileCollector {
       return;
     }
     for (const entry of entries) {
+      if (Date.now() >= deadline) {
+        return;
+      }
       const full = path.join(current, entry);
       const rel = path.relative(this.workspaceRoot, full);
       if (rel === '' || this.shouldSkipPath(rel) || this.ignoreFilter.isIgnored(rel)) {
@@ -347,7 +385,7 @@ export class WorkspaceFileCollector {
           continue;
         }
         if (stats.isDirectory()) {
-          await this.walkWorkspace(full, acc);
+          await this.walkWorkspace(full, acc, deadline);
         } else if (stats.isFile()) {
           acc.push(rel);
         }

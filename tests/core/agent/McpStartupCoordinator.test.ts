@@ -41,6 +41,44 @@ describe('McpStartupCoordinator', () => {
     expect(lines.join('\n')).toContain('MCP startup: connecting 1 server in background...');
   });
 
+  it('describes the auto-connect servers that have not settled yet', () => {
+    const { coordinator } = createCoordinator({
+      configured: [
+        { name: 'github' },
+        { name: 'figma' },
+        { name: 'manual', autoConnect: false },
+      ],
+      runtime: [{ name: 'figma', status: 'error', toolCount: 0, error: 'fetch failed' }],
+    });
+
+    coordinator.prepareForInteractiveStartup();
+
+    expect(coordinator.describePendingConnections()).toBe('Connecting MCP servers (github)...');
+  });
+
+  it('caps the pending server list so the status line stays short', () => {
+    const { coordinator } = createCoordinator({
+      configured: [{ name: 'a' }, { name: 'b' }, { name: 'c' }, { name: 'd' }, { name: 'e' }],
+    });
+
+    coordinator.prepareForInteractiveStartup();
+
+    expect(coordinator.describePendingConnections()).toBe('Connecting MCP servers (a, b, c, +2)...');
+  });
+
+  it('reports nothing pending once every auto-connect server settled or MCP is disabled', () => {
+    const settled = createCoordinator({
+      configured: [{ name: 'github' }],
+      runtime: [{ name: 'github', status: 'connected', toolCount: 2 }],
+    });
+    settled.coordinator.prepareForInteractiveStartup();
+    expect(settled.coordinator.describePendingConnections()).toBeNull();
+
+    const disabled = createCoordinator({ enabled: false, configured: [{ name: 'github' }] });
+    disabled.coordinator.prepareForInteractiveStartup();
+    expect(disabled.coordinator.describePendingConnections()).toBeNull();
+  });
+
   it('flushes a pending summary once', () => {
     const { coordinator, lines } = createCoordinator({
       configured: [{ name: 'context7' }],

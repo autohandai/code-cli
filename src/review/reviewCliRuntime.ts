@@ -20,7 +20,6 @@ export interface ReviewCliExecution {
 
 export interface ReviewCliRuntimeDependencies {
   cwd(): string;
-  refreshModelCatalog(options: { bare?: boolean; offline?: boolean }): Promise<void>;
   loadConfig(configPath: string | undefined, cwd: string): Promise<LoadedConfig>;
   resolveWorkspaceRoot(config: LoadedConfig, workspacePath?: string): string;
   validateWorkspacePath(workspaceRoot: string): Promise<{ valid: boolean; error?: string }>;
@@ -36,11 +35,6 @@ export async function executeReviewCliInvocation(
 ): Promise<void> {
   const output = resolveCommandOutputFormat(invocation.runtimeOptions);
   if ('error' in output) throw new Error(output.error);
-
-  await dependencies.refreshModelCatalog({
-    bare: invocation.runtimeOptions.bare,
-    offline: invocation.runtimeOptions.offline,
-  });
 
   const cwd = dependencies.cwd();
   const config = await dependencies.loadConfig(invocation.runtimeOptions.config, cwd);

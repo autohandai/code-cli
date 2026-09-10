@@ -67,6 +67,13 @@ const RUNTIME_RESOURCE_SHUTDOWN_TIMEOUT_MS = 2_500;
 const BACKGROUND_PROCESS_KILL_GRACE_MS = 1_000;
 const COMMAND_FINALIZATION_TIMEOUT_MS = 2_500;
 const COMMAND_HOOK_KILL_GRACE_PERIOD_MS = 100;
+/**
+ * How long the first instruction waits for MCP servers that are still doing
+ * their handshake. Servers that answer later register through syncMcpTools and
+ * reach the next model request; a dead server must never hold the first turn.
+ */
+const MCP_FIRST_TURN_DEADLINE_MS = 2_000;
+const STARTUP_WAIT_STATUS = 'Finishing startup...';
 
 export interface AgentLifecycleHost {
   [key: string]: any;
@@ -875,29 +882,41 @@ export async function performAgentBackgroundInit(
     }
   }
 
+function describeStartupWait(host: AgentLifecycleHost): string | null {
+    const pendingMcp = host.mcpStartupCoordinator?.describePendingConnections?.() ?? null;
+    if (pendingMcp) return pendingMcp;
+    return host.initDone ? null : STARTUP_WAIT_STATUS;
+  }
+
+function waitForMcpFirstTurnDeadline(mcpReady: Promise<void>): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, MCP_FIRST_TURN_DEADLINE_MS);
+      timer.unref?.();
+    });
+    return Promise.race([mcpReady, deadline]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
+  }
+
 export async function ensureAgentInitComplete(
   host: AgentLifecycleHost,
   signal?: AbortSignal,
 ): Promise<void> {
-    if (host.initReady) {
-      try {
-        await awaitLifecycleStep(host.initReady, signal);
-      } catch (error) {
-        if (signal?.aborted && error instanceof Error && error.name === 'AbortError') return;
-        throw error;
-      }
+    if (!host.initReady) return;
+
+    const waitStatus = describeStartupWait(host);
+    if (waitStatus) host.ui?.setWorking?.(true, waitStatus);
+    try {
+      await awaitLifecycleStep(host.initReady, signal);
       host.initReady = null;
       if (isRuntimeResourceShutdownStarted(host)) return;
 
-      // Connection starts while the user is typing, but the first model request
-      // must see the final registered MCP tool set.
+      // Connection starts while the user is typing. The first model request gets
+      // a short window to see the final tool set; a server that is still silent
+      // after that registers later through syncMcpTools instead of holding the turn.
       if (host.mcpReady) {
-        try {
-          await awaitLifecycleStep(host.mcpReady, signal);
-        } catch (error) {
-          if (signal?.aborted && error instanceof Error && error.name === 'AbortError') return;
-          throw error;
-        }
+        await awaitLifecycleStep(waitForMcpFirstTurnDeadline(host.mcpReady), signal);
       }
       if (isRuntimeResourceShutdownStarted(host)) return;
       host.flushMcpStartupSummaryIfPending();
@@ -910,6 +929,11 @@ export async function ensureAgentInitComplete(
           sessionType: 'startup',
         }), signal);
       }
+    } catch (error) {
+      if (signal?.aborted && error instanceof Error && error.name === 'AbortError') return;
+      throw error;
+    } finally {
+      if (waitStatus) host.ui?.setWorking?.(false);
     }
   }
 

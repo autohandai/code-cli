@@ -931,6 +931,40 @@ describe('interactive built CLI Tuistory tests', () => {
     });
   }
 
+  it('answers the first message and exits promptly while an MCP server never finishes its handshake', async () => {
+    const openRouterServer = await createMockOpenRouterServer('MCP gate cleared.');
+    mockServers.push(openRouterServer);
+    const session = await launchInteractive({
+      config: {
+        openrouter: { baseUrl: openRouterServer.baseUrl },
+        agent: { sessionRetryLimit: 0 },
+        mcp: {
+          enabled: true,
+          servers: [{
+            name: 'hung',
+            transport: 'stdio',
+            command: process.execPath,
+            args: ['-e', 'setTimeout(() => {}, 120000)'],
+          }],
+        },
+      },
+    });
+    await waitForComposer(session);
+
+    await session.type('Is startup blocked?');
+    const submittedAt = Date.now();
+    await session.press('enter');
+    await session.text({
+      timeout: 10_000,
+      waitFor: (text) => text.includes('MCP gate cleared.'),
+    });
+    expect(Date.now() - submittedAt).toBeLessThan(8_000);
+
+    const exitRequestedAt = Date.now();
+    await exitInteractive(session);
+    expect(Date.now() - exitRequestedAt).toBeLessThan(6_000);
+  });
+
   it('keeps working-turn status refreshes from refocusing a drafted composer', async () => {
     const openRouterServer = await createMockOpenRouterServer(
       'Delayed response completed.',
