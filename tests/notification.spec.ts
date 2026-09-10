@@ -174,7 +174,8 @@ describe('NotificationService', () => {
         expect.objectContaining({
           title: 'Autohand - Approval Needed',
           message: 'Delete /src/old.ts?',
-          wait: true,
+          wait: false,
+          timeout: false,
         }),
       );
     });
@@ -189,12 +190,13 @@ describe('NotificationService', () => {
         expect.objectContaining({
           title: 'Autohand - Question',
           message: 'What framework?',
-          wait: true,
+          wait: false,
+          timeout: false,
         }),
       );
     });
 
-    it('2c. Task complete reason: plain title, no wait', async () => {
+    it('2c. Task complete reason: plain title', async () => {
       await service.notify(
         { body: 'All done', reason: 'task_complete' },
         defaultGuards(),
@@ -205,9 +207,19 @@ describe('NotificationService', () => {
           title: 'Autohand',
           message: 'All done',
           wait: false,
-          timeout: 5,
+          timeout: false,
         }),
       );
+    });
+
+    it('2e. Never asks the notifier helper to wait, so quitting after a prompt does not block on the notification', async () => {
+      for (const reason of ['confirmation', 'question', 'task_complete'] as const) {
+        mockNotify.mockClear();
+        await service.notify({ body: 'body', reason }, defaultGuards());
+        const [options] = mockNotify.mock.calls[0] as [Record<string, unknown>];
+        expect(options.wait, reason).toBe(false);
+        expect(options.timeout, reason).toBe(false);
+      }
     });
 
     it('2d. Custom title via options: uses custom title as base', async () => {
@@ -491,7 +503,7 @@ describe('NotificationService', () => {
           title: 'Autohand',
           message: 'Task completed',
           wait: false,
-          timeout: 5,
+          timeout: false,
         }),
       );
     });
@@ -546,14 +558,14 @@ describe('NotificationService', () => {
       );
     });
 
-    it('8d. Actionable notifications (confirmation/question) use wait: true, timeout: 15', async () => {
+    it('8d. Actionable notifications (confirmation/question) do not hold the helper open', async () => {
       await service.notify(
         { body: 'Approve?', reason: 'confirmation' },
         defaultGuards(),
       );
 
       expect(mockNotify).toHaveBeenCalledWith(
-        expect.objectContaining({ wait: true, timeout: 15 }),
+        expect.objectContaining({ wait: false, timeout: false }),
       );
     });
   });

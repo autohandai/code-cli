@@ -197,13 +197,16 @@ export class NotificationService {
         ? `${title} - Question`
         : title; // task_complete keeps plain title
 
+    // Never wait on the notification: node-notifier's helper process is neither
+    // detached nor unref'd, so a wait or timeout keeps the CLI alive after quit
+    // until the user clicks the notification or the timeout expires.
     notifier.notify({
       title: contextTitle,
       message: body,
       icon: ICON_PATH,
       sound,
-      wait: reason !== 'task_complete',
-      timeout: reason === 'task_complete' ? 5 : 15,
+      wait: false,
+      timeout: false,
     });
   }
 }
