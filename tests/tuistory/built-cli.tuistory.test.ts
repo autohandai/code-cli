@@ -135,6 +135,20 @@ function expectCursorAfterTypedText(screen: string, typedText: string): void {
   expect(cursorColumn, screen).toBeGreaterThanOrEqual(textColumn + typedText.length);
 }
 
+const CURSOR_POSITION_QUERY = '\x1b[6n';
+
+// The click travels PTY -> CLI stdin -> Ink handler -> stdout -> PTY before the
+// query can appear in the captured output, so poll instead of asserting at once.
+async function waitForCursorPositionQuery(session: Session, outputStart = 0): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (!session.getRawOutput().slice(outputStart).includes(CURSOR_POSITION_QUERY)) {
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for the cursor position query after a click. Raw output tail:\n${JSON.stringify(session.getRawOutput().slice(-2_000))}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 function composerLineIncludes(screen: string, text: string): boolean {
   return screen.split('\n').some((line) => line.includes('❯') && line.includes(text));
 }
@@ -1442,7 +1456,7 @@ describe('interactive built CLI Tuistory tests', () => {
       queueRow.text.indexOf('ship the second queue item'),
       queueRow.row - viewportStart,
     );
-    expect(session.getRawOutput()).toContain('\x1b[6n');
+    await waitForCursorPositionQuery(session);
     const [terminalCursorColumn, terminalCursorRow] = session.getTerminalData().cursor;
     session.writeRaw(`\x1b[${terminalCursorRow + 1};${terminalCursorColumn + 1}R`);
     await session.text({
@@ -1696,7 +1710,7 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(composerLineIncludes(cursorScreen, 'hello')).toBe(true);
 
     await session.click('llo');
-    expect(session.getRawOutput()).toContain('\x1b[6n');
+    await waitForCursorPositionQuery(session);
     const [terminalCursorColumn, terminalCursorRow] = session.getTerminalData().cursor;
     session.writeRaw(`\x1b[${terminalCursorRow + 1};${terminalCursorColumn + 1}R`);
     await session.waitIdle();
@@ -1736,7 +1750,7 @@ describe('interactive built CLI Tuistory tests', () => {
     // Click, but the terminal never answers the DSR query (e.g. tmux without
     // passthrough). The user keeps typing instead.
     await session.click('llo');
-    expect(session.getRawOutput()).toContain('\x1b[6n');
+    await waitForCursorPositionQuery(session);
     await session.type('Y');
     await session.waitIdle();
 
@@ -2515,7 +2529,7 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(session.readAll()).not.toContain('background-line-01');
 
     await session.click('background-line-16');
-    expect(session.getRawOutput()).toContain('\x1b[6n');
+    await waitForCursorPositionQuery(session);
     const [terminalCursorColumn, terminalCursorRow] = session.getTerminalData().cursor;
     session.writeRaw(`\x1b[${terminalCursorRow + 1};${terminalCursorColumn + 1}R`);
     await session.waitForText('Ctrl+O collapse', { timeout: 5_000 });
