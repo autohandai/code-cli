@@ -387,7 +387,6 @@ export class LLMGatewayClient {
         // If we have more attempts left, wait before retrying
         if (attempt < this.maxRetries) {
           const delay = lastError instanceof AutohandRateLimitError
-            && lastError.scope === "rpm"
             && lastError.retryAfterMs !== undefined
             ? lastError.retryAfterMs
             : this.retryDelay * Math.pow(2, attempt);
@@ -656,15 +655,18 @@ export class LLMGatewayClient {
       );
     }
 
+    // Token-throughput buckets refill within the minute, so the throttle is transient: wait
+    // out the server-supplied delay like an RPM throttle rather than abandoning the turn.
     if (this.errorLabels.serviceName === "Autohand AI"
       && structuredError?.type === "rate_limited"
       && isAutohandTokenThroughputScope(structuredError.scope)) {
+      const classified = classifyApiError(status, errorDetail, response.headers);
       return new AutohandRateLimitError(
         buildAutohandTokenThroughputMessage(structuredError),
         status,
-        false,
+        true,
         structuredError.scope,
-        undefined,
+        classified.retryAfterMs,
         errorDetail,
       );
     }

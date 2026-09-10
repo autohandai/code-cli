@@ -724,11 +724,68 @@ describe('LLMGatewayClient', () => {
       expect(global.fetch).toHaveBeenCalledTimes(1);
     });
 
-    it('identifies uncached input-token throughput as terminal and never retries it as RPM', async () => {
+    it.each(['input_tpm', 'output_tpm'])(
+      'retries an Autohand AI %s throttle after the server delay instead of aborting the turn',
+      async (scope) => {
+        vi.useFakeTimers();
+        const fetchMock = vi.fn()
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 429,
+            headers: new Headers({ 'Retry-After': '3' }),
+            json: () => Promise.resolve({
+              error: {
+                type: 'rate_limited',
+                message: 'Your uncached input-token throughput is exhausted for this minute.',
+                scope,
+                upgradeUrl: 'https://console.autohand.ai/upgrade/?from=cli&tier=max',
+              },
+            }),
+          })
+          .mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({
+              id: 'retry-success',
+              created: Date.now(),
+              choices: [{
+                message: { role: 'assistant', content: 'Recovered after the bucket refilled.' },
+                finish_reason: 'stop',
+              }],
+            }),
+          });
+        global.fetch = fetchMock;
+        const client = new LLMGatewayClient(
+          { apiKey: 'test-key', model: 'fantail' },
+          { maxRetries: 1, retryDelay: 10 },
+          {
+            serviceName: 'Autohand AI',
+            credentialName: 'Autohand AI API key',
+            accountName: 'Autohand AI account',
+          },
+        );
+
+        try {
+          const completion = client.complete({
+            messages: [{ role: 'user', content: 'Hello' }],
+          });
+          await vi.advanceTimersByTimeAsync(2_999);
+          expect(fetchMock).toHaveBeenCalledTimes(1);
+          await vi.advanceTimersByTimeAsync(1);
+          await expect(completion).resolves.toMatchObject({
+            content: 'Recovered after the bucket refilled.',
+          });
+          expect(fetchMock).toHaveBeenCalledTimes(2);
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
+
+    it('keeps the throughput message and upgrade link when the throttle outlasts every retry', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: false,
         status: 429,
-        headers: new Headers({ 'Retry-After': '1' }),
+        headers: new Headers({ 'Retry-After': '0' }),
         json: () => Promise.resolve({
           error: {
             type: 'rate_limited',
@@ -741,7 +798,7 @@ describe('LLMGatewayClient', () => {
       global.fetch = fetchMock;
       const client = new LLMGatewayClient(
         { apiKey: 'test-key', model: 'fantail' },
-        { maxRetries: 3, retryDelay: 0 },
+        { maxRetries: 2, retryDelay: 0 },
         {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
@@ -753,13 +810,13 @@ describe('LLMGatewayClient', () => {
         messages: [{ role: 'user', content: 'Hello' }],
       })).rejects.toMatchObject({
         code: 'rate_limited',
-        retryable: false,
+        retryable: true,
         scope: 'input_tpm',
         message: expect.stringMatching(
           /uncached input-token throughput reached[\s\S]*Upgrade your Autohand Code plan/,
         ),
       });
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 
     it('retries a transient Autohand AI RPM throttle after the server delay', async () => {
