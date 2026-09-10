@@ -4,10 +4,20 @@ import { parseSessionTransfer, parseTransferReceipt, TRANSFER_MAX_BYTES, TRANSFE
 
 export interface TransferIdentity { token: string; userId: string; accountId?: string }
 export interface ReceivedTransfer { transfer: TransferReceipt; snapshot: SessionTransfer }
+/** The Web export this snapshot continues, so the push returns to its original conversation. */
+export interface TransferOrigin { transferId: string }
+
+/** A Web deployment that predates resumable handoff rejects `origin`; the caller retries without it. */
+export class TransferUnsupportedError extends Error {
+  constructor(message = 'This Autohand Web version cannot resume the original conversation.') {
+    super(message);
+    this.name = 'TransferUnsupportedError';
+  }
+}
 
 /** Stable request identity lets a failed upload resume without creating another transfer. */
-export function transferRequestId(snapshot: SessionTransfer, identity: Pick<TransferIdentity, 'userId' | 'accountId'>): string {
-  const hex = createHash('sha256').update(JSON.stringify([identity.userId, identity.accountId ?? '', parseSessionTransfer(snapshot)])).digest('hex');
+export function transferRequestId(snapshot: SessionTransfer, identity: Pick<TransferIdentity, 'userId' | 'accountId'>, origin?: TransferOrigin): string {
+  const hex = createHash('sha256').update(JSON.stringify([identity.userId, identity.accountId ?? '', parseSessionTransfer(snapshot), origin ?? null])).digest('hex');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
@@ -15,9 +25,10 @@ export function transferRequestId(snapshot: SessionTransfer, identity: Pick<Tran
 export class SessionTransferClient {
   constructor(private readonly request: typeof fetch = fetch) {}
 
-  async upload(snapshot: SessionTransfer, identity: TransferIdentity): Promise<TransferReceipt> {
+  async upload(snapshot: SessionTransfer, identity: TransferIdentity, options: { origin?: TransferOrigin } = {}): Promise<TransferReceipt> {
     const value = parseSessionTransfer(snapshot);
-    const result = await this.call('/api/transfers', identity, 'POST', { requestId: transferRequestId(value, identity), snapshot: value });
+    const origin = options.origin;
+    const result = await this.call('/api/transfers', identity, 'POST', { requestId: transferRequestId(value, identity, origin), snapshot: value, ...(origin ? { origin } : {}) });
     if (!isRecord(result)) { throw new Error('Autohand Web returned an invalid transfer receipt.'); }
     const receipt = parseTransferReceipt(result.transfer);
     if (identity.accountId && receipt.accountId !== identity.accountId) { throw new Error('The transfer account changed. Try again.'); }
@@ -42,6 +53,7 @@ export class SessionTransferClient {
       method, headers, body: body ? JSON.stringify(body) : undefined, redirect: 'error', signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok) {
+      if (response.status === 400) { throw new TransferUnsupportedError(); }
       if (response.status === 401) { throw new Error('Sign in to Autohand to transfer this conversation.'); }
       if (response.status === 403 || response.status === 404) { throw new Error('This transfer is unavailable in the selected Autohand account.'); }
       if (response.status === 410) { throw new Error('This transfer expired or was revoked. Start a new transfer from the source.'); }

@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { SessionManager } from '../../src/session/SessionManager.js';
 import { handoffWeb } from '../../src/commands/handoff-web.js';
+import { TransferUnsupportedError } from '../../src/session/transfer/transfer-client.js';
 import type { TransferReceipt } from '../../src/session/transfer/session-transfer.js';
 
 const receipt: TransferReceipt = { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', accountId: 'team_customer', expiresAt: '2026-09-11T00:00:00.000Z' };
@@ -67,6 +68,41 @@ describe('/handoff web', () => {
     ctx.currentSession.metadata.importedFrom = { source: 'Autohand Code Web', originalId: receipt.id, importedAt: '2026-09-10T00:00:00.000Z', accountId: 'team_customer' };
     await handoffWeb({ ...ctx, config: { ...ctx.config, api: undefined } }, ['--no-open']);
     expect(ctx.client.upload.mock.calls[0][1].accountId).toBe('team_customer');
+  });
+
+  it('returns an imported session to its own Web conversation and counts only the new messages', async () => {
+    const ctx = await context();
+    ctx.currentSession.metadata.summary = 'Continue my parser';
+    ctx.currentSession.metadata.importedFrom = { source: 'Autohand Code Web', originalId: receipt.id, importedAt: '2026-09-10T00:00:00.500Z', accountId: 'team_customer' };
+    const result = await handoffWeb(ctx, ['--no-open']);
+    expect(ctx.client.upload.mock.calls[0][2]).toEqual({ origin: { transferId: receipt.id } });
+    expect(result).toContain('This resumes your Web conversation "Continue my parser" with 1 new message.');
+    expect(result).not.toContain('opens this as a new conversation');
+  });
+
+  it('starts a new Web conversation with --new and ignores a malformed import id', async () => {
+    const ctx = await context();
+    ctx.currentSession.metadata.importedFrom = { source: 'Autohand Code Web', originalId: receipt.id, importedAt: '2026-09-10T00:00:00.000Z', accountId: 'team_customer' };
+    expect(await handoffWeb(ctx, ['--new', '--no-open'])).not.toContain('This resumes');
+    expect(ctx.client.upload.mock.calls[0][2]).toEqual({});
+    ctx.client.upload.mockClear();
+    ctx.currentSession.metadata.importedFrom = { source: 'Autohand Code Web', originalId: 'not-a-transfer-id', importedAt: '2026-09-10T00:00:00.000Z', accountId: 'team_customer' };
+    await handoffWeb(ctx, ['--no-open']);
+    expect(ctx.client.upload.mock.calls[0][2]).toEqual({});
+    expect(await handoffWeb(ctx, ['--brand-new'])).toContain('Usage:');
+  });
+
+  it('falls back to a plain upload when the server rejects the origin, and says so', async () => {
+    const ctx = await context();
+    ctx.currentSession.metadata.importedFrom = { source: 'Autohand Code Web', originalId: receipt.id, importedAt: '2026-09-10T00:00:00.000Z', accountId: 'team_customer' };
+    ctx.client.upload.mockRejectedValueOnce(new TransferUnsupportedError()).mockResolvedValueOnce(receipt);
+    const result = await handoffWeb(ctx, ['--no-open']);
+    expect(ctx.client.upload).toHaveBeenCalledTimes(2);
+    expect(ctx.client.upload.mock.calls[1][2]).toBeUndefined();
+    expect(result).toContain(`transfer=${receipt.id}`);
+    expect(result).toContain('Your Web version opens this as a new conversation.');
+    expect(result).not.toContain('This resumes');
+    expect(result).not.toContain('private-test-token');
   });
 
   it('preserves embedded images in imported messages and rejects remote image fetches', async () => {

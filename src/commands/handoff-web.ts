@@ -8,13 +8,13 @@ import type { SlashCommand } from '../core/slashCommandTypes.js';
 import type { LoadedConfig, ProviderName } from '../types.js';
 import type { Session, SessionManager } from '../session/SessionManager.js';
 import { getAssistantChatLogContent } from '../session/chatLog.js';
-import { SessionTransferClient } from '../session/transfer/transfer-client.js';
+import { SessionTransferClient, TransferUnsupportedError, type TransferOrigin } from '../session/transfer/transfer-client.js';
 import { captureTransferRepository } from '../session/transfer/transfer-workspace.js';
 import { parseSessionTransfer, parseTransferContent, parseTransferReceipt, transferWebUrl, TRANSFER_VERSION, type SessionTransfer, type TransferMessage } from '../session/transfer/session-transfer.js';
 
 export const metadata: SlashCommand = {
   command: '/handoff web',
-  description: 'continue this conversation in Autohand Web (--workspace includes repository changes)',
+  description: 'continue this conversation in Autohand Web (--workspace includes repository changes, --new starts a new Web conversation)',
   implemented: true,
 };
 
@@ -61,10 +61,19 @@ function conversationSnapshot(session: Session, ctx: HandoffWebContext): Session
   });
 }
 
+/** Only a session imported from Web can return to its own conversation; `--new` opts out. */
+const transferIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+function returnOrigin(session: Session, args: string[]): TransferOrigin | undefined {
+  if (args.includes('--new')) return undefined;
+  const imported = session.metadata.importedFrom;
+  if (imported?.source !== 'Autohand Code Web' || !transferIdPattern.test(imported.originalId)) return undefined;
+  return { transferId: imported.originalId };
+}
+
 /** The slash command explicitly requests a private snapshot; local execution stays in this terminal. */
 export async function handoffWeb(ctx: HandoffWebContext, args: string[] = []): Promise<string> {
-  const usage = 'Usage: /handoff web [--workspace] [--no-open]';
-  if (args.includes('--help') || args.some(arg => !['--workspace', '--no-open'].includes(arg))) return usage;
+  const usage = 'Usage: /handoff web [--workspace] [--new] [--no-open]';
+  if (args.includes('--help') || args.some(arg => !['--workspace', '--no-open', '--new'].includes(arg))) return usage;
   const token = ctx.config?.auth?.token;
   if (!token) return 'Sign in first with /login, then run /handoff web.';
   const session = ctx.currentSession ?? ctx.sessionManager.getCurrentSession();
@@ -72,6 +81,9 @@ export async function handoffWeb(ctx: HandoffWebContext, args: string[] = []): P
 
   let url: string;
   let hasRepository = false;
+  let resumed: TransferOrigin | undefined;
+  let newMessages = 0;
+  let downgraded = false;
   try {
     const snapshot = conversationSnapshot(session, ctx);
     if (args.includes('--workspace')) {
@@ -80,7 +92,22 @@ export async function handoffWeb(ctx: HandoffWebContext, args: string[] = []): P
       hasRepository = true;
     }
     const identity = { token, userId: ctx.config?.auth?.user?.id ?? 'authenticated', accountId: ctx.config?.api?.accountId ?? session.metadata.importedFrom?.accountId };
-    const receipt = parseTransferReceipt(await (ctx.client ?? new SessionTransferClient()).upload(parseSessionTransfer(snapshot), identity));
+    const origin = returnOrigin(session, args);
+    const importedAt = Date.parse(session.metadata.importedFrom?.importedAt ?? '');
+    newMessages = origin && Number.isFinite(importedAt) ? snapshot.messages.filter(message => Date.parse(message.createdAt) > importedAt).length : 0;
+    const client = ctx.client ?? new SessionTransferClient();
+    const value = parseSessionTransfer(snapshot);
+    let uploaded;
+    try {
+      uploaded = await client.upload(value, identity, origin ? { origin } : {});
+      resumed = origin;
+    } catch (error) {
+      // A Web deployment that predates resumable handoff rejects `origin`; never fail the handoff for it.
+      if (!origin || !(error instanceof TransferUnsupportedError)) throw error;
+      downgraded = true;
+      uploaded = await client.upload(value, identity);
+    }
+    const receipt = parseTransferReceipt(uploaded);
     if (identity.accountId && receipt.accountId !== identity.accountId) throw new Error('The transfer account changed. Try again.');
     url = transferWebUrl(receipt);
   } catch (error) {
@@ -92,5 +119,7 @@ export async function handoffWeb(ctx: HandoffWebContext, args: string[] = []): P
     try { await (ctx.openBrowser ?? open)(url); }
     catch { browser = '\nOpen the link above to continue; this terminal could not open a browser.'; }
   }
-  return `Continue in Autohand Web\n${url}\n\nSign in with the same Autohand account. This private transfer expires in 24 hours.\n${hasRepository ? 'Conversation and repository changes included. Review the workspace in Web before continuing.' : 'Conversation included. Add --workspace to also carry repository changes.'}\nYour local session stays available. Local tools and MCP processes continue to run only in the CLI.${browser}`;
+  const resume = resumed ? `This resumes your Web conversation "${session.metadata.summary ?? 'your conversation'}" with ${newMessages} new ${newMessages === 1 ? 'message' : 'messages'}. ` : '';
+  const fallback = downgraded ? '\nYour Web version opens this as a new conversation.' : '';
+  return `Continue in Autohand Web\n${url}\n\n${resume}Sign in with the same Autohand account. This private transfer expires in 24 hours.\n${hasRepository ? 'Conversation and repository changes included. Review the workspace in Web before continuing.' : 'Conversation included. Add --workspace to also carry repository changes.'}\nYour local session stays available. Local tools and MCP processes continue to run only in the CLI.${browser}${fallback}`;
 }

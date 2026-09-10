@@ -22,7 +22,7 @@ Each command is a separate TypeScript file that exports:
 | `/sessions` | `sessions.ts` | List saved sessions |
 | `/rename` | `rename.ts` | Name the current session for /sessions and /resume |
 | `/resume` | `resume.ts` | Resume a previous session |
-| `/handoff web` | `handoff-web.ts` | Continue this conversation in Web; `--workspace` includes repository changes and `--no-open` prints the link |
+| `/handoff web` | `handoff-web.ts` | Continue this conversation in Web; `--workspace` includes repository changes, `--new` starts a new Web conversation instead of resuming the one this session was imported from, and `--no-open` prints the link |
 | `/memory` | `memory.ts` | List memory or inspect, zoom, forget derived summaries, rebuild projections, and delete entries |
 | `/feedback` | `feedback.ts` | Submit feedback |
 | `/agents` | `agents.ts` | Show active Autohand CLI instances |
