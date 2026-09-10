@@ -181,16 +181,16 @@ describe('agent startup and active input UI', () => {
       expect(internals.interactiveAutomodeEnabled).toBe(false);
       expect(internals.permissionManager.getMode()).toBe('interactive');
 
-      expect(internals.cycleInteractionMode()).toBe('yolo');
-      expect(planModeManager.isEnabled()).toBe(false);
-      expect(runtime.options.yolo).toBe('allow:*');
-      expect(internals.interactiveAutomodeEnabled).toBe(false);
-      expect(internals.permissionManager.getMode()).toBe('unrestricted');
-
       expect(internals.cycleInteractionMode()).toBe('automode');
       expect(planModeManager.isEnabled()).toBe(false);
       expect(runtime.options.yolo).toBeUndefined();
       expect(internals.interactiveAutomodeEnabled).toBe(true);
+      expect(internals.permissionManager.getMode()).toBe('unrestricted');
+
+      expect(internals.cycleInteractionMode()).toBe('yolo');
+      expect(planModeManager.isEnabled()).toBe(false);
+      expect(runtime.options.yolo).toBe('allow:*');
+      expect(internals.interactiveAutomodeEnabled).toBe(false);
       expect(internals.permissionManager.getMode()).toBe('unrestricted');
 
       expect(internals.cycleInteractionMode()).toBe('default');

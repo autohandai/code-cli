@@ -699,7 +699,6 @@ See [Workspace Safety](./workspace-safety.md) for full details.
     },
     "showCompletionNotification": true,
     "showThinking": true,
-    "mouseComposerCursor": false,
     "terminalBell": true,
     "checkForUpdates": true,
     "updateCheckInterval": 24
@@ -730,7 +729,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `completionReportEnabled`    | boolean | `true`  | Ask the model to include a concise completion report after completed action turns |
 | `showCompletionNotification` | boolean | `true`  | Show system notification when task completes                                                   |
 | `showThinking`               | boolean | `true`  | Display LLM's reasoning/thought process                                                        |
-| `mouseComposerCursor`        | boolean | `false` | Enable click-to-position editing in the Ink composer                                           |
+| `mouseComposerCursor`        | boolean | on, except iTerm2 | Enable click-to-position editing in the Ink composer                                           |
 | `terminalBell`               | boolean | `true`  | Ring terminal bell when task completes (shows badge on terminal tab/dock)                      |
 | `checkForUpdates`            | boolean | `true`  | Check for CLI updates on startup                                                               |
 | `updateCheckInterval`        | number | `24`    | Hours between update checks (uses cached result within interval)                               |
@@ -907,13 +906,13 @@ Note: This feature is experimental and may have edge cases. The default ora-base
 
 ### Mouse Composer Cursor
 
-`mouseComposerCursor` is off by default because terminal mouse reporting takes the scroll wheel away from the terminal's native scrollback, and on iTerm2 switching reporting on and off around wheel events makes the viewport jump. To enable click-to-position, run:
+`mouseComposerCursor` is on by default except in iTerm2, where terminal mouse reporting makes the viewport jump when it is switched around scroll-wheel events. The option is left unset in `config.json` so this per-terminal default applies; to force it on everywhere, run:
 
 ```bash
 autohand config set ui.mouseComposerCursor true
 ```
 
-This lets you place the blinking composer cursor by clicking text, including wrapped lines and Unicode text. To disable it again (the default), run:
+This lets you place the blinking composer cursor by clicking text, including wrapped lines and Unicode text. To turn it off everywhere, run:
 
 ```bash
 autohand config set ui.mouseComposerCursor false

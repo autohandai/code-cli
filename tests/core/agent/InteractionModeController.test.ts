@@ -11,7 +11,7 @@ import {
 } from '../../../src/core/agent/InteractionModeController.js';
 
 describe('InteractionModeController', () => {
-  it('cycles default, plan, yolo, automode, then back to default', () => {
+  it('cycles default, plan, automode, yolo, then back to default', () => {
     const state = {
       plan: false,
       yolo: false,
@@ -28,7 +28,7 @@ describe('InteractionModeController', () => {
       setPermissionProfile: (profile) => { state.permissionProfile = profile; },
     });
 
-    expect(INTERACTION_MODE_SEQUENCE).toEqual(['default', 'plan', 'yolo', 'automode']);
+    expect(INTERACTION_MODE_SEQUENCE).toEqual(['default', 'plan', 'automode', 'yolo']);
 
     expect(controller.cycle()).toBe('plan');
     expect(state).toEqual({
@@ -38,19 +38,19 @@ describe('InteractionModeController', () => {
       permissionProfile: 'baseline',
     });
 
-    expect(controller.cycle()).toBe('yolo');
-    expect(state).toEqual({
-      plan: false,
-      yolo: true,
-      automode: false,
-      permissionProfile: 'unrestricted',
-    });
-
     expect(controller.cycle()).toBe('automode');
     expect(state).toEqual({
       plan: false,
       yolo: false,
       automode: true,
+      permissionProfile: 'unrestricted',
+    });
+
+    expect(controller.cycle()).toBe('yolo');
+    expect(state).toEqual({
+      plan: false,
+      yolo: true,
+      automode: false,
       permissionProfile: 'unrestricted',
     });
 

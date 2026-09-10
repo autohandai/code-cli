@@ -39,7 +39,8 @@ describe('getProviderConfig', () => {
     try {
       const config = await loadConfig(configPath);
 
-      expect(config.ui?.mouseComposerCursor).toBe(false);
+      // Left unset so the runtime can decide per terminal (off on iTerm2, on elsewhere).
+      expect(config.ui?.mouseComposerCursor).toBeUndefined();
     } finally {
       await fs.remove(tempDir);
     }

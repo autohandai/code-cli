@@ -20,10 +20,11 @@ afterEach(async () => {
   state = undefined;
 });
 
-async function launch(ui: Record<string, unknown>): Promise<Session> {
+async function launch(termProgram: string, ui: Record<string, unknown> = {}): Promise<Session> {
   state = await createTempAutohandHome({ config: { ui: { promptSuggestions: false, ...ui } } });
   session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
     autohandHome: state.autohandHome, cwd: state.workspaceRoot, waitForDataTimeout: 15_000,
+    env: { TERM_PROGRAM: termProgram, LC_TERMINAL: undefined },
   });
   await session.waitForText('❯');
   await session.type('hello');
@@ -32,14 +33,20 @@ async function launch(ui: Record<string, unknown>): Promise<Session> {
 }
 
 describe('terminal mouse reporting', () => {
-  it('leaves the wheel with the terminal by default: no mouse reporting is requested', async () => {
-    const live = await launch({});
+  it('requests mouse reporting by default outside iTerm2', async () => {
+    const live = await launch('ghostty');
+    expect(live.getRawOutput()).toContain(ENABLE_MOUSE_REPORTING);
+    await exitInteractive(live);
+  });
+
+  it('leaves the wheel with iTerm2 by default', async () => {
+    const live = await launch('iTerm.app');
     expect(live.getRawOutput()).not.toContain(ENABLE_MOUSE_REPORTING);
     await exitInteractive(live);
   });
 
-  it('requests mouse reporting only when click-to-position is enabled explicitly', async () => {
-    const live = await launch({ mouseComposerCursor: true });
+  it('honours an explicit opt-in on iTerm2', async () => {
+    const live = await launch('iTerm.app', { mouseComposerCursor: true });
     expect(live.getRawOutput()).toContain(ENABLE_MOUSE_REPORTING);
     await exitInteractive(live);
   });
