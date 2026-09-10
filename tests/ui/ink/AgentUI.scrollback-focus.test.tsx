@@ -44,6 +44,7 @@ describe('AgentUI working-turn scrollback stability', () => {
       <I18nProvider>
         <ThemeProvider>
           <AgentUI
+            mouseComposerCursor
             state={{ ...createInitialUIState(), elapsed }}
             onInstruction={() => {}}
             onEscape={() => {}}
@@ -79,6 +80,7 @@ describe('AgentUI working-turn scrollback stability', () => {
         <I18nProvider>
           <ThemeProvider>
             <AgentUI
+              mouseComposerCursor
               state={{
                 ...createInitialUIState(),
                 isWorking,
@@ -148,6 +150,7 @@ describe('AgentUI working-turn scrollback stability', () => {
       <I18nProvider>
         <ThemeProvider>
           <AgentUI
+            mouseComposerCursor
             state={state}
             onInstruction={() => {}}
             onEscape={() => {}}
@@ -176,6 +179,7 @@ describe('AgentUI working-turn scrollback stability', () => {
         <I18nProvider>
           <ThemeProvider>
             <AgentUI
+              mouseComposerCursor
               state={state}
               onInstruction={() => {}}
               onEscape={() => {}}
@@ -210,6 +214,7 @@ describe('AgentUI working-turn scrollback stability', () => {
         <I18nProvider>
           <ThemeProvider>
             <AgentUI
+              mouseComposerCursor
               state={state}
               onInstruction={() => {}}
               onEscape={() => {}}
@@ -244,6 +249,7 @@ describe('AgentUI working-turn scrollback stability', () => {
         <I18nProvider>
           <ThemeProvider>
             <AgentUI
+              mouseComposerCursor
               state={state}
               onInstruction={() => {}}
               onEscape={() => {}}
