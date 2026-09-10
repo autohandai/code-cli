@@ -408,7 +408,7 @@ export function buildPromptHotTips(
     defaultFileTip,
     { label: 'Type $ for skills' },
     { label: 'Type /, @, $, or ! to switch suggestion mode' },
-    { label: 'Shift+Tab cycles edit, plan, YOLO, and auto modes' },
+    { label: 'Shift+Tab cycles edit, plan, auto, and YOLO modes' },
   ];
 }
 

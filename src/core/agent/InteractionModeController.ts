@@ -7,8 +7,8 @@
 export const INTERACTION_MODE_SEQUENCE = [
   'default',
   'plan',
-  'yolo',
   'automode',
+  'yolo',
 ] as const;
 
 export type InteractionMode = typeof INTERACTION_MODE_SEQUENCE[number];

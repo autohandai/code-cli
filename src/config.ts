@@ -145,7 +145,6 @@ function createDefaultConfig(): AutohandConfig {
       completionReportEnabled: true,
       activityVerbsEnabled: true,
       promptSuggestions: true,
-      mouseComposerCursor: false,
     },
     telemetry: {
       enabled: false,
@@ -793,7 +792,6 @@ function normalizeConfig(
         completionReportEnabled: true,
         activityVerbsEnabled: true,
         promptSuggestions: true,
-        mouseComposerCursor: false,
       },
     };
   }
