@@ -553,6 +553,9 @@ export async function runAgentInteractive(host: AgentLifecycleHost, initialInstr
     // The user can start typing while managers initialize.
     // When they submit, we await initReady before processing.
     host.initReady = host.performBackgroundInit();
+    // The rejection is consumed when the first instruction awaits initReady;
+    // without this the process error reporter logs it as unhandled first.
+    host.initReady.catch(() => undefined);
 
     // Fire startup suggestion LLM call immediately so the first prompt
     // shows contextual ghost text. Git context is gathered asynchronously

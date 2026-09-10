@@ -40,6 +40,15 @@ interface DirectoryLockSnapshot {
 
 type LockArtifactStatus = 'missing' | 'active' | 'stale';
 
+export class FileLockTimeoutError extends Error {
+  readonly code = 'ELOCKTIMEOUT';
+
+  constructor(lockPath: string) {
+    super(`Timed out waiting for file lock: ${path.basename(lockPath)}`);
+    this.name = 'FileLockTimeoutError';
+  }
+}
+
 export interface FileLockOptions {
   staleMs?: number;
   waitTimeoutMs?: number;
@@ -109,10 +118,15 @@ function processIsAlive(pid: number): boolean {
 }
 
 function isStale(snapshot: LockSnapshot, staleMs: number): boolean {
+  // A lock whose owner process is gone can never be released; reclaim it at
+  // once instead of blocking every other process until the age window passes.
+  if (snapshot.pid !== undefined && !processIsAlive(snapshot.pid)) {
+    return true;
+  }
   if (Date.now() - snapshot.createdAt < staleMs) {
     return false;
   }
-  return snapshot.pid === undefined || !processIsAlive(snapshot.pid);
+  return snapshot.pid === undefined;
 }
 
 async function createOwnerFile(ownerPath: string, record: LockRecord): Promise<void> {
@@ -483,7 +497,7 @@ export async function withFileLock<T>(
 ): Promise<T> {
   const lease = await acquireFileLock(lockPath, options);
   if (!lease) {
-    throw new Error(`Timed out waiting for file lock: ${path.basename(lockPath)}`);
+    throw new FileLockTimeoutError(lockPath);
   }
   try {
     return await operation();

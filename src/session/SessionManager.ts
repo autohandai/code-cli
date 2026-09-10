@@ -15,7 +15,7 @@ import type {
     SessionReadFileState,
 } from './types.js';
 import { AUTOHAND_PATHS } from '../constants.js';
-import { atomicWriteJson, withFileLock } from '../utils/atomicFile.js';
+import { atomicWriteJson, FileLockTimeoutError, withFileLock } from '../utils/atomicFile.js';
 import { runWithConcurrency } from '../utils/parallel.js';
 
 const SESSION_INDEX_FILE = 'index.json';
@@ -102,6 +102,8 @@ export class SessionManager {
     private readonly sessionsDir: string;
     private currentSession: Session | null = null;
     private index: SessionIndex | null = null;
+
+    private indexLockWarned = false;
 
     constructor(baseDir?: string) {
         this.sessionsDir = baseDir ?? AUTOHAND_PATHS.sessions;
@@ -400,9 +402,20 @@ export class SessionManager {
     }
 
     private async loadIndex(): Promise<void> {
-        await withFileLock(this.indexLockPath, async () => {
+        try {
+            await withFileLock(this.indexLockPath, async () => {
+                this.index = await this.readIndexFromDisk();
+            }, SESSION_INDEX_LOCK_OPTIONS);
+        } catch (error) {
+            if (!(error instanceof FileLockTimeoutError)) throw error;
+            // Another Autohand process is holding the index. Reads must not fail
+            // for that: use the last committed index (writes are atomic) and say so once.
+            if (!this.indexLockWarned) {
+                this.indexLockWarned = true;
+                console.warn(`Session index is locked by another Autohand process (${path.basename(this.indexLockPath)}); continuing with the last saved index.`);
+            }
             this.index = await this.readIndexFromDisk();
-        }, SESSION_INDEX_LOCK_OPTIONS);
+        }
     }
 
     private async mutateIndex(mutation: (index: SessionIndex) => void): Promise<void> {
