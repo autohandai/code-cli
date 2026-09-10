@@ -13,8 +13,9 @@ export async function startPlanFromComposer(session: Session): Promise<string> {
 }
 
 export async function leaveStartupPlanMode(session: Session): Promise<void> {
+  // Shift+Tab follows INTERACTION_MODE_SEQUENCE: plan advances to auto mode.
   await session.press(['shift', 'tab']);
-  await session.waitForText('[YOLO]');
+  await session.waitForText('[AUTO]');
   await session.type('/plan on');
   await session.press('enter');
   await session.waitForText('[PLAN]');

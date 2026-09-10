@@ -1266,12 +1266,12 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   }, 60_000);
 
-  it('cycles Shift+Tab through plan, yolo, automode, and default', async () => {
+  it('cycles Shift+Tab through plan, automode, yolo, and default', async () => {
     const session = await launchInteractive();
 
     await waitForComposer(session);
 
-    for (const indicator of ['[PLAN]', '[YOLO]', '[AUTO]']) {
+    for (const indicator of ['[PLAN]', '[AUTO]', '[YOLO]']) {
       await session.press(['shift', 'tab']);
       const screen = await session.text({
         timeout: 5_000,
