@@ -1446,6 +1446,7 @@ describe('interactive built CLI Tuistory tests', () => {
         },
         network: { maxRetries: 0, retryDelay: 0 },
         ui: {
+          mouseComposerCursor: true,
           promptSuggestions: false,
           showCompletionNotification: false,
           terminalBell: false,
@@ -1727,6 +1728,7 @@ describe('interactive built CLI Tuistory tests', () => {
     const session = await launchInteractive({
       config: {
         ui: {
+          mouseComposerCursor: true,
           promptSuggestions: false,
         },
       },
@@ -1768,6 +1770,7 @@ describe('interactive built CLI Tuistory tests', () => {
     const session = await launchInteractive({
       config: {
         ui: {
+          mouseComposerCursor: true,
           promptSuggestions: false,
         },
       },
@@ -2524,7 +2527,7 @@ describe('interactive built CLI Tuistory tests', () => {
     const state = await createTempAutohandHome({
       config: {
         openrouter: { baseUrl: openRouterServer.baseUrl },
-        ui: { promptSuggestions: false },
+        ui: { mouseComposerCursor: true, promptSuggestions: false },
         agent: { maxIterations: 3 },
       },
     });

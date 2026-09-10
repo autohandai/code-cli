@@ -39,7 +39,7 @@ describe('getProviderConfig', () => {
     try {
       const config = await loadConfig(configPath);
 
-      expect(config.ui?.mouseComposerCursor).toBe(true);
+      expect(config.ui?.mouseComposerCursor).toBe(false);
     } finally {
       await fs.remove(tempDir);
     }

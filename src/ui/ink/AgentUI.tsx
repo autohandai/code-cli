@@ -777,7 +777,7 @@ export function AgentUI({
   onRemoveQueuedInstruction,
   getInteractionMode,
   onCycleInteractionMode,
-  mouseComposerCursor = true,
+  mouseComposerCursor = false,
   taskListPosition = 'above-composer',
 }: AgentUIProps) {
   const { stdout } = useStdout();

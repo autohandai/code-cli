@@ -51,7 +51,7 @@ describe('goal command mouse scrollback', () => {
     state = await createTempAutohandHome({ config: {
       openrouter: { baseUrl: server.baseUrl },
       agent: { autoMemory: false, goalAutoMode: false, maxIterations: 2, sessionRetryLimit: 0 },
-      ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+      ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false, mouseComposerCursor: true },
     } });
     session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '--y'], {
       autohandHome: state.autohandHome,

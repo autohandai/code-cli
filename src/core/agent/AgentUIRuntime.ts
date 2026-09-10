@@ -280,7 +280,9 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
         suggestionProvider: () => host.suggestionEngine?.getNextPromptSuggestion() ?? undefined,
         getInteractionMode: () => host.getInteractionMode(),
         onCycleInteractionMode: () => host.cycleInteractionMode(),
-        mouseComposerCursor: host.runtime?.config?.ui?.mouseComposerCursor !== false,
+        // Off unless opted in: mouse reporting takes the wheel away from native
+        // scrollback, and toggling it around wheel events jolts the viewport in iTerm2.
+        mouseComposerCursor: host.runtime?.config?.ui?.mouseComposerCursor === true,
         taskListPositionProvider: () =>
           host.runtime?.config?.ui?.taskListPosition ?? 'above-composer',
         onEditGoalObjective: async (request) => {
