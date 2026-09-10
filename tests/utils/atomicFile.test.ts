@@ -15,8 +15,7 @@ import {
   acquireFileLock,
   atomicRemoveFile,
   atomicWriteFile,
-  atomicWriteJson,
-} from '../../src/utils/atomicFile.js';
+  atomicWriteJson, FileLockTimeoutError, withFileLock } from '../../src/utils/atomicFile.js';
 
 describe('atomic file persistence', () => {
   let tempDir: string;
@@ -87,6 +86,52 @@ describe('atomic file persistence', () => {
         child.kill('SIGKILL');
       }
     }
+  });
+
+  it('reclaims a lock whose owner process has died before the stale window elapses', async () => {
+    const lockPath = path.join(tempDir, 'dead-owner.lock');
+    const helperUrl = pathToFileURL(path.resolve('src/utils/atomicFile.ts')).href;
+    const child = spawn(process.execPath, [
+      '--import', 'tsx', '--input-type=module', '--eval',
+      [
+        `import { acquireFileLock } from ${JSON.stringify(helperUrl)};`,
+        `const lease = await acquireFileLock(${JSON.stringify(lockPath)});`,
+        "if (!lease) throw new Error('child failed to acquire lock');",
+        "process.stdout.write('locked\\n');",
+        'setInterval(() => {}, 1000);',
+      ].join('\n'),
+    ], { cwd: path.resolve('.'), stdio: ['ignore', 'pipe', 'pipe'] });
+
+    try {
+      await expect(once(child.stdout, 'data').then(([chunk]) => String(chunk))).resolves.toContain('locked');
+      const childExited = once(child, 'exit');
+      child.kill('SIGKILL');
+      await childExited;
+
+      // Default stale window is five minutes; a dead owner must not block for that long.
+      const recovered = await acquireFileLock(lockPath, { waitTimeoutMs: 1_000, retryDelayMs: 10 });
+      expect(recovered).not.toBeNull();
+      await recovered?.release();
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    }
+  });
+
+  it('keeps a young lock whose owner is alive', async () => {
+    const lockPath = path.join(tempDir, 'live-owner.lock');
+    const lease = await acquireFileLock(lockPath);
+    expect(lease).not.toBeNull();
+    await expect(acquireFileLock(lockPath, { waitTimeoutMs: 100, retryDelayMs: 10 })).resolves.toBeNull();
+    await lease?.release();
+  });
+
+  it('reports a lock timeout as a typed error', async () => {
+    const lockPath = path.join(tempDir, 'typed-timeout.lock');
+    const lease = await acquireFileLock(lockPath);
+    const failure = await withFileLock(lockPath, async () => 'unreachable', { waitTimeoutMs: 50 }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(FileLockTimeoutError);
+    expect((failure as Error).message).toBe('Timed out waiting for file lock: typed-timeout.lock');
+    await lease?.release();
   });
 
   it('reclaims a dead stale lock and does not let an old owner release its replacement', async () => {
