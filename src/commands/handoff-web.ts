@@ -8,7 +8,7 @@ import type { SlashCommand } from '../core/slashCommandTypes.js';
 import type { LoadedConfig, ProviderName } from '../types.js';
 import type { Session, SessionManager } from '../session/SessionManager.js';
 import { getAssistantChatLogContent } from '../session/chatLog.js';
-import { SessionTransferClient, TransferUnsupportedError, type TransferOrigin } from '../session/transfer/transfer-client.js';
+import { SessionTransferClient, isDivergedOrigin, isOriginRejection, type TransferOrigin } from '../session/transfer/transfer-client.js';
 import { captureTransferRepository } from '../session/transfer/transfer-workspace.js';
 import { parseSessionTransfer, parseTransferContent, parseTransferReceipt, transferWebUrl, TRANSFER_VERSION, type SessionTransfer, type TransferMessage } from '../session/transfer/session-transfer.js';
 
@@ -83,7 +83,7 @@ export async function handoffWeb(ctx: HandoffWebContext, args: string[] = []): P
   let hasRepository = false;
   let resumed: TransferOrigin | undefined;
   let newMessages = 0;
-  let downgraded = false;
+  let downgrade: 'none' | 'unsupported' | 'diverged' = 'none';
   try {
     const snapshot = conversationSnapshot(session, ctx);
     if (args.includes('--workspace')) {
@@ -102,9 +102,10 @@ export async function handoffWeb(ctx: HandoffWebContext, args: string[] = []): P
       uploaded = await client.upload(value, identity, origin ? { origin } : {});
       resumed = origin;
     } catch (error) {
-      // A Web deployment that predates resumable handoff rejects `origin`; never fail the handoff for it.
-      if (!origin || !(error instanceof TransferUnsupportedError)) throw error;
-      downgraded = true;
+      // An old Web build rejects `origin`, and a moved conversation rejects the return trip.
+      // Both only cost the resume: push the same snapshot again as a new conversation.
+      if (!origin || !isOriginRejection(error)) throw error;
+      downgrade = isDivergedOrigin(error) ? 'diverged' : 'unsupported';
       uploaded = await client.upload(value, identity);
     }
     const receipt = parseTransferReceipt(uploaded);
@@ -120,6 +121,8 @@ export async function handoffWeb(ctx: HandoffWebContext, args: string[] = []): P
     catch { browser = '\nOpen the link above to continue; this terminal could not open a browser.'; }
   }
   const resume = resumed ? `This resumes your Web conversation "${session.metadata.summary ?? 'your conversation'}" with ${newMessages} new ${newMessages === 1 ? 'message' : 'messages'}. ` : '';
-  const fallback = downgraded ? '\nYour Web version opens this as a new conversation.' : '';
+  const fallback = downgrade === 'diverged'
+    ? '\nYour Web conversation moved on since you left, so this opens as a new conversation.'
+    : downgrade === 'unsupported' ? '\nYour Web version opens this as a new conversation.' : '';
   return `Continue in Autohand Web\n${url}\n\n${resume}Sign in with the same Autohand account. This private transfer expires in 24 hours.\n${hasRepository ? 'Conversation and repository changes included. Review the workspace in Web before continuing.' : 'Conversation included. Add --workspace to also carry repository changes.'}\nYour local session stays available. Local tools and MCP processes continue to run only in the CLI.${browser}${fallback}`;
 }

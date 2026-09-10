@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { SessionManager } from '../../src/session/SessionManager.js';
 import { handoffWeb } from '../../src/commands/handoff-web.js';
-import { TransferUnsupportedError } from '../../src/session/transfer/transfer-client.js';
+import { TransferRequestError, TransferUnsupportedError } from '../../src/session/transfer/transfer-client.js';
 import type { TransferReceipt } from '../../src/session/transfer/session-transfer.js';
 
 const receipt: TransferReceipt = { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', accountId: 'team_customer', expiresAt: '2026-09-11T00:00:00.000Z' };
@@ -103,6 +103,31 @@ describe('/handoff web', () => {
     expect(result).toContain('Your Web version opens this as a new conversation.');
     expect(result).not.toContain('This resumes');
     expect(result).not.toContain('private-test-token');
+  });
+
+  it('still hands off when the Web conversation moved on, and never resumes into it', async () => {
+    const ctx = await context();
+    ctx.currentSession.metadata.importedFrom = { source: 'Autohand Code Web', originalId: receipt.id, importedAt: '2026-09-10T00:00:00.000Z', accountId: 'team_customer' };
+    ctx.client.upload
+      .mockRejectedValueOnce(new TransferRequestError('The messages this handoff started from no longer match.', 409, 'handoff_diverged'))
+      .mockResolvedValueOnce(receipt);
+    const result = await handoffWeb(ctx, ['--no-open']);
+    expect(ctx.client.upload).toHaveBeenCalledTimes(2);
+    expect(ctx.client.upload.mock.calls[1][2]).toBeUndefined();
+    expect(result).toContain(`transfer=${receipt.id}`);
+    expect(result).toContain('opens as a new conversation');
+    expect(result).not.toContain('This resumes');
+    expect(result).not.toContain('Could not hand off this session');
+  });
+
+  it('reports an unrelated failure instead of retrying it as a downgrade', async () => {
+    const ctx = await context();
+    ctx.currentSession.metadata.importedFrom = { source: 'Autohand Code Web', originalId: receipt.id, importedAt: '2026-09-10T00:00:00.000Z', accountId: 'team_customer' };
+    ctx.client.upload.mockRejectedValue(new TransferRequestError('Finish or stop the current task and queue before continuing this conversation.', 409, 'conversation_busy'));
+    const result = await handoffWeb(ctx, ['--no-open']);
+    expect(ctx.client.upload).toHaveBeenCalledTimes(1);
+    expect(result).toContain('Finish or stop the current task');
+    expect(result).toContain('Your local conversation is still available.');
   });
 
   it('preserves embedded images in imported messages and rejects remote image fetches', async () => {

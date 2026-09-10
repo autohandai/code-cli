@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SessionTransferClient, TransferUnsupportedError, transferRequestId } from '../../src/session/transfer/transfer-client.js';
+import { SessionTransferClient, TransferRequestError, TransferUnsupportedError, isDivergedOrigin, isOriginRejection, transferRequestId } from '../../src/session/transfer/transfer-client.js';
 import type { SessionTransfer } from '../../src/session/transfer/session-transfer.js';
 
 const snapshot: SessionTransfer = {
@@ -11,11 +11,11 @@ const identity = { token: 'private-test-token', userId: 'customer', accountId: '
 const origin = { transferId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' };
 const receipt = { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', accountId: 'team_customer', expiresAt: '2026-09-11T00:00:00.000Z' };
 
-function transport(status = 201) {
+function transport(status = 201, error = { code: 'invalid_transfer', message: 'Unknown field.' }) {
   const calls: { url: string; body: unknown; headers: Record<string, string> }[] = [];
   const request = (async (input: URL | RequestInfo, init?: RequestInit) => {
     calls.push({ url: String(input), body: init?.body ? JSON.parse(String(init.body)) as unknown : undefined, headers: init?.headers as Record<string, string> });
-    if (status !== 201) return new Response(JSON.stringify({ error: { code: 'invalid_transfer', message: 'Unknown field.' } }), { status });
+    if (status !== 201) return new Response(JSON.stringify({ error }), { status });
     return new Response(JSON.stringify({ transfer: receipt }), { status: 201 });
   }) as typeof fetch;
   return { calls, client: new SessionTransferClient(request) };
@@ -46,5 +46,35 @@ describe('SessionTransferClient.upload with an origin', () => {
     await expect(client.upload(snapshot, identity, { origin })).rejects.toBeInstanceOf(TransferUnsupportedError);
     const conflicted = transport(409);
     await expect(conflicted.client.upload(snapshot, identity, { origin })).rejects.not.toBeInstanceOf(TransferUnsupportedError);
+  });
+
+  it('keeps a 400 without an origin as the server\'s own rejection, not a resume downgrade', async () => {
+    const { client } = transport(400, { code: 'invalid_transfer', message: 'Review the conversation before transferring it.' });
+    const error = await client.upload(snapshot, identity).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(TransferRequestError);
+    expect(error).not.toBeInstanceOf(TransferUnsupportedError);
+    expect((error as TransferRequestError).status).toBe(400);
+    expect((error as Error).message).toBe('Review the conversation before transferring it.');
+    expect(isOriginRejection(error)).toBe(false);
+  });
+
+  it('never reads an unrelated download failure as a missing resume', async () => {
+    const { client } = transport(400, { code: 'invalid_transfer', message: 'This transfer is malformed.' });
+    const error = await client.download(receipt.id, identity).catch((reason: unknown) => reason);
+    expect(error).not.toBeInstanceOf(TransferUnsupportedError);
+    expect((error as Error).message).toBe('This transfer is malformed.');
+  });
+
+  it('classifies every origin-only conflict as retryable without the origin', async () => {
+    for (const code of ['handoff_origin_unavailable', 'handoff_truncated', 'handoff_diverged']) {
+      const { client } = transport(409, { code, message: 'The Web conversation moved on.' });
+      const error = await client.upload(snapshot, identity, { origin }).catch((reason: unknown) => reason);
+      expect(isOriginRejection(error)).toBe(true);
+      expect(isDivergedOrigin(error)).toBe(code !== 'handoff_origin_unavailable');
+    }
+    const busy = transport(409, { code: 'conversation_busy', message: 'Finish the current task.' });
+    const error = await busy.client.upload(snapshot, identity, { origin }).catch((reason: unknown) => reason);
+    expect(isOriginRejection(error)).toBe(false);
+    expect((error as Error).message).toBe('Finish the current task.');
   });
 });
