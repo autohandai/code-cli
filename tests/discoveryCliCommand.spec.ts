@@ -201,6 +201,15 @@ globalThis.fetch = async (input, init) => {
     ).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  it('shows collection progress on stderr for a plain dry run and only silences it for --json', async () => {
+    const plain = await run(['discovery', '--dry-run', '--no-behavior']);
+    expect(plain.stderr).toContain('Preparing preview');
+    expect(plain.stdout).toContain('Suggested workflows');
+    const structured = await run(['discovery', '--dry-run', '--no-behavior', '--json']);
+    expect(structured.stderr).not.toContain('Preparing preview');
+    expect(JSON.parse(structured.stdout).report.repository.name).toBe('native-fixture');
+  });
+
   it('shows help and scans without loading project extensions or creating account settings', async () => {
     const extension = path.join(
       workspace,
@@ -234,7 +243,12 @@ globalThis.fetch = async (input, init) => {
       ),
       JSON.stringify({ disabled: false, trusted: true })
     );
-    expect((await run(['discovery', '--help'])).stdout).toContain('repository');
+    const help = (await run(['discovery', '--help'])).stdout;
+    expect(help).toContain('folder of repositories');
+    expect(help).toContain('autohand discovery --workspace /path/to/projects --depth 2');
+    expect(help).toContain('autohand discovery push --with-report');
+    expect(help).toContain('autohand discovery --push');
+    expect(help).toContain('--push implies --with-report');
     const scan = JSON.parse(
       (await run(['--path', workspace, 'discovery', '--json'])).stdout
     );

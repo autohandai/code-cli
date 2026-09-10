@@ -69,7 +69,7 @@ export function registerDiscoveryCommand(program: Command): void {
     )
     .option(
       '--workspace <path>',
-      'Repository to scan (defaults to --path or the current directory)'
+      'Repository, or folder of repositories, to scan (defaults to --path or the current directory)'
     )
     .option('--json', 'Emit machine-readable results')
     .option('--dry-run', 'Preview without writing files or uploading workflows')
@@ -99,7 +99,7 @@ export function registerDiscoveryCommand(program: Command): void {
     )
     .addHelpText(
       'after',
-      '\nActions: scan (default), list, push\n\nExamples:\n  autohand discovery\n  autohand discovery push --dry-run\n  autohand discovery push --select repository-onboarding,ci-diagnosis\n\nScan and list work offline. Push reuses AUTOHAND_API_KEY or your stored Autohand credential.\n'
+      '\nActions: scan (default), list, push\n\nExamples:\n  autohand discovery\n  autohand discovery --workspace /path/to/projects --depth 2\n  autohand discovery --skill-query "release" --no-behavior\n  autohand discovery --github --analyze\n  autohand discovery push --dry-run\n  autohand discovery push --select repository-onboarding,ci-diagnosis\n  autohand discovery push --with-report\n  autohand discovery --push\n\nScan and list work offline. Push, --with-report, --push and --analyze reuse AUTOHAND_API_KEY or your stored Autohand credential. --push implies --with-report.\n'
     )
     .action(async (action: string | undefined, options: DiscoveryOptions) => {
       const mode = action ?? 'scan';
@@ -237,7 +237,7 @@ async function runEmbeddedDiscovery(
   process.on('SIGINT', interrupt);
   process.on('SIGTERM', terminate);
   const progress = createDiscoveryProgress({
-    json: args.includes('--json') || args.includes('--dry-run'),
+    json: args.includes('--json'),
     analyze: args.includes('--analyze'),
     cancel: interrupt,
   });
