@@ -448,19 +448,21 @@ describe('runCommand', () => {
   it('forces a foreground command to exit when it ignores SIGTERM', async () => {
     const markerPath = join(testDir, 'forced-abort-pid');
     const controller = new AbortController();
-    const startedAt = Date.now();
     const commandPromise = runCommand(
       process.execPath,
       ['-e', [
-        `require('node:fs').writeFileSync(${JSON.stringify(markerPath)}, String(process.pid))`,
         "process.on('SIGTERM', () => {})",
-        'setTimeout(() => process.exit(0), 800)',
+        'setTimeout(() => {',
+        `require('node:fs').writeFileSync(${JSON.stringify(markerPath)}, String(process.pid))`,
+        'setTimeout(() => process.exit(0), 2_000)',
+        '}, 600)',
       ].join(';')],
       testDir,
       { signal: controller.signal, killGracePeriodMs: 30 }
     );
-    const pid = await waitForProcessId(markerPath);
+    const pid = await waitForProcessId(markerPath, 5_000);
 
+    const startedAt = Date.now();
     controller.abort();
     const error = await commandPromise.catch((caught: unknown) => caught);
 
