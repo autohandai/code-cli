@@ -1818,6 +1818,9 @@ describe('interactive built CLI Tuistory tests', () => {
     });
 
     await waitForComposer(session);
+    // Shift+Enter is only distinguishable from Enter once the terminal encodes
+    // modified keys; the composer asks for the kitty disambiguate flag on start.
+    expect(session.getRawOutput()).toContain('\u001b[>1u');
     await session.type('first line');
     await session.press(['shift', 'enter']);
     await session.type('second line');
@@ -1861,6 +1864,8 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(imagePasteScreen).toMatch(/\[Image #\d+\]/);
 
     await exitInteractive(session);
+    const rawOutput = session.getRawOutput();
+    expect(rawOutput.lastIndexOf('\u001b[<u')).toBeGreaterThan(rawOutput.indexOf('\u001b[>1u'));
   });
 
   it('auto-initializes git for an empty workspace before rendering the composer', async () => {
