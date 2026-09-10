@@ -106,17 +106,6 @@ if (process.argv.includes('--answer-only') || process.argv.includes('--setup-onl
   process.env.AUTOHAND_DISABLE_AUTO_REPORT = '1';
 }
 
-async function refreshModelCatalogBeforeAgentStart(options: {
-  bare?: boolean;
-  offline?: boolean;
-}): Promise<void> {
-  const { refreshModelCatalogOnStartup } = await import('./providers/modelCatalogUpdater.js');
-  await refreshModelCatalogOnStartup({
-    offline: options.offline === true || options.bare === true ? true : undefined,
-    userAgent: `autohand/${runtimeVersion}`,
-  });
-}
-
 function applyCliModelOverride(config: LoadedConfig, model: string): void {
   const providerName = config.provider ?? 'openrouter';
   if (isCustomProviderName(providerName)) {
@@ -373,8 +362,6 @@ program
 
     const { extensionRuntimeHost } = await import('./extensions/ExtensionRuntimeHost.js');
     extensionRuntimeHost.setCliOptions(opts as unknown as Record<string, unknown>);
-
-    await refreshModelCatalogBeforeAgentStart(opts);
 
     // `--agents` accepts inline JSON (Claude Code format) or a directory path.
     // Parse and validate inline JSON up front so users get a clear error before
@@ -652,7 +639,6 @@ registerReviewCommand(program, {
     const { executeReviewCliInvocation } = await import('./review/reviewCliRuntime.js');
     await executeReviewCliInvocation(invocation, {
       cwd: () => process.cwd(),
-      refreshModelCatalog: refreshModelCatalogBeforeAgentStart,
       loadConfig,
       resolveWorkspaceRoot,
       validateWorkspacePath,
@@ -679,7 +665,6 @@ registerReviewCommand(program, {
 
 registerTransferCommand(program, {
   run: async ({ provider, ...opts }) => {
-    await refreshModelCatalogBeforeAgentStart(opts);
     const authConfig = await ensureAuthenticated(await loadConfig(opts.config, opts.path));
     await runCLI({ ...opts, _authConfig: { ...authConfig, provider, autohandai: { plan: 'cloud', authMode: 'account', accountToken: authConfig.auth?.token, model: opts.model } } });
   },
@@ -687,8 +672,6 @@ registerTransferCommand(program, {
 
 registerResumeCommand(program, {
   run: async (opts) => {
-    await refreshModelCatalogBeforeAgentStart(opts);
-
     // Mandatory auth gate for resume
     let authConfig = await loadConfig(opts.config, process.cwd());
     authConfig = await ensureAuthenticated(authConfig);
@@ -1606,6 +1589,16 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
                 checkIntervalHours: config.ui?.updateCheckInterval ?? 24,
               })
             : Promise.resolve(null);
+
+          // The remote catalog only refines the bundled one, so it refreshes
+          // here, after first paint, instead of holding the banner for its
+          // network timeout. It swallows its own failures.
+          const { refreshModelCatalogOnStartup } = await import('./providers/modelCatalogUpdater.js');
+          void refreshModelCatalogOnStartup({
+            offline: options.offline === true ? true : undefined,
+            signal: commandLifecycleController.signal,
+            userAgent: `autohand/${runtimeVersion}`,
+          });
 
           const [authUser, versionResult] = await Promise.all([
             validateAuthOnStartup(config),

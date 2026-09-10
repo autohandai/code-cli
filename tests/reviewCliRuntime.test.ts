@@ -16,7 +16,6 @@ const authenticatedConfig = {
 function dependencies(overrides: Record<string, unknown> = {}) {
   return {
     cwd: () => '/workspace',
-    refreshModelCatalog: vi.fn().mockResolvedValue(undefined),
     loadConfig: vi.fn().mockResolvedValue(config),
     resolveWorkspaceRoot: vi.fn().mockReturnValue('/workspace/repo'),
     validateWorkspacePath: vi.fn().mockResolvedValue({ valid: true }),
@@ -51,7 +50,6 @@ describe('review CLI runtime', () => {
       },
     }, deps);
 
-    expect(deps.refreshModelCatalog).toHaveBeenCalledWith({ bare: true, offline: true });
     expect(deps.loadConfig).toHaveBeenCalledWith('/workspace/config.json', '/workspace');
     expect(deps.authenticate).toHaveBeenCalledWith(config, { bare: true });
     expect(deps.buildInstruction).toHaveBeenCalledWith('/workspace/repo', request);

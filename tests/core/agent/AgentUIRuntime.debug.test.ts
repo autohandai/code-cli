@@ -54,6 +54,20 @@ describe('AgentUIRuntime Ctrl+C exit request', () => {
     expect(clearAllQueuesAndAbort).toHaveBeenCalledOnce();
   });
 
+  it('aborts the runtime shutdown controller so startup waits stop parking the exit', () => {
+    const controller = new AbortController();
+    const host = {
+      shouldExit: false,
+      clearAllQueuesAndAbort: vi.fn(),
+      runtimeResourceShutdownController: controller,
+    };
+
+    handleAgentCtrlCExitRequest(host);
+
+    expect(controller.signal.aborted).toBe(true);
+    expect(host.shouldExit).toBe(true);
+  });
+
   it('does not repeat cleanup after exit has already been requested', () => {
     const host = {
       shouldExit: true,

@@ -502,14 +502,10 @@ describe('agent startup and active input UI', () => {
     expect(confirmationCallback).not.toHaveBeenCalled();
   });
 
-  it('keeps the first instruction behind MCP registration', async () => {
+  function createInitGateAgent(options: { initDone?: boolean } = {}) {
     const agent = Object.create(AutohandAgent.prototype) as any;
-    let resolveMcp: (() => void) | undefined;
-
     agent.initReady = Promise.resolve();
-    agent.mcpReady = new Promise<void>((resolve) => {
-      resolveMcp = resolve;
-    });
+    agent.initDone = options.initDone ?? true;
     agent.flushMcpStartupSummaryIfPending = vi.fn();
     agent.sessionManager = {
       getCurrentSession: () => ({ metadata: { sessionId: 'session-1' } }),
@@ -517,6 +513,19 @@ describe('agent startup and active input UI', () => {
     agent.hookManager = {
       executeHooks: vi.fn().mockResolvedValue(undefined),
     };
+    agent.mcpStartupCoordinator = {
+      describePendingConnections: vi.fn(() => 'Connecting MCP servers (github)...'),
+    };
+    agent.ui = { setWorking: vi.fn() };
+    return agent;
+  }
+
+  it('releases the first instruction once MCP registration completes before the deadline', async () => {
+    const agent = createInitGateAgent();
+    let resolveMcp: (() => void) | undefined;
+    agent.mcpReady = new Promise<void>((resolve) => {
+      resolveMcp = resolve;
+    });
 
     let completed = false;
     const completion = (agent as any).ensureInitComplete().then(() => {
@@ -536,6 +545,62 @@ describe('agent startup and active input UI', () => {
       sessionId: 'session-1',
       sessionType: 'startup',
     });
+  });
+
+  it('releases the first instruction after the MCP first-turn deadline when a server never answers', async () => {
+    vi.useFakeTimers();
+    try {
+      const agent = createInitGateAgent();
+      agent.mcpReady = new Promise<void>(() => {});
+
+      let completed = false;
+      const completion = (agent as any).ensureInitComplete().then(() => {
+        completed = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(completed).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(600);
+      await completion;
+
+      expect(completed).toBe(true);
+      expect(agent.initReady).toBeNull();
+      expect(agent.hookManager.executeHooks).toHaveBeenCalledWith('session-start', {
+        sessionId: 'session-1',
+        sessionType: 'startup',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows what startup is waiting on and clears it before the turn starts', async () => {
+    const agent = createInitGateAgent({ initDone: false });
+    let resolveMcp: (() => void) | undefined;
+    agent.mcpReady = new Promise<void>((resolve) => {
+      resolveMcp = resolve;
+    });
+
+    const completion = (agent as any).ensureInitComplete();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(agent.ui.setWorking).toHaveBeenCalledWith(true, 'Connecting MCP servers (github)...');
+
+    resolveMcp?.();
+    await completion;
+
+    expect(agent.ui.setWorking).toHaveBeenLastCalledWith(false);
+  });
+
+  it('does not touch the working state when startup already finished', async () => {
+    const agent = createInitGateAgent();
+    agent.mcpStartupCoordinator.describePendingConnections.mockReturnValue(null);
+    agent.mcpReady = Promise.resolve();
+
+    await (agent as any).ensureInitComplete();
+
+    expect(agent.ui.setWorking).not.toHaveBeenCalled();
   });
 
   it('forceRenderSpinner renders a single-line status to avoid log box artifacts', () => {

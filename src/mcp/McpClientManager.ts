@@ -78,10 +78,24 @@ class McpConnectionCancelledError extends Error {
 
 const MCP_STOP_GRACE_MS = 1_000;
 const MCP_STOP_FORCE_WAIT_MS = 1_000;
+/**
+ * Budget for every request, the initialize handshake included. Cold `npx`
+ * servers can spend most of it installing on first launch, so it stays generous;
+ * the first turn no longer waits on it (see MCP_FIRST_TURN_DEADLINE_MS) and
+ * disconnectAll cancels it on exit. OAuth bridges block on a browser instead.
+ */
+const MCP_REQUEST_TIMEOUT_MS = 30_000;
+const MCP_OAUTH_INITIALIZE_TIMEOUT_MS = 240_000;
 
 function isOAuthBridge(config: McpServerConfig): boolean {
   return config.transport === 'stdio' && Boolean(config.command && isNpxCommand(config.command))
     && Boolean(config.args?.some((argument) => /^mcp-remote(?:@[0-9]+\.[0-9]+\.[0-9]+)?$/.test(argument)));
+}
+
+function resolveMcpRequestTimeoutMs(config: McpServerConfig, method: string): number {
+  return method === 'initialize' && isOAuthBridge(config)
+    ? MCP_OAUTH_INITIALIZE_TIMEOUT_MS
+    : MCP_REQUEST_TIMEOUT_MS;
 }
 
 function waitForChildClose(child: ChildProcess, timeoutMs: number): Promise<boolean> {
@@ -121,9 +135,6 @@ export class McpStdioConnection extends EventEmitter {
     }
   >();
   private stopPromise: Promise<void> | null = null;
-
-  /** Default timeout for RPC requests in milliseconds */
-  private static readonly REQUEST_TIMEOUT_MS = 30_000;
 
   constructor(
     private readonly config: McpServerConfig,
@@ -201,8 +212,7 @@ export class McpStdioConnection extends EventEmitter {
       ...(params !== undefined ? { params } : {}),
     };
 
-    const timeoutMs = method === 'initialize' && isOAuthBridge(this.config)
-      ? 240_000 : McpStdioConnection.REQUEST_TIMEOUT_MS;
+    const timeoutMs = resolveMcpRequestTimeoutMs(this.config, method);
     return new Promise<unknown>((resolve, reject) => {
       const failRequest = (error: Error): void => {
         const pending = this.pendingRequests.get(id);
@@ -500,9 +510,6 @@ class McpHttpConnection extends EventEmitter {
   private readonly lifetimeController = new AbortController();
   private stopped = false;
 
-  /** Default timeout for HTTP requests in milliseconds */
-  private static readonly REQUEST_TIMEOUT_MS = 30_000;
-
   constructor(private readonly config: McpServerConfig) {
     super();
   }
@@ -550,6 +557,7 @@ class McpHttpConnection extends EventEmitter {
     }
 
     const controller = new AbortController();
+    const timeoutMs = resolveMcpRequestTimeoutMs(this.config, method);
     let timedOut = false;
     let rejectCancellation: ((error: Error) => void) | undefined;
     const cancellation = new Promise<never>((_resolve, reject) => {
@@ -571,9 +579,9 @@ class McpHttpConnection extends EventEmitter {
       timedOut = true;
       controller.abort();
       rejectCancellation?.(
-        new Error(`MCP HTTP request "${method}" timed out after ${McpHttpConnection.REQUEST_TIMEOUT_MS}ms`)
+        new Error(`MCP HTTP request "${method}" timed out after ${timeoutMs}ms`)
       );
-    }, McpHttpConnection.REQUEST_TIMEOUT_MS);
+    }, timeoutMs);
     timeout.unref?.();
 
     const raceCancellation = <T>(operation: Promise<T>): Promise<T> =>
@@ -632,7 +640,7 @@ class McpHttpConnection extends EventEmitter {
                 : 'MCP request aborted'
             );
         }
-        throw new Error(`MCP HTTP request "${method}" timed out after ${McpHttpConnection.REQUEST_TIMEOUT_MS}ms`);
+        throw new Error(`MCP HTTP request "${method}" timed out after ${timeoutMs}ms`);
       }
       throw error;
     } finally {
@@ -1055,14 +1063,15 @@ export class McpClientManager {
 
   /**
    * Some MCP servers still use newline-delimited JSON-RPC over stdio.
-   * Start with Content-Length framing (spec), then fallback to newline when
-   * initialize stalls/closes without a successful handshake.
+   * Start with Content-Length framing (spec), then fallback to newline when the
+   * server closes without a successful handshake. A server that stayed silent for
+   * the whole initialize budget is dead, not misframed: retrying it would only
+   * double the wait, so timeouts fail fast.
    */
   private shouldRetryWithNewlineFraming(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
     return (
-      message.includes('MCP request "initialize" timed out')
-      || message.includes('MCP connection closed before initialization completed')
+      message.includes('MCP connection closed before initialization completed')
       || message.includes('MCP connection closed (server exited with code')
     );
   }

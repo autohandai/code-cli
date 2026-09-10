@@ -20,6 +20,8 @@ export interface McpStartupCoordinatorOptions {
   now?: () => number;
 }
 
+const MAX_PENDING_SERVERS_IN_STATUS = 3;
+
 export class McpStartupCoordinator {
   private autoConnectServers: string[] = [];
   private connectStartedAt: number | null = null;
@@ -41,6 +43,25 @@ export class McpStartupCoordinator {
     const count = this.autoConnectServers.length;
     const label = count === 1 ? 'server' : 'servers';
     this.write(chalk.gray(`MCP startup: connecting ${count} ${label} in background...`));
+  }
+
+  /**
+   * Names the auto-connect servers that have neither connected nor failed yet,
+   * shaped for a single status line. Null when nothing is still connecting.
+   */
+  describePendingConnections(): string | null {
+    if (!this.options.isEnabled() || this.autoConnectServers.length === 0) {
+      return null;
+    }
+    const settled = new Set(this.options.getRuntimeServers().map((server) => server.name));
+    const pending = this.autoConnectServers.filter((name) => !settled.has(name));
+    if (pending.length === 0) {
+      return null;
+    }
+    const shown = pending.slice(0, MAX_PENDING_SERVERS_IN_STATUS);
+    const overflow = pending.length - shown.length;
+    const names = overflow > 0 ? `${shown.join(', ')}, +${overflow}` : shown.join(', ');
+    return `Connecting MCP servers (${names})...`;
   }
 
   markConnectStarted(): void {

@@ -68,6 +68,9 @@ export function handleAgentCtrlCExitRequest(host: AgentUIRuntimeHost): void {
   }
 
   host.shouldExit = true;
+  // Startup waits (MCP handshakes, background init) park on this signal; without
+  // the abort the exit only lands once those waits time out on their own.
+  host.runtimeResourceShutdownController?.abort();
   host.clearAllQueuesAndAbort();
 }
 

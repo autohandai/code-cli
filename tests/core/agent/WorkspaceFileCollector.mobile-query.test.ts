@@ -3,7 +3,7 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -117,5 +117,74 @@ describe('WorkspaceFileCollector mobile filename query', () => {
       files: [],
       truncated: true,
     });
+  });
+});
+
+describe('WorkspaceFileCollector scan budget', () => {
+  const originalPath = process.env.PATH;
+
+  afterEach(async () => {
+    process.env.PATH = originalPath;
+    await Promise.all(temporaryDirectories.splice(0).map((directory) =>
+      rm(directory, { recursive: true, force: true })
+    ));
+  });
+
+  async function shadowGitWith(script: string): Promise<void> {
+    const binDirectory = await mkdtemp(path.join(os.tmpdir(), 'autohand-fake-git-'));
+    temporaryDirectories.push(binDirectory);
+    const gitPath = path.join(binDirectory, 'git');
+    await writeFile(gitPath, `#!/bin/sh\n${script}\n`, 'utf8');
+    await chmod(gitPath, 0o755);
+    process.env.PATH = `${binDirectory}${path.delimiter}${originalPath ?? ''}`;
+  }
+
+  it('stops waiting on git ls-files once the scan budget is spent', async () => {
+    const workspace = await createWorkspace();
+    await createFile(workspace, 'src/index.ts');
+    await shadowGitWith('printf "src/index.ts\\n"; sleep 5');
+    const collector = new WorkspaceFileCollector(workspace, new GitIgnoreParser(workspace), {
+      scanBudgetMs: 1_000,
+    });
+
+    const startedAt = Date.now();
+    const files = await collector.collectWorkspaceFiles(true);
+
+    expect(Date.now() - startedAt).toBeLessThan(3_000);
+    expect(files).toEqual(['src/index.ts']);
+  });
+
+  it('keeps the complete list when git answers inside the budget', async () => {
+    const workspace = await createWorkspace();
+    await createFile(workspace, 'src/a.ts');
+    await createFile(workspace, 'src/b.ts');
+    await shadowGitWith('printf "src/a.ts\\nsrc/b.ts\\n"');
+    const collector = new WorkspaceFileCollector(workspace, new GitIgnoreParser(workspace), {
+      scanBudgetMs: 2_000,
+    });
+
+    const files = await collector.collectWorkspaceFiles(true);
+
+    expect(files).toEqual(['src/a.ts', 'src/b.ts']);
+  });
+
+  it('bounds the filesystem walk fallback by the same budget', async () => {
+    const workspace = await createWorkspace();
+    for (let index = 0; index < 40; index += 1) {
+      await createFile(workspace, `deep/${index}/${index}.ts`);
+    }
+    await shadowGitWith('exit 1');
+    const exhausted = new WorkspaceFileCollector(workspace, new GitIgnoreParser(workspace), {
+      scanBudgetMs: 0,
+    });
+    const generous = new WorkspaceFileCollector(workspace, new GitIgnoreParser(workspace), {
+      scanBudgetMs: 5_000,
+    });
+
+    const boundedFiles = await exhausted.collectWorkspaceFiles(true);
+    const completeFiles = await generous.collectWorkspaceFiles(true);
+
+    expect(boundedFiles.length).toBeLessThan(completeFiles.length);
+    expect(completeFiles).toHaveLength(40);
   });
 });

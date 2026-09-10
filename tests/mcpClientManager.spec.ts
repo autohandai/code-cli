@@ -252,6 +252,69 @@ describe('McpClientManager', () => {
   });
 
   // ========================================================================
+  // startup timeouts (first-turn latency)
+  // ========================================================================
+
+  describe('startup timeouts', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    function createFakeStdioConnection(): { connection: McpStdioConnection; writes: string[] } {
+      const connection = new McpStdioConnection(stdioConfig, 'newline');
+      const writes: string[] = [];
+      const child = { stdin: { writable: true, write: (data: string) => writes.push(data) } };
+      (connection as unknown as { process: typeof child }).process = child;
+      return { connection, writes };
+    }
+
+    it('keeps the thirty second budget for requests so cold npx servers can finish installing', async () => {
+      vi.useFakeTimers();
+      const { connection } = createFakeStdioConnection();
+      let failure: Error | undefined;
+      const listed = connection.request('tools/list', {}).catch((error: Error) => {
+        failure = error;
+      });
+
+      await vi.advanceTimersByTimeAsync(29_900);
+      expect(failure).toBeUndefined();
+
+      await vi.advanceTimersByTimeAsync(200);
+      await listed;
+      expect(failure?.message).toBe('MCP request "tools/list" timed out after 30000ms');
+    });
+
+    it('does not retry with newline framing after the handshake timed out', async () => {
+      const connectWithFraming = vi
+        .spyOn(manager as unknown as { connectStdioWithFraming: () => Promise<unknown> }, 'connectStdioWithFraming')
+        .mockRejectedValue(new Error('MCP request "initialize" timed out after 30000ms'));
+
+      await expect(
+        (manager as unknown as {
+          connectStdioWithFallbackFraming: (config: McpServerConfig, generation: number) => Promise<unknown>;
+        }).connectStdioWithFallbackFraming(stdioConfig, 0),
+      ).rejects.toThrow('timed out after 30000ms');
+
+      expect(connectWithFraming).toHaveBeenCalledOnce();
+      expect(connectWithFraming).toHaveBeenCalledWith(stdioConfig, 'content-length', 0);
+    });
+
+    it('still retries with newline framing when the server exits during the handshake', async () => {
+      const connectWithFraming = vi
+        .spyOn(manager as unknown as { connectStdioWithFraming: () => Promise<unknown> }, 'connectStdioWithFraming')
+        .mockRejectedValueOnce(new Error('MCP connection closed (server exited with code 1)'))
+        .mockResolvedValueOnce({ connection: {}, tools: [] });
+
+      await (manager as unknown as {
+        connectStdioWithFallbackFraming: (config: McpServerConfig, generation: number) => Promise<unknown>;
+      }).connectStdioWithFallbackFraming(stdioConfig, 0);
+
+      expect(connectWithFraming).toHaveBeenCalledTimes(2);
+      expect(connectWithFraming).toHaveBeenLastCalledWith(stdioConfig, 'newline', 0);
+    });
+  });
+
+  // ========================================================================
   // connect + disconnect
   // ========================================================================
 
