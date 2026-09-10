@@ -72,10 +72,10 @@ describe('parseInlineAgents', () => {
       builder: {
         description: 'Builds features',
         prompt: 'Build it',
-        tools: 'read_file, write_file ,fff_grep',
+        tools: 'read_file, write_file ,find_grep',
       },
     });
-    expect(agents[0].tools).toEqual(['read_file', 'write_file', 'fff_grep']);
+    expect(agents[0].tools).toEqual(['read_file', 'write_file', 'find_grep']);
   });
 
   it('parses multiple agents', () => {

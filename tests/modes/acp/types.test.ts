@@ -69,7 +69,7 @@ describe("TOOL_KIND_MAP", () => {
   });
 
   it('contains expected search tools with ToolKind "search"', () => {
-    expect(TOOL_KIND_MAP["fff_grep"]).toBe("search");
+    expect(TOOL_KIND_MAP["find_grep"]).toBe("search");
     expect(TOOL_KIND_MAP["fff_find"]).toBe("search");
     expect(TOOL_KIND_MAP["find"]).toBe("search");
     // find remains classified for compatibility, but fff_* tools are the exposed defaults.
@@ -216,7 +216,7 @@ describe("DEFAULT_ACP_MODES", () => {
 describe("resolveToolKind()", () => {
   it("returns correct kind for known tools", () => {
     expect(resolveToolKind("read_file")).toBe("read");
-    expect(resolveToolKind("fff_grep")).toBe("search");
+    expect(resolveToolKind("find_grep")).toBe("search");
     expect(resolveToolKind("fff_find")).toBe("search");
     expect(resolveToolKind("find")).toBe("search");
     // Legacy search tools remain classified for old transcripts.

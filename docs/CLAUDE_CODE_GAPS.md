@@ -132,7 +132,7 @@ Worth knowing, since name-matching against `cc-src` gives false positives:
 | `CRON_LIST_TOOL_NAME` | `list_schedules`, `cancel_schedule` |
 | `SEND_MESSAGE_TOOL_NAME` | `send_team_message` |
 | `FILE_EDIT_TOOL_NAME` | `apply_patch`, `search_replace` |
-| `GREP_TOOL_NAME` | `fff_grep`, `fff_find` (broader) |
+| `GREP_TOOL_NAME` | `find_grep`, `fff_find` (broader) |
 | `BASH_TOOL_NAME` / shell | `run_command`, `shell` |
 | `ASK_USER_QUESTION_TOOL_NAME` | `ask_followup_question` |
 

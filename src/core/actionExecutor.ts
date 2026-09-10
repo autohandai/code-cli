@@ -1067,7 +1067,7 @@ export class ActionExecutor {
       );
     }
 
-    if (this.runtime.options.dryRun && !['fff_grep', 'fff_find', 'find', 'search', 'search_with_context', 'semantic_search', 'glob', 'plan'].includes(action.type)) {
+    if (this.runtime.options.dryRun && !['find_grep', 'fff_find', 'find', 'search', 'search_with_context', 'semantic_search', 'glob', 'plan'].includes(action.type)) {
       return this.recordToolFailure(
         capture,
         'authorization',
@@ -1713,7 +1713,7 @@ export class ActionExecutor {
 
       case 'glob':
         return this.executeGlob(action);
-      case 'fff_grep':
+      case 'find_grep':
         return this.executeFFFGrep(action);
       case 'fff_find':
         return this.executeFFFFind(action);
@@ -3838,7 +3838,7 @@ export class ActionExecutor {
     const label = clampedLineNumbers.length === 1
       ? `Line ${clampedLineNumbers[0]} exceeded ${READ_FILE_MAX_LINE_CHARACTERS} characters and was clamped.`
       : `Lines ${clampedLineNumbers.join(', ')} exceeded ${READ_FILE_MAX_LINE_CHARACTERS} characters and were clamped.`;
-    return `Note: ${label} Use fff_grep or shell for targeted inspection.`;
+    return `Note: ${label} Use find_grep or shell for targeted inspection.`;
   }
 
   private withReadPathRepairNote(
@@ -3867,7 +3867,7 @@ export class ActionExecutor {
   }
 
   private executeFind(action: Extract<AgentAction, { type: 'find' }>): string {
-    console.warn(chalk.yellow('[DEPRECATED] The `find` tool is deprecated. Use `fff_grep` instead. Will be removed in v0.9.0.'));
+    console.warn(chalk.yellow('[DEPRECATED] The `find` tool is deprecated. Use `find_grep` instead. Will be removed in v0.9.0.'));
     const mode = action.mode ?? (action.context && action.context > 0 ? 'context' : 'exact');
     const cacheKey = `find:${mode}:${action.query}:${action.path || ''}:${action.limit || ''}:${action.context || ''}:${action.window || ''}`;
     if (this.searchCache.has(cacheKey)) {
@@ -3983,7 +3983,7 @@ export class ActionExecutor {
   }
 
   private async executeFFFGrep(
-    action: Extract<AgentAction, { type: 'fff_grep' }>
+    action: Extract<AgentAction, { type: 'find_grep' }>
   ): Promise<string> {
     const provider = await this.getFFFSearchProvider();
     try {

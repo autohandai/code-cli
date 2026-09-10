@@ -730,7 +730,7 @@ Comportamento dell'agente di controllo e limiti di iterazione.
 
 Autohand non invia tutti gli schemi completi degli strumenti su ogni richiesta LLM. Il prompt del sistema include un catalogo compatto delle funzionalità dello strumento e ogni richiesta espone solo un piccolo insieme di schemi concreti selezionati da:
 
-- Strumenti di rilevamento principali come `tool_search`, `read_file`, `fff_find` e `fff_grep`
+- Strumenti di rilevamento principali come `tool_search`, `read_file`, `fff_find` e `find_grep`
 - Strumenti mirati per operazioni di modifica, verifica, git, browser, web, dipendenze o monitoraggio dei progetti
 - Strumenti richiesti tramite recenti chiamate `tool_search` o menzionati esplicitamente per nome
 

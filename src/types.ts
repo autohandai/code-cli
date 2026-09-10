@@ -1498,7 +1498,7 @@ export type AgentAction =
   | { type: 'format_file'; path: string; formatter: string }
   | { type: 'glob'; pattern?: string; patterns?: string[]; path?: string; limit?: number }
   | {
-      type: 'fff_grep';
+      type: 'find_grep';
       query: string;
       path?: string;
       exclude?: string;

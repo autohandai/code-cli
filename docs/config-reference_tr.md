@@ -730,7 +730,7 @@ Kontrol aracısı davranışı ve yineleme sınırları.
 
 Autohand her LLM isteğinde her araç şemasının tamamını göndermez. Sistem istemi, kompakt bir araç yetenek kataloğu içerir ve her istek, aşağıdakilerden seçilen yalnızca küçük bir dizi somut şemayı ortaya çıkarır:
 
-- `tool_search`, `read_file`, `fff_find` ve `fff_grep` gibi temel keşif araçları
+- `tool_search`, `read_file`, `fff_find` ve `find_grep` gibi temel keşif araçları
 - Düzenleme, doğrulama, git, tarayıcı, web, bağımlılık veya proje izleme çalışmaları için amaca uygun araçlar
 - Son `tool_search` çağrıları yoluyla talep edilen veya açıkça adı geçen araçlar
 

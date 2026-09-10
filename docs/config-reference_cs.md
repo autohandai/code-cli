@@ -748,7 +748,7 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 
 Autohand neodesílá každé úplné schéma nástroje na každý požadavek LLM. Systémová výzva obsahuje kompaktní katalog funkcí nástrojů a každý požadavek odhaluje pouze malou sadu konkrétních schémat vybraných z:
 
-– Základní nástroje pro zjišťování, jako jsou `tool_search`, `read_file`, `fff_find` a `fff_grep`
+– Základní nástroje pro zjišťování, jako jsou `tool_search`, `read_file`, `fff_find` a `find_grep`
 - Nástroje přizpůsobené záměru pro editaci, ověřování, git, prohlížeč, web, závislost nebo práci se sledováním projektu
 - Nástroje požadované prostřednictvím nedávných volání `tool_search` nebo výslovně uvedené jménem
 

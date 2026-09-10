@@ -50,7 +50,7 @@ describe('ActionExecutor FFF search reuse', () => {
 
     const executor = makeExecutor();
 
-    await expect(executor.execute({ type: 'fff_grep', query: 'needle' })).resolves.toBe('grep result');
+    await expect(executor.execute({ type: 'find_grep', query: 'needle' })).resolves.toBe('grep result');
     await expect(executor.execute({ type: 'fff_find', query: 'file' })).resolves.toBe('find result');
 
     expect(createProvider).toHaveBeenCalledTimes(1);

@@ -281,7 +281,7 @@ describe('AgentRunsPanel', () => {
   it('keeps live stages visible in narrow lists and scrolls selection past the visible page', async () => {
     const runs = Array.from({ length: 12 }, (_, index) => run(`worker-${index}`, {
       name: `Worker ${index} with a very long descriptive name`,
-      activity: index === 11 ? 'fff_grep, fff_find' : 'Thinking',
+      activity: index === 11 ? 'find_grep, fff_find' : 'Thinking',
     }));
     const view = render(<ThemeProvider><AgentRunsPanel snapshot={{ updatedAt: 200, runs }}
       terminalRows={18} terminalColumns={36} onClose={() => {}} onCtrlC={() => {}} /></ThemeProvider>);

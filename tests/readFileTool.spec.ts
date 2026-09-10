@@ -137,7 +137,7 @@ describe('read_file public contract', () => {
     const [firstLine] = outcome.output?.split('\n') ?? [];
     expect(firstLine).toBe(`     1\t${'x'.repeat(2_000)}`);
     expect(outcome.output).toContain('Line 1 exceeded 2000 characters and was clamped.');
-    expect(outcome.output).toContain('fff_grep or shell');
+    expect(outcome.output).toContain('find_grep or shell');
   });
 
   it('strips a UTF-8 BOM and normalizes CRLF before returning text', async () => {

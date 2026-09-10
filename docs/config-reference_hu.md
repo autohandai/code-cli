@@ -730,7 +730,7 @@ Az ügynök viselkedésének és iterációs korlátainak szabályozása.
 
 A Autohand nem küld el minden teljes eszközsémát minden LLM-kérelemnél. A rendszerprompt tartalmaz egy kompakt eszközképesség-katalógust, és minden kérés csak egy kis konkrét sémát tesz közzé, amely a következők közül választható ki:
 
-- Az alapvető felderítési eszközök, például `tool_search`, `read_file`, `fff_find` és `fff_grep`
+- Az alapvető felderítési eszközök, például `tool_search`, `read_file`, `fff_find` és `find_grep`
 - Szándékhoz illő eszközök szerkesztési, ellenőrzési, git, böngésző, web, függőségi vagy projektkövetési munkákhoz
 - A legutóbbi `tool_search` hívások során kért vagy kifejezetten név szerint megemlített eszközök
 

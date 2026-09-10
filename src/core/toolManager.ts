@@ -172,6 +172,11 @@ const WRITE_CAPABILITY_TOOLS = new Set<AgentAction['type']>([
   'copy_path',
 ]);
 
+/** Former tool names that older prompts, plans, and skills may still emit. */
+const LEGACY_TOOL_NAMES: Readonly<Record<string, ToolCallRequest['tool']>> = {
+  fff_grep: 'find_grep',
+};
+
 const READ_FILE_PATH_ALIASES = [
   'file_path',
   'filePath',
@@ -196,7 +201,7 @@ function resolveEffectivePermissionTool(
   }
   if ((action.type === 'code_review' && values.scope === 'file' && values.path !== undefined)
     || (action.type === 'git_diff' && values.path !== undefined)
-    || (action.type === 'fff_grep' && values.path !== undefined)
+    || (action.type === 'find_grep' && values.path !== undefined)
     || (action.type === 'find' && values.path !== undefined)
     || action.type === 'checksum') {
     return 'read_file';
@@ -477,7 +482,7 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
-    name: 'fff_grep',
+    name: 'find_grep',
     description: 'Content search with frecency ranking and definition detection when native FFF is available, plus a ripgrep-backed fallback. Use this for content search.',
     parameters: {
       type: 'object',
@@ -567,7 +572,7 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'run_command',
-    description: 'Execute a shell command in the user\'s shell with full pipe, redirect, and environment variable support. Cross-platform (bash/zsh on macOS/Linux, cmd/PowerShell on Windows). Prefer dedicated tools for file operations (read_file, write_file, fff_grep, fff_find). For most commands, prefer the `shell` tool instead - it shows real-time output. Use this only for quick commands where you don\'t need progress monitoring.',
+    description: 'Execute a shell command in the user\'s shell with full pipe, redirect, and environment variable support. Cross-platform (bash/zsh on macOS/Linux, cmd/PowerShell on Windows). Prefer dedicated tools for file operations (read_file, write_file, find_grep, fff_find). For most commands, prefer the `shell` tool instead - it shows real-time output. Use this only for quick commands where you don\'t need progress monitoring.',
     parameters: {
       type: 'object',
       properties: {
@@ -2641,7 +2646,7 @@ export class ToolManager {
     const readyToExecute: ReadyToolExecutionTask[] = [];
 
     for (let i = 0; i < toolCalls.length; i++) {
-      let call = this.cloneToolCallWithStableId(toolCalls[i]);
+      let call = this.resolveLegacyToolName(this.cloneToolCallWithStableId(toolCalls[i]));
 
       const reject = (
         error: string,
@@ -3198,6 +3203,11 @@ export class ToolManager {
       description: schema.description ?? '',
       enum: schema.enum,
     });
+  }
+
+  private resolveLegacyToolName(call: ToolCallRequest): ToolCallRequest {
+    const current = LEGACY_TOOL_NAMES[call.tool];
+    return current ? { ...call, tool: current } : call;
   }
 
   private applyAlternative(

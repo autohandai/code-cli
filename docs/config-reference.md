@@ -1009,7 +1009,7 @@ Control agent behavior and iteration limits.
 
 Autohand does not send every full tool schema on every LLM request. The system prompt includes a compact tool capability catalog, and each request exposes only a small set of concrete schemas selected from:
 
-- Core discovery tools such as `tool_search`, `read_file`, `fff_find`, and `fff_grep`
+- Core discovery tools such as `tool_search`, `read_file`, `fff_find`, and `find_grep`
 - Intent-matched tools for editing, verification, git, browser, web, dependency, or project-tracking work
 - Tools requested through recent `tool_search` calls or explicitly mentioned by name
 

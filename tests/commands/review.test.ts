@@ -17,7 +17,7 @@ vi.mock('fs-extra', () => ({
       return [
         '---',
         'description: test specialist',
-        'tools: read_file, fff_grep, fff_find',
+        'tools: read_file, find_grep, fff_find',
         '---',
         '',
         '# Autohand Review',

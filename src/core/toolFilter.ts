@@ -92,7 +92,7 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   // Read operations
   read_file: 'read',
   fff_find: 'read',
-  fff_grep: 'read',
+  find_grep: 'read',
   find: 'read',
   glob: 'read',
   search: 'read',
@@ -262,7 +262,7 @@ export const CONTEXT_POLICIES: Record<ClientContext, ToolPolicy> = {
       'browser_get_tab_groups',
       ...BROWSER_V2_TOOL_NAMES,
       // Basic file ops — restricted scope
-      'read_file', 'write_file', 'fff_grep', 'fff_find', 'search', 'list_tree',
+      'read_file', 'write_file', 'find_grep', 'fff_find', 'search', 'list_tree',
       // Web
       'web_search', 'fetch_url',
       // Communication
@@ -446,7 +446,7 @@ const RELEVANCE_CATEGORIES: Record<string, RelevanceCategory> = {
   // Always include
   read_file: 'always',
   fff_find: 'always',
-  fff_grep: 'always',
+  find_grep: 'always',
   tool_search: 'always',
   ask_followup_question: 'always',
   find_agent_skills: 'always',

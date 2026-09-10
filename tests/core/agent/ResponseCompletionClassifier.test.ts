@@ -118,14 +118,14 @@ describe('ResponseCompletionClassifier', () => {
     [
       "I'll provide the tools I have for you:",
       '- git_status and git_diff for repository state',
-      '- fff_grep and read_file for source inspection',
+      '- find_grep and read_file for source inspection',
       '- apply_patch for focused edits',
     ].join('\n'),
     [
       'I have tools for:',
       '- **Codebase discovery**',
       '  - Find files: `fff_find`',
-      '  - Search code/content: `fff_grep`',
+      '  - Search code/content: `find_grep`',
       '  - Read files, inspect tree, file stats/checksums',
       '- **Editing**',
       '  - Write/edit files: `write_file`, `apply_patch`, `search_replace`, `append_file`',

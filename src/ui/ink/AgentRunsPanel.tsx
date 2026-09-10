@@ -98,7 +98,7 @@ function activityLabel(run: AgentRun): string {
     switch (tool) {
       case 'read_file': return 'Reading files';
       case 'run_command': return 'Running command';
-      case 'fff_grep': return 'Searching contents';
+      case 'find_grep': return 'Searching contents';
       case 'fff_find': return 'Finding files';
       default: return tool || 'Starting';
     }
