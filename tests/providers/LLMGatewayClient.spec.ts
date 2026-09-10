@@ -781,6 +781,64 @@ describe('LLMGatewayClient', () => {
       },
     );
 
+    it('reports each wait and retry to the caller so the UI can show a countdown', async () => {
+      vi.useFakeTimers();
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          headers: new Headers({ 'Retry-After': '3' }),
+          json: () => Promise.resolve({
+            error: {
+              type: 'rate_limited',
+              message: 'Your uncached input-token throughput is exhausted for this minute.',
+              scope: 'input_tpm',
+            },
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({
+            id: 'retry-success',
+            created: Date.now(),
+            choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+          }),
+        });
+      global.fetch = fetchMock;
+      const onRetry = vi.fn();
+      const client = new LLMGatewayClient(
+        { apiKey: 'test-key', model: 'fantail' },
+        { maxRetries: 2, retryDelay: 10 },
+        {
+          serviceName: 'Autohand AI',
+          credentialName: 'Autohand AI API key',
+          accountName: 'Autohand AI account',
+        },
+      );
+
+      try {
+        const completion = client.complete({
+          messages: [{ role: 'user', content: 'Hello' }],
+          onRetry,
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(onRetry).toHaveBeenCalledTimes(1);
+        expect(onRetry).toHaveBeenLastCalledWith({
+          phase: 'waiting',
+          delayMs: 3_000,
+          attempt: 1,
+          maxAttempts: 2,
+          reason: 'Autohand AI uncached input-token throughput',
+        });
+        await vi.advanceTimersByTimeAsync(3_000);
+        await completion;
+        expect(onRetry).toHaveBeenCalledTimes(2);
+        expect(onRetry).toHaveBeenLastCalledWith({ phase: 'retrying', attempt: 1, maxAttempts: 2 });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('keeps the throughput message and upgrade link when the throttle outlasts every retry', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: false,

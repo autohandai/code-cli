@@ -390,7 +390,15 @@ export class LLMGatewayClient {
             && lastError.retryAfterMs !== undefined
             ? lastError.retryAfterMs
             : this.retryDelay * Math.pow(2, attempt);
+          request.onRetry?.({
+            phase: "waiting",
+            delayMs: delay,
+            attempt: attempt + 1,
+            maxAttempts: this.maxRetries,
+            reason: this.describeRetryReason(lastError),
+          });
           await this.sleep(delay, request.signal);
+          request.onRetry?.({ phase: "retrying", attempt: attempt + 1, maxAttempts: this.maxRetries });
         }
       }
     }
@@ -718,6 +726,21 @@ export class LLMGatewayClient {
     }
 
     return classifyApiError(status, errorDetail, response.headers);
+  }
+
+  private describeRetryReason(error: Error): string {
+    if (error instanceof AutohandRateLimitError) {
+      const label = error.scope === "rpm"
+        ? "request rate limit"
+        : isAutohandTokenThroughputScope(error.scope)
+          ? AUTOHAND_TOKEN_THROUGHPUT_SCOPE_LABELS[error.scope]
+          : AUTOHAND_QUOTA_SCOPE_LABELS[error.scope];
+      return `${this.errorLabels.serviceName} ${label}`;
+    }
+    if (error instanceof ApiError) {
+      return error.code.replace(/_/g, " ");
+    }
+    return "a transient error";
   }
 
   private isNonRetryableError(error: Error): boolean {
