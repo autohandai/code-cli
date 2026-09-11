@@ -100,6 +100,14 @@ describe('SETTINGS_REGISTRY', () => {
     }
   });
 
+  it('offers the keybinding profile as an enum over every known profile', () => {
+    const setting = SETTINGS_REGISTRY.find(s => s.key === 'ui.keybindingProfile');
+    expect(setting).toMatchObject({ category: 'ui', type: 'enum', defaultValue: 'autohand' });
+    expect(setting?.enumValues).toEqual([
+      'autohand', 'claude-code', 'codex', 'cursor', 'antigravity', 'devin', 'factory',
+    ]);
+  });
+
   it('redirect settings have redirect field', () => {
     const redirects = SETTINGS_REGISTRY.filter(s => s.redirect);
     expect(redirects.length).toBeGreaterThan(0);

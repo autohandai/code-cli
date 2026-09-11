@@ -120,6 +120,23 @@ describe('getProviderConfig', () => {
     }
   });
 
+  it('accepts a known keybinding profile and rejects unknown ones', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
+    const configPath = path.join(tempDir, 'config.json');
+
+    try {
+      await fs.writeJson(configPath, { provider: 'openrouter', ui: { keybindingProfile: 'codex' } });
+      expect((await loadConfig(configPath)).ui?.keybindingProfile).toBe('codex');
+
+      await fs.writeJson(configPath, { provider: 'openrouter', ui: { keybindingProfile: 'emacs' } });
+      await expect(loadConfig(configPath)).rejects.toThrow(
+        'ui.keybindingProfile must be one of autohand, claude-code, codex, cursor, antigravity, devin, factory',
+      );
+    } finally {
+      await fs.remove(tempDir);
+    }
+  });
+
   it('repairs a saved website deployment URL used as the control-plane API', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
     const configPath = path.join(tempDir, 'config.json');
