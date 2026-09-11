@@ -329,6 +329,7 @@ program
   .option('--yolo [pattern]', 'Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)')
   .option('--timeout <seconds>', 'Timeout in seconds for auto-approve mode', parseInt)
   .option('--fork <pathOrId>', 'Create and resume a new session branch from an existing session reference')
+  .option('--rename <name>', 'Name the most recent session of this workspace and exit')
   .action(async (positionalPrompt: string | undefined, opts: RootCliOptions) => {
     // Clear screen immediately for Cursor-like behavior (before any output)
     if (
@@ -434,6 +435,22 @@ program
     if (opts.permissions) {
       await displayPermissions(opts);
       return;
+    }
+
+    // Handle --rename flag
+    if (typeof opts.rename === 'string') {
+      const { renameLastSession } = await import('./startup/renameSession.js');
+      try {
+        const renamed = await renameLastSession({
+          workspacePath: opts.path ?? process.cwd(),
+          name: opts.rename,
+        });
+        console.log(chalk.green(`Session ${renamed.sessionId} renamed to "${renamed.title}".`));
+        process.exit(0);
+      } catch (error) {
+        console.error(chalk.red(error instanceof Error ? error.message : String(error)));
+        process.exit(1);
+      }
     }
 
     // Handle --settings flag

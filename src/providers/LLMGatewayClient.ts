@@ -13,6 +13,7 @@ import type {
   MultimodalMessage,
   NvidiaChatTemplateKwargs,
 } from "../types.js";
+import { joinReasoning, splitInlineThinking } from "./inlineThinking.js";
 import { ApiError, classifyApiError } from "./errors.js";
 import { normalizeOutboundMessages, toTextOnlyContent } from "./messagePayload.js";
 import { normalizeLLMUsage } from "./usage.js";
@@ -504,7 +505,8 @@ export class LLMGatewayClient {
 
     const json = (await response.json()) as any;
     const message = json?.choices?.[0]?.message;
-    const text = message?.content ?? "";
+    const inline = splitInlineThinking(message?.content ?? "");
+    const reasoning = joinReasoning(message?.reasoning ?? message?.reasoning_content, inline.reasoning);
     const finishReason = json?.choices?.[0]?.finish_reason;
 
     // Parse tool calls if present
@@ -528,10 +530,11 @@ export class LLMGatewayClient {
     return {
       id: json.id ?? "llmgateway-response",
       created: json.created ?? Date.now(),
-      content: text,
+      content: inline.content,
       toolCalls,
       finishReason: finishReason as LLMResponse["finishReason"],
       usage,
+      reasoning,
       raw: json,
     };
   }
@@ -594,15 +597,15 @@ export class LLMGatewayClient {
       reader.releaseLock();
     }
 
-    // Combine reasoning and content if reasoning exists
-    const finalContent = fullReasoning
-      ? `<thinking>${fullReasoning}</thinking>\n\n${fullContent}`
-      : fullContent;
+    // Reasoning stays out of `content` so the show-thinking setting, not the
+    // transcript, decides whether the user sees it.
+    const inline = splitInlineThinking(fullContent);
 
     return {
       id: lastChunk?.id ?? `llmgateway-stream-${Date.now()}`,
       created: lastChunk?.created ?? Math.floor(Date.now() / 1000),
-      content: finalContent,
+      content: inline.content,
+      reasoning: joinReasoning(fullReasoning, inline.reasoning),
       finishReason: finishReason as LLMResponse["finishReason"],
       raw: { content: fullContent, reasoning: fullReasoning, chunks: lastChunk },
     };

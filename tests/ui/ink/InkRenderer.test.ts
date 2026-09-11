@@ -192,9 +192,51 @@ describe('InkRenderer live command blocks', () => {
         success: true,
         content: '$ pwd\n/tmp/project',
       },
+      { role: 'thinking', content: 'Need to inspect the current directory.' },
       { role: 'assistant', content: 'You are in /tmp/project.' },
       { role: 'completion', content: 'Completed in 1s · 10 tokens' },
       { role: 'user', content: 'thanks' },
+    ]);
+  });
+
+  it('keeps a final-turn thought visible while idle and archives it ahead of the reply', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    renderer.addUserMessage('tell me a joke');
+    renderer.setThinking('Weigh two jokes.');
+    renderer.setWorking(false);
+    renderer.setFinalResponse('Light attracts bugs.');
+    expect(renderer.getState().thinking).toBe('Weigh two jokes.');
+
+    renderer.addUserMessage('another');
+    expect(renderer.getState().thinking).toBeNull();
+    expect(renderer.getState().chatMessages).toEqual([
+      { role: 'user', content: 'tell me a joke' },
+      { role: 'thinking', content: 'Weigh two jokes.' },
+      { role: 'assistant', content: 'Light attracts bugs.' },
+      { role: 'user', content: 'another' },
+    ]);
+  });
+
+  it('archives a reply without a thinking entry when no thought was shown', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    renderer.addUserMessage('hi');
+    renderer.setWorking(false);
+    renderer.setFinalResponse('hello');
+    renderer.setWorking(true, 'Working...');
+
+    expect(renderer.getState().chatMessages).toEqual([
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: 'hello' },
     ]);
   });
 

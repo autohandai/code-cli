@@ -18,7 +18,7 @@ export interface ChatToolBatchGroup {
 }
 
 export interface ChatLogMessage {
-  role: 'user' | 'assistant' | 'tool' | 'tool_call' | 'tool_batch' | 'completion' | 'notification';
+  role: 'user' | 'assistant' | 'thinking' | 'tool' | 'tool_call' | 'tool_batch' | 'completion' | 'notification';
   content: string;
   tool?: string;
   success?: boolean;

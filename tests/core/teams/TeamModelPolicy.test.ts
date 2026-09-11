@@ -4,8 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, expect, it } from 'vitest';
-import { resolveTeamModelAssignment } from '../../../src/core/teams/TeamModelPolicy.js';
+import { describe, expect, it, vi } from 'vitest';
+import { createTeamMemberProvider, resolveTeamModelAssignment } from '../../../src/core/teams/TeamModelPolicy.js';
+import { ProviderFactory } from '../../../src/providers/ProviderFactory.js';
 import type { AutohandConfig } from '../../../src/types.js';
 
 describe('resolveTeamModelAssignment', () => {
@@ -15,15 +16,23 @@ describe('resolveTeamModelAssignment', () => {
     autohandai: { plan: 'cloud', model: 'fantail' },
   };
 
-  it('inherits the active Autohand AI assignment when no team default is configured', () => {
+  it('runs Autohand AI members on the fast tier when nothing overrides it', () => {
     expect(resolveTeamModelAssignment({
       config,
       active: { provider: 'autohandai', model: 'fantail' },
     })).toEqual({
       provider: 'autohandai',
       model: 'fantail',
-      source: 'active-session',
+      source: 'agent-nature',
     });
+  });
+
+  it('inherits the active session on providers without a fast tier', () => {
+    expect(resolveTeamModelAssignment({
+      config,
+      active: { provider: 'openrouter', model: 'openrouter/auto' },
+      environment: {},
+    })).toEqual({ provider: 'openrouter', model: 'openrouter/auto', source: 'active-session' });
   });
 
   it('uses a saved team default without falling back to OpenRouter', () => {
@@ -95,13 +104,64 @@ describe('resolveTeamModelAssignment', () => {
     });
   });
 
-  it('inherits the active cloud model when catalogue metadata names another provider model', () => {
+  it('drops catalogue metadata naming another provider model and runs the member on the fast tier', () => {
     expect(resolveTeamModelAssignment({
       config,
       active: { provider: 'autohandai', model: 'moa' },
       agentModel: 'gpt-5.4',
       environment: {},
-    })).toEqual({ provider: 'autohandai', model: 'moa', source: 'active-session' });
+    })).toEqual({ provider: 'autohandai', model: 'fantail', source: 'agent-nature' });
+  });
+
+  it('defaults Autohand AI members to fantail and gives reasoning-natured agents moa with their effort', () => {
+    expect(resolveTeamModelAssignment({
+      config,
+      active: { provider: 'autohandai', model: 'moa' },
+      agentName: 'implementer',
+      environment: {},
+    })).toEqual({ provider: 'autohandai', model: 'fantail', source: 'agent-nature' });
+    expect(resolveTeamModelAssignment({
+      config,
+      active: { provider: 'autohandai', model: 'fantail' },
+      agentName: 'reviewer',
+      agentReasoning: 'high',
+      environment: {},
+    })).toEqual({ provider: 'autohandai', model: 'moa', source: 'agent-nature', reasoningEffort: 'high' });
+    expect(resolveTeamModelAssignment({
+      config,
+      active: { provider: 'autohandai', model: 'moa' },
+      agentReasoning: 'none',
+      environment: {},
+    })).toEqual({ provider: 'autohandai', model: 'fantail', source: 'agent-nature' });
+  });
+
+  it('ignores a tool-supplied model the Autohand AI catalogue does not know', () => {
+    expect(resolveTeamModelAssignment({
+      config,
+      active: { provider: 'autohandai', model: 'moa' },
+      override: { model: 'gpt-5.4' },
+      agentReasoning: 'high',
+      environment: {},
+    })).toEqual({ provider: 'autohandai', model: 'moa', source: 'agent-nature', reasoningEffort: 'high' });
+    expect(resolveTeamModelAssignment({
+      config,
+      active: { provider: 'autohandai', model: 'fantail' },
+      override: { model: 'moa' },
+      environment: {},
+    })).toEqual({ provider: 'autohandai', model: 'moa', source: 'member-override' });
+  });
+
+  it('keeps user-level defaults ahead of the fast-tier rule', () => {
+    expect(resolveTeamModelAssignment({
+      config: { ...config, teams: { defaultProvider: 'autohandai', defaultModel: 'moa' } },
+      active: { provider: 'autohandai', model: 'fantail' },
+      environment: {},
+    })).toEqual({ provider: 'autohandai', model: 'moa', source: 'team-default' });
+    expect(resolveTeamModelAssignment({
+      config,
+      active: { provider: 'autohandai', model: 'fantail' },
+      environment: { SUB_AGENTS_MODEL: 'moa' },
+    })).toEqual({ provider: 'autohandai', model: 'moa', source: 'environment' });
   });
 
   it('preserves compatible catalogue models and explicit provider assignments', () => {
@@ -130,8 +190,56 @@ describe('resolveTeamModelAssignment', () => {
     expect(resolveTeamModelAssignment({
       config,
       active: { provider: 'openrouter', model: 'openrouter/auto' },
-      agentModel: 'openai/gpt-5.4',
+      agentModel: 'anthropic/claude-sonnet-5',
       environment: {},
-    })).toEqual({ provider: 'openrouter', model: 'openai/gpt-5.4', source: 'agent-definition' });
+    })).toEqual({ provider: 'openrouter', model: 'anthropic/claude-sonnet-5', source: 'agent-definition' });
+  });
+
+  it('keeps the user\'s model on other providers when a definition names a model their catalogue lacks', () => {
+    expect(resolveTeamModelAssignment({
+      config,
+      active: { provider: 'openrouter', model: 'openrouter/auto' },
+      agentModel: 'gpt-5.4',
+      agentReasoning: 'high',
+      environment: {},
+    })).toEqual({ provider: 'openrouter', model: 'openrouter/auto', source: 'active-session' });
+    expect(resolveTeamModelAssignment({
+      config: { ...config, provider: 'anthropic', anthropic: { apiKey: 'k', model: 'claude-sonnet-5' } },
+      active: { provider: 'anthropic', model: 'claude-sonnet-5' },
+      agentModel: 'gpt-5.4',
+      environment: {},
+    })).toEqual({ provider: 'anthropic', model: 'claude-sonnet-5', source: 'active-session' });
+  });
+});
+
+describe('createTeamMemberProvider', () => {
+  const config: AutohandConfig = {
+    provider: 'autohandai',
+    autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'k', model: 'moa', reasoningEffort: 'xhigh' },
+  };
+
+  it('builds the member provider with the assignment reasoning effort and model', () => {
+    const setModel = vi.fn();
+    const create = vi.spyOn(ProviderFactory, 'create').mockReturnValue({ setModel } as never);
+    createTeamMemberProvider(config, {
+      provider: 'autohandai', model: 'moa', source: 'agent-nature', reasoningEffort: 'high',
+    });
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'autohandai',
+      autohandai: expect.objectContaining({ reasoningEffort: 'high' }),
+    }));
+    expect(setModel).toHaveBeenCalledWith('moa');
+    create.mockRestore();
+  });
+
+  it('leaves the lead session reasoning effort in place when the assignment carries none', () => {
+    const create = vi.spyOn(ProviderFactory, 'create').mockReturnValue({ setModel: vi.fn() } as never);
+    createTeamMemberProvider(config, { provider: 'autohandai', model: 'fantail', source: 'agent-nature' });
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      autohandai: expect.objectContaining({ reasoningEffort: 'xhigh' }),
+    }));
+    create.mockRestore();
   });
 });

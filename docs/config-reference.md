@@ -698,7 +698,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
       "showCancelHint": true
     },
     "showCompletionNotification": true,
-    "showThinking": true,
+    "showThinking": false,
     "terminalBell": true,
     "checkForUpdates": true,
     "updateCheckInterval": 24
@@ -728,7 +728,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `statusLine.showCancelHint`    | boolean | `true`  | Show the Esc cancel hint while the agent is working |
 | `completionReportEnabled`    | boolean | `true`  | Ask the model to include a concise completion report after completed action turns |
 | `showCompletionNotification` | boolean | `true`  | Show system notification when task completes                                                   |
-| `showThinking`               | boolean | `true`  | Display LLM's reasoning/thought process                                                        |
+| `showThinking`               | boolean | `false` | Display LLM's reasoning/thought process                                                        |
 | `renderMarkdown`             | boolean | `true`  | Render assistant markdown in the terminal: headings, emphasis, inline and fenced code, lists, task lists, quotes, rules, links, and tables. Set `false` to show the markdown as written. Toggle it in `/settings` under UI & Display, or run `/settings render_markdown off` |
 | `mouseComposerCursor`        | boolean | on, except iTerm2 | Enable click-to-position editing in the Ink composer                                           |
 | `keybindingProfile`          | string | `"autohand"` | Shortcut profile for the composer: `autohand`, `claude-code`, `codex`, `cursor`, `antigravity`, `devin` or `factory`. See [Keyboard Shortcut Profiles](#keyboard-shortcut-profiles) |
@@ -2208,7 +2208,7 @@ autohand --no-browser       # Start with browser bridge disabled
     "theme": "aurora",
     "autoConfirm": false,
     "showCompletionNotification": true,
-    "showThinking": true,
+    "showThinking": false,
     "terminalBell": true,
     "checkForUpdates": true,
     "updateCheckInterval": 24
@@ -2295,7 +2295,7 @@ ui:
   theme: aurora
   autoConfirm: false
   showCompletionNotification: true
-  showThinking: true
+  showThinking: false
   terminalBell: true
   checkForUpdates: true
   updateCheckInterval: 24
@@ -2382,7 +2382,7 @@ allowDangerousOps = false
 theme = "aurora"
 autoConfirm = false
 showCompletionNotification = true
-showThinking = true
+showThinking = false
 terminalBell = true
 checkForUpdates = true
 updateCheckInterval = 24

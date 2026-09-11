@@ -22,6 +22,9 @@ export async function session(ctx: { sessionManager: SessionManager }): Promise<
     const meta = current.metadata;
     console.log(chalk.cyan('\nCurrent session'));
     console.log(`${chalk.gray(' ID:')} ${chalk.white(meta.sessionId)}`);
+    if (meta.title) {
+        console.log(`${chalk.gray(' Name:')} ${chalk.white(meta.title)}`);
+    }
     console.log(`${chalk.gray(' Project:')} ${chalk.white(meta.projectPath)}`);
     console.log(`${chalk.gray(' Model:')} ${chalk.white(meta.model)}`);
     console.log(`${chalk.gray(' Messages:')} ${chalk.white(meta.messageCount.toString())}`);

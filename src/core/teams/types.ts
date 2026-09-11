@@ -20,7 +20,7 @@ export const TeamMemberSchema = z.object({
   error: z.string().optional(),
   provider: z.string().min(1).optional(),
   model: z.string().optional(),
-  modelSource: z.enum(['member-override', 'environment', 'agent-override', 'team-default', 'agent-definition', 'active-session']).optional(),
+  modelSource: z.enum(['member-override', 'environment', 'agent-override', 'team-default', 'agent-definition', 'agent-nature', 'active-session']).optional(),
   requestedRole: z.string().min(1).optional(),
   agentSource: z.string().min(1).optional(),
 });

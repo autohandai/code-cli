@@ -20,6 +20,7 @@ Each command is a separate TypeScript file that exports:
 | `/exit` | `quit.ts` | Exit Autohand |
 | `/help` | `help.ts` | Show available commands |
 | `/sessions` | `sessions.ts` | List saved sessions |
+| `/rename` | `rename.ts` | Name the current session for /sessions and /resume |
 | `/resume` | `resume.ts` | Resume a previous session |
 | `/handoff web` | `handoff-web.ts` | Continue this conversation in Web; `--workspace` includes repository changes and `--no-open` prints the link |
 | `/memory` | `memory.ts` | List memory or inspect, zoom, forget derived summaries, rebuild projections, and delete entries |

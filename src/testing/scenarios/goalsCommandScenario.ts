@@ -3,8 +3,44 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import fse from 'fs-extra';
 import type { Session } from 'tuistory';
 import type { GoalSessionSnapshot } from '../../goals/types.js';
+import { PROJECT_DIR_NAME } from '../../constants.js';
+
+/**
+ * Startup reads the workspace goal state between mounting Ink and marking the
+ * composer idle. Stalling that read keeps the window open long enough for a
+ * Tuistory session to type into it deterministically.
+ */
+export async function createStalledGoalStatePreload(
+  workspaceRoot: string,
+  preloadDirectory: string,
+  stallMs = 1_500,
+): Promise<string> {
+  const goalStatePath = path.join(workspaceRoot, PROJECT_DIR_NAME, 'goals.local.json');
+  await fse.ensureDir(path.dirname(goalStatePath));
+  await fse.writeJson(goalStatePath, { version: 2, goals: {}, queue: [], completed: [], updatedAt: Date.now() });
+
+  const preload = path.join(preloadDirectory, 'stalled-goal-state.mjs');
+  await writeFile(preload, `
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+const readFile = fs.readFile;
+fs.readFile = function(file, ...rest) {
+  if (String(file) === ${JSON.stringify(goalStatePath)}) {
+    setTimeout(() => readFile.call(fs, file, ...rest), ${stallMs});
+    return;
+  }
+  return readFile.call(fs, file, ...rest);
+};
+syncBuiltinESMExports();
+`);
+  return `--import=${pathToFileURL(preload).href}`;
+}
 
 export function createLongGoalsSnapshot(): GoalSessionSnapshot {
   const transcript = '\nFULL_FAILURE_TRANSCRIPT_MUST_NOT_RENDER '.repeat(100);

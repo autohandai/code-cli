@@ -107,7 +107,7 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     description: 'Show model thinking or reasoning blocks when the provider returns them.',
     stage: 'stable',
     configPath: 'ui.showThinking',
-    defaultEnabled: true,
+    defaultEnabled: false,
   },
   {
     id: 'completion_notifications',

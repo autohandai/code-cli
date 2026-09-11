@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { handleAgentCtrlCExitRequest, initializeAgentUI } from '../../../src/core/agent/AgentUIRuntime.js';
 
 const originalDebug = process.env.AUTOHAND_DEBUG;
@@ -77,5 +77,61 @@ describe('AgentUIRuntime Ctrl+C exit request', () => {
     handleAgentCtrlCExitRequest(host);
 
     expect(host.clearAllQueuesAndAbort).not.toHaveBeenCalled();
+  });
+});
+
+describe('AgentUIRuntime startup working state', () => {
+  const ttyDescriptors = {
+    stdout: Object.getOwnPropertyDescriptor(process.stdout, 'isTTY'),
+    stdin: Object.getOwnPropertyDescriptor(process.stdin, 'isTTY'),
+  };
+
+  function createInkHost() {
+    const inkRenderer = { setAnnouncement: vi.fn(), isRunning: () => true };
+    const ui = {
+      start: vi.fn().mockResolvedValue(undefined),
+      setWorking: vi.fn(),
+      getInkRenderer: () => inkRenderer,
+    };
+    return {
+      useInkRenderer: true,
+      ui,
+      runtime: {},
+      syncProviderModelStatusLine: vi.fn(),
+      writeDebugLine: vi.fn(),
+      initFallbackSpinner: vi.fn(),
+    };
+  }
+
+  beforeEach(() => {
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+  });
+
+  afterEach(() => {
+    for (const [stream, descriptor] of [[process.stdout, ttyDescriptors.stdout], [process.stdin, ttyDescriptors.stdin]] as const) {
+      if (descriptor) {
+        Object.defineProperty(stream, 'isTTY', descriptor);
+      } else {
+        delete (stream as { isTTY?: boolean }).isTTY;
+      }
+    }
+  });
+
+  it('leaves the composer idle when Ink starts before any instruction exists', async () => {
+    const host = createInkHost();
+
+    await initializeAgentUI(host, undefined, undefined, true);
+
+    expect(host.ui.start).toHaveBeenCalledOnce();
+    expect(host.ui.setWorking).not.toHaveBeenCalled();
+  });
+
+  it('shows the gathering status when a cancellable turn starts', async () => {
+    const host = createInkHost();
+
+    await initializeAgentUI(host, new AbortController(), () => undefined, true);
+
+    expect(host.ui.setWorking).toHaveBeenCalledWith(true, 'Gathering context...');
   });
 });

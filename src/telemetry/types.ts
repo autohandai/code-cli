@@ -123,6 +123,7 @@ export interface SessionSyncData {
   projectName?: string;
   status?: string;
   summary?: string;
+  title?: string;
   additions?: number;
   deletions?: number;
   client?: string;

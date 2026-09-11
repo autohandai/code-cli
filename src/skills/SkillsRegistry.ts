@@ -8,6 +8,7 @@
 import fs from 'fs-extra';
 import path from 'node:path';
 import { SkillParser } from './SkillParser.js';
+import { resolveEmbeddedBuiltinAssetDirectory } from './embeddedBuiltinAssets.js';
 import { readAccountSkills } from '../sync/AccountSkills.js';
 import type {
   SkillDefinition,
@@ -60,6 +61,10 @@ export interface SkillsRegistryOptions {
   includeDefaultUserSkillLocations?: boolean;
   /** Override the home directory used to resolve default user skill locations. */
   homeDir?: string;
+  /** Override where packaged built-in skills are looked up; tests use this to simulate a compiled binary. */
+  builtinSkillDirectories?: string[];
+  /** Override where embedded built-in assets are materialized when no packaged directory exists. */
+  embeddedBuiltinAssetsRoot?: string;
 }
 
 function sameResolvedPath(a: string, b: string): boolean {
@@ -396,9 +401,18 @@ export class SkillsRegistry {
         return;
       }
     }
+
+    // A compiled binary ships no skills/builtin directory; use the embedded copy.
+    const embeddedDirectory = await resolveEmbeddedBuiltinAssetDirectory('skills', {
+      root: this.options.embeddedBuiltinAssetsRoot,
+    });
+    await this.loadFromDirectory(embeddedDirectory, 'builtin', true);
   }
 
   private getBuiltinSkillDirectories(): string[] {
+    if (this.options.builtinSkillDirectories) {
+      return this.options.builtinSkillDirectories;
+    }
     const moduleDir = path.dirname(new URL(import.meta.url).pathname);
     return [
       path.join(moduleDir, BUILTIN_SKILLS_DIR),

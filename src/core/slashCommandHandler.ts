@@ -231,6 +231,10 @@ export class SlashCommandHandler {
           const { session } = await import('../commands/session.js');
           return session({ sessionManager: this.ctx.sessionManager });
         }
+        case '/rename': {
+          const { rename } = await import('../commands/rename.js');
+          return rename({ sessionManager: this.ctx.sessionManager }, args);
+        }
         case '/undo': {
           const { undo } = await import('../commands/undo.js');
           return undo({

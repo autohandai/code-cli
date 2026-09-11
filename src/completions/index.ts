@@ -45,6 +45,7 @@ const DEFAULT_CONFIG: CompletionConfig = {
     '/model',
     '/session',
     '/sessions',
+    '/rename',
     '/resume',
     '/new',
     '/undo',

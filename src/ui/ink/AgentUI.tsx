@@ -978,6 +978,9 @@ export function AgentUI({
   slashSuggestionsRef.current = slashSuggestions;
   const slashActiveIndexRef = useRef(slashActiveIndex);
   slashActiveIndexRef.current = slashActiveIndex;
+  // Enter on a bare registered command runs it even while its subcommands are
+  // listed for discovery; only arrow navigation turns Enter into "accept".
+  const slashNavigatedRef = useRef(false);
   const showShortcutsRef = useRef(showShortcuts);
   showShortcutsRef.current = showShortcuts;
   const skillsProviderRef = useRef(skillsProvider);
@@ -1042,6 +1045,7 @@ export function AgentUI({
   const dismissAutocompleteState = useCallback(() => {
     slashVisibleRef.current = false;
     slashSuggestionsRef.current = [];
+    slashNavigatedRef.current = false;
     slashStartIndexRef.current = null;
     slashFullMatchRef.current = null;
     setSlashVisible(false);
@@ -1093,8 +1097,13 @@ export function AgentUI({
 
       const buffer = textBufferRef.current;
       const currentText = buffer.getText();
-      if (options?.preserveExactSlashSubmit && currentText.trim() === suggestion.command) {
-        return false;
+      if (options?.preserveExactSlashSubmit) {
+        const typedCommand = currentText.trim();
+        const typedBareRegisteredCommand = !slashNavigatedRef.current
+          && (slashCommandsRef.current ?? []).some((command) => command.implemented && command.command === typedCommand);
+        if (typedCommand === suggestion.command || typedBareRegisteredCommand) {
+          return false;
+        }
       }
 
       const beforeSlash = currentText.slice(0, slashStartIndexRef.current);
@@ -1797,12 +1806,14 @@ export function AgentUI({
     // Priority: slash > skill > file mention > shell (only one is ever visible)
     if (slashVisibleRef.current && slashSuggestionsRef.current.length > 0) {
       if (key.upArrow) {
+        slashNavigatedRef.current = true;
         setSlashActiveIndex(prev =>
           prev > 0 ? prev - 1 : slashSuggestionsRef.current.length - 1
         );
         return;
       }
       if (key.downArrow) {
+        slashNavigatedRef.current = true;
         setSlashActiveIndex(prev =>
           prev < slashSuggestionsRef.current.length - 1 ? prev + 1 : 0
         );
@@ -2097,6 +2108,7 @@ export function AgentUI({
 
       // Immediate slash command detection (same pattern as file mentions)
       const cmds = slashCommandsRef.current;
+      slashNavigatedRef.current = false;
       if (cmds && cmds.length > 0) {
         const trimmed = currentText.replace(/^\s+/, '');
         if (trimmed.startsWith('/')) {
@@ -2507,8 +2519,8 @@ const DynamicContent = memo(function DynamicContent({
 
   return (
     <>
-      {/* Thinking output */}
-      <ThinkingOutput thought={isWorking ? thinking : null} />
+      {/* Thinking output: a final-turn thought stays above its reply while idle */}
+      <ThinkingOutput thought={thinking} />
 
       {/* Final response (when not working) */}
       {content && (
@@ -2591,6 +2603,10 @@ const ChatHistoryMessage = memo(function ChatHistoryMessage({
 
   if (message.role === 'completion') {
     return <CompletionHistoryMessage content={message.content} />;
+  }
+
+  if (message.role === 'thinking') {
+    return <ThinkingHistoryMessage content={message.content} />;
   }
 
   if (message.role === 'notification') {
@@ -2682,6 +2698,20 @@ const NotificationStack = memo(function NotificationStack({
     </Box>
   );
 }, (prev, next) => prev.notifications === next.notifications);
+
+const ThinkingHistoryMessage = memo(function ThinkingHistoryMessage({
+  content,
+}: {
+  content: string;
+}) {
+  const { colors } = useTheme();
+  const { t } = useTranslation();
+  return (
+    <Box marginTop={1}>
+      <Text color={colors.dim} dimColor>{t('ui.thinking')}: {content}</Text>
+    </Box>
+  );
+});
 
 const CompletionHistoryMessage = memo(function CompletionHistoryMessage({
   content,

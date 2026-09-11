@@ -9,6 +9,7 @@ import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import fs from 'fs-extra';
 import path from 'node:path';
 import type { Session, SessionManager } from '../session/SessionManager.js';
+import { getSessionDisplayName } from '../session/sessionTitle.js';
 import type { SessionMetadata, SessionMessage } from '../session/types.js';
 import { buildSessionChatLog, formatChatLogPreview } from '../session/chatLog.js';
 import { AUTOHAND_PATHS } from '../constants.js';
@@ -27,9 +28,10 @@ export const metadata = {
 async function getSessionTitle(
     sessionMeta: SessionMetadata
 ): Promise<string> {
-    // First, try to use the summary if it exists
-    if (sessionMeta.summary && sessionMeta.summary.trim()) {
-        return sessionMeta.summary.slice(0, 60);
+    // A user-given name wins; otherwise the summary if it exists
+    const displayName = getSessionDisplayName(sessionMeta);
+    if (displayName) {
+        return displayName.slice(0, 60);
     }
 
     // Otherwise, read the conversation file directly to find first user message
@@ -192,7 +194,7 @@ async function resumeSession(
 
         // Get a title for the session
         const firstUserMessage = messages.find(m => m.role === 'user');
-        const title = session.metadata.summary ||
+        const title = getSessionDisplayName(session.metadata) ||
             firstUserMessage?.content.slice(0, 50) ||
             'Untitled session';
 

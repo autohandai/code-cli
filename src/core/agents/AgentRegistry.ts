@@ -10,6 +10,7 @@ import path from 'path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { AUTOHAND_PATHS } from '../../constants.js';
+import { resolveEmbeddedBuiltinAssetDirectory } from '../../skills/embeddedBuiltinAssets.js';
 import type { ExternalAgentsConfig, InlineAgentDefinition } from '../../types.js';
 import type { ExtensionAgentContribution, ExtensionScope } from '../../extensions/types.js';
 import { BUILTIN_AGENT_HANDOFF } from './builtinAgentContract.js';
@@ -38,12 +39,23 @@ export const BUILTIN_AGENT_NAMES = [
 ] as const;
 
 // Schema for Agent Configuration
+export const AGENT_REASONING_LEVELS = ['none', 'low', 'medium', 'high', 'xhigh'] as const;
+
 export const AgentConfigSchema = z.object({
     description: z.string(),
     systemPrompt: z.string(),
     tools: z.array(z.string()),
     model: z.string().optional(),
+    /** Reasoning depth the agent wants; providers with a reasoning tier route it there. */
+    reasoning: z.enum(AGENT_REASONING_LEVELS).optional(),
 });
+
+export function parseAgentReasoning(value: string | undefined): AgentConfig['reasoning'] {
+    const normalized = value?.trim().toLowerCase();
+    return (AGENT_REASONING_LEVELS as readonly string[]).includes(normalized ?? '')
+        ? normalized as AgentConfig['reasoning']
+        : undefined;
+}
 
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 
@@ -57,6 +69,7 @@ export const InlineAgentInputSchema = z.object({
     prompt: z.string().min(1, 'agent "prompt" is required'),
     tools: z.union([z.array(z.string()), z.string()]).optional(),
     model: z.string().optional(),
+    reasoning: z.enum(AGENT_REASONING_LEVELS).optional(),
 });
 
 export const InlineAgentsInputSchema = z
@@ -145,6 +158,7 @@ function parseMarkdownAgent(content: string): {
     systemPrompt: string;
     tools: string[];
     model?: string;
+    reasoning?: AgentConfig['reasoning'];
 } {
     const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
     if (!frontmatterMatch) {
@@ -169,6 +183,7 @@ function parseMarkdownAgent(content: string): {
         systemPrompt: body.trim(),
         tools: meta.tools ? meta.tools.split(',').map((t) => t.trim()).filter(Boolean) : [],
         model: meta.model,
+        reasoning: parseAgentReasoning(meta.reasoning),
     };
 }
 
@@ -185,6 +200,9 @@ export class AgentRegistry {
     private agentsDir: string;
     private externalPaths: string[] = [];
     private catalogProvenance: CatalogProvenanceManifest = { schemaVersion: 1, entries: {} };
+
+    private builtinAgentDirectories: string[] | undefined;
+    private embeddedBuiltinAssetsRoot: string | undefined;
 
     private constructor() {
         this.agentsDir = AUTOHAND_PATHS.agents;
@@ -404,6 +422,7 @@ export class AgentRegistry {
                     : parsed.systemPrompt,
                 tools: parsed.tools.length > 0 ? parsed.tools : ['*'],
                 model: parsed.model,
+                ...(parsed.reasoning ? { reasoning: parsed.reasoning } : {}),
             };
             if (!this.agents.has(name)) {
                 this.agents.set(name, definition);
@@ -419,17 +438,38 @@ export class AgentRegistry {
      * (loaded after user agents, so first-loaded-wins applies).
      */
     public async loadBuiltinAgents(): Promise<void> {
-        const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-        const candidates = [
-            path.join(moduleDir, '../../agents/builtin'),
-            path.join(moduleDir, 'agents/builtin'),
-        ];
-        for (const builtinDir of candidates) {
+        for (const builtinDir of this.getBuiltinAgentDirectories()) {
             const exists = await fs.access(builtinDir).then(() => true).catch(() => false);
             if (exists) {
                 await this.loadAgentsFromDir(builtinDir, 'builtin');
                 return;
             }
         }
+
+        // A compiled binary ships no agents/builtin directory; use the embedded copy.
+        const embeddedDir = await resolveEmbeddedBuiltinAssetDirectory('agents', {
+            root: this.embeddedBuiltinAssetsRoot,
+        });
+        await this.loadAgentsFromDir(embeddedDir, 'builtin');
+    }
+
+    /**
+     * Point built-in lookups elsewhere; tests use this to simulate a compiled
+     * binary that carries no agents/builtin directory beside the module.
+     */
+    public setBuiltinAgentDirectories(directories: string[] | undefined, embeddedAssetsRoot?: string): void {
+        this.builtinAgentDirectories = directories;
+        this.embeddedBuiltinAssetsRoot = embeddedAssetsRoot;
+    }
+
+    private getBuiltinAgentDirectories(): string[] {
+        if (this.builtinAgentDirectories) {
+            return this.builtinAgentDirectories;
+        }
+        const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+        return [
+            path.join(moduleDir, '../../agents/builtin'),
+            path.join(moduleDir, 'agents/builtin'),
+        ];
     }
 }

@@ -307,7 +307,7 @@ export interface UISettings {
   showCompletionNotification?: boolean;
   /** Ask the model to include a concise completion report after action turns (default: true) */
   completionReportEnabled?: boolean;
-  /** Show LLM thinking/reasoning process (default: true) */
+  /** Show LLM thinking/reasoning process (default: false) */
   showThinking?: boolean;
   /** Render assistant markdown (headings, lists, code, tables) in the terminal instead of showing it as written (default: true) */
   renderMarkdown?: boolean;
@@ -1101,6 +1101,8 @@ export interface CLIOptions {
   config?: string;
   temperature?: number;
   resumeSessionId?: string;
+  /** Name the workspace's most recent session and exit. */
+  rename?: string;
   /** Run in unrestricted mode - no approval prompts */
   unrestricted?: boolean;
   /** Run in restricted mode - deny all dangerous operations */

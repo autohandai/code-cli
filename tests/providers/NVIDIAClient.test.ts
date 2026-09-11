@@ -244,10 +244,59 @@ describe('NVIDIAClient', () => {
         stream: true
       });
 
-      expect(response.content).toBe('<thinking>Let me think about this</thinking>\n\nHello!');
+      expect(response.content).toBe('Hello!');
+      expect(response.reasoning).toBe('Let me think about this');
       expect(response.finishReason).toBe('stop');
     });
 
+
+    it('moves inline <think> blocks streamed inside content into reasoning', async () => {
+      const encoder = new TextEncoder();
+      const streamData = [
+        'data: {"id":"stream-test","created":1234567890,"choices":[{"delta":{"content":"<think>Weigh the options.</think>"},"finish_reason":null}]}\n\n',
+        'data: {"id":"stream-test","created":1234567890,"choices":[{"delta":{"content":"\\n\\nUse the cache."},"finish_reason":"stop"}]}\n\n',
+        'data: [DONE]\n\n'
+      ];
+      const mockStream = new ReadableStream({
+        start(controller) {
+          streamData.forEach(chunk => controller.enqueue(encoder.encode(chunk)));
+          controller.close();
+        }
+      });
+      global.fetch = vi.fn().mockResolvedValue({ ok: true, body: mockStream });
+
+      const client = new NVIDIAClient({ apiKey: 'nvapi-test-key', model: 'deepseek-ai/deepseek-v4-pro' });
+      const response = await client.complete({
+        messages: [{ role: 'user', content: 'Hello' }],
+        stream: true
+      });
+
+      expect(response.content).toBe('Use the cache.');
+      expect(response.reasoning).toBe('Weigh the options.');
+    });
+
+    it('moves inline <think> blocks out of a non-streaming completion', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: 'resp-1',
+          created: 1234567890,
+          choices: [{
+            message: { role: 'assistant', content: '<think>Compare both.</think>\n\nPick the second.' },
+            finish_reason: 'stop'
+          }]
+        })
+      });
+
+      const client = new NVIDIAClient({ apiKey: 'nvapi-test-key', model: 'deepseek-ai/deepseek-v4-pro' });
+      const response = await client.complete({
+        messages: [{ role: 'user', content: 'Hello' }],
+        stream: false
+      });
+
+      expect(response.content).toBe('Pick the second.');
+      expect(response.reasoning).toBe('Compare both.');
+    });
     it('should handle streaming without reasoning content', async () => {
       const encoder = new TextEncoder();
       const streamData = [

@@ -342,6 +342,26 @@ describe('Resume Command', () => {
       expect(promptCall.options[0].label).toBe('Building an artifact');
     });
 
+    it('prefers the name given with /rename over the summary', async () => {
+      const mockSessions = [{
+        sessionId: 'session-1',
+        createdAt: new Date().toISOString(),
+        messageCount: 5,
+        projectName: 'project1',
+        summary: 'Building an artifact',
+        title: 'Caret fix',
+      }];
+      const mockSessionManager = {
+        loadSession: vi.fn().mockResolvedValue({ metadata: mockSessions[0], getMessages: () => [] }),
+        listSessions: vi.fn().mockResolvedValue(mockSessions),
+      };
+      mockShowModal.mockResolvedValueOnce({ value: 'session-1' });
+
+      await resume({ sessionManager: mockSessionManager as any, args: [] });
+
+      expect(mockShowModal.mock.calls[0][0].options[0].label).toBe('Caret fix');
+    });
+
     it('should use first user message when no summary', async () => {
       const mockSessions = [
         {

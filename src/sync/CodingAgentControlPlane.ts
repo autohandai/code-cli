@@ -15,6 +15,7 @@ import {
   SETTING_CATEGORIES,
   SETTINGS_REGISTRY,
   type SettingDef,
+  resolveSettingEnumValues,
 } from '../commands/settings.js';
 import { saveConfig } from '../config.js';
 import { t } from '../i18n/index.js';
@@ -332,7 +333,7 @@ function acceptsProfileValue(setting: SettingDef, value: unknown): value is stri
       && Number.isFinite(value)
       && (!setting.validate || setting.validate(String(value)) === true);
   }
-  if (setting.type === 'enum') return typeof value === 'string' && Boolean(setting.enumValues?.includes(value));
+  if (setting.type === 'enum') return typeof value === 'string' && resolveSettingEnumValues(setting).includes(value);
   return typeof value === 'string';
 }
 

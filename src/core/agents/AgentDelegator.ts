@@ -56,6 +56,7 @@ export interface SubagentStartContext {
     model?: string;
     /** Why the provider/model pair was selected. */
     modelSource?: TeamModelAssignment['source'];
+    reasoningEffort?: TeamModelAssignment['reasoningEffort'];
 }
 
 /** Context passed to the subagent-stop hook callback */
@@ -227,7 +228,10 @@ export class AgentDelegator {
             signal.throwIfAborted();
             const assignment = this.resolveSubagentAssignment?.(agentConfig);
             if (assignment) {
-                startContext = { ...startContext, provider: assignment.provider, model: assignment.model, modelSource: assignment.source };
+                startContext = {
+                    ...startContext, provider: assignment.provider, model: assignment.model,
+                    modelSource: assignment.source, reasoningEffort: assignment.reasoningEffort,
+                };
             }
             started = true;
             await this.notifyObserver(this.onSubagentStart, startContext);
