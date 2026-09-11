@@ -26,6 +26,7 @@ import {
 import type { GoalEditRequest } from './GoalPanel.js';
 import type { LiveCommandEntry, ToolOutputEntry, ToolOutputBatchEntry, ToolOutputItem, BatchToolItem } from './ToolOutput.js';
 import type { SlashCommand } from '../../core/slashCommandTypes.js';
+import type { ResolvedKeybindings } from '../../keybindings/profiles.js';
 import type { SkillMentionInfo } from '../mentionFilter.js';
 import type { ExtensionKeybinding } from '../../extensions/ExtensionRuntimeHost.js';
 import { ThemeProvider } from '../theme/ThemeContext.js';
@@ -78,6 +79,7 @@ export interface InkRendererOptions {
   getInteractionMode?: () => InteractionMode;
   onCycleInteractionMode?: () => InteractionMode;
   mouseComposerCursor?: boolean;
+  keybindings?: ResolvedKeybindings;
   taskListPositionProvider?: () => TaskListPosition;
   onEditGoalObjective?: (request: GoalEditRequest) => void | Promise<void>;
   onCancelAgentRun?: (id: string) => void | Promise<unknown>;
@@ -217,6 +219,7 @@ interface AgentUIWrapperProps {
   getInteractionMode?: () => InteractionMode;
   onCycleInteractionMode?: () => InteractionMode;
   mouseComposerCursor?: boolean;
+  keybindings?: ResolvedKeybindings;
   taskListPositionProvider?: () => TaskListPosition;
 }
 
@@ -255,6 +258,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       getInteractionMode,
       onCycleInteractionMode,
       mouseComposerCursor,
+      keybindings,
       taskListPositionProvider,
     } = props;
 
@@ -309,6 +313,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         getInteractionMode={getInteractionMode}
         onCycleInteractionMode={onCycleInteractionMode}
         mouseComposerCursor={mouseComposerCursor}
+        keybindings={keybindings}
         taskListPosition={taskListPositionProvider?.() ?? 'above-composer'}
       />
     );
@@ -494,6 +499,7 @@ export class InkRenderer {
             getInteractionMode={this.options.getInteractionMode}
             onCycleInteractionMode={this.options.onCycleInteractionMode}
             mouseComposerCursor={this.options.mouseComposerCursor}
+            keybindings={this.options.keybindings}
             taskListPositionProvider={this.options.taskListPositionProvider}
           />
         </I18nProvider>
@@ -1374,6 +1380,7 @@ export class InkRenderer {
               getInteractionMode={this.options.getInteractionMode}
               onCycleInteractionMode={this.options.onCycleInteractionMode}
               mouseComposerCursor={this.options.mouseComposerCursor}
+            keybindings={this.options.keybindings}
               taskListPositionProvider={this.options.taskListPositionProvider}
             />
           </I18nProvider>
