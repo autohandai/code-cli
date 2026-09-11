@@ -98,7 +98,7 @@ const KEY_ALIASES: Record<string, string> = {
 
 const NAMED_KEYS = new Set(['enter', 'tab', 'escape', 'up', 'down', 'left', 'right', 'space', 'backspace', 'delete']);
 
-const DEFAULT_BINDINGS: Record<KeybindingAction, string[]> = {
+export const DEFAULT_BINDING_SPECS: Readonly<Record<KeybindingAction, readonly string[]>> = {
   cycleMode: ['shift+tab'],
   newline: ['shift+enter', 'alt+enter'],
   exit: [],
@@ -109,7 +109,7 @@ const DEFAULT_BINDINGS: Record<KeybindingAction, string[]> = {
   toggleShortcutsHelp: ['?'],
 };
 
-const NEWLINE_WITH_CTRL_J = [...DEFAULT_BINDINGS.newline, 'ctrl+j'];
+const NEWLINE_WITH_CTRL_J = [...DEFAULT_BINDING_SPECS.newline, 'ctrl+j'];
 
 const PROFILES: Record<KeybindingProfileId, KeybindingProfile> = {
   autohand: {
@@ -203,7 +203,7 @@ export function formatChord(chord: Chord): string {
   return parts.filter(Boolean).join(' + ');
 }
 
-function normalizeChord(chord: Chord): string {
+export function normalizeChord(chord: Chord): string {
   return [chord.ctrl ? 'ctrl' : null, chord.meta ? 'meta' : null, chord.shift ? 'shift' : null, chord.key]
     .filter(Boolean)
     .join('+');
@@ -240,7 +240,7 @@ export function resolveKeybindings(
   const bindings = Object.fromEntries(
     KEYBINDING_ACTIONS.map((action) => [
       action,
-      parseChords(overrides[action] ?? profileBindings[action] ?? DEFAULT_BINDINGS[action]),
+      parseChords(overrides[action] ?? profileBindings[action] ?? DEFAULT_BINDING_SPECS[action]),
     ]),
   ) as Record<KeybindingAction, Chord[]>;
 
