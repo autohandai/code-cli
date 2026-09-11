@@ -286,8 +286,9 @@ async function promptLogin(config: LoadedConfig): Promise<LoadedConfig> {
   const { login } = await import('../commands/login.js');
   await login({ config, restoreSync: false });
 
-  // Reload config to pick up the token saved by login()
-  const refreshed = await loadConfig(config.configPath);
+  // Reload config to pick up the token saved by login(), keeping the same
+  // workspace so project hooks, MCP servers, and local settings still apply.
+  const refreshed = await loadConfig(config.configPath, config.overlayWorkspaceRoot);
 
   if (!refreshed.auth?.token) {
     console.log(chalk.red('Login failed. Autohand requires authentication to run.'));

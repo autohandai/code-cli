@@ -107,6 +107,33 @@ Hooks are useful for:
 ### 1. Config-Based Hooks (CLI)
 Define shell commands in your `~/.autohand/config.json` that run automatically on lifecycle events. These hooks run in your local shell environment.
 
+Projects can add their own hooks under a `hooks` key in `<project>/.autohand/config.json` (shareable, commit it) or `<project>/.autohand/settings.local.json` (personal, gitignore it). Both the array form and the event-keyed form work in either file:
+
+```json
+{
+  "hooks": {
+    "hooks": [{ "event": "session-start", "command": "echo project session" }],
+    "pre-prompt": ["node scripts/check-prompt.cjs"]
+  }
+}
+```
+
+- Project hooks are appended to the global list. A project hook with the same identity (same script file name, or same event plus description/command) replaces the global one, and `settings.local.json` wins over `config.json`.
+- A `hooks.enabled` value in a project file overrides the global toggle for that project.
+- The project is the workspace the session targets: `--path` when given, otherwise the current directory.
+- Project hooks are never written into `~/.autohand/config.json`. Toggling or editing a project hook from `/hooks` lasts for the session only; change the project file to make it permanent.
+
+#### Workspace trust
+
+A cloned repository can ship these files, so project hooks and project MCP servers only run in a workspace you trust.
+
+- The first interactive launch in such a workspace lists every project hook command and how each project MCP server starts, then asks you to choose **Trust this workspace** or **Not now**.
+- **Trust this workspace** runs them now and in later sessions. The decision is stored in `~/.autohand/trusted-workspaces.json` with a fingerprint of the declared hooks and servers.
+- Any change to a project hook or project MCP server changes the fingerprint, so Autohand asks again. Permission approvals saved to `settings.local.json` do not.
+- **Not now**, Escape, or Ctrl+C starts the session without them, and Autohand asks again next launch.
+- Runs that cannot show a prompt, such as `-p`, auto mode, patch mode, RPC, and ACP, skip untrusted project hooks and servers and print a warning to stderr.
+- While a workspace that declares project hooks or servers is untrusted, the `hooks` and `mcp` sections of its project files are ignored entirely, including their `enabled` switches. Project files that only set those switches need no trust.
+
 ### 2. Runtime extension hooks
 Enabled, trusted extensions register lifecycle handlers through `api.hooks.on(event, handler)`. The `/hooks` browser includes these handlers and identifies the owning extension.
 

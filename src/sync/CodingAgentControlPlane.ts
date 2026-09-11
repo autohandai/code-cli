@@ -314,7 +314,7 @@ export function createCodingAgentSettingsSnapshot(config: LoadedConfig, deviceId
     }];
   });
   const rest = Object.fromEntries(
-    Object.entries(config).filter(([key]) => !['auth', 'mcp', 'configPath', 'isNewConfig'].includes(key)),
+    Object.entries(config).filter(([key]) => !['auth', 'mcp', 'configPath', 'isNewConfig', 'workspaceOverlay', 'workspaceTrust', 'overlayWorkspaceRoot'].includes(key)),
   );
   return {
     deviceId,

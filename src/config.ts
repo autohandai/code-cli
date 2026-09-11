@@ -21,12 +21,27 @@ import type {
   BedrockApiMode,
   BedrockAuthMode,
   AutohandAISettings,
+  HookDefinition,
+  HooksSettings,
+  McpServerConfigEntry,
+  McpSettings,
+  WorkspaceOverlayObjectKey,
+  WorkspaceOverlaySnapshot,
+  WorkspaceTrustState,
 } from "./types.js";
-import { AUTOHAND_FILES, AUTOHAND_HOME } from "./constants.js";
+import { AUTOHAND_FILES, AUTOHAND_HOME, PROJECT_DIR_NAME } from "./constants.js";
 import { KEYBINDING_PROFILE_IDS, isKeybindingProfileId } from "./keybindings/profiles.js";
+import { hookIdentifier } from "./core/hookEvents.js";
+import { normalizeHooksSettings } from "./core/legacyHookEvents.js";
 import { isAutohandInferenceEnabled } from "./featureFlags.js";
 import { autoInitTheme, configureThemeSources, getDefaultThemeName, themeExists } from "./ui/theme/index.js";
 import { loadLocalProjectSettings, type LocalProjectSettings } from "./permissions/localProjectPermissions.js";
+import {
+  canonicalJson,
+  computeWorkspaceTrustFingerprint,
+  isWorkspaceTrusted,
+  type WorkspaceTrustEntries,
+} from "./permissions/workspaceTrust.js";
 import { isAwsBedrockProviderEnabled } from "./features/featureRegistry.js";
 import { getCustomProviderConfig, isCustomProviderName } from "./providers/customProviders.js";
 import { getProviderDefaultModel, getProviderModelOptions, getProviderRuntimeDefaultModel, normalizeOpenRouterModelId } from "./providers/modelCatalog.js";
@@ -124,6 +139,8 @@ export interface LoadConfigOptions {
   createIfMissing?: boolean;
   /** Initialize terminal theme state after loading. */
   initializeTheme?: boolean;
+  /** Where workspace trust decisions are stored. Defaults to the user's Autohand home. */
+  workspaceTrustStorePath?: string;
 }
 
 function createDefaultConfig(): AutohandConfig {
@@ -505,17 +522,49 @@ export async function loadConfig(
   }
   const normalized = normalizeConfig(parsed);
 
-  // Load workspace-specific settings if workspaceRoot is provided
+  // Load workspace-specific overlays if workspaceRoot is provided. Two layers
+  // apply, lowest precedence first:
+  //   1. <workspace>/.autohand/config.{json,toml,yaml,yml} (shareable project config)
+  //   2. <workspace>/.autohand/settings.local.json          (personal, gitignored)
+  let projectConfig: LocalProjectSettings | null = null;
   let workspaceSettings: LocalProjectSettings | null = null;
   if (workspaceRoot) {
+    projectConfig = await loadProjectConfigOverlay(workspaceRoot, configPath);
     workspaceSettings = await loadLocalProjectSettings(workspaceRoot);
   }
 
-  // Merge workspace settings with global config (workspace takes precedence)
-  const withWorkspace = mergeWorkspaceSettings(normalized, workspaceSettings);
+  // Project hooks and MCP servers run commands, and a cloned repository can
+  // ship them. They only apply once the user trusts this exact content.
+  let workspaceTrust: WorkspaceTrustState | undefined;
+  if (workspaceRoot) {
+    const entries = resolveWorkspaceTrustEntries([projectConfig, workspaceSettings]);
+    if (entries.hooks.length > 0 || entries.mcpServers.length > 0) {
+      const fingerprint = computeWorkspaceTrustFingerprint(entries);
+      const trusted = await isWorkspaceTrusted(workspaceRoot, fingerprint, options.workspaceTrustStorePath);
+      workspaceTrust = { workspaceRoot: path.resolve(workspaceRoot), fingerprint, trusted, ...entries };
+      if (!trusted) {
+        projectConfig = withoutExecutableSections(projectConfig);
+        workspaceSettings = withoutExecutableSections(workspaceSettings);
+      }
+    }
+  }
+
+  const overlayLayers = [projectConfig, workspaceSettings]
+    .filter((layer): layer is LocalProjectSettings => layer !== null);
+  // Captured before merging so saveConfig can write back what the file held.
+  const overlayBase = overlayLayers.length > 0 ? cloneOverlaySections(normalized) : null;
+
+  // Merge workspace layers over the global config (later layers take precedence)
+  const withWorkspace = mergeWorkspaceSettings(
+    mergeWorkspaceSettings(normalized, projectConfig),
+    workspaceSettings,
+  );
 
   // Merge environment variables for API settings
   const withEnv = mergeEnvVariables(withWorkspace);
+  const workspaceOverlay = overlayBase
+    ? createWorkspaceOverlaySnapshot(overlayBase, withEnv, overlayLayers)
+    : undefined;
 
   if (initializeTheme) {
     configureThemeSources({ inlineThemes: withEnv.ui?.customThemes });
@@ -529,7 +578,76 @@ export async function loadConfig(
     autoInitTheme(themeName);
   }
 
-  return { ...withEnv, configPath, isNewConfig };
+  return {
+    ...withEnv,
+    configPath,
+    isNewConfig,
+    ...(workspaceRoot ? { overlayWorkspaceRoot: path.resolve(workspaceRoot) } : {}),
+    ...(workspaceOverlay ? { workspaceOverlay } : {}),
+    ...(workspaceTrust ? { workspaceTrust } : {}),
+  };
+}
+
+/** Project hooks and MCP servers after layering, in the order they would apply. */
+function resolveWorkspaceTrustEntries(layers: (LocalProjectSettings | null)[]): WorkspaceTrustEntries {
+  let hooks: HookDefinition[] = [];
+  let mcpServers: McpServerConfigEntry[] = [];
+  for (const layer of layers) {
+    if (!layer) continue;
+    if (isPlainRecord(layer.hooks)) {
+      hooks = mergeHooksSettings({ hooks }, layer.hooks).hooks ?? [];
+    }
+    if (isPlainRecord(layer.mcp)) {
+      mcpServers = mergeMcpSettings({ servers: mcpServers }, layer.mcp).servers ?? [];
+    }
+  }
+  return { hooks, mcpServers };
+}
+
+function withoutExecutableSections(layer: LocalProjectSettings | null): LocalProjectSettings | null {
+  if (!layer) return layer;
+  const rest: LocalProjectSettings = { ...layer };
+  delete rest.hooks;
+  delete rest.mcp;
+  return rest;
+}
+
+/**
+ * Apply the project hooks and MCP servers that loadConfig held back for an
+ * untrusted workspace, after the user trusts it. Updates the config in place
+ * and extends the overlay record so saving still leaves project entries out.
+ */
+export function applyTrustedWorkspaceEntries(config: LoadedConfig): LoadedConfig {
+  const trust = config.workspaceTrust;
+  if (!trust || trust.trusted) return config;
+
+  const snapshot: WorkspaceOverlaySnapshot = config.workspaceOverlay ?? {};
+  if (trust.hooks.length > 0) {
+    const base = snapshot.hooks ? snapshot.hooks.base : structuredClone(config.hooks);
+    config.hooks = mergeHooksSettings(config.hooks, { hooks: trust.hooks });
+    const ids = trust.hooks.map(safeHookIdentifier).filter((id): id is string => id !== null);
+    snapshot.hooks = {
+      base,
+      applied: structuredClone(config.hooks),
+      overlayIds: [...new Set([...(snapshot.hooks?.overlayIds ?? []), ...ids])],
+      enabledOverridden: snapshot.hooks?.enabledOverridden ?? false,
+    };
+  }
+  if (trust.mcpServers.length > 0) {
+    const base = snapshot.mcp ? snapshot.mcp.base : structuredClone(config.mcp);
+    config.mcp = mergeMcpSettings(config.mcp, { servers: trust.mcpServers });
+    const names = trust.mcpServers.map(mcpServerIdentifier).filter((id): id is string => id !== null);
+    snapshot.mcp = {
+      base,
+      applied: structuredClone(config.mcp),
+      overlayNames: [...new Set([...(snapshot.mcp?.overlayNames ?? []), ...names])],
+      enabledOverridden: snapshot.mcp?.enabledOverridden ?? false,
+    };
+  }
+
+  config.workspaceOverlay = snapshot;
+  config.workspaceTrust = { ...trust, trusted: true };
+  return config;
 }
 
 /**
@@ -618,7 +736,393 @@ function mergeWorkspaceSettings(
     };
   }
 
+  // Merge lifecycle hooks: project hooks are appended and override a global
+  // hook with the same identity, so project-level hooks actually fire.
+  if (isPlainRecord(workspaceSettings.hooks)) {
+    merged.hooks = mergeHooksSettings(merged.hooks, workspaceSettings.hooks);
+  }
+
+  // Merge MCP servers: project servers are appended and override a global
+  // server with the same name.
+  if (isPlainRecord(workspaceSettings.mcp)) {
+    merged.mcp = mergeMcpSettings(merged.mcp, workspaceSettings.mcp);
+  }
+
   return merged;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Normalize a hooks section into array form, accepting the documented
+ * event-keyed shape (`"hooks": { "pre-prompt": ["cmd"] }`). Returns undefined
+ * for anything that is not a hooks object.
+ */
+function normalizeHooksSection(value: unknown): HooksSettings | undefined {
+  if (!isPlainRecord(value)) return undefined;
+  const section = value as HooksSettings;
+  const safe = section.hooks === undefined || Array.isArray(section.hooks)
+    ? section
+    : { ...section, hooks: undefined };
+  return normalizeHooksSettings(safe);
+}
+
+/** Hook identity, or null for an entry too malformed to identify. */
+function safeHookIdentifier(hook: unknown): string | null {
+  if (!isPlainRecord(hook) || typeof hook.command !== "string" || typeof hook.event !== "string") {
+    return null;
+  }
+  return hookIdentifier(hook as unknown as HookDefinition);
+}
+
+function mcpServerIdentifier(server: unknown): string | null {
+  return isPlainRecord(server) && typeof server.name === "string" ? server.name : null;
+}
+
+/** Valid hook definitions from an overlay section; malformed entries are dropped. */
+function overlayHookEntries(section: unknown): HookDefinition[] {
+  const hooks = normalizeHooksSection(section)?.hooks;
+  return Array.isArray(hooks) ? hooks.filter((hook) => safeHookIdentifier(hook) !== null) : [];
+}
+
+/** Named MCP servers from an overlay section; unnamed entries are dropped. */
+function overlayMcpServers(section: unknown): McpServerConfigEntry[] {
+  return isPlainRecord(section) && Array.isArray(section.servers)
+    ? (section.servers as McpServerConfigEntry[]).filter((server) => mcpServerIdentifier(server) !== null)
+    : [];
+}
+
+function mergeHooksSettings(
+  base: HooksSettings | undefined,
+  overlay: HooksSettings,
+): HooksSettings {
+  const normalizedBase = normalizeHooksSection(base);
+  const normalizedOverlay = normalizeHooksSection(overlay);
+  const overlayHooks = overlayHookEntries(normalizedOverlay);
+  const overlayIds = new Set(overlayHooks.map(safeHookIdentifier).filter((id): id is string => id !== null));
+  const baseHooks = (Array.isArray(normalizedBase?.hooks) ? normalizedBase.hooks : [])
+    .filter((hook) => {
+      const id = safeHookIdentifier(hook);
+      return id === null || !overlayIds.has(id);
+    });
+  return {
+    ...normalizedBase,
+    ...(normalizedOverlay?.enabled !== undefined ? { enabled: normalizedOverlay.enabled } : {}),
+    hooks: [...baseHooks, ...overlayHooks],
+  };
+}
+
+function mergeMcpSettings(
+  base: McpSettings | undefined,
+  overlay: McpSettings,
+): McpSettings {
+  const overlayServers = overlayMcpServers(overlay);
+  const overlayNames = new Set(overlayServers.map(mcpServerIdentifier).filter((id): id is string => id !== null));
+  const baseServers = (isPlainRecord(base) && Array.isArray(base.servers) ? base.servers : [])
+    .filter((server) => {
+      const id = mcpServerIdentifier(server);
+      return id === null || !overlayNames.has(id);
+    });
+  const overlayEnabled = isPlainRecord(overlay) ? overlay.enabled : undefined;
+  return {
+    ...(isPlainRecord(base) ? base : {}),
+    ...(typeof overlayEnabled === "boolean" ? { enabled: overlayEnabled } : {}),
+    servers: [...baseServers, ...overlayServers],
+  };
+}
+
+const WORKSPACE_OVERLAY_OBJECT_KEYS: readonly WorkspaceOverlayObjectKey[] = [
+  "agent",
+  "network",
+  "telemetry",
+  "permissions",
+];
+
+interface OverlaySections {
+  hooks?: HooksSettings;
+  mcp?: McpSettings;
+  agent?: AutohandConfig["agent"];
+  network?: AutohandConfig["network"];
+  telemetry?: AutohandConfig["telemetry"];
+  permissions?: AutohandConfig["permissions"];
+}
+
+function cloneOverlaySections(config: AutohandConfig): OverlaySections {
+  return structuredClone({
+    hooks: config.hooks,
+    mcp: config.mcp,
+    agent: config.agent,
+    network: config.network,
+    telemetry: config.telemetry,
+    permissions: config.permissions,
+  });
+}
+
+/**
+ * Record what workspace overlays changed so `saveConfig` can keep project
+ * hooks, MCP servers, and overridden fields out of the file it writes.
+ */
+function createWorkspaceOverlaySnapshot(
+  base: OverlaySections,
+  applied: AutohandConfig,
+  layers: LocalProjectSettings[],
+): WorkspaceOverlaySnapshot | undefined {
+  const snapshot: WorkspaceOverlaySnapshot = {};
+
+  const hookLayers = layers.map((layer) => layer.hooks).filter(isPlainRecord);
+  if (hookLayers.length > 0) {
+    const overlayIds = hookLayers
+      .flatMap((section) => overlayHookEntries(section))
+      .map(safeHookIdentifier)
+      .filter((id): id is string => id !== null);
+    snapshot.hooks = {
+      base: base.hooks,
+      applied: structuredClone(applied.hooks),
+      overlayIds: [...new Set(overlayIds)],
+      enabledOverridden: hookLayers.some((section) => section.enabled !== undefined),
+    };
+  }
+
+  const mcpLayers = layers.map((layer) => layer.mcp).filter(isPlainRecord);
+  if (mcpLayers.length > 0) {
+    const overlayNames = mcpLayers
+      .flatMap((section) => overlayMcpServers(section))
+      .map(mcpServerIdentifier)
+      .filter((id): id is string => id !== null);
+    snapshot.mcp = {
+      base: base.mcp,
+      applied: structuredClone(applied.mcp),
+      overlayNames: [...new Set(overlayNames)],
+      enabledOverridden: mcpLayers.some((section) => section.enabled !== undefined),
+    };
+  }
+
+  for (const key of WORKSPACE_OVERLAY_OBJECT_KEYS) {
+    const fieldNames = new Set<string>();
+    for (const layer of layers) {
+      const section = layer[key];
+      if (!isPlainRecord(section)) continue;
+      for (const [field, value] of Object.entries(section)) {
+        if (value !== undefined) fieldNames.add(field);
+      }
+    }
+    if (fieldNames.size === 0) continue;
+    const baseSection = isPlainRecord(base[key]) ? (base[key] as Record<string, unknown>) : undefined;
+    const appliedSection = isPlainRecord(applied[key]) ? (applied[key] as Record<string, unknown>) : undefined;
+    const values: Record<string, { base?: unknown; applied?: unknown }> = {};
+    for (const field of fieldNames) {
+      values[field] = {
+        base: baseSection?.[field],
+        applied: structuredClone(appliedSection?.[field]),
+      };
+    }
+    snapshot.fields = { ...snapshot.fields, [key]: { baseMissing: baseSection === undefined, values } };
+  }
+
+  return snapshot.hooks || snapshot.mcp || snapshot.fields ? snapshot : undefined;
+}
+
+/** Compare two values the way they would be persisted as JSON. */
+function sameJsonValue(left: unknown, right: unknown): boolean {
+  return canonicalJson(left) === canonicalJson(right);
+}
+
+/**
+ * Rebuild a persisted list from the runtime list: entries owned by a workspace
+ * overlay are dropped, the file's entries they shadowed come back in their
+ * original positions, and runtime additions or edits are kept.
+ */
+function restoreOverlayList<T>(
+  current: T[],
+  base: T[],
+  overlayIds: ReadonlySet<string>,
+  identify: (entry: unknown) => string | null,
+): T[] {
+  const pending = new Map<string, number[]>();
+  current.forEach((entry, index) => {
+    const id = identify(entry);
+    if (id === null || overlayIds.has(id)) return;
+    pending.set(id, [...(pending.get(id) ?? []), index]);
+  });
+
+  const used = new Set<number>();
+  const restored: T[] = [];
+  for (const entry of base) {
+    const id = identify(entry);
+    if (id === null) continue;
+    if (overlayIds.has(id)) {
+      restored.push(structuredClone(entry));
+      continue;
+    }
+    const index = pending.get(id)?.shift();
+    if (index !== undefined) {
+      used.add(index);
+      restored.push(current[index]);
+    }
+  }
+  current.forEach((entry, index) => {
+    if (used.has(index)) return;
+    const id = identify(entry);
+    if (id !== null && overlayIds.has(id)) return;
+    restored.push(entry);
+  });
+  return restored;
+}
+
+function restoreOverlayEnabled(
+  result: { enabled?: boolean },
+  current: { enabled?: boolean },
+  applied: { enabled?: boolean } | undefined,
+  base: { enabled?: boolean } | undefined,
+): void {
+  if (!sameJsonValue(current.enabled, applied?.enabled)) return;
+  if (base?.enabled === undefined) delete result.enabled;
+  else result.enabled = base.enabled;
+}
+
+/**
+ * Remove workspace overlay contributions from a config about to be written.
+ * Only replaces top-level sections on `data`; never mutates nested objects,
+ * which are shared with the live runtime config.
+ */
+function stripWorkspaceOverlay(data: AutohandConfig, snapshot: WorkspaceOverlaySnapshot): void {
+  if (snapshot.hooks) {
+    const current = data.hooks;
+    if (isPlainRecord(current)) {
+      if (sameJsonValue(current, snapshot.hooks.applied)) {
+        if (snapshot.hooks.base === undefined) delete data.hooks;
+        else data.hooks = structuredClone(snapshot.hooks.base);
+      } else {
+        const base = normalizeHooksSection(snapshot.hooks.base);
+        const restored: HooksSettings = { ...current };
+        if (snapshot.hooks.enabledOverridden) {
+          restoreOverlayEnabled(restored, current, snapshot.hooks.applied, base);
+        }
+        if (Array.isArray(current.hooks)) {
+          restored.hooks = restoreOverlayList(
+            current.hooks,
+            Array.isArray(base?.hooks) ? base.hooks : [],
+            new Set(snapshot.hooks.overlayIds),
+            safeHookIdentifier,
+          );
+        }
+        data.hooks = restored;
+      }
+    }
+  }
+
+  if (snapshot.mcp) {
+    const current = data.mcp;
+    if (isPlainRecord(current)) {
+      if (sameJsonValue(current, snapshot.mcp.applied)) {
+        if (snapshot.mcp.base === undefined) delete data.mcp;
+        else data.mcp = structuredClone(snapshot.mcp.base);
+      } else {
+        const base = isPlainRecord(snapshot.mcp.base) ? snapshot.mcp.base : undefined;
+        const restored: McpSettings = { ...current };
+        if (snapshot.mcp.enabledOverridden) {
+          restoreOverlayEnabled(restored, current, snapshot.mcp.applied, base);
+        }
+        if (Array.isArray(current.servers)) {
+          restored.servers = restoreOverlayList(
+            current.servers,
+            Array.isArray(base?.servers) ? base.servers : [],
+            new Set(snapshot.mcp.overlayNames),
+            mcpServerIdentifier,
+          );
+        }
+        data.mcp = restored;
+      }
+    }
+  }
+
+  for (const key of WORKSPACE_OVERLAY_OBJECT_KEYS) {
+    const overlay = snapshot.fields?.[key];
+    const current = data[key];
+    if (!overlay || !isPlainRecord(current)) continue;
+    const restored: Record<string, unknown> = { ...current };
+    for (const [field, { base, applied }] of Object.entries(overlay.values)) {
+      if (!sameJsonValue(restored[field], applied)) continue;
+      if (base === undefined) delete restored[field];
+      else restored[field] = structuredClone(base);
+    }
+    if (overlay.baseMissing && Object.keys(restored).length === 0) {
+      delete data[key];
+    } else {
+      (data as Record<string, unknown>)[key] = restored;
+    }
+  }
+}
+
+/**
+ * Keys of the shared project config file that act as overlays on the global
+ * config. The file can be committed to a repository, so only lifecycle hooks
+ * and MCP servers are lifted from it:
+ * - `permissions` could switch a cloned repository to unrestricted mode.
+ * - `telemetry` could redirect session sync to another endpoint.
+ * - `provider`, credentials, UI, and workspace keys are also written as
+ *   placeholder defaults by `autohand mcp add --scope project`.
+ * Personal overrides for those sections belong in `settings.local.json`.
+ */
+const PROJECT_CONFIG_OVERLAY_KEYS = [
+  "hooks",
+  "mcp",
+] as const satisfies readonly (keyof AutohandConfig & keyof LocalProjectSettings)[];
+
+/**
+ * Load `<workspace>/.autohand/config.{json,toml,yaml,yml}` as a workspace
+ * overlay. Returns null when no project config exists or when the global
+ * config path already points at the project file (the `--scope project` MCP
+ * commands load the project file directly and must not overlay it on itself).
+ */
+async function loadProjectConfigOverlay(
+  workspaceRoot: string,
+  globalConfigPath: string,
+): Promise<LocalProjectSettings | null> {
+  const projectDir = path.join(workspaceRoot, PROJECT_DIR_NAME);
+  // A workspace at the home directory would make the user config its own overlay.
+  if (path.resolve(projectDir) === path.resolve(AUTOHAND_HOME)) {
+    return null;
+  }
+  const configFiles = await checkConfigFilesExist(projectDir);
+  if (configFiles.length === 0) {
+    return null;
+  }
+  if (configFiles.length > 1) {
+    throw new Error(
+      `Multiple config files found in ${projectDir} (${configFiles.join(", ")}). ` +
+        `Only one project config file is allowed. Please review and remove the duplicate.`,
+    );
+  }
+
+  const projectConfigPath = path.join(projectDir, configFiles[0]);
+  if (path.resolve(projectConfigPath) === path.resolve(globalConfigPath)) {
+    return null;
+  }
+
+  let parsed: AutohandConfig | LegacyConfigShape;
+  try {
+    parsed = await parseConfigFile(projectConfigPath);
+  } catch (error) {
+    throw new Error(
+      `Failed to parse project config at ${projectConfigPath}: ${(error as Error).message}`,
+    );
+  }
+  if (parsed === null || typeof parsed !== "object") {
+    return null;
+  }
+
+  const overlay: LocalProjectSettings = {};
+  const source = parsed as Record<string, unknown>;
+  for (const key of PROJECT_CONFIG_OVERLAY_KEYS) {
+    const value = source[key];
+    if (value !== undefined && value !== null && typeof value === "object") {
+      (overlay as Record<string, unknown>)[key] = value;
+    }
+  }
+  return overlay;
 }
 
 function normalizeSavedApiBaseUrl(baseUrl: string | undefined): string | undefined {
@@ -1116,6 +1620,16 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
   }
 }
 
+/**
+ * Workspace an invocation targets before any config is loaded: the explicit
+ * `--path`, else the current directory. Pass it to `loadConfig` so project
+ * overlays (`.autohand/config.*`, `.autohand/settings.local.json`) come from
+ * that workspace rather than from wherever the process started.
+ */
+export function resolveRequestedWorkspaceRoot(requestedPath: string | undefined): string {
+  return path.resolve(requestedPath ?? process.cwd());
+}
+
 export function resolveWorkspaceRoot(
   config: LoadedConfig,
   requestedPath?: string,
@@ -1390,8 +1904,13 @@ export async function saveConfig(
   config: LoadedConfig,
   options: SaveConfigOptions = {},
 ): Promise<void> {
-  const { configPath, ...data } = config;
+  const { configPath, workspaceOverlay, ...data } = config;
   delete (data as Partial<LoadedConfig>).isNewConfig;
+  delete (data as Partial<LoadedConfig>).workspaceTrust;
+  delete (data as Partial<LoadedConfig>).overlayWorkspaceRoot;
+  if (workspaceOverlay) {
+    stripWorkspaceOverlay(data, workspaceOverlay);
+  }
 
   if (!options.writeAuth) {
     const persisted = await readPersistedAuth(configPath);

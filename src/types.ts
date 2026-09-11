@@ -987,6 +987,72 @@ export interface LoadedConfig extends AutohandConfig {
   configPath: string;
   /** True if config was just created (first run) */
   isNewConfig?: boolean;
+  /**
+   * Runtime-only: the workspace whose `.autohand/` project files were layered
+   * into this config. Reloads use it to keep the same project overlays.
+   * Never persisted.
+   */
+  overlayWorkspaceRoot?: string;
+  /**
+   * Runtime-only record of what workspace overlays contributed at load time.
+   * `saveConfig` uses it to keep project data out of the file it writes.
+   * Never persisted.
+   */
+  workspaceOverlay?: WorkspaceOverlaySnapshot;
+  /**
+   * Runtime-only trust state for project hooks and MCP servers declared in
+   * `<workspace>/.autohand/`. Present only when the workspace declares any.
+   * Never persisted.
+   */
+  workspaceTrust?: WorkspaceTrustState;
+}
+
+/** Whether a workspace's project hooks and MCP servers may run. */
+export interface WorkspaceTrustState {
+  /** Workspace whose project files declare the entries */
+  workspaceRoot: string;
+  /** Hash of the declared hooks and MCP servers; any change asks again */
+  fingerprint: string;
+  /** True when the user trusted this workspace for exactly these entries */
+  trusted: boolean;
+  /** Project hooks after layering, in the order they apply */
+  hooks: HookDefinition[];
+  /** Project MCP servers after layering */
+  mcpServers: McpServerConfigEntry[];
+}
+
+/** Keys of plain settings objects that workspace overlays merge field by field. */
+export type WorkspaceOverlayObjectKey = 'agent' | 'network' | 'telemetry' | 'permissions';
+
+/**
+ * What `.autohand/config.*` and `.autohand/settings.local.json` changed when a
+ * config was loaded for a workspace. A plain JSON value so it survives spreads
+ * and `structuredClone`.
+ */
+export interface WorkspaceOverlaySnapshot {
+  hooks?: {
+    /** The hooks section of the file being loaded, before any overlay */
+    base?: HooksSettings;
+    /** The hooks section after overlays were merged */
+    applied?: HooksSettings;
+    /** Identities of hooks contributed by overlays */
+    overlayIds: string[];
+    /** Whether an overlay set `hooks.enabled` */
+    enabledOverridden: boolean;
+  };
+  mcp?: {
+    base?: McpSettings;
+    applied?: McpSettings;
+    /** Names of MCP servers contributed by overlays */
+    overlayNames: string[];
+    enabledOverridden: boolean;
+  };
+  fields?: Partial<Record<WorkspaceOverlayObjectKey, {
+    /** True when the file being loaded had no such section */
+    baseMissing: boolean;
+    /** Per overlaid field: value before overlays and value after */
+    values: Record<string, { base?: unknown; applied?: unknown }>;
+  }>>;
 }
 
 /** Client context determines which tools are available */

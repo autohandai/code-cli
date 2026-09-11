@@ -3,6 +3,7 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import path from 'node:path';
 import { resolveCommandOutputFormat } from '../modes/commandOutput.js';
 import type { CLIOptions, LoadedConfig } from '../types.js';
 import type { ReviewCliInvocation } from './reviewCliCommand.js';
@@ -37,7 +38,11 @@ export async function executeReviewCliInvocation(
   if ('error' in output) throw new Error(output.error);
 
   const cwd = dependencies.cwd();
-  const config = await dependencies.loadConfig(invocation.runtimeOptions.config, cwd);
+  // Project overlays belong to the reviewed workspace, not the launch directory.
+  const config = await dependencies.loadConfig(
+    invocation.runtimeOptions.config,
+    path.resolve(cwd, invocation.runtimeOptions.path ?? '.'),
+  );
   const workspaceRoot = dependencies.resolveWorkspaceRoot(
     config,
     invocation.runtimeOptions.path,

@@ -93,6 +93,7 @@ import {
   createSetupOnlyRuntimeProfile,
 } from './blueprintSetup.js';
 import { handleBlueprintSetupRpcRequest } from './blueprintSetupRpc.js';
+import { resolveWorkspaceTrust } from '../../startup/workspaceTrustPrompt.js';
 
 // Store original console methods
 const originalConsole = {
@@ -528,6 +529,11 @@ export async function runRpcMode(options: CLIOptions): Promise<0 | 1> {
       options
     );
     configureSearchFromSettings(config.search, options.searchEngine);
+
+    // RPC clients cannot answer a trust prompt; the warning goes to stderr, never the protocol stream.
+    if (!options.bare) {
+      await resolveWorkspaceTrust(config, { interactive: false });
+    }
 
     // Process --yolo flag BEFORE creating runtime (same as main CLI flow)
     const normalizedYolo = normalizeYoloInput(options.yolo as string | boolean | undefined);

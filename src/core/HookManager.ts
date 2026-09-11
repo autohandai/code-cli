@@ -4,7 +4,7 @@
  */
 import { spawn } from 'node:child_process';
 import { matchesImportedHook, importedHookInput, importedHookEnvironment, importedHookResponse } from './ImportedHookAdapter.js';
-import { HOOK_EVENTS, canonicalHookEvent } from './hookEvents.js';
+import { HOOK_EVENTS, canonicalHookEvent, hookIdentifier } from './hookEvents.js';
 import { legacyHookMatches, normalizeHooksSettings, renderHookCommandTemplate, resolveHookEvents } from './legacyHookEvents.js';
 import { minimatch } from 'minimatch';
 import type { HooksSettings, HookDefinition, HookEvent, HookFilter, HookResponse, HookEventName } from '../types.js';
@@ -341,16 +341,7 @@ export class HookManager {
    * Uses script filename for script-based hooks, or event+description for inline commands
    */
   private getHookIdentifier(hook: HookDefinition): string {
-    // For script-based hooks, use the script filename
-    const scriptMatch = hook.command.match(/([^/]+\.sh)$/);
-    if (scriptMatch) {
-      return `script:${scriptMatch[1]}`;
-    }
-    // For inline commands, use event + description (if available) or command hash
-    if (hook.description) {
-      return `${hook.event}:${hook.description}`;
-    }
-    return `${hook.event}:${hook.command}`;
+    return hookIdentifier(hook);
   }
 
   /**

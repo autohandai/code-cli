@@ -246,6 +246,26 @@ describe('ensureAuthenticated', () => {
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
+  it('reloads the signed-in config for the same workspace so project hooks and settings survive login', async () => {
+    const mockConfig: LoadedConfig = {
+      configPath: '/tmp/config.json',
+      overlayWorkspaceRoot: '/work/repo',
+    };
+    mockLogin.mockResolvedValue(null);
+    mockLoadConfig.mockResolvedValue({
+      ...mockConfig,
+      auth: {
+        token: 'new-token',
+        user: { id: 'u1', email: 'test@example.com', name: 'Test' },
+        expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      },
+    });
+
+    await ensureAuthenticated(mockConfig);
+
+    expect(mockLoadConfig).toHaveBeenCalledWith('/tmp/config.json', '/work/repo');
+  });
+
   it('passes terminal-width-aware logo art to the login modal', async () => {
     const mockConfig: LoadedConfig = {
       configPath: '/tmp/config.json',
