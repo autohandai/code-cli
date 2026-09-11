@@ -212,6 +212,8 @@
         "taskListPositionDesc": "Place active tasks above status or directly above the composer",
         "showThinking": "Show LLM thinking",
         "showThinkingDesc": "Display the model reasoning process",
+        "renderMarkdown": "Render markdown",
+        "renderMarkdownDesc": "Show assistant headings, lists, code, and tables formatted instead of raw markdown",
         "terminalBell": "Terminal bell",
         "terminalBellDesc": "Ring bell when task completes",
         "checkForUpdates": "Check for updates",

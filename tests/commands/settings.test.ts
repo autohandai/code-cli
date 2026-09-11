@@ -135,6 +135,23 @@ describe('SETTINGS_REGISTRY', () => {
     });
   });
 
+  it('exposes markdown rendering as an on-by-default UI setting', () => {
+    expect(SETTINGS_REGISTRY.find(s => s.key === 'ui.renderMarkdown')).toMatchObject({
+      category: 'ui',
+      type: 'boolean',
+      defaultValue: true,
+    });
+  });
+
+  it('turns markdown rendering off and on through its key or the render_markdown alias', () => {
+    const config = { configPath: '/tmp/config.json' } as LoadedConfig;
+
+    expect(setConfigSetting(config, 'ui.renderMarkdown', 'false')).toEqual({ key: 'ui.renderMarkdown', value: false });
+    expect(config.ui?.renderMarkdown).toBe(false);
+    expect(setConfigSetting(config, 'render_markdown', 'on')).toEqual({ key: 'ui.renderMarkdown', value: true });
+    expect(config.ui?.renderMarkdown).toBe(true);
+  });
+
   it('exposes activity verbs as an on-by-default UI setting', () => {
     const setting = SETTINGS_REGISTRY.find(s => s.key === 'ui.activityVerbsEnabled');
     expect(setting).toMatchObject({

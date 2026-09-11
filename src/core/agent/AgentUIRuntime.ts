@@ -9,6 +9,7 @@ import os from 'node:os';
 import ora from 'ora';
 import { createInkUIManager } from '../../ui/InkUIManager.js';
 import { createPlainUIManager } from '../../ui/PlainUIManager.js';
+import { setTerminalMarkdownPreference } from '../../ui/terminalMarkdown.js';
 import { getPromptBlockWidth, promptNotify } from '../../ui/inputPrompt.js';
 import { executeShellCommandAsync, executeStreamingShellCommand, isShellCommand, parseShellCommand } from '../../ui/shellCommand.js';
 import { createImmediateShellCommandBlockWriter, formatImmediateShellCommandHeader } from '../immediateCommandRouter.js';
@@ -241,6 +242,8 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
       return; // Already initialized
     }
 
+    // Read on every render so toggling ui.renderMarkdown in /settings applies immediately.
+    setTerminalMarkdownPreference(() => host.runtime.config.ui?.renderMarkdown !== false);
     const isTTY = process.stdout.isTTY && process.stdin.isTTY;
 
     if (host.useInkRenderer && isTTY) {

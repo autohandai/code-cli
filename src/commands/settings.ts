@@ -42,6 +42,8 @@ export interface SettingsCommandContext {
 const SETTING_KEY_ALIASES: Record<string, string> = {
   max_agents: 'features.multi_agent_v2.max_concurrent_threads_per_session',
   silent_tool_output: 'ui.silentToolOutput',
+  render_markdown: 'ui.renderMarkdown',
+  markdown_rendering: 'ui.renderMarkdown',
   tool_output_silent: 'ui.silentToolOutput',
   ui_silent_tool_output: 'ui.silentToolOutput',
   'task_list position': 'ui.taskListPosition',
@@ -117,6 +119,7 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
   { key: 'ui.silentToolOutput', labelKey: 'commands.settings.ui.silentToolOutput', descriptionKey: 'commands.settings.ui.silentToolOutputDesc', category: 'ui', type: 'boolean', defaultValue: false },
   { key: 'ui.taskListPosition', labelKey: 'commands.settings.ui.taskListPosition', descriptionKey: 'commands.settings.ui.taskListPositionDesc', category: 'ui', type: 'enum', enumValues: ['up', 'above-composer'], defaultValue: 'above-composer' },
   { key: 'ui.showThinking', labelKey: 'commands.settings.ui.showThinking', descriptionKey: 'commands.settings.ui.showThinkingDesc', category: 'ui', type: 'boolean', defaultValue: true },
+  { key: 'ui.renderMarkdown', labelKey: 'commands.settings.ui.renderMarkdown', descriptionKey: 'commands.settings.ui.renderMarkdownDesc', category: 'ui', type: 'boolean', defaultValue: true },
   { key: 'ui.terminalBell', labelKey: 'commands.settings.ui.terminalBell', descriptionKey: 'commands.settings.ui.terminalBellDesc', category: 'ui', type: 'boolean', defaultValue: true },
   { key: 'ui.checkForUpdates', labelKey: 'commands.settings.ui.checkForUpdates', descriptionKey: 'commands.settings.ui.checkForUpdatesDesc', category: 'ui', type: 'boolean', defaultValue: true },
   { key: 'ui.showCompletionNotification', labelKey: 'commands.settings.ui.showCompletionNotification', descriptionKey: 'commands.settings.ui.showCompletionNotificationDesc', category: 'ui', type: 'boolean', defaultValue: true },

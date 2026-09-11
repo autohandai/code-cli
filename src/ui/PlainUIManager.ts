@@ -8,6 +8,7 @@
  */
 
 import ora, { type Ora } from 'ora';
+import { formatAssistantMarkdown } from './terminalMarkdown.js';
 import { BaseUIManager, type UIManager } from './UIManager.js';
 import { PersistentInput, type PersistentInputOptions } from './persistentInput.js';
 import type { TerminalRegions } from './terminalRegions.js';
@@ -112,7 +113,7 @@ export class PlainUIManager extends BaseUIManager implements UIManager {
   setFinalResponse(response: string): void {
     this.finalResponse = response;
     if (!this.isWorking) {
-      console.log('\n' + response + '\n');
+      console.log('\n' + formatAssistantMarkdown(response) + '\n');
     }
   }
 

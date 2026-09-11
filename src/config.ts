@@ -1435,6 +1435,12 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
     ) {
       throw new Error(`ui.mouseComposerCursor must be boolean in ${configPath}`);
     }
+    if (
+      config.ui.renderMarkdown !== undefined &&
+      typeof config.ui.renderMarkdown !== "boolean"
+    ) {
+      throw new Error(`ui.renderMarkdown must be boolean in ${configPath}`);
+    }
     const taskListPosition: unknown = config.ui.taskListPosition;
     if (
       taskListPosition !== undefined &&

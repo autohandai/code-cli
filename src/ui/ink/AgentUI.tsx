@@ -55,6 +55,7 @@ import {
   resolveComposerCursorPosition,
 } from '../inputPrompt.js';
 import { renderTerminalMarkdown } from '../../core/immediateCommandRouter.js';
+import { MarkdownText } from './components/MarkdownText.js';
 import { buildFileMentionSuggestions } from '../mentionFilter.js';
 import { getContentDisplay } from '../displayUtils.js';
 import type { ChatLogMessage } from '../../session/chatLog.js';
@@ -2514,7 +2515,7 @@ const DynamicContent = memo(function DynamicContent({
         <>
           {content.before && (
             <Box marginTop={1}>
-              <MarkdownDiffContent content={content.before} />
+              <MarkdownDiffContent content={content.before} markdown />
             </Box>
           )}
           {content.sitrep && (
@@ -2528,7 +2529,7 @@ const DynamicContent = memo(function DynamicContent({
           )}
           {content.after && (
             <Box marginTop={1}>
-              <MarkdownDiffContent content={content.after} />
+              <MarkdownDiffContent content={content.after} markdown />
             </Box>
           )}
         </>
@@ -2598,7 +2599,7 @@ const ChatHistoryMessage = memo(function ChatHistoryMessage({
 
   return (
     <Box marginTop={1}>
-      <MarkdownDiffContent content={message.content} />
+      <MarkdownDiffContent content={message.content} markdown />
     </Box>
   );
 });
@@ -2623,22 +2624,29 @@ const ToolCallHistoryMessage = memo(function ToolCallHistoryMessage({
 
 const MarkdownDiffContent = memo(function MarkdownDiffContent({
   content,
+  markdown = false,
 }: {
   content: string;
+  /** Assistant text: render as terminal markdown when `ui.renderMarkdown` is on. */
+  markdown?: boolean;
 }) {
   const segments = useMemo(() => splitMarkdownDiffFences(content), [content]);
 
   return (
     <Box flexDirection="column">
-      {segments.map((segment, index) => (
-        segment.type === 'diff'
-          ? <ThemedDiffOutput key={`diff-${index}`} output={segment.content} />
-          : (
-            <Text key={`text-${index}`}>
-              {renderTerminalMarkdown(segment.content.trim())}
-            </Text>
-          )
-      ))}
+      {segments.map((segment, index) => {
+        if (segment.type === 'diff') {
+          return <ThemedDiffOutput key={`diff-${index}`} output={segment.content} />;
+        }
+        if (markdown) {
+          return <MarkdownText key={`text-${index}`} content={segment.content.trim()} />;
+        }
+        return (
+          <Text key={`text-${index}`}>
+            {renderTerminalMarkdown(segment.content.trim())}
+          </Text>
+        );
+      })}
     </Box>
   );
 });
