@@ -455,6 +455,10 @@ export class SlashCommandHandler {
           const { usage } = await import('../commands/usage.js');
           return usage(this.ctx, args);
         }
+        case '/upgrade': {
+          const { upgrade } = await import('../commands/upgrade.js');
+          return upgrade(this.ctx);
+        }
         case '/login': {
           const { login } = await import('../commands/login.js');
           await this.ctx.onBeforeModal?.();
