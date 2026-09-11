@@ -5,6 +5,7 @@
  */
 import type { Ora } from 'ora';
 import type { ThemeDefinition } from './ui/theme/types.js';
+import type { KeybindingProfileId } from './keybindings/profiles.js';
 import type { TeamActivitySnapshot } from './core/teams/types.js';
 
 // InkRenderer type defined inline to avoid tsx dev mode issues with .tsx imports
@@ -330,6 +331,8 @@ export interface UISettings {
   promptSuggestions?: boolean;
   /** Enable mouse click-to-position editing in the Ink composer (default: true). */
   mouseComposerCursor?: boolean;
+  /** Shortcut profile for the Ink composer: Autohand defaults or another agent's conventions (default: autohand). */
+  keybindingProfile?: KeybindingProfileId;
   /** Fixed composer status-line display preferences. */
   statusLine?: StatusLineSettings;
 }

@@ -23,6 +23,7 @@ import type {
   AutohandAISettings,
 } from "./types.js";
 import { AUTOHAND_FILES, AUTOHAND_HOME } from "./constants.js";
+import { KEYBINDING_PROFILE_IDS, isKeybindingProfileId } from "./keybindings/profiles.js";
 import { isAutohandInferenceEnabled } from "./featureFlags.js";
 import { autoInitTheme, configureThemeSources, getDefaultThemeName, themeExists } from "./ui/theme/index.js";
 import { loadLocalProjectSettings, type LocalProjectSettings } from "./permissions/localProjectPermissions.js";
@@ -937,6 +938,14 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
       taskListPosition !== "above-composer"
     ) {
       throw new Error(`ui.taskListPosition must be up or above-composer in ${configPath}`);
+    }
+    if (
+      config.ui.keybindingProfile !== undefined &&
+      !isKeybindingProfileId(config.ui.keybindingProfile)
+    ) {
+      throw new Error(
+        `ui.keybindingProfile must be one of ${KEYBINDING_PROFILE_IDS.join(", ")} in ${configPath}`,
+      );
     }
     if (
       config.ui.completionReportEnabled !== undefined &&
