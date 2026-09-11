@@ -1,0 +1,31 @@
+{
+  "tips": [
+    { "text": "Use @filename to give the agent context about specific files" },
+    { "text": "Press Shift+Tab to cycle edit, plan, auto, and YOLO modes" },
+    { "text": "Type /undo to revert the last change the agent made" },
+    { "text": "Use /memory to save and recall project-specific notes" },
+    { "text": "Press Shift+Enter, Alt+Enter or Ctrl+J (Codex profile) to add a newline" },
+    { "text": "Type /sessions to list and /resume to continue a past session" },
+    { "text": "Prefix with ! to run shell commands without leaving autohand" },
+    { "text": "Drag and drop images into the prompt for visual context" },
+    { "text": "Use /new to reset conversation context when switching topics" },
+    { "text": "Be specific in your instructions for better results" },
+    { "text": "Mention multiple @files in one prompt to give broader context" },
+    { "text": "Use /model to switch LLM models mid-session" },
+    { "text": "Press ESC to cancel an in-flight LLM request" },
+    { "text": "Use /help to see all available slash commands" },
+    { "text": "Type /init to scaffold an AGENTS.md template in your workspace" },
+    { "text": "Review diffs carefully before approving destructive operations" },
+    { "text": "Use /feedback to report issues or suggest improvements" },
+    { "text": "Ctrl+C once clears input, twice exits autohand" },
+    { "text": "Use /agents to manage sub-agents for parallel tasks" },
+    { "text": "Pin important context with @file so the model always sees it" },
+    { "text": "Don't like what you see? Change it with $extension-builder" },
+    { "text": "Type $ to mention an installed skill and put it to work" },
+    { "text": "Set a persistent objective with /goal and let autohand keep at it" },
+    { "text": "Type ? on an empty composer to list keyboard shortcuts" },
+    { "text": "Run /upgrade to see what the next Autohand plan unlocks" },
+    { "kind": "skill", "text": "Try ${{skill}}: {{description}}" },
+    { "kind": "command", "text": "Type {{command}} to {{description}}" }
+  ]
+}

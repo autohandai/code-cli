@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
-import { TipsBag } from './tips.js';
+import { TipsBag, type TipContext } from './tips.js';
 import { shuffleInPlace } from './displayUtils.js';
 
 const DEFAULT_VERBS: string[] = [
@@ -39,6 +39,8 @@ export interface ActivityConfig {
   activityVerbs?: string | string[];
   activityVerbsEnabled?: boolean;
   activitySymbol?: string;
+  /** Lazy providers used to expand skill and command tip templates. */
+  tipContext?: TipContext;
 }
 
 /**
@@ -64,7 +66,7 @@ export class ActivityIndicator {
       this.verbs = DEFAULT_VERBS;
     }
     this.symbol = config?.activitySymbol ?? DEFAULT_SYMBOL;
-    this.tips = new TipsBag();
+    this.tips = new TipsBag(undefined, config?.tipContext);
   }
 
   /**
@@ -93,6 +95,14 @@ export class ActivityIndicator {
     if (!this.currentTip) {
       this.currentTip = this.tips.next();
     }
+    return this.currentTip;
+  }
+
+  /**
+   * Rotate only the tip, leaving the current verb alone.
+   */
+  nextTip(): string {
+    this.currentTip = this.tips.next();
     return this.currentTip;
   }
 

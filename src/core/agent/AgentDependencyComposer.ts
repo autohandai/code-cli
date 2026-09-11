@@ -11,7 +11,7 @@ import { saveConfig, getProviderConfig } from '../../config.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
 import { ProviderFactory } from '../../providers/ProviderFactory.js';
 import { getOpenRouterModelContextWindow } from '../../providers/modelCapabilities.js';
-import { promptInterrupt, promptNotify } from '../../ui/inputPrompt.js';
+import { getHelpOrderedSlashCommands, promptInterrupt, promptNotify } from '../../ui/inputPrompt.js';
 import { isShellCommand, parseShellCommand } from '../../ui/shellCommand.js';
 import { shouldUseInkRenderer } from '../../ui/inkMode.js';
 import { getContextWindow } from '../context/tokenizer.js';
@@ -473,6 +473,13 @@ export function initializeAgentDependencies(
       activityVerbs: runtime.config.ui?.activityVerbs,
       activityVerbsEnabled: runtime.config.ui?.activityVerbsEnabled,
       activitySymbol: runtime.config.ui?.activitySymbol,
+      tipContext: {
+        listSkills: () => (host.skillsRegistry?.listSkills() ?? []).map((skill) => ({
+          name: skill.name,
+          description: skill.description,
+        })),
+        listCommands: () => getHelpOrderedSlashCommands(SLASH_COMMANDS),
+      },
     });
 
     // Create permission manager with persistence callback and local project support
