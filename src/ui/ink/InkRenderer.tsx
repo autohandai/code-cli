@@ -18,6 +18,7 @@ import {
   createInitialUIState,
   type ActivityItem,
   type AnnouncementLineState,
+  type TipLineState,
   type AgentUILineExtensions,
   type AgentUIState,
   type CommandResultState,
@@ -657,6 +658,12 @@ export class InkRenderer {
       updates.commandResult = undefined;
     }
 
+    // A rotating tip only lives while working; an upgrade hint stays until the next turn starts.
+    const tip = this.state.tip;
+    if (tip && (isWorking ? tip.kind === 'upgrade' : tip.kind === 'tip')) {
+      updates.tip = undefined;
+    }
+
     this.updateState(updates);
   }
 
@@ -1117,6 +1124,10 @@ export class InkRenderer {
 
   setAnnouncement(announcement: AnnouncementLineState | undefined): void {
     this.updateState({ announcement });
+  }
+
+  setTip(tip: TipLineState | undefined): void {
+    this.updateState({ tip });
   }
 
   /**
