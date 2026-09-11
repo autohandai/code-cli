@@ -1685,4 +1685,137 @@ describe("SetupWizard", () => {
       expect(result.config.ui?.locale).toBe("en");
     });
   });
+
+  describe("other agents on this machine", () => {
+    const detectedAgents = [
+      { id: "claude-code", label: "Claude Code", profile: "claude-code" as const, importSource: "claude" as const },
+      { id: "devin", label: "Devin", profile: "devin" as const },
+    ];
+
+    /**
+     * Chain for the cloud flow once agents are detected. The keybindings modal
+     * comes after the permissions modal; the import confirm sits between the
+     * preferences and advanced confirms.
+     */
+    function setupDetectedAgentMocks(options: { profile: string; importAgents: boolean }) {
+      mockShowModal
+        .mockResolvedValueOnce({ value: "en" }) // language
+        .mockResolvedValueOnce({ value: "openrouter" }) // provider
+        .mockResolvedValueOnce({ value: "interactive" }) // permissions
+        .mockResolvedValueOnce({ value: options.profile }); // keyboard shortcuts
+      mockShowPassword.mockResolvedValueOnce("sk-test-key-long-enough");
+      mockShowInput.mockResolvedValueOnce("your-modelcard-id-here");
+      mockShowConfirm
+        .mockResolvedValueOnce(true) // remember session
+        .mockResolvedValueOnce(true) // telemetry
+        .mockResolvedValueOnce(true) // autoReport
+        .mockResolvedValueOnce(false) // preferences (skip)
+        .mockResolvedValueOnce(options.importAgents) // import from other agents
+        .mockResolvedValueOnce(false) // advanced (skip)
+        .mockResolvedValueOnce(false) // agents (skip)
+        .mockResolvedValueOnce(false) // registration (skip)
+        .mockResolvedValueOnce(true); // review confirm
+    }
+
+    it("keeps every existing prompt in place when no other agent is installed", async () => {
+      const wizard = new SetupWizard(testWorkspace);
+      setupCloudProviderMocks("openrouter", "sk-test-key-long-enough", "your-modelcard-id-here");
+
+      const result = await wizard.run({
+        skipWelcome: true,
+        detectExternalAgents: async () => [],
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockShowModal).toHaveBeenCalledTimes(3);
+      expect(result.skippedSteps).toEqual(expect.arrayContaining(["keybindings", "importAgents"]));
+      expect(result.config.ui?.keybindingProfile).toBeUndefined();
+    });
+
+    it("offers the detected agents' shortcuts and stores the chosen profile", async () => {
+      const wizard = new SetupWizard(testWorkspace);
+      const runImport = vi.fn().mockResolvedValue(undefined);
+      setupDetectedAgentMocks({ profile: "claude-code", importAgents: false });
+
+      const result = await wizard.run({
+        skipWelcome: true,
+        detectExternalAgents: async () => detectedAgents,
+        runImport,
+      });
+
+      expect(result.success).toBe(true);
+      const keybindingsCall = mockShowModal.mock.calls[3]?.[0] as { options: Array<{ value: string }> };
+      expect(keybindingsCall.options.map((option) => option.value)).toEqual(["autohand", "claude-code", "devin"]);
+      expect(result.config.ui?.keybindingProfile).toBe("claude-code");
+      expect(runImport).not.toHaveBeenCalled();
+      expect(result.skippedSteps).toContain("importAgents");
+    });
+
+    it("imports memories, sessions and skills through the shared import path when accepted", async () => {
+      const wizard = new SetupWizard(testWorkspace, {
+        configPath: testConfigPath,
+        provider: "openrouter",
+      } as LoadedConfig);
+      const runImport = vi.fn().mockResolvedValue(undefined);
+      setupDetectedAgentMocks({ profile: "autohand", importAgents: true });
+
+      const result = await wizard.run({
+        skipWelcome: true,
+        detectExternalAgents: async () => detectedAgents,
+        runImport,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.config.ui?.keybindingProfile).toBe("autohand");
+      expect(runImport).toHaveBeenCalledWith({
+        all: true,
+        categories: ["memory", "sessions", "skills"],
+        configPath: testConfigPath,
+        workspaceRoot: testWorkspace,
+      });
+      expect(result.skippedSteps).not.toContain("importAgents");
+    });
+
+    it("finishes setup even when the import fails", async () => {
+      const wizard = new SetupWizard(testWorkspace);
+      const runImport = vi.fn().mockRejectedValue(new Error("network down"));
+      setupDetectedAgentMocks({ profile: "devin", importAgents: true });
+
+      const result = await wizard.run({
+        skipWelcome: true,
+        detectExternalAgents: async () => detectedAgents,
+        runImport,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.config.ui?.keybindingProfile).toBe("devin");
+      expect(runImport).toHaveBeenCalledTimes(1);
+    });
+
+    it("skips both steps in quick setup", async () => {
+      const wizard = new SetupWizard(testWorkspace);
+      const detectExternalAgents = vi.fn().mockResolvedValue(detectedAgents);
+      mockShowModal
+        .mockResolvedValueOnce({ value: "en" }) // language
+        .mockResolvedValueOnce({ value: "openrouter" }) // provider
+        .mockResolvedValueOnce({ value: "interactive" }); // permissions
+      mockShowPassword.mockResolvedValueOnce("sk-test-key-long-enough");
+      mockShowInput.mockResolvedValueOnce("your-modelcard-id-here");
+      mockShowConfirm
+        .mockResolvedValueOnce(true) // remember session
+        .mockResolvedValueOnce(true) // telemetry
+        .mockResolvedValueOnce(true) // autoReport
+        .mockResolvedValueOnce(false); // agents (skip)
+
+      const result = await wizard.run({
+        skipWelcome: true,
+        quickSetup: true,
+        detectExternalAgents,
+      });
+
+      expect(result.success).toBe(true);
+      expect(detectExternalAgents).not.toHaveBeenCalled();
+      expect(result.skippedSteps).toEqual(expect.arrayContaining(["keybindings", "importAgents"]));
+    });
+  });
 });

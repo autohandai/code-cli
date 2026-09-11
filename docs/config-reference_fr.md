@@ -686,6 +686,29 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 ```
 ---
 
+### Profils de raccourcis clavier
+
+Si vous utilisez déjà un autre agent de codage, le composeur peut suivre ses raccourcis. Choisissez le profil pendant la configuration (proposé quand Autohand détecte l'agent), dans `/settings` → UI → Raccourcis clavier, ou directement :
+
+```sh
+autohand config set ui.keybindingProfile codex
+```
+
+| Profil | Nouvelle ligne | Quitter | Historique |
+| --- | --- | --- | --- |
+| `autohand` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+| `claude-code`, `codex`, `devin` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | Ctrl+R |
+| `cursor`, `antigravity` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | `/whatityped` |
+| `factory` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+
+Ctrl+D ne quitte que si le composeur est vide. Le panneau `?` liste toujours les raccourcis du profil actif. Avec `claude-code`, vos réaffectations de `~/.claude/keybindings.json` sont appliquées ; avec `codex`, celles de `[tui.keymap.*]` dans `~/.codex/config.toml`.
+
+Le terminal décide des raccourcis reçus : Shift+Enter exige le protocole clavier kitty (Ghostty, kitty, WezTerm, iTerm2 3.5+), Alt+Enter exige Option en Meta sous macOS, Ctrl+J fonctionne dans tout terminal, tmux compris.
+
+**Import pendant la configuration.** Quand la configuration détecte un autre agent, elle propose aussi d'importer mémoires, sessions et compétences comme `/import` ; un import échoué ne bloque pas la configuration.
+
+---
+
 ## Paramètres des agents
 
 Contrôlez le comportement de l’agent et les limites d’itération.

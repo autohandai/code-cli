@@ -686,6 +686,29 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 ```
 ---
 
+### Profile skrótów klawiszowych
+
+Jeśli używasz już innego agenta programistycznego, kompozytor może przejąć jego skróty. Profil wybierzesz podczas konfiguracji (gdy Autohand wykryje agenta), w `/settings` → UI → Skróty klawiszowe albo bezpośrednio:
+
+```sh
+autohand config set ui.keybindingProfile codex
+```
+
+| Profil | Nowa linia | Wyjście | Historia |
+| --- | --- | --- | --- |
+| `autohand` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+| `claude-code`, `codex`, `devin` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | Ctrl+R |
+| `cursor`, `antigravity` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | `/whatityped` |
+| `factory` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+
+Ctrl+D wychodzi tylko przy pustym kompozytorze. Panel `?` zawsze pokazuje skróty aktywnego profilu. Dla `claude-code` stosowane są własne mapowania z `~/.claude/keybindings.json`, dla `codex` te z `[tui.keymap.*]` w `~/.codex/config.toml`.
+
+O tym, które skróty docierają, decyduje terminal: Shift+Enter wymaga protokołu klawiatury kitty (Ghostty, kitty, WezTerm, iTerm2 3.5+), Alt+Enter wymaga Option jako Meta w macOS, Ctrl+J działa w każdym terminalu, także w tmux.
+
+**Import podczas konfiguracji.** Gdy konfiguracja wykryje innego agenta, proponuje też import pamięci, sesji i umiejętności tak samo jak `/import`; nieudany import nie blokuje konfiguracji.
+
+---
+
 ## Ustawienia agenta
 
 Kontroluj zachowanie agenta i limity iteracji.

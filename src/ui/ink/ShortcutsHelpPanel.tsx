@@ -7,23 +7,17 @@
 import React, { memo } from 'react';
 import { Box, Text } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
+import { DEFAULT_KEYBINDINGS, type ResolvedKeybindings } from '../../keybindings/profiles.js';
 
 export interface ShortcutsHelpPanelProps {
   visible: boolean;
+  /** Active shortcut profile; the rows follow whatever it binds. */
+  keybindings?: ResolvedKeybindings;
 }
-
-const SHORTCUT_ROWS: Array<{ left: string; right: string }> = [
-  { left: '/ for commands', right: '! for shell commands' },
-  { left: '@ for file paths', right: 'tab accepts suggestion' },
-  { left: '$ for skills', right: 'shift + tab cycles interaction modes' },
-  { left: 'shift + enter inserts newline', right: 'alt + enter inserts newline' },
-  { left: 'enter submits prompt', right: 'ctrl + c clears input / exits' },
-  { left: '↑ / ↓ recalls typed messages', right: '/whatityped opens history' },
-  { left: 'esc interrupts active turn', right: 'type /, @, $, or ! to switch mode' },
-];
 
 export const ShortcutsHelpPanel = memo(function ShortcutsHelpPanel({
   visible,
+  keybindings = DEFAULT_KEYBINDINGS,
 }: ShortcutsHelpPanelProps) {
   const { colors } = useTheme();
 
@@ -34,7 +28,7 @@ export const ShortcutsHelpPanel = memo(function ShortcutsHelpPanel({
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Text color={colors.accent} bold>{' ? shortcuts'}</Text>
-      {SHORTCUT_ROWS.map((row, i) => (
+      {keybindings.helpRows().map((row, i) => (
         <Box key={i} gap={2}>
           <Text color={colors.dim}>{`  ${row.left}`}</Text>
           <Text color={colors.dim}>{row.right}</Text>
