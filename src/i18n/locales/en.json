@@ -1104,6 +1104,8 @@
   "ui": {
     "cancel": "Cancel",
     "escToCancel": "esc to cancel",
+    "upgradeHint": "You've reached your {{plan}} plan limit. Run /upgrade to move to {{next}}.",
+    "upgradeHintManaged": "You've reached your plan limit. Run /upgrade to review your plan.",
     "commandHint": "? shortcuts · / commands · @ mention files · $ skills · ! terminal",
     "ctrlCToExit": "Press Ctrl+C again to exit",
     "noMatchingCommands": "No matching commands.",
