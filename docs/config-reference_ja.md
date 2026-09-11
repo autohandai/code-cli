@@ -409,6 +409,29 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 
 ---
 
+### キーボードショートカットのプロファイル
+
+すでに別のコーディングエージェントを使っている場合、コンポーザーはそのショートカットに合わせられます。プロファイルはセットアップ中（Autohand がエージェントを検出したとき）、`/settings` → UI → キーボードショートカット、または次のコマンドで選べます。
+
+```sh
+autohand config set ui.keybindingProfile codex
+```
+
+| プロファイル | 改行 | 終了 | 履歴 |
+| --- | --- | --- | --- |
+| `autohand` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+| `claude-code`, `codex`, `devin` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | Ctrl+R |
+| `cursor`, `antigravity` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | `/whatityped` |
+| `factory` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+
+Ctrl+D はコンポーザーが空のときだけ終了します。`?` パネルは常に有効なプロファイルのショートカットを表示します。`claude-code` では `~/.claude/keybindings.json` の独自設定が、`codex` では `~/.codex/config.toml` の `[tui.keymap.*]` が反映されます。
+
+どのショートカットが届くかはターミナル次第です。Shift+Enter には kitty キーボードプロトコル（Ghostty、kitty、WezTerm、iTerm2 3.5 以降）が必要で、Alt+Enter には macOS で Option を Meta にする設定が必要です。Ctrl+J は tmux を含むどのターミナルでも動作します。
+
+**セットアップ中のインポート。** セットアップが他のエージェントを検出すると、`/import` と同じ方法でメモリ・セッション・スキルのインポートも提案します。インポートに失敗してもセットアップは止まりません。
+
+---
+
 ## エージェント設定
 
 エージェントの動作と反復制限を制御します。

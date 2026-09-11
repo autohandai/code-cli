@@ -368,6 +368,29 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 
 ---
 
+### Profil pintasan keyboard
+
+Jika Anda sudah memakai agen pengkodean lain, composer dapat mengikuti pintasannya. Pilih profil saat penyiapan (ditawarkan ketika Autohand mendeteksi agen tersebut), di `/settings` → UI → Pintasan keyboard, atau langsung:
+
+```sh
+autohand config set ui.keybindingProfile codex
+```
+
+| Profil | Baris baru | Keluar | Riwayat |
+| --- | --- | --- | --- |
+| `autohand` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+| `claude-code`, `codex`, `devin` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | Ctrl+R |
+| `cursor`, `antigravity` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | `/whatityped` |
+| `factory` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+
+Ctrl+D hanya keluar saat composer kosong. Panel `?` selalu menampilkan pintasan profil aktif. Dengan `claude-code`, pemetaan ulang Anda di `~/.claude/keybindings.json` diterapkan; dengan `codex`, yang ada di `[tui.keymap.*]` pada `~/.codex/config.toml`.
+
+Terminal menentukan pintasan mana yang sampai: Shift+Enter butuh protokol keyboard kitty (Ghostty, kitty, WezTerm, iTerm2 3.5+), Alt+Enter butuh Option sebagai Meta di macOS, Ctrl+J bekerja di terminal apa pun termasuk tmux.
+
+**Impor saat penyiapan.** Ketika penyiapan mendeteksi agen lain, ia juga menawarkan impor memori, sesi, dan skill seperti `/import`; impor yang gagal tidak menghentikan penyiapan.
+
+---
+
 ## Pengaturan Agent
 
 Kontrol perilaku agent dan batas iterasi.

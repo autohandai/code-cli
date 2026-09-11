@@ -686,6 +686,29 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 ```
 ---
 
+### Klavye kısayolu profilleri
+
+Zaten başka bir kodlama aracısı kullanıyorsanız, düzenleyici onun kısayollarını izleyebilir. Profili kurulum sırasında (Autohand aracıyı algıladığında), `/settings` → UI → Klavye kısayolları altında veya doğrudan seçin:
+
+```sh
+autohand config set ui.keybindingProfile codex
+```
+
+| Profil | Yeni satır | Çıkış | Geçmiş |
+| --- | --- | --- | --- |
+| `autohand` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+| `claude-code`, `codex`, `devin` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | Ctrl+R |
+| `cursor`, `antigravity` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | `/whatityped` |
+| `factory` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+
+Ctrl+D yalnızca düzenleyici boşken çıkar. `?` paneli her zaman etkin profilin kısayollarını listeler. `claude-code` ile `~/.claude/keybindings.json` içindeki yeniden atamalarınız, `codex` ile `~/.codex/config.toml` içindeki `[tui.keymap.*]` uygulanır.
+
+Hangi kısayolların ulaşacağına terminal karar verir: Shift+Enter kitty klavye protokolünü gerektirir (Ghostty, kitty, WezTerm, iTerm2 3.5+), Alt+Enter macOS'ta Option'ın Meta olmasını gerektirir, Ctrl+J tmux dahil her terminalde çalışır.
+
+**Kurulum sırasında içe aktarma.** Kurulum başka bir aracı algıladığında, bellekleri, oturumları ve becerileri `/import` ile aynı şekilde içe aktarmayı da önerir; başarısız bir içe aktarma kurulumu engellemez.
+
+---
+
 ## Temsilci Ayarları
 
 Kontrol aracısı davranışı ve yineleme sınırları.

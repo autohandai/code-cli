@@ -686,6 +686,29 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 ```
 ---
 
+### Profili di scorciatoie da tastiera
+
+Se usi già un altro agente di programmazione, il compositore può seguirne le scorciatoie. Scegli il profilo durante la configurazione (proposto quando Autohand rileva l'agente), in `/settings` → UI → Scorciatoie da tastiera, oppure direttamente:
+
+```sh
+autohand config set ui.keybindingProfile codex
+```
+
+| Profilo | Nuova riga | Uscita | Cronologia |
+| --- | --- | --- | --- |
+| `autohand` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+| `claude-code`, `codex`, `devin` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | Ctrl+R |
+| `cursor`, `antigravity` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | `/whatityped` |
+| `factory` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+
+Ctrl+D esce solo con il compositore vuoto. Il pannello `?` elenca sempre le scorciatoie del profilo attivo. Con `claude-code` vengono applicate le tue rimappature in `~/.claude/keybindings.json`; con `codex`, quelle in `[tui.keymap.*]` di `~/.codex/config.toml`.
+
+È il terminale a decidere quali scorciatoie arrivano: Shift+Enter richiede il protocollo tastiera kitty (Ghostty, kitty, WezTerm, iTerm2 3.5+), Alt+Enter richiede Option come Meta su macOS, Ctrl+J funziona in qualsiasi terminale, tmux incluso.
+
+**Importazione durante la configurazione.** Quando la configurazione rileva un altro agente, propone anche di importare memorie, sessioni e skill come fa `/import`; un'importazione fallita non blocca la configurazione.
+
+---
+
 ## Impostazioni dell'agente
 
 Comportamento dell'agente di controllo e limiti di iterazione.

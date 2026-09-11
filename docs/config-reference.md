@@ -730,6 +730,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `showCompletionNotification` | boolean | `true`  | Show system notification when task completes                                                   |
 | `showThinking`               | boolean | `true`  | Display LLM's reasoning/thought process                                                        |
 | `mouseComposerCursor`        | boolean | on, except iTerm2 | Enable click-to-position editing in the Ink composer                                           |
+| `keybindingProfile`          | string | `"autohand"` | Shortcut profile for the composer: `autohand`, `claude-code`, `codex`, `cursor`, `antigravity`, `devin` or `factory`. See [Keyboard Shortcut Profiles](#keyboard-shortcut-profiles) |
 | `terminalBell`               | boolean | `true`  | Ring terminal bell when task completes (shows badge on terminal tab/dock)                      |
 | `checkForUpdates`            | boolean | `true`  | Check for CLI updates on startup                                                               |
 | `updateCheckInterval`        | number | `24`    | Hours between update checks (uses cached result within interval)                               |
@@ -919,6 +920,62 @@ autohand config set ui.mouseComposerCursor false
 ```
 
 Terminal mouse reporting can change native selection and scroll-wheel behavior. During active work, click a live command to expand or compact its output; clicks in the composer continue to position its cursor. Mouse reporting is always restored when Autohand exits. Terminal-specific modifier keys, commonly Shift, may bypass mouse reporting for native selection.
+
+### Keyboard Shortcut Profiles
+
+If you already use another coding agent, the composer can follow its shortcuts.
+Pick a profile during setup (offered when Autohand detects the agent on your
+machine), in `/settings` → UI → Keyboard shortcuts, or directly:
+
+```sh
+autohand config set ui.keybindingProfile codex
+```
+
+Every profile keeps Autohand's fixed keys: Enter submits, Esc interrupts,
+Shift+Tab cycles interaction modes, Ctrl+C clears the input and exits on a
+second press, `?` on an empty composer shows the shortcuts panel, and Ctrl+O,
+Ctrl+T and Ctrl+G expand command output and toggle the team and goals panels.
+Profiles add what the other agent binds on top:
+
+| Profile       | Newline                              | Exit                | History                 |
+| ------------- | ------------------------------------ | ------------------- | ----------------------- |
+| `autohand`    | Shift+Enter, Alt+Enter               | Ctrl+C twice        | `/whatityped`           |
+| `claude-code` | Shift+Enter, Alt+Enter, Ctrl+J       | Ctrl+D              | Ctrl+R                  |
+| `codex`       | Shift+Enter, Alt+Enter, Ctrl+J       | Ctrl+D              | Ctrl+R                  |
+| `cursor`      | Shift+Enter, Alt+Enter, Ctrl+J       | Ctrl+D              | `/whatityped`           |
+| `antigravity` | Shift+Enter, Alt+Enter, Ctrl+J       | Ctrl+D              | `/whatityped`           |
+| `devin`       | Shift+Enter, Alt+Enter, Ctrl+J       | Ctrl+D              | Ctrl+R                  |
+| `factory`     | Shift+Enter, Alt+Enter               | Ctrl+C twice        | `/whatityped`           |
+
+Ctrl+D exits only when the composer is empty. Ctrl+R opens the same history
+view as `/whatityped`. The `?` panel always lists the chords of the active
+profile, so it is the quickest way to check what is bound.
+
+Two agents let you remap their own shortcuts in a file, and Autohand honours
+those remaps for the actions it shares. With `claude-code`, bindings in
+`~/.claude/keybindings.json` for `chat:newline`, `chat:cycleMode`, `app:exit`,
+`app:toggleTranscript`, `app:toggleTodos` and `history:search` are applied,
+including `null` to unbind. With `codex`, `insert_newline` and
+`history_search` under `[tui.keymap.composer]` and `exit` under
+`[tui.keymap.global]` in `~/.codex/config.toml` replace the profile's chords.
+Chords with more than one keystroke are ignored, and a malformed file leaves
+the profile defaults in place. Extension keybindings can never take a chord
+that the active profile uses.
+
+Which chords actually arrive depends on the terminal, not on the profile:
+
+- **Shift+Enter** needs a terminal that encodes modified keys through the kitty
+  keyboard protocol, which Autohand requests at start: Ghostty, kitty, WezTerm
+  and iTerm2 3.5 or later do; Terminal.app does not.
+- **Alt+Enter** needs Option configured as Meta in macOS terminals.
+- **Ctrl+J** is a plain control byte and works on any tty, including tmux,
+  which is why every non-default profile includes it.
+
+**Import during setup.** When setup detects Claude Code, Codex, Cursor, Gemini,
+Cline, Continue, Augment, OpenCode, Kimi or Grok, it also offers to bring your
+memories, sessions and skills across. Accepting runs the same import as
+`autohand import --all --categories memory,sessions,skills`; you can decline
+and run `/import` later, and a failed import never blocks setup.
 
 ### Update Check
 

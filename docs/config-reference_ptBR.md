@@ -410,6 +410,29 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 
 ---
 
+### Perfis de atalhos de teclado
+
+Se você já usa outro agente de codificação, o compositor pode seguir os atalhos dele. Escolha o perfil durante a configuração (oferecido quando o Autohand detecta o agente), em `/settings` → UI → Atalhos de teclado, ou diretamente:
+
+```sh
+autohand config set ui.keybindingProfile codex
+```
+
+| Perfil | Nova linha | Sair | Histórico |
+| --- | --- | --- | --- |
+| `autohand` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+| `claude-code`, `codex`, `devin` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | Ctrl+R |
+| `cursor`, `antigravity` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | `/whatityped` |
+| `factory` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+
+Ctrl+D só sai com o compositor vazio. O painel `?` sempre lista os atalhos do perfil ativo. Com `claude-code`, seus remapeamentos em `~/.claude/keybindings.json` são aplicados; com `codex`, os de `[tui.keymap.*]` em `~/.codex/config.toml`.
+
+O terminal decide quais atalhos chegam: Shift+Enter exige o protocolo de teclado kitty (Ghostty, kitty, WezTerm, iTerm2 3.5+), Alt+Enter exige Option como Meta no macOS e Ctrl+J funciona em qualquer terminal, inclusive no tmux.
+
+**Importação durante a configuração.** Quando a configuração detecta outro agente, ela também oferece importar memórias, sessões e skills do mesmo jeito que `/import`; uma importação com falha não bloqueia a configuração.
+
+---
+
 ## Configurações do Agente
 
 Controle o comportamento do agente e limites de iteração.

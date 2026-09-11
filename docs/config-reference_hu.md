@@ -686,6 +686,29 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 ```
 ---
 
+### Billentyűparancs-profilok
+
+Ha már használsz másik kódoló ügynököt, a szerkesztő követheti annak billentyűparancsait. A profilt a beállítás során választhatod (ha az Autohand megtalálja az ügynököt), a `/settings` → UI → Billentyűparancsok alatt, vagy közvetlenül:
+
+```sh
+autohand config set ui.keybindingProfile codex
+```
+
+| Profil | Új sor | Kilépés | Előzmények |
+| --- | --- | --- | --- |
+| `autohand` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+| `claude-code`, `codex`, `devin` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | Ctrl+R |
+| `cursor`, `antigravity` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | `/whatityped` |
+| `factory` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+
+A Ctrl+D csak üres szerkesztőnél lép ki. A `?` panel mindig az aktív profil parancsait mutatja. A `claude-code` profil átveszi a `~/.claude/keybindings.json` saját hozzárendeléseit, a `codex` a `~/.codex/config.toml` `[tui.keymap.*]` szakaszait.
+
+Hogy melyik parancs érkezik meg, a terminálon múlik: a Shift+Enter a kitty billentyűzet-protokollt igényli (Ghostty, kitty, WezTerm, iTerm2 3.5+), az Alt+Enter macOS-en az Option Meta-ként való beállítását, a Ctrl+J minden terminálban működik, tmux alatt is.
+
+**Importálás a beállítás során.** Ha a beállítás másik ügynököt talál, felajánlja az emlékek, munkamenetek és készségek importálását is, ugyanúgy, mint az `/import`; a sikertelen importálás nem akadályozza a beállítást.
+
+---
+
 ## Ügynök beállításai
 
 Az ügynök viselkedésének és iterációs korlátainak szabályozása.
