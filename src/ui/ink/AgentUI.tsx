@@ -67,6 +67,7 @@ import {
   type InteractionMode,
 } from '../../core/agent/InteractionModeController.js';
 import { AnnouncementLine } from './AnnouncementLine.js';
+import { TipLine } from './TipLine.js';
 import {
   REQUEST_CURSOR_POSITION,
   parseCursorPositionReport,
@@ -124,6 +125,12 @@ export interface AnnouncementLineState {
   text: string;
   hint: string;
   visible: boolean;
+}
+
+/** One-line hint under the status line: a rotating tip while working, or a pinned upgrade hint. */
+export interface TipLineState {
+  text: string;
+  kind: 'tip' | 'upgrade';
 }
 
 /** A slash-command result held in the fixed composer area until the next turn. */
@@ -201,6 +208,8 @@ export interface AgentUIState {
   goalPanelVisible: boolean;
   /** Highest-priority active CLI announcement rendered above status. */
   announcement?: AnnouncementLineState;
+  /** Rotating tip while working, or a pinned upgrade hint, rendered under the status line. */
+  tip?: TipLineState;
   /** Compact command result placed below the status line instead of transcript history. */
   commandResult?: CommandResultState;
 }
@@ -2384,6 +2393,7 @@ export function AgentUI({
         />
       ) : <FixedBottom
         announcement={state.announcement}
+        tip={state.tip}
         terminalColumns={windowSize.columns ?? process.stdout.columns ?? 80}
         terminalRows={windowSize.rows}
         isWorking={state.isWorking}
@@ -2709,6 +2719,8 @@ interface StatusSectionProps {
   modeDescription?: string;
   taskListPosition: TaskListPosition;
   lineExtension?: LineExtension;
+  tip?: TipLineState;
+  columns: number;
 }
 
 interface QueuedInstructionsPanelProps {
@@ -2805,6 +2817,8 @@ const StatusSection = memo(function StatusSection({
   modeDescription,
   taskListPosition,
   lineExtension,
+  tip,
+  columns,
 }: StatusSectionProps) {
   const { colors } = useTheme();
 
@@ -2833,6 +2847,7 @@ const StatusSection = memo(function StatusSection({
         teamActivity={teamActivity}
         lineExtension={lineExtension}
       />
+      <TipLine tip={tip} isWorking={isWorking} columns={columns} />
 
       {/* Keep interactive panels adjacent to the status line, before the composer. */}
       {commandResult && <CommandResultPanel commandResult={commandResult} />}
@@ -2904,6 +2919,8 @@ const StatusSection = memo(function StatusSection({
          prev.model === next.model &&
          prev.modeIndicator === next.modeIndicator &&
          prev.modeDescription === next.modeDescription &&
+         prev.tip === next.tip &&
+         prev.columns === next.columns &&
          prev.taskListPosition === next.taskListPosition &&
          prev.lineExtension === next.lineExtension;
 });
@@ -3150,6 +3167,7 @@ interface FixedBottomProps {
   selectedGoalIndex: number | null;
   onGoalRowLayoutChange?: (target: GoalEditRequest, layout: OutputLayout | null) => void;
   commandResult?: CommandResultState;
+  tip?: TipLineState;
   enableQueueInput: boolean;
   input: string;
   cursorOffset: number;
@@ -3262,6 +3280,7 @@ const FixedBottom = memo(function FixedBottom({
   selectedGoalIndex,
   onGoalRowLayoutChange,
   commandResult,
+  tip,
   enableQueueInput,
   input,
   cursorOffset,
@@ -3323,6 +3342,8 @@ const FixedBottom = memo(function FixedBottom({
         selectedGoalIndex={selectedGoalIndex}
         onGoalRowLayoutChange={onGoalRowLayoutChange}
         commandResult={commandResult}
+        tip={tip}
+        columns={terminalColumns}
         contextPercent={contextPercent}
         contextTokens={contextTokens}
         provider={provider}

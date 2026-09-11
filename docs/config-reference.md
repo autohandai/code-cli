@@ -855,7 +855,7 @@ Customize the verbs in the config file when you want a fixed status label or a s
 }
 ```
 
-`activityVerbs` accepts either a single string or a non-empty string array. When `activityVerbsEnabled` is `false`, Autohand falls back to `Working...` instead of rotating through custom or built-in verbs.
+`activityVerbs` accepts either a single string or a non-empty string array. When `activityVerbsEnabled` is `false`, Autohand falls back to `Working...` instead of rotating through custom or built-in verbs. While the agent works, a rotating tip line also appears under the status line with shortcuts, slash commands, sub-agent hints and your installed skills; it disappears when the turn ends.
 
 You can toggle completion reports, including the structured `SITREP` prompt, without editing the file:
 
@@ -2652,6 +2652,7 @@ The picker loads twenty sessions per page and provides **More sessions** and **P
 | `/share`      | Share current session                                 |
 | `/status`     | Show session status and the signed-in Autohand plan   |
 | `/usage`      | Show Autohand plan limits and project token activity  |
+| `/upgrade`    | Open the console to upgrade your Autohand plan        |
 
 `/undo` never resets or cleans the Git worktree. It preserves unrelated tracked and untracked work, and refuses to overwrite a file that changed after the recorded agent mutation.
 

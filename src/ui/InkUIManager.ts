@@ -13,7 +13,7 @@ import type { SlashCommand } from '../core/slashCommandTypes.js';
 import type { SkillMentionInfo } from './mentionFilter.js';
 import type { ExtensionKeybinding } from '../extensions/ExtensionRuntimeHost.js';
 import type { ResolvedKeybindings } from '../keybindings/profiles.js';
-import type { AgentUILineExtensions } from './ink/AgentUI.js';
+import type { AgentUILineExtensions, TipLineState } from './ink/AgentUI.js';
 import type { GoalEditRequest } from './ink/GoalPanel.js';
 import type { InteractionMode } from '../core/agent/InteractionModeController.js';
 import type { TaskListPosition } from '../types.js';
@@ -116,6 +116,10 @@ export class InkUIManager extends BaseUIManager implements UIManager {
   setPlanLabel(planLabel: string | undefined): void {
     this.planLabel = planLabel;
     this.inkRenderer?.setPlanLabel(planLabel);
+  }
+
+  setTip(tip: TipLineState | undefined): void {
+    this.inkRenderer?.setTip(tip);
   }
 
   setFinalResponse(response: string): void {

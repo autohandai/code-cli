@@ -10,6 +10,7 @@
  */
 
 import type { InkRenderer } from './ink/InkRenderer.js';
+import type { TipLineState } from './ink/AgentUI.js';
 
 export interface UIManager {
   start(): Promise<void>;
@@ -22,6 +23,7 @@ export interface UIManager {
   setWorking(working: boolean, message?: string): void;
   setProviderModel?(provider: string, model: string): void;
   setPlanLabel?(planLabel: string | undefined): void;
+  setTip?(tip: TipLineState | undefined): void;
   setFinalResponse(response: string): void;
   addUserMessage(text: string): void;
   addToolOutput(tool: string, success: boolean, output: string): void;

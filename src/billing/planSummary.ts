@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { t } from '../i18n/index.js';
+
 export type PlanInterval = 'month' | 'year' | null;
 
 export interface PlanSummary {
@@ -62,4 +64,33 @@ export function formatPlan(plan: PlanSummary | null | undefined): string | null 
 export function formatComposerPlanLabel(plan: PlanSummary | null | undefined): string | undefined {
   if (!plan || plan.tier === 'enterprise') return undefined;
   return plan.tier === 'team' ? plan.accountName || plan.label : plan.label;
+}
+
+export type UpgradeTarget = 'pro' | 'max' | 'team';
+
+/** Self-serve tiers in purchase order. Team and enterprise are managed in billing. */
+const PLAN_LADDER: ReadonlyArray<'free' | UpgradeTarget> = ['free', 'pro', 'max', 'team'];
+
+/** Next paid tier for a self-serve plan; null for team, enterprise and unknown tiers. */
+export function nextPlanTier(tier: string | undefined): UpgradeTarget | null {
+  const index = PLAN_LADDER.indexOf(tier as 'free' | UpgradeTarget);
+  if (index < 0) return null;
+  return (PLAN_LADDER[index + 1] as UpgradeTarget | undefined) ?? null;
+}
+
+export const CONSOLE_ORIGIN = 'https://console.autohand.ai';
+
+/** Console deep link that starts checkout for `target`, or the billing page when there is nothing to sell. */
+export function buildUpgradeUrl(target: UpgradeTarget | null, source = 'cli'): string {
+  const url = new URL(target ? '/' : '/billing', CONSOLE_ORIGIN);
+  if (target) url.searchParams.set('upgrade', target);
+  url.searchParams.set('source', source);
+  return url.toString();
+}
+
+/** One-line hint shown after an Autohand quota ends a turn. */
+export function formatUpgradeHint(plan: PlanSummary | null | undefined): string {
+  const target = nextPlanTier(plan?.tier);
+  if (!plan || !target) return t('ui.upgradeHintManaged');
+  return t('ui.upgradeHint', { plan: plan.label, next: labelForTier(target) });
 }

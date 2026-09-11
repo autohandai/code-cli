@@ -21,7 +21,7 @@ import { extensionRuntimeHost } from '../../extensions/ExtensionRuntimeHost.js';
 import { resolveKeybindings } from '../../keybindings/profiles.js';
 import { loadExternalKeybindingOverrides } from '../../keybindings/externalKeybindings.js';
 import { t } from '../../i18n/index.js';
-import type { AnnouncementLineState } from '../../ui/ink/AgentUI.js';
+import type { AnnouncementLineState, TipLineState } from '../../ui/ink/AgentUI.js';
 import type { AgentUILineExtensions } from '../../ui/ink/AgentUI.js';
 import {
   mergeLineExtensions,
@@ -36,6 +36,9 @@ export interface AgentUIRuntimeHost {
 }
 
 const USER_NOTIFICATION_DEDUPE_WINDOW_MS = 10 * 60 * 1000;
+/** How long each working tip stays on screen before the next one rotates in. */
+export const TIP_ROTATION_MS = 10_000;
+const STATUS_TICK_MS = 1_000;
 const MAX_PENDING_INK_SUBMIT_ECHOES = 20;
 
 export function buildPeerLineExtension(peerCount: number): LineExtension | undefined {
@@ -794,6 +797,11 @@ export function setAgentSpinnerStatus(host: AgentUIRuntimeHost, status: string):
     host.runtime.spinner.text = host.buildSpinnerStatusText(status, footerText);
   }
 
+function currentWorkingTip(host: AgentUIRuntimeHost): TipLineState | undefined {
+  const text = host.activityIndicator?.getTip?.();
+  return text ? { kind: 'tip', text } : undefined;
+}
+
 export function startAgentStatusUpdates(host: AgentUIRuntimeHost): void {
     if (host.statusInterval) {
       clearInterval(host.statusInterval);
@@ -804,15 +812,24 @@ export function startAgentStatusUpdates(host: AgentUIRuntimeHost): void {
 
     // Pick a fresh verb and tip for host working session
     host.activityIndicator?.next?.();
+    host.inkRenderer?.setTip?.(currentWorkingTip(host));
 
     // Immediate initial render
     host.forceRenderSpinner();
 
     // Update every second for elapsed time, but forceRenderSpinner
-    // handles deduplication so frequent calls are fine
+    // handles deduplication so frequent calls are fine. The tip rotates on
+    // its own slower cadence from the same ticker.
+    const ticksPerTip = TIP_ROTATION_MS / STATUS_TICK_MS;
+    let ticks = 0;
     host.statusInterval = setInterval(() => {
       host.forceRenderSpinner();
-    }, 1000); // Once per second is enough for time updates
+      ticks += 1;
+      if (ticks % ticksPerTip === 0 && host.inkRenderer?.setTip) {
+        const text = host.activityIndicator?.nextTip?.();
+        if (text) host.inkRenderer.setTip({ kind: 'tip', text });
+      }
+    }, STATUS_TICK_MS);
 
     if (process.stdout.isTTY && !host.resizeHandler) {
       host.resizeHandler = () => {

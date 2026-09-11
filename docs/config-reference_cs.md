@@ -2059,6 +2059,7 @@ Autohand poskytuje bohatou sadu příkazů lomítka pro interaktivní použití.
 | `/status` | Zobrazit stav relace |
 | `/usage` | Zobrazit model, poskytovatele, kontext a limity využití |
 
+| `/upgrade`| Otevřít konzoli a upgradovat plán Autohand              |
 ### Model a poskytovatel
 
 | Příkaz | Popis |

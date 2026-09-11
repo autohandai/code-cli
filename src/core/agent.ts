@@ -13,6 +13,7 @@ import { resolveAutohandAIModelForTier } from './agent/AutohandAIModelTierPolicy
 import { getAuthClient } from '../auth/index.js';
 import {
   formatComposerPlanLabel,
+  formatUpgradeHint,
   planSummaryFromEntitlement,
   type PlanSummary,
 } from '../billing/planSummary.js';
@@ -1889,6 +1890,9 @@ export class AutohandAgent {
         model,
         provider: this.activeProvider,
       });
+      if (this.activeProvider === 'autohandai') {
+        this.ui?.setTip?.({ kind: 'upgrade', text: formatUpgradeHint(this.accountPlan) });
+      }
     }
   }
 
