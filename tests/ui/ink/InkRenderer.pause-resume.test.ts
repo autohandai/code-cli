@@ -61,6 +61,59 @@ function lastRenderedTaskListPositionProvider(): (() => unknown) | undefined {
   return root?.props.children.props.children.props.taskListPositionProvider;
 }
 
+describe('InkRenderer keyboard protocol lifecycle', () => {
+  it('pushes the kitty disambiguate flag when the UI starts and pops it when it stops', () => {
+    const originalIsTTY = process.stdout.isTTY;
+    (process.stdout as any).isTTY = true;
+    const writes: string[] = [];
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: unknown) => {
+      writes.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+    try {
+      renderer.start();
+      expect(writes).toContain('\x1b[>1u');
+      expect(writes).not.toContain('\x1b[<u');
+
+      renderer.stop();
+      expect(writes.lastIndexOf('\x1b[<u')).toBeGreaterThan(writes.indexOf('\x1b[>1u'));
+    } finally {
+      renderer.stop();
+      write.mockRestore();
+      (process.stdout as any).isTTY = originalIsTTY;
+    }
+  });
+
+  it('leaves a non-terminal stdout alone', () => {
+    const originalIsTTY = process.stdout.isTTY;
+    (process.stdout as any).isTTY = false;
+    const writes: string[] = [];
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: unknown) => {
+      writes.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+    try {
+      renderer.start();
+      renderer.stop();
+      expect(writes.join('')).not.toContain('\x1b[>1u');
+      expect(writes.join('')).not.toContain('\x1b[<u');
+    } finally {
+      write.mockRestore();
+      (process.stdout as any).isTTY = originalIsTTY;
+    }
+  });
+});
+
 describe('InkRenderer pause/resume cycle', () => {
   let renderer: InkRenderer;
   let originalIsTTY: boolean | undefined;

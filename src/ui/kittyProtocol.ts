@@ -63,6 +63,13 @@ export function queryKittyProtocol(stdout: NodeJS.WriteStream): void {
 }
 
 /**
+ * Flag 1 only: modified keys that have no legacy encoding (Shift+Enter,
+ * Alt+key, Esc) arrive as CSI u while plain keys and Ctrl+letters keep their
+ * legacy bytes. Terminals without the protocol ignore the request.
+ */
+export const KITTY_DISAMBIGUATE_FLAG = 1;
+
+/**
  * Enable Kitty keyboard protocol with specified flags.
  *
  * Flags (bitmask):
