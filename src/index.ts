@@ -106,6 +106,19 @@ if (process.argv.includes('--answer-only') || process.argv.includes('--setup-onl
   process.env.AUTOHAND_DISABLE_AUTO_REPORT = '1';
 }
 
+/**
+ * A model the Autohand cloud gateway cannot serve (issue #584: one left over
+ * from another provider) is corrected as soon as the config is loaded, so the
+ * banner, the status line and the first request all agree on the served model.
+ */
+async function applyServedAutohandModel(config: LoadedConfig, opts: { model?: string }): Promise<void> {
+  const { normalizeAutohandAIStartupModel } = await import('./core/agent/AutohandAIModelTierPolicy.js');
+  const served = normalizeAutohandAIStartupModel(config);
+  if (served && opts.model) {
+    opts.model = served;
+  }
+}
+
 function applyCliModelOverride(config: LoadedConfig, model: string): void {
   const providerName = config.provider ?? 'openrouter';
   if (isCustomProviderName(providerName)) {
@@ -1332,6 +1345,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
     if (commandLifecycleController.signal.aborted) {
       return;
     }
+    await applyServedAutohandModel(config, options);
     const originalWorkspaceRoot = resolveWorkspaceRoot(config, options.path);
     let workspaceRoot = originalWorkspaceRoot;
     let sessionWorktree: ReturnType<typeof import('./utils/sessionWorktree.js')['prepareSessionWorktree']> | null = null;
@@ -2365,6 +2379,7 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
   if (opts.model) {
     applyCliModelOverride(config, opts.model);
   }
+  await applyServedAutohandModel(config, opts);
 
   const { ProviderFactory } = await import('./providers/ProviderFactory.js');
   const { FileActionManager } = await import('./actions/filesystem.js');
@@ -2495,6 +2510,7 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
   if (opts.model) {
     applyCliModelOverride(config, opts.model);
   }
+  await applyServedAutohandModel(config, opts);
 
   // Override debug mode from CLI if provided
   if (opts.debug) {
