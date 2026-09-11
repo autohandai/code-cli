@@ -4,7 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { LoadedConfig } from '../../types.js';
-import { getAutohandAICloudModelContextWindow } from '../../providers/AutohandAIProvider.js';
+import {
+  getAutohandAICloudModelContextWindow,
+  resolveAutohandAICloudModel,
+} from '../../providers/AutohandAIProvider.js';
 
 /**
  * Moa is a paid-tier model. A free-plan account that ends up with `moa` selected
@@ -40,18 +43,27 @@ export interface AutohandAIModelTierInput {
   tier: string | undefined;
 }
 
+const AUTOHAND_AI_MODEL_PREFIX = 'autohandai/';
+
 /**
- * Resolve the model a given account tier may run. Returns `'fantail'` only for
- * the exact combination that must be corrected — free tier + autohandai cloud +
- * Moa — and passes every other selection through unchanged.
+ * Resolve the model a given account may run on the Autohand cloud plan.
+ *
+ * Two corrections apply, both only for provider `autohandai` + plan `cloud`:
+ * a model the gateway does not serve (for example one left over from another
+ * provider, see issue #584) becomes Fantail on every tier, and Moa becomes
+ * Fantail on the free tier. Local plans and other providers pass through.
  */
 export function resolveAutohandAIModelForTier(input: AutohandAIModelTierInput): string {
-  const applies =
-    input.provider === 'autohandai' &&
-    input.plan === 'cloud' &&
-    isMoaModel(input.model) &&
-    isFreeTier(input.tier);
-  return applies ? AUTOHAND_AI_FREE_TIER_MODEL : (input.model ?? AUTOHAND_AI_FREE_TIER_MODEL);
+  const cloudPlan = input.provider === 'autohandai' && input.plan === 'cloud';
+  if (!cloudPlan) {
+    return input.model ?? AUTOHAND_AI_FREE_TIER_MODEL;
+  }
+
+  const bare = input.model?.toLowerCase().startsWith(AUTOHAND_AI_MODEL_PREFIX)
+    ? input.model.slice(AUTOHAND_AI_MODEL_PREFIX.length)
+    : input.model;
+  const served = resolveAutohandAICloudModel(bare);
+  return isMoaModel(served) && isFreeTier(input.tier) ? AUTOHAND_AI_FREE_TIER_MODEL : served;
 }
 
 export interface AutohandAIModelTierPolicyResult {
@@ -108,4 +120,18 @@ export function applyAutohandAIModelTierPolicy(
   const next: LoadedConfig = { ...config, autohandai: nextSettings };
 
   return { config: next, switched: true, previousModel, resolvedModel: resolved };
+}
+
+/**
+ * Startup pass, before any entitlement is known: only the served-model rule
+ * applies, so a model the gateway cannot run never reaches the banner, the
+ * status line or a request. Mutates `config` in place (the CLI hands the same
+ * object to the agent) and returns the corrected model, or undefined when the
+ * selection was already fine.
+ */
+export function normalizeAutohandAIStartupModel(config: LoadedConfig): string | undefined {
+  const result = applyAutohandAIModelTierPolicy(config, undefined);
+  if (!result.switched) return undefined;
+  config.autohandai = result.config.autohandai;
+  return result.resolvedModel;
 }
