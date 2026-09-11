@@ -70,7 +70,8 @@ export const AUTOHAND_AI_LOCAL_MODELS = [
   ...AUTOHAND_AI_LOCAL_CODING_MODEL_FALLBACKS.map((model) => model.id),
 ];
 
-function resolveAutohandAICloudModel(model: string | undefined): string {
+/** The cloud model the gateway will actually serve for a selection; unknown ids fall back to Fantail. */
+export function resolveAutohandAICloudModel(model: string | undefined): string {
   return model && AUTOHAND_AI_CLOUD_MODELS.includes(model) ? model : "fantail";
 }
 

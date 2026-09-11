@@ -3030,6 +3030,41 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
+  it('corrects a model the Autohand cloud gateway does not serve back to fantail', async () => {
+    // Issue #584: a model left over from another provider stayed selected under
+    // the autohandai provider and was shown (and sent) as the session model.
+    const authServer = await createMockAuthServer();
+    mockAuthServers.push(authServer);
+    const session = await launchInteractive({
+      config: {
+        provider: 'autohandai',
+        autohandai: {
+          plan: 'cloud',
+          authMode: 'account',
+          accountToken: 'tuistory-account-token',
+          model: 'anthropic/claude-5-sonnet',
+        },
+        auth: {
+          token: 'tuistory-account-token',
+          user: {
+            id: 'tuistory-test-user',
+            email: 'tuistory@example.com',
+            name: 'Tuistory Test',
+          },
+        },
+      },
+      env: {
+        AUTOHAND_AUTH_API_URL: `${authServer.baseUrl}/api/auth`,
+      },
+    });
+
+    await waitForComposer(session);
+    await session.waitForText('(Autohand AI, fantail)', { timeout: 10_000 });
+    expect(session.readAll()).not.toContain('claude-5-sonnet');
+
+    await exitInteractive(session);
+  });
+
   it('shows the signed-in Autohand plan and live provider quota in the /status Usage tab', async () => {
     const authServer = await createMockAuthServer();
     mockAuthServers.push(authServer);
