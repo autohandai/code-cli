@@ -68,4 +68,22 @@ describe('ActivityIndicator', () => {
     expect(tip).toBeTruthy();
     expect(typeof tip).toBe('string');
   });
+
+  it('rotates the tip without changing the verb', () => {
+    const custom = new ActivityIndicator({ activityVerbs: ['Hacking'] });
+    custom.next();
+    const seen = new Set([custom.getTip()]);
+    for (let i = 0; i < 5; i++) seen.add(custom.nextTip());
+    expect(seen.size).toBeGreaterThan(1);
+    expect(custom.getVerb()).toBe('Hacking');
+  });
+
+  it('forwards the tip context so installed skills can be suggested', () => {
+    const custom = new ActivityIndicator({
+      tipContext: { listSkills: () => [{ name: 'deploy', description: 'Ship it' }] },
+    });
+    const tips = new Set<string>();
+    for (let i = 0; i < 60; i++) tips.add(custom.nextTip());
+    expect([...tips].some((tip) => tip.includes('$deploy'))).toBe(true);
+  });
 });
