@@ -2041,6 +2041,7 @@ Autohand etkileşimli kullanım için zengin bir eğik çizgi komutları seti sa
 | `/status` | Oturum durumunu göster |
 | `/usage` | Modeli, sağlayıcıyı, içeriği ve kullanım sınırlarını göster |
 
+| `/upgrade`| Autohand planını yükseltmek için konsolu aç                 |
 ### Model ve Sağlayıcı
 
 | Komut | Açıklama |

@@ -1043,6 +1043,66 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
+  it('rotates a tip under the working status line and drops it when the turn ends', async () => {
+    const openRouterServer = await createMockOpenRouterServer('Tip check completed.', 4_000);
+    mockServers.push(openRouterServer);
+    const session = await launchInteractive({
+      config: {
+        openrouter: { baseUrl: openRouterServer.baseUrl },
+        agent: { sessionRetryLimit: 0 },
+      },
+    });
+    await waitForComposer(session);
+
+    await session.type('Run a delayed response so I can read the tip.');
+    await session.press('enter');
+    const working = stripAnsi(await session.text({
+      timeout: 10_000,
+      waitFor: (text) => text.includes('esc to cancel') && text.includes('⎿  Tip:'),
+    }));
+    const lines = working.split('\n');
+    const statusIndex = lines.findIndex((line) => line.includes('esc to cancel'));
+    expect(statusIndex).toBeGreaterThanOrEqual(0);
+    expect(lines[statusIndex + 1]).toContain('⎿  Tip:');
+
+    const finished = stripAnsi(await session.text({
+      timeout: 15_000,
+      waitFor: (text) => text.includes('Tip check completed.') && !text.includes('esc to cancel'),
+    }));
+    expect(finished).not.toContain('⎿  Tip:');
+
+    await exitInteractive(session);
+  });
+
+  it('opens the console upgrade link for the next plan from /upgrade', async () => {
+    const authServer = await createMockAuthServer();
+    mockAuthServers.push(authServer);
+    const session = await launchInteractive({
+      config: {
+        provider: 'openai',
+        openai: { apiKey: 'tuistory-test-api-key', model: 'gpt-5.5' },
+        auth: {
+          token: 'tuistory-account-token',
+          user: { id: 'tuistory-test-user', email: 'tuistory@example.com', name: 'Tuistory Test' },
+        },
+      },
+      env: { AUTOHAND_AUTH_API_URL: `${authServer.baseUrl}/api/auth` },
+    });
+    await waitForComposer(session);
+
+    await session.type('/upgrade');
+    await session.press('enter');
+    // The mock account is on Pro, so the next plan is Max. AUTOHAND_NO_BROWSER
+    // makes the opener print the link instead of launching a browser.
+    const output = stripAnsi(await session.text({
+      timeout: 10_000,
+      waitFor: (text) => text.includes('upgrade=max'),
+    }));
+    expect(output).toContain('https://console.autohand.ai/?upgrade=max&source=cli');
+
+    await exitInteractive(session);
+  });
+
   const cachedAnnouncements = [
     {
       id: 'tuistory-announcement-one',

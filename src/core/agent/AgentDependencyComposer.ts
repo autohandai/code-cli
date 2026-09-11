@@ -474,7 +474,7 @@ export function initializeAgentDependencies(
       activityVerbsEnabled: runtime.config.ui?.activityVerbsEnabled,
       activitySymbol: runtime.config.ui?.activitySymbol,
       tipContext: {
-        listSkills: () => (host.skillsRegistry?.listSkills() ?? []).map((skill) => ({
+        listSkills: () => (host.skillsRegistry?.listSkills() ?? []).map((skill: SkillDefinition) => ({
           name: skill.name,
           description: skill.description,
         })),

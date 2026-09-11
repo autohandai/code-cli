@@ -2041,6 +2041,7 @@ Autohand fournit un riche ensemble de commandes slash pour une utilisation inter
 | `/status` | Afficher l'état de la session |
 | `/usage` | Afficher les limites du modèle, du fournisseur, du contexte et de l'utilisation |
 
+| `/upgrade`| Ouvrir la console pour passer à un plan Autohand supérieur                      |
 ### Modèle et fournisseur
 
 | Commande | Descriptif |
