@@ -29,6 +29,7 @@ import { I18nProvider } from '../../../src/ui/i18n/index.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import { getPromptBlockWidth } from '../../../src/ui/inputPrompt.js';
 import { GoalPanel } from '../../../src/ui/ink/GoalPanel.js';
+import { DEFAULT_KEYBINDINGS, resolveKeybindings } from '../../../src/keybindings/profiles.js';
 
 function stripAnsi(value: string): string {
   return value.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '');
@@ -2224,5 +2225,124 @@ describe('AgentUI idle composer input handling', () => {
 
     // The old broken pattern must NOT be present
     expect(src).not.toContain('!isWorkingRef.current || !enableQueueInputRef.current');
+  });
+});
+
+describe('AgentUI keybinding profiles', () => {
+  function renderComposer(options: {
+    profile?: 'autohand' | 'codex';
+    currentInput?: string;
+    onCtrlC?: () => void;
+    onInstruction?: (text: string) => void;
+  } = {}) {
+    return render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state: { ...createInitialUIState(), currentInput: options.currentInput ?? '' },
+            onInstruction: options.onInstruction ?? (() => {}),
+            onEscape: () => {},
+            onCtrlC: options.onCtrlC ?? (() => {}),
+            keybindings: resolveKeybindings(options.profile ?? 'autohand'),
+          }),
+        ),
+      ),
+    );
+  }
+  const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('inserts a newline on Ctrl+J under the Codex profile', async () => {
+    const instance = renderComposer({ profile: 'codex', currentInput: 'one' });
+    await tick();
+    instance.stdin.write('\n');
+    await tick();
+    instance.stdin.write('two');
+    await tick();
+    const frame = stripAnsi(instance.lastFrame() ?? '');
+    expect(frame).toContain('❯ one');
+    expect(frame).toMatch(/\n\s*two/);
+  });
+
+  it('keeps Ctrl+J as a plain submit-neutral key under the Autohand defaults', async () => {
+    const onInstruction = vi.fn();
+    const instance = renderComposer({ profile: 'autohand', currentInput: 'one', onInstruction });
+    await tick();
+    instance.stdin.write('\n');
+    await tick();
+    expect(stripAnsi(instance.lastFrame() ?? '')).not.toMatch(/❯ one\n\s*\n/);
+    expect(onInstruction).not.toHaveBeenCalled();
+  });
+
+  it('requests exit on Ctrl+D with an empty composer under the Codex profile only', async () => {
+    const codexExit = vi.fn();
+    const codex = renderComposer({ profile: 'codex', onCtrlC: codexExit });
+    await tick();
+    codex.stdin.write('\x04');
+    await tick();
+    await tick();
+    expect(codexExit).toHaveBeenCalledTimes(1);
+    codex.unmount();
+
+    const defaultExit = vi.fn();
+    const defaults = renderComposer({ profile: 'autohand', onCtrlC: defaultExit });
+    await tick();
+    defaults.stdin.write('\x04');
+    await tick();
+    await tick();
+    expect(defaultExit).not.toHaveBeenCalled();
+  });
+
+  it('does not exit on Ctrl+D while the composer has text', async () => {
+    const onCtrlC = vi.fn();
+    const instance = renderComposer({ profile: 'codex', currentInput: 'draft', onCtrlC });
+    await tick();
+    instance.stdin.write('\x04');
+    await tick();
+    await tick();
+    expect(onCtrlC).not.toHaveBeenCalled();
+  });
+
+  it('opens the typed history on Ctrl+R under the Codex profile', async () => {
+    const onInstruction = vi.fn();
+    const instance = renderComposer({ profile: 'codex', onInstruction });
+    await tick();
+    instance.stdin.write('\x12');
+    await tick();
+    expect(onInstruction).toHaveBeenCalledWith('/whatityped');
+  });
+
+  it('lists the profile chords in the ? shortcuts panel', async () => {
+    const instance = renderComposer({ profile: 'codex' });
+    await tick();
+    instance.stdin.write('?');
+    await tick();
+    const frame = stripAnsi(instance.lastFrame() ?? '');
+    expect(frame).toContain('ctrl + j inserts newline');
+    expect(frame).toContain('ctrl + d exits');
+  });
+
+  it('handles Ctrl+J in the text buffer bridge only when the profile binds it', () => {
+    const codexBuffer = new TextBuffer(80, 10, 'test');
+    expect(handleInkTextBufferInput(codexBuffer, '\n', createInkKey(), resolveKeybindings('codex'))).toBe('handled');
+    expect(codexBuffer.getText()).toBe('test\n');
+
+    const defaultBuffer = new TextBuffer(80, 10, 'test');
+    handleInkTextBufferInput(defaultBuffer, '\n', createInkKey(), DEFAULT_KEYBINDINGS);
+    expect(defaultBuffer.getText()).toBe('test');
+  });
+
+  it('reserves the active profile chords from extension keybindings', () => {
+    const binding = { key: 'ctrl+d', command: 'ext.deploy' };
+    expect(matchesExtensionKeybinding('d', createInkKey({ ctrl: true }), binding, DEFAULT_KEYBINDINGS.reservedChords())).toBe(false);
+    expect(matchesExtensionKeybinding('d', createInkKey({ ctrl: true }), binding, resolveKeybindings('codex').reservedChords())).toBe(false);
+    expect(matchesExtensionKeybinding('k', createInkKey({ ctrl: true }), { key: 'ctrl+k', command: 'ext.k' })).toBe(true);
   });
 });

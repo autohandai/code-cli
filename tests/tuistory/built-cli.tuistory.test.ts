@@ -965,6 +965,38 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(Date.now() - exitRequestedAt).toBeLessThan(6_000);
   });
 
+  it('follows the Codex shortcut profile: Ctrl+J inserts a newline, ? lists it, Ctrl+D exits', async () => {
+    const session = await launchInteractive({
+      config: { ui: { keybindingProfile: 'codex', promptSuggestions: false } },
+    });
+    await waitForComposer(session);
+
+    await session.type('first');
+    session.writeRaw('\n');
+    await session.type('second');
+    const multilineScreen = await session.text({
+      timeout: 20_000,
+      waitFor: (text) => text.includes('first') && text.includes('second'),
+      trimEnd: true,
+    });
+    expect(multilineScreen).toMatch(/❯ first\n\s*second/);
+
+    await clearComposerInput(session);
+    await session.type('?');
+    const helpScreen = await session.text({
+      timeout: 10_000,
+      waitFor: (text) => text.includes('? shortcuts'),
+      trimEnd: true,
+    });
+    expect(helpScreen).toContain('ctrl + j inserts newline');
+    expect(helpScreen).toContain('ctrl + d exits');
+    await session.press('escape');
+
+    await session.press(['ctrl', 'd']);
+    await waitForExit(session, 15_000);
+    expectCleanExit(session);
+  });
+
   it('keeps working-turn status refreshes from refocusing a drafted composer', async () => {
     const openRouterServer = await createMockOpenRouterServer(
       'Delayed response completed.',

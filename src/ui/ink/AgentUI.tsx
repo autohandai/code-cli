@@ -39,6 +39,14 @@ import { PLAN_BORDER_COLOR, hexToAnsiRgb } from '../box.js';
 import { TextBuffer } from '../textBuffer.js';
 import { handleTextBufferKey, type KeyHandlerResult } from '../textBufferKeyHandler.js';
 import {
+  DEFAULT_KEYBINDINGS,
+  matchesChord,
+  normalizeChord,
+  parseChord,
+  type KeyEvent,
+  type ResolvedKeybindings,
+} from '../../keybindings/profiles.js';
+import {
   getInlineGhostCompletionSuffix,
   getPrimaryHotTipSuggestion,
   getPromptBlockWidth,
@@ -250,6 +258,8 @@ export interface AgentUIProps {
   onCycleInteractionMode?: () => InteractionMode;
   /** Enable click-to-position composer input. */
   mouseComposerCursor?: boolean;
+  /** Resolved shortcut profile; defaults to Autohand's own chords. */
+  keybindings?: ResolvedKeybindings;
   /** Place the task list above status or directly above the composer. */
   taskListPosition?: TaskListPosition;
 }
@@ -262,51 +272,58 @@ interface TextBufferKeyInfo {
   sequence?: string;
 }
 
-const RESERVED_EXTENSION_KEYBINDINGS = new Set([
-  'ctrl+c',
-  'ctrl+d',
-  'ctrl+g',
-  'ctrl+x',
-  'ctrl+t',
-  'meta+g',
-  'meta+t',
-  'shift+tab',
-  'escape',
-  'enter',
-  'return',
-]);
+/** Chords no extension may take, whichever profile is active. */
+const FIXED_RESERVED_KEYBINDINGS = ['ctrl+c', 'ctrl+d', 'ctrl+x', 'escape', 'enter', 'return'];
+
+/** Normalises an Ink keypress into the shape the keybinding matcher reads. */
+export function toInkKeyEvent(input: string, key: InkKey): KeyEvent {
+  const name = key.return
+    ? 'return'
+    : key.tab
+      ? 'tab'
+      : key.escape
+        ? 'escape'
+        : key.upArrow
+          ? 'up'
+          : key.downArrow
+            ? 'down'
+            : key.leftArrow
+              ? 'left'
+              : key.rightArrow
+                ? 'right'
+                : key.backspace
+                  ? 'backspace'
+                  : key.delete
+                    ? 'delete'
+                    : input === ' '
+                      ? 'space'
+                      : undefined;
+  return { input, name, ctrl: key.ctrl, shift: key.shift, meta: key.meta };
+}
 
 export function isTeamViewShortcut(input: string, key: InkKey): boolean {
-  return input.toLowerCase() === 't' && (key.meta || key.ctrl);
+  return DEFAULT_KEYBINDINGS.matches('toggleTeamPanel', toInkKeyEvent(input, key));
 }
 
 export function isGoalViewShortcut(input: string, key: InkKey): boolean {
-  return input.toLowerCase() === 'g' && (key.meta || key.ctrl);
+  return DEFAULT_KEYBINDINGS.matches('toggleGoals', toInkKeyEvent(input, key));
 }
 
 export function matchesExtensionKeybinding(
   input: string,
   key: InkKey,
   binding: Pick<ExtensionKeybinding, 'key' | 'command'>,
+  reserved: ReadonlySet<string> = DEFAULT_KEYBINDINGS.reservedChords(),
 ): boolean {
-  const normalized = binding.key.toLowerCase();
-  if (RESERVED_EXTENSION_KEYBINDINGS.has(normalized)) {
+  const chord = parseChord(binding.key);
+  if (!chord) {
     return false;
   }
-  const parts = normalized.split('+');
-  const primary = parts.at(-1);
-  const modifiers = new Set(parts.slice(0, -1));
-  const expectsMeta = modifiers.has('meta') || modifiers.has('alt');
-  if (key.ctrl !== modifiers.has('ctrl') || key.shift !== modifiers.has('shift') || key.meta !== expectsMeta) {
+  const normalized = normalizeChord(chord);
+  if (reserved.has(normalized) || FIXED_RESERVED_KEYBINDINGS.includes(normalized)) {
     return false;
   }
-  if (primary === 'tab') return key.tab;
-  if (primary === 'up') return key.upArrow;
-  if (primary === 'down') return key.downArrow;
-  if (primary === 'left') return key.leftArrow;
-  if (primary === 'right') return key.rightArrow;
-  if (primary === 'space') return input === ' ';
-  return input.toLowerCase() === primary;
+  return matchesChord(chord, toInkKeyEvent(input, key));
 }
 
 const INK_TEXTBUFFER_VIEWPORT_HEIGHT = 10;
@@ -655,9 +672,10 @@ export function clearInkComposerInputForSubmit(
 export function handleInkTextBufferInput(
   buffer: TextBuffer,
   input: string,
-  key: InkKey
+  key: InkKey,
+  keybindings: ResolvedKeybindings = DEFAULT_KEYBINDINGS,
 ): KeyHandlerResult {
-  if (isShiftEnterResidualSequence(input)) {
+  if (isShiftEnterResidualSequence(input) || keybindings.matches('newline', toInkKeyEvent(input, key))) {
     buffer.insert('\n');
     return 'handled';
   }
@@ -778,6 +796,7 @@ export function AgentUI({
   getInteractionMode,
   onCycleInteractionMode,
   mouseComposerCursor = false,
+  keybindings = DEFAULT_KEYBINDINGS,
   taskListPosition = 'above-composer',
 }: AgentUIProps) {
   const { stdout } = useStdout();
@@ -895,6 +914,8 @@ export function AgentUI({
   onEscapeRef.current = onEscape;
   const onCtrlCRef = useRef(onCtrlC);
   onCtrlCRef.current = onCtrlC;
+  const keybindingsRef = useRef(keybindings);
+  keybindingsRef.current = keybindings;
   const onDismissAnnouncementRef = useRef(onDismissAnnouncement);
   onDismissAnnouncementRef.current = onDismissAnnouncement;
   const announcementRef = useRef(state.announcement);
@@ -1429,6 +1450,8 @@ export function AgentUI({
   // a major source of flicker during rapid keystrokes.
   const handleInput = useCallback((char: string, key: InkKey) => {
     syncBufferViewport();
+    const keyEvent = toInkKeyEvent(char, key);
+    const activeKeybindings = keybindingsRef.current;
 
     if (mouseComposerCursor) {
       const mouseInput = parseSgrMouseInput(char);
@@ -1537,26 +1560,27 @@ export function AgentUI({
       return;
     }
 
-    if (isTeamViewShortcut(char, key)) {
+    if (activeKeybindings.matches('toggleTeamPanel', keyEvent)) {
       onToggleTeamPanelRef.current?.();
       return;
     }
 
-    if (isGoalViewShortcut(char, key)) {
+    if (activeKeybindings.matches('toggleGoals', keyEvent)) {
       onToggleGoalPanelRef.current?.();
       return;
     }
 
+    const reservedChords = activeKeybindings.reservedChords();
     const extensionKeybinding = extensionKeybindingsRef.current.find((binding) =>
-      matchesExtensionKeybinding(char, key, binding)
+      matchesExtensionKeybinding(char, key, binding, reservedChords)
       && (binding.when === 'always' || textBufferRef.current.getText().trim().length === 0));
     if (extensionKeybinding) {
       onInstructionRef.current(extensionKeybinding.command);
       return;
     }
 
-    // Handle Shift+Tab for interaction mode cycling
-    if (key.tab && key.shift) {
+    // Cycle the interaction mode (Shift+Tab in every profile)
+    if (activeKeybindings.matches('cycleMode', keyEvent)) {
       const cycleInteractionMode = onCycleInteractionModeRef.current;
       if (cycleInteractionMode) {
         setInteractionMode(cycleInteractionMode());
@@ -1654,8 +1678,22 @@ export function AgentUI({
       return;
     }
 
-    if (key.ctrl && char === 'o' && liveCommandsRef.current.length > 0) {
+    if (activeKeybindings.matches('toggleLiveOutput', keyEvent) && liveCommandsRef.current.length > 0) {
       onToggleLiveCommandExpandedRef.current?.();
+      return;
+    }
+
+    // Profile-only chords: an exit key on an empty composer takes the same path
+    // as the second Ctrl+C, and a history key opens the typed-message history.
+    if (activeKeybindings.matches('exit', keyEvent)) {
+      if (textBufferRef.current.getText().length === 0) {
+        setImmediate(() => onCtrlCRef.current());
+      }
+      return;
+    }
+
+    if (activeKeybindings.matches('openHistory', keyEvent)) {
+      onInstructionRef.current('/whatityped');
       return;
     }
 
@@ -1892,8 +1930,8 @@ export function AgentUI({
       }
     }
 
-    // ── Toggle shortcut help on '?' when input is empty ──
-    if (char === '?' && !key.ctrl && !key.meta && !key.shift) {
+    // ── Toggle shortcut help on the profile's help chord when input is empty ──
+    if (activeKeybindings.matches('toggleShortcutsHelp', keyEvent)) {
       const currentText = textBufferRef.current.getText();
       if (currentText.trim() === '' || currentText.trim() === '?') {
         if (currentText.trim() === '?') {
@@ -1917,7 +1955,7 @@ export function AgentUI({
 
     const buffer = textBufferRef.current;
     const textBeforeKey = buffer.getText();
-    const result = handleInkTextBufferInput(buffer, char, key);
+    const result = handleInkTextBufferInput(buffer, char, key, activeKeybindings);
     if (buffer.getText() !== textBeforeKey) historyNavigationRef.current = null;
 
     if (result === 'submit') {
@@ -2401,6 +2439,7 @@ export function AgentUI({
         nextPromptSuggestion={composerNextPromptSuggestion}
         inlineGhostSuffix={composerInlineGhostSuffix}
         mouseComposerCursor={mouseComposerCursor}
+        keybindings={keybindings}
         isReadingHistory={isReadingHistory}
         enableMouseTargetControls={mouseComposerCursor && (
           liveCommandItems.length > 0
@@ -3140,6 +3179,7 @@ interface FixedBottomProps {
   onComposerLayoutChange?: (layout: ComposerOutputLayout | null) => void;
   /** Whether the shortcuts help panel is visible */
   showShortcuts: boolean;
+  keybindings: ResolvedKeybindings;
   /** Current mutually-exclusive editing interaction mode, rendered as a colored glyph. */
   interactionMode?: InteractionMode;
   /** Whether to show the mode word (PLAN/YOLO/AUTO) next to the glyph. */
@@ -3247,6 +3287,7 @@ const FixedBottom = memo(function FixedBottom({
   enableMouseTargetControls,
   onComposerLayoutChange,
   showShortcuts,
+  keybindings,
   interactionMode,
   showModeLabel,
   modeIndicator,
@@ -3312,7 +3353,7 @@ const FixedBottom = memo(function FixedBottom({
       <FileMentionWrapper fileMentionDropdown={fileMentionDropdown} />
       <SlashCommandWrapper slashCommandDropdown={slashCommandDropdown} />
       <SkillMentionWrapper skillMentionDropdown={skillMentionDropdown} />
-      <ShortcutsHelpPanel visible={showShortcuts && !isWorking} />
+      <ShortcutsHelpPanel visible={showShortcuts && !isWorking} keybindings={keybindings} />
       <HelpLineSection
         isWorking={isWorking}
         contextPercent={contextPercent}

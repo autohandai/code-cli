@@ -39,6 +39,7 @@ import {
 import { buildFileMentionSuggestions, buildSkillMentionSuggestions, type SkillMentionInfo } from './mentionFilter.js';
 import { themedFg } from './theme/index.js';
 import { stripAnsiCodes, enableBracketedPaste, disableBracketedPaste } from './displayUtils.js';
+import { DEFAULT_KEYBINDINGS } from '../keybindings/profiles.js';
 import { TextBuffer } from './textBuffer.js';
 import { handleTextBufferKey } from './textBufferKeyHandler.js';
 import { calculateLayout, logicalToVisual, visualToLogical } from './textBufferLayout.js';
@@ -292,16 +293,6 @@ let cachedSkillMentions: SkillMentionInfo[] | undefined;
 export function resetCachedSkillMentions(): void {
   cachedSkillMentions = undefined;
 }
-
-const CONTEXTUAL_HELP_ROWS: Array<{ left: string; right: string }> = [
-  { left: '/ for commands', right: '! for shell commands' },
-  { left: '@ for file paths', right: 'tab accepts suggestion' },
-  { left: '$ for skills', right: 'tab accepts suggestion' },
-  { left: '? toggles this shortcuts panel', right: 'shift + tab cycles interaction modes' },
-  { left: 'shift + enter inserts newline', right: 'alt + enter inserts newline' },
-  { left: 'enter submits prompt', right: 'ctrl + c clears input / exits' },
-  { left: 'esc interrupts active turn', right: 'type /, @, $, or ! to switch mode' },
-];
 
 function truncatePlainText(value: string, width: number): string {
   if (width <= 0) {
@@ -579,7 +570,7 @@ export function buildContextualHelpPanelLines(
     return truncatePlainText(plain, cellWidth).padEnd(cellWidth, ' ');
   };
 
-  const rowLines = CONTEXTUAL_HELP_ROWS.map((row) => {
+  const rowLines = DEFAULT_KEYBINDINGS.helpRows().map((row) => {
     const left = formatCell(row.left, leftWidth);
     const right = formatCell(row.right, rightWidth);
     return `${left}${' '.repeat(gap)}${right}`;

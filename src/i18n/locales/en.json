@@ -219,6 +219,8 @@
         "promptSuggestionsDesc": "Show LLM-generated next-step suggestions",
         "mouseComposerCursor": "Mouse composer cursor",
         "mouseComposerCursorDesc": "Click in composer text to position the cursor",
+        "keybindingProfile": "Keyboard shortcuts",
+        "keybindingProfileDesc": "Follow another coding agent's shortcuts (Ctrl+J newline, Ctrl+D exit, Ctrl+R history)",
         "activityVerbsEnabled": "Activity verbs",
         "activityVerbsEnabledDesc": "Show rotating activity verbs while the agent is working",
         "activitySymbol": "Activity symbol",
@@ -667,6 +669,23 @@
       "title": "Advanced Settings",
       "description": "Configure notifications, network, search, MCP, agent behavior, and community skills.",
       "prompt": "Would you like to configure advanced settings?"
+    },
+    "keybindings": {
+      "title": "Keyboard Shortcuts",
+      "description": "{{agents}} found on this machine. Autohand can follow the shortcuts you already know; change this any time in /settings.",
+      "prompt": "Which keyboard shortcuts should the composer use?",
+      "autohandOption": "Autohand defaults (recommended)",
+      "autohandDescription": "Shift+Tab cycles modes, Shift+Enter or Alt+Enter inserts a newline, Ctrl+C twice exits",
+      "agentOption": "Same as {{agent}}",
+      "agentDescription": "Adds that agent's chords such as Ctrl+J for a newline, Ctrl+D to exit and Ctrl+R for history"
+    },
+    "importAgents": {
+      "title": "Import From Other Agents",
+      "description": "Memories, sessions and skills can be brought across with the same /import command you can run later.",
+      "prompt": "Import memories, sessions and skills from {{agents}}?",
+      "running": "Importing from {{agents}}...",
+      "skipped": "Skipped. Run /import whenever you want to bring them across.",
+      "failed": "Import did not finish: {{error}}. Setup continues; run /import later to retry."
     },
     "registration": {
       "title": "Autohand Account",

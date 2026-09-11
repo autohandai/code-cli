@@ -50,6 +50,9 @@ import { installLlamaCpp, probeLlamaCppEnvironment } from '../providers/llamaCpp
 import { ProjectAnalyzer } from './projectAnalyzer.js';
 import { AgentsGenerator } from './agentsGenerator.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from '../startup/workspaceSafety.js';
+import { describeDetectedAgents, detectExternalAgents, type DetectedExternalAgent } from './externalAgents.js';
+import { getKeybindingProfile, type KeybindingProfileId } from '../keybindings/profiles.js';
+import type { ImportOptions } from '../import/types.js';
 import { getAuthClient } from '../auth/index.js';
 import { AUTH_CONFIG } from '../constants.js';
 import {
@@ -74,6 +77,8 @@ export type OnboardingStep =
   | 'telemetry'
   | 'autoReport'
   | 'preferences'
+  | 'keybindings'
+  | 'importAgents'
   | 'advanced'
   | 'notifications'
   | 'network'
@@ -127,6 +132,8 @@ interface OnboardingState {
     debug?: boolean;
   };
   communitySkillsEnabled?: boolean;
+  keybindingProfile?: KeybindingProfileId;
+  importedAgents?: DetectedExternalAgent[];
   agentsFileCreated?: boolean;
   reasoningEffort?: ReasoningEffort;
   openAIAuthMode?: OpenAIAuthMode;
@@ -151,6 +158,10 @@ export interface OnboardingOptions {
   force?: boolean;
   skipWelcome?: boolean;
   quickSetup?: boolean;
+  /** Probe for other coding agents; tests inject a fixed list. */
+  detectExternalAgents?: () => Promise<DetectedExternalAgent[]>;
+  /** Import runner used by the "import from other agents" step; tests inject a fake. */
+  runImport?: (options: ImportOptions) => Promise<void>;
 }
 
 /**
@@ -296,6 +307,13 @@ export class SetupWizard {
         await this.promptPreferences();
       } else {
         this.state.skipped.push('preferences');
+      }
+
+      // Step 11b: Other coding agents on this machine (skip in quickSetup)
+      if (!options?.quickSetup) {
+        await this.promptExternalAgents(options);
+      } else {
+        this.state.skipped.push('keybindings', 'importAgents');
       }
 
       // Step 12: Advanced settings gate (skip in quickSetup)
@@ -1032,6 +1050,105 @@ export class SetupWizard {
   }
 
   /**
+   * Offer the shortcuts of, and an import from, coding agents already
+   * installed on this machine. Both steps disappear when nothing is detected.
+   */
+  private async promptExternalAgents(options?: OnboardingOptions): Promise<void> {
+    const agents = await (options?.detectExternalAgents ?? detectExternalAgents)();
+    const withProfiles = agents.filter((agent): agent is DetectedExternalAgent & { profile: KeybindingProfileId } =>
+      agent.profile !== undefined);
+    const withImporters = agents.filter((agent) => agent.importSource !== undefined);
+
+    if (withProfiles.length > 0) {
+      await this.promptKeybindings(withProfiles);
+    } else {
+      this.state.skipped.push('keybindings');
+    }
+
+    if (withImporters.length > 0) {
+      await this.promptImportAgents(withImporters, options);
+    } else {
+      this.state.skipped.push('importAgents');
+    }
+  }
+
+  private async promptKeybindings(agents: Array<DetectedExternalAgent & { profile: KeybindingProfileId }>): Promise<void> {
+    this.state.currentStep = 'keybindings';
+
+    console.log();
+    console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
+    console.log(chalk.white.bold('  ' + t('setup.keybindings.title')));
+    console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
+    console.log();
+    console.log(chalk.gray('  ' + t('setup.keybindings.description', { agents: describeDetectedAgents(agents) })));
+    console.log();
+
+    const options: ModalOption[] = [
+      {
+        label: t('setup.keybindings.autohandOption'),
+        value: 'autohand',
+        description: t('setup.keybindings.autohandDescription'),
+      },
+      ...agents.map((agent) => ({
+        label: t('setup.keybindings.agentOption', { agent: agent.label }),
+        value: agent.profile,
+        description: t('setup.keybindings.agentDescription'),
+      })),
+    ];
+
+    const result = await showModal({
+      title: t('setup.keybindings.prompt'),
+      options,
+      initialIndex: 0,
+    });
+
+    this.state.keybindingProfile = (result?.value as KeybindingProfileId | undefined) ?? 'autohand';
+  }
+
+  private async promptImportAgents(agents: DetectedExternalAgent[], options?: OnboardingOptions): Promise<void> {
+    this.state.currentStep = 'importAgents';
+    const agentList = describeDetectedAgents(agents);
+
+    console.log();
+    console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
+    console.log(chalk.white.bold('  ' + t('setup.importAgents.title')));
+    console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
+    console.log();
+    console.log(chalk.gray('  ' + t('setup.importAgents.description')));
+    console.log();
+
+    const accepted = await showConfirm({
+      title: t('setup.importAgents.prompt', { agents: agentList }),
+      defaultValue: true
+    });
+
+    if (!accepted) {
+      this.state.skipped.push('importAgents');
+      console.log(chalk.gray('  ' + t('setup.importAgents.skipped')));
+      return;
+    }
+
+    console.log(chalk.gray('  ' + t('setup.importAgents.running', { agents: agentList })));
+    const runImport = options?.runImport ?? (async (importOptions: ImportOptions) => {
+      const { runImport: run } = await import('../import/index.js');
+      await run(importOptions);
+    });
+    try {
+      await runImport({
+        all: true,
+        categories: ['memory', 'sessions', 'skills'],
+        configPath: this.existingConfig?.configPath,
+        workspaceRoot: this.workspaceRoot,
+      });
+      this.state.importedAgents = agents;
+    } catch (error) {
+      console.log(chalk.yellow('  ' + t('setup.importAgents.failed', {
+        error: error instanceof Error ? error.message : String(error),
+      })));
+    }
+  }
+
+  /**
    * Prompt for AGENTS.md creation
    */
   private async promptAgentsFile(): Promise<void> {
@@ -1357,6 +1474,9 @@ export class SetupWizard {
     }
     if (this.state.notifications) {
       uiConfig.notifications = this.state.notifications;
+    }
+    if (this.state.keybindingProfile) {
+      uiConfig.keybindingProfile = this.state.keybindingProfile;
     }
     if (Object.keys(uiConfig).length > 0) {
       config.ui = uiConfig as AutohandConfig['ui'];
@@ -2368,6 +2488,12 @@ export class SetupWizard {
     }
     if (this.state.mcpEnabled !== undefined) {
       console.log(chalk.white(`  MCP: ${this.state.mcpEnabled ? 'enabled' : 'disabled'}`));
+    }
+    if (this.state.keybindingProfile) {
+      console.log(chalk.white(`  Keyboard shortcuts: ${getKeybindingProfile(this.state.keybindingProfile).label}`));
+    }
+    if (this.state.importedAgents?.length) {
+      console.log(chalk.white(`  Imported from: ${describeDetectedAgents(this.state.importedAgents)}`));
     }
     if (this.state.authUser) {
       console.log(chalk.white(`  Account: ${this.state.authUser.email}`));

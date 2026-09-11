@@ -686,6 +686,29 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 ```
 ---
 
+### Профили сочетаний клавиш
+
+Если вы уже пользуетесь другим агентом для кода, композитор может следовать его сочетаниям. Профиль выбирается при настройке (предлагается, когда Autohand находит агента), в `/settings` → UI → Сочетания клавиш или напрямую:
+
+```sh
+autohand config set ui.keybindingProfile codex
+```
+
+| Профиль | Новая строка | Выход | История |
+| --- | --- | --- | --- |
+| `autohand` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+| `claude-code`, `codex`, `devin` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | Ctrl+R |
+| `cursor`, `antigravity` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | `/whatityped` |
+| `factory` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+
+Ctrl+D завершает работу только при пустом композиторе. Панель `?` всегда показывает сочетания активного профиля. Для `claude-code` применяются ваши переназначения из `~/.claude/keybindings.json`, для `codex` — из `[tui.keymap.*]` в `~/.codex/config.toml`.
+
+Какие сочетания доходят, решает терминал: Shift+Enter требует клавиатурный протокол kitty (Ghostty, kitty, WezTerm, iTerm2 3.5+), Alt+Enter требует Option как Meta в macOS, Ctrl+J работает в любом терминале, включая tmux.
+
+**Импорт при настройке.** Когда настройка находит другого агента, она также предлагает импортировать память, сессии и навыки так же, как `/import`; неудачный импорт не останавливает настройку.
+
+---
+
 ## Настройки агента
 
 Управляйте поведением агента и ограничениями итераций.

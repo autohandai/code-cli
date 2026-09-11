@@ -396,6 +396,29 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 
 ---
 
+### 키보드 단축키 프로필
+
+이미 다른 코딩 에이전트를 사용 중이라면 컴포저가 그 단축키를 따를 수 있습니다. 프로필은 설정 중(Autohand가 에이전트를 감지했을 때), `/settings` → UI → 키보드 단축키, 또는 다음 명령으로 선택합니다.
+
+```sh
+autohand config set ui.keybindingProfile codex
+```
+
+| 프로필 | 줄 바꿈 | 종료 | 기록 |
+| --- | --- | --- | --- |
+| `autohand` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+| `claude-code`, `codex`, `devin` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | Ctrl+R |
+| `cursor`, `antigravity` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | `/whatityped` |
+| `factory` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+
+Ctrl+D는 컴포저가 비어 있을 때만 종료합니다. `?` 패널은 항상 활성 프로필의 단축키를 표시합니다. `claude-code`에서는 `~/.claude/keybindings.json`의 사용자 재매핑이, `codex`에서는 `~/.codex/config.toml`의 `[tui.keymap.*]`가 적용됩니다.
+
+어떤 단축키가 전달되는지는 터미널이 결정합니다. Shift+Enter는 kitty 키보드 프로토콜(Ghostty, kitty, WezTerm, iTerm2 3.5 이상)이 필요하고, Alt+Enter는 macOS에서 Option을 Meta로 설정해야 하며, Ctrl+J는 tmux를 포함한 모든 터미널에서 동작합니다.
+
+**설정 중 가져오기.** 설정이 다른 에이전트를 감지하면 `/import`와 같은 방식으로 메모리, 세션, 스킬 가져오기도 제안합니다. 가져오기에 실패해도 설정은 계속됩니다.
+
+---
+
 ## 에이전트 설정
 
 에이전트 동작 및 반복 제한을 제어합니다.

@@ -18,6 +18,8 @@ import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { buildStatusLineExtension, getConfigStatusLineSettings } from './StatusLineSettings.js';
 import { resolveStatusLineGitLabel } from './AgentContextRuntime.js';
 import { extensionRuntimeHost } from '../../extensions/ExtensionRuntimeHost.js';
+import { resolveKeybindings } from '../../keybindings/profiles.js';
+import { loadExternalKeybindingOverrides } from '../../keybindings/externalKeybindings.js';
 import { t } from '../../i18n/index.js';
 import type { AnnouncementLineState } from '../../ui/ink/AgentUI.js';
 import type { AgentUILineExtensions } from '../../ui/ink/AgentUI.js';
@@ -282,6 +284,10 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
         getInteractionMode: () => host.getInteractionMode(),
         onCycleInteractionMode: () => host.cycleInteractionMode(),
         mouseComposerCursor: resolveMouseComposerCursor(host.runtime?.config?.ui?.mouseComposerCursor),
+        keybindings: resolveKeybindings(
+          host.runtime?.config?.ui?.keybindingProfile,
+          loadExternalKeybindingOverrides(host.runtime?.config?.ui?.keybindingProfile ?? 'autohand'),
+        ),
         taskListPositionProvider: () =>
           host.runtime?.config?.ui?.taskListPosition ?? 'above-composer',
         onEditGoalObjective: async (request) => {
