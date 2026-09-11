@@ -40,6 +40,32 @@ describe('AgentRegistry built-in agents', () => {
     return registry;
   }
 
+  it('falls back to the embedded built-in agents when no packaged directory exists, as in a compiled binary', async () => {
+    const { root, userDir } = await createTempAgentDirs();
+    const registry = AgentRegistry.getInstance();
+    (registry as any).agentsDir = userDir;
+    registry.setBuiltinAgentDirectories([path.join(root, 'missing', 'agents', 'builtin')], path.join(root, 'embedded'));
+    await registry.loadAgents();
+
+    const builtins = registry.getAgentsBySource('builtin');
+    expect(builtins.map((agent) => agent.name)).toContain('researcher');
+    expect(builtins.length).toBeGreaterThanOrEqual(12);
+  });
+
+  it('reads the reasoning depth from agent frontmatter and ignores unknown levels', async () => {
+    const { userDir } = await createTempAgentDirs();
+    await fs.writeFile(path.join(userDir, 'judge.md'), '---\ndescription: Judges\nreasoning: High\n---\nJudge things.');
+    await fs.writeFile(path.join(userDir, 'sloppy.md'), '---\ndescription: Sloppy\nreasoning: maximum\n---\nDo things.');
+    const registry = AgentRegistry.getInstance();
+    (registry as any).agentsDir = userDir;
+    await registry.loadAgents();
+
+    expect(registry.getAgent('judge')?.reasoning).toBe('high');
+    expect(registry.getAgent('sloppy')?.reasoning).toBeUndefined();
+    expect(registry.getAgent('reviewer')?.reasoning).toBe('high');
+    expect(registry.getAgent('implementer')?.reasoning).toBeUndefined();
+  });
+
   it('should load built-in agents', async () => {
     const registry = await loadIsolatedRegistry();
     const builtins = registry.getAgentsBySource('builtin');

@@ -16,8 +16,8 @@ import stripAnsi from 'strip-ansi';
 import packageJson from '../../package.json' with { type: 'json' };
 import { SLASH_COMMANDS } from '../../src/core/slashCommands.js';
 import { hasTerminalProcessPid } from '../../src/testing/assertions/terminalOutput.js';
-import { openGoalsPanel } from '../../src/testing/scenarios/goalsCommandScenario.js';
-import { selectTheme } from '../../src/testing/scenarios/themeScenario.js';
+import { createStalledGoalStatePreload, openGoalsPanel } from '../../src/testing/scenarios/goalsCommandScenario.js';
+import { selectTheme, selectThemeFromSettings } from '../../src/testing/scenarios/themeScenario.js';
 import { createStalledGitVersionPreload } from '../../src/testing/scenarios/gitVersionScenario.js';
 import { getHelpOrderedSlashCommands } from '../../src/ui/inputPrompt.js';
 import {
@@ -1762,6 +1762,175 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
+  it('opens the experiments menu on Enter while the subcommand suggestions are showing', async () => {
+    const session = await launchInteractive({
+      config: {
+        ui: {
+          promptSuggestions: false,
+        },
+      },
+    });
+
+    await waitForComposer(session);
+    await session.type('/experiments ');
+    await session.waitForText('/experiments list', { timeout: 5_000 });
+    await session.press('enter');
+
+    // The suggestions stay for discovery, but Enter on the bare command runs
+    // it instead of filling in whichever subcommand happens to be highlighted.
+    await session.waitForText('Experiments - space toggles, enter closes', { timeout: 10_000 });
+    expect(stripAnsi(session.getRawOutput())).not.toContain('Usage: /experiments');
+
+    await session.press('escape');
+    await waitForComposer(session);
+    await exitInteractive(session);
+  });
+
+  it.each([
+    { showThinking: undefined, expectsThought: false },
+    { showThinking: false, expectsThought: false },
+    { showThinking: true, expectsThought: true },
+  ])('keeps inline <think> blocks from a cloud reasoning model out of the reply (showThinking=$showThinking)', async ({ showThinking, expectsThought }) => {
+    const nativeServer = await createMockAutohandAINativeSequenceServer([
+      { content: '<think>\nMOA_DRAFT_THOUGHT weighs two jokes.\n</think>\n\nMOA_FINAL_ANSWER light attracts bugs.' },
+    ]);
+    mockServers.push(nativeServer);
+    const state = await createTempAutohandHome({
+      config: {
+        provider: 'autohandai',
+        autohandai: {
+          plan: 'cloud',
+          authMode: 'api-key',
+          apiKey: 'tuistory-autohand-api-key',
+          model: 'moa',
+          baseUrl: nativeServer.baseUrl,
+        },
+        features: { autohand_inference: true },
+        agent: { autoMemory: false, maxIterations: 2, sessionRetryLimit: 0 },
+        network: { maxRetries: 0, retryDelay: 0 },
+        ui: {
+          promptSuggestions: false,
+          showCompletionNotification: false,
+          ...(showThinking === undefined ? {} : { showThinking }),
+          terminalBell: false,
+        },
+      },
+    });
+    tempStates.push(state);
+    const session = await trackSession(
+      launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        waitForDataTimeout: 15_000,
+      })
+    );
+
+    await waitForComposer(session);
+    await session.type('tell me a joke');
+    await session.press('enter');
+    const screen = await session.text({
+      timeout: 15_000,
+      waitFor: (text) => text.includes('MOA_FINAL_ANSWER'),
+    });
+
+    // The draft belongs to the reasoning channel, never to the reply text;
+    // it is shown as a dim thinking line only when the setting is on.
+    expect(screen).not.toContain('</think>');
+    expect(screen).not.toContain('<think>');
+    expect(screen.includes('MOA_DRAFT_THOUGHT'), screen).toBe(expectsThought);
+    if (expectsThought) {
+      expect(screen).toContain('Thinking: MOA_DRAFT_THOUGHT');
+    }
+
+    await exitInteractive(session);
+  });
+
+  it('names the session with /rename, lists it by that name, and honours --rename from a script', async () => {
+    const state = await createTempAutohandHome({ config: { ui: { promptSuggestions: false } } });
+    tempStates.push(state);
+    const launch = () => trackSession(launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      waitForDataTimeout: 15_000,
+    }));
+
+    let session = await launch();
+    await waitForComposer(session);
+    await session.type('/rename Ship the caret fix');
+    await session.press('enter');
+    await session.waitForText('Session renamed to "Ship the caret fix".', { timeout: 10_000 });
+    await session.type('/session');
+    await session.press('enter');
+    await session.waitForText('Name:', { timeout: 10_000 });
+    expect(await session.text({ immediate: true })).toContain('Ship the caret fix');
+    await session.type('/sessions');
+    await session.press('enter');
+    await session.waitForText('Ship the caret fix', { timeout: 10_000 });
+    await exitInteractive(session);
+
+    const sessionsDir = path.join(state.autohandHome, 'sessions');
+    const index = await fs.readJson(path.join(sessionsDir, 'index.json'));
+    expect(index.sessions.map((entry: { title?: string }) => entry.title)).toContain('Ship the caret fix');
+
+    session = await trackSession(launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '--rename', 'Renamed from a script'], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      waitForDataTimeout: 15_000,
+    }));
+    await waitForExit(session, 15_000);
+    expectCleanExit(session);
+    expect(session.readAll()).toContain('renamed to "Renamed from a script"');
+    const [entry] = index.sessions as { id: string }[];
+    expect((await fs.readJson(path.join(sessionsDir, entry.id, 'metadata.json'))).title).toBe('Renamed from a script');
+  });
+
+  it('keeps the caret and mouse reporting for text typed while startup is still finishing', async () => {
+    const state = await createTempAutohandHome({
+      config: {
+        ui: {
+          mouseComposerCursor: true,
+          promptSuggestions: false,
+        },
+      },
+    });
+    tempStates.push(state);
+    const session = await trackSession(
+      launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        env: {
+          NODE_OPTIONS: await createStalledGoalStatePreload(state.workspaceRoot, state.autohandHome),
+        },
+        waitForDataTimeout: 15_000,
+      })
+    );
+
+    // Ink mounts before startup has read the workspace goal state, so this
+    // lands while startup is still finishing, exactly like a user who starts
+    // typing the moment the composer appears.
+    await waitForComposer(session);
+    await session.type('hello');
+    await session.text({
+      timeout: 5_000,
+      waitFor: (text) => composerLineIncludes(text, 'hello'),
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 2_000));
+
+    // Startup is not a turn: nothing can be cancelled, so the composer must
+    // never pass through a working state that treats the typed text as a
+    // finished turn's draft and hides the caret until the next keystroke.
+    const startupOutput = session.getRawOutput();
+    expect(stripAnsi(startupOutput)).not.toContain('esc to cancel');
+    expect(startupOutput).toContain('\x1b[?1000h\x1b[?1006h');
+    expect(startupOutput).not.toContain('\x1b[?1006l\x1b[?1000l');
+    await waitForCursorAfterTypedText(session, 'hello');
+
+    await session.click('llo');
+    await waitForCursorPositionQuery(session);
+
+    await exitInteractive(session);
+  });
+
   it('keeps only the real terminal cursor at the typed prompt position while composing', async () => {
     const session = await launchInteractive({
       config: {
@@ -3216,6 +3385,35 @@ describe('interactive built CLI Tuistory tests', () => {
 
     await exitInteractive(session);
   }, 240_000);
+
+  it('shows effective values in /settings and lets the UI category change the theme', async () => {
+    const state = await createTempAutohandHome({ config: { ui: { promptSuggestions: false } } });
+    tempStates.push(state);
+    expect((await fs.readJson(state.configPath)).ui.theme).toBeUndefined();
+    const session = await trackSession(launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      waitForDataTimeout: 15_000,
+    }));
+
+    await waitForComposer(session);
+    await session.type('/settings');
+    await session.press('enter');
+    await session.waitForText('Select a category:', { timeout: 10_000 });
+    await session.press('1');
+    const rows = await session.text({ timeout: 10_000, waitFor: (text) => text.includes('Select a setting to change:') });
+    expect(rows).toContain('Theme: aurora (default)');
+    expect(rows).toContain('Show LLM thinking: off (default)');
+    expect(rows).not.toMatch(/: \(default\)/);
+    await session.press('escape');
+    await session.waitForText('Select a category:');
+    await session.press('escape');
+    await waitForComposer(session);
+
+    await selectThemeFromSettings(session, 'dracula');
+    expect((await fs.readJson(state.configPath)).ui.theme).toBe('dracula');
+    await exitInteractive(session);
+  });
 
   it('selects the Sandy theme and renders the expected Sandy colors', async () => {
     const session = await launchInteractive({

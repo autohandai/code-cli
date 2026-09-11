@@ -152,7 +152,8 @@ describe('Autohand AI native session agent inspector', () => {
     await vi.waitFor(() => expect(slowTurns).toBe(2));
     expect(slowAborted).toBe(false);
     const detail = await inspectAndCancelFixtureAgent(session);
-    expect(detail).toContain('autohandai · moa');
+    // Inline agents carry no reasoning marker, so the team policy runs them on the fast tier.
+    expect(detail).toContain('autohandai · fantail');
     expect(detail).toContain('Parent:');
     expect(detail).toContain('Workspace:');
     expect(detail.replace(/\s+/g, '')).toContain(state.workspaceRoot.replace(/\s+/g, ''));

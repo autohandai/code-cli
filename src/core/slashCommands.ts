@@ -73,6 +73,7 @@ import * as featuresCmd from '../commands/features.js';
 import * as goalCmd from '../commands/goal.js';
 import * as squadCmd from '../commands/squad.js';
 import * as sessionBranchingCmd from '../commands/sessionBranching.js';
+import * as renameCmd from '../commands/rename.js';
 import * as whatsnewCmd from '../commands/whatsnew.js';
 import * as changelogCmd from '../commands/changelog.js';
 
@@ -163,6 +164,7 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   sessionBranchingCmd.forkMetadata,
   sessionBranchingCmd.cloneMetadata,
   sessionBranchingCmd.treeMetadata,
+  renameCmd.metadata,
   whatsnewCmd.metadata,
   changelogCmd.metadata,
 ] as (SlashCommand | undefined)[]).filter((cmd): cmd is SlashCommand => cmd != null && typeof cmd.command === 'string');

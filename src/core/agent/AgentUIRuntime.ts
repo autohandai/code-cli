@@ -345,7 +345,13 @@ export async function initializeAgentUI(host: AgentUIRuntimeHost, abortControlle
         await host.ui?.start();
         host.inkRenderer = host.ui?.getInkRenderer?.() ?? host.inkRenderer;
         host.syncProviderModelStatusLine();
-        host.ui?.setWorking(true, 'Gathering context...');
+        // Only a cancellable turn shows the gathering status. The interactive
+        // loop mounts Ink before any instruction exists, and a working state
+        // there makes the composer treat text typed during startup as a
+        // finished turn's draft, hiding the caret until the next keystroke.
+        if (abortController) {
+          host.ui?.setWorking(true, 'Gathering context...');
+        }
         host.runtime.inkRenderer = host.inkRenderer;
         syncAgentAnnouncementLine(host);
         if (host.teamActivitySnapshot) {

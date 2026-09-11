@@ -1581,3 +1581,43 @@ function createReactLoopTestHost(
     writeDebugLine: vi.fn(),
   } satisfies AgentReactLoopHost;
 }
+
+describe('thinking display default', () => {
+  function createThinkingHost(ui: { showThinking?: boolean }) {
+    const llmComplete = vi.fn().mockResolvedValueOnce({
+      id: 'answer',
+      created: 1,
+      content: '{"thought":"Weigh two jokes.","finalResponse":"Light attracts bugs."}',
+      raw: {},
+    });
+    const host = createReactLoopTestHost(llmComplete, new ReactionParser());
+    host.runtime.config.ui = ui;
+    host.inkRenderer = {
+      setStatus: vi.fn(),
+      addToolCall: vi.fn(),
+      addToolOutputBatch: vi.fn(),
+      addToolOutput: vi.fn(),
+      setThinking: vi.fn(),
+      setElapsed: vi.fn(),
+      setTokens: vi.fn(),
+      setWorking: vi.fn(),
+      setFinalResponse: vi.fn(),
+    };
+    return host;
+  }
+
+  it('hides the thought unless ui.showThinking is explicitly on', async () => {
+    const host = createThinkingHost({});
+    await runAgentReactLoop(host, new AbortController());
+
+    expect(host.inkRenderer.setThinking).not.toHaveBeenCalled();
+    expect(host.inkRenderer.setFinalResponse).toHaveBeenCalledWith('Light attracts bugs.');
+  });
+
+  it('shows the thought when ui.showThinking is on', async () => {
+    const host = createThinkingHost({ showThinking: true });
+    await runAgentReactLoop(host, new AbortController());
+
+    expect(host.inkRenderer.setThinking).toHaveBeenCalledWith('Weigh two jokes.');
+  });
+});

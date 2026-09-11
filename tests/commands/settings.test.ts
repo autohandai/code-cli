@@ -14,8 +14,10 @@ import {
   formatConfigSetResult,
   getSettingsForCategory,
   formatSettingValue,
+  resolveSettingEnumValues,
   type SettingCategory,
 } from '../../src/commands/settings.js';
+import stripAnsi from 'strip-ansi';
 import { resolveAwarenessTier } from '../../src/session/peers/PeerWarnings.js';
 import type { LoadedConfig } from '../../src/types.js';
 
@@ -92,11 +94,20 @@ describe('SETTINGS_REGISTRY', () => {
     }
   });
 
+  it('offers every installed theme for ui.theme and applies the choice live', () => {
+    const setting = SETTINGS_REGISTRY.find(s => s.key === 'ui.theme');
+    expect(setting).toMatchObject({ category: 'ui', type: 'enum', defaultValue: 'aurora' });
+    expect(setting?.redirect).toBeUndefined();
+    const choices = resolveSettingEnumValues(setting!);
+    expect(choices).toContain('aurora');
+    expect(choices).toContain('dracula');
+    expect(typeof setting?.apply).toBe('function');
+  });
+
   it('enum settings have enumValues defined', () => {
     const enums = SETTINGS_REGISTRY.filter(s => s.type === 'enum');
     for (const setting of enums) {
-      expect(setting.enumValues).toBeDefined();
-      expect(setting.enumValues!.length).toBeGreaterThan(0);
+      expect(resolveSettingEnumValues(setting).length).toBeGreaterThan(0);
     }
   });
 
@@ -440,6 +451,13 @@ describe('formatSettingValue', () => {
     expect(result).toBeTruthy();
   });
 
+  it('shows the effective value with a default marker when the key is unset', () => {
+    expect(formatSettingValue(undefined, 'boolean', true)).toMatch(/on.*\(default\)/);
+    expect(formatSettingValue(undefined, 'enum', 'aurora')).toMatch(/aurora.*\(default\)/);
+    expect(formatSettingValue(undefined, 'number', 24)).toMatch(/24.*\(default\)/);
+    expect(formatSettingValue(false, 'boolean', true)).not.toContain('(default)');
+  });
+
   it('formats string value', () => {
     const result = formatSettingValue('dark', 'string');
     expect(result).toContain('dark');
@@ -475,9 +493,15 @@ vi.mock('../../src/config.js', () => ({
   saveConfig: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('../../src/ui/theme/index.js', async () => {
+  const actual = await vi.importActual<typeof import('../../src/ui/theme/index.js')>('../../src/ui/theme/index.js');
+  return { ...actual, initTheme: vi.fn() };
+});
+
 // Dynamic imports to get mocked versions
 const { showModal: mockShowModal, showInput: mockShowInput, showConfirm: mockShowConfirm, showPassword: mockShowPassword } = await import('../../src/ui/ink/components/Modal.js');
 const { saveConfig: mockSaveConfig } = await import('../../src/config.js');
+const { initTheme: mockInitTheme } = await import('../../src/ui/theme/index.js');
 const { settings: settingsCmd } = await import('../../src/commands/settings.js');
 
 function createMockConfig(): any {
@@ -608,7 +632,7 @@ describe('settings command integration', () => {
     expect(mockShowModal).toHaveBeenCalledOnce();
     expect(mockShowModal).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Task list position',
-      options: [{ label: 'up', value: 'up' }, { label: 'above-composer', value: 'above-composer' }],
+      options: [{ label: 'up', value: 'up' }, { label: 'above-composer (current)', value: 'above-composer' }],
     }));
     expect(config.ui.taskListPosition).toBe('up');
   });
@@ -756,13 +780,58 @@ describe('settings command integration', () => {
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     (mockShowModal as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce({ label: 'UI & Display', value: 'ui' })
-      .mockResolvedValueOnce({ label: 'Theme', value: 'ui.theme' })
+      .mockResolvedValueOnce({ label: 'Language', value: 'ui.locale' })
       .mockResolvedValueOnce({ label: 'Back', value: '__back__' })
       .mockResolvedValueOnce(null);
     const config = createMockConfig();
     await settingsCmd({ config });
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('/theme'));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('/language'));
     consoleSpy.mockRestore();
+  });
+
+  it('lists the UI rows with their effective values instead of a bare default marker', async () => {
+    (mockShowModal as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ label: 'UI & Display', value: 'ui' })
+      .mockResolvedValueOnce({ label: 'Back', value: '__back__' })
+      .mockResolvedValueOnce(null);
+    const config = createMockConfig();
+    delete config.ui.theme;
+    await settingsCmd({ config });
+
+    const settingsMenu = (mockShowModal as ReturnType<typeof vi.fn>).mock.calls[1]?.[0];
+    const labels = (settingsMenu.options as { label: string }[]).map((option) => stripAnsi(option.label));
+    expect(labels[0]).toMatch(/^Theme: aurora \(default\)$/);
+    expect(labels.find((label) => label.startsWith('Show LLM thinking'))).toMatch(/^Show LLM thinking: off \(default\)$/);
+    expect(labels.some((label) => /: \(default\)$/.test(label))).toBe(false);
+  });
+
+  it('saves a theme chosen from the UI category and applies it to the running session', async () => {
+    (mockShowModal as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ label: 'UI & Display', value: 'ui' })
+      .mockResolvedValueOnce({ label: 'Theme', value: 'ui.theme' })
+      .mockResolvedValueOnce({ label: 'dracula', value: 'dracula' })
+      .mockResolvedValueOnce({ label: 'Back', value: '__back__' })
+      .mockResolvedValueOnce(null);
+    const config = createMockConfig();
+    delete config.ui.theme;
+    await settingsCmd({ config });
+
+    const themeMenu = (mockShowModal as ReturnType<typeof vi.fn>).mock.calls[2]?.[0];
+    const themeOptions = themeMenu.options as { label: string; value: string }[];
+    expect(themeOptions.map((option) => option.value)).toEqual(expect.arrayContaining(['aurora', 'dracula']));
+    expect(themeOptions[themeMenu.initialIndex]?.label).toBe('aurora (current)');
+    expect(mockSaveConfig).toHaveBeenCalledWith(expect.objectContaining({ ui: expect.objectContaining({ theme: 'dracula' }) }));
+    expect(config.ui?.theme).toBe('dracula');
+    expect(mockInitTheme).toHaveBeenCalledWith('dracula');
+  });
+
+  it('sets ui.theme non-interactively and rejects an unknown theme', () => {
+    const config = createMockConfig();
+    expect(setConfigSetting(config, 'ui.theme', 'dracula')).toEqual({ key: 'ui.theme', value: 'dracula' });
+    expect(config.ui?.theme).toBe('dracula');
+    expect(mockInitTheme).toHaveBeenCalledWith('dracula');
+    expect(() => setConfigSetting(createMockConfig(), 'ui.theme', 'not-a-theme')).toThrow(/Expected one of .*aurora/);
+    expect(mockInitTheme).toHaveBeenCalledTimes(1);
   });
 
   it('does not save when user cancels edit', async () => {

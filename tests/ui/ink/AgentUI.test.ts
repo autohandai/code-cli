@@ -2346,3 +2346,115 @@ describe('AgentUI keybinding profiles', () => {
     expect(matchesExtensionKeybinding('k', createInkKey({ ctrl: true }), { key: 'ctrl+k', command: 'ext.k' })).toBe(true);
   });
 });
+
+describe('AgentUI slash command Enter with subcommand suggestions open', () => {
+  const slashCommands = [
+    {
+      command: '/experiments',
+      description: 'list and toggle Autohand experiments',
+      implemented: true,
+      subcommands: [
+        { name: 'list', description: 'List experiments and current state' },
+        { name: 'status', description: 'Show one experiment' },
+        { name: 'enable', description: 'Enable an experiment' },
+      ],
+    },
+  ];
+
+  function renderComposer(onInstruction: (text: string) => void) {
+    const state = {
+      ...createInitialUIState(),
+      currentInput: '/experiments ',
+    };
+    return render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction,
+            onEscape: () => {},
+            onCtrlC: () => {},
+            slashCommands,
+          })
+        )
+      )
+    );
+  }
+
+  it('submits the bare command on Enter while its subcommands are only being shown', async () => {
+    const onInstruction = vi.fn();
+    const { stdin, lastFrame } = renderComposer(onInstruction);
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    expect(stripAnsi(lastFrame() ?? '')).toContain('/experiments list');
+
+    stdin.write('\r');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    expect(onInstruction).toHaveBeenCalledWith('/experiments');
+  });
+
+  it('still accepts a subcommand the user highlighted with the arrow keys', async () => {
+    const onInstruction = vi.fn();
+    const { stdin, lastFrame } = renderComposer(onInstruction);
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    stdin.write('\x1b[B');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    stdin.write('\r');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    expect(onInstruction).not.toHaveBeenCalled();
+    expect(stripAnsi(lastFrame() ?? '')).toContain('/experiments status');
+  });
+});
+
+describe('AgentUI thinking display', () => {
+  function renderState(state: Partial<ReturnType<typeof createInitialUIState>>) {
+    return render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state: { ...createInitialUIState(), ...state },
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+          })
+        )
+      )
+    );
+  }
+
+  it('shows the final-turn thought above the reply while idle', async () => {
+    const { lastFrame } = renderState({
+      isWorking: false,
+      thinking: 'Weigh two jokes.',
+      finalResponse: 'Light attracts bugs.',
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    const frame = stripAnsi(lastFrame() ?? '');
+    expect(frame).toContain('Thinking: Weigh two jokes.');
+    expect(frame.indexOf('Thinking: Weigh two jokes.')).toBeLessThan(frame.indexOf('Light attracts bugs.'));
+  });
+
+  it('renders an archived thinking entry dimly in the transcript', async () => {
+    const { lastFrame } = renderState({
+      chatMessages: [
+        { role: 'user' as const, content: 'tell me a joke' },
+        { role: 'thinking' as const, content: 'Weigh two jokes.' },
+        { role: 'assistant' as const, content: 'Light attracts bugs.' },
+      ],
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    expect(stripAnsi(lastFrame() ?? '')).toContain('Thinking: Weigh two jokes.');
+  });
+});

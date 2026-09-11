@@ -579,7 +579,8 @@ export class InkRenderer {
   private archiveCompletedTurnMessages(
     messages: ChatLogMessage[],
     finalResponse: string | undefined,
-    completionStats: AgentUIState['completionStats']
+    completionStats: AgentUIState['completionStats'],
+    thinking: string | null = null,
   ): ChatLogMessage[] {
     let nextMessages = messages;
 
@@ -589,8 +590,12 @@ export class InkRenderer {
           message.role === 'assistant' && message.content === finalResponse
         );
       if (!alreadyArchived) {
+        // The thought is only set when show-thinking is on; keep it ahead of
+        // the reply it belongs to so the transcript reads in order.
+        const thought = thinking?.trim();
         nextMessages = [
           ...nextMessages,
+          ...(thought ? [{ role: 'thinking' as const, content: thought }] : []),
           { role: 'assistant', content: finalResponse },
         ];
       }
@@ -633,7 +638,8 @@ export class InkRenderer {
       const archivedMessages = this.archiveCompletedTurnMessages(
         this.state.chatMessages,
         archivedFinalResponse,
-        this.state.completionStats
+        this.state.completionStats,
+        this.state.thinking,
       );
       if (archivedMessages !== this.state.chatMessages) {
         updates.chatMessages = archivedMessages;
@@ -699,13 +705,15 @@ export class InkRenderer {
     const archivedMessages = this.archiveCompletedTurnMessages(
       this.state.chatMessages,
       this.state.finalResponse?.trim() || undefined,
-      this.state.completionStats
+      this.state.completionStats,
+      this.state.thinking,
     );
 
     this.updateState({
       userMessages: [...this.state.userMessages, message],
       chatMessages: [...archivedMessages, { role: 'user', content: message }],
       finalResponse: this.state.finalResponse ? null : this.state.finalResponse,
+      thinking: this.state.thinking ? null : this.state.thinking,
       completionStats: this.state.completionStats ? null : this.state.completionStats,
     });
   }

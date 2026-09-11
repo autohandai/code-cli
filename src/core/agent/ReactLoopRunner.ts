@@ -500,7 +500,7 @@ export async function runAgentReactLoop(
     host.startStatusUpdates();
 
     // Check if thinking should be shown
-    const showThinking = host.runtime.config.ui?.showThinking !== false;
+    const showThinking = host.runtime.config.ui?.showThinking === true;
     const displayToolOutput = shouldDisplayToolOutput(host.runtime.config);
     const workspaceChangeCapture = host.inkRenderer && displayToolOutput
       ? await WorkspaceChangeCapture.create(host.runtime.workspaceRoot).catch((error: unknown) => {

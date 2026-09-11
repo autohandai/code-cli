@@ -6,6 +6,7 @@
 import chalk from 'chalk';
 import { t } from '../i18n/index.js';
 import type { SessionManager } from '../session/SessionManager.js';
+import { getSessionDisplayName } from '../session/sessionTitle.js';
 
 export const metadata = {
     command: '/sessions',
@@ -39,7 +40,7 @@ export async function sessions(ctx: {
                 ' ID'.padEnd(25) +
                 'Created'.padEnd(20) +
                 'Messages'.padEnd(12) +
-                'Summary'
+                'Name'
             )
         );
         console.log(chalk.gray('─'.repeat(80)));
@@ -54,9 +55,9 @@ export async function sessions(ctx: {
                 minute: '2-digit'
             }).padEnd(19);
             const messages = session.messageCount.toString().padEnd(11);
-            const summary = session.summary?.slice(0, 40) || chalk.gray('No summary');
+            const name = getSessionDisplayName(session)?.slice(0, 40) || chalk.gray('No name');
 
-            console.log(` ${chalk.cyan(id)}${created}${messages}${summary}`);
+            console.log(` ${chalk.cyan(id)}${created}${messages}${name}`);
         }
 
         if (allSessions.length > 20) {

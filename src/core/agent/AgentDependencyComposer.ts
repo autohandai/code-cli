@@ -9,7 +9,6 @@ import { join } from 'node:path';
 import { FileActionManager } from '../../actions/filesystem.js';
 import { saveConfig, getProviderConfig } from '../../config.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
-import { ProviderFactory } from '../../providers/ProviderFactory.js';
 import { getOpenRouterModelContextWindow } from '../../providers/modelCapabilities.js';
 import { getHelpOrderedSlashCommands, promptInterrupt, promptNotify } from '../../ui/inputPrompt.js';
 import { isShellCommand, parseShellCommand } from '../../ui/shellCommand.js';
@@ -69,7 +68,7 @@ import { TeamManager } from '../teams/TeamManager.js';
 import { authorizeTeammateTool, createTeammateConfirmation } from '../teams/TeammateAuthorization.js';
 import { SessionThreadBudget, DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION } from '../agents/SessionThreadBudget.js';
 import type { TeamMember, TeamTask } from '../teams/types.js';
-import { resolveTeamModelAssignment } from '../teams/TeamModelPolicy.js';
+import { createTeamMemberProvider, resolveTeamModelAssignment } from '../teams/TeamModelPolicy.js';
 import { RepeatManager } from '../RepeatManager.js';
 import { intervalToCron, shorthandToHuman, shorthandToMs } from '../../commands/repeat.js';
 import { ActivityIndicator } from '../../ui/activityIndicator.js';
@@ -782,16 +781,10 @@ export function initializeAgentDependencies(
           active: { provider, model },
           agentName: definition.name,
           agentModel: definition.model,
+          agentReasoning: definition.reasoning,
         });
       },
-      createSubagentProvider: (assignment) => {
-        const subagentProvider = ProviderFactory.create({
-          ...runtime.config,
-          provider: assignment.provider,
-        });
-        subagentProvider.setModel(assignment.model);
-        return subagentProvider;
-      },
+      createSubagentProvider: (assignment) => createTeamMemberProvider(runtime.config, assignment),
       onSubagentStart: async (context) => {
         host.agentRunStore.start({
           id: context.subagentId, parentId: context.parentId, depth: context.depth,
@@ -815,7 +808,7 @@ export function initializeAgentDependencies(
           label: formatSubAgentActivityLabel(context.subagentName, context.task),
           status: 'in_progress',
           detail: context.provider && context.model
-            ? `${context.provider} · ${context.model}`
+            ? `${context.provider} · ${context.model}${context.reasoningEffort ? ` · ${context.reasoningEffort}` : ''}`
             : context.subagentType,
         });
         await host.agentRunStore.waitForLifecycle(context.subagentId);
@@ -1347,6 +1340,7 @@ export function initializeAgentDependencies(
               override: { provider: action.provider, model: action.model },
               agentName: action.agent_name,
               agentModel: agentDefinition?.model,
+              agentReasoning: agentDefinition?.reasoning,
             });
             host.teamManager.addTeammate({
               name: action.name,

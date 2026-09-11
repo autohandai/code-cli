@@ -152,6 +152,7 @@ type SyncableSession = {
     projectName?: string;
     status?: string;
     summary?: string;
+    title?: string;
     client?: string;
     clientVersion?: string;
     usage?: SessionUsageMetadata;
@@ -191,6 +192,7 @@ function buildSessionSyncMetadata(
     projectName: session.metadata.projectName,
     status: session.metadata.status,
     summary: session.metadata.summary,
+    title: session.metadata.title,
     client: session.metadata.client,
     clientVersion: session.metadata.clientVersion,
     usage: session.metadata.usage,

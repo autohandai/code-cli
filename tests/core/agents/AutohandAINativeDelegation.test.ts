@@ -15,7 +15,7 @@ import { ConversationManager } from '../../../src/core/conversationManager.js';
 import { AgentRegistry, type AgentDefinition } from '../../../src/core/agents/AgentRegistry.js';
 import { SubAgent } from '../../../src/core/agents/SubAgent.js';
 import { SessionThreadBudget } from '../../../src/core/agents/SessionThreadBudget.js';
-import { resolveTeamModelAssignment } from '../../../src/core/teams/TeamModelPolicy.js';
+import { createTeamMemberProvider, resolveTeamModelAssignment } from '../../../src/core/teams/TeamModelPolicy.js';
 import { ProviderFactory } from '../../../src/providers/ProviderFactory.js';
 import type { AgentRuntime, LLMToolCall, LoadedConfig, MultimodalMessage } from '../../../src/types.js';
 
@@ -46,7 +46,7 @@ function reply(response: ServerResponse, content: string, calls?: LLMToolCall[])
   }));
 }
 
-async function fixture(mode: 'success' | 'failure' | 'cancel' | 'image' | 'missing-image') {
+async function fixture(mode: 'success' | 'failure' | 'cancel' | 'image' | 'missing-image', options: { reasoning?: AgentDefinition['reasoning'] } = {}) {
   const requests: WireRequest[] = [];
   const requestPaths: string[] = [];
   const childRequested = Promise.withResolvers<void>();
@@ -107,6 +107,7 @@ async function fixture(mode: 'success' | 'failure' | 'cancel' | 'image' | 'missi
     name: 'wire-reader', description: 'Read a source file through native tools.',
     systemPrompt: 'WIRE_CHILD: Inspect the delegated source file.', tools: ['read_file'],
     model: 'gpt-5.4', path: path.join(workspaceRoot, 'wire-reader.md'), source: 'user',
+    ...(options.reasoning ? { reasoning: options.reasoning } : {}),
   };
   const registry = AgentRegistry.getInstance();
   vi.spyOn(registry, 'loadAgents').mockResolvedValue();
@@ -136,13 +137,9 @@ async function fixture(mode: 'success' | 'failure' | 'cancel' | 'image' | 'missi
       threadBudget: budget, parentId: 'main-session', onSubagentStart, onSubagentStop, onSubagentProgress,
       resolveSubagentAssignment: agent => resolveTeamModelAssignment({
         config, active: { provider: 'autohandai', model: 'moa' },
-        agentName: agent.name, agentModel: agent.model, environment: {},
+        agentName: agent.name, agentModel: agent.model, agentReasoning: agent.reasoning, environment: {},
       }),
-      createSubagentProvider: assignment => {
-        const provider = ProviderFactory.create({ ...config, provider: assignment.provider });
-        provider.setModel(assignment.model);
-        return provider;
-      },
+      createSubagentProvider: assignment => createTeamMemberProvider(config, assignment),
     });
   return { parent, requests, requestPaths, childRequested, budget, executeForTool,
     onSubagentStart, onSubagentStop, onSubagentProgress, addMessage, imageBytes };
@@ -195,12 +192,19 @@ describe('Autohand AI native delegation wire protocol', () => {
     expect(state.requests).toHaveLength(4);
     expect(state.requestPaths).toEqual(Array(4).fill('/v1/chat/completions'));
     for (const request of state.requests) {
-      expect(request.model).toBe('moa');
-      expect(request.extra_body.chat_template_kwargs.reasoning_effort).toBe('xhigh');
       expect(request.tool_choice).toBe('auto');
       expect(request.tools.every(tool => tool.type === 'function')).toBe(true);
     }
     const [parent, child, childResult, parentResult] = state.requests;
+    // The lead keeps its moa reasoning; the execution-style child runs on the fast tier.
+    for (const request of [parent, parentResult]) {
+      expect(request.model).toBe('moa');
+      expect(request.extra_body.chat_template_kwargs.reasoning_effort).toBe('xhigh');
+    }
+    for (const request of [child, childResult]) {
+      expect(request.model).toBe('fantail');
+      expect(request.extra_body?.chat_template_kwargs?.reasoning_effort).toBeUndefined();
+    }
     expect(parent.messages[0].content).toContain('wire-reader');
     expect(parent.tools.find(tool => tool.function.name === 'delegate_parallel')?.function.parameters)
       .toMatchObject({ properties: { tasks: { type: 'array', items: { type: 'object' } } } });
@@ -222,13 +226,29 @@ describe('Autohand AI native delegation wire protocol', () => {
     }));
     expect(state.executeForTool).toHaveBeenCalledOnce();
     expect(state.onSubagentStart).toHaveBeenCalledWith(expect.objectContaining({
-      parentId: 'main-session', depth: 1, model: 'moa', provider: 'autohandai',
+      parentId: 'main-session', depth: 1, model: 'fantail', provider: 'autohandai', modelSource: 'agent-nature',
     }));
     expect(state.onSubagentStop).toHaveBeenCalledWith(expect.objectContaining({
       status: 'completed', success: true, usage: { promptTokens: 22, completionTokens: 14, totalTokens: 36 },
       result: expect.stringContaining('NATIVE_CHILD_FILE_CONTENT'),
     }));
     expect(state.budget.activeChildren).toBe(0);
+  });
+
+  it('routes a reasoning-natured child to moa with the effort its definition asks for', async () => {
+    const state = await fixture('success', { reasoning: 'high' });
+    await expect(state.parent.run('Verify the fixture using the installed reader.'))
+      .resolves.toBe('PARENT_VERIFIED_CHILD_RESULT');
+    const [parent, child, childResult] = state.requests;
+    expect(parent.model).toBe('moa');
+    expect(parent.extra_body.chat_template_kwargs.reasoning_effort).toBe('xhigh');
+    for (const request of [child, childResult]) {
+      expect(request.model).toBe('moa');
+      expect(request.extra_body.chat_template_kwargs.reasoning_effort).toBe('high');
+    }
+    expect(state.onSubagentStart).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'moa', provider: 'autohandai', modelSource: 'agent-nature', reasoningEffort: 'high',
+    }));
   });
 
   it('returns a native child HTTP failure to the parent without claiming child completion', async () => {

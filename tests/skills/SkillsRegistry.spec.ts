@@ -105,6 +105,25 @@ ${body}
       expect(brainstorm?.body).toContain('Product Manager');
     });
 
+    it('falls back to the embedded built-in skills when no packaged directory exists, as in a compiled binary', async () => {
+      const testDir = path.join(tempRoot, 'test-embedded-builtin-skills');
+      const embeddedRoot = path.join(tempRoot, 'embedded-builtin-root');
+      await fs.ensureDir(testDir);
+
+      const registry = new SkillsRegistry(testDir, 'autohand-user', {
+        builtinSkillDirectories: [path.join(tempRoot, 'missing', 'skills', 'builtin')],
+        embeddedBuiltinAssetsRoot: embeddedRoot,
+      });
+      await registry.initialize();
+
+      const extensionBuilder = registry.getSkill('extension-builder');
+      expect(extensionBuilder).not.toBeNull();
+      expect(extensionBuilder?.source).toBe('builtin');
+      expect(extensionBuilder?.path.startsWith(embeddedRoot)).toBe(true);
+      expect(extensionBuilder?.body).toContain('Pi');
+      expect(registry.getSkill('goal-writer')?.source).toBe('builtin');
+    });
+
     it('loads skills recursively when configured', async () => {
       const testDir = path.join(tempRoot, 'test-recursive-skills');
       await fs.ensureDir(testDir);

@@ -103,7 +103,7 @@ async function executeTaskWithEnvironment(
   const { createToolsRegistry } = await import('../core/toolsRegistry.js');
   const { PermissionManager } = await import('../permissions/PermissionManager.js');
   const { syncDynamicRuntimeExtensions } = await import('../core/agent/dynamicRuntimeExtensions.js');
-  const { resolveTeamModelAssignment } = await import('../core/teams/TeamModelPolicy.js');
+  const { createTeamMemberProvider, resolveTeamModelAssignment } = await import('../core/teams/TeamModelPolicy.js');
 
   // Load config and create provider
   const workspacePath = opts.workspacePath || process.cwd();
@@ -176,13 +176,10 @@ async function executeTaskWithEnvironment(
         },
         agentName: definition.name,
         agentModel: definition.model,
+        agentReasoning: definition.reasoning,
       });
     },
-    createSubagentProvider: (assignment) => {
-      const nestedProvider = ProviderFactory.create({ ...config, provider: assignment.provider });
-      nestedProvider.setModel(assignment.model);
-      return nestedProvider;
-    },
+    createSubagentProvider: (assignment) => createTeamMemberProvider(config, assignment),
     parentId: task.runId ?? task.id,
     clientContext: 'cli',
     depth: 1,

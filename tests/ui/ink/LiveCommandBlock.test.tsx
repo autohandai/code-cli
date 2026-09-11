@@ -81,7 +81,9 @@ describe('AgentUI live command block', () => {
     expect(output).toContain('\u001b[48;2;');
   });
 
-  it('does not keep completed thinking text in the chat transcript', () => {
+  it('shows a completed thought as one dim thinking line above the reply', () => {
+    // The runtime only sets `thinking` when ui.showThinking is on, so the
+    // frame carries the thought exactly once, ahead of the reply it produced.
     const state = createInitialUIState();
     state.isWorking = false;
     state.thinking = 'User is asking for positive aspects of the current repository.';
@@ -91,8 +93,8 @@ describe('AgentUI live command block', () => {
 
     const output = stripAnsi(lastFrame());
     expect(output).toContain('This repo has strong TUI test coverage.');
-    expect(output).not.toContain('User is asking for positive aspects');
-    expect(output).not.toContain('Thinking:');
+    expect(output.match(/Thinking: User is asking for positive aspects/g)).toHaveLength(1);
+    expect(output.indexOf('Thinking:')).toBeLessThan(output.indexOf('This repo has strong TUI test coverage.'));
   });
 
   it('does not render model thought narration as completed tool history', () => {

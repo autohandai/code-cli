@@ -2809,6 +2809,7 @@ export class RPCAdapter {
         createdAt: m.createdAt,
         lastActiveAt: m.lastActiveAt ?? m.createdAt,
         summary: m.summary,
+        title: m.title,
         messages,
         workspaceRoot: m.projectPath ?? '',
       };

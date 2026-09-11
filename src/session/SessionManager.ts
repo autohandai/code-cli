@@ -14,6 +14,7 @@ import type {
     SessionTurnUsageInput,
     SessionReadFileState,
 } from './types.js';
+import { normalizeSessionTitle } from './sessionTitle.js';
 import { AUTOHAND_PATHS } from '../constants.js';
 import { atomicWriteJson, FileLockTimeoutError, withFileLock } from '../utils/atomicFile.js';
 import { runWithConcurrency } from '../utils/parallel.js';
@@ -361,6 +362,34 @@ export class SessionManager {
         return this.currentSession;
     }
 
+    /** Names the live session; the name survives closeSession's summary. */
+    async renameCurrentSession(title: string): Promise<SessionMetadata> {
+        if (!this.currentSession) {
+            throw new Error('No active session to rename.');
+        }
+        const normalized = normalizeSessionTitle(title);
+        this.currentSession.metadata.title = normalized;
+        this.currentSession.metadata.lastActiveAt = new Date().toISOString();
+        await this.currentSession.save();
+        await this.updateIndex(this.currentSession.metadata);
+        return this.currentSession.metadata;
+    }
+
+    /** Names a stored session by id, id prefix, or path without loading it as the current one. */
+    async renameSession(reference: string, title: string): Promise<SessionMetadata> {
+        const normalized = normalizeSessionTitle(title);
+        const sessionId = await this.resolveSessionReference(reference);
+        if (this.currentSession?.metadata.sessionId === sessionId) {
+            return this.renameCurrentSession(normalized);
+        }
+        const metadataPath = path.join(this.sessionsDir, sessionId, 'metadata.json');
+        const metadata = await fs.readJson(metadataPath) as SessionMetadata;
+        metadata.title = normalized;
+        await atomicWriteJson(metadataPath, metadata);
+        await this.updateIndex(metadata);
+        return metadata;
+    }
+
     private generateSessionId(): string {
         const timestamp = Date.now();
         const uuid = crypto.randomUUID();
@@ -434,6 +463,7 @@ export class SessionManager {
                 projectPath: metadata.projectPath,
                 createdAt: metadata.createdAt,
                 summary: metadata.summary,
+                title: metadata.title,
                 importedFrom: metadata.importedFrom
                     ? {
                         source: metadata.importedFrom.source,
@@ -455,6 +485,7 @@ export class SessionManager {
             const session = index.sessions.find(s => s.id === metadata.sessionId);
             if (session) {
                 session.summary = metadata.summary;
+                session.title = metadata.title;
                 session.branch = metadata.branch;
             }
         });

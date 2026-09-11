@@ -341,7 +341,8 @@ export class SubAgent {
 
             const completion = await this.llm.complete({
                 messages: this.toolImages.prepare(this.conversation.history()),
-                model: this.options.model ?? this.config.model,
+                // A definition's model is a suggestion resolved by the team policy; never send it raw.
+            model: this.options.model,
                 temperature: 0.2,
                 signal: options.signal,
                 tools: requestTools,

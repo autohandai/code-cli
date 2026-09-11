@@ -1277,8 +1277,108 @@ describe('LLMGatewayClient', () => {
         stream: true
       });
 
-      expect(response.content).toBe('<thinking>Let me think about this</thinking>\n\nHello!');
+      expect(response.content).toBe('Hello!');
+      expect(response.reasoning).toBe('Let me think about this');
       expect(response.finishReason).toBe('stop');
+    });
+
+    it('moves inline <think> blocks streamed inside content into reasoning', async () => {
+      const encoder = new TextEncoder();
+      const streamData = [
+        'data: {"id":"stream-test","created":1234567890,"choices":[{"delta":{"content":"<think>\\nDraft the joke"},"finish_reason":null}]}\n\n',
+        'data: {"id":"stream-test","created":1234567890,"choices":[{"delta":{"content":" first.\\n</think>"},"finish_reason":null}]}\n\n',
+        'data: {"id":"stream-test","created":1234567890,"choices":[{"delta":{"content":"\\n\\nWhy do programmers prefer dark mode?"},"finish_reason":"stop"}]}\n\n',
+        'data: [DONE]\n\n'
+      ];
+
+      const mockStream = new ReadableStream({
+        start(controller) {
+          streamData.forEach(chunk => controller.enqueue(encoder.encode(chunk)));
+          controller.close();
+        }
+      });
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        body: mockStream
+      });
+
+      const client = new LLMGatewayClient({ apiKey: 'test-key', model: 'moa' });
+      const response = await client.complete({
+        messages: [{ role: 'user', content: 'Tell me a joke' }],
+        stream: true
+      });
+
+      expect(response.content).toBe('Why do programmers prefer dark mode?');
+      expect(response.reasoning).toBe('Draft the joke first.');
+    });
+
+    it('keeps an unterminated <think> block out of the visible content', async () => {
+      const encoder = new TextEncoder();
+      const streamData = [
+        'data: {"id":"stream-test","created":1234567890,"choices":[{"delta":{"content":"<think>Still reasoning when the budget ran out"},"finish_reason":"length"}]}\n\n',
+        'data: [DONE]\n\n'
+      ];
+      const mockStream = new ReadableStream({
+        start(controller) {
+          streamData.forEach(chunk => controller.enqueue(encoder.encode(chunk)));
+          controller.close();
+        }
+      });
+      global.fetch = vi.fn().mockResolvedValue({ ok: true, body: mockStream });
+
+      const client = new LLMGatewayClient({ apiKey: 'test-key', model: 'moa' });
+      const response = await client.complete({
+        messages: [{ role: 'user', content: 'Tell me a joke' }],
+        stream: true
+      });
+
+      expect(response.content).toBe('');
+      expect(response.reasoning).toBe('Still reasoning when the budget ran out');
+      expect(response.finishReason).toBe('length');
+    });
+
+    it('moves inline <think> blocks out of a non-streaming completion', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: 'resp-1',
+          created: 1234567890,
+          choices: [{
+            message: { role: 'assistant', content: '<think>Weigh two answers.</think>\n\nLight attracts bugs.' },
+            finish_reason: 'stop'
+          }]
+        })
+      });
+
+      const client = new LLMGatewayClient({ apiKey: 'test-key', model: 'moa' });
+      const response = await client.complete({
+        messages: [{ role: 'user', content: 'Tell me a joke' }],
+        stream: false
+      });
+
+      expect(response.content).toBe('Light attracts bugs.');
+      expect(response.reasoning).toBe('Weigh two answers.');
+    });
+
+    it('leaves content without think tags untouched and reports no reasoning', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: 'resp-2',
+          created: 1234567890,
+          choices: [{ message: { role: 'assistant', content: 'Plain answer <b>with</b> markup' }, finish_reason: 'stop' }]
+        })
+      });
+
+      const client = new LLMGatewayClient({ apiKey: 'test-key', model: 'moa' });
+      const response = await client.complete({
+        messages: [{ role: 'user', content: 'Hi' }],
+        stream: false
+      });
+
+      expect(response.content).toBe('Plain answer <b>with</b> markup');
+      expect(response.reasoning).toBeUndefined();
     });
 
     it('should handle streaming without reasoning content', async () => {

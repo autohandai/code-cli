@@ -69,6 +69,8 @@ export interface SessionMetadata {
     model: string;
     messageCount: number;
     summary?: string;
+    /** Name the user gave the session with /rename; shown ahead of the summary. */
+    title?: string;
     status: 'active' | 'completed' | 'crashed';
     exitCode?: number;
     /** Session type: 'interactive' (default) or 'automode' for autonomous loops */
@@ -127,6 +129,7 @@ export interface SessionIndex {
         projectPath: string;
         createdAt: string;
         summary?: string;
+        title?: string;
         /** Import provenance stored in index for fast dedup checks */
         importedFrom?: {
             source: string;
