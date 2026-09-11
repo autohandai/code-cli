@@ -1239,6 +1239,10 @@ When you approve a file operation (edit, write, delete), it's automatically save
 - Local project settings are merged with global settings (local takes priority)
 - Add `.autohand/settings.local.json` to `.gitignore` to keep personal settings private
 
+**Project config overlays:**
+
+Both `.autohand/config.{json,toml,yaml,yml}` (shareable) and `.autohand/settings.local.json` (personal) are read at startup and layered over the global config, in that order. Only `hooks` and `mcp` are read from the shared project config file, because a repository can commit it. `settings.local.json` supports `hooks`, `mcp`, `permissions`, `agent`, `network`, `telemetry`, `provider`, and `model`. Hooks and MCP servers are appended to the global list, with a project entry replacing a global one that has the same identity (hook script name or event plus description/command; MCP server name). Permissions, telemetry, provider, and every other section in the shared project config file are ignored, so a cloned repository cannot switch on unrestricted mode or redirect session sync, and a config written by `autohand mcp add --scope project` cannot replace your real provider. Overlays are read from the workspace the invocation targets (`--path`, else the current directory), and saving settings never copies project hooks, MCP servers, or overridden fields into the file being saved. Project hooks and MCP servers from either file only apply after you trust the workspace; see Workspace trust in the hooks documentation. Trust decisions live in `~/.autohand/trusted-workspaces.json`.
+
 **Pattern format:**
 
 - `tool_name:path` - For file operations (e.g., `apply_patch:src/file.ts`)
@@ -2442,7 +2446,8 @@ Autohand stores data in `~/.autohand/` (or `$AUTOHAND_HOME`):
 
 ```
 <project>/.autohand/
-├── settings.local.json  # Local project permissions (gitignore this)
+├── config.json          # Shareable project overlay: hooks and mcp only
+├── settings.local.json  # Personal overlay: hooks, mcp, permissions, agent, network, telemetry, provider, model (gitignore this)
 ├── memory/              # Project-specific memory
 │   ├── events/
 │   │   └── LOG.jsonl    # Canonical append-only project history

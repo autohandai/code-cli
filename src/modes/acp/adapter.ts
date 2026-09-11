@@ -74,6 +74,7 @@ import {
   resolveToolDisplayName,
 } from './types.js';
 import { createPermissionBridge } from './permissions.js';
+import { resolveWorkspaceTrust } from '../../startup/workspaceTrustPrompt.js';
 
 import packageJson from '../../../package.json' with { type: 'json' };
 
@@ -212,6 +213,10 @@ export class AutohandAcpAdapter implements Agent {
         this.cliOptions
       );
       configureSearchFromSettings(this.config.search, this.cliOptions.searchEngine);
+      // ACP clients cannot answer a trust prompt; the warning goes to stderr, never the protocol stream.
+      if (!this.cliOptions.bare) {
+        await resolveWorkspaceTrust(this.config, { interactive: false });
+      }
     }
     return this.config;
   }

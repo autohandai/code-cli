@@ -27,7 +27,7 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { getProviderConfig, loadConfig, resolveWorkspaceRoot, saveConfig } from './config.js';
+import { getProviderConfig, loadConfig, resolveRequestedWorkspaceRoot, resolveWorkspaceRoot, saveConfig } from './config.js';
 import { runStartupChecks, printStartupCheckResults, validateWorkspacePath } from './startup/checks.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/workspaceSafety.js';
 import { ensureAuthenticated } from './auth/index.js';
@@ -576,7 +576,7 @@ program
     // Everything below requires a valid login. --login, --logout, --setup,
     // --about, --permissions, --skill-install, and --learn* are exempt above.
     {
-      let authConfig = await loadConfig(opts.config, process.cwd());
+      let authConfig = await loadConfig(opts.config, resolveRequestedWorkspaceRoot(opts.path));
       authConfig = await ensureAuthenticated(authConfig, { bare: opts.bare === true });
       // Propagate refreshed auth into the options so downstream code sees
       // the updated token (e.g. runCLI, runRpcMode, runAutoMode).
@@ -686,7 +686,7 @@ registerTransferCommand(program, {
 registerResumeCommand(program, {
   run: async (opts) => {
     // Mandatory auth gate for resume
-    let authConfig = await loadConfig(opts.config, process.cwd());
+    let authConfig = await loadConfig(opts.config, resolveRequestedWorkspaceRoot(opts.path));
     authConfig = await ensureAuthenticated(authConfig);
     await runCLI({ ...opts, _authConfig: authConfig });
   },
@@ -1333,7 +1333,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
   });
   try {
     let config = options._authConfig ?? await awaitCliLifecycleStep(
-      loadConfig(options.config, process.cwd()),
+      loadConfig(options.config, resolveRequestedWorkspaceRoot(options.path)),
       commandLifecycleController.signal,
     );
     if (options.bare) {
@@ -1442,6 +1442,27 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       printDangerousWorkspaceWarning(originalWorkspaceRoot, safetyCheck);
       process.exitCode = 1;
       return;
+    }
+
+    // loadConfig held back project hooks and MCP servers from an untrusted
+    // workspace. Ask a person at the terminal; otherwise warn and skip them.
+    if (!options.bare && config.workspaceTrust && !config.workspaceTrust.trusted) {
+      const { resolveWorkspaceTrust } = await awaitCliLifecycleStep(
+        import('./startup/workspaceTrustPrompt.js'),
+        commandLifecycleController.signal,
+      );
+      await awaitCliLifecycleStep(
+        resolveWorkspaceTrust(config, {
+          interactive: resolveAgentLaunchMode(options) !== 'command'
+            && !structuredOutput
+            && process.stdin.isTTY === true
+            && process.stdout.isTTY === true,
+        }),
+        commandLifecycleController.signal,
+      );
+      if (commandLifecycleController.signal.aborted) {
+        return;
+      }
     }
 
     // Optional isolated git worktree for interactive/prompt sessions
@@ -2198,7 +2219,7 @@ async function runLearnNonInteractive(opts: CLIOptions, subcommand: 'recommend' 
 }
 
 async function runGoalFlag(opts: CLIOptions): Promise<void> {
-  const config = (opts as any)._authConfig ?? await loadConfig(opts.config, process.cwd());
+  const config = (opts as any)._authConfig ?? await loadConfig(opts.config, resolveRequestedWorkspaceRoot(opts.path));
   const { GOAL_FEATURE_DISABLED_MESSAGE, isGoalFeatureEnabled } = await import('./goals/feature.js');
   if (!isGoalFeatureEnabled(config)) {
     console.error(chalk.yellow(GOAL_FEATURE_DISABLED_MESSAGE));
@@ -2318,7 +2339,7 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
   const fs = await import('fs-extra');
   const { generateUnifiedPatch, formatChangeSummary } = await import('./utils/patch.js');
 
-  const config = await loadConfig(opts.config);
+  const config = await loadConfig(opts.config, resolveRequestedWorkspaceRoot(opts.path));
   const originalWorkspaceRoot = resolveWorkspaceRoot(config, opts.path);
   let workspaceRoot = originalWorkspaceRoot;
 
@@ -2333,6 +2354,12 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
   if (!safetyCheck.safe) {
     printDangerousWorkspaceWarning(originalWorkspaceRoot, safetyCheck);
     process.exit(1);
+  }
+
+  // Nobody can answer a trust prompt here, so untrusted project hooks and MCP servers are skipped with a warning.
+  if (!opts.bare) {
+    const { resolveWorkspaceTrust } = await import('./startup/workspaceTrustPrompt.js');
+    await resolveWorkspaceTrust(config, { interactive: false });
   }
 
   if (isSessionWorktreeEnabled(opts.worktree)) {
@@ -2466,7 +2493,7 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
     process.exit(1);
   }
 
-  const config = await loadConfig(opts.config);
+  const config = await loadConfig(opts.config, resolveRequestedWorkspaceRoot(opts.path));
   const originalWorkspaceRoot = resolveWorkspaceRoot(config, opts.path);
 
   // Check for dangerous workspace directories
@@ -2480,6 +2507,12 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
   if (!safetyCheck.safe) {
     printDangerousWorkspaceWarning(originalWorkspaceRoot, safetyCheck);
     process.exit(1);
+  }
+
+  // Nobody can answer a trust prompt here, so untrusted project hooks and MCP servers are skipped with a warning.
+  if (!opts.bare) {
+    const { resolveWorkspaceTrust } = await import('./startup/workspaceTrustPrompt.js');
+    await resolveWorkspaceTrust(config, { interactive: false });
   }
 
   // Validate and resolve additional directories from --add-dir flag

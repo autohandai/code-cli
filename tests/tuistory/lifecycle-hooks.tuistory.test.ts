@@ -4,15 +4,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
 import type { HookDefinition } from '../../src/types.js';
 import { describeSessionEndHook, openLifecycleHooks, importClaudeHooks, enableImportedHook, submitHookScenarioPrompt } from '../../src/testing/scenarios/lifecycleHooksScenario.js';
-import { createTempAutohandHome, createMockAutohandAINativeSequenceServer, launchBuiltAutohand,
-  exitInteractive, type TuistoryTempState, type MockNativeToolServer, type MockNativeAssistantTurn } from './helpers/autohandTuistory.js';
+import { createTempAutohandHome, createMockAutohandAINativeSequenceServer, createMockAuthServer, launchBuiltAutohand,
+  exitInteractive, waitForExit, type TuistoryTempState, type MockAuthServer, type MockNativeToolServer, type MockNativeAssistantTurn } from './helpers/autohandTuistory.js';
 
 const sessions: Session[] = [];
 const states: TuistoryTempState[] = [];
 const servers: MockNativeToolServer[] = [];
+const authServers: MockAuthServer[] = [];
 afterEach(async () => {
   sessions.splice(0).forEach(session => session.close());
   await Promise.all(servers.splice(0).map(server => server.close()));
+  await Promise.all(authServers.splice(0).map(server => server.close()));
   await Promise.all(states.splice(0).map(state => state.cleanup()));
 });
 
@@ -149,4 +151,129 @@ describe('prompt hook cancellation', () => {
     expect(server.requests).toHaveLength(1);
     await exitInteractive(session);
   }, 45_000);
+});
+
+
+
+describe('project lifecycle hooks in the built CLI', () => {
+  const TRUST_PROMPT = 'This workspace wants to run commands';
+
+  async function createProject(turns: MockNativeAssistantTurn[]) {
+    const server = await createMockAutohandAINativeSequenceServer(turns);
+    servers.push(server);
+    // Startup validates the saved account token; a mock keeps it valid across relaunches.
+    const authServer = await createMockAuthServer();
+    authServers.push(authServer);
+    const state = await createTempAutohandHome({ config: {
+      hooks: { hooks: [] },
+      provider: 'autohandai',
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'tuistory-key', model: 'moa', baseUrl: server.baseUrl },
+      features: { autohand_inference: true }, agent: { autoMemory: false, sessionRetryLimit: 0 },
+      ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+      network: { maxRetries: 0 },
+    } });
+    states.push(state);
+    await fs.writeFile(path.join(state.workspaceRoot, 'record-hook.cjs'),
+      "require('node:fs').appendFileSync('project-hooks.log', process.argv[2] + '\\n');");
+    await writeProjectConfigHook(state, 'PROJECT_CONFIG_HOOK');
+    await fs.outputJson(path.join(state.workspaceRoot, '.autohand', 'settings.local.json'), {
+      version: 1,
+      hooks: { 'pre-prompt': ['node record-hook.cjs LOCAL_SETTINGS_HOOK'] },
+    });
+    return { server, state, authServer };
+  }
+
+  async function writeProjectConfigHook(state: TuistoryTempState, marker: string) {
+    await fs.outputJson(path.join(state.workspaceRoot, '.autohand', 'config.json'), {
+      hooks: { hooks: [{ event: 'pre-prompt', command: `node record-hook.cjs ${marker}`, description: 'Project config prompt hook' }] },
+    });
+  }
+
+  async function launchFromOutside(state: TuistoryTempState, authServer: MockAuthServer, extraArgs: string[] = []) {
+    // Launch from the parent directory so project files must come from --path.
+    const session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '--yes', ...extraArgs], {
+      autohandHome: state.autohandHome, cwd: path.dirname(state.workspaceRoot), cols: 120, rows: 40,
+      env: { AUTOHAND_AUTH_API_URL: `${authServer.baseUrl}/api/auth` },
+    });
+    sessions.push(session);
+    return session;
+  }
+
+  const readHookLog = (state: TuistoryTempState) =>
+    fs.readFile(path.join(state.workspaceRoot, 'project-hooks.log'), 'utf8').catch(() => '');
+  const trustStorePath = (state: TuistoryTempState) => path.join(state.autohandHome, 'trusted-workspaces.json');
+
+  it('asks before running project hooks, runs them once trusted, and asks again only after they change', async () => {
+    const { state, authServer } = await createProject([{ content: 'PROJECT_HOOKS_PROMPT_COMPLETE' }, { content: 'TRUSTED_AGAIN_COMPLETE' }]);
+
+    let session = await launchFromOutside(state, authServer);
+    await session.waitForText(TRUST_PROMPT);
+    expect(session.readAll()).toContain('node record-hook.cjs PROJECT_CONFIG_HOOK');
+    expect(session.readAll()).toContain('node record-hook.cjs LOCAL_SETTINGS_HOOK');
+    expect(session.readAll()).toContain('Trust this workspace');
+    expect(await readHookLog(state)).toBe('');
+    await session.press('enter');
+    await session.waitForText('❯');
+    await submitHookScenarioPrompt(session, 'run the project hooks', 'PROJECT_HOOKS_PROMPT_COMPLETE');
+    expect(await readHookLog(state)).toContain('PROJECT_CONFIG_HOOK');
+    expect(await readHookLog(state)).toContain('LOCAL_SETTINGS_HOOK');
+    await exitInteractive(session);
+
+    const saved = await fs.readJson(state.configPath);
+    expect(JSON.stringify(saved)).not.toMatch(/PROJECT_CONFIG_HOOK|LOCAL_SETTINGS_HOOK|workspaceOverlay|workspaceTrust/);
+    const store = await fs.readJson(trustStorePath(state));
+    expect(Object.keys(store.workspaces)).toContain(await fs.realpath(state.workspaceRoot));
+
+    session = await launchFromOutside(state, authServer);
+    await session.waitForText('❯');
+    expect(session.readAll()).not.toContain(TRUST_PROMPT);
+    await submitHookScenarioPrompt(session, 'run the trusted hooks again', 'TRUSTED_AGAIN_COMPLETE');
+    await exitInteractive(session);
+
+    await writeProjectConfigHook(state, 'CHANGED_PROJECT_HOOK');
+    session = await launchFromOutside(state, authServer);
+    await session.waitForText(TRUST_PROMPT);
+    expect(session.readAll()).toContain('node record-hook.cjs CHANGED_PROJECT_HOOK');
+    await session.press('escape');
+    await session.waitForText('❯');
+    await exitInteractive(session);
+  }, 120_000);
+
+  it('starts without project hooks when the prompt is declined with Escape or Ctrl+C, and asks again next launch', async () => {
+    const { state, authServer } = await createProject([{ content: 'UNTRUSTED_PROMPT_COMPLETE' }]);
+
+    let session = await launchFromOutside(state, authServer);
+    await session.waitForText(TRUST_PROMPT);
+    await session.press('escape');
+    await session.waitForText('Autohand will ask again next time');
+    await session.waitForText('❯');
+    await submitHookScenarioPrompt(session, 'run without project hooks', 'UNTRUSTED_PROMPT_COMPLETE');
+    expect(await readHookLog(state)).toBe('');
+    await exitInteractive(session);
+    expect(await fs.pathExists(trustStorePath(state))).toBe(false);
+
+    session = await launchFromOutside(state, authServer);
+    await session.waitForText(TRUST_PROMPT);
+    await session.press(['ctrl', 'c']);
+    await session.waitForText('Autohand will ask again next time');
+    await session.waitForText('❯');
+    expect(session.exitInfo).toBeNull();
+    await exitInteractive(session);
+    expect(await readHookLog(state)).toBe('');
+  }, 90_000);
+
+  it('skips untrusted project hooks with a warning in command mode', async () => {
+    const { state, authServer } = await createProject([{ content: 'COMMAND_MODE_COMPLETE' }]);
+
+    const session = await launchFromOutside(state, authServer, ['-p', 'run in command mode']);
+    await waitForExit(session, 60_000);
+    const output = session.readAll();
+
+    expect(session.exitInfo?.exitCode, output).toBe(0);
+    expect(output).toContain('Skipped 2 project hooks from');
+    expect(output).toContain('not trusted');
+    expect(output).toContain('COMMAND_MODE_COMPLETE');
+    expect(output).not.toContain(TRUST_PROMPT);
+    expect(await readHookLog(state)).toBe('');
+  }, 90_000);
 });

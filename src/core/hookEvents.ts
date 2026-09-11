@@ -157,6 +157,23 @@ export interface LifecycleHookRow {
   hooks: LifecycleHookEntry[];
 }
 
+/**
+ * Stable identity for a hook definition, used to deduplicate hooks across
+ * config layers (global config, project config, project local settings) and
+ * against the built-in defaults. Script-based hooks are keyed by script file
+ * name; inline commands by event plus description, or event plus command.
+ */
+export function hookIdentifier(hook: HookDefinition): string {
+  const scriptMatch = hook.command.match(/([^/]+\.sh)$/);
+  if (scriptMatch) {
+    return `script:${scriptMatch[1]}`;
+  }
+  if (hook.description) {
+    return `${hook.event}:${hook.description}`;
+  }
+  return `${hook.event}:${hook.command}`;
+}
+
 export function canonicalHookEvent(event: HookEventName): HookEvent {
   return resolveHookEvents(event)[0];
 }
