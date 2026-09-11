@@ -142,6 +142,11 @@ type LoginContext = Pick<SlashCommandContext, 'config'> & {
  * Uses platform-specific commands with existence checks for Linux.
  */
 export async function openBrowser(url: string): Promise<boolean> {
+  // CI, SSH sessions and terminal tests have no browser to hand the URL to.
+  if (process.env.AUTOHAND_NO_BROWSER === '1') {
+    console.log(`\nPlease open this URL manually:\n${url}\n`);
+    return false;
+  }
   try {
     const { exec, execFile } = await import('node:child_process');
     const { promisify } = await import('node:util');

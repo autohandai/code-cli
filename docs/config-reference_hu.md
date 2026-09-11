@@ -2041,6 +2041,7 @@ Az Autohand perjel parancsok gazdag készletét kínálja interaktív használat
 | `/status` | Munkamenet állapotának megjelenítése |
 | `/usage` | Modell, szolgáltató, kontextus és használati korlátok megjelenítése |
 
+| `/upgrade`| Konzol megnyitása az Autohand-csomag bővítéséhez                    |
 ### Modell és szolgáltató
 
 | Parancs | Leírás |
