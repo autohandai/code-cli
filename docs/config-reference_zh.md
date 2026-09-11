@@ -396,6 +396,29 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 
 ---
 
+### 键盘快捷键配置文件
+
+如果你已经在使用其他编码代理，撰写区可以沿用它的快捷键。可在设置向导中选择配置文件（当 Autohand 检测到该代理时提供）、在 `/settings` → UI → 键盘快捷键中选择，或直接运行：
+
+```sh
+autohand config set ui.keybindingProfile codex
+```
+
+| 配置文件 | 换行 | 退出 | 历史 |
+| --- | --- | --- | --- |
+| `autohand` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+| `claude-code`, `codex`, `devin` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | Ctrl+R |
+| `cursor`, `antigravity` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | `/whatityped` |
+| `factory` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+
+Ctrl+D 仅在撰写区为空时退出。`?` 面板始终列出当前配置文件的快捷键。使用 `claude-code` 时会应用 `~/.claude/keybindings.json` 中的自定义映射；使用 `codex` 时则应用 `~/.codex/config.toml` 的 `[tui.keymap.*]`。
+
+哪些快捷键能送达由终端决定：Shift+Enter 需要 kitty 键盘协议（Ghostty、kitty、WezTerm、iTerm2 3.5 及以上），Alt+Enter 需要在 macOS 上将 Option 设为 Meta，Ctrl+J 在任何终端（包括 tmux）都可用。
+
+**设置时导入。** 当设置向导检测到其他代理时，也会提议以与 `/import` 相同的方式导入记忆、会话和技能；导入失败不会中断设置。
+
+---
+
 ## 代理设置
 
 控制代理行为和迭代限制。

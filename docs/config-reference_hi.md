@@ -396,6 +396,29 @@ export AUTOHAND_SKIP_UPDATE_CHECK=1
 
 ---
 
+### कीबोर्ड शॉर्टकट प्रोफ़ाइल
+
+यदि आप पहले से कोई अन्य कोडिंग एजेंट उपयोग करते हैं, तो कंपोज़र उसके शॉर्टकट अपना सकता है। प्रोफ़ाइल सेटअप के दौरान चुनें (जब Autohand एजेंट का पता लगाता है), `/settings` → UI → कीबोर्ड शॉर्टकट में, या सीधे:
+
+```sh
+autohand config set ui.keybindingProfile codex
+```
+
+| प्रोफ़ाइल | नई पंक्ति | बाहर निकलें | इतिहास |
+| --- | --- | --- | --- |
+| `autohand` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+| `claude-code`, `codex`, `devin` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | Ctrl+R |
+| `cursor`, `antigravity` | Shift+Enter, Alt+Enter, Ctrl+J | Ctrl+D | `/whatityped` |
+| `factory` | Shift+Enter, Alt+Enter | Ctrl+C ×2 | `/whatityped` |
+
+Ctrl+D केवल खाली कंपोज़र पर बाहर निकलता है। `?` पैनल हमेशा सक्रिय प्रोफ़ाइल के शॉर्टकट दिखाता है। `claude-code` के साथ `~/.claude/keybindings.json` की आपकी रीमैपिंग लागू होती है; `codex` के साथ `~/.codex/config.toml` के `[tui.keymap.*]` की।
+
+कौन से शॉर्टकट पहुँचते हैं यह टर्मिनल तय करता है: Shift+Enter के लिए kitty कीबोर्ड प्रोटोकॉल चाहिए (Ghostty, kitty, WezTerm, iTerm2 3.5+), Alt+Enter के लिए macOS पर Option को Meta बनाना चाहिए, Ctrl+J हर टर्मिनल में काम करता है, tmux में भी।
+
+**सेटअप के दौरान आयात।** जब सेटअप किसी अन्य एजेंट का पता लगाता है, तो वह `/import` की तरह मेमोरी, सत्र और स्किल आयात करने की पेशकश भी करता है; असफल आयात सेटअप को नहीं रोकता।
+
+---
+
 ## एजेंट सेटिंग्स
 
 एजेंट व्यवहार और इटरेशन लिमिट्स को नियंत्रित करें।
