@@ -2183,6 +2183,7 @@ Autohand bietet eine umfangreiche Reihe von Slash-Befehlen für die interaktive 
 | `/status`     | Sitzungsstatus anzeigen                                   |
 | `/usage`      | Modell, Anbieter, Kontext und Nutzungslimits anzeigen       |
 
+| `/upgrade`    | Konsole öffnen, um den Autohand-Plan zu upgraden            |
 ### Modell & Anbieter
 
 | Befehl       | Beschreibung                                           |
