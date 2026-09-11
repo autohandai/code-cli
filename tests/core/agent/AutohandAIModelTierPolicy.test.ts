@@ -190,4 +190,66 @@ describe('resolveAutohandAIModelForTier', () => {
     expect(resolveAutohandAIModelForTier({ provider: 'openrouter', plan: 'cloud', model: 'moa', tier: 'free' })).toBe('moa');
     expect(resolveAutohandAIModelForTier({ provider: 'autohandai', plan: 'cloud', model: 'moa', tier: undefined })).toBe('moa');
   });
+
+  it('maps a model the Autohand cloud gateway does not serve to fantail on every tier', async () => {
+    const { resolveAutohandAIModelForTier } = await import('../../../src/core/agent/AutohandAIModelTierPolicy.js');
+
+    // Issue #584: a model left over from another provider was sent to the gateway
+    // and rejected with "Use model `auto`, `fantail`, or `moa`".
+    for (const tier of ['free', 'pro', 'max', undefined]) {
+      expect(resolveAutohandAIModelForTier({ provider: 'autohandai', plan: 'cloud', model: 'anthropic/claude-5-sonnet', tier })).toBe('fantail');
+    }
+    expect(resolveAutohandAIModelForTier({ provider: 'autohandai', plan: 'cloud', model: 'autohandai/moa', tier: 'pro' })).toBe('moa');
+    expect(resolveAutohandAIModelForTier({ provider: 'autohandai', plan: 'cloud', model: 'auto', tier: 'free' })).toBe('auto');
+    expect(resolveAutohandAIModelForTier({ provider: 'autohandai', plan: 'cloud', model: undefined, tier: 'pro' })).toBe('fantail');
+    // Local plans and other providers keep whatever the user chose.
+    expect(resolveAutohandAIModelForTier({ provider: 'autohandai', plan: 'local', model: 'anthropic/claude-5-sonnet', tier: 'pro' })).toBe('anthropic/claude-5-sonnet');
+    expect(resolveAutohandAIModelForTier({ provider: 'openrouter', plan: undefined, model: 'anthropic/claude-5-sonnet', tier: 'pro' })).toBe('anthropic/claude-5-sonnet');
+  });
+});
+
+describe('applyAutohandAIModelTierPolicy with a foreign model', () => {
+  it('switches a model the gateway does not serve to fantail regardless of tier', async () => {
+    const { applyAutohandAIModelTierPolicy } = await import('../../../src/core/agent/AutohandAIModelTierPolicy.js');
+
+    const result = applyAutohandAIModelTierPolicy(
+      cloudMoaConfig({ autohandai: { plan: 'cloud', authMode: 'account', accountToken: 'ahc_token', model: 'anthropic/claude-5-sonnet' } }),
+      'pro',
+    );
+
+    expect(result.switched).toBe(true);
+    expect(result.previousModel).toBe('anthropic/claude-5-sonnet');
+    expect(result.resolvedModel).toBe('fantail');
+    expect(result.config.autohandai?.model).toBe('fantail');
+  });
+});
+
+describe('normalizeAutohandAIStartupModel', () => {
+  it('rewrites a foreign cloud model in place before any entitlement is known', async () => {
+    const { normalizeAutohandAIStartupModel } = await import('../../../src/core/agent/AutohandAIModelTierPolicy.js');
+    const config = cloudMoaConfig({
+      autohandai: { plan: 'cloud', authMode: 'account', accountToken: 'ahc_token', model: 'anthropic/claude-5-sonnet' },
+    });
+
+    expect(normalizeAutohandAIStartupModel(config)).toBe('fantail');
+    expect(config.autohandai?.model).toBe('fantail');
+  });
+
+  it('leaves moa alone at startup because the tier is not known yet', async () => {
+    const { normalizeAutohandAIStartupModel } = await import('../../../src/core/agent/AutohandAIModelTierPolicy.js');
+    const config = cloudMoaConfig();
+
+    expect(normalizeAutohandAIStartupModel(config)).toBeUndefined();
+    expect(config.autohandai?.model).toBe('moa');
+  });
+
+  it('ignores other providers and local plans', async () => {
+    const { normalizeAutohandAIStartupModel } = await import('../../../src/core/agent/AutohandAIModelTierPolicy.js');
+    const openrouter = baseConfig({ provider: 'openrouter', openrouter: { apiKey: 'k', model: 'anthropic/claude-5-sonnet' } });
+    const local = cloudMoaConfig({ autohandai: { plan: 'local', model: 'anthropic/claude-5-sonnet' } });
+
+    expect(normalizeAutohandAIStartupModel(openrouter)).toBeUndefined();
+    expect(normalizeAutohandAIStartupModel(local)).toBeUndefined();
+    expect(local.autohandai?.model).toBe('anthropic/claude-5-sonnet');
+  });
 });
