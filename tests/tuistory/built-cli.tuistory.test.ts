@@ -972,7 +972,12 @@ describe('interactive built CLI Tuistory tests', () => {
     await waitForComposer(session);
 
     await session.type('first');
+    await session.text({ timeout: 10_000, waitFor: (text) => text.includes('❯ first') });
     session.writeRaw('\n');
+    // Wait for Ctrl+J's empty second line above the composer border before typing again.
+    // Under load the raw newline and the next keystroke can arrive as one chunk and be
+    // read as pasted input, which drops the newline ("firstecond").
+    await session.text({ timeout: 10_000, waitFor: (text) => /❯ first\n[ \t]*\n[ \t]*▁/.test(text) });
     await session.type('second');
     const multilineScreen = await session.text({
       timeout: 20_000,
