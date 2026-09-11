@@ -10,6 +10,7 @@
  * instead of calling instance.rerender() on every state change. This eliminates
  * flickering by letting React handle efficient DOM updates.
  */
+import { disableKittyProtocol, enableKittyProtocol, KITTY_DISAMBIGUATE_FLAG } from '../kittyProtocol.js';
 import React, { useState, useImperativeHandle, forwardRef, useCallback, useRef } from 'react';
 import { render, type Instance } from 'ink';
 import {
@@ -454,6 +455,13 @@ export class InkRenderer {
     // frame updates. Must happen before Ink starts writing to stdout.
     this.unpatchedStdout = patchStdoutForSyncOutput();
 
+    // Shift+Enter, Alt+Enter and Esc are only distinguishable when the
+    // terminal encodes modified keys. Ink parses the kitty CSI u form; iTerm2,
+    // Ghostty, kitty and WezTerm honour the request, others ignore it.
+    if (process.stdout.isTTY) {
+      enableKittyProtocol(process.stdout, KITTY_DISAMBIGUATE_FLAG);
+    }
+
     // Install our resize guard BEFORE Ink registers its own handler.
     // Node.js event listeners fire in registration order.
     this.resizeHandler = this.onResize;
@@ -513,6 +521,9 @@ export class InkRenderer {
    * Stop the Ink renderer and cleanup
    */
   stop(): void {
+    if (this.instance && process.stdout.isTTY) {
+      disableKittyProtocol(process.stdout);
+    }
     if (this.instance) {
       const instance = this.instance;
       try {
