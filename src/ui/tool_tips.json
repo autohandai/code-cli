@@ -25,6 +25,10 @@
     { "text": "Set a persistent objective with /goal and let autohand keep at it" },
     { "text": "Type ? on an empty composer to list keyboard shortcuts" },
     { "text": "Run /upgrade to see what the next Autohand plan unlocks" },
+    { "text": "Want autohand to fan out? Ask it to delegate the work to sub-agents in parallel" },
+    { "text": "Run /agents definitions to see the specialists autohand can delegate to, then name one in your prompt" },
+    { "text": "Ask for a team of specialists to review, test and document in parallel, then watch them with /agents view" },
+    { "text": "Create your own sub-agent with /agents-new and mention it by name to hand it a task" },
     { "kind": "skill", "text": "Try ${{skill}}: {{description}}" },
     { "kind": "command", "text": "Type {{command}} to {{description}}" }
   ]

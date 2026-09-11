@@ -75,4 +75,35 @@ describe('plan summary', () => {
     expect(formatPlan({ tier: 'free', label: 'Free', interval: null })).toBe('Free');
     expect(formatPlan(null)).toBeNull();
   });
+
+  it('walks the self-serve ladder and stops at team', async () => {
+    const { nextPlanTier } = await import('../../src/billing/planSummary.js');
+
+    expect(nextPlanTier('free')).toBe('pro');
+    expect(nextPlanTier('pro')).toBe('max');
+    expect(nextPlanTier('max')).toBe('team');
+    expect(nextPlanTier('team')).toBeNull();
+    expect(nextPlanTier('enterprise')).toBeNull();
+    expect(nextPlanTier(undefined)).toBeNull();
+    expect(nextPlanTier('mystery')).toBeNull();
+  });
+
+  it('builds console upgrade links with the source attached', async () => {
+    const { buildUpgradeUrl } = await import('../../src/billing/planSummary.js');
+
+    expect(buildUpgradeUrl('pro')).toBe('https://console.autohand.ai/?upgrade=pro&source=cli');
+    expect(buildUpgradeUrl('team', 'vscode')).toBe('https://console.autohand.ai/?upgrade=team&source=vscode');
+    expect(buildUpgradeUrl(null)).toBe('https://console.autohand.ai/billing?source=cli');
+  });
+
+  it('phrases the quota hint for the next plan or for managed plans', async () => {
+    const { formatUpgradeHint } = await import('../../src/billing/planSummary.js');
+
+    expect(formatUpgradeHint({ tier: 'free', label: 'Free', interval: null }))
+      .toBe("You've reached your Free plan limit. Run /upgrade to move to Pro.");
+    expect(formatUpgradeHint({ tier: 'team', label: 'Team', interval: 'month' }))
+      .toBe("You've reached your plan limit. Run /upgrade to review your plan.");
+    expect(formatUpgradeHint(null))
+      .toBe("You've reached your plan limit. Run /upgrade to review your plan.");
+  });
 });
