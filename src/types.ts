@@ -309,6 +309,8 @@ export interface UISettings {
   completionReportEnabled?: boolean;
   /** Show LLM thinking/reasoning process (default: true) */
   showThinking?: boolean;
+  /** Render assistant markdown (headings, lists, code, tables) in the terminal instead of showing it as written (default: true) */
+  renderMarkdown?: boolean;
   /** Deprecated: Ink 7 + React 19 is now the default interactive UI and this setting is ignored. */
   useInkRenderer?: boolean;
   /** Ring terminal bell when task completes - shows badge on terminal tab (default: true) */
