@@ -141,7 +141,7 @@ type LoginContext = Pick<SlashCommandContext, 'config'> & {
  * Open URL in the default browser
  * Uses platform-specific commands with existence checks for Linux.
  */
-async function openBrowser(url: string): Promise<boolean> {
+export async function openBrowser(url: string): Promise<boolean> {
   try {
     const { exec, execFile } = await import('node:child_process');
     const { promisify } = await import('node:util');

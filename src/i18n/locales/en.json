@@ -158,6 +158,11 @@
       "alreadyExists": "AGENTS.md already exists in {{path}}",
       "overwritePrompt": "Overwrite existing AGENTS.md?"
     },
+    "upgrade": {
+      "signIn": "Sign in with /login to see upgrade options.",
+      "opening": "Opening {{url}}",
+      "link": "Upgrade your Autohand plan: {{url}}"
+    },
     "undo": {
       "description": "revert the last file mutation",
       "success": "Reverted changes to {{file}}",
