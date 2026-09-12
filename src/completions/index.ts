@@ -38,7 +38,7 @@ export interface CompletionConfig {
 }
 
 const DEFAULT_CONFIG: CompletionConfig = {
-  commands: ['autohand', 'autohand-code', 'agent'],
+  commands: ['autohand', 'autohand-code', 'agent', 'ah'],
   slashCommands: [
     '/quit',
     '/exit',

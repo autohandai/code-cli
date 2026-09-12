@@ -111,7 +111,7 @@ describe('release installer command aliases', () => {
     expect(readFileSync(installedBinary, 'utf8')).toBe(existingBinary);
   });
 
-  unixIt('force-refreshes autohand-code and agent aliases in the install directory', () => {
+  unixIt('force-refreshes autohand-code, agent, and ah aliases in the install directory', () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'autohand-installer-aliases-'));
     tempRoots.push(tempRoot);
     const payloadDir = join(tempRoot, 'payload');
@@ -139,6 +139,7 @@ describe('release installer command aliases', () => {
 
     writeFileSync(join(installDir, 'agent'), 'owned by another installation\n');
     writeFileSync(join(installDir, 'autohand-code'), 'stale compatibility shim\n');
+    writeFileSync(join(installDir, 'ah'), 'stale short alias\n');
 
     execFileSync('/bin/sh', ['install.sh'], {
       cwd: ROOT,
@@ -155,14 +156,20 @@ describe('release installer command aliases', () => {
 
     const compatibilityAlias = join(installDir, 'autohand-code');
     const agentAlias = join(installDir, 'agent');
+    const shortAlias = join(installDir, 'ah');
     expect(lstatSync(compatibilityAlias).isSymbolicLink()).toBe(true);
     expect(readlinkSync(compatibilityAlias)).toBe('autohand');
     expect(lstatSync(agentAlias).isSymbolicLink()).toBe(true);
     expect(readlinkSync(agentAlias)).toBe('autohand');
+    expect(lstatSync(shortAlias).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(shortAlias)).toBe('autohand');
     expect(execFileSync(compatibilityAlias, ['--version'], { encoding: 'utf8' })).toBe(
       'test-version\n',
     );
     expect(execFileSync(agentAlias, ['--version'], { encoding: 'utf8' })).toBe(
+      'test-version\n',
+    );
+    expect(execFileSync(shortAlias, ['--version'], { encoding: 'utf8' })).toBe(
       'test-version\n',
     );
   });

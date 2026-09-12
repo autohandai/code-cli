@@ -106,6 +106,7 @@ describe('Homebrew formula', () => {
       expect(formula).toContain('bin.install "autohand"');
       expect(formula).toContain('bin.install_symlink "autohand" => "autohand-code"');
       expect(formula).toContain('bin.install_symlink "autohand" => "agent"');
+      expect(formula).toContain('bin.install_symlink "autohand" => "ah"');
       expect(formula).toContain('shell_output("#{bin}/autohand --version")');
     });
 

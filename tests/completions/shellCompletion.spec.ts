@@ -40,7 +40,7 @@ describe('shell completion command', () => {
     );
     expect(script).toContain('--transport');
     expect(script).toContain(
-      'complete -F _autohand_completions autohand autohand-code agent',
+      'complete -F _autohand_completions autohand autohand-code agent ah',
     );
   });
 
@@ -54,7 +54,7 @@ describe('shell completion command', () => {
     expect(script).toContain("'add')");
     expect(script).toContain("'{-t,--transport}[");
     expect(script).toContain(
-      'compdef _autohand autohand autohand-code agent',
+      'compdef _autohand autohand autohand-code agent ah',
     );
   });
 
@@ -72,6 +72,7 @@ describe('shell completion command', () => {
     );
     expect(script).toContain('-l transport');
     expect(script).toContain('complete -c autohand-code -w autohand');
+    expect(script).toContain('complete -c ah -w autohand');
     expect(script).toContain('complete -c agent -w autohand');
   });
 

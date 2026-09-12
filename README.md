@@ -50,8 +50,8 @@ brew install autohandai/code/autohand-code
 ```
 
 The fully qualified command installs and trusts only the Autohand formula. Every
-supported installation exposes the same CLI as `autohand`, `autohand-code`, and
-`agent`; `autohand` remains the canonical name. Because `agent` is a generic
+supported installation exposes the same CLI as `autohand`, `autohand-code`,
+`agent`, and the short `ah`; `autohand` remains the canonical name. Because `agent` is a generic
 name other AI CLIs also use, every Autohand installer (Unix script, Windows
 script, and Homebrew) scans every writable directory on your `PATH` and
 replaces any existing `agent` command it finds — not only the one in

@@ -39,6 +39,7 @@ $REPO = "autohandai/code-cli"
 $BINARY_NAME = "autohand.exe"
 $COMPAT_BINARY_NAME = "autohand-code.cmd"
 $AGENT_ALIAS_NAME = "agent.cmd"
+$SHORT_ALIAS_NAME = "ah.cmd"
 
 function Write-Logo {
     $logo = @"
@@ -233,15 +234,19 @@ function Remove-ExistingInstallation {
         "$env:LOCALAPPDATA\autohand\autohand.exe",
         "$env:LOCALAPPDATA\autohand\autohand-code.cmd",
         "$env:LOCALAPPDATA\autohand\agent.cmd",
+        "$env:LOCALAPPDATA\autohand\ah.cmd",
         "$env:LOCALAPPDATA\Programs\autohand\autohand.exe",
         "$env:LOCALAPPDATA\Programs\autohand\autohand-code.cmd",
         "$env:LOCALAPPDATA\Programs\autohand\agent.cmd",
+        "$env:LOCALAPPDATA\Programs\autohand\ah.cmd",
         "$env:ProgramFiles\autohand\autohand.exe",
         "$env:ProgramFiles\autohand\autohand-code.cmd",
         "$env:ProgramFiles\autohand\agent.cmd",
+        "$env:ProgramFiles\autohand\ah.cmd",
         "$env:USERPROFILE\.local\bin\autohand.exe",
         "$env:USERPROFILE\.local\bin\autohand-code.cmd",
-        "$env:USERPROFILE\.local\bin\agent.cmd"
+        "$env:USERPROFILE\.local\bin\agent.cmd",
+        "$env:USERPROFILE\.local\bin\ah.cmd"
     )
 
     foreach ($loc in $locations) {
@@ -624,6 +629,7 @@ function Install-Autohand {
     $binaryPath = Join-Path $installPath $BINARY_NAME
     $compatBinaryPath = Join-Path $installPath $COMPAT_BINARY_NAME
     $agentAliasPath = Join-Path $installPath $AGENT_ALIAS_NAME
+    $shortAliasPath = Join-Path $installPath $SHORT_ALIAS_NAME
     $agentCollisionNames = @("agent.com", "agent.exe", "agent.bat", "agent.cmd")
     $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("autohand-install-" + [System.Guid]::NewGuid().ToString("N"))
     $archivePath = Join-Path $tempRoot $archiveName
@@ -695,9 +701,11 @@ function Install-Autohand {
         )
         [System.IO.File]::WriteAllLines($compatBinaryPath, $compatShim, [System.Text.Encoding]::ASCII)
         [System.IO.File]::WriteAllLines($agentAliasPath, $compatShim, [System.Text.Encoding]::ASCII)
+        [System.IO.File]::WriteAllLines($shortAliasPath, $compatShim, [System.Text.Encoding]::ASCII)
         Write-Success "Installed to $binaryPath"
         Write-Success "Installed compatibility alias to $compatBinaryPath"
         Write-Success "Installed agent alias to $agentAliasPath"
+        Write-Success "Installed short alias to $shortAliasPath"
         Claim-PathWideAgentAlias -OwnInstallPath $installPath -CanonicalBinaryPath $binaryPath -AgentCollisionNames $agentCollisionNames
     }
     finally {
