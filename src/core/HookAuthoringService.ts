@@ -8,6 +8,13 @@ import type { HookDefinition, HookEvent } from '../types.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import type { HookManager } from './HookManager.js';
 import { canonicalHookEvent, EVENT_DESCRIPTIONS, HOOK_EVENTS } from './hookEvents.js';
+import {
+  normalizeLifecycleHookLevel,
+  reloadLifecycleHooks,
+  upsertLifecycleHookAtLevel,
+  type LifecycleHookLevel,
+  type LifecycleHookRuntime,
+} from './lifecycleHookLevels.js';
 
 const draftSchema = z.object({
   event: z.enum(HOOK_EVENTS),
@@ -24,6 +31,8 @@ const draftSchema = z.object({
 export interface HookAuthoringRequest {
   event?: HookEvent;
   prompt: string;
+  /** project, local, or user (default); global is accepted for user. */
+  level?: string;
 }
 
 export interface HookAuthoringOptions {
@@ -33,10 +42,17 @@ export interface HookAuthoringOptions {
   getProvider: () => LLMProvider;
   confirm: (preview: string) => Promise<boolean>;
   requireAutohand?: boolean;
+  /** Enables project and local levels; without it every hook lands in the user config. */
+  levels?: LifecycleHookLevelContext;
+}
+
+export interface LifecycleHookLevelContext {
+  runtime: LifecycleHookRuntime;
+  trustStorePath?: string;
 }
 
 export type HookAuthoringResult = { status: 'cancelled' } | {
-  status: 'created'; hook: HookDefinition; scriptPath: string; active: boolean;
+  status: 'created'; hook: HookDefinition; scriptPath: string; active: boolean; level: LifecycleHookLevel; path?: string;
 };
 
 export class HookAuthoringService {
@@ -49,6 +65,8 @@ export class HookAuthoringService {
   }
 
   async create(request: HookAuthoringRequest, signal?: AbortSignal): Promise<HookAuthoringResult> {
+    // Generated scripts kept their original home; only an explicit level moves them.
+    const level = normalizeLifecycleHookLevel(request.level ?? 'user');
     this.checkProvider();
     const prompt = z.string().trim().min(1).max(8000).parse(request.prompt);
     const selectedEvent = request.event === undefined ? undefined : canonicalHookEvent(z.enum(HOOK_EVENTS).parse(request.event));
@@ -102,11 +120,27 @@ export class HookAuthoringService {
     await fs.ensureDir(scriptsRoot);
     await fs.writeFile(scriptPath, script, { flag: 'wx', mode: 0o600 });
     try {
-      await this.options.manager.addHook(hook);
+      const persisted = await this.persist(hook, level);
+      return { status: 'created', hook, scriptPath, active: persisted.active, level, ...(persisted.path ? { path: persisted.path } : {}) };
     } catch (error) {
       await fs.remove(scriptPath);
       throw error;
     }
-    return { status: 'created', hook, scriptPath, active: this.options.manager.isEnabled() };
+  }
+
+  private async persist(hook: HookDefinition, level: LifecycleHookLevel): Promise<{ active: boolean; path?: string }> {
+    const { manager, levels } = this.options;
+    if (!levels || level === 'user') {
+      await manager.addHook(hook);
+      return { active: manager.isEnabled() };
+    }
+    const wasTrusted = levels.runtime.config.workspaceTrust?.trusted ?? true;
+    const written = await upsertLifecycleHookAtLevel({
+      level, workspaceRoot: levels.runtime.workspaceRoot, configPath: levels.runtime.config.configPath, hook,
+    });
+    const reloaded = await reloadLifecycleHooks(levels.runtime, manager, {
+      extendTrust: wasTrusted, trustStorePath: levels.trustStorePath,
+    });
+    return { active: manager.isEnabled() && reloaded.trusted, path: written.path };
   }
 }

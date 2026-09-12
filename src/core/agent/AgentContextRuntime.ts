@@ -6,6 +6,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { getPlanModeManager } from '../../commands/plan.js';
 import { resolveBrainstormAutoInjection } from '../../skills/brainstormIntent.js';
+import { resolveDebugAutoInjection } from '../../skills/debugIntent.js';
 import { getProviderConfig } from '../../config.js';
 import { t } from '../../i18n/index.js';
 import type {
@@ -220,6 +221,7 @@ export async function buildAgentUserMessage(
   const planModeManager = getPlanModeManager();
   const planModeActive = planModeManager.isEnabled() && planModeManager.getPhase() === 'planning';
   const brainstormAlreadyInjected = mentionedSkills.some((skill) => skill.name === 'brainstorm');
+  let brainstormInjected = brainstormAlreadyInjected;
   if (
     resolveBrainstormAutoInjection({
       instruction,
@@ -237,6 +239,25 @@ export async function buildAgentUserMessage(
         brainstorm.description,
         '',
         brainstorm.body,
+      ].join('\n'));
+      brainstormInjected = true;
+    }
+  }
+
+  if (
+    resolveDebugAutoInjection({
+      instruction,
+      alreadyInjected: mentionedSkills.some((skill) => skill.name === 'systematic-debugging'),
+      brainstormInjected,
+    })
+  ) {
+    const debugging = host.skillsRegistry?.getSkill?.('systematic-debugging');
+    if (debugging) {
+      userPromptParts.push([
+        'Debugging mode (this request looks like a failure to diagnose). Find the root cause before proposing a fix:',
+        debugging.description,
+        '',
+        debugging.body,
       ].join('\n'));
     }
   }

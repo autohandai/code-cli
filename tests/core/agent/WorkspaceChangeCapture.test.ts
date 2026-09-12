@@ -117,3 +117,31 @@ describe('WorkspaceChangeCapture', () => {
     }
   });
 });
+
+describe('workspace change capture budget', () => {
+  it('turns a process that outlives its budget into a budget error', async () => {
+    const { runProcess, WorkspaceChangeCaptureBudgetError } = await import('../../../src/core/agent/WorkspaceChangeCapture.js');
+    await expect(runProcess(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], { cwd: os.tmpdir(), timeoutMs: 50 }))
+      .rejects.toBeInstanceOf(WorkspaceChangeCaptureBudgetError);
+    await expect(runProcess(process.execPath, ['-e', 'process.stdout.write("ok")'], { cwd: os.tmpdir(), timeoutMs: 5_000 })).resolves.toBe('ok');
+  });
+
+  it('stops capturing after a snapshot exceeds the budget and reports it', async () => {
+    const { WorkspaceChangeCapture, WorkspaceChangeCaptureBudgetError } = await import('../../../src/core/agent/WorkspaceChangeCapture.js');
+    let calls = 0;
+    const backend = {
+      snapshot: async () => {
+        calls += 1;
+        throw new WorkspaceChangeCaptureBudgetError('git add -A', 1);
+      },
+      diff: async () => ({ files: [], omittedFiles: 0 }),
+      dispose: async () => {},
+    };
+    const capture = WorkspaceChangeCapture.withBackend(backend as never);
+    const first = await capture.begin();
+    expect(capture.hasExceededBudget()).toBe(true);
+    expect(await capture.finish(first)).toEqual({ files: [], omittedFiles: 0 });
+    await capture.begin();
+    expect(calls).toBe(1);
+  });
+});

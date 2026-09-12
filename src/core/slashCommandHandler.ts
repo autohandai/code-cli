@@ -136,7 +136,7 @@ export class SlashCommandHandler {
         }
         case '/init': {
           const { init } = await import('../commands/init.js');
-          return init(this.ctx);
+          return init(this.ctx, args);
         }
         case '/quit': {
           const { quit } = await import('../commands/quit.js');
@@ -233,7 +233,7 @@ export class SlashCommandHandler {
         }
         case '/rename': {
           const { rename } = await import('../commands/rename.js');
-          return rename({ sessionManager: this.ctx.sessionManager }, args);
+          return rename({ sessionManager: this.ctx.sessionManager, onRenamed: this.ctx.onSessionRenamed }, args);
         }
         case '/undo': {
           const { undo } = await import('../commands/undo.js');

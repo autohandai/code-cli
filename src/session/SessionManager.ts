@@ -363,12 +363,13 @@ export class SessionManager {
     }
 
     /** Names the live session; the name survives closeSession's summary. */
-    async renameCurrentSession(title: string): Promise<SessionMetadata> {
+    async renameCurrentSession(title: string, options: { source?: 'user' | 'auto' } = {}): Promise<SessionMetadata> {
         if (!this.currentSession) {
             throw new Error('No active session to rename.');
         }
         const normalized = normalizeSessionTitle(title);
         this.currentSession.metadata.title = normalized;
+        this.currentSession.metadata.titleSource = options.source ?? 'user';
         this.currentSession.metadata.lastActiveAt = new Date().toISOString();
         await this.currentSession.save();
         await this.updateIndex(this.currentSession.metadata);
@@ -385,6 +386,7 @@ export class SessionManager {
         const metadataPath = path.join(this.sessionsDir, sessionId, 'metadata.json');
         const metadata = await fs.readJson(metadataPath) as SessionMetadata;
         metadata.title = normalized;
+        metadata.titleSource = 'user';
         await atomicWriteJson(metadataPath, metadata);
         await this.updateIndex(metadata);
         return metadata;

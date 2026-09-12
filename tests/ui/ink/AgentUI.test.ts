@@ -288,7 +288,7 @@ describe('AgentUI TextBuffer integration helpers', () => {
     expect(buffer.getText()).toBe('/');
   });
 
-  it.each(['/', '@', '$', '!', '#'])(
+  it.each(['/', '@', '$', '!', '#', ':'])(
     'recognizes bare composer trigger %s as dismissible',
     trigger => {
       expect(isBareComposerTrigger(trigger)).toBe(true);
@@ -296,7 +296,7 @@ describe('AgentUI TextBuffer integration helpers', () => {
     }
   );
 
-  it.each(['/', '@', '$', '!', '#'])(
+  it.each(['/', '@', '$', '!', '#', ':'])(
     'does not treat %s inside normal text as a bare composer trigger',
     trigger => {
       expect(isBareComposerTrigger(`run ${trigger}`)).toBe(false);
@@ -304,7 +304,7 @@ describe('AgentUI TextBuffer integration helpers', () => {
     }
   );
 
-  it.each(['/', '@', '$', '!', '#'])(
+  it.each(['/', '@', '$', '!', '#', ':'])(
     'clears bare composer trigger %s for escape dismissal',
     trigger => {
       const buffer = new TextBuffer(20, 10, trigger);
@@ -314,7 +314,7 @@ describe('AgentUI TextBuffer integration helpers', () => {
     }
   );
 
-  it.each(['/', '@', '$', '!', '#'])(
+  it.each(['/', '@', '$', '!', '#', ':'])(
     'treats forward Delete at the end of bare trigger %s as removal',
     trigger => {
       const buffer = new TextBuffer(20, 10, `  ${trigger}`);

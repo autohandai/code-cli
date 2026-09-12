@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { SessionAutoNamer } from './SessionAutoNamer.js';
+import { syncAgentTerminalTitleName } from './AgentSessionTitle.js';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { FileActionManager } from '../../actions/filesystem.js';
@@ -411,6 +413,10 @@ export function initializeAgentDependencies(
         debugLogger: (message: string) => host.writeDebugLine(message),
       });
     }
+    host.sessionAutoNamer = new SessionAutoNamer({
+      getProvider: () => host.llm,
+      enabled: !runtime.options.bare && runtime.options.offline !== true && runtime.config.ui?.promptSuggestions !== false,
+    });
 
     const agentRegistry = configureAgentRegistry(runtime);
     const pluginDir = (runtime.config as typeof runtime.config & { pluginDir?: string }).pluginDir;
@@ -1205,12 +1211,17 @@ export function initializeAgentDependencies(
           let outcome: ToolActionOutcome | undefined;
           let result: string | undefined;
           if (isHookAction(action)) {
+            const hookLevels = { runtime: { config: runtime.config, workspaceRoot: runtime.workspaceRoot } };
             result = await executeHookTool(action, {
               manager: host.hookManager,
               getActiveProvider: () => host.activeProvider,
+              levels: hookLevels,
+              confirm: async preview => isAllowedPermissionPrompt(normalizePermissionPromptResponse(
+                await host.confirmDangerousAction(preview, { tool: 'set_lifecycle_hook' }),
+              )),
               authoring: new HookAuthoringService({
                 manager: host.hookManager, workspaceRoot: runtime.workspaceRoot,
-                getProvider: () => host.llm, requireAutohand: true,
+                getProvider: () => host.llm, requireAutohand: true, levels: hookLevels,
                 confirm: async preview => isAllowedPermissionPrompt(normalizePermissionPromptResponse(
                   await host.confirmDangerousAction(preview, { tool: 'create_hook' }),
                 )),
@@ -1977,6 +1988,7 @@ export function initializeAgentDependencies(
       get currentSession() {
         return sessionMgr.getCurrentSession() ?? undefined;
       },
+      onSessionRenamed: () => syncAgentTerminalTitleName(host),
       // Add-dir command context
       fileManager: host.files,
       get additionalDirs() {

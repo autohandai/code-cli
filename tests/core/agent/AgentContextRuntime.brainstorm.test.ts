@@ -12,6 +12,52 @@ import { getPlanModeManager } from '../../../src/commands/plan.js';
 
 const ARCHITECT_MARKER = 'ARCHITECT-LENS-BODY-MARKER';
 
+const DEBUG_MARKER = 'DEBUG_PLAYBOOK_MARKER';
+
+describe('buildAgentUserMessage debugging auto-injection', () => {
+  let workspaceRoot: string;
+  beforeEach(async () => {
+    workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-debug-intent-'));
+    getPlanModeManager().disable();
+  });
+  afterEach(async () => {
+    getPlanModeManager().disable();
+    await fs.remove(workspaceRoot);
+  });
+  function host(): AgentContextRuntimeHost {
+    return {
+      runtime: { options: {}, workspaceRoot, config: {} },
+      ignoreFilter: { isIgnored: () => false },
+      mentionResolver: { clear: vi.fn(), flush: vi.fn(() => null) },
+      recordExploration: vi.fn(),
+      skillsRegistry: {
+        getActiveSkills: () => [],
+        activateMentionedSkills: () => [],
+        getSkill: (name: string) => name === 'systematic-debugging'
+          ? { name, description: 'Find the root cause first.', body: DEBUG_MARKER }
+          : name === 'brainstorm' ? { name, description: 'Design.', body: ARCHITECT_MARKER } : undefined,
+      },
+    } as unknown as AgentContextRuntimeHost;
+  }
+
+  it('injects the debugging playbook for a failure-shaped instruction', async () => {
+    const message = await buildAgentUserMessage(host(), 'the tuistory tests are failing in CI, can you fix it');
+    expect(message).toContain('Debugging mode');
+    expect(message).toContain(DEBUG_MARKER);
+  });
+
+  it('stays silent for ordinary work and for feature requests that mention bugs', async () => {
+    expect(await buildAgentUserMessage(host(), 'add a bug report form to the settings page')).not.toContain(DEBUG_MARKER);
+    expect(await buildAgentUserMessage(host(), 'rename the session command')).not.toContain(DEBUG_MARKER);
+  });
+
+  it('prefers the brainstorm playbook when a request is design-shaped', async () => {
+    const message = await buildAgentUserMessage(host(), "let's design how the retry logic should work when requests fail");
+    expect(message).toContain(ARCHITECT_MARKER);
+    expect(message).not.toContain(DEBUG_MARKER);
+  });
+});
+
 describe('buildAgentUserMessage brainstorm auto-injection', () => {
   let workspaceRoot: string;
 
@@ -32,7 +78,9 @@ describe('buildAgentUserMessage brainstorm auto-injection', () => {
           ((name: string) =>
             name === 'brainstorm'
               ? { name: 'brainstorm', description: 'Design with three lenses.', body: ARCHITECT_MARKER }
-              : undefined),
+              : name === 'systematic-debugging'
+                ? { name: 'systematic-debugging', description: 'Find the root cause first.', body: DEBUG_MARKER }
+                : undefined),
       },
     } as unknown as AgentContextRuntimeHost;
   }

@@ -1884,6 +1884,134 @@ describe('interactive built CLI Tuistory tests', () => {
     expect((await fs.readJson(path.join(sessionsDir, entry.id, 'metadata.json'))).title).toBe('Renamed from a script');
   });
 
+  it('steers a running turn with Shift+Enter so the model reads the message on its next request', async () => {
+    const openRouterServer = await createMockOpenRouterSequenceServer([
+      JSON.stringify({ toolCalls: [{ tool: 'list_tree', args: { path: '.' } }] }),
+      JSON.stringify({ toolCalls: [], finalResponse: 'STEERED_TURN_COMPLETE' }),
+    ], 3_000);
+    mockServers.push(openRouterServer);
+    const session = await launchInteractive({
+      config: {
+        openrouter: { baseUrl: openRouterServer.baseUrl },
+        agent: { autoMemory: false, sessionRetryLimit: 0 },
+        ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+      },
+    });
+    await waitForComposer(session);
+
+    await session.type('List the workspace and summarize it.');
+    await session.press('enter');
+    await session.text({ timeout: 10_000, waitFor: (text) => text.includes('esc to cancel') });
+
+    await session.type('STEER_ME: keep the summary to one line');
+    await session.press(['shift', 'enter']);
+    await session.text({ timeout: 5_000, waitFor: (text) => text.includes('Steering the running turn') });
+
+    await session.text({ timeout: 20_000, waitFor: (text) => text.includes('STEERED_TURN_COMPLETE') });
+    expect(openRouterServer.requests.length).toBeGreaterThanOrEqual(2);
+    const secondRequest = openRouterServer.requests[1] as { messages: Array<{ role: string; content: unknown }> };
+    const steered = secondRequest.messages.filter((message) => message.role === 'user' && typeof message.content === 'string' && message.content.includes('STEER_ME'));
+    expect(steered).toHaveLength(1);
+    const firstRequest = openRouterServer.requests[0] as { messages: Array<{ role: string; content: unknown }> };
+    expect(JSON.stringify(firstRequest.messages)).not.toContain('STEER_ME');
+    // The steer was consumed by the running turn, not queued for a new one.
+    expect(await session.text({ immediate: true })).not.toMatch(/Queue · \d+ pending/);
+
+    await exitInteractive(session);
+  });
+
+  it('shows the session name and state in the terminal title and restores it on exit', async () => {
+    const openRouterServer = await createMockOpenRouterServer('TITLE_TURN_COMPLETE', 1_500);
+    mockServers.push(openRouterServer);
+    const session = await launchInteractive({
+      config: {
+        openrouter: { baseUrl: openRouterServer.baseUrl },
+        agent: { autoMemory: false, sessionRetryLimit: 0 },
+        ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+      },
+    });
+    await waitForComposer(session);
+    expect(session.getRawOutput()).toContain('\x1b]0;Autohand Code\x07');
+
+    await session.type('fix the caret after startup');
+    await session.press('enter');
+    await session.text({ timeout: 10_000, waitFor: (text) => text.includes('esc to cancel') });
+    // Derived name and the working marker appear as soon as the turn starts.
+    expect(session.getRawOutput()).toContain('\x1b]0;🔴 Fix the caret after startup · Autohand\x07');
+
+    await session.text({ timeout: 15_000, waitFor: (text) => text.includes('TITLE_TURN_COMPLETE') });
+    await waitForComposer(session);
+    await session.text({ timeout: 5_000, waitFor: () => session.getRawOutput().includes('\x1b]0;🟢 Fix the caret after startup · Autohand\x07') });
+
+    await session.type('/rename Caret fix');
+    await session.press('enter');
+    await session.waitForText('Session renamed to "Caret fix".', { timeout: 10_000 });
+    await session.text({ timeout: 5_000, waitFor: () => session.getRawOutput().includes('\x1b]0;🟢 Caret fix · Autohand\x07') });
+
+    await exitInteractive(session);
+    const raw = session.getRawOutput();
+    expect(raw.lastIndexOf('\x1b]0;Autohand Code\x07')).toBeGreaterThan(raw.lastIndexOf('🟢 Caret fix'));
+  });
+
+  it('runs /init as a background repository read and keeps /init --basic instant', async () => {
+    const openRouterServer = await createMockOpenRouterSequenceServer([
+      JSON.stringify({ toolCalls: [], finalResponse: 'INIT_TURN_COMPLETE' }),
+    ], 1_500);
+    mockServers.push(openRouterServer);
+    const state = await createTempAutohandHome({
+      config: {
+        openrouter: { baseUrl: openRouterServer.baseUrl },
+        agent: { autoMemory: false, sessionRetryLimit: 0 },
+        ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+      },
+    });
+    tempStates.push(state);
+    const session = await trackSession(launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      waitForDataTimeout: 15_000,
+    }));
+    await waitForComposer(session);
+
+    await session.type('/init');
+    await session.press('enter');
+    await session.text({ timeout: 10_000, waitFor: (text) => text.includes('write AGENTS.md in the background') });
+    await session.text({ timeout: 20_000, waitFor: (text) => text.includes('INIT_TURN_COMPLETE') });
+    expect(openRouterServer.requests.length).toBeGreaterThanOrEqual(1);
+    const request = openRouterServer.requests[0] as { messages: Array<{ role: string; content: unknown }> };
+    const instruction = request.messages.find((message) => message.role === 'user' && typeof message.content === 'string' && message.content.includes('Create an AGENTS.md'));
+    expect(instruction, JSON.stringify(request.messages).slice(0, 2_000)).toBeDefined();
+    expect(String(instruction?.content)).toContain('"Definition of done"');
+    expect(existsSync(path.join(state.workspaceRoot, 'AGENTS.md'))).toBe(false);
+
+    await waitForComposer(session);
+    // Background naming may still be in flight; only the basic init must stay model-free.
+    await new Promise<void>((resolve) => setTimeout(resolve, 1_500));
+    const requestsBeforeBasic = openRouterServer.requests.length;
+    await session.type('/init --basic');
+    await session.press('enter');
+    await session.text({ timeout: 10_000, waitFor: (text) => text.includes('Created AGENTS.md based on your project') });
+    const agents = await readFile(path.join(state.workspaceRoot, 'AGENTS.md'), 'utf8');
+    expect(agents).toContain('## Definition of Done');
+    expect(openRouterServer.requests).toHaveLength(requestsBeforeBasic);
+
+    await exitInteractive(session);
+  });
+
+  it('reports the startup timeline when AUTOHAND_STARTUP_TIMING is set', async () => {
+    const session = await launchInteractive({
+      config: { ui: { promptSuggestions: false } },
+      env: { AUTOHAND_STARTUP_TIMING: '1' },
+    });
+    await session.text({ timeout: 20_000, waitFor: (text) => text.includes('Startup timing') });
+    const screen = stripAnsi(await session.text({ immediate: true }));
+    expect(screen).toContain('config loaded');
+    expect(screen).toContain('agent constructed');
+    expect(screen).toContain('composer ready');
+    await waitForComposer(session);
+    await exitInteractive(session);
+  });
+
   it('keeps the caret and mouse reporting for text typed while startup is still finishing', async () => {
     const state = await createTempAutohandHome({
       config: {

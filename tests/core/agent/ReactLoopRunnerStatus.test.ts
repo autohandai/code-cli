@@ -1621,3 +1621,61 @@ describe('thinking display default', () => {
     expect(host.inkRenderer.setThinking).toHaveBeenCalledWith('Weigh two jokes.');
   });
 });
+
+describe('steering messages during a turn', () => {
+  function inkStub() {
+    return {
+      setStatus: vi.fn(), addToolCall: vi.fn(), addToolOutputBatch: vi.fn(), addToolOutput: vi.fn(),
+      setThinking: vi.fn(), setElapsed: vi.fn(), setTokens: vi.fn(), setWorking: vi.fn(), setFinalResponse: vi.fn(),
+    };
+  }
+
+  it('adds a steered message to the conversation before the next model request', async () => {
+    const { SteeringQueue } = await import('../../../src/core/agent/SteeringQueue.js');
+    const steering = new SteeringQueue();
+    const llmComplete = vi.fn()
+      .mockImplementationOnce(async () => {
+        steering.push('Only touch the tests.');
+        return { id: 'step', created: 1, content: '{"toolCalls":[{"tool":"read_file","args":{"path":"src/index.ts"}}]}', raw: {} };
+      })
+      .mockResolvedValueOnce({ id: 'answer', created: 2, content: '{"finalResponse":"Done."}', raw: {} });
+    const host = createReactLoopTestHost(llmComplete, new ReactionParser());
+    host.inkRenderer = inkStub();
+    host.steering = steering;
+    host.toolManager.execute = vi.fn(async (_calls, onResult) => {
+      const result = { tool: 'read_file' as const, success: true, output: 'ok' };
+      onResult(0, result);
+      return [result];
+    });
+
+    await runAgentReactLoop(host, new AbortController());
+
+    const addMessage = host.conversation.addMessage as ReturnType<typeof vi.fn>;
+    const steerCall = addMessage.mock.calls.findIndex(([message]) => message.role === 'user' && message.content === 'Only touch the tests.');
+    expect(steerCall).toBeGreaterThanOrEqual(0);
+    expect(addMessage.mock.invocationCallOrder[steerCall]).toBeLessThan(llmComplete.mock.invocationCallOrder[1]);
+    const toolResultCall = addMessage.mock.calls.findIndex(([message]) => message.role === 'tool');
+    expect(addMessage.mock.invocationCallOrder[toolResultCall]).toBeLessThan(addMessage.mock.invocationCallOrder[steerCall]);
+  });
+
+  it('turns a final answer into another iteration when a steer arrived during it', async () => {
+    const { SteeringQueue } = await import('../../../src/core/agent/SteeringQueue.js');
+    const steering = new SteeringQueue();
+    const llmComplete = vi.fn()
+      .mockImplementationOnce(async () => {
+        steering.push('Also update the changelog.');
+        return { id: 'first', created: 1, content: '{"finalResponse":"First answer."}', raw: {} };
+      })
+      .mockResolvedValueOnce({ id: 'second', created: 2, content: '{"finalResponse":"Second answer with changelog."}', raw: {} });
+    const host = createReactLoopTestHost(llmComplete, new ReactionParser());
+    host.inkRenderer = inkStub();
+    host.steering = steering;
+
+    await runAgentReactLoop(host, new AbortController());
+
+    expect(llmComplete).toHaveBeenCalledTimes(2);
+    expect(host.inkRenderer.setFinalResponse).toHaveBeenCalledTimes(1);
+    expect(host.inkRenderer.setFinalResponse).toHaveBeenCalledWith('Second answer with changelog.');
+    expect(host.conversation.addMessage).toHaveBeenCalledWith({ role: 'user', content: 'Also update the changelog.' });
+  });
+});

@@ -12,8 +12,12 @@ import type { AgentRuntime } from '../../../src/types.js';
 import { AgentDelegator } from '../../../src/core/agents/AgentDelegator.js';
 import { AgentRegistry } from '../../../src/core/agents/AgentRegistry.js';
 
-var mockSaveConfig = vi.fn();
-var mockCreate = vi.fn();
+// Hoisted so the factories below see initialized mocks even when a static
+// import chain evaluates the mocked modules before this file's body runs.
+const { mockSaveConfig, mockCreate } = vi.hoisted(() => ({
+  mockSaveConfig: vi.fn(),
+  mockCreate: vi.fn(),
+}));
 
 vi.mock('../../../src/config.js', () => ({
   saveConfig: mockSaveConfig,

@@ -271,6 +271,7 @@ function buildHelpRows(bindings: Record<KeybindingAction, Chord[]>): KeybindingH
     ...describe('cycleMode', bindings.cycleMode),
     ...describe('newline', bindings.newline),
     'enter submits prompt',
+    'shift + enter steers the running turn',
     'ctrl + c clears input / exits',
     ...describe('exit', bindings.exit),
     '↑ / ↓ recalls typed messages',

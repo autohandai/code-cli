@@ -30,6 +30,7 @@ import type { AutoReportManager } from '../../reporting/AutoReportManager.js';
 import type { ProjectManager } from '../../session/ProjectManager.js';
 import type { SessionManager } from '../../session/SessionManager.js';
 import type { ConversationManager } from '../conversationManager.js';
+import type { SteeringQueue } from './SteeringQueue.js';
 import type { ContextOrchestrator } from '../context/orchestrator.js';
 import type { ToolManager } from '../toolManager.js';
 import type { ToolsRegistry } from '../toolsRegistry.js';
@@ -61,6 +62,8 @@ import type { ResponseCompletionHook } from './ResponseCompletionClassifier.js';
 import { evaluateAssistantTurn } from './TurnOutcomeEvaluator.js';
 import {
   WorkspaceChangeCapture,
+  WorkspaceChangeCaptureBudgetError,
+  WORKSPACE_CHANGE_CAPTURE_BUDGET_MS,
   type WorkspaceChangeSet,
 } from './WorkspaceChangeCapture.js';
 import { stripAnsiCodes } from '../../ui/displayUtils.js';
@@ -163,6 +166,10 @@ export interface AgentReactLoopHost {
   > & Partial<Pick<ContextOrchestrator, 'setContextWindow'>>;
   contextPercentLeft: number;
   conversation: Pick<ConversationManager, 'addMessage' | 'addSystemNote' | 'history'>;
+  /** Messages the user steered into this turn; drained before each model request. */
+  steering?: Pick<SteeringQueue, 'drain'>;
+  /** Set once the per-turn git snapshot exceeded its budget on this repository. */
+  workspaceChangeCaptureDisabled?: boolean;
   inkRenderer: ReactLoopInkRenderer | null;
   lastAssistantResponseForNotification: string;
   llm: LLMProvider;
@@ -502,8 +509,11 @@ export async function runAgentReactLoop(
     // Check if thinking should be shown
     const showThinking = host.runtime.config.ui?.showThinking === true;
     const displayToolOutput = shouldDisplayToolOutput(host.runtime.config);
-    const workspaceChangeCapture = host.inkRenderer && displayToolOutput
+    // Once capture blows its budget on this repository, later turns skip it
+    // instead of paying the same wait again before every tool call.
+    const workspaceChangeCapture = host.inkRenderer && displayToolOutput && !host.workspaceChangeCaptureDisabled
       ? await WorkspaceChangeCapture.create(host.runtime.workspaceRoot).catch((error: unknown) => {
+          if (error instanceof WorkspaceChangeCaptureBudgetError) host.workspaceChangeCaptureDisabled = true;
           host.writeDebugLine(`[DEBUG] Workspace change capture unavailable: ${error instanceof Error ? error.message : String(error)}`);
           return null;
         })
@@ -577,12 +587,25 @@ export async function runAgentReactLoop(
       }
     };
 
+    // Steered messages join the conversation only between iterations, once
+    // every tool result of the previous assistant turn is in place; a user
+    // message between a tool call and its result is a shape providers reject.
+    const drainSteering = (): boolean => {
+      const steered = host.steering?.drain() ?? [];
+      for (const content of steered) {
+        host.conversation.addMessage({ role: 'user', content });
+        host.inkRenderer?.setStatus?.('Applying your steering message...');
+      }
+      return steered.length > 0;
+    };
+
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
       // Check for abort at the start of each iteration
       if (abortController.signal.aborted) {
         if (debugMode) host.writeDebugLine('[AGENT DEBUG] Abort detected at loop start, breaking');
         break;
       }
+      drainSteering();
 
       // Filter tools by relevance to reduce token overhead
       const messages = host.conversation.history();
@@ -1391,6 +1414,11 @@ export async function runAgentReactLoop(
       if (turnOutcome.type !== 'finish') {
         throw new Error(`Unexpected non-final turn outcome after tool handling: ${turnOutcome.type}`);
       }
+      // A steer that arrived while the model was answering deserves a reply
+      // of its own instead of being read only by the next turn.
+      if (drainSteering()) {
+        continue;
+      }
       renderFinalResponse(turnOutcome.response, {
         thought: payload.thought,
         usedThoughtAsResponse: turnOutcome.usedThoughtAsResponse,
@@ -1445,6 +1473,10 @@ export async function runAgentReactLoop(
     host.emitOutput({ type: 'message', content: fallbackMsg });
     return { status: 'completed' };
     } finally {
+      if (workspaceChangeCapture?.hasExceededBudget() && !host.workspaceChangeCaptureDisabled) {
+        host.workspaceChangeCaptureDisabled = true;
+        host.writeDebugLine(`[DEBUG] Workspace change capture disabled for this session: a git snapshot exceeded ${WORKSPACE_CHANGE_CAPTURE_BUDGET_MS} ms.`);
+      }
       await workspaceChangeCapture?.dispose().catch((error: unknown) => {
         host.writeDebugLine(`[DEBUG] Workspace change capture cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
       });

@@ -4,6 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { SteeringQueue } from './agent/SteeringQueue.js';
+import { syncAgentTerminalTitleName } from './agent/AgentSessionTitle.js';
+import { shouldWriteTerminalTitle, TerminalTitleController } from '../ui/terminalTitle.js';
+import type { SessionAutoNamer } from './agent/SessionAutoNamer.js';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
@@ -248,6 +252,7 @@ import {
   stopAgentUI,
   updateAgentInputLine,
   withAgentModalPause,
+  steerAgentActiveInstruction,
 } from './agent/AgentUIRuntime.js';
 import {
   buildAgentUserMessage,
@@ -438,6 +443,15 @@ export class AutohandAgent {
   private currentInstructionText?: string;
   private peerActiveToolCount = 0;
   private peerAwaitingInputCount = 0;
+  /** Messages steered into the running turn with Shift+Enter. */
+  readonly steering = new SteeringQueue();
+  /** Terminal tab title: session name plus working / waiting / idle marker. */
+  readonly terminalTitle = new TerminalTitleController(
+    (text) => { process.stdout.write(text); },
+    shouldWriteTerminalTitle(process.argv, process.stdout.isTTY),
+  );
+  sessionAutoNamer: SessionAutoNamer | null = null;
+  sessionTitleRefined = false;
   private readonly runtimeResourceShutdownController = new AbortController();
   private runtimeResourceShutdownPromise: Promise<void> | null = null;
 
@@ -751,7 +765,8 @@ export class AutohandAgent {
   }
 
   async resumeSession(sessionId: string): Promise<void> {
-    return resumeAgentSession(this, sessionId);
+    await resumeAgentSession(this, sessionId);
+    syncAgentTerminalTitleName(this);
   }
 
   private lastErrorMessage: string | null = null;
@@ -1249,6 +1264,7 @@ export class AutohandAgent {
     return {
       get activeProvider() { return agent.activeProvider; },
       autoReportManager: agent.autoReportManager,
+      steering: agent.steering,
       get consecutiveCancellations() { return agent.consecutiveCancellations; },
       set consecutiveCancellations(value) { agent.consecutiveCancellations = value; },
       contextOrchestrator: agent.contextOrchestrator,
@@ -2663,15 +2679,30 @@ export class AutohandAgent {
     );
   }
 
+  steerActiveInstruction(text: string): Promise<boolean> {
+    return steerAgentActiveInstruction(this, text);
+  }
+
+  /** Marks the tab amber while a confirmation or question waits on the user. */
+  private beginAwaitingInput(): void {
+    this.peerAwaitingInputCount += 1;
+    this.terminalTitle?.setState('waiting');
+  }
+
+  private endAwaitingInput(): void {
+    this.peerAwaitingInputCount = Math.max(0, this.peerAwaitingInputCount - 1);
+    if (this.peerAwaitingInputCount === 0) this.terminalTitle?.setState('working');
+  }
+
   private async confirmDangerousAction(
     message: string,
     context?: { tool?: string; path?: string; command?: string }
   ): Promise<PermissionPromptResult> {
-    this.peerAwaitingInputCount += 1;
+    this.beginAwaitingInput();
     try {
       return await confirmAgentDangerousAction(this, message, context);
     } finally {
-      this.peerAwaitingInputCount = Math.max(0, this.peerAwaitingInputCount - 1);
+      this.endAwaitingInput();
     }
   }
 
@@ -2698,11 +2729,11 @@ export class AutohandAgent {
     question: string,
     suggestedAnswers?: string[]
   ): Promise<string> {
-    this.peerAwaitingInputCount += 1;
+    this.beginAwaitingInput();
     try {
       return await executeAgentAskFollowupQuestion(this, question, suggestedAnswers);
     } finally {
-      this.peerAwaitingInputCount = Math.max(0, this.peerAwaitingInputCount - 1);
+      this.endAwaitingInput();
     }
   }
 

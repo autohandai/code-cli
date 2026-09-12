@@ -77,6 +77,7 @@ export class AgentsGenerator {
 
     // Constraints
     sections.push(this.generateConstraintsSection());
+    sections.push(this.generateDefinitionOfDoneSection());
 
     // Custom sections
     if (options?.customSections) {
@@ -372,6 +373,21 @@ export class AgentsGenerator {
   /**
    * Generate constraints section
    */
+  /**
+   * Generate the definition-of-done section
+   */
+  private generateDefinitionOfDoneSection(): string {
+    return [
+      '## Definition of Done',
+      '',
+      '- Run the tests and the linter listed above before reporting work as complete',
+      '- Verify the change the way this project verifies things, then say what was verified',
+      '- Keep the change scoped: no unrelated edits, no drive-by refactors',
+      '- Leave clear commit messages that explain why, not just what',
+      '',
+    ].join('\n');
+  }
+
   private generateConstraintsSection(): string {
     const lines: string[] = [];
     lines.push('## Constraints');

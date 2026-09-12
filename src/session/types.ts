@@ -71,6 +71,8 @@ export interface SessionMetadata {
     summary?: string;
     /** Name the user gave the session with /rename; shown ahead of the summary. */
     title?: string;
+    /** Whether the title was typed by the user or derived automatically. */
+    titleSource?: 'user' | 'auto';
     status: 'active' | 'completed' | 'crashed';
     exitCode?: number;
     /** Session type: 'interactive' (default) or 'automode' for autonomous loops */

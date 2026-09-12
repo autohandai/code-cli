@@ -103,6 +103,16 @@ ${body}
       expect(brainstorm?.body).toContain('Software Architect');
       expect(brainstorm?.body).toContain('Product Owner');
       expect(brainstorm?.body).toContain('Product Manager');
+      expect(brainstorm?.body).toContain('Leave a decision record');
+
+      for (const name of ['systematic-debugging', 'root-cause-analysis', 'data-scientist', 'architecture-breakdown', 'performance-analysis', 'git-analysis', 'pull-request-review']) {
+        const skill = registry.getSkill(name);
+        expect(skill, name).not.toBeNull();
+        expect(skill?.source, name).toBe('builtin');
+        expect(skill?.description.length, name).toBeGreaterThan(40);
+        expect(skill?.body.length, name).toBeGreaterThan(400);
+      }
+      expect(registry.getSkill('code-reviewer')?.body).toContain('Evidence and confidence');
     });
 
     it('falls back to the embedded built-in skills when no packaged directory exists, as in a compiled binary', async () => {

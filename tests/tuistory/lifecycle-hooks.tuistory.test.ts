@@ -155,6 +155,42 @@ describe('prompt hook cancellation', () => {
 
 
 
+describe('command hooks installed through set_lifecycle_hook', () => {
+  it('writes a project-level post-tool hook the model asked for, then runs it on the next tool call', async () => {
+    const { session, state, server } = await launch([
+      { content: 'I will install a post-tool hook at the project level so lint runs after every tool call.', toolCall: { id: 'hooks-set', name: 'set_lifecycle_hook', args: {
+        event: 'post-tool', command: 'node record-hook.cjs POST_TOOL_LINT', description: 'Run lint after every tool call', level: 'project',
+      } } },
+      { content: 'The hook is installed. I will read the fixture to show it running.', toolCall: { id: 'read-fixture', name: 'read_file', args: { path: 'fixture.txt' } } },
+      { content: 'COMMAND_HOOK_FLOW_COMPLETE' },
+    ], [], async (state) => {
+      await fs.writeFile(path.join(state.workspaceRoot, 'record-hook.cjs'),
+        "require('node:fs').appendFileSync('project-hooks.log', process.argv[2] + '\\n');");
+      await fs.writeFile(path.join(state.workspaceRoot, 'fixture.txt'), 'fixture content');
+    });
+    await session.waitForText('❯');
+    await session.type('Every time you finish a tool call, run lint for this project');
+    await session.press('enter');
+    await session.waitForText('COMMAND_HOOK_FLOW_COMPLETE', { timeout: 30_000 });
+
+    const projectConfig = await fs.readJson(path.join(state.workspaceRoot, '.autohand', 'config.json'));
+    expect(projectConfig.hooks.hooks).toEqual([{
+      event: 'post-tool', command: 'node record-hook.cjs POST_TOOL_LINT', description: 'Run lint after every tool call', enabled: true,
+    }]);
+    expect((await fs.readJson(state.configPath)).hooks.hooks)
+      .not.toContainEqual(expect.objectContaining({ description: 'Run lint after every tool call' }));
+    expect(server.requests.some(request => JSON.stringify(request.tools).includes('set_lifecycle_hook'))).toBe(true);
+    const toolResult = server.requests.flatMap(request => request.messages as Array<{ role: string; content?: string }>)
+      .find(message => message.role === 'tool' && message.content?.includes('"status":"created"'));
+    expect(toolResult?.content).toContain('"level":"project"');
+    await exitInteractive(session);
+    // The hook fired inside the same session, on the read_file call that followed it.
+    expect(await fs.readFile(path.join(state.workspaceRoot, 'project-hooks.log'), 'utf8')).toContain('POST_TOOL_LINT');
+    const trustStore = await fs.readJson(path.join(state.autohandHome, 'trusted-workspaces.json'));
+    expect(Object.keys(trustStore.workspaces)).toHaveLength(1);
+  }, 60_000);
+});
+
 describe('project lifecycle hooks in the built CLI', () => {
   const TRUST_PROMPT = 'This workspace wants to run commands';
 

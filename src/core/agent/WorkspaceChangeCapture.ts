@@ -65,10 +65,25 @@ function emptyChangeSet(): WorkspaceChangeSet {
   return { files: [], omittedFiles: 0 };
 }
 
-function runProcess(
+/**
+ * Upper bound for the git work that captures workspace changes around a
+ * tool call. The first snapshot hashes the whole tree; on a large repository
+ * that can take longer than the tool itself, so past this budget capture is
+ * switched off for the session and tool output loses only its diff preview.
+ */
+export const WORKSPACE_CHANGE_CAPTURE_BUDGET_MS = 3_000;
+
+export class WorkspaceChangeCaptureBudgetError extends Error {
+  constructor(command: string, budgetMs: number) {
+    super(`${command} exceeded the ${budgetMs} ms workspace change capture budget`);
+    this.name = 'WorkspaceChangeCaptureBudgetError';
+  }
+}
+
+export function runProcess(
   command: string,
   args: string[],
-  options: { cwd: string; env?: NodeJS.ProcessEnv; maxBuffer?: number }
+  options: { cwd: string; env?: NodeJS.ProcessEnv; maxBuffer?: number; timeoutMs?: number }
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(command, args, {
@@ -77,9 +92,14 @@ function runProcess(
       encoding: 'utf8',
       maxBuffer: options.maxBuffer ?? 20 * 1024 * 1024,
       windowsHide: true,
+      ...(options.timeoutMs ? { timeout: options.timeoutMs, killSignal: 'SIGKILL' as const } : {}),
     }, (error, stdout) => {
       if (error) {
-        reject(error);
+        const budgetMs = options.timeoutMs;
+        const timedOut = budgetMs !== undefined && (error as { killed?: boolean }).killed === true;
+        reject(timedOut
+          ? new WorkspaceChangeCaptureBudgetError(`${command} ${args.slice(0, 2).join(' ')}`, budgetMs)
+          : error);
         return;
       }
       resolve(stdout);
@@ -165,15 +185,16 @@ class GitCaptureBackend implements CaptureBackend<GitSnapshot> {
     private readonly tempRoot: string,
     private readonly environment: NodeJS.ProcessEnv,
     private readonly workspacePrefix: string,
+    private readonly budgetMs: number,
   ) {}
 
-  static async create(workspaceRoot: string): Promise<GitCaptureBackend | null> {
+  static async create(workspaceRoot: string, budgetMs = WORKSPACE_CHANGE_CAPTURE_BUDGET_MS): Promise<GitCaptureBackend | null> {
     let tempRoot: string | null = null;
     try {
       const repositoryRoot = (await runProcess(
         'git',
         ['rev-parse', '--show-toplevel'],
-        { cwd: workspaceRoot }
+        { cwd: workspaceRoot, timeoutMs: budgetMs }
       )).trim();
       const workspacePrefix = path.relative(repositoryRoot, workspaceRoot).split(path.sep).join('/');
       tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-change-index-'));
@@ -182,20 +203,23 @@ class GitCaptureBackend implements CaptureBackend<GitSnapshot> {
         GIT_INDEX_FILE: path.join(tempRoot, 'index'),
       };
       try {
-        await runProcess('git', ['read-tree', 'HEAD'], { cwd: workspaceRoot, env: environment });
-      } catch {
-        await runProcess('git', ['read-tree', '--empty'], { cwd: workspaceRoot, env: environment });
+        await runProcess('git', ['read-tree', 'HEAD'], { cwd: workspaceRoot, env: environment, timeoutMs: budgetMs });
+      } catch (error) {
+        if (error instanceof WorkspaceChangeCaptureBudgetError) throw error;
+        await runProcess('git', ['read-tree', '--empty'], { cwd: workspaceRoot, env: environment, timeoutMs: budgetMs });
       }
-      return new GitCaptureBackend(workspaceRoot, tempRoot, environment, workspacePrefix);
-    } catch {
+      return new GitCaptureBackend(workspaceRoot, tempRoot, environment, workspacePrefix, budgetMs);
+    } catch (error) {
       if (tempRoot) await fs.remove(tempRoot);
+      if (error instanceof WorkspaceChangeCaptureBudgetError) throw error;
       return null;
     }
   }
 
   async snapshot(): Promise<GitSnapshot> {
     if (!this.initialized) {
-      await this.runGit(['add', '-A', '--', '.']);
+      // The first snapshot stats and hashes every tracked and untracked file.
+      await this.runGit(['add', '-A', '--', '.'], undefined, this.budgetMs);
       this.initialized = true;
     } else {
       const changedPaths = await this.getWorkingTreeChanges();
@@ -252,11 +276,12 @@ class GitCaptureBackend implements CaptureBackend<GitSnapshot> {
     await fs.remove(this.tempRoot);
   }
 
-  private runGit(args: string[], maxBuffer?: number): Promise<string> {
+  private runGit(args: string[], maxBuffer?: number, timeoutMs?: number): Promise<string> {
     return runProcess('git', args, {
       cwd: this.workspaceRoot,
       env: this.environment,
       maxBuffer,
+      timeoutMs,
     });
   }
 
@@ -413,17 +438,35 @@ export class WorkspaceChangeCapture {
     private readonly backend: CaptureBackend<GitSnapshot> | CaptureBackend<FileSnapshot>
   ) {}
 
-  static async create(workspaceRoot: string): Promise<WorkspaceChangeCapture> {
+  private budgetExceeded = false;
+
+  static async create(workspaceRoot: string, options: { budgetMs?: number } = {}): Promise<WorkspaceChangeCapture> {
     const absoluteRoot = path.resolve(workspaceRoot);
     const resolvedRoot = await fs.realpath(absoluteRoot).catch(() => absoluteRoot);
-    const gitBackend = await GitCaptureBackend.create(resolvedRoot);
+    const gitBackend = await GitCaptureBackend.create(resolvedRoot, options.budgetMs);
     return new WorkspaceChangeCapture(gitBackend ?? new FileSystemCaptureBackend(resolvedRoot));
+  }
+
+  /** Test seam: capture over an arbitrary backend. */
+  static withBackend(backend: CaptureBackend<GitSnapshot> | CaptureBackend<FileSnapshot>): WorkspaceChangeCapture {
+    return new WorkspaceChangeCapture(backend);
+  }
+
+  /** True once a git step blew the budget; later checkpoints are no-ops. */
+  hasExceededBudget(): boolean {
+    return this.budgetExceeded;
   }
 
   async begin(): Promise<WorkspaceChangeCheckpoint> {
     const token = randomUUID();
-    const snapshot = await this.backend.snapshot() as BackendSnapshot;
-    this.checkpoints.set(token, snapshot);
+    if (this.budgetExceeded) return { token };
+    try {
+      const snapshot = await this.backend.snapshot() as BackendSnapshot;
+      this.checkpoints.set(token, snapshot);
+    } catch (error) {
+      if (!(error instanceof WorkspaceChangeCaptureBudgetError)) throw error;
+      this.budgetExceeded = true;
+    }
     return { token };
   }
 
@@ -433,7 +476,14 @@ export class WorkspaceChangeCapture {
       return emptyChangeSet();
     }
     this.checkpoints.delete(checkpoint.token);
-    const after = await this.backend.snapshot() as BackendSnapshot;
+    let after: BackendSnapshot;
+    try {
+      after = await this.backend.snapshot() as BackendSnapshot;
+    } catch (error) {
+      if (!(error instanceof WorkspaceChangeCaptureBudgetError)) throw error;
+      this.budgetExceeded = true;
+      return emptyChangeSet();
+    }
 
     if (before.kind === 'git' && after.kind === 'git') {
       return (this.backend as CaptureBackend<GitSnapshot>).diff(before, after);

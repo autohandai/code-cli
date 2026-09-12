@@ -92,3 +92,16 @@ brainstorming, not another round of questions.
 | Skipping the "what to cut" question | Always find the smallest slice that ships value |
 | Sliding into code before agreement | Settle the design first; implement only after approval |
 | Guessing at an unstated constraint | Ask, or state the assumption explicitly and proceed |
+
+## Leave a decision record
+
+When the user approves a direction, write it down before any code:
+
+- **Decision**: one sentence.
+- **Why**: the constraint or trade-off that settled it.
+- **Rejected**: the alternatives and the reason each lost.
+- **Open questions**: what still needs an answer and who can give it.
+- **First slice**: the smallest end-to-end piece worth building first.
+
+Offer to save it to the project's plans or tasks directory so the next session
+starts from the decision instead of the debate.

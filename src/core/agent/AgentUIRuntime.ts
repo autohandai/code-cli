@@ -5,6 +5,7 @@
  */
 import chalk from 'chalk';
 import { resolveMouseComposerCursor } from '../../ui/mouseReporting.js';
+import { deliverAgentTargetMessage, listAgentMessageTargets } from './AgentMessageTargets.js';
 import os from 'node:os';
 import ora from 'ora';
 import { createInkUIManager } from '../../ui/InkUIManager.js';
@@ -250,6 +251,7 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
       // Create Ink UIManager
       const inkUIManager = createInkUIManager({
         onInstruction: (text: string) => { void host.handleInkSubmittedInstruction(text); },
+        onSteer: (text: string) => { void steerAgentActiveInstruction(host, text); },
         onEscape: () => {
           const ctrl = host.currentInkAbortController;
           if (ctrl && !ctrl.signal.aborted) {
@@ -307,6 +309,7 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
         },
         onCancelAgentRun: (id) => host.agentRunStore?.requestCancel(id),
         onMessageAgentRun: (id, text) => host.agentRunStore?.sendMessage(id, text) ?? Promise.resolve(false),
+        messageTargetsProvider: () => listAgentMessageTargets(host),
         skillsProvider: () =>
           host.skillsRegistry.listSkills().map((skill: { name: string; description?: string; isActive: boolean; source: string }) => ({
             name: skill.name,
@@ -351,6 +354,7 @@ export async function initializeAgentUI(host: AgentUIRuntimeHost, abortControlle
         // finished turn's draft, hiding the caret until the next keystroke.
         if (abortController) {
           host.ui?.setWorking(true, 'Gathering context...');
+          host.terminalTitle?.setState('working');
         }
         host.runtime.inkRenderer = host.inkRenderer;
         syncAgentAnnouncementLine(host);
@@ -421,6 +425,7 @@ export function setAgentComposerIdle(host: AgentUIRuntimeHost): void {
       host.inkRenderer.setWorking(false);
     }
     host.ui?.setWorking(false);
+    host.terminalTitle?.setState('idle');
   }
 
 export function clearAgentActivityForCompletedTurn(host: AgentUIRuntimeHost): void {
@@ -438,6 +443,7 @@ export function setAgentComposerFinalResponse(host: AgentUIRuntimeHost, response
   }
 
 export function stopAgentUI(host: AgentUIRuntimeHost, failed = false, message?: string): void {
+    host.terminalTitle?.setState('idle');
     if (host.inkRenderer) {
       host.inkRenderer.setElapsed(formatElapsedTime(host.taskStartedAt ?? host.sessionStartedAt));
       const stopTokens = buildHostTokenUsageStatus(
@@ -485,6 +491,7 @@ export function cleanupAgentUI(host: AgentUIRuntimeHost, keepInkAlive = false): 
           }
         }
         writeAutohandDebugLine('[DEBUG] cleanupUI: stopping inkRenderer', host.writeDebugLine?.bind(host));
+        host.terminalTitle?.restore();
         host.inkRenderer.stop();
         host.inkRenderer = null;
         host.runtime.inkRenderer = undefined;
@@ -594,9 +601,38 @@ export function addAgentUIToolOutputs(host: AgentUIRuntimeHost, outputs: Array<{
     // For ora mode, we use console.log (handled separately)
   }
 
+/**
+ * Sends a message into the running turn. Outside a turn it is an ordinary
+ * submission, so the chord never loses text.
+ */
+export async function steerAgentActiveInstruction(host: AgentUIRuntimeHost, text: string): Promise<boolean> {
+    const content = text.trim();
+    if (!content) return false;
+    if (!host.isInstructionActive || !host.steering) {
+      await host.handleInkSubmittedInstruction(content);
+      return false;
+    }
+    if (!host.steering.push(content)) {
+      host.inkRenderer?.addNotification?.('That message is too long to steer the running turn.');
+      return false;
+    }
+    host.inkRenderer?.addUserMessage?.(content);
+    host.inkRenderer?.addNotification?.('Steering the running turn; the model reads it on its next request.');
+    return true;
+}
+
 export async function handleAgentInkSubmittedInstruction(host: AgentUIRuntimeHost, text: string): Promise<void> {
     if (isShellCommand(text)) {
       await host.executeImmediateShellCommand(parseShellCommand(text));
+      return;
+    }
+
+    // ":alias message" goes straight to that agent, even mid-turn, and never
+    // to the model.
+    const delivery = await deliverAgentTargetMessage(host, text);
+    if (delivery) {
+      host.inkRenderer?.addUserMessage?.(text.trim());
+      host.inkRenderer?.addNotification?.(delivery.receipt);
       return;
     }
 

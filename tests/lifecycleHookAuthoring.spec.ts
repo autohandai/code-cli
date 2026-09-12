@@ -27,6 +27,42 @@ async function fixture(content?: string, persist = vi.fn().mockResolvedValue(und
   return { root, manager, service, complete, confirm, persist };
 }
 
+describe('hook authoring levels', () => {
+  it('saves a generated hook into the project config when the level is project', async () => {
+    const { root, manager, complete, confirm, persist } = await fixture();
+    const workspaceRoot = path.join(root, 'workspace');
+    await fs.ensureDir(workspaceRoot);
+    const configPath = path.join(root, 'home', 'config.json');
+    await fs.outputJson(configPath, { provider: 'autohandai', hooks: { hooks: [] } });
+    const { loadConfig } = await import('../src/config.js');
+    const trustStorePath = path.join(root, 'home', 'trusted-workspaces.json');
+    const config = await loadConfig(configPath, workspaceRoot, { createIfMissing: false, initializeTheme: false, workspaceTrustStorePath: trustStorePath });
+    const service = new HookAuthoringService({
+      manager, workspaceRoot, scriptsRoot: path.join(root, 'hooks'),
+      getProvider: () => ({ getName: () => 'autohandai', complete }), confirm,
+      levels: { runtime: { config, workspaceRoot }, trustStorePath },
+    });
+
+    const result = await service.create({ prompt: 'Record tool names', level: 'project' });
+
+    expect(result).toMatchObject({ status: 'created', level: 'project', active: true, path: path.join(workspaceRoot, '.autohand', 'config.json') });
+    const projectConfig = await fs.readJson(path.join(workspaceRoot, '.autohand', 'config.json'));
+    expect(projectConfig.hooks.hooks).toHaveLength(1);
+    expect(projectConfig.hooks.hooks[0]).toMatchObject({ event: 'pre-tool', description: 'Record tool names' });
+    expect((await fs.readJson(configPath)).hooks.hooks).toEqual([]);
+    expect(persist).not.toHaveBeenCalled();
+    expect(manager.getHooksForEvent('pre-tool')).toHaveLength(1);
+  });
+
+  it('keeps the user level on the manager persist path', async () => {
+    const { manager, service, persist } = await fixture();
+    const result = await service.create({ prompt: 'Record tool names', level: 'user' });
+    expect(result).toMatchObject({ status: 'created', level: 'user' });
+    expect(persist).toHaveBeenCalledOnce();
+    expect(manager.getHooksForEvent('pre-tool')).toHaveLength(1);
+  });
+});
+
 describe('lifecycle hook inventory', () => {
   it('includes empty events, config hooks, extension ownership and stop aliases without double counting', () => {
     const manager = new HookManager({ workspaceRoot: '/test', settings: { hooks: [

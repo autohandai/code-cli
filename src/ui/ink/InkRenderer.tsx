@@ -30,6 +30,7 @@ import type { LiveCommandEntry, ToolOutputEntry, ToolOutputBatchEntry, ToolOutpu
 import type { SlashCommand } from '../../core/slashCommandTypes.js';
 import type { ResolvedKeybindings } from '../../keybindings/profiles.js';
 import type { SkillMentionInfo } from '../mentionFilter.js';
+import type { MessageTarget } from '../messageTargets.js';
 import type { ExtensionKeybinding } from '../../extensions/ExtensionRuntimeHost.js';
 import { ThemeProvider } from '../theme/ThemeContext.js';
 import { getTypedMessageHistory } from '../../session/TypedMessageHistory.js';
@@ -56,6 +57,7 @@ import {
 
 export interface InkRendererOptions {
   onInstruction: (text: string) => void;
+  onSteer?: (text: string) => void;
   onEscape: () => void;
   onCtrlC: () => void;
   onDismissAnnouncement?: (id: string) => void;
@@ -68,6 +70,7 @@ export interface InkRendererOptions {
   slashCommands?: SlashCommand[];
   /** Provider for skill list used in $ mention autocomplete */
   skillsProvider?: () => SkillMentionInfo[];
+  messageTargetsProvider?: () => MessageTarget[];
   /** Base path used for shell path completion. Defaults to process.cwd(). */
   workspaceRoot?: string;
   /** Lazy provider for the current next-step suggestion shown as ghost text. */
@@ -195,6 +198,7 @@ export interface AgentUIWrapperHandle {
 interface AgentUIWrapperProps {
   initialState: AgentUIState;
   onInstruction: (text: string) => void;
+  onSteer?: (text: string) => void;
   onEscape: () => void;
   onCtrlC: () => void;
   onDismissAnnouncement?: (id: string) => void;
@@ -211,6 +215,7 @@ interface AgentUIWrapperProps {
   filesProvider?: () => string[];
   slashCommands?: SlashCommand[];
   skillsProvider?: () => SkillMentionInfo[];
+  messageTargetsProvider?: () => MessageTarget[];
   workspaceRoot?: string;
   suggestionProvider?: () => string | undefined;
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
@@ -234,6 +239,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
     const {
       initialState,
       onInstruction,
+      onSteer,
       onEscape,
       onCtrlC,
       onDismissAnnouncement,
@@ -250,6 +256,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       filesProvider,
       slashCommands,
       skillsProvider,
+      messageTargetsProvider,
       workspaceRoot,
       suggestionProvider,
       resolveShellSuggestion,
@@ -289,6 +296,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         state={state}
         typedMessageHistory={getTypedMessageHistory()}
         onInstruction={onInstruction}
+        onSteer={onSteer}
         onEscape={onEscape}
         onCtrlC={onCtrlC}
         onDismissAnnouncement={onDismissAnnouncement}
@@ -305,6 +313,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         filesProvider={filesProvider}
         slashCommands={slashCommands}
         skillsProvider={skillsProvider}
+        messageTargetsProvider={messageTargetsProvider}
         workspaceRoot={workspaceRoot}
         suggestionProvider={suggestionProvider}
         resolveShellSuggestion={resolveShellSuggestion}
@@ -482,6 +491,7 @@ export class InkRenderer {
             ref={this.wrapperRef}
             initialState={this.state}
             onInstruction={this.options.onInstruction}
+            onSteer={this.options.onSteer}
             onEscape={this.options.onEscape}
             onCtrlC={this.options.onCtrlC}
             onDismissAnnouncement={this.options.onDismissAnnouncement}
@@ -498,6 +508,7 @@ export class InkRenderer {
             filesProvider={this.options.filesProvider}
             slashCommands={this.options.slashCommands}
             skillsProvider={this.options.skillsProvider}
+            messageTargetsProvider={this.options.messageTargetsProvider}
             workspaceRoot={this.options.workspaceRoot}
             suggestionProvider={this.options.suggestionProvider}
             resolveShellSuggestion={this.options.resolveShellSuggestion}
@@ -1384,6 +1395,7 @@ export class InkRenderer {
               ref={this.wrapperRef}
               initialState={this.state}
               onInstruction={this.options.onInstruction}
+              onSteer={this.options.onSteer}
               onEscape={this.options.onEscape}
               onCtrlC={this.options.onCtrlC}
               onDismissAnnouncement={this.options.onDismissAnnouncement}
@@ -1400,6 +1412,7 @@ export class InkRenderer {
               filesProvider={this.options.filesProvider}
               slashCommands={this.options.slashCommands}
               skillsProvider={this.options.skillsProvider}
+              messageTargetsProvider={this.options.messageTargetsProvider}
               workspaceRoot={this.options.workspaceRoot}
               suggestionProvider={this.options.suggestionProvider}
               resolveShellSuggestion={this.options.resolveShellSuggestion}

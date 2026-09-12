@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
+import stripAnsi from 'strip-ansi';
 import React from 'react';
 import { render, cleanup } from 'ink-testing-library';
 import { AgentUI, createInitialUIState, handleInkTextBufferInput } from '../../../src/ui/ink/AgentUI.js';
@@ -232,6 +233,82 @@ describe('AgentUI $ skill mention handling', () => {
     expect(frame).toContain('$code-cli-guardian');
     expect(frame).toContain('$typescript-best-practices');
     expect(frame).toContain('Tab to accept');
+  });
+});
+
+describe('AgentUI : message target handling', () => {
+  const messageTargetsProvider = () => [
+    { kind: 'run' as const, id: 'subagent-1', alias: 'reviewer', label: 'reviewer', detail: 'reviewer · Review the diff', messageable: true },
+    { kind: 'teammate' as const, id: 'builder', alias: 'builder', label: 'builder', detail: 'teammate · implementer · idle', messageable: true },
+    { kind: 'peer' as const, id: 'abcdef12', alias: 'peer-abcdef12', label: 'Session abcdef12', detail: 'peer session · cli · moa', messageable: false, reason: 'Peer sessions cannot receive messages yet; use /peers to inspect them.' },
+  ];
+
+  it('lists every reachable actor for a bare : trigger and inserts the alias on Tab', async () => {
+    const onInputChange = vi.fn();
+    const { stdin, lastFrame } = renderAgentUIWithStdin({ messageTargetsProvider, onInputChange });
+
+    await new Promise(r => setImmediate(r));
+    stdin.write(':');
+    await new Promise(r => setTimeout(r, 50));
+
+    const frame = stripAnsi(lastFrame() ?? '');
+    expect(frame).toContain(':builder');
+    expect(frame).toContain(':reviewer');
+    expect(frame).toContain(':peer-abcdef12');
+    expect(frame).toContain(':peer-abcdef12 ○');
+    expect(frame).toContain(':reviewer ●');
+    expect(frame).toContain('Tab to accept');
+
+    stdin.write('rev');
+    await new Promise(r => setTimeout(r, 50));
+    expect(stripAnsi(lastFrame() ?? '')).not.toContain(':builder');
+    stdin.write('\t');
+    await new Promise(r => setTimeout(r, 50));
+    expect(onInputChange).toHaveBeenLastCalledWith(':reviewer ');
+    expect(stripAnsi(lastFrame() ?? '')).not.toContain('Tab to accept');
+  });
+
+  it('does not open the picker for a colon inside a word', async () => {
+    const { stdin, lastFrame } = renderAgentUIWithStdin({ messageTargetsProvider });
+    await new Promise(r => setImmediate(r));
+    stdin.write('meet at 12:');
+    await new Promise(r => setTimeout(r, 50));
+    expect(stripAnsi(lastFrame() ?? '')).not.toContain('Tab to accept');
+  });
+});
+
+describe('AgentUI Shift+Enter steering', () => {
+  it('steers the composer text into the running turn and clears the composer', async () => {
+    const onSteer = vi.fn();
+    const onInputChange = vi.fn();
+    const { stdin, lastFrame } = renderAgentUIWithStdin({
+      state: { ...createInitialUIState(), isWorking: true, status: 'Working...' },
+      onSteer,
+      onInputChange,
+    });
+    await new Promise(r => setImmediate(r));
+    stdin.write('focus on tests');
+    await new Promise(r => setTimeout(r, 50));
+    stdin.write('\x1b[13;2u');
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(onSteer).toHaveBeenCalledWith('focus on tests');
+    expect(onInputChange).toHaveBeenLastCalledWith('');
+    expect(stripAnsi(lastFrame() ?? '')).not.toContain('focus on tests');
+  });
+
+  it('keeps Shift+Enter as a newline while idle', async () => {
+    const onSteer = vi.fn();
+    const onInputChange = vi.fn();
+    const { stdin } = renderAgentUIWithStdin({ onSteer, onInputChange });
+    await new Promise(r => setImmediate(r));
+    stdin.write('first');
+    await new Promise(r => setTimeout(r, 50));
+    stdin.write('\x1b[13;2u');
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(onSteer).not.toHaveBeenCalled();
+    expect(onInputChange).toHaveBeenLastCalledWith('first\n');
   });
 });
 

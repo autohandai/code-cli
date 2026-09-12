@@ -48,6 +48,8 @@ export interface SlashCommandContext {
     setComposerInput?: (text: string) => void;
     sessionManager: SessionManager;
     currentSession?: Session;
+    /** Called after /rename so surfaces such as the terminal title pick up the new name. */
+    onSessionRenamed?: () => void;
     memoryManager: MemoryManager;
     permissionManager: PermissionManager;
     /** Hook manager for /hooks commands */

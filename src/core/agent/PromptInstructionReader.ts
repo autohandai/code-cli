@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { deliverAgentTargetMessage, type MessageTargetHost } from './AgentMessageTargets.js';
 import { readInstruction } from '../../ui/inputPrompt.js';
 import { renderTerminalMarkdown } from '../immediateCommandRouter.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
@@ -15,7 +16,7 @@ import type { AgentRuntime } from '../../types.js';
 import type { ImageMimeType } from '../ImageManager.js';
 import type { InteractionMode } from './InteractionModeController.js';
 
-export interface AgentPromptInstructionHost {
+export interface AgentPromptInstructionHost extends MessageTargetHost {
   flushDeferredDebugLines(): void;
   formatStatusLine(): { left: string; right: string } | string;
   handleMemoryStore(content: string): Promise<void>;
@@ -183,6 +184,12 @@ export async function promptForAgentInstruction(host: AgentPromptInstructionHost
         writeAutohandDebugLine('[DEBUG] promptForInstruction: slash command handled, returning null', host.writeDebugLine?.bind(host));
         return null;
       }
+    }
+
+    const delivery = await deliverAgentTargetMessage(host, normalized);
+    if (delivery) {
+      console.log(delivery.ok ? chalk.gray(delivery.receipt) : chalk.red(delivery.receipt));
+      return null;
     }
 
     // Handle # trigger for storing memories

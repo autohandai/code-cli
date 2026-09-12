@@ -121,6 +121,27 @@ Projects can add their own hooks under a `hooks` key in `<project>/.autohand/con
 - Project hooks are appended to the global list. A project hook with the same identity (same script file name, or same event plus description/command) replaces the global one, and `settings.local.json` wins over `config.json`.
 - A `hooks.enabled` value in a project file overrides the global toggle for that project.
 - The project is the workspace the session targets: `--path` when given, otherwise the current directory.
+## Asking Autohand to set up a hook
+
+With the Autohand AI provider, the model can install hooks for you. Ask in
+plain English, for example "every time you finish a tool call, run
+`bun run lint`", and it calls the `set_lifecycle_hook` tool with the event,
+the command, and a level:
+
+| Level | File | Scope |
+|-------|------|-------|
+| `project` | `<workspace>/.autohand/config.json` (or `.toml`/`.yaml` if present) | Shared with the repository |
+| `local` | `<workspace>/.autohand/settings.local.json` | This machine only |
+| `user` (also `global`) | `~/.autohand/config.json` | Every workspace |
+
+Before anything is written you see the event, command, level, and file in the
+approval prompt. A hook with the same event and description at that level is
+updated in place; otherwise it is appended. The running session picks the hook
+up immediately, and a project or local hook you approve this way extends the
+workspace trust entry so it keeps running after a restart. `create_hook` still
+generates a script for automation that a single command cannot express and
+accepts the same `level`, defaulting to `user` as before.
+
 - Project hooks are never written into `~/.autohand/config.json`. Toggling or editing a project hook from `/hooks` lasts for the session only; change the project file to make it permanent.
 
 #### Workspace trust

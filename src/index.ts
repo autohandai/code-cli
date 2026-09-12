@@ -16,11 +16,13 @@ const requestsProtocolOutput = process.argv.some((arg, index, argv) => (
   || (arg === '--mode' && (argv[index + 1] === 'rpc' || argv[index + 1] === 'acp'))
 ));
 if (process.stdout.isTTY && !requestsStructuredCommandOutput && !requestsProtocolOutput) {
+  // The agent later replaces this with the session name and state; see ui/terminalTitle.ts.
   process.stdout.write('\x1b]0;Autohand Code\x07');
 }
 // Set environment variable for detection by Expect and other tools
 process.env.AUTOHAND_CODE = '1';
 import 'dotenv/config';
+import { startupTimeline } from './startup/startupTimeline.js';
 import { Command, Option } from 'commander';
 import chalk from 'chalk';
 import fs from 'fs-extra';
@@ -1353,6 +1355,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       loadConfig(options.config, resolveRequestedWorkspaceRoot(options.path)),
       commandLifecycleController.signal,
     );
+    startupTimeline.mark('config loaded');
     if (options.bare) {
       config = await awaitCliLifecycleStep(
         prepareBareModeConfig(config, options),
@@ -1617,6 +1620,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
           runStartupChecks(workspaceRoot),
           commandLifecycleController.signal,
         );
+        startupTimeline.mark('startup checks (git, tools)');
         if (!structuredOutput) {
           printStartupCheckResults(checkResults);
         }
@@ -1815,6 +1819,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
     }
     agent = new AutohandAgent(llmProvider, files, runtime);
     agentHolder.current = agent;
+    startupTimeline.mark('agent constructed');
     if (commandLifecycleController.signal.aborted) {
       agent.requestExit();
       return;

@@ -11,6 +11,7 @@ import { BaseUIManager, type UIManager } from './UIManager.js';
 import { InkRenderer, type InkRendererOptions } from './ink/InkRenderer.js';
 import type { SlashCommand } from '../core/slashCommandTypes.js';
 import type { SkillMentionInfo } from './mentionFilter.js';
+import type { MessageTarget } from './messageTargets.js';
 import type { ExtensionKeybinding } from '../extensions/ExtensionRuntimeHost.js';
 import type { ResolvedKeybindings } from '../keybindings/profiles.js';
 import type { AgentUILineExtensions, TipLineState } from './ink/AgentUI.js';
@@ -20,6 +21,7 @@ import type { TaskListPosition } from '../types.js';
 
 export interface InkUIManagerOptions {
   onInstruction: (text: string) => void;
+  onSteer?: (text: string) => void;
   onEscape: () => void;
   onCtrlC: () => void;
   onDismissAnnouncement?: (id: string) => void;
@@ -28,6 +30,7 @@ export interface InkUIManagerOptions {
   filesProvider?: () => string[];
   slashCommands?: SlashCommand[];
   skillsProvider?: () => SkillMentionInfo[];
+  messageTargetsProvider?: () => MessageTarget[];
   workspaceRoot?: string;
   suggestionProvider?: () => string | undefined;
   resolveShellSuggestion?: (input: string) => Promise<string | null>;

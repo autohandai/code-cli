@@ -14,6 +14,12 @@ export interface GitIgnoreFilter {
 export class GitIgnoreParser implements GitIgnoreFilter {
   private readonly projectRoot: string;
   private cache: Map<string, string[]> = new Map();
+  /**
+   * Compiled matcher per directory. A workspace scan asks about every file,
+   * and files share directories, so the matcher for a directory is built
+   * once instead of once per file.
+   */
+  private readonly compiled: Map<string, ReturnType<typeof ignore>> = new Map();
   private globalPatterns: string[] | undefined;
   private processedExtraPatterns: string[] = [];
 
@@ -40,6 +46,13 @@ export class GitIgnoreParser implements GitIgnoreFilter {
     }
 
     const normalizedPath = relativePath.replace(/\\/g, '/');
+    return this.matcherFor(path.dirname(relativePath)).ignores(normalizedPath);
+  }
+
+  private matcherFor(relativeDir: string): ReturnType<typeof ignore> {
+    const key = relativeDir === '.' ? '' : relativeDir;
+    const cached = this.compiled.get(key);
+    if (cached) return cached;
 
     const ig = ignore();
     ig.add('.git');
@@ -52,11 +65,11 @@ export class GitIgnoreParser implements GitIgnoreFilter {
     }
     ig.add(this.globalPatterns);
 
-    const pathParts = relativePath.split(path.sep);
+    const pathParts = key ? key.split(path.sep) : [];
     const dirsToVisit: string[] = [];
     let current = this.projectRoot;
     dirsToVisit.push(current);
-    for (let i = 0; i < pathParts.length - 1; i++) {
+    for (let i = 0; i < pathParts.length; i++) {
       current = path.join(current, pathParts[i]);
       dirsToVisit.push(current);
     }
@@ -87,9 +100,9 @@ export class GitIgnoreParser implements GitIgnoreFilter {
       }
     }
 
-   ig.add(this.processedExtraPatterns);
-
-    return ig.ignores(normalizedPath);
+    ig.add(this.processedExtraPatterns);
+    this.compiled.set(key, ig);
+    return ig;
   }
 
   private loadPatternsForFile(patternsFilePath: string): string[] {

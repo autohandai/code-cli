@@ -464,6 +464,14 @@ export class HookManager {
   }
 
   /**
+   * Replace the in-memory settings with a freshly merged set without
+   * persisting; the caller already wrote the file that changed.
+   */
+  replaceSettings(settings: HooksSettings): void {
+    this.settings = normalizeHooksSettings(settings) ?? { enabled: true, hooks: [] };
+  }
+
+  /**
    * Add a new hook
    */
   async addHook(hook: HookDefinition): Promise<void> {

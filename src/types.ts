@@ -1488,7 +1488,19 @@ export type BrowserFormAssignment =
 
 export type AgentAction =
   | { type: 'list_hooks' }
-  | { type: 'create_hook'; prompt: string; event?: HookEvent }
+  | { type: 'create_hook'; prompt: string; event?: HookEvent; level?: string }
+  | {
+      type: 'set_lifecycle_hook';
+      event: HookEvent;
+      command: string;
+      description: string;
+      level?: string;
+      filter?: HookFilter;
+      matcher?: string;
+      timeout?: number;
+      async?: boolean;
+      enabled?: boolean;
+    }
   | { type: 'set_hook_enabled'; event: HookEvent; index: number; enabled: boolean }
   | { type: 'read_file'; path: string; offset?: number; limit?: number }
   | { type: 'write_file'; path: string; contents?: string; content?: string }

@@ -33,7 +33,7 @@ describe('/rename', () => {
       sessionManager: { getCurrentSession: () => ({ metadata: {} }), renameCurrentSession } as never,
     }, ['Caret', 'fix']);
 
-    expect(renameCurrentSession).toHaveBeenCalledWith('Caret fix');
+    expect(renameCurrentSession).toHaveBeenCalledWith('Caret fix', { source: 'user' });
     expect(logs.lines).toContain('Session renamed to "Caret fix".');
     logs.restore();
   });

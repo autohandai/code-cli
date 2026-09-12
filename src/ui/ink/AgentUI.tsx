@@ -18,6 +18,8 @@ import { ThinkingOutput } from './ThinkingOutput.js';
 import { FileMentionDropdown, parseFileSuggestions, matchFileMention, type FileMentionSuggestion } from './FileMentionDropdown.js';
 import { SlashCommandDropdown, matchSlashCommand, buildSlashSuggestions, buildSubcommandSuggestions, type SlashCommandSuggestion } from './SlashCommandDropdown.js';
 import { SkillMentionDropdown, matchSkillMention, buildSkillSuggestions, type SkillSuggestion } from './SkillMentionDropdown.js';
+import { MessageTargetDropdown } from './MessageTargetDropdown.js';
+import { buildTargetSuggestions, matchTargetMention, type MessageTarget, type MessageTargetSuggestion } from '../messageTargets.js';
 import type { SlashCommand } from '../../core/slashCommandTypes.js';
 import type { ExtensionKeybinding } from '../../extensions/ExtensionRuntimeHost.js';
 import type { SkillMentionInfo } from '../mentionFilter.js';
@@ -224,6 +226,8 @@ export interface AgentUIProps {
   state: AgentUIState;
   typedMessageHistory?: TypedMessageHistory;
   onInstruction: (text: string) => void;
+  /** Sends the composer text into the running turn (Shift+Enter while working). */
+  onSteer?: (text: string) => void;
   onEscape: () => void;
   onCtrlC: () => void;
   /** Dismiss the currently rendered announcement without changing composer input. */
@@ -248,6 +252,8 @@ export interface AgentUIProps {
   slashCommands?: SlashCommand[];
   /** Provider for skills used in $ mention autocomplete */
   skillsProvider?: () => SkillMentionInfo[];
+  /** Actors the user can address with `:alias`: running sub-agents, teammates, peers. */
+  messageTargetsProvider?: () => MessageTarget[];
   /** Base path used for shell path completion. Defaults to process.cwd(). */
   workspaceRoot?: string;
   /** Lazy provider for the model-generated empty-input next-prompt suggestion. */
@@ -550,7 +556,7 @@ export function getTextBufferCursorOffset(buffer: TextBuffer): number {
   return offset + Array.from(cursorLine).slice(0, col).join('').length;
 }
 
-const COMPOSER_TRIGGER_CHARS = new Set(['/', '@', '$', '!', '#']);
+const COMPOSER_TRIGGER_CHARS = new Set(['/', '@', '$', '!', '#', ':']);
 const INVISIBLE_OR_WHITESPACE_RE = /[\s\u200B-\u200D\uFEFF]/u;
 
 function compactComposerTriggerText(text: string): string {
@@ -679,6 +685,10 @@ export function clearInkComposerInputForSubmit(
   options.onInputChange?.('');
 }
 
+export function isShiftEnterKey(input: string, key: InkKey): boolean {
+  return (key.return && key.shift === true) || isShiftEnterResidualSequence(input);
+}
+
 export function handleInkTextBufferInput(
   buffer: TextBuffer,
   input: string,
@@ -781,6 +791,7 @@ export function AgentUI({
   state,
   typedMessageHistory,
   onInstruction,
+  onSteer,
   onEscape,
   onCtrlC,
   onDismissAnnouncement,
@@ -797,6 +808,7 @@ export function AgentUI({
   filesProvider,
   slashCommands: slashCommandProps,
   skillsProvider,
+  messageTargetsProvider,
   workspaceRoot,
   suggestionProvider,
   lineExtensions,
@@ -859,6 +871,11 @@ export function AgentUI({
   const [skillActiveIndex, setSkillActiveIndex] = useState(0);
   const [skillVisible, setSkillVisible] = useState(false);
   const skillStartIndexRef = useRef<number | null>(null);
+  // Message target (:) mention autocomplete state
+  const [targetSuggestions, setTargetSuggestions] = useState<MessageTargetSuggestion[]>([]);
+  const [targetActiveIndex, setTargetActiveIndex] = useState(0);
+  const [targetVisible, setTargetVisible] = useState(false);
+  const targetStartIndexRef = useRef<number | null>(null);
   const textBufferRef = useRef<TextBuffer>(
     new TextBuffer(
       getInkTextBufferViewportWidth(process.stdout.columns),
@@ -939,6 +956,8 @@ export function AgentUI({
   const onEditGoalObjectiveRef = useRef(onEditGoalObjective);
   onEditGoalObjectiveRef.current = onEditGoalObjective;
   const onInstructionRef = useRef(onInstruction);
+  const onSteerRef = useRef(onSteer);
+  onSteerRef.current = onSteer;
   onInstructionRef.current = onInstruction;
   const onInputChangeRef = useRef(onInputChange);
   onInputChangeRef.current = onInputChange;
@@ -995,6 +1014,14 @@ export function AgentUI({
   skillSuggestionsRef.current = skillSuggestions;
   const skillActiveIndexRef = useRef(skillActiveIndex);
   skillActiveIndexRef.current = skillActiveIndex;
+  const messageTargetsProviderRef = useRef(messageTargetsProvider);
+  messageTargetsProviderRef.current = messageTargetsProvider;
+  const targetVisibleRef = useRef(targetVisible);
+  targetVisibleRef.current = targetVisible;
+  const targetSuggestionsRef = useRef(targetSuggestions);
+  targetSuggestionsRef.current = targetSuggestions;
+  const targetActiveIndexRef = useRef(targetActiveIndex);
+  targetActiveIndexRef.current = targetActiveIndex;
   // The TextBuffer is the keystroke source of truth. Sync it into React and
   // the renderer owner immediately so pause/resume, submit, and external
   // status updates cannot observe a stale composer draft.
@@ -1057,6 +1084,12 @@ export function AgentUI({
     setSkillVisible(false);
     setSkillSuggestions([]);
 
+    targetVisibleRef.current = false;
+    targetSuggestionsRef.current = [];
+    targetStartIndexRef.current = null;
+    setTargetVisible(false);
+    setTargetSuggestions([]);
+
     fileMentionVisibleRef.current = false;
     fileMentionSuggestionsRef.current = [];
     fileMentionStartIndexRef.current = null;
@@ -1116,6 +1149,25 @@ export function AgentUI({
       setSlashSuggestions([]);
       slashStartIndexRef.current = null;
       slashFullMatchRef.current = null;
+      return true;
+    }
+
+    if (targetVisibleRef.current && targetSuggestionsRef.current.length > 0 && targetStartIndexRef.current !== null) {
+      const suggestion = targetSuggestionsRef.current[targetActiveIndexRef.current];
+      if (!suggestion) {
+        return false;
+      }
+
+      const buffer = textBufferRef.current;
+      const currentText = buffer.getText();
+      const beforeMention = currentText.slice(0, targetStartIndexRef.current);
+      const afterCursor = currentText.slice(getTextBufferCursorOffset(buffer));
+      buffer.setText(`${beforeMention}${suggestion.alias} ${afterCursor}`);
+      syncInputFromBuffer();
+
+      setTargetVisible(false);
+      setTargetSuggestions([]);
+      targetStartIndexRef.current = null;
       return true;
     }
 
@@ -1464,6 +1516,45 @@ export function AgentUI({
     setSkillActiveIndex(prev => Math.min(prev, suggestions.length - 1));
   }, [input, cursorOffset]);
 
+  // Update message target (:) suggestions when input changes
+  useEffect(() => {
+    if (historyNavigationRef.current) return;
+    const provider = messageTargetsProviderRef.current;
+    const hide = () => {
+      if (targetVisibleRef.current) {
+        setTargetVisible(false);
+        setTargetSuggestions([]);
+        targetStartIndexRef.current = null;
+      }
+    };
+    if (!provider) {
+      hide();
+      return;
+    }
+
+    const buffer = textBufferRef.current;
+    if (input !== buffer.getText() || cursorOffset !== getTextBufferCursorOffset(buffer)) {
+      return;
+    }
+
+    const mention = matchTargetMention(input, cursorOffset);
+    if (!mention) {
+      hide();
+      return;
+    }
+
+    const suggestions = buildTargetSuggestions(mention.seed, provider());
+    if (suggestions.length === 0) {
+      hide();
+      return;
+    }
+
+    targetStartIndexRef.current = mention.startIndex;
+    setTargetSuggestions(suggestions);
+    setTargetVisible(true);
+    setTargetActiveIndex(prev => Math.min(prev, suggestions.length - 1));
+  }, [input, cursorOffset]);
+
   // Stable input handler that reads mutable values from refs.
   // Empty dependency array means useInput never re-registers, eliminating
   // a major source of flicker during rapid keystrokes.
@@ -1614,7 +1705,7 @@ export function AgentUI({
     // Handle escape - cancel current operation
     if (key.escape) {
       // Close any open dropdowns/menus first before calling onEscape
-      if (slashVisibleRef.current || skillVisibleRef.current || fileMentionVisibleRef.current) {
+      if (slashVisibleRef.current || skillVisibleRef.current || targetVisibleRef.current || fileMentionVisibleRef.current) {
         dismissAutocompleteState();
         if (clearBareComposerTrigger(textBufferRef.current)) {
           syncInputFromBuffer();
@@ -1819,6 +1910,19 @@ export function AgentUI({
         );
         return;
       }
+    } else if (targetVisibleRef.current && targetSuggestionsRef.current.length > 0) {
+      if (key.upArrow) {
+        setTargetActiveIndex(prev =>
+          prev > 0 ? prev - 1 : targetSuggestionsRef.current.length - 1
+        );
+        return;
+      }
+      if (key.downArrow) {
+        setTargetActiveIndex(prev =>
+          prev < targetSuggestionsRef.current.length - 1 ? prev + 1 : 0
+        );
+        return;
+      }
     } else if (skillVisibleRef.current && skillSuggestionsRef.current.length > 0) {
       if (key.upArrow) {
         setSkillActiveIndex(prev =>
@@ -1976,6 +2080,23 @@ export function AgentUI({
 
     const buffer = textBufferRef.current;
     const textBeforeKey = buffer.getText();
+    // Shift+Enter during a turn steers it; when idle it still inserts a newline.
+    if (
+      isWorkingRef.current
+      && enableQueueInputRef.current
+      && onSteerRef.current
+      && isShiftEnterKey(char, key)
+      && textBeforeKey.trim().length > 0
+    ) {
+      const steered = textBeforeKey;
+      buffer.setText('');
+      clearInkHiddenPastes(pasteStateRef.current);
+      dismissAutocompleteState();
+      syncInputFromBuffer();
+      setCtrlCCount(0);
+      onSteerRef.current(steered);
+      return;
+    }
     const result = handleInkTextBufferInput(buffer, char, key, activeKeybindings);
     if (buffer.getText() !== textBeforeKey) historyNavigationRef.current = null;
 
@@ -2194,6 +2315,30 @@ export function AgentUI({
           skillStartIndexRef.current = null;
           setSkillVisible(false);
           setSkillSuggestions([]);
+        }
+      }
+
+      const targetProvider = messageTargetsProviderRef.current;
+      if (targetProvider) {
+        const hideTargets = () => {
+          targetVisibleRef.current = false;
+          targetSuggestionsRef.current = [];
+          targetStartIndexRef.current = null;
+          setTargetVisible(false);
+          setTargetSuggestions([]);
+        };
+        const targetMention = matchTargetMention(currentText, currentOffset);
+        const targetSuggs = targetMention ? buildTargetSuggestions(targetMention.seed, targetProvider()) : [];
+        if (targetMention && targetSuggs.length > 0) {
+          targetStartIndexRef.current = targetMention.startIndex;
+          targetSuggestionsRef.current = targetSuggs;
+          targetVisibleRef.current = true;
+          targetActiveIndexRef.current = Math.min(targetActiveIndexRef.current, targetSuggs.length - 1);
+          setTargetSuggestions(targetSuggs);
+          setTargetVisible(true);
+          setTargetActiveIndex(prev => Math.min(prev, targetSuggs.length - 1));
+        } else if (targetVisibleRef.current) {
+          hideTargets();
         }
       }
       return;
@@ -2448,6 +2593,13 @@ export function AgentUI({
             suggestions={skillSuggestions}
             activeIndex={skillActiveIndex}
             visible={skillVisible && !state.isWorking}
+          />
+        }
+        messageTargetDropdown={
+          <MessageTargetDropdown
+            suggestions={targetSuggestions}
+            activeIndex={targetActiveIndex}
+            visible={targetVisible}
           />
         }
         slashCommandDropdown={
@@ -3172,15 +3324,27 @@ const SlashCommandWrapper = memo(function SlashCommandWrapper({
  */
 interface SkillMentionWrapperProps {
   skillMentionDropdown?: React.ReactNode;
+  messageTargetDropdown?: React.ReactNode;
 }
 
 const SkillMentionWrapper = memo(function SkillMentionWrapper({
   skillMentionDropdown,
+  messageTargetDropdown,
 }: SkillMentionWrapperProps) {
   return skillMentionDropdown ?? null;
 }, (prev, next) => {
   return prev.skillMentionDropdown === next.skillMentionDropdown;
 });
+
+interface MessageTargetWrapperProps {
+  messageTargetDropdown?: React.ReactNode;
+}
+
+const MessageTargetWrapper = memo(function MessageTargetWrapper({
+  messageTargetDropdown,
+}: MessageTargetWrapperProps) {
+  return messageTargetDropdown ?? null;
+}, (prev, next) => prev.messageTargetDropdown === next.messageTargetDropdown);
 
 /**
  * Fixed bottom section - status line, queue, input
@@ -3221,6 +3385,7 @@ interface FixedBottomProps {
   fileMentionDropdown?: React.ReactNode;
   slashCommandDropdown?: React.ReactNode;
   skillMentionDropdown?: React.ReactNode;
+  messageTargetDropdown?: React.ReactNode;
   /** Terminal width for InputLine */
   inputWidth: number;
   /** Border style for the input box */
@@ -3334,6 +3499,7 @@ const FixedBottom = memo(function FixedBottom({
   fileMentionDropdown,
   slashCommandDropdown,
   skillMentionDropdown,
+  messageTargetDropdown,
   inputWidth,
   borderStyle,
   placeholderText,
@@ -3412,6 +3578,7 @@ const FixedBottom = memo(function FixedBottom({
       <FileMentionWrapper fileMentionDropdown={fileMentionDropdown} />
       <SlashCommandWrapper slashCommandDropdown={slashCommandDropdown} />
       <SkillMentionWrapper skillMentionDropdown={skillMentionDropdown} />
+      <MessageTargetWrapper messageTargetDropdown={messageTargetDropdown} />
       <ShortcutsHelpPanel visible={showShortcuts && !isWorking} keybindings={keybindings} />
       <HelpLineSection
         isWorking={isWorking}

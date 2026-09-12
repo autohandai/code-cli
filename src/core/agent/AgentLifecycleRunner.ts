@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { isStartupTimingEnabled, startupTimeline } from '../../startup/startupTimeline.js';
+import { autoNameAgentSessionFromInstruction, refineAgentSessionTitle, syncAgentTerminalTitleName } from './AgentSessionTitle.js';
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -813,6 +815,7 @@ export async function performAgentBackgroundInit(
       // Phase 1: Parallel manager initialization
       await awaitLifecycleStep(Promise.resolve(host.initializeManagers()), signal);
       if (isRuntimeResourceShutdownStarted(host)) return;
+      startupTimeline.mark('managers ready (sessions, memory, skills, hooks, workspace files)');
 
       // Fire MCP connections in background (non-blocking, like Claude Code).
       // Servers connect asynchronously; tools become available once ready.
@@ -852,6 +855,7 @@ export async function performAgentBackgroundInit(
         host.sessionManager.createSession(host.runtime.workspaceRoot, model),
       ]), signal);
       if (isRuntimeResourceShutdownStarted(host)) return;
+      syncAgentTerminalTitleName(host);
       await awaitLifecycleStep(startHostActiveAgentHeartbeat(host), signal);
       if (isRuntimeResourceShutdownStarted(host)) return;
 
@@ -882,6 +886,7 @@ export async function performAgentBackgroundInit(
       }
     } finally {
       host.initDone = true;
+      startupTimeline.mark('background init done (system prompt, session, bootstrap)');
     }
   }
 
@@ -937,6 +942,11 @@ export async function ensureAgentInitComplete(
       throw error;
     } finally {
       if (waitStatus) host.ui?.setWorking?.(false);
+      const gate = startupTimeline.mark('first turn released');
+      host.writeDebugLine?.(`[DEBUG] first turn waited ${Math.round(gate.delta)} ms on startup init`);
+      if (isStartupTimingEnabled() && gate.delta >= 1_000) {
+        host.inkRenderer?.addNotification?.(`Startup timing: the first turn waited ${Math.round(gate.delta)} ms for background init (${waitStatus ?? 'init'}).`);
+      }
     }
   }
 
@@ -1528,6 +1538,10 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
       }
       // Set to idle state so the Composer accepts input immediately
       host.setComposerIdle();
+      startupTimeline.mark('composer ready');
+      if (isStartupTimingEnabled()) {
+        host.inkRenderer?.addNotification?.(startupTimeline.format());
+      }
       host.inkRenderer?.setPendingSuggestion?.(host.pendingSuggestion ?? undefined);
     }
 
@@ -1800,6 +1814,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         }
 
         const turnStartTime = Date.now();
+        await autoNameAgentSessionFromInstruction(host, instruction);
         const turnSucceeded = await executeAgentInstructionTurn(host, instruction, {
           ...(executionPolicy ? { executionPolicy } : {}),
           ...(mobileTurn ? { mobileTurn } : {}),
@@ -1850,6 +1865,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
           host.persistentInput.setPendingSuggestion(host.pendingSuggestion);
           host.inkRenderer?.setPendingSuggestion?.(host.pendingSuggestion);
         }
+        void refineAgentSessionTitle(host, host.runtimeResourceShutdownController?.signal);
 
         // Fire stop hook after turn completes (non-blocking)
         const turnDuration = Date.now() - turnStartTime;

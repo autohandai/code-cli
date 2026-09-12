@@ -15,6 +15,7 @@ export const metadata: SlashCommand = {
 
 export interface RenameContext {
   sessionManager: SessionManager;
+  onRenamed?: () => void;
 }
 
 export async function rename(ctx: RenameContext, args: string[] = []): Promise<string | null> {
@@ -35,7 +36,8 @@ export async function rename(ctx: RenameContext, args: string[] = []): Promise<s
   }
 
   try {
-    const renamed = await ctx.sessionManager.renameCurrentSession(requested);
+    const renamed = await ctx.sessionManager.renameCurrentSession(requested, { source: 'user' });
+    ctx.onRenamed?.();
     console.log(chalk.green(`Session renamed to "${renamed.title}".`));
   } catch (error) {
     console.log(chalk.red(error instanceof Error ? error.message : String(error)));

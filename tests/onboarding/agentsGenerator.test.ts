@@ -18,6 +18,8 @@ describe('AgentsGenerator', () => {
       expect(content).toContain('## Instruction Sources');
       expect(content).toContain('## Code Style');
       expect(content).toContain('## Constraints');
+      expect(content).toContain('## Definition of Done');
+      expect(content).toContain('Run the tests and the linter listed above');
     });
 
     it('should include language in project overview', () => {
