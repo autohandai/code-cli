@@ -1046,6 +1046,8 @@ Control agent behavior and iteration limits.
 | `goalAutoMode`       | boolean | `true`  | Put the session in auto mode while a goal is active (autonomous turns, no tool approval prompts) |
 | `idleLogoutEnabled`  | boolean | `true`  | End authenticated interactive sessions after the idle timeout                  |
 | `idleTimeoutMs`      | number  | `14400000` | Milliseconds of inactivity before ending an authenticated session (4 hours)   |
+| `sessionRetryLimit`  | number  | `3`     | Times a failed turn is re-run after a retryable error before the turn is reported as failed |
+| `sessionRetryDelay`  | number  | unset   | Milliseconds before the first re-run, growing 1.5× per attempt. When unset, provider outages (5xx, network, timeout) wait 5 s, 15 s, 45 s and other errors 1 s, 1.5 s, 2.25 s; a provider retry-after always wins |
 | `debug`              | boolean | `false` | Enable verbose debug output (logs agent internal state to stderr)              |
 
 ## Concurrent Session Awareness

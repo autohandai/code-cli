@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import type { HookManager, HookExecutionResult } from '../HookManager.js';
 import { ProviderNotConfiguredError } from '../../providers/ProviderFactory.js';
 import { ApiError } from '../../providers/errors.js';
+import { formatRecoveryWait, resolveSessionRecoveryDelay } from './sessionRecoveryDelay.js';
 import {
   checkAndPromptForDirectoryPermissions,
   type DirectoryPermissionOptions,
@@ -557,7 +558,7 @@ export class InstructionRunner {
         let err = error instanceof Error ? error : new Error(String(error));
         const encounteredProviderFailure = err instanceof ApiError || host.isRetryableSessionError(err);
         const maxRetries = host.runtime.config.agent?.sessionRetryLimit ?? 3;
-        const baseDelay = host.runtime.config.agent?.sessionRetryDelay ?? 1000;
+        const configuredDelayMs = host.runtime.config.agent?.sessionRetryDelay;
 
         while (host.isRetryableSessionError(err) && host.sessionRetryCount < maxRetries) {
           host.sessionRetryCount++;
@@ -566,15 +567,13 @@ export class InstructionRunner {
             autoReport: false,
           });
 
+          // Provider outages back off from seconds, not milliseconds: the
+          // client already retried the request itself before the turn failed.
+          const delay = resolveSessionRecoveryDelay({ attempt: host.sessionRetryCount, error: err, configuredDelayMs });
+
           // Show retry message to user
           console.log(chalk.yellow(`\n⚠ Session encountered an error: ${err.message}`));
-          console.log(chalk.cyan(`  Attempting recovery (${host.sessionRetryCount}/${maxRetries})...`));
-
-          // Wait with exponential backoff (1.5x multiplier)
-          const delay = Math.max(
-            baseDelay * Math.pow(1.5, host.sessionRetryCount - 1),
-            err instanceof ApiError ? err.retryAfterMs ?? 0 : 0
-          );
+          console.log(chalk.cyan(`  Attempting recovery (${host.sessionRetryCount}/${maxRetries}) in ${formatRecoveryWait(delay)}...`));
           await host.sleep(delay);
           if (abortController.signal.aborted) {
             return false;
