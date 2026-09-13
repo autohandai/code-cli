@@ -71,6 +71,32 @@ You can also override the base directory:
 export AUTOHAND_HOME=/custom/path  # Changes ~/.autohand to /custom/path
 ```
 
+### Profiles and One-Run Overrides
+
+A profile is a partial config stored under `profiles.<name>` and selected with `--profile <name>`. `--set key=value` overrides one setting with a dotted path; repeat it for several. Values are parsed as JSON when they parse (`true`, `50`, `["a","b"]`) and kept as text otherwise.
+
+```json
+{
+  "provider": "openrouter",
+  "profiles": {
+    "review": {
+      "provider": "autohandai",
+      "autohandai": { "model": "moa" },
+      "permissions": { "mode": "restricted" },
+      "ui": { "showThinking": true }
+    }
+  }
+}
+```
+
+```bash
+autohand --profile review
+autohand --set ui.theme=aurora --set agent.maxIterations=50
+autohand doctor --profile review --json
+```
+
+Precedence, lowest first: config file, workspace `.autohand` overlays, environment variables, profile, `--set`. Both layers exist for the run only: nothing is written to the config file, and a save triggered during the run (for example by `/model` or `/theme`) restores the file's own value under every layered path unless you changed that setting during the run, in which case your change is kept. Neither a profile nor `--set` can touch `auth` or `profiles`. An unknown profile name stops startup with the list of defined profiles.
+
 ---
 
 ## Environment Variables
@@ -2510,6 +2536,8 @@ These flags override config file settings:
 | `-d, --debug`                 | Enable verbose debug output                                                                    |
 | `--bare`                      | Minimal explicit mode; also sets `AUTOHAND_CODE_SIMPLE=1` and disables slash commands          |
 | `--ephemeral`                 | Keep the run out of session history: no session directory or index entry, no automatic memory extraction, no session sync. Files the agent writes in the workspace are unaffected. Cannot be combined with `--resume` or `--fork` |
+| `--profile <name>`            | Layer `profiles.<name>` from the config onto this run; see [Profiles and One-Run Overrides](#profiles-and-one-run-overrides) |
+| `--set <key=value>`           | Override one setting for this run by dotted path; repeatable; never saved                       |
 | `--answer-only`               | Classified Blueprint answer RPC profile; requires RPC, restricted, and Blueprint context       |
 | `--setup-only`                | Scoped Autohand device-auth RPC profile; mutually exclusive with `--answer-only`                |
 | `--client-context <context>`  | Typed RPC client context: `vscode`, `chrome`, or `blueprint`                                    |

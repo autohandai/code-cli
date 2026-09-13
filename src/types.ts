@@ -451,6 +451,22 @@ export interface PermissionSettings {
   rememberSession?: boolean;
 }
 
+/** A partial config a profile layers on top of the file for one run. */
+export type ConfigProfile = Partial<Omit<AutohandConfig, 'profiles' | 'auth'>>;
+
+export interface RunConfigOverlayEntry {
+  path: string[];
+  applied: unknown;
+  hadBase: boolean;
+  base?: unknown;
+}
+
+/** Runtime-only record of the profile and `--set` values layered at load time. */
+export interface RunConfigOverlaySnapshot {
+  profile?: string;
+  entries: RunConfigOverlayEntry[];
+}
+
 export interface ShellSettings {
   /** Environment inherited by commands Autohand runs; see docs/config-reference.md. */
   env?: {
@@ -945,6 +961,8 @@ export interface AutohandConfig {
   network?: NetworkSettings;
   /** Child-process controls for shell tools and `!` commands. */
   shell?: ShellSettings;
+  /** Named run profiles selected with `--profile <name>`; each is a partial config layered for that run only. */
+  profiles?: Record<string, ConfigProfile>;
   externalAgents?: ExternalAgentsConfig;
   api?: {
     baseUrl?: string;
@@ -1019,6 +1037,12 @@ export interface LoadedConfig extends AutohandConfig {
    * Never persisted.
    */
   workspaceTrust?: WorkspaceTrustState;
+  /**
+   * Runtime-only record of the `--profile` and `--set` values layered at load
+   * time. `saveConfig` restores the file's own values under those paths unless
+   * the user changed them during the run. Never persisted.
+   */
+  runOverlay?: RunConfigOverlaySnapshot;
 }
 
 /** Whether a workspace's project hooks and MCP servers may run. */
@@ -1119,6 +1143,10 @@ export interface CLIOptions {
   resumeSessionId?: string;
   /** Keep this run out of session history: nothing saved, no auto-memory, no session sync. */
   ephemeral?: boolean;
+  /** --profile: layer `profiles.<name>` from the config for this run only. */
+  profile?: string;
+  /** --set key=value overrides for this run only. */
+  set?: string[];
   /** Name the workspace's most recent session and exit. */
   rename?: string;
   /** Run in unrestricted mode - no approval prompts */

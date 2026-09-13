@@ -2,7 +2,7 @@
 
 Reviewed: 2026-09-05. Revised: 2026-09-13 (second revision).
 
-At the original review, the Autohand worktree supported **11 of these capabilities partially** and lacked **9 as native capabilities**. As of the second revision (updated the same day after items 3, 10, 13, and 17 landed), **6 are implemented** (items 2, 3, 10, 13, 14, and 17), **8 are partial**, and **6 are missing**. Codex did not stand still: one stable release and roughly 380 main-branch commits landed since the pin, and they touched twelve of the twenty items. The proposals below focus on the remaining behavior, rather than counting differently named equivalents as absent.
+At the original review, the Autohand worktree supported **11 of these capabilities partially** and lacked **9 as native capabilities**. As of the second revision (updated on 2026-09-13 and 2026-09-14 as items 3, 4, 10, 13, and 17 landed), **8 are implemented** (items 2, 3, 4, 5, 10, 13, 14, and 17), **6 are partial**, and **6 are missing**. Codex did not stand still: one stable release and roughly 380 main-branch commits landed since the pin, and they touched twelve of the twenty items. The proposals below focus on the remaining behavior, rather than counting differently named equivalents as absent.
 
 ## Evidence and scope
 
@@ -24,8 +24,8 @@ The order balances everyday usefulness, reuse of existing modules, and strategic
 | 1 | [Schema-validated command results](#1-schema-validated-command-results) | Partial | Both | M |
 | 2 | [Resume latest session and CLI session picker](#2-resume-latest-session-and-cli-session-picker) | Implemented | Both | S |
 | 3 | [Tool allowlists and denylists at launch](#3-tool-allowlists-and-denylists-at-launch) | Implemented | Claude doc | M |
-| 4 | [Ephemeral full-agent sessions](#4-ephemeral-full-agent-sessions) | Partial | Both | M |
-| 5 | [Named local run profiles and temporary config overrides](#5-named-local-run-profiles-and-temporary-config-overrides) | Partial | Codex | M |
+| 4 | [Ephemeral full-agent sessions](#4-ephemeral-full-agent-sessions) | Implemented | Both | M |
+| 5 | [Named local run profiles and temporary config overrides](#5-named-local-run-profiles-and-temporary-config-overrides) | Implemented | Codex | M |
 | 6 | [OAuth login for remote MCP servers](#6-oauth-login-for-remote-mcp-servers) | Missing | Codex | L |
 | 7 | [OS-enforced command sandbox](#7-os-enforced-command-sandbox) | Missing | Codex | XL |
 | 8 | [Enforced network egress policy](#8-enforced-network-egress-policy) | Missing | Codex | L |
@@ -42,7 +42,7 @@ The order balances everyday usefulness, reuse of existing modules, and strategic
 | 19 | [MCP elicitation and interactive server requests](#19-mcp-elicitation-and-interactive-server-requests) | Missing | Codex | M |
 | 20 | [Native image generation and editing](#20-native-image-generation-and-editing) | Missing | Codex | L |
 
-Items **2, 3, 10, 13, 14, and 17** are implemented. Continue with **1, 4, and 5** for the first delivery sequence: they build on existing output, session, permission, and config infrastructure. Plan **7–10** together as the execution-security milestone; network restrictions need real enforcement, and managed policy must survive CLI and runtime overrides. Prioritize **6, 12, and 19** when integration adoption is the immediate goal; Codex moved on all three since the pin, so the distance is growing there rather than shrinking.
+Items **2, 3, 4, 5, 10, 13, 14, and 17** are implemented. Continue with **1** for the first delivery sequence: they build on existing output, session, permission, and config infrastructure. Plan **7–10** together as the execution-security milestone; network restrictions need real enforcement, and managed policy must survive CLI and runtime overrides. Prioritize **6, 12, and 19** when integration adoption is the immediate goal; Codex moved on all three since the pin, so the distance is growing there rather than shrinking.
 
 ## Implementation detail
 
@@ -80,7 +80,9 @@ Items **2, 3, 10, 13, 14, and 17** are implemented. Continue with **1, 4, and 5*
 
 ### 4. Ephemeral full-agent sessions
 
-**Current evidence:** Normal sessions create directories, save metadata, and update the index. `--bare` still initializes sessions; Blueprint's tool-free RPC profile already avoids session persistence. Owning code: [src/session/SessionManager.ts:109](../src/session/SessionManager.ts#L109), [src/core/agent/AgentLifecycleRunner.ts:717](../src/core/agent/AgentLifecycleRunner.ts#L717), [src/modes/rpc/types.ts:88](../src/modes/rpc/types.ts#L88).
+**Status:** Implemented on 2026-09-14. `autohand --ephemeral` runs a normal tool-using session whose transcript, metadata, state, and usage live in memory only: no session directory, no index entry, no automatic memory extraction, no session sync, while workspace files the agent writes are unaffected. It is refused together with `--resume` or `--fork`. RPC forwards the flag; ACP passes it through its runtime options. Owning code: [session manager](../src/session/SessionManager.ts), [composer](../src/core/agent/AgentDependencyComposer.ts), [flag](../src/index.ts). Validation: [unit](../tests/session/ephemeralSessions.test.ts) proving a full lifecycle leaves the sessions directory absent and a shared index untouched, plus a built-CLI Tuistory command-mode run.
+
+**Original evidence:** Normal sessions create directories, save metadata, and update the index. `--bare` still initializes sessions; Blueprint's tool-free RPC profile already avoids session persistence. Owning code: [src/session/SessionManager.ts:109](../src/session/SessionManager.ts#L109), [src/core/agent/AgentLifecycleRunner.ts:717](../src/core/agent/AgentLifecycleRunner.ts#L717), [src/modes/rpc/types.ts:88](../src/modes/rpc/types.ts#L88).
 
 **Comparator:** [Codex ephemeral exec option](https://github.com/openai/codex/blob/ddf04ad26789d040f9ef6a96736f76602e35a6cc/codex-rs/exec/src/cli.rs#L35). Codex promises no persisted session files here, not zero writes of every kind. The proposed Autohand memory/sync contract is an explicit product choice.
 
@@ -90,7 +92,9 @@ Items **2, 3, 10, 13, 14, and 17** are implemented. Continue with **1, 4, and 5*
 
 ### 5. Named local run profiles and temporary config overrides
 
-**Current evidence:** Global/workspace/environment layering and account default-profile sync exist. There is no local named profile selector or generic non-persisted key/value override. Owning code: [src/config.ts:501](../src/config.ts#L501), [src/sync/CodingAgentControlPlane.ts:329](../src/sync/CodingAgentControlPlane.ts#L329), [src/index.ts:255](../src/index.ts#L255).
+**Status:** Implemented on 2026-09-14. `profiles.<name>` in the config holds a partial config; `--profile <name>` layers it onto the run, and repeatable `--set key=value` overrides individual settings by dotted path with JSON-or-text values. Precedence is file, workspace overlays, environment, profile, then `--set`. Both layers are recorded at load time and a save during the run restores the file's own values under every layered path unless the user changed that setting during the run, so `/model` still persists a deliberate choice while the profile never leaks into the file. Neither layer may touch `auth` or `profiles`; an unknown profile stops startup and lists the defined names. The selection is installed by a command hook, so every subcommand and every config load in the process sees it. Owning code: [run overlay](../src/runConfigOverlay.ts), [loader and saver](../src/config.ts), [flags](../src/index.ts), [docs](config-reference.md#profiles-and-one-run-overrides). Validation: [unit](../tests/config/runConfigOverlay.test.ts) including a load-then-save round trip, and a built-CLI Tuistory scenario through `autohand doctor --json`.
+
+**Original evidence:** Global/workspace/environment layering and account default-profile sync exist. There is no local named profile selector or generic non-persisted key/value override. Owning code: [src/config.ts:501](../src/config.ts#L501), [src/sync/CodingAgentControlPlane.ts:329](../src/sync/CodingAgentControlPlane.ts#L329), [src/index.ts:255](../src/index.ts#L255).
 
 **Comparator:** [Codex profiles and overrides](https://learn.chatgpt.com/docs/config-file/config-advanced#profiles). Current Codex uses separate named profile files and one-run config overrides. Autohand can preserve its existing config formats and flag meanings.
 
@@ -260,8 +264,8 @@ Autohand HEAD `4336efd9` versus the worktree audited on 2026-09-05, and Codex ma
 | --- | --- | --- |
 | 2 | Unchanged (implemented). | Resume picker rebuilt on the new TUI stack; read-only resume when another app holds the session; worktree-aware discovery ([#43253](https://github.com/openai/codex/pull/43253)). |
 | 3 | `--allowed-tools` / `--disallowed-tools` implemented (2026-09-13). | Per-thread disabled plugin IDs, persisted and exposed via app-server ([#44332](https://github.com/openai/codex/pull/44332)). |
-| 4 | Unchanged. | "Ephemeral forks" keep the parent's cache affinity ([#44862](https://github.com/openai/codex/pull/44862)). |
-| 5 | Unchanged. | Permission profiles discovered from the app server, remote named selection, and profile precedence over managed defaults ([#44693](https://github.com/openai/codex/pull/44693)). |
+| 4 | `--ephemeral` implemented (2026-09-14). | "Ephemeral forks" keep the parent's cache affinity ([#44862](https://github.com/openai/codex/pull/44862)). |
+| 5 | `--profile` and `--set` implemented (2026-09-14). | Permission profiles discovered from the app server, remote named selection, and profile precedence over managed defaults ([#44693](https://github.com/openai/codex/pull/44693)). |
 | 6 | Unchanged. | Coordinated token refresh, manual callback input, OIDC recovery on 503, OAuth failures shown in MCP status ([#44629](https://github.com/openai/codex/pull/44629)). |
 | 7 | Unchanged. | Windows sandbox adapter shipped in release artifacts, macOS terminal input-injection block, WSL interop escape block ([#44286](https://github.com/openai/codex/pull/44286)). |
 | 8 | Unchanged. | Network approvals tied to the originating execution, proxy credential providers, managed network policy on Windows ([#44872](https://github.com/openai/codex/pull/44872)). |

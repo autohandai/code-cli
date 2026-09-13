@@ -23,6 +23,7 @@ if (process.stdout.isTTY && !requestsStructuredCommandOutput && !requestsProtoco
 process.env.AUTOHAND_CODE = '1';
 import 'dotenv/config';
 import { collectToolPatternOption } from './permissions/cliPolicyMutation.js';
+import { configureRunConfigOverlay } from './runConfigOverlay.js';
 import { startupTimeline } from './startup/startupTimeline.js';
 import { Command, Option } from 'commander';
 import chalk from 'chalk';
@@ -247,6 +248,15 @@ import { isDiscoveryInvocation, registerDiscoveryCommand } from './discovery/cli
 installProcessErrorHandlers();
 
 const program = new Command();
+
+const collectRepeatable = (value: string, previous: string[] = []): string[] => [...previous, value];
+
+// --profile and --set apply to every command, including subcommands, and to
+// every config load in this process, before any of them reads the config.
+program.hook('preAction', (thisCommand) => {
+  const { profile, set } = thisCommand.opts<{ profile?: string; set?: string[] }>();
+  configureRunConfigOverlay({ profile, sets: set });
+});
 registerBrowserCommand(program);
 registerBrowserOptions(program);
 registerExtensionsCommand(program);
@@ -337,6 +347,8 @@ program
   .option('--fork <pathOrId>', 'Create and resume a new session branch from an existing session reference')
   .option('--rename <name>', 'Name the most recent session of this workspace and exit')
   .option('--ephemeral', 'Keep this run out of session history: no session files, no auto-memory, no session sync', false)
+  .option('--profile <name>', 'Layer profiles.<name> from the config onto this run without saving it')
+  .option('--set <key=value>', 'Override one setting for this run, e.g. --set ui.theme=aurora (repeatable, never saved)', collectRepeatable)
   .action(async (positionalPrompt: string | undefined, opts: RootCliOptions) => {
     // Clear screen immediately for Cursor-like behavior (before any output)
     if (

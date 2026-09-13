@@ -5,6 +5,7 @@
  */
 import fs from "fs-extra";
 import { configureChildProcessEnvPolicy } from './utils/childProcessEnv.js';
+import { applyRunConfigOverlay, restoreRunConfigOverlay } from './runConfigOverlay.js';
 import path from "node:path";
 import YAML from "yaml";
 import type {
@@ -562,10 +563,13 @@ export async function loadConfig(
   );
 
   // Merge environment variables for API settings
-  const withEnv = mergeEnvVariables(withWorkspace);
+  const withEnvOnly = mergeEnvVariables(withWorkspace);
   const workspaceOverlay = overlayBase
-    ? createWorkspaceOverlaySnapshot(overlayBase, withEnv, overlayLayers)
+    ? createWorkspaceOverlaySnapshot(overlayBase, withEnvOnly, overlayLayers)
     : undefined;
+  // --profile and --set are layered last and recorded so saves leave them out.
+  const run = applyRunConfigOverlay(withEnvOnly);
+  const withEnv = run.config;
 
   if (initializeTheme) {
     configureThemeSources({ inlineThemes: withEnv.ui?.customThemes });
@@ -587,6 +591,7 @@ export async function loadConfig(
     ...(workspaceRoot ? { overlayWorkspaceRoot: path.resolve(workspaceRoot) } : {}),
     ...(workspaceOverlay ? { workspaceOverlay } : {}),
     ...(workspaceTrust ? { workspaceTrust } : {}),
+    ...(run.snapshot ? { runOverlay: run.snapshot } : {}),
   };
 }
 
@@ -1933,12 +1938,15 @@ export async function saveConfig(
   config: LoadedConfig,
   options: SaveConfigOptions = {},
 ): Promise<void> {
-  const { configPath, workspaceOverlay, ...data } = config;
+  const { configPath, workspaceOverlay, runOverlay, ...data } = config;
   delete (data as Partial<LoadedConfig>).isNewConfig;
   delete (data as Partial<LoadedConfig>).workspaceTrust;
   delete (data as Partial<LoadedConfig>).overlayWorkspaceRoot;
   if (workspaceOverlay) {
     stripWorkspaceOverlay(data, workspaceOverlay);
+  }
+  if (runOverlay) {
+    restoreRunConfigOverlay(data as Record<string, unknown>, runOverlay);
   }
 
   if (!options.writeAuth) {

@@ -51,6 +51,34 @@ describe('doctor command Tuistory', () => {
     expect(session.exitInfo?.exitCode).toBe(report.ok ? 0 : 1);
   });
 
+  it('layers --profile and --set onto the run and leaves the config file untouched', async () => {
+    const state = await createTempAutohandHome({ config: {
+      ui: { promptSuggestions: false },
+      profiles: { alt: { openrouter: { model: 'profile-model-for-doctor' } } },
+    } });
+    states.push(state);
+    const before = await (await import('fs-extra')).default.readFile(state.configPath, 'utf8');
+    const session = await launchBuiltAutohand([
+      'doctor', '--json', '--skip-mcp', '--profile', 'alt', '--set', 'provider=openrouter',
+      '--config', state.configPath, '--path', state.workspaceRoot,
+    ], { autohandHome: state.autohandHome, cwd: state.workspaceRoot, waitForDataTimeout: 20_000 });
+    sessions.push(session);
+    await waitForExit(session, 40_000);
+    const raw = stripAnsi(session.readAll());
+    const report = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)) as { sections: Array<{ title: string; items: Array<{ name: string; detail: string }> }> };
+    const provider = report.sections.find((section) => section.title === 'Configuration')?.items.find((item) => item.name === 'Provider');
+    expect(provider?.detail).toBe('openrouter · profile-model-for-doctor');
+    expect(await (await import('fs-extra')).default.readFile(state.configPath, 'utf8')).toBe(before);
+
+    const unknown = await launchBuiltAutohand(['doctor', '--profile', 'missing', '--config', state.configPath, '--path', state.workspaceRoot], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, waitForDataTimeout: 20_000,
+    });
+    sessions.push(unknown);
+    await waitForExit(unknown, 40_000);
+    expect(stripAnsi(unknown.readAll())).toContain('Available profiles: alt');
+    expect(unknown.exitInfo?.exitCode).toBe(1);
+  });
+
   it('documents the command in root help', async () => {
     const session = await launchBuiltAutohand(['--help'], { waitForDataTimeout: 15_000 });
     sessions.push(session);
