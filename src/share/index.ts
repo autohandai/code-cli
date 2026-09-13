@@ -8,23 +8,10 @@
  */
 
 // Types
-export type {
-  ShareVisibility,
-  ToolUsageSummary,
-  GitDiffSummary,
-  ShareClientInfo,
-  ShareSessionMetadata,
-  ShareUsageStats,
-  ShareSessionPayload,
-  ShareSessionResponse,
-  DeleteShareResponse,
-  ShareApiConfig,
-} from './types.js';
+export type { ShareVisibility } from './types.js';
 
 // Cost estimation
 export {
-  estimateCost,
-  createUsageStats,
   formatCost,
   formatTokens,
   formatDuration,
@@ -32,7 +19,6 @@ export {
 
 // Session serialization
 export { serializeSession } from './sessionSerializer.js';
-export type { SerializeOptions } from './sessionSerializer.js';
 
 // API client
-export { ShareApiClient, getShareApiClient } from './ShareApiClient.js';
+export { getShareApiClient } from './ShareApiClient.js';

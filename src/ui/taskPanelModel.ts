@@ -73,10 +73,6 @@ export function taskStatusGlyph(status: TaskPanelStatus): string {
   return STATUS_GLYPH[status];
 }
 
-export function taskGroupLabel(status: TaskPanelStatus): string {
-  return GROUP_LABEL[status];
-}
-
 function isTaskPanelStatus(value: unknown): value is TaskPanelStatus {
   return value === 'pending' || value === 'in_progress' || value === 'completed'
     || value === 'failed' || value === 'cancelled';

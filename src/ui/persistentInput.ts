@@ -251,21 +251,7 @@ export class PersistentInput extends EventEmitter {
       this.regions.disable();
     }
 
-    // Remove keypress listener so readline.emitKeypressEvents removes its
-    // data listener from stdin. Ink 7 uses a readable listener, and the
-    // readline data listener (flowing mode) conflicts with it.
-    this.input.off('keypress', this.handleKeypress);
-
-    // Force-remove readline's data listener (same as pauseForModal).
-    if (this.input.listenerCount('keypress') === 0) {
-      this.input.removeAllListeners('data');
-    }
-
-    // Restore terminal for Modal prompts
-    const supportsRaw = this.supportsRawMode;
-    if (supportsRaw && this.input.isTTY) {
-      safeSetRawMode(this.input, false);
-    }
+    this.releaseStdin();
   }
 
   /**
@@ -283,6 +269,13 @@ export class PersistentInput extends EventEmitter {
       this.regions.clearFixedRegionForModal();
     }
 
+    this.releaseStdin();
+  }
+
+  /**
+   * Hand stdin over to the next reader (an Ink modal or prompt).
+   */
+  private releaseStdin(): void {
     // Remove keypress listener so readline.emitKeypressEvents removes its
     // data listener from stdin. Ink 7 uses a readable listener, and the
     // readline data listener (flowing mode) conflicts with it — data events
@@ -297,6 +290,7 @@ export class PersistentInput extends EventEmitter {
       this.input.removeAllListeners('data');
     }
 
+    // Restore terminal for Modal prompts
     const supportsRaw = this.supportsRawMode;
     if (supportsRaw && this.input.isTTY) {
       safeSetRawMode(this.input, false);
@@ -308,7 +302,23 @@ export class PersistentInput extends EventEmitter {
    */
   resume(): void {
     if (!this.isActive) return;
+    this.reclaimStdin();
+  }
 
+  /**
+   * Resume the persistent composer after an Ink modal has released the terminal.
+   */
+  resumeFromModal(): void {
+    if (!this.isActive) {
+      return;
+    }
+    this.reclaimStdin();
+  }
+
+  /**
+   * Take stdin back after pause()/pauseForModal() and repaint the composer.
+   */
+  private reclaimStdin(): void {
     this.isPaused = false;
     try {
       this.input.resume();
@@ -327,40 +337,7 @@ export class PersistentInput extends EventEmitter {
       safeSetRawMode(this.input, true);
     }
 
-    // Re-register keypress listener that was removed in pause().
-    safeEmitKeypressEvents(this.input as NodeJS.ReadStream);
-    this.input.on('keypress', this.handleKeypress);
-
-    if (!this.silentMode) {
-      this.render();
-    }
-  }
-
-  /**
-   * Resume the persistent composer after an Ink modal has released the terminal.
-   */
-  resumeFromModal(): void {
-    if (!this.isActive) {
-      return;
-    }
-
-    this.isPaused = false;
-    try {
-      this.input.resume();
-    } catch {
-      // Best effort only.
-    }
-
-    if (!this.silentMode) {
-      this.regions.enable();
-    }
-
-    const supportsRaw = this.supportsRawMode;
-    if (supportsRaw && this.input.isTTY) {
-      safeSetRawMode(this.input, true);
-    }
-
-    // Re-register keypress listener that was removed in pauseForModal.
+    // Re-register the keypress listener removed by releaseStdin().
     // safeEmitKeypressEvents is idempotent — it only instruments the stream
     // once, so calling it again is safe even if the stream was already
     // instrumented before the modal.

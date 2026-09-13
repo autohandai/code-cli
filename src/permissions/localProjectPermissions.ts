@@ -154,14 +154,6 @@ export async function addToLocalDenyList(
   }
 }
 
-export async function addToLocalWhitelist(workspaceRoot: string, pattern: string): Promise<void> {
-  await addToLocalAllowList(workspaceRoot, pattern);
-}
-
-export async function addToLocalBlacklist(workspaceRoot: string, pattern: string): Promise<void> {
-  await addToLocalDenyList(workspaceRoot, pattern);
-}
-
 /**
  * Get merged permissions (global + local project)
  * Local project settings take precedence

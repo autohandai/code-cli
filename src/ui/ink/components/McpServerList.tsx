@@ -220,4 +220,3 @@ export async function showMcpServerList(
 }
 
 export { McpServerList };
-export default McpServerList;

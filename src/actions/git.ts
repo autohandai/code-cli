@@ -683,13 +683,6 @@ export async function executeAutoCommit(cwd: string, message: string, stageAll =
   };
 }
 
-/**
- * @deprecated Use getAutoCommitInfo + executeAutoCommit instead
- */
-export async function autoCommit(cwd: string, options: { message: string; stageAll?: boolean }): Promise<AutoCommitResult> {
-  return executeAutoCommit(cwd, options.message, options.stageAll);
-}
-
 // ============ Log Operations ============
 
 export interface GitLogOptions {

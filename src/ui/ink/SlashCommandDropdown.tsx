@@ -8,6 +8,7 @@ import { Box, Text } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
 import { getPromptBlockWidth, getRankedSlashCommandMatches } from '../inputPrompt.js';
 import type { SlashCommand } from '../../core/slashCommandTypes.js';
+import { truncateVisible } from './dropdownText.js';
 
 export interface SlashCommandSuggestion {
   command: string;
@@ -21,12 +22,6 @@ interface SlashCommandDropdownProps {
 }
 
 const MAX_SUGGESTIONS = 5;
-
-function truncateVisible(text: string, maxWidth: number): string {
-  if (text.length <= maxWidth) return text;
-  if (maxWidth <= 1) return '…';
-  return `${text.slice(0, maxWidth - 1)}…`;
-}
 
 function SlashCommandDropdownComponent({ suggestions, activeIndex, visible }: SlashCommandDropdownProps) {
   const { theme } = useTheme();

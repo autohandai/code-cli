@@ -25,8 +25,6 @@ const DEFAULT_API_BASE_URL = 'https://api.autohand.ai';
 const CONTROL_PLANE_TIMEOUT_MS = 30_000;
 const SECRET_KEY_PATTERN = /(?:api[_-]?key|token|secret|password|credential|auth|cookie)/i;
 
-export type ManagedConnectorTransport = 'http' | 'stdio';
-
 const secretValues = z.record(z.string().min(1).max(120), z.string().max(8192));
 const connectorBase = {
   id: z.string().min(1).max(200),

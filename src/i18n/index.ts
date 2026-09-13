@@ -147,13 +147,10 @@ export function exists(key: string): boolean {
 // Re-export types and utilities
 export {
   detectLocale,
-  normalizeLocale,
-  isValidLocale,
   SUPPORTED_LOCALES,
   LANGUAGE_DISPLAY_NAMES,
   type SupportedLocale,
-  type LocaleDetectionResult,
 } from './localeDetector.js';
 
 // Re-export LLM locale utilities
-export { buildLocaleInstruction, injectLocaleIntoPrompt } from './llmLocale.js';
+export { injectLocaleIntoPrompt } from './llmLocale.js';

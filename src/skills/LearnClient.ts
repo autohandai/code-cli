@@ -12,10 +12,6 @@ import type { SkillDefinition } from './types.js';
 
 const DEFAULT_LIMIT = 5;
 
-export interface LearnSearchResult extends GitHubCommunitySkill {
-  relevance: number;
-}
-
 export interface SkillUpdateInfo {
   name: string;
   slug: string;

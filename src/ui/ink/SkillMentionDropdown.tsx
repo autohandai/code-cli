@@ -12,6 +12,7 @@ import { Box, Text } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
 import { getPromptBlockWidth } from '../inputPrompt.js';
 import { buildSkillMentionSuggestions, type SkillMentionInfo } from '../mentionFilter.js';
+import { truncateVisible } from './dropdownText.js';
 
 export interface SkillSuggestion {
   /** Already prefixed with `$` so AgentUI can replace text directly. */
@@ -27,12 +28,6 @@ interface SkillMentionDropdownProps {
 }
 
 const MAX_SUGGESTIONS = 5;
-
-function truncateVisible(text: string, maxWidth: number): string {
-  if (text.length <= maxWidth) return text;
-  if (maxWidth <= 1) return '…';
-  return `${text.slice(0, maxWidth - 1)}…`;
-}
 
 function SkillMentionDropdownComponent({ suggestions, activeIndex, visible }: SkillMentionDropdownProps) {
   const { theme } = useTheme();

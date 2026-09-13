@@ -842,7 +842,3 @@ export class SlashCommandHandler {
     }
   }
 }
-
-export function formatSlashCommandList(commands: SlashCommand[]): SlashCommand[] {
-  return [...commands].sort((a, b) => a.command.localeCompare(b.command));
-}

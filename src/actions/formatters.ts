@@ -336,21 +336,6 @@ const externalFormatters: Record<string, Formatter> = {
 };
 
 /**
- * Get the best formatter for a file based on extension
- */
-export function getFormatterForFile(filePath: string): string | null {
-  const ext = path.extname(filePath).toLowerCase();
-
-  for (const [name, info] of Object.entries(EXTERNAL_FORMATTERS)) {
-    if (info.extensions.includes(ext)) {
-      return name;
-    }
-  }
-
-  return null;
-}
-
-/**
  * Check which formatters are available
  */
 export async function checkAvailableFormatters(): Promise<Record<string, boolean>> {
@@ -418,45 +403,4 @@ export async function applyFormatter(
   }
 
   throw new Error(`Formatter "${name}" is not available. Run /formatters to see available formatters.`);
-}
-
-/**
- * Auto-format a file using the best available formatter
- */
-export async function autoFormat(
-  contents: string,
-  filePath: string,
-  workspaceRoot?: string
-): Promise<{ formatted: string; formatter: string | null }> {
-  const formatterName = getFormatterForFile(filePath);
-
-  if (!formatterName) {
-    // No specific formatter, just normalize
-    return {
-      formatted: await applyFormatter('trailing-newline', contents, filePath),
-      formatter: 'trailing-newline',
-    };
-  }
-
-  // Check if the formatter is available
-  const available = await isCommandAvailable(EXTERNAL_FORMATTERS[formatterName]?.command || formatterName);
-
-  if (!available) {
-    // Fall back to basic formatting
-    return {
-      formatted: await applyFormatter('trailing-newline', contents, filePath),
-      formatter: null,
-    };
-  }
-
-  try {
-    const formatted = await applyFormatter(formatterName, contents, filePath, workspaceRoot);
-    return { formatted, formatter: formatterName };
-  } catch {
-    // Formatting failed, return original with trailing newline
-    return {
-      formatted: await applyFormatter('trailing-newline', contents, filePath),
-      formatter: null,
-    };
-  }
 }

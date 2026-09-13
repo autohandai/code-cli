@@ -37,13 +37,6 @@ export interface ToolPolicy {
 }
 
 /**
- * Extended tool definition with category
- */
-export interface CategorizedToolDefinition extends ToolDefinition {
-  category: ToolCategory;
-}
-
-/**
  * Map of tool names to their categories
  */
 const TOOL_CATEGORIES: Record<string, ToolCategory> = {
@@ -408,16 +401,6 @@ export function createToolFilter(
   customPolicy?: Partial<ToolPolicy>
 ): ToolFilter {
   return new ToolFilter(context, customPolicy);
-}
-
-/**
- * Annotate tool definitions with their categories
- */
-export function categorizeTools(definitions: ToolDefinition[]): CategorizedToolDefinition[] {
-  return definitions.map(def => ({
-    ...def,
-    category: getToolCategory(def.name)
-  }));
 }
 
 // ============================================================================
@@ -835,29 +818,4 @@ export function formatToolCapabilityCatalog(tools: ToolDefinition[]): string {
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([label, names]) => `- ${label}: ${[...new Set(names)].sort().join(', ')}`)
     .join('\n');
-}
-
-/**
- * Get summary of filtering for debugging
- */
-export function getRelevanceFilteringSummary(
-  originalCount: number,
-  filteredCount: number,
-  categories: Set<RelevanceCategory>
-): string {
-  const saved = originalCount - filteredCount;
-  const percent = originalCount > 0 ? Math.round((saved / originalCount) * 100) : 0;
-  return `Tools: ${filteredCount}/${originalCount} (-${percent}%, categories: ${[...categories].join(', ')})`;
-}
-
-/**
- * Estimate token savings from filtering
- */
-export function estimateTokenSavings(
-  originalTools: FunctionDefinition[],
-  filteredTools: FunctionDefinition[]
-): number {
-  const originalSize = JSON.stringify(originalTools).length;
-  const filteredSize = JSON.stringify(filteredTools).length;
-  return Math.floor((originalSize - filteredSize) / 4);
 }

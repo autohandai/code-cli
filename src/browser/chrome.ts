@@ -9,7 +9,6 @@ import path from 'node:path';
 import fs from 'fs-extra';
 import { spawn, spawnSync } from 'node:child_process';
 import open from 'open';
-import { execSync } from 'node:child_process';
 import type { LoadedConfig } from '../types.js';
 import { AUTOHAND_HOME } from '../constants.js';
 
@@ -873,38 +872,6 @@ export function buildChromeLaunchUrl(options: {
   }
   const separator = baseUrl.includes('?') ? '&' : '?';
   return `${baseUrl}${separator}handoff=${encodeURIComponent(options.token)}`;
-}
-
-/**
- * Open a URL with graceful fallbacks.
- * On Linux, `xdg-open` may be missing (headless servers, minimal distros).
- * Tries multiple strategies before printing the URL for manual opening.
- */
-export async function openUrl(url: string): Promise<void> {
-  try {
-    await open(url);
-    return;
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (!message.includes('xdg-open') && !message.includes('Executable not found') && !message.includes('ENOENT')) {
-      throw err;
-    }
-  }
-
-  // Fallback: try common Linux openers directly
-  const openers = ['xdg-open', 'sensible-browser', 'x-www-browser', 'firefox', 'chromium', 'google-chrome'];
-  for (const opener of openers) {
-    try {
-      execSync(`which ${opener}`, { stdio: 'pipe' });
-      spawn(opener, [url], { detached: true, stdio: 'ignore' }).unref();
-      return;
-    } catch {
-      // opener not found, try next
-    }
-  }
-
-  // Last resort: print URL for manual opening
-  console.log(`\nUnable to open a browser automatically. Please open this URL manually:\n${url}\n`);
 }
 
 export async function openChromeContinuation(

@@ -205,12 +205,33 @@ export class TerminalRegions {
     this.output.write(`${CSI}K`);
     this.output.write(this.formatActivityLine(activity, promptWidth));
 
+    this.writeInputBox(height, promptWidth, borderStyle, inputLines, visibleLines, suggestionText);
+
+    // Status
+    this.output.write(`${CSI}${height};1H`);
+    this.output.write(`${CSI}K`);
+    this.output.write(this.formatStatusLine(status, queueCount, promptWidth));
+    this.focusInputCursor();
+  }
+
+  /**
+   * Paint the bordered input box: top rule, one row per visible input line
+   * (first row gets the prompt prefix, continuation rows the indent), bottom rule.
+   */
+  private writeInputBox(
+    height: number,
+    promptWidth: number,
+    borderStyle: InputBorderStyle,
+    inputLines: string[],
+    visibleLines: number,
+    suggestionText?: string,
+  ): void {
     // Top rule
     this.output.write(`${CSI}${height - this.fixedLines + 2};1H`);
     this.output.write(`${CSI}K`);
     this.output.write(drawOpenInputRule(promptWidth, borderStyle));
 
-    // Input lines (first line gets prompt prefix, continuation lines get indent)
+    // Input lines
     for (let i = 0; i < visibleLines; i++) {
       const row = height - this.fixedLines + 3 + i;
       const lineContent = inputLines[i] ?? '';
@@ -226,12 +247,6 @@ export class TerminalRegions {
     this.output.write(`${CSI}${height - 1};1H`);
     this.output.write(`${CSI}K`);
     this.output.write(drawOpenInputRule(promptWidth, borderStyle));
-
-    // Status
-    this.output.write(`${CSI}${height};1H`);
-    this.output.write(`${CSI}K`);
-    this.output.write(this.formatStatusLine(status, queueCount, promptWidth));
-    this.focusInputCursor();
   }
 
   /**
@@ -260,27 +275,7 @@ export class TerminalRegions {
     const promptWidth = this.getPromptWidth(width);
     const borderStyle = this.getInputBorderStyle(input);
 
-    // Top rule
-    this.output.write(`${CSI}${height - this.fixedLines + 2};1H`);
-    this.output.write(`${CSI}K`);
-    this.output.write(drawOpenInputRule(promptWidth, borderStyle));
-
-    // Input lines
-    for (let i = 0; i < visibleLines; i++) {
-      const row = height - this.fixedLines + 3 + i;
-      const lineContent = inputLines[i] ?? '';
-      const content = i === 0
-        ? this.getInputContent(lineContent, suggestionText)
-        : this.getContinuationContent(lineContent);
-      this.output.write(`${CSI}${row};1H`);
-      this.output.write(`${CSI}K`);
-      this.output.write(drawOpenInputLine(content, promptWidth, undefined, borderStyle));
-    }
-
-    // Bottom rule
-    this.output.write(`${CSI}${height - 1};1H`);
-    this.output.write(`${CSI}K`);
-    this.output.write(drawOpenInputRule(promptWidth, borderStyle));
+    this.writeInputBox(height, promptWidth, borderStyle, inputLines, visibleLines, suggestionText);
 
     this.focusInputCursor();
   }

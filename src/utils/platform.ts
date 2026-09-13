@@ -56,15 +56,6 @@ export function isMLXSupported(): boolean {
 }
 
 /**
- * Total physical memory in gigabytes. On Apple Silicon this is the unified
- * memory pool shared by CPU and GPU, which is the real ceiling for how large a
- * model MLX can load.
- */
-export function getTotalMemoryGb(): number {
-  return os.totalmem() / BYTES_PER_GB;
-}
-
-/**
  * Currently free physical memory in gigabytes. Note macOS reports only truly
  * free pages here (excluding reclaimable cache), so it under-reports what is
  * usable; treat it as a lower bound, not the capacity ceiling.

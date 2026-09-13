@@ -495,56 +495,12 @@ function ToolOutputComponent({ entry }: ToolOutputProps) {
 }
 
 /**
- * Memoized ToolOutput - only re-renders when entry content changes
- */
-export const ToolOutput = memo(ToolOutputComponent, (prev, next) => {
-  return prev.entry.id === next.entry.id &&
-         prev.entry.success === next.entry.success &&
-         prev.entry.output === next.entry.output &&
-         prev.entry.thought === next.entry.thought;
-});
-
-/**
  * Static version of ToolOutput for use in Ink's <Static> component.
  * Renders completed tool outputs that never need to update.
  *
  * Memoized so it does not re-execute when parent re-renders on resize.
  */
-function ToolOutputStaticComponent({ entry }: ToolOutputProps) {
-  const { colors } = useTheme();
-  const { tool, success, output } = entry;
-
-  const renderedOutput = output ? renderTerminalMarkdown(output) : '';
-
-  const special = specialToolRenderer(tool, output, success);
-  if (special) {
-    return special;
-  }
-
-  return (
-    <Box flexDirection="column" marginBottom={1}>
-      <Box>
-        <Text color={success ? colors.success : colors.error}>{success ? '✔' : '✖'}</Text>
-        <Text bold> {tool}</Text>
-      </Box>
-      {output && (
-        success ? (
-          isDiffTool(tool)
-            ? <ThemedDiffOutput output={output} />
-            : <Text color={colors.toolOutput}>{renderedOutput}</Text>
-        ) : (
-          <Box flexDirection="column">
-            <Text color={colors.error}>┌─ Error ─────────────────────────────────</Text>
-            <Text><Text color={colors.error}>│ </Text>{renderedOutput}</Text>
-            <Text color={colors.error}>└─────────────────────────────────────────</Text>
-          </Box>
-        )
-      )}
-    </Box>
-  );
-}
-
-export const ToolOutputStatic = memo(ToolOutputStaticComponent, (prev, next) =>
+export const ToolOutputStatic = memo(ToolOutputComponent, (prev, next) =>
   prev.entry.id === next.entry.id &&
   prev.entry.output === next.entry.output &&
   prev.entry.thought === next.entry.thought
@@ -627,25 +583,6 @@ export const ToolOutputBatchStatic = memo(ToolOutputBatchStaticComponent, (prev,
   prev.entry.groups.length === next.entry.groups.length
 );
 
-export interface ToolOutputListProps {
-  entries: ToolOutputEntry[];
-  maxVisible?: number;
-}
-
-/**
- * @deprecated Use ToolOutputStatic directly in AgentUI instead
- */
-export function ToolOutputList({ entries, maxVisible = 50 }: ToolOutputListProps) {
-  const visible = entries.slice(-maxVisible);
-
-  return (
-    <Box flexDirection="column">
-      {visible.map((entry) => (
-        <ToolOutput key={entry.id} entry={entry} />
-      ))}
-    </Box>
-  );
-}
 
 export interface LiveCommandBlockProps {
   entry: LiveCommandEntry;

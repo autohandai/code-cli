@@ -20,7 +20,6 @@ export {
   estimateMessagesTokens,
   estimateToolsTokens,
   calculateContextUsage,
-  estimateRemainingCapacity,
   findCroppableMessages,
   calculateTokensToCrop,
   CONTEXT_WARNING_THRESHOLD,

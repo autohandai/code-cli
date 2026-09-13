@@ -296,24 +296,10 @@ export function initPingService(options: {
 }
 
 /**
- * Get the ping service instance
- */
-export function getPingService(): PingService | null {
-  return pingServiceInstance;
-}
-
-/**
  * Start the ping service if initialized
  */
 export function startPingService(): void {
   pingServiceInstance?.start();
-}
-
-/**
- * Stop the ping service
- */
-export function stopPingService(): void {
-  pingServiceInstance?.stop();
 }
 
 export async function shutdownPingService(

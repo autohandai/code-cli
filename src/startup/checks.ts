@@ -510,12 +510,3 @@ export function printStartupCheckResults(results: StartupCheckResults, verbose =
     console.log();
   }
 }
-
-/**
- * Quick check - returns true if all required tools are available
- */
-export async function quickCheck(): Promise<boolean> {
-  const requiredTools = REQUIRED_TOOLS.filter(t => t.required);
-  const results = await Promise.all(requiredTools.map(t => checkTool(t)));
-  return results.every(r => r.installed);
-}

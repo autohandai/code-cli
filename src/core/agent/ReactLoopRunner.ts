@@ -57,10 +57,7 @@ import {
 } from './ToolLoopPolicy.js';
 import { isAutohandDebugEnabled } from '../../utils/debugLog.js';
 import { syncDynamicRuntimeExtensions } from './dynamicRuntimeExtensions.js';
-import {
-  classifyResponseCompletion,
-  isDeferredFinalResponse,
-} from './ResponseCompletionClassifier.js';
+import { isDeferredFinalResponse } from './ResponseCompletionClassifier.js';
 import type { ResponseCompletionHook } from './ResponseCompletionClassifier.js';
 import { evaluateAssistantTurn } from './TurnOutcomeEvaluator.js';
 import {
@@ -461,7 +458,7 @@ function getToolCallFilePath(call: ToolCallRequest | undefined): string | null {
   return null;
 }
 
-export { isDeferredFinalResponse, classifyResponseCompletion };
+export { isDeferredFinalResponse };
 
 export async function runAgentReactLoop(
   host: AgentReactLoopHost,

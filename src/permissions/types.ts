@@ -166,13 +166,6 @@ export interface ExternalPromptResponse {
   reason?: 'external_approved' | 'external_denied';
 }
 
-/**
- * Callback function type for external prompts
- */
-export type ExternalPromptCallback = (
-  request: ExternalPromptRequest
-) => Promise<ExternalPromptResponse>;
-
 export type PermissionPromptDecision =
   | 'allow_once'
   | 'deny_once'

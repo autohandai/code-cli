@@ -8,10 +8,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { AgentConfigSchema, BUILTIN_AGENT_NAMES } from '../core/agents/AgentRegistry.js';
 import { DEFAULT_TOOL_DEFINITIONS, GOAL_TOOL_DEFINITIONS } from '../core/toolManager.js';
-import {
-  normalizeMetaToolDefinition,
-  type MetaToolDefinition,
-} from '../core/metaTools/schema.js';
+import { normalizeMetaToolDefinition } from '../core/metaTools/schema.js';
 import { assertSafeMetaToolHandler } from '../core/metaTools/safety.js';
 import {
   parseExtensionJson,
@@ -451,11 +448,4 @@ export class ExtensionRegistry {
   }
 }
 
-export type {
-  ExtensionSnapshot,
-  ExtensionToolContribution,
-  ExtensionAgentContribution,
-  ExtensionSkillContribution,
-  ExtensionRuntimeContribution,
-  MetaToolDefinition,
-};
+export type { ExtensionSnapshot };

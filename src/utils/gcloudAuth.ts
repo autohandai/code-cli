@@ -29,19 +29,6 @@ export async function isGcloudInstalled(): Promise<boolean> {
 }
 
 /**
- * Get gcloud CLI version if installed
- */
-export async function getGcloudVersion(): Promise<string | null> {
-  try {
-    const { stdout } = await execAsync('gcloud --version', { timeout: 5000 });
-    const match = stdout.match(/Google Cloud SDK\s+(\d+\.\d+\.\d+)/);
-    return match ? match[1]! : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Get the current gcloud project ID (if configured)
  */
 export async function getGcloudProject(): Promise<string | null> {
@@ -111,19 +98,6 @@ export function clearGcloudTokenCache(): void {
 }
 
 /**
- * Check if the user is authenticated with gcloud
- */
-export async function isGcloudAuthenticated(): Promise<boolean> {
-  try {
-    const { stdout } = await execAsync('gcloud auth list --format=value(account)', { timeout: 5000 });
-    const accounts = stdout.trim();
-    return accounts.length > 0;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Get the current gcloud account email
  */
 export async function getGcloudAccount(): Promise<string | null> {
@@ -134,43 +108,4 @@ export async function getGcloudAccount(): Promise<string | null> {
   } catch {
     return null;
   }
-}
-
-/**
- * Get installation instructions for gcloud CLI
- */
-export function getGcloudInstallInstructions(): string {
-  return `
-# Install Google Cloud CLI
-
-## macOS (Homebrew)
-brew install --cask google-cloud-sdk
-
-## macOS (Manual)
-Download from: https://cloud.google.com/sdk/docs/install
-
-## Linux (Debian/Ubuntu)
-curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
-echo "deb https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list
-sudo apt-get update && sudo apt-get install google-cloud-cli
-
-## Linux (RHEL/CentOS)
-sudo tee -a /etc/yum.repos.d/google-cloud-sdk.repo << EOM
-[google-cloud-cli]
-name=Google Cloud CLI
-baseurl=https://packages.cloud.google.com/yum/repos/cloud-sdk-el8-x86_64
-enabled=1
-gpgcheck=1
-repo_gpgcheck=0
-gpgkey=https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
-EOM
-sudo yum install google-cloud-cli
-
-## Windows
-Download from: https://cloud.google.com/sdk/docs/install
-
-## After installation:
-1. Run: gcloud init
-2. Run: gcloud auth login
-`.trim();
 }

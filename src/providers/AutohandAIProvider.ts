@@ -59,8 +59,6 @@ export const AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS: readonly AutohandAICloudModelD
 export const AUTOHAND_AI_FANTAIL_CONTEXT_WINDOW = requireCatalogNumber("fantail", "contextWindow");
 export const AUTOHAND_AI_MOA_CONTEXT_WINDOW = requireCatalogNumber("moa", "contextWindow");
 export const AUTOHAND_AI_DEFAULT_CONTEXT_WINDOW = AUTOHAND_AI_FANTAIL_CONTEXT_WINDOW;
-export const AUTOHAND_AI_FANTAIL_MAX_OUTPUT_TOKENS = requireCatalogNumber("fantail", "maxTokens");
-export const AUTOHAND_AI_MOA_MAX_OUTPUT_TOKENS = requireCatalogNumber("moa", "maxTokens");
 
 export const AUTOHAND_AI_CLOUD_MODELS = AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS.map(
   (model) => model.id,

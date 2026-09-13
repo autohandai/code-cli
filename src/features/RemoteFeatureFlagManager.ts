@@ -36,11 +36,6 @@ interface RemoteFeatureFlagResponse {
   ttlSeconds?: unknown;
 }
 
-export interface FeatureFlagActivationEvent {
-  key: string;
-  metadata?: Record<string, unknown>;
-}
-
 export interface LoadRemoteFeatureFlagsOptions {
   forceRefresh?: boolean;
   allowCachedFallback?: boolean;

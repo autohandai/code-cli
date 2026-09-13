@@ -517,8 +517,29 @@ describe('showModal passive-effect cleanup yield (Ink 7 / React 19 regression)',
     expect(yieldIdx).toBeLessThan(renderIdx);
   });
 
+  it('showSingleValueModal awaits the same cleanup yield before render()', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const src = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/ui/ink/components/Modal.tsx'),
+      'utf8',
+    );
+
+    const helperMatch = src.match(/async function showSingleValueModal[\s\S]*?\n\}/);
+    expect(helperMatch).not.toBeNull();
+    const body = helperMatch![0];
+
+    const prepareIdx = body.indexOf('prepareModalRender(process.stdout);');
+    const yieldIdx = body.indexOf('setImmediate');
+    const renderIdx = body.indexOf('render(');
+
+    expect(prepareIdx).toBeGreaterThan(-1);
+    expect(prepareIdx).toBeLessThan(yieldIdx);
+    expect(yieldIdx).toBeLessThan(renderIdx);
+  });
+
   it.each(['showConfirm', 'showInput', 'showPassword'])(
-    '%s awaits the same cleanup yield before render()',
+    '%s renders through showSingleValueModal',
     async (helperName) => {
       const fs = await import('node:fs');
       const path = await import('node:path');
@@ -527,9 +548,9 @@ describe('showModal passive-effect cleanup yield (Ink 7 / React 19 regression)',
         'utf8',
       );
 
-      expect(src).toMatch(
-        new RegExp(`export async function ${helperName}[\\s\\S]*?prepareModalRender\\(process\\.stdout\\);[\\s\\S]*?setImmediate[\\s\\S]*?render\\(`)
-      );
+      const fnMatch = src.match(new RegExp(`export async function ${helperName}[\\s\\S]*?\\n\\}\\n`));
+      expect(fnMatch).not.toBeNull();
+      expect(fnMatch![0]).toContain('return showSingleValueModal');
     }
   );
 });

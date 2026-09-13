@@ -8,8 +8,8 @@ import chalk from 'chalk';
 import { createHash, createPublicKey, verify as cryptoVerify } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
-import { constants as fsConstants, existsSync } from 'node:fs';
-import { access, chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { arch as osArch, homedir, platform as osPlatform } from 'node:os';
 import path from 'node:path';
 import type { SlashCommand } from '../core/slashCommands.js';
@@ -736,13 +736,4 @@ function readNestedFlag(payload: Record<string, unknown>, flag: string): unknown
 
 function stringField(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
-}
-
-export async function pathIsExecutable(filePath: string): Promise<boolean> {
-  try {
-    await access(filePath, fsConstants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
 }

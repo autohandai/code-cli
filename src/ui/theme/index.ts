@@ -30,7 +30,7 @@
  *
  * @example Ink components:
  * ```tsx
- * import { ThemeProvider, useTheme } from './ui/theme';
+ * import { ThemeProvider, useTheme } from './ui/theme/ThemeContext.js';
  *
  * const App = () => (
  *   <ThemeProvider themeName="dark">
@@ -45,26 +45,6 @@
  * ```
  */
 
-// Types
-export type {
-  ColorToken,
-  ColorValue,
-  ThemeColors,
-  PartialThemeColors,
-  ThemeDefinition,
-  ResolvedTheme,
-  ResolvedColors,
-  ColorMode,
-} from './types.js';
-
-export {
-  COLOR_TOKENS,
-  isColorToken,
-  isHexColor,
-  is256ColorIndex,
-  isValidColorValue,
-} from './types.js';
-
 // Theme class and utilities
 export {
   Theme,
@@ -72,28 +52,11 @@ export {
   setTheme,
   isThemeInitialized,
   themedFg,
-  detectColorMode,
   hexToRgb,
-  rgbTo256,
-  rgbTo16,
-  index256To16,
 } from './Theme.js';
 
 // Built-in themes
 export {
-  darkTheme,
-  lightTheme,
-  auroraTheme,
-  tuataraTheme,
-  githubDarkTheme,
-  cappadociaTheme,
-  rioTheme,
-  turkeyTheme,
-  brazilTheme,
-  australiaTheme,
-  builtInThemes,
-  getBuiltInTheme,
-  isBuiltInTheme,
   getBuiltInThemeNames,
   getDefaultThemeName,
 } from './themes.js';
@@ -101,47 +64,10 @@ export {
 // Theme loader
 export {
   CUSTOM_THEMES_DIR,
-  ThemeLoadError,
   loadTheme,
   initTheme,
-  getThemeDefinition,
-  loadCustomTheme,
-  validateAndMergeTheme,
-  resolveThemeColors,
-  resolveColorValue,
   listAvailableThemes,
   themeExists,
   configureThemeSources,
-  detectTerminalBackground,
   autoInitTheme,
 } from './loader.js';
-
-// Ghostty theme loader
-export {
-  findGhosttyThemesDir,
-  listGhosttyThemes,
-  parseGhosttyTheme,
-  ghosttyPaletteToTheme,
-  loadGhosttyTheme,
-  isInsideGhostty,
-  detectSystemAppearance,
-  readGhosttyConfigTheme,
-  detectGhosttyTheme,
-} from './ghosttyLoader.js';
-
-export type { GhosttyPalette } from './ghosttyLoader.js';
-
-// Curated Ghostty themes list
-export { CURATED_GHOSTTY_THEMES } from './loader.js';
-
-// React/Ink support
-export {
-  ThemeContext,
-  ThemeProvider,
-  useTheme,
-  useThemeColor,
-  useThemeColors,
-  withTheme,
-} from './ThemeContext.js';
-
-export type { ThemeContextValue, ThemeProviderProps } from './ThemeContext.js';

@@ -79,18 +79,6 @@ export async function sessionTree(ctx: SlashCommandContext): Promise<string> {
   return formatSessionTree(sessions, ctx.currentSession?.metadata.sessionId);
 }
 
-export async function forkSessionReference(ctx: SlashCommandContext, sourceReference: string): Promise<string> {
-  if (!isEnabled(ctx, FORK_FLAG)) {
-    return `The --fork flag is behind ${FORK_FLAG}. Run /experiments enable ${FORK_FLAG}, then try again.`;
-  }
-
-  await ctx.trackFeatureActivation?.(FORK_FLAG, { surface: 'cli_flag' });
-  const sourceSessionId = await ctx.sessionManager.resolveSessionReference(sourceReference);
-  const forked = await ctx.sessionManager.branchSession(sourceSessionId, { type: 'fork' });
-  await ctx.restoreSession?.(forked.metadata.sessionId);
-  return forked.metadata.sessionId;
-}
-
 function isEnabled(ctx: SlashCommandContext, flag: string): boolean {
   const localDefault = flag === FORK_FLAG
     ? ctx.config?.features?.experimentalFork === true

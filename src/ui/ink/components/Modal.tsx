@@ -944,9 +944,32 @@ export async function showConfirm(options: {
   cancelText?: string;
   defaultValue?: boolean;
 }): Promise<boolean> {
+  return showSingleValueModal(false, (finish) => (
+    <Modal
+      mode="confirm"
+      title={options.title}
+      confirmText={options.confirmText}
+      cancelText={options.cancelText}
+      defaultValue={options.defaultValue}
+      onConfirm={finish}
+      // Treat ESC as "No"
+      onCancel={() => finish(false)}
+    />
+  ));
+}
+
+/**
+ * Shared render/teardown flow for the single-value dialogs (confirm, input,
+ * password). Returns `fallback` immediately when stdout is not a TTY; otherwise
+ * renders the element and resolves with the first value passed to `finish`.
+ */
+async function showSingleValueModal<T>(
+  fallback: T,
+  renderDialog: (finish: (value: T) => void) => React.ReactElement,
+): Promise<T> {
   // Non-interactive fallback
   if (!process.stdout.isTTY) {
-    return false;
+    return fallback;
   }
 
   prepareModalRender(process.stdout);
@@ -956,28 +979,17 @@ export async function showConfirm(options: {
 
   return new Promise((resolve) => {
     let completed = false;
+    let instance: Instance;
+    const finish = (value: T): void => {
+      if (completed) return;
+      completed = true;
+      unmountAndResolve(instance, value, resolve);
+    };
 
-    const instance = render(
+    instance = render(
       <I18nProvider>
         <ThemeProvider>
-          <Modal
-            mode="confirm"
-            title={options.title}
-            confirmText={options.confirmText}
-            cancelText={options.cancelText}
-            defaultValue={options.defaultValue}
-            onConfirm={(confirmed) => {
-              if (completed) return;
-              completed = true;
-              unmountAndResolve(instance, confirmed, resolve);
-            }}
-            onCancel={() => {
-              if (completed) return;
-              completed = true;
-              // Treat ESC as "No"
-              unmountAndResolve(instance, false, resolve);
-            }}
-          />
+          {renderDialog(finish)}
         </ThemeProvider>
       </I18nProvider>,
       inkRenderOptions({
@@ -1013,49 +1025,17 @@ export async function showInput(options: {
   defaultValue?: string;
   validate?: (value: string) => boolean | string;
 }): Promise<string | null> {
-  // Non-interactive fallback
-  if (!process.stdout.isTTY) {
-    return null;
-  }
-
-  prepareModalRender(process.stdout);
-  resumeModalInput(process.stdin);
-
-  await new Promise<void>((resolve) => setImmediate(resolve));
-
-  return new Promise((resolve) => {
-    let completed = false;
-
-    const instance = render(
-      <I18nProvider>
-        <ThemeProvider>
-          <Modal
-            mode="input"
-            title={options.title}
-            placeholder={options.placeholder}
-            defaultValue={options.defaultValue}
-            validate={options.validate}
-            onSubmit={(value) => {
-              if (completed) return;
-              completed = true;
-              unmountAndResolve(instance, value, resolve);
-            }}
-            onCancel={() => {
-              if (completed) return;
-              completed = true;
-              unmountAndResolve(instance, null, resolve);
-            }}
-          />
-        </ThemeProvider>
-      </I18nProvider>,
-      inkRenderOptions({
-        stdin: process.stdin,
-        stdout: process.stdout,
-        stderr: process.stderr,
-        exitOnCtrlC: false
-      })
-    );
-  });
+  return showSingleValueModal<string | null>(null, (finish) => (
+    <Modal
+      mode="input"
+      title={options.title}
+      placeholder={options.placeholder}
+      defaultValue={options.defaultValue}
+      validate={options.validate}
+      onSubmit={finish}
+      onCancel={() => finish(null)}
+    />
+  ));
 }
 
 /**
@@ -1079,48 +1059,16 @@ export async function showPassword(options: {
   placeholder?: string;
   validate?: (value: string) => boolean | string;
 }): Promise<string | null> {
-  // Non-interactive fallback
-  if (!process.stdout.isTTY) {
-    return null;
-  }
-
-  prepareModalRender(process.stdout);
-  resumeModalInput(process.stdin);
-
-  await new Promise<void>((resolve) => setImmediate(resolve));
-
-  return new Promise((resolve) => {
-    let completed = false;
-
-    const instance = render(
-      <I18nProvider>
-        <ThemeProvider>
-          <Modal
-            mode="password"
-            title={options.title}
-            placeholder={options.placeholder}
-            validate={options.validate}
-            onSubmit={(value) => {
-              if (completed) return;
-              completed = true;
-              unmountAndResolve(instance, value, resolve);
-            }}
-            onCancel={() => {
-              if (completed) return;
-              completed = true;
-              unmountAndResolve(instance, null, resolve);
-            }}
-          />
-        </ThemeProvider>
-      </I18nProvider>,
-      inkRenderOptions({
-        stdin: process.stdin,
-        stdout: process.stdout,
-        stderr: process.stderr,
-        exitOnCtrlC: false
-      })
-    );
-  });
+  return showSingleValueModal<string | null>(null, (finish) => (
+    <Modal
+      mode="password"
+      title={options.title}
+      placeholder={options.placeholder}
+      validate={options.validate}
+      onSubmit={finish}
+      onCancel={() => finish(null)}
+    />
+  ));
 }
 
 export { Modal };

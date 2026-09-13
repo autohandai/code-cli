@@ -508,7 +508,15 @@ export class InkRenderer {
     // Seed the idle tip before the first frame so it does not pop in a render later.
     this.syncIdleTips();
 
-    this.instance = render(
+    this.instance = this.mountAgentUI();
+  }
+
+  /**
+   * Render a fresh Ink instance for the agent UI from the current state.
+   * Shared by the initial start() and by resume() after a modal.
+   */
+  private mountAgentUI(): Instance {
+    return render(
       <ThemeProvider>
         <I18nProvider>
           <AgentUIWrapper
@@ -1469,58 +1477,7 @@ export class InkRenderer {
         notifications: [],
       };
 
-      this.instance = render(
-        <ThemeProvider>
-          <I18nProvider>
-            <AgentUIWrapper
-              ref={this.wrapperRef}
-              initialState={this.state}
-              onInstruction={this.options.onInstruction}
-              onSteer={this.options.onSteer}
-              onEscape={this.options.onEscape}
-              onCtrlC={this.options.onCtrlC}
-              onDismissAnnouncement={this.options.onDismissAnnouncement}
-              onToggleLiveCommandExpanded={(id) => this.toggleActiveLiveCommandExpanded(id)}
-              onToggleTeamPanel={() => this.toggleTeamPanel()}
-              onCloseAgentRunsPanel={() => this.setAgentRunsPanelVisible(false)}
-              onCancelAgentRun={this.options.onCancelAgentRun}
-              onMessageAgentRun={this.options.onMessageAgentRun}
-              onToggleGoalPanel={() => this.toggleGoalPanel()}
-              onEditGoalObjective={this.options.onEditGoalObjective}
-              onInputChange={this.handleInputChange}
-              enableQueueInput={this.options.enableQueueInput}
-              onImageDetected={this.options.onImageDetected}
-              filesProvider={this.options.filesProvider}
-              slashCommands={this.options.slashCommands}
-              skillsProvider={this.options.skillsProvider}
-              messageTargetsProvider={this.options.messageTargetsProvider}
-              peerScopes={this.options.peerScopes}
-            peersProvider={this.options.peersProvider}
-              onPeersRefresh={this.options.onPeersRefresh}
-              onPeerMessage={this.options.onPeerMessage}
-              workspaceRoot={this.options.workspaceRoot}
-              suggestionProvider={this.options.suggestionProvider}
-              resolveShellSuggestion={this.options.resolveShellSuggestion}
-              lineExtensions={this.options.lineExtensions}
-              extensionKeybindings={this.options.extensionKeybindings}
-              onReplaceQueuedInstruction={(index, text, metadata) => this.replaceQueuedInstruction(index, text, metadata)}
-              onRemoveQueuedInstruction={(index) => this.removeQueuedInstruction(index)}
-              getInteractionMode={this.options.getInteractionMode}
-              onCycleInteractionMode={this.options.onCycleInteractionMode}
-              mouseComposerCursor={this.options.mouseComposerCursor}
-            keybindings={this.options.keybindings}
-              taskListPositionProvider={this.options.taskListPositionProvider}
-            />
-          </I18nProvider>
-        </ThemeProvider>,
-        inkRenderOptions({
-          stdin: process.stdin,
-          stdout: process.stdout,
-          stderr: process.stderr,
-          // Let AgentUI handle Ctrl+C (clear text / warn-then-exit) instead of Ink forcing exit
-          exitOnCtrlC: false
-        })
-      );
+      this.instance = this.mountAgentUI();
       writeAutohandDebugLine('[DEBUG] InkRenderer.resume: instance created successfully');
     }
   }
@@ -1719,11 +1676,4 @@ export class InkRenderer {
   isRunning(): boolean {
     return this.instance !== null;
   }
-}
-
-/**
- * Create an InkRenderer instance
- */
-export function createInkRenderer(options: InkRendererOptions): InkRenderer {
-  return new InkRenderer(options);
 }

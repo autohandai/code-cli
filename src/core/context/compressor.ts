@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Tool-output compression (head/tail truncation with metadata preservation).
- * Extracted from contextManager.ts for composability.
  */
 import type { LLMMessage } from '../../types.js';
 import { estimateMessageTokens } from './tokenizer.js';

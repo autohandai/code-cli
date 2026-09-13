@@ -7,6 +7,7 @@ import React, { memo, useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
 import { getPromptBlockWidth } from '../inputPrompt.js';
+import { truncateVisible } from './dropdownText.js';
 
 export interface FileMentionSuggestion {
   path: string;
@@ -21,12 +22,6 @@ interface FileMentionDropdownProps {
 }
 
 const MAX_SUGGESTIONS = 5;
-
-function truncateVisible(text: string, maxWidth: number): string {
-  if (text.length <= maxWidth) return text;
-  if (maxWidth <= 1) return '…';
-  return `${text.slice(0, maxWidth - 1)}…`;
-}
 
 function FileMentionDropdownComponent({ suggestions, activeIndex, visible }: FileMentionDropdownProps) {
   const { theme } = useTheme();

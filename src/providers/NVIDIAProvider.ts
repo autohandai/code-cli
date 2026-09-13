@@ -13,17 +13,12 @@ import type {
   NetworkSettings,
   NvidiaChatTemplateKwargs,
 } from "../types.js";
-import {
-  getProviderDefaultModel,
-  getProviderModelIds,
-} from "./modelCatalog.js";
+import { getProviderModelIds } from "./modelCatalog.js";
 
 export const NVIDIA_DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1";
 
 /** NVIDIA AI Cloud models from the JSON model catalog. */
 export const NVIDIA_MODELS = getProviderModelIds("nvidia");
-
-export const NVIDIA_DEFAULT_MODEL = getProviderDefaultModel("nvidia", "z-ai/glm-5.1");
 
 export class NVIDIAProvider implements LLMProvider {
   private client: NVIDIAClient;

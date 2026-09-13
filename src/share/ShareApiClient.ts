@@ -344,11 +344,3 @@ export function getShareApiClient(
   }
   return instance;
 }
-
-/**
- * Reset the singleton instance (useful for testing)
- */
-export function resetShareApiClient(): void {
-  instance = null;
-  instanceBaseUrl = null;
-}

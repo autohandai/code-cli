@@ -17,8 +17,6 @@
  * - Managing cursor visibility during input
  */
 
-import type { TextBuffer } from './textBuffer.js';
-
 // ANSI escape sequences for cursor control
 export const CURSOR = {
   /** Show cursor */
@@ -76,63 +74,6 @@ export function moveBackward(cols: number = 1): string {
 }
 
 /**
- * Calculate the visual cursor position for IME support.
- *
- * This computes where the hardware cursor should be placed based on:
- * - The text buffer's cursor position (row, col)
- * - The input box's position on screen
- * - Word wrapping and line breaks
- *
- * @param buffer The text buffer containing cursor position
- * @param inputBoxStartRow The row where the input box starts (1-based)
- * @param inputBoxStartCol The column where the input box content starts (1-based)
- * @param viewportWidth The width of the input area for wrapping
- * @returns The (row, col) position for the hardware cursor (1-based)
- */
-export function calculateIMECursor(
-  buffer: TextBuffer,
-  inputBoxStartRow: number,
-  inputBoxStartCol: number,
-  _viewportWidth: number
-): { row: number; col: number } {
-  // Get visual cursor position (accounts for word wrapping)
-  const [visualRow, visualCol] = buffer.getVisualCursor();
-  
-  // Calculate absolute position
-  // visualRow is 0-based, visualCol is 0-based string index
-  const row = inputBoxStartRow + visualRow;
-  const col = inputBoxStartCol + visualCol;
-  
-  return { row, col };
-}
-
-/**
- * Generate ANSI sequence to position cursor for IME input.
- *
- * @param buffer The text buffer containing cursor position
- * @param inputBoxStartRow The row where the input box starts (1-based)
- * @param inputBoxStartCol The column where the input box content starts (1-based)
- * @param viewportWidth The width of the input area for wrapping
- * @returns ANSI sequence to position cursor and make it visible
- */
-export function positionCursorForIME(
-  buffer: TextBuffer,
-  inputBoxStartRow: number,
-  inputBoxStartCol: number,
-  viewportWidth: number
-): string {
-  const { row, col } = calculateIMECursor(
-    buffer,
-    inputBoxStartRow,
-    inputBoxStartCol,
-    viewportWidth
-  );
-  
-  // Position cursor and ensure it's visible
-  return moveTo(row, col) + CURSOR.SHOW;
-}
-
-/**
  * Calculate cursor position for a single-line input.
  *
  * For single-line inputs (like the InputLine component), this calculates
@@ -169,48 +110,4 @@ export function calculateSingleLineCursor(
     row: startRow + wrappedRows,
     col: startCol + wrappedCol,
   };
-}
-
-/**
- * Hook-compatible function to get cursor position for IME.
- *
- * This is designed to be called from a React component's render or useEffect
- * to position the cursor after the component renders.
- *
- * @param stdout The process.stdout stream
- * @param buffer The text buffer
- * @param inputBoxStartRow The row where the input box starts
- * @param inputBoxStartCol The column where input content starts
- * @param viewportWidth The width of the input area
- */
-export function writeIMECursor(
-  stdout: NodeJS.WriteStream,
-  buffer: TextBuffer,
-  inputBoxStartRow: number,
-  inputBoxStartCol: number,
-  viewportWidth: number
-): void {
-  const sequence = positionCursorForIME(
-    buffer,
-    inputBoxStartRow,
-    inputBoxStartCol,
-    viewportWidth
-  );
-  stdout.write(sequence);
-}
-
-/**
- * Make cursor visible and position it for input.
- * Call this when input focus is gained.
- */
-export function showCursorForInput(stdout: NodeJS.WriteStream): void {
-  stdout.write(CURSOR.SHOW);
-}
-
-/**
- * Hide cursor (typically during non-input rendering).
- * Call this when rendering output that shouldn't show a cursor.
- */
-export function hideCursorForOutput(stdout: NodeJS.WriteStream): void {
-  stdout.write(CURSOR.HIDE);
 }

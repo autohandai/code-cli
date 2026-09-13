@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { createContext, useContext, useMemo, useSyncExternalStore } from 'react';
+import { createContext, useContext, useMemo, useSyncExternalStore } from 'react';
 import type { FC, ReactNode } from 'react';
 import type { Theme } from './Theme.js';
 import type { ColorToken, ResolvedColors } from './types.js';
@@ -115,60 +115,4 @@ export const ThemeProvider: FC<ThemeProviderProps> = ({ theme: providedTheme, th
 export function useTheme(): ThemeContextValue {
   const context = useContext(ThemeContext);
   return context;
-}
-
-/**
- * Hook to get a specific color from the theme.
- *
- * @example
- * ```tsx
- * const accentColor = useThemeColor('accent');
- * return <Text color={accentColor}>Accented text</Text>;
- * ```
- */
-export function useThemeColor(token: ColorToken): string {
-  const { colors } = useTheme();
-  return colors[token];
-}
-
-/**
- * Hook to get multiple colors from the theme.
- *
- * @example
- * ```tsx
- * const { success, error, warning } = useThemeColors(['success', 'error', 'warning']);
- * ```
- */
-export function useThemeColors<T extends ColorToken>(tokens: T[]): Pick<ResolvedColors, T> {
-  const { colors } = useTheme();
-  return tokens.reduce(
-    (acc, token) => {
-      acc[token] = colors[token];
-      return acc;
-    },
-    {} as Pick<ResolvedColors, T>
-  );
-}
-
-/**
- * Higher-order component to inject theme props.
- *
- * @example
- * ```tsx
- * interface Props { message: string; }
- * const MyComponent = withTheme<Props>(({ message, theme, colors }) => (
- *   <Text color={colors.accent}>{message}</Text>
- * ));
- * ```
- */
-export function withTheme<P extends object>(
-  Component: React.ComponentType<P & ThemeContextValue>
-): FC<P> {
-  const WithTheme: FC<P> = (props) => {
-    const themeContext = useTheme();
-    return <Component {...props} {...themeContext} />;
-  };
-
-  WithTheme.displayName = `WithTheme(${Component.displayName || Component.name || 'Component'})`;
-  return WithTheme;
 }

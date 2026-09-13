@@ -679,10 +679,3 @@ ${chalk.gray('Fish will automatically load the completion on next shell start.')
       return `Unknown shell: ${shell}`;
   }
 }
-
-/**
- * Print completion script to stdout (for shell sourcing)
- */
-export function printCompletion(shell: ShellType, config?: CompletionConfig): void {
-  console.log(generateCompletion(shell, config));
-}

@@ -79,8 +79,6 @@ export const InlineAgentsInputSchema = z
     .record(z.string().min(1, 'agent name is required'), InlineAgentInputSchema)
     .refine((value) => Object.keys(value).length > 0, { message: 'no agents defined' });
 
-export type InlineAgentInput = z.infer<typeof InlineAgentInputSchema>;
-
 /**
  * Detect whether a `--agents` value is inline JSON (Claude Code style) rather
  * than a filesystem path to an external agents directory.

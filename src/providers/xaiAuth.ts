@@ -9,6 +9,14 @@ import { join } from 'node:path';
 import fse from 'fs-extra';
 import type { XAIOAuthAuth } from '../types.js';
 import { getAutohandHomePath } from './modelCatalogPaths.js';
+import {
+  buildTokenBody,
+  fetchWithTimeout,
+  openBrowser,
+  parseJsonResponse,
+  parseResponseBody,
+  sleep,
+} from './oauthHttp.js';
 
 /** Public Grok CLI OAuth client (not a secret). Shared by Grok CLI / OpenCode / Hermes. */
 export const XAI_OAUTH_CLIENT_ID = 'b1a00492-073a-47ea-816f-4c329264a828';
@@ -23,7 +31,6 @@ export const XAI_OAUTH_SCOPE =
 export const XAI_OAUTH_API_BASE_URL = 'https://cli-chat-proxy.grok.com/v1';
 export const XAI_API_BASE_URL = 'https://api.x.ai/v1';
 
-const XAI_AUTH_REQUEST_TIMEOUT_MS = 15_000;
 const XAI_OAUTH_REFRESH_SKEW_MS = 2 * 60_000;
 
 export interface XAIDeviceCode {
@@ -72,89 +79,6 @@ interface GrokCliAuthEntry {
   email?: string;
   user_id?: string;
   auth_mode?: string;
-}
-
-function buildTokenBody(params: Record<string, string>): string {
-  return new URLSearchParams(params).toString();
-}
-
-function extractErrorDetail(payload: unknown): string | undefined {
-  if (!payload || typeof payload !== 'object') return undefined;
-  const candidate = payload as Record<string, unknown>;
-  const direct =
-    candidate.error_description ?? candidate.error ?? candidate.message ?? candidate.detail;
-  if (typeof direct === 'string' && direct.trim()) {
-    return direct.trim();
-  }
-  return undefined;
-}
-
-async function parseResponseBody(response: Response): Promise<{ payload: unknown; detail?: string }> {
-  const rawText = await response.text();
-  let payload: unknown;
-  if (rawText.trim()) {
-    try {
-      payload = JSON.parse(rawText) as unknown;
-    } catch {
-      payload = rawText;
-    }
-  }
-  const detail =
-    extractErrorDetail(payload) ??
-    (typeof payload === 'string' && payload.trim() ? payload.trim() : undefined);
-  return { payload, detail };
-}
-
-async function parseJsonResponse<T>(response: Response, context: string): Promise<T> {
-  const { payload, detail } = await parseResponseBody(response);
-  if (!response.ok) {
-    throw new Error(
-      detail
-        ? `${context} failed with status ${response.status}: ${detail}`
-        : `${context} failed with status ${response.status}.`,
-    );
-  }
-  if (payload === undefined) {
-    throw new Error(`${context} returned an empty response.`);
-  }
-  return payload as T;
-}
-
-async function fetchWithTimeout(
-  input: string,
-  init: RequestInit,
-  context: string,
-  timeoutMs = XAI_AUTH_REQUEST_TIMEOUT_MS,
-): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(input, {
-      ...init,
-      signal: controller.signal,
-    });
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(`${context} timed out. Check your connection and try again.`);
-    }
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function openBrowser(url: string): Promise<boolean> {
-  try {
-    const open = await import('open').then((mod) => mod.default);
-    await open(url);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function decodeJwtExpiry(token: string): string | undefined {
@@ -426,10 +350,4 @@ export async function refreshXAIOAuthAuth(auth: XAIOAuthAuth): Promise<XAIOAuthA
   const refreshed = toXAIOAuthAuth(payload, auth);
   await persistXAIOAuthAuth(refreshed);
   return refreshed;
-}
-
-export async function ensureXAIOAuthAuth(
-  options: XAIOAuthAuthOptions = {},
-): Promise<XAIOAuthAuth> {
-  return authenticateXAIOAuth(options);
 }

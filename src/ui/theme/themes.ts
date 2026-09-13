@@ -652,9 +652,6 @@ export const rioTheme: ThemeDefinition = {
   },
 };
 
-export const turkeyTheme = cappadociaTheme;
-export const brazilTheme = rioTheme;
-
 export const australiaTheme: ThemeDefinition = {
   name: 'australia',
   vars: {

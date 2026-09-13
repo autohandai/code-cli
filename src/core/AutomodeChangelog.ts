@@ -146,85 +146,6 @@ export async function generateChangelog(
 }
 
 /**
- * Append to existing changelog (for multiple sessions)
- */
-export async function appendToChangelog(
-  workspaceRoot: string,
-  state: AutomodeSessionState,
-  iterations: AutomodeIterationLog[],
-  gitCommits: Array<{ hash: string; message: string }> = []
-): Promise<string> {
-  const changelogPath = path.join(workspaceRoot, CHANGELOG_FILE);
-
-  // Check if changelog exists
-  const exists = await fs.pathExists(changelogPath);
-
-  if (!exists) {
-    return generateChangelog(workspaceRoot, state, iterations, gitCommits);
-  }
-
-  // Read existing content
-  const existingContent = await fs.readFile(changelogPath, 'utf-8');
-
-  // Generate new session report
-  const newReport = await generateSessionReport(state, iterations, gitCommits);
-
-  // Prepend new report after main header
-  const headerEnd = existingContent.indexOf('\n## Summary');
-  if (headerEnd === -1) {
-    // No existing summary, just prepend
-    const newContent = newReport + '\n---\n\n' + existingContent;
-    await fs.writeFile(changelogPath, newContent, 'utf-8');
-  } else {
-    // Insert before first Summary
-    const header = existingContent.slice(0, headerEnd);
-    const rest = existingContent.slice(headerEnd);
-    const newContent = header + '\n' + newReport + '\n---\n' + rest;
-    await fs.writeFile(changelogPath, newContent, 'utf-8');
-  }
-
-  return changelogPath;
-}
-
-/**
- * Generate a session report section
- */
-async function generateSessionReport(
-  state: AutomodeSessionState,
-  iterations: AutomodeIterationLog[],
-  gitCommits: Array<{ hash: string; message: string }> = []
-): Promise<string> {
-  const startTime = new Date(state.startedAt);
-  const endTime = new Date();
-  const durationMs = endTime.getTime() - startTime.getTime();
-  const durationMinutes = Math.round(durationMs / 60000);
-
-  const lines: string[] = [
-    `## Session: ${state.sessionId}`,
-    '',
-    `- **Task:** ${state.prompt.slice(0, 80)}${state.prompt.length > 80 ? '...' : ''}`,
-    `- **Started:** ${startTime.toISOString()}`,
-    `- **Duration:** ${durationMinutes} minutes`,
-    `- **Iterations:** ${state.currentIteration}`,
-    `- **Result:** ${STATUS_EMOJI[state.status]} ${STATUS_TEXT[state.status]}`,
-  ];
-
-  if (state.branch) {
-    lines.push(`- **Branch:** ${state.branch}`);
-  }
-
-  if (gitCommits.length > 0) {
-    lines.push('', '**Commits:**');
-    gitCommits.forEach(commit => {
-      lines.push(`- \`${commit.hash}\` ${commit.message}`);
-    });
-  }
-
-  lines.push('');
-  return lines.join('\n');
-}
-
-/**
  * Format cancel reason for display
  */
 function formatCancelReason(reason: string): string {
@@ -249,11 +170,4 @@ function formatCancelReason(reason: string): string {
  */
 export function getChangelogPath(workspaceRoot: string): string {
   return path.join(workspaceRoot, CHANGELOG_FILE);
-}
-
-/**
- * Check if changelog exists
- */
-export async function changelogExists(workspaceRoot: string): Promise<boolean> {
-  return fs.pathExists(getChangelogPath(workspaceRoot));
 }

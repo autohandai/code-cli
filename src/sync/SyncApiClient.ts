@@ -627,7 +627,3 @@ export function getSyncApiClient(config?: SyncApiConfig): SyncApiClient {
   }
   return instance;
 }
-
-export function resetSyncApiClient(): void {
-  instance = null;
-}

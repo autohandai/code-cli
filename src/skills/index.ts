@@ -11,12 +11,10 @@
 // Types
 export type {
   SkillSource,
-  SkillActivationType,
   SkillFrontmatter,
   SkillDefinition,
   SkillParseResult,
   SkillSimilarityMatch,
-  SkillUseData,
   SkillValidationResult,
   SkillCopyResult,
 } from './types.js';
@@ -64,7 +62,7 @@ export type {
 
 // Learn client
 export { LearnClient } from './LearnClient.js';
-export type { LearnSearchResult, SkillUpdateInfo } from './LearnClient.js';
+export type { SkillUpdateInfo } from './LearnClient.js';
 
 // Security scanner
 export { SkillSecurityScanner } from './SkillSecurityScanner.js';

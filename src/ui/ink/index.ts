@@ -19,7 +19,7 @@ export {
   type SessionDiffLineExtensionOptions,
   type SessionDiffLineExtensionRenderer,
 } from './sessionDiffLineExtensions.js';
-export { ToolOutput, ToolOutputList, type ToolOutputEntry, type ToolOutputProps, type ToolOutputListProps } from './ToolOutput.js';
+export { ToolOutputStatic, type ToolOutputEntry, type ToolOutputProps } from './ToolOutput.js';
 export { InputLine, type InputLineProps } from './InputLine.js';
 export { ThinkingOutput, type ThinkingOutputProps } from './ThinkingOutput.js';
 export {
@@ -29,6 +29,6 @@ export {
   type AgentUIState,
   type AgentUIProps,
 } from './AgentUI.js';
-export { InkRenderer, createInkRenderer, type InkRendererOptions } from './InkRenderer.js';
+export { InkRenderer, type InkRendererOptions } from './InkRenderer.js';
 export { SlashCommandDropdown, matchSlashCommand, buildSlashSuggestions, buildSubcommandSuggestions, type SlashCommandSuggestion } from './SlashCommandDropdown.js';
 export { ShellCommandDropdown, buildShellCommandSuggestions, type ShellCommandSuggestion } from './ShellCommandDropdown.js';

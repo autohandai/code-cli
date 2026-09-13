@@ -96,6 +96,5 @@ export async function runAcpMode(options: CLIOptions): Promise<void> {
   process.stderr.write('[ACP] Native ACP mode ready. Waiting for client...\n');
 }
 
-export { AutohandAcpAdapter } from './adapter.js';
 export * from './types.js';
 export * from './permissions.js';

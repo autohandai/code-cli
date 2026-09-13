@@ -132,14 +132,6 @@ export interface ThemeDefinition {
 }
 
 /**
- * Resolved theme with all colors converted to usable values.
- */
-export interface ResolvedTheme {
-  name: string;
-  colors: ResolvedColors;
-}
-
-/**
  * All colors resolved to their final string representation.
  */
 export type ResolvedColors = Record<ColorToken, string>;
@@ -200,13 +192,6 @@ export const COLOR_TOKENS: readonly ColorToken[] = [
 ] as const;
 
 /**
- * Check if a string is a valid color token.
- */
-export function isColorToken(value: string): value is ColorToken {
-  return COLOR_TOKENS.includes(value as ColorToken);
-}
-
-/**
  * Check if a value is a valid hex color.
  */
 export function isHexColor(value: unknown): boolean {
@@ -219,15 +204,4 @@ export function isHexColor(value: unknown): boolean {
  */
 export function is256ColorIndex(value: unknown): boolean {
   return typeof value === 'number' && value >= 0 && value <= 255 && Number.isInteger(value);
-}
-
-/**
- * Check if a value is a valid color value (hex, 256-index, empty, or string variable).
- */
-export function isValidColorValue(value: unknown): value is ColorValue {
-  if (value === '') return true; // Terminal default
-  if (isHexColor(value)) return true;
-  if (is256ColorIndex(value)) return true;
-  if (typeof value === 'string' && value.length > 0) return true; // Variable reference
-  return false;
 }

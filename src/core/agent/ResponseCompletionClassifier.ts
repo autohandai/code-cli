@@ -5,11 +5,6 @@
  */
 import type { ToolCallRequest } from '../../types.js';
 
-export type ResponseCompletionKind =
-  | 'tool_call'
-  | 'final_answer'
-  | 'invalid_deferred_action';
-
 export interface ToolCallCompletion {
   kind: 'tool_call';
 }

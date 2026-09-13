@@ -151,10 +151,6 @@ export function applyCliProviderOverride<T extends AutohandConfig>(config: T, va
   };
 }
 
-export function getDefaultConfigPath(): string {
-  return DEFAULT_CONFIG_PATH;
-}
-
 export interface LoadConfigOptions {
   /**
    * Persist the safe default config when no file exists. Answer-only

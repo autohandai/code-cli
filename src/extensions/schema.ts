@@ -78,4 +78,3 @@ export const ExtensionStateSchema = z
   .strict();
 
 export type ExtensionManifest = z.infer<typeof ExtensionManifestSchema>;
-export type ExtensionState = z.infer<typeof ExtensionStateSchema>;

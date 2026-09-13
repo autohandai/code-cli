@@ -80,28 +80,6 @@ export async function language(ctx: LanguageContext): Promise<string | null> {
   return null;
 }
 
-/**
- * Display current language info
- */
-export async function languageInfo(): Promise<string | null> {
-  const currentLocale = getCurrentLocale();
-  const currentDisplayName = LANGUAGE_DISPLAY_NAMES[currentLocale];
-
-  console.log(chalk.cyan(`\n🌐 ${t('commands.language.title')}\n`));
-  console.log(chalk.gray(`${t('commands.language.currentLanguage', { language: currentDisplayName })}`));
-  console.log(chalk.gray(`Locale code: ${chalk.white(currentLocale)}`));
-  console.log();
-
-  console.log(chalk.gray('Supported languages:'));
-  for (const locale of SUPPORTED_LOCALES) {
-    const marker = locale === currentLocale ? chalk.green('●') : chalk.gray('○');
-    console.log(`  ${marker} ${LANGUAGE_DISPLAY_NAMES[locale]}`);
-  }
-  console.log();
-
-  return null;
-}
-
 export const metadata = {
   command: '/language',
   description: 'change display language',

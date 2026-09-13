@@ -27,6 +27,15 @@ export interface ClearCommandContext {
  * Clear conversation command - extracts memories, then resets to a fresh session.
  */
 export async function clearConversation(ctx: ClearCommandContext): Promise<string | null> {
+  return resetConversationSession(ctx, 'Session ended - conversation cleared');
+}
+
+/**
+ * Shared flow behind `/clear` and `/new`: emit the pre-clear hook, persist
+ * memories from the current conversation, close the session with the given
+ * reason, then reset the conversation and start a fresh session.
+ */
+export async function resetConversationSession(ctx: ClearCommandContext, closeReason: string): Promise<string | null> {
   // 1. Emit pre-clear hook before memory extraction
   if (ctx.hookManager) {
     await ctx.hookManager.executeHooks('pre-clear', {
@@ -48,7 +57,7 @@ export async function clearConversation(ctx: ClearCommandContext): Promise<strin
   // 4. Close the current session if one exists
   const currentSession = ctx.sessionManager.getCurrentSession();
   if (currentSession) {
-    await ctx.sessionManager.closeSession('Session ended - conversation cleared');
+    await ctx.sessionManager.closeSession(closeReason);
   }
 
   // 5. Reset the conversation context

@@ -73,15 +73,6 @@ export interface TelemetryConfig {
   clientVersion?: string;
 }
 
-export interface TelemetryStats {
-  totalEvents: number;
-  eventsSent: number;
-  eventsFailed: number;
-  eventsQueued: number;
-  lastSyncTime: string | null;
-  sessionId: string | null;
-}
-
 export interface ToolUseData {
   tool: string;
   success: boolean;

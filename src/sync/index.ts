@@ -8,48 +8,12 @@
  */
 
 // Types
-export type {
-  SyncConfig,
-  SyncManifest,
-  SyncFileEntry,
-  SyncResult,
-  SyncActions,
-  SyncApiConfig,
-  SyncApiResponse,
-  SyncEvent,
-} from './types.js';
+export type { SyncFileEntry } from './types.js';
 
-export {
-  DEFAULT_SYNC_CONFIG,
-  SYNC_EXCLUDE_ALWAYS,
-  SYNC_CONSENT_REQUIRED,
-  SYNC_INCLUDE_DEFAULT,
-  isMemorySyncPath,
-} from './types.js';
-
-// Encryption
-export {
-  encrypt,
-  decrypt,
-  encryptConfig,
-  decryptConfig,
-  isEncrypted,
-  computeHash,
-  deriveKey,
-} from './encryption.js';
+export { DEFAULT_SYNC_CONFIG, isMemorySyncPath } from './types.js';
 
 // API Client
-export { SyncApiClient, getSyncApiClient, resetSyncApiClient } from './SyncApiClient.js';
+export { SyncApiClient } from './SyncApiClient.js';
 
 // Service
-export { SyncService, createSyncService } from './SyncService.js';
-export type { SyncServiceOptions } from './SyncService.js';
-export {
-  applyManagedConnectors,
-  applyCodingAgentSettingsProfile,
-  applyDefaultCodingAgentSettingsProfileOnLogin,
-  CodingAgentControlPlaneClient,
-  createCodingAgentSettingsSnapshot,
-  getOrCreateCodingAgentDeviceId,
-  syncCodingAgentControlPlane,
-} from './CodingAgentControlPlane.js';
+export { createSyncService } from './SyncService.js';

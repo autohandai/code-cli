@@ -26,11 +26,6 @@ export type SkillSource =
   | 'community';       // Downloaded from community API
 
 /**
- * Activation type for skill usage tracking
- */
-export type SkillActivationType = 'auto' | 'explicit';
-
-/**
  * Skill frontmatter parsed from SKILL.md YAML header
  */
 export interface SkillFrontmatter {
@@ -77,16 +72,6 @@ export interface SkillParseResult {
 export interface SkillSimilarityMatch {
   skill: SkillDefinition;
   score: number;
-}
-
-/**
- * Skill telemetry event data
- */
-export interface SkillUseData {
-  skillName: string;
-  source: SkillSource;
-  activationType: SkillActivationType;
-  action?: 'activate' | 'install' | 'remove' | 'update';
 }
 
 /**

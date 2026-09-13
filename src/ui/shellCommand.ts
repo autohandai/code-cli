@@ -9,7 +9,7 @@
  * in the interactive prompt.
  */
 
-import { execSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { constants, readdirSync, type Dirent } from 'node:fs';
 import { access, chmod, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -20,7 +20,7 @@ import {
 } from '../actions/command.js';
 import { buildAutohandChildProcessEnv } from '../utils/childProcessEnv.js';
 import { writeAutohandDebugLine } from '../utils/debugLog.js';
-import { getCommandCoordination, prepareCommandCoordination, signalCoordinatedProcess, spawnCoordinatedProcess, waitForProcessPublication } from '../session/peers/CommandCoordinationGate.js';
+import { prepareCommandCoordination, spawnCoordinatedProcess, waitForProcessPublication } from '../session/peers/CommandCoordinationGate.js';
 import { CommandOutputCapture } from '../utils/commandOutputCapture.js';
 
 export type { BackgroundProcessCompletion } from '../actions/command.js';
@@ -517,51 +517,6 @@ export function isImmediateCommand(input: string): boolean {
   return false;
 }
 
-/**
- * Execute a shell command and return the result
- * @param command - The command to execute
- * @param cwd - Working directory (defaults to process.cwd())
- * @param timeout - Timeout in milliseconds (defaults to 30000)
- * @returns ShellCommandResult with success status and output/error
- */
-export function executeShellCommand(
-  command: string,
-  cwd?: string,
-  timeout: number = DEFAULT_SHELL_TIMEOUT
-): ShellCommandResult {
-  const trimmedCommand = command.trim();
-
-  try {
-    if (getCommandCoordination()) throw new Error('Synchronous shell execution cannot wait for peer coordination. Use the asynchronous command API.');
-    const result = execSync(trimmedCommand, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      cwd: cwd ?? process.cwd(),
-      env: buildAutohandChildProcessEnv(),
-      timeout
-    });
-
-    return {
-      success: true,
-      output: result || ''
-    };
-  } catch (error: unknown) {
-    const execError = error as { stderr?: string; message?: string };
-
-    if (execError.stderr) {
-      return {
-        success: false,
-        error: execError.stderr
-      };
-    }
-
-    return {
-      success: false,
-      error: execError.message || 'Unknown error'
-    };
-  }
-}
-
 export async function executeShellCommandAsync(
   command: string,
   cwd?: string,
@@ -685,83 +640,6 @@ export async function executeShellCommandAsync(
       finish({
         success: false,
         error: errorMessage
-      });
-    });
-  }).finally(() => waitForProcessPublication(child));
-}
-
-export async function executeInteractiveShellCommand(
-  command: string,
-  cwd?: string,
-  options: Pick<ExecuteShellCommandAsyncOptions, 'signal' | 'killGracePeriodMs'> = {}
-): Promise<ShellCommandResult> {
-  const trimmedCommand = command.trim();
-  if (options.signal?.aborted) {
-    throw new ShellCommandAbortedError();
-  }
-
-  const child = await spawnCoordinatedProcess({ file: trimmedCommand, args: [], cwd: cwd ?? process.cwd() }, {
-    shell: true, stdio: 'inherit', env: buildAutohandChildProcessEnv(),
-  }, options.signal);
-
-  return new Promise<ShellCommandResult>((resolve, reject) => {
-    let settled = false;
-    let forceKillId: NodeJS.Timeout | undefined;
-    let aborted = false;
-    const cleanup = (): void => {
-      if (forceKillId) clearTimeout(forceKillId);
-      options.signal?.removeEventListener('abort', handleAbort);
-    };
-    const finish = (result: ShellCommandResult): void => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve(result);
-    };
-    const finishAborted = (): void => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(new ShellCommandAbortedError());
-    };
-    function handleAbort(): void {
-      if (settled || aborted) return;
-      aborted = true;
-      signalCoordinatedProcess(child, 'SIGTERM');
-      forceKillId = setTimeout(() => {
-        if (!settled) signalCoordinatedProcess(child, 'SIGKILL');
-      }, Math.max(0, options.killGracePeriodMs ?? DEFAULT_KILL_GRACE_PERIOD_MS));
-      forceKillId.unref?.();
-    }
-    if (options.signal) {
-      options.signal.addEventListener('abort', handleAbort, { once: true });
-      if (options.signal.aborted) handleAbort();
-    }
-
-    child.once('error', (error: ExecAsyncError) => {
-      if (aborted) {
-        finishAborted();
-        return;
-      }
-      finish({
-        success: false,
-        error: error.stderr?.toString() || error.message || 'Unknown error'
-      });
-    });
-
-    child.once('close', (code, signal) => {
-      if (aborted) {
-        finishAborted();
-        return;
-      }
-      if (code === 0) {
-        finish({ success: true, output: '' });
-        return;
-      }
-
-      finish({
-        success: false,
-        error: signal ? `Command terminated by ${signal}` : `Command failed with exit code ${code ?? 'unknown'}`
       });
     });
   }).finally(() => waitForProcessPublication(child));

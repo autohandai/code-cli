@@ -125,41 +125,6 @@ export async function theme(ctx: ThemeContext): Promise<string | null> {
   return null;
 }
 
-/**
- * Display current theme info
- */
-export async function themeInfo(): Promise<string | null> {
-  if (!isThemeInitialized()) {
-    console.log(chalk.yellow('Theme not initialized.'));
-    return null;
-  }
-
-  const currentTheme = getTheme();
-  console.log(chalk.cyan('\n🎨 Current Theme Info\n'));
-  console.log(chalk.gray(`Name: ${chalk.white(currentTheme.name)}`));
-  console.log(chalk.gray(`Color mode: ${chalk.white(currentTheme.getColorMode())}`));
-  if (currentTheme.getColorMode() === 'none') {
-    console.log(chalk.yellow('Color output is disabled by NO_COLOR or FORCE_COLOR=0 in your terminal environment.'));
-  }
-  console.log(chalk.gray(`Custom themes dir: ${CUSTOM_THEMES_DIR}`));
-  console.log();
-
-  // Show color preview
-  console.log('Color preview:');
-  console.log(`  ${currentTheme.fg('accent', '● accent')}  ${currentTheme.fg('success', '● success')}  ${currentTheme.fg('error', '● error')}  ${currentTheme.fg('warning', '● warning')}`);
-  console.log(`  ${currentTheme.fg('muted', '● muted')}  ${currentTheme.fg('dim', '● dim')}  ${currentTheme.fg('text', '● text')}`);
-  console.log();
-  console.log('Syntax colors:');
-  console.log(`  ${currentTheme.fg('syntaxKeyword', 'keyword')}  ${currentTheme.fg('syntaxString', '"string"')}  ${currentTheme.fg('syntaxNumber', '42')}  ${currentTheme.fg('syntaxComment', '// comment')}`);
-  console.log(`  ${currentTheme.fg('syntaxFunction', 'function')}  ${currentTheme.fg('syntaxType', 'Type')}  ${currentTheme.fg('syntaxVariable', 'variable')}`);
-  console.log();
-  console.log('Diff colors:');
-  console.log(`  ${currentTheme.fg('diffAdded', '+ added')}  ${currentTheme.fg('diffRemoved', '- removed')}  ${currentTheme.fg('diffContext', '  context')}`);
-  console.log();
-
-  return null;
-}
-
 export const metadata = {
   command: '/theme',
   description: t('commands.theme.description'),

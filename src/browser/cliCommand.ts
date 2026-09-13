@@ -112,6 +112,3 @@ function registerBrowserInstallCommand(command: Command, legacy = false): void {
       console.log();
     });
 }
-
-/** @deprecated Register the browser command instead. */
-export const registerChromeCommand = registerBrowserCommand;

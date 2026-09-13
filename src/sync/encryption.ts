@@ -16,15 +16,6 @@ const SALT = 'autohand-sync-v1'; // Static salt for key derivation
 const ITERATIONS = 100000; // PBKDF2 iterations
 
 /**
- * Encrypted value format: iv:authTag:ciphertext (all base64)
- */
-export interface EncryptedValue {
-  iv: string;
-  authTag: string;
-  ciphertext: string;
-}
-
-/**
  * Derive a 256-bit encryption key from the auth token
  * Uses PBKDF2 for secure key derivation
  */

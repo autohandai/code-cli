@@ -4,12 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * LLM-powered + static summarization with structured format.
- * Extracted from contextManager.ts for composability.
  */
 import type { LLMMessage } from '../../types.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
 import type { MemoryManager } from '../../memory/MemoryManager.js';
-import type { StructuredSummary } from './types.js';
 import { extractMessageMetadata } from './priority.js';
 import { serializeMessagesForSummary } from './serializer.js';
 
@@ -154,43 +152,6 @@ export async function summarizeWithLLM(
 }
 
 /**
- * Build a structured summary in pi-mono format from raw summary text and file operations.
- */
-export function buildStructuredSummary(
-  summaryText: string,
-  fileOps: { readFiles: string[]; modifiedFiles: string[] },
-): StructuredSummary {
-  // Parse the raw summary into structured sections using heuristic extraction
-  const lines = summaryText.split('\n').map(l => l.trim()).filter(Boolean);
-
-  const goal = lines.find(l => /goal|intent|request|objective/i.test(l)) ?? lines[0] ?? '';
-  const constraints: string[] = [];
-  const progress: string[] = [];
-  const keyDecisions: string[] = [];
-  const nextSteps: string[] = [];
-  const criticalContext: string[] = [];
-
-  for (const line of lines) {
-    if (/constraint|requirement|must|should/i.test(line)) constraints.push(line);
-    else if (/accomplished|done|completed|created|modified|implemented/i.test(line)) progress.push(line);
-    else if (/decided|chose|selected|preference/i.test(line)) keyDecisions.push(line);
-    else if (/remain|todo|next|pending|still/i.test(line)) nextSteps.push(line);
-    else if (/critical|important|essential|key/i.test(line)) criticalContext.push(line);
-  }
-
-  return {
-    goal,
-    constraints,
-    progress,
-    keyDecisions,
-    nextSteps,
-    criticalContext,
-    readFiles: fileOps.readFiles,
-    modifiedFiles: fileOps.modifiedFiles,
-  };
-}
-
-/**
  * Extract cumulative file operations from a set of messages.
  * Returns read and modified file lists.
  */
@@ -242,9 +203,3 @@ export async function persistKeyFacts(summary: string, memoryManager: MemoryMana
     await memoryManager.store(fact, 'project', ['context-summary'], 'context-summarization');
   }
 }
-
-/**
- * Backward-compatible alias for summarizeMessagesStatic.
- * @deprecated Use summarizeMessagesStatic or summarizeWithLLM instead.
- */
-export const summarizeMessages = summarizeMessagesStatic;

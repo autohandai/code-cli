@@ -5,8 +5,6 @@
  */
 export {
   FeedbackManager,
-  getFeedbackManager,
-  resetFeedbackManager,
   type FeedbackConfig,
   type FeedbackResponse,
   type FeedbackState,

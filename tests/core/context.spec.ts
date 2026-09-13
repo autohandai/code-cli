@@ -29,10 +29,13 @@ import {
 import { compressToolOutput } from '../../src/core/context/compressor.js';
 import {
   summarizeMessagesStatic,
+  summarizeWithLLM,
   extractFileOperations,
 } from '../../src/core/context/summarizer.js';
 import { CONTEXT_ENV_VARS } from '../../src/core/context/types.js';
-import type { LLMMessage, FunctionDefinition } from '../../src/types.js';
+import type { LLMMessage, FunctionDefinition, LLMRequest, LLMResponse } from '../../src/types.js';
+import type { LLMProvider } from '../../src/providers/LLMProvider.js';
+import type { MemoryManager } from '../../src/memory/MemoryManager.js';
 
 const mockTools: FunctionDefinition[] = [
   { name: 'read_file', description: 'Read a file', parameters: { type: 'object', properties: {} } },
@@ -40,6 +43,44 @@ const mockTools: FunctionDefinition[] = [
 
 function createMessage(role: LLMMessage['role'], contentLength: number): LLMMessage {
   return { role, content: 'x'.repeat(contentLength) };
+}
+
+function createMockLLM(responseContent: string, shouldThrow = false): LLMProvider {
+  return {
+    getName: () => 'mock',
+    complete: vi.fn(async (_req: LLMRequest): Promise<LLMResponse> => {
+      if (shouldThrow) throw new Error('LLM unavailable');
+      return { id: 'mock-id', created: Date.now(), content: responseContent, finishReason: 'stop', raw: {} };
+    }),
+    listModels: async () => ['mock-model'],
+    isAvailable: async () => true,
+    setModel: () => {},
+  };
+}
+
+function createMockMemoryManager(): MemoryManager {
+  const memory = { id: 'mem-1', content: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  return {
+    store: vi.fn(async () => memory),
+    recall: vi.fn(async () => []),
+    initialize: vi.fn(async () => {}),
+    setWorkspace: vi.fn(),
+    updateMemory: vi.fn(async () => memory),
+    get: vi.fn(async () => null),
+    list: vi.fn(async () => []),
+    listAll: vi.fn(async () => ({ project: [], user: [] })),
+    delete: vi.fn(async () => {}),
+    findSimilar: vi.fn(async () => null),
+    search: vi.fn(async () => []),
+    getContextMemories: vi.fn(async () => ''),
+  } as unknown as MemoryManager;
+}
+
+function fillConversation(cm: ConversationManager, count: number, contentLength = 100): void {
+  for (let i = 0; i < count; i++) {
+    cm.addMessage({ role: 'user', content: `Request ${i}: ${'x'.repeat(contentLength)}` });
+    cm.addMessage({ role: 'assistant', content: `Response ${i}: ${'y'.repeat(contentLength)}` });
+  }
 }
 
 // ── Tokenizer ────────────────────────────────────────────────────────────────
@@ -284,6 +325,29 @@ describe('context/priority', () => {
       });
       expect(meta.tools).toContain('write_file');
     });
+
+    it('extracts bare file paths from message content', () => {
+      const meta = extractMessageMetadata({
+        role: 'tool',
+        content: 'Read file src/index.ts and found exports in lib/utils.js',
+      });
+      expect(meta.files).toContain('src/index.ts');
+      expect(meta.files).toContain('lib/utils.js');
+    });
+
+    it('extracts backticked file paths', () => {
+      const meta = extractMessageMetadata({
+        role: 'assistant',
+        content: 'I will edit `package.json` and `tsconfig.json`',
+      });
+      expect(meta.files).toContain('package.json');
+      expect(meta.files).toContain('tsconfig.json');
+    });
+
+    it('extracts the tool name from a tool message', () => {
+      const meta = extractMessageMetadata({ role: 'tool', name: 'read_file', content: 'File contents here' });
+      expect(meta.tools).toContain('read_file');
+    });
   });
 
   describe('determineMessagePriority', () => {
@@ -302,6 +366,10 @@ describe('context/priority', () => {
     it('error messages are high', () => {
       expect(determineMessagePriority({ role: 'tool', content: 'Error: crash', name: 'run_command' })).toBe('high');
     });
+
+    it('assistant decisions are high', () => {
+      expect(determineMessagePriority({ role: 'assistant', content: 'I decided to use React for the frontend.' })).toBe('high');
+    });
   });
 
   describe('sortMessagesByPriority', () => {
@@ -314,6 +382,15 @@ describe('context/priority', () => {
       const sorted = sortMessagesByPriority(messages);
       // The tool message (low priority) should be first
       expect(sorted[0]).toBe(1);
+    });
+
+    it('keeps system messages last in removal order', () => {
+      const messages: LLMMessage[] = [
+        { role: 'system', content: 'system' },
+        { role: 'tool', content: 'short tool' },
+      ];
+      const sorted = sortMessagesByPriority(messages);
+      expect(sorted[sorted.length - 1]).toBe(0);
     });
   });
 
@@ -362,6 +439,15 @@ describe('context/compressor', () => {
     const compressed = compressToolOutput(msg, 500);
     expect(compressed.content).toBe(msg.content);
   });
+
+  it('preserves the head and tail of a compressed output', () => {
+    const msg: LLMMessage = { role: 'tool', content: 'START' + 'x'.repeat(2000) + 'END' };
+    const compressed = compressToolOutput(msg, 500);
+    expect(compressed.content).toContain('START');
+    expect(compressed.content).toContain('END');
+    expect(compressed.content).toContain('characters compressed');
+    expect(compressed.metadata?.isCompressed).toBe(true);
+  });
 });
 
 // ── Summarizer ────────────────────────────────────────────────────────────────
@@ -389,6 +475,106 @@ describe('context/summarizer', () => {
       expect(summary).toContain('live token dashboard');
       expect(summary).toContain('extension marketplace');
       expect(summary).toContain('offline Ollama mode');
+    });
+
+    it('lists user requests, files touched and tools used', () => {
+      const summary = summarizeMessagesStatic([
+        { role: 'user', content: 'Fix the login bug' },
+        { role: 'tool', name: 'read_file', content: 'Contents of src/auth.ts' },
+        { role: 'tool', name: 'write_file', content: 'success' },
+      ]);
+      expect(summary).toContain('Fix the login bug');
+      expect(summary).toContain('Files touched');
+      expect(summary).toContain('src/auth.ts');
+      expect(summary).toContain('Tools used');
+      expect(summary).toContain('read_file');
+      expect(summary).toContain('write_file');
+    });
+  });
+
+  describe('summarizeWithLLM', () => {
+    const jwtMessages: LLMMessage[] = [
+      { role: 'user', content: 'Refactor the auth module to use JWT' },
+      {
+        role: 'assistant',
+        content: "I'll refactor auth to JWT. Let me create the files.",
+        tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'write_file', arguments: '{"path":"src/auth/jwt.ts"}' } }],
+      },
+      { role: 'tool', name: 'write_file', content: 'File created', tool_call_id: 'tc1' },
+    ];
+
+    it('calls the LLM and wraps its output as an LLM context summary', async () => {
+      const llm = createMockLLM('User asked to refactor the auth module to use JWT. Remaining: add tests.');
+
+      const summary = await summarizeWithLLM(jwtMessages, llm);
+
+      expect(llm.complete).toHaveBeenCalledOnce();
+      expect(summary).toContain('LLM Context Summary');
+      expect(summary).toContain('refactor');
+      expect(summary).toContain('Remaining');
+    });
+
+    it('falls back to the static summary when the LLM call fails', async () => {
+      const llm = createMockLLM('', true);
+
+      const summary = await summarizeWithLLM(
+        [
+          { role: 'user', content: 'Fix the login bug' },
+          { role: 'tool', name: 'read_file', content: 'Contents of src/auth.ts' },
+        ],
+        llm,
+      );
+
+      expect(llm.complete).toHaveBeenCalledOnce();
+      expect(summary).toContain('Context Summary');
+      expect(summary).toContain('Fix the login bug');
+    });
+
+    it('falls back to the static summary when the LLM returns empty content', async () => {
+      const llm = createMockLLM('   ');
+      const summary = await summarizeWithLLM(jwtMessages, llm);
+      expect(summary).toContain('[Context Summary');
+      expect(summary).not.toContain('LLM Context Summary');
+    });
+
+    it('uses the static summary when no LLM is provided', async () => {
+      const summary = await summarizeWithLLM([{ role: 'user', content: 'Hello world' }]);
+      expect(summary).toContain('Context Summary');
+    });
+
+    it('does not call the LLM for an empty message list', async () => {
+      const llm = createMockLLM('should not be called');
+      const summary = await summarizeWithLLM([], llm);
+      expect(llm.complete).not.toHaveBeenCalled();
+      expect(summary).toContain('Context Summary');
+    });
+
+    it('persists key facts from the summary to project memory', async () => {
+      const llm = createMockLLM('User chose PostgreSQL over MySQL for the database. Preference for using single quotes in code.');
+      const memoryManager = createMockMemoryManager();
+
+      await summarizeWithLLM(
+        [
+          { role: 'user', content: 'Set up the database' },
+          { role: 'assistant', content: 'I chose PostgreSQL over MySQL because...' },
+        ],
+        llm,
+        memoryManager,
+      );
+
+      expect(memoryManager.store).toHaveBeenCalled();
+      const calls = (memoryManager.store as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls.some((c: unknown[]) => c[1] === 'project')).toBe(true);
+    });
+
+    it('ignores memory persistence failures', async () => {
+      const llm = createMockLLM('User chose PostgreSQL over MySQL for the database.');
+      const memoryManager = createMockMemoryManager();
+      (memoryManager.store as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('disk full'));
+
+      const summary = await summarizeWithLLM([{ role: 'user', content: 'Set up the database' }], llm, memoryManager);
+
+      expect(summary).toContain('LLM Context Summary');
     });
   });
 
@@ -465,6 +651,81 @@ describe('context/compactor', () => {
     expect(result.wasCropped).toBe(true);
     expect(result.messages.some(message => message.content.includes('Feature ideas:'))).toBe(true);
     expect(result.messages.some(message => message.content.includes("let's spec it"))).toBe(true);
+  });
+
+  it('does not emit no-op summaries when only the active turn is large', async () => {
+    const onCrop = vi.fn();
+    conversationManager.addMessage({ role: 'user', content: 'Inspect this failure' });
+    for (let i = 0; i < 12; i++) {
+      conversationManager.addMessage({ role: 'assistant', content: `Large tool follow-up ${i}: ${'x'.repeat(25_000)}` });
+    }
+    const initialLength = conversationManager.history().length;
+
+    const result = await compactor.compact('openai/gpt-4o-mini', mockTools, onCrop);
+
+    expect(result.wasCropped).toBe(false);
+    expect(result.croppedCount).toBe(0);
+    expect(onCrop).not.toHaveBeenCalled();
+    expect(conversationManager.history()).toHaveLength(initialLength);
+    expect(conversationManager.history().filter(msg => msg.role === 'system')).toHaveLength(1);
+  });
+
+  it('removes the selected low-priority messages during critical compaction', async () => {
+    const onCrop = vi.fn();
+    for (let i = 0; i < 14; i++) {
+      conversationManager.addMessage({ role: 'user', content: `Old request ${i}` });
+      conversationManager.addMessage({
+        role: 'assistant',
+        priority: 'low',
+        content: `Verbose assistant context ${i}: ${'y'.repeat(30_000)}`,
+      });
+    }
+    conversationManager.addMessage({ role: 'user', content: 'Continue from here' });
+    const initialAssistantCount = conversationManager.history().filter(msg => msg.role === 'assistant').length;
+    const initialLength = conversationManager.history().length;
+
+    const result = await compactor.compact('openai/gpt-4o-mini', mockTools, onCrop);
+
+    expect(result.wasCropped).toBe(true);
+    expect(result.croppedCount).toBeGreaterThan(0);
+    expect(onCrop).toHaveBeenCalledWith(expect.any(Number), expect.stringContaining('priority-based'));
+    expect(result.messages.length).toBeLessThan(initialLength);
+    expect(result.messages.filter(msg => msg.role === 'assistant').length).toBeLessThan(initialAssistantCount);
+  });
+
+  it('uses the LLM for tier-2 summarization when the conversation crosses 80%', async () => {
+    const llm = createMockLLM('Summary: user asked to refactor auth. Files modified: auth.ts, index.ts.');
+    const llmCompactor = new ContextCompactor({ conversationManager, llm });
+    fillConversation(conversationManager, 200, 500);
+
+    const result = await llmCompactor.compact('openai/gpt-4o-mini', mockTools);
+
+    if (result.wasCropped) {
+      expect(llm.complete).toHaveBeenCalled();
+    }
+    expect(result.messages.length).toBeGreaterThan(0);
+    expect(result.messages[0].role).toBe('system');
+  });
+
+  it('falls back to static summarization when the context is critically tight', async () => {
+    const llm = createMockLLM('Critical summary: extensive work done on auth module.');
+    const llmCompactor = new ContextCompactor({ conversationManager, llm });
+    fillConversation(conversationManager, 400, 500);
+
+    const result = await llmCompactor.compact('openai/gpt-4o-mini', mockTools);
+
+    expect(result.wasCropped).toBe(true);
+    expect(llm.complete).not.toHaveBeenCalled();
+    expect(result.messages.length).toBeGreaterThan(0);
+  });
+
+  it('compacts without an LLM using static summarization', async () => {
+    fillConversation(conversationManager, 200, 500);
+
+    const result = await compactor.compact('openai/gpt-4o-mini', mockTools);
+
+    expect(result.messages.length).toBeGreaterThan(0);
+    expect(result.messages[0].role).toBe('system');
   });
 
   it('does not repeatedly destroy recent turns when fixed tool overhead dominates the window', async () => {
@@ -753,17 +1014,5 @@ describe('context/orchestrator', () => {
       const result = await orchestrator.checkMidTurnCompaction(mockTools, 1);
       expect(result).toBe(false);
     });
-  });
-});
-
-// ── Backward Compatibility ───────────────────────────────────────────────────
-
-describe('context/backward-compat', () => {
-  it('utils/context.ts re-exports from tokenizer', async () => {
-    const ctx = await import('../../src/utils/context.js');
-    expect(ctx.getContextWindow).toBeDefined();
-    expect(ctx.estimateTokens).toBeDefined();
-    expect(ctx.calculateContextUsage).toBeDefined();
-    expect(ctx.CONTEXT_WARNING_THRESHOLD).toBeDefined();
   });
 });

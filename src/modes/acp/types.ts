@@ -47,9 +47,6 @@ export const ACP_HOOK_NOTIFICATIONS = {
   SETUP_COMPLETE: "autohand.setup.complete",
 } as const;
 
-export type AcpHookNotification =
-  (typeof ACP_HOOK_NOTIFICATIONS)[keyof typeof ACP_HOOK_NOTIFICATIONS];
-
 // ============================================================================
 // Tool Kind Mapping
 // ============================================================================

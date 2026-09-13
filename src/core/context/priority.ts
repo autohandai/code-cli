@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Metadata extraction, priority scoring, sorting, and tool-call coherence.
- * Extracted from contextManager.ts for composability.
  */
 import type { LLMMessage, MessagePriority, MessageMetadata } from '../../types.js';
 

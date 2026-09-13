@@ -274,11 +274,6 @@ export function buildToolPermissionContexts(action: AgentAction): PermissionCont
   return [context];
 }
 
-/** Build the primary standard permission context for compatibility callers. */
-export function buildToolPermissionContext(action: AgentAction): PermissionContext {
-  return buildToolPermissionContexts(action)[0];
-}
-
 const acceptanceCriteriaParameter: ToolParameter = {
   type: 'array',
   description: 'Optional 1–20 unique acceptance criteria explicitly approved by the user; each requires passed completion evidence',

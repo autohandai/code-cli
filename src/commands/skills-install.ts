@@ -26,12 +26,6 @@ import type {
   SkillInstallScope,
 } from '../types.js';
 
-export const metadata = {
-  command: '/skills install',
-  description: 'browse and install community skills',
-  implemented: true,
-};
-
 export interface SkillsInstallContext {
   skillsRegistry: SkillsRegistry;
   workspaceRoot: string;
@@ -554,15 +548,6 @@ function failPreflight(message: string): null {
   return null;
 }
 
-/**
- * Format download count for display
- */
-export function formatDownloads(count: number): string {
-  if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
-  if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
-  return String(count);
-}
-
 function sortSkillsForDisplay(skills: GitHubCommunitySkill[]): GitHubCommunitySkill[] {
   return [...skills].sort((a, b) => {
     const featuredRank = Number(Boolean(b.isFeatured)) - Number(Boolean(a.isFeatured));
@@ -604,23 +589,4 @@ function formatSkillChoice(skill: GitHubCommunitySkill): string {
   parts.push(chalk.gray(skill.description.slice(0, 40)));
 
   return parts.join(' ');
-}
-
-/**
- * Refresh the cache from GitHub
- */
-export async function refreshCache(): Promise<void> {
-  const cache = new CommunitySkillsCache();
-  const fetcher = new GitHubRegistryFetcher();
-
-  console.log(chalk.cyan('Refreshing community skills cache...'));
-
-  try {
-    const registry = await fetcher.fetchRegistry();
-    await cache.setRegistry(registry);
-    console.log(chalk.green(`✓ Cached ${registry.skills.length} skills`));
-  } catch (error) {
-    console.log(chalk.red('Failed to refresh cache.'));
-    console.log(chalk.gray(error instanceof Error ? error.message : 'Unknown error'));
-  }
 }

@@ -518,18 +518,3 @@ export class FeedbackManager {
     return [];
   }
 }
-
-// ============ Singleton Export ============
-
-let instance: FeedbackManager | null = null;
-
-export function getFeedbackManager(config?: Partial<FeedbackConfig>): FeedbackManager {
-  if (!instance) {
-    instance = new FeedbackManager(config);
-  }
-  return instance;
-}
-
-export function resetFeedbackManager(): void {
-  instance = null;
-}

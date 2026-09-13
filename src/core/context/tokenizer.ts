@@ -294,19 +294,6 @@ export function calculateContextUsage(
 }
 
 /**
- * Estimate how many messages can be safely added
- */
-export function estimateRemainingCapacity(
-  messages: LLMMessage[],
-  tools: FunctionDefinition[],
-  model: string,
-  averageMessageSize = 500,
-): number {
-  const usage = calculateContextUsage(messages, tools, model);
-  return Math.floor(usage.remainingTokens / averageMessageSize);
-}
-
-/**
  * Find messages that can be safely cropped (not system, not last user message)
  */
 export function findCroppableMessages(messages: LLMMessage[]): number[] {

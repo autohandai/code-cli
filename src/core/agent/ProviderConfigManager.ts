@@ -46,7 +46,7 @@ import { VERTEX_AI_CODING_MODELS } from "../../providers/VertexAIProvider.js";
 import { sanitizeModelId } from "../../providers/errors.js";
 import { getOpenRouterModelContextWindow } from "../../providers/modelCapabilities.js";
 import { saveConfig, getProviderConfig } from "../../config.js";
-import { getContextWindow } from "../../utils/context.js";
+import { getContextWindow } from "../context/tokenizer.js";
 import {
   getProviderDefaultModel,
   getProviderModelIds,

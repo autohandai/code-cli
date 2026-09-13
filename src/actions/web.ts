@@ -383,19 +383,6 @@ async function chromeHeadlessFetch(url: string, timeout = 20000, signal?: AbortS
   ], timeout, signal);
 }
 
-export interface NpmPackageInfo {
-  name: string;
-  version: string;
-  description: string;
-  homepage?: string;
-  repository?: string;
-  license?: string;
-  dependencies?: Record<string, string>;
-  devDependencies?: Record<string, string>;
-  keywords?: string[];
-  maintainers?: Array<{ name: string; email?: string }>;
-}
-
 /**
  * Simple HTTP/HTTPS fetch that works without external dependencies
  */
@@ -1623,6 +1610,3 @@ export function formatPackageInfo(info: PackageInfo): string {
 
   return lines.join('\n');
 }
-
-// Alias for backward compatibility
-export const formatNpmInfo = formatPackageInfo;

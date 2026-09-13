@@ -11,15 +11,12 @@
 export type {
   CompactionEntry,
   CompactionResult,
-  StructuredSummary,
   ContextOrchestratorOptions,
   ContextCompactHookContext,
   ContextOverflowHookContext,
   ContextWarningHookContext,
   ContextCriticalHookContext,
   ContextHookContext,
-  SetContextCompactRequest,
-  SetContextCompactResponse,
   ExtendedContextUsageResult,
 } from './types.js';
 export { CONTEXT_ENV_VARS } from './types.js';
@@ -34,7 +31,6 @@ export {
   estimateMessagesTokens,
   estimateToolsTokens,
   calculateContextUsage,
-  estimateRemainingCapacity,
   findCroppableMessages,
   calculateTokensToCrop,
   CONTEXT_WARNING_THRESHOLD,
@@ -60,10 +56,8 @@ export { compressToolOutput } from './compressor.js';
 export {
   summarizeMessagesStatic,
   summarizeWithLLM,
-  buildStructuredSummary,
   extractFileOperations,
   persistKeyFacts,
-  summarizeMessages,
 } from './summarizer.js';
 
 // Compactor

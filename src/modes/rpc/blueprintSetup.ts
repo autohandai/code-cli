@@ -92,9 +92,6 @@ export const blueprintSetupSessionParamsSchema = z.strictObject({
   sessionId: z.string().regex(/^[a-f0-9]{32}$/u),
 });
 
-export type BlueprintSetupBeginParams = z.infer<typeof blueprintSetupBeginParamsSchema>;
-export type BlueprintSetupSessionParams = z.infer<typeof blueprintSetupSessionParamsSchema>;
-
 export interface BlueprintSetupBeginResult {
   contractVersion: 1;
   sessionId: string;

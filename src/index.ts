@@ -149,6 +149,58 @@ function applyCliModelOverride(config: LoadedConfig, model: string): void {
 }
 
 /**
+ * Exit with a clear error when a non-interactive run targets a workspace path
+ * that is invalid or one of the dangerous directories.
+ */
+async function exitUnlessWorkspaceIsSafe(workspaceRoot: string): Promise<void> {
+  // The safety check is pure string inspection, so it runs before any filesystem work.
+  const safetyCheck = checkWorkspaceSafety(workspaceRoot);
+  if (!safetyCheck.safe) {
+    printDangerousWorkspaceWarning(workspaceRoot, safetyCheck);
+    process.exit(1);
+  }
+
+  const workspacePathValidation = await validateWorkspacePath(workspaceRoot);
+  if (!workspacePathValidation.valid) {
+    console.error(chalk.red(`Error: ${workspacePathValidation.error}`));
+    process.exit(1);
+  }
+}
+
+/**
+ * Resolve the --add-dir entries for a non-interactive run, exiting when one
+ * is missing, is not a directory, or fails the workspace safety check.
+ */
+async function resolveAdditionalDirectoriesOrExit(addDir: string[] | undefined): Promise<string[]> {
+  const additionalDirs: string[] = [];
+  if (!addDir || addDir.length === 0) {
+    return additionalDirs;
+  }
+
+  for (const dir of addDir) {
+    const resolvedDir = path.resolve(dir);
+    if (!await fs.pathExists(resolvedDir)) {
+      console.error(chalk.red(`Error: Additional directory does not exist: ${dir}`));
+      process.exit(1);
+    }
+    const stats = await fs.stat(resolvedDir);
+    if (!stats.isDirectory()) {
+      console.error(chalk.red(`Error: Additional path is not a directory: ${dir}`));
+      process.exit(1);
+    }
+    const addDirSafetyCheck = checkWorkspaceSafety(resolvedDir);
+    if (!addDirSafetyCheck.safe) {
+      console.error(chalk.red(`Error: Unsafe additional directory: ${dir}`));
+      console.error(chalk.yellow(`  ${addDirSafetyCheck.reason}`));
+      process.exit(1);
+    }
+    additionalDirs.push(resolvedDir);
+  }
+
+  return additionalDirs;
+}
+
+/**
  * Get git commit hash (short)
  * Uses build-time embedded commit, falls back to runtime git command for dev
  */
@@ -554,17 +606,7 @@ program
     if (opts.setup) {
       const config = await loadConfig(opts.config, process.cwd());
       const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
-
-      const safetyCheck = checkWorkspaceSafety(workspaceRoot);
-      if (!safetyCheck.safe) {
-        printDangerousWorkspaceWarning(workspaceRoot, safetyCheck);
-        process.exit(1);
-      }
-      const workspacePathValidation = await validateWorkspacePath(workspaceRoot);
-      if (!workspacePathValidation.valid) {
-        console.error(chalk.red(`Error: ${workspacePathValidation.error}`));
-        process.exit(1);
-      }
+      await exitUnlessWorkspaceIsSafe(workspaceRoot);
 
       const { SetupWizard } = await import('./onboarding/index.js');
       const wizard = new SetupWizard(workspaceRoot, config);
@@ -628,16 +670,7 @@ program
     {
       const preAuthConfig = await loadConfig(opts.config, process.cwd());
       const workspaceRoot = resolveWorkspaceRoot(preAuthConfig, opts.path);
-      const safetyCheck = checkWorkspaceSafety(workspaceRoot);
-      if (!safetyCheck.safe) {
-        printDangerousWorkspaceWarning(workspaceRoot, safetyCheck);
-        process.exit(1);
-      }
-      const workspacePathValidation = await validateWorkspacePath(workspaceRoot);
-      if (!workspacePathValidation.valid) {
-        console.error(chalk.red(`Error: ${workspacePathValidation.error}`));
-        process.exit(1);
-      }
+      await exitUnlessWorkspaceIsSafe(workspaceRoot);
     }
 
     if (opts.outputSchema && !opts.prompt) {
@@ -2338,16 +2371,7 @@ async function runGoalFlag(opts: CLIOptions): Promise<void> {
   }
 
   const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
-  const workspacePathValidation = await validateWorkspacePath(workspaceRoot);
-  if (!workspacePathValidation.valid) {
-    console.error(chalk.red(`Error: ${workspacePathValidation.error}`));
-    process.exit(1);
-  }
-  const safetyCheck = checkWorkspaceSafety(workspaceRoot);
-  if (!safetyCheck.safe) {
-    printDangerousWorkspaceWarning(workspaceRoot, safetyCheck);
-    process.exit(1);
-  }
+  await exitUnlessWorkspaceIsSafe(workspaceRoot);
 
   const { runGoalCli } = await import('./commands/goal.js');
   const result = await runGoalCli(workspaceRoot, opts.goal ?? '', config);
@@ -2454,18 +2478,7 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
   const originalWorkspaceRoot = resolveWorkspaceRoot(config, opts.path);
   let workspaceRoot = originalWorkspaceRoot;
 
-  // Check for dangerous workspace directories
-  const workspacePathValidation = await validateWorkspacePath(originalWorkspaceRoot);
-  if (!workspacePathValidation.valid) {
-    console.error(chalk.red(`Error: ${workspacePathValidation.error}`));
-    process.exit(1);
-  }
-
-  const safetyCheck = checkWorkspaceSafety(originalWorkspaceRoot);
-  if (!safetyCheck.safe) {
-    printDangerousWorkspaceWarning(originalWorkspaceRoot, safetyCheck);
-    process.exit(1);
-  }
+  await exitUnlessWorkspaceIsSafe(originalWorkspaceRoot);
 
   // Nobody can answer a trust prompt here, so untrusted project hooks and MCP servers are skipped with a warning.
   if (!opts.bare) {
@@ -2489,29 +2502,7 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
     console.error(chalk.gray(`Branch: ${sessionWorktree.branchName}${sessionWorktree.createdBranch ? ' (new)' : ''}\n`));
   }
 
-  // Validate and resolve additional directories from --add-dir flag
-  const additionalDirs: string[] = [];
-  if (opts.addDir && opts.addDir.length > 0) {
-    for (const dir of opts.addDir) {
-      const resolvedDir = path.resolve(dir);
-      if (!await fs.pathExists(resolvedDir)) {
-        console.error(chalk.red(`Error: Additional directory does not exist: ${dir}`));
-        process.exit(1);
-      }
-      const stats = await fs.stat(resolvedDir);
-      if (!stats.isDirectory()) {
-        console.error(chalk.red(`Error: Additional path is not a directory: ${dir}`));
-        process.exit(1);
-      }
-      const addDirSafetyCheck = checkWorkspaceSafety(resolvedDir);
-      if (!addDirSafetyCheck.safe) {
-        console.error(chalk.red(`Error: Unsafe additional directory: ${dir}`));
-        console.error(chalk.yellow(`  ${addDirSafetyCheck.reason}`));
-        process.exit(1);
-      }
-      additionalDirs.push(resolvedDir);
-    }
-  }
+  const additionalDirs = await resolveAdditionalDirectoriesOrExit(opts.addDir);
 
   // Override model from CLI if provided
   if (opts.model) {
@@ -2607,18 +2598,7 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
   const config = await loadConfig(opts.config, resolveRequestedWorkspaceRoot(opts.path));
   const originalWorkspaceRoot = resolveWorkspaceRoot(config, opts.path);
 
-  // Check for dangerous workspace directories
-  const workspacePathValidation = await validateWorkspacePath(originalWorkspaceRoot);
-  if (!workspacePathValidation.valid) {
-    console.error(chalk.red(`Error: ${workspacePathValidation.error}`));
-    process.exit(1);
-  }
-
-  const safetyCheck = checkWorkspaceSafety(originalWorkspaceRoot);
-  if (!safetyCheck.safe) {
-    printDangerousWorkspaceWarning(originalWorkspaceRoot, safetyCheck);
-    process.exit(1);
-  }
+  await exitUnlessWorkspaceIsSafe(originalWorkspaceRoot);
 
   // Nobody can answer a trust prompt here, so untrusted project hooks and MCP servers are skipped with a warning.
   if (!opts.bare) {
@@ -2626,29 +2606,7 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
     await resolveWorkspaceTrust(config, { interactive: false });
   }
 
-  // Validate and resolve additional directories from --add-dir flag
-  const additionalDirs: string[] = [];
-  if (opts.addDir && opts.addDir.length > 0) {
-    for (const dir of opts.addDir) {
-      const resolvedDir = path.resolve(dir);
-      if (!await fs.pathExists(resolvedDir)) {
-        console.error(chalk.red(`Error: Additional directory does not exist: ${dir}`));
-        process.exit(1);
-      }
-      const stats = await fs.stat(resolvedDir);
-      if (!stats.isDirectory()) {
-        console.error(chalk.red(`Error: Additional path is not a directory: ${dir}`));
-        process.exit(1);
-      }
-      const addDirSafetyCheck = checkWorkspaceSafety(resolvedDir);
-      if (!addDirSafetyCheck.safe) {
-        console.error(chalk.red(`Error: Unsafe additional directory: ${dir}`));
-        console.error(chalk.yellow(`  ${addDirSafetyCheck.reason}`));
-        process.exit(1);
-      }
-      additionalDirs.push(resolvedDir);
-    }
-  }
+  const additionalDirs = await resolveAdditionalDirectoriesOrExit(opts.addDir);
 
   // Override model from CLI if provided
   if (opts.model) {

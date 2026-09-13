@@ -679,36 +679,3 @@ export class WorktreeManager {
   }
 
 }
-
-// ============ Convenience Functions ============
-
-export function createWorktreeManager(cwd: string): WorktreeManager {
-  return new WorktreeManager(cwd);
-}
-
-export function listWorktreesAdvanced(cwd: string): WorktreeInfo[] {
-  return new WorktreeManager(cwd).list();
-}
-
-export async function getWorktreeStatusAll(cwd: string): Promise<WorktreeStatus[]> {
-  return new WorktreeManager(cwd).statusAll();
-}
-
-export async function cleanupWorktrees(cwd: string, options?: Parameters<WorktreeManager['cleanup']>[0]): Promise<ReturnType<WorktreeManager['cleanup']>> {
-  return new WorktreeManager(cwd).cleanup(options);
-}
-
-export async function runAcrossWorktrees(
-  cwd: string,
-  command: string,
-  options?: Parameters<WorktreeManager['runParallel']>[1]
-): Promise<ParallelResult[]> {
-  return new WorktreeManager(cwd).runParallel(command, options);
-}
-
-export async function syncWorktrees(
-  cwd: string,
-  options?: Parameters<WorktreeManager['syncAll']>[0]
-): Promise<ReturnType<WorktreeManager['syncAll']>> {
-  return new WorktreeManager(cwd).syncAll(options);
-}

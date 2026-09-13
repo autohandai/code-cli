@@ -259,8 +259,6 @@ export function getUserSkillLocations(homeDir = os.homedir(), autohandSkillsDir 
   ];
 }
 
-export const SKILL_LOCATIONS = getUserSkillLocations();
-
 /**
  * Get project-level skill locations for a given workspace root
  */

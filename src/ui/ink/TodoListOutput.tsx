@@ -12,11 +12,6 @@ import { useTheme } from '../theme/ThemeContext.js';
 import { buildTaskPanelModel, normalizeTaskPanelRows, type TaskPanelRow } from '../taskPanelModel.js';
 import { TaskPanel } from './TaskPanel.js';
 
-export interface TodoTaskView {
-  title: string;
-  status: string;
-}
-
 interface TodoPayload {
   tasks?: unknown;
   summary?: unknown;

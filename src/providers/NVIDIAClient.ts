@@ -11,12 +11,12 @@ import type {
   NvidiaAISettings,
   NetworkSettings,
   FunctionDefinition,
-  NvidiaChatTemplateKwargs,
 } from "../types.js";
 import { ApiError, FRIENDLY_MESSAGES, classifyApiError } from "./errors.js";
 import { normalizeLLMUsage } from "./usage.js";
 import { joinReasoning, splitInlineThinking } from "./inlineThinking.js";
 import { toTextOnlyContent } from "./messagePayload.js";
+import { buildChatTemplateKwargs, coerceErrorDetail } from "./openAICompatibleShared.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -73,16 +73,6 @@ const FRIENDLY_ERRORS: Record<number, string> = {
   503: "The NVIDIA service is currently overloaded. Please try again later.",
   504: "The request timed out. The service may be experiencing high load.",
 };
-
-function coerceErrorDetail(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  if (value && typeof value === "object") {
-    return JSON.stringify(value);
-  }
-  return "";
-}
 
 function coerceNvidiaErrorDetail(body: unknown): string {
   if (!body || typeof body !== "object") return "";
@@ -152,7 +142,7 @@ export class NVIDIAClient {
     // Add chat_template_kwargs for NVIDIA reasoning models
     if (request.chatTemplateKwargs) {
       payload.extra_body = {
-        chat_template_kwargs: this.buildChatTemplateKwargs(request.chatTemplateKwargs),
+        chat_template_kwargs: buildChatTemplateKwargs(request.chatTemplateKwargs),
       };
     }
 
@@ -222,15 +212,6 @@ export class NVIDIAClient {
       stream: request.stream ?? false,
     };
     return payload;
-  }
-
-  private buildChatTemplateKwargs(kwargs: NvidiaChatTemplateKwargs): Record<string, unknown> {
-    const result: Record<string, unknown> = {};
-    if (kwargs.thinking !== undefined) result.thinking = kwargs.thinking;
-    if (kwargs.enable_thinking !== undefined) result.enable_thinking = kwargs.enable_thinking;
-    if (kwargs.reasoning_effort !== undefined) result.reasoning_effort = kwargs.reasoning_effort;
-    if (kwargs.clear_thinking !== undefined) result.clear_thinking = kwargs.clear_thinking;
-    return result;
   }
 
   private async makeRequest(

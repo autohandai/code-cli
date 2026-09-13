@@ -325,10 +325,6 @@ export async function runExtensionsCommand(
   }
 }
 
-export function extensionsUsage(): string {
-  return EXTENSIONS_USAGE;
-}
-
 async function confirmRemoval(extension: LoadedExtension): Promise<boolean> {
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   try {

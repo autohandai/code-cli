@@ -1298,13 +1298,6 @@ export interface CLIOptions {
 /** Output contract for one-shot command mode. */
 export type CommandOutputFormat = 'text' | 'stream-json' | 'json';
 
-export interface PromptContext {
-  workspaceRoot: string;
-  gitStatus?: string;
-  recentFiles: string[];
-  extraNotes?: string;
-}
-
 /** Message priority for context management - higher priority messages are retained longer */
 export type MessagePriority = 'critical' | 'high' | 'medium' | 'low';
 
@@ -2177,20 +2170,4 @@ export interface LearnGeneratedSkill {
   description: string;
   allowedTools: string[];
   body: string;
-}
-
-/** Browser tab type */
-export type SkillsBrowserTab = 'featured' | 'categories' | 'search';
-
-/** Browser state for Ink component */
-export interface SkillsBrowserState {
-  activeTab: SkillsBrowserTab;
-  selectedCategory: string | null;
-  searchQuery: string;
-  selectedIndex: number;
-  skills: GitHubCommunitySkill[];
-  filteredSkills: GitHubCommunitySkill[];
-  isLoading: boolean;
-  error: string | null;
-  previewSkill: GitHubCommunitySkill | null;
 }

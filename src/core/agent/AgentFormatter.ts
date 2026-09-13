@@ -5,10 +5,10 @@
  */
 
 import chalk from 'chalk';
-import type { ToolDefinition } from '../toolManager.js';
 import type { AgentAction, ToolCallRequest, ExplorationEvent, TurnUsage, TokenUsageStatus } from '../../types.js';
 import { formatToolOutputForDisplay } from '../../ui/toolOutput.js';
 import { isTokenUsageStatusEnabled } from '../../features/featureRegistry.js';
+import { getToolCallLabel as describeToolCallArgs } from './ToolLoopSignature.js';
 
 /**
  * AgentFormatter module
@@ -16,28 +16,6 @@ import { isTokenUsageStatusEnabled } from '../../features/featureRegistry.js';
  * Extracted formatting utilities from AutohandAgent for better modularity.
  * Handles all text formatting, display formatting, and presentation logic.
  */
-
-/**
- * Format a tool definition as a human-readable signature
- * Example: formatToolSignature({name: 'read_file', parameters: {properties: {path: {type: 'string'}}}})
- *          => "- read_file(path: string) - Read a file from disk"
- */
-export function formatToolSignature(def: ToolDefinition): string {
-  const params = def.parameters;
-  if (!params || !params.properties || Object.keys(params.properties).length === 0) {
-    return `- ${def.name}() - ${def.description}`;
-  }
-
-  const required = new Set(params.required ?? []);
-  const args = Object.entries(params.properties)
-    .map(([name, prop]) => {
-      const optional = required.has(name) ? '' : '?';
-      return `${name}${optional}: ${prop.type}`;
-    })
-    .join(', ');
-
-  return `- ${def.name}(${args}) - ${def.description}`;
-}
 
 /**
  * Format exploration event kind as a display label
@@ -60,22 +38,7 @@ const MAX_VISIBLE_PER_GROUP = 4;
  * Extract a short label from a tool call's args for grouped display.
  */
 function getToolCallLabel(call?: ToolCallRequest): string {
-  if (!call) return '';
-  const args = call.args ?? {};
-  if (args.path) return String(args.path);
-  if (args.file_path) return String(args.file_path);
-  if (args.command) {
-    const cmd = String(args.command);
-    const cmdArgs = Array.isArray(args.args) ? (args.args as string[]).join(' ') : '';
-    return cmdArgs ? `${cmd} ${cmdArgs}` : cmd;
-  }
-  if (args.query) return String(args.query);
-  if (args.pattern) return String(args.pattern);
-  if (args.task) return String(args.task).slice(0, 60);
-  for (const val of Object.values(args)) {
-    if (typeof val === 'string' && val.length > 0) return val.slice(0, 80);
-  }
-  return call.tool;
+  return call ? describeToolCallArgs(call) : '';
 }
 
 /**

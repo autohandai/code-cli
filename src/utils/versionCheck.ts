@@ -349,24 +349,3 @@ export async function checkForUpdates(
 
   return result;
 }
-
-/**
- * Clear the version check cache for all channels
- */
-export async function clearVersionCache(): Promise<void> {
-  try {
-    for (const channel of ['stable', 'alpha'] as ReleaseChannel[]) {
-      const cacheFile = getCacheFile(channel);
-      if (await fs.pathExists(cacheFile)) {
-        await fs.remove(cacheFile);
-      }
-    }
-    // Also clean up legacy cache file
-    const legacyCacheFile = path.join(CACHE_DIR, 'version-check.json');
-    if (await fs.pathExists(legacyCacheFile)) {
-      await fs.remove(legacyCacheFile);
-    }
-  } catch {
-    // Ignore errors
-  }
-}

@@ -8,7 +8,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 var mockRunCommand = vi.fn();
 var mockIsMLXSupported = vi.fn();
-var mockGetTotalMemoryGb = vi.fn();
 var mockGetFreeMemoryGb = vi.fn();
 var mockGetAvailableMemoryGb = vi.fn();
 
@@ -18,7 +17,6 @@ vi.mock('../../src/actions/command.js', () => ({
 
 vi.mock('../../src/utils/platform.js', () => ({
   isMLXSupported: mockIsMLXSupported,
-  getTotalMemoryGb: mockGetTotalMemoryGb,
   getFreeMemoryGb: mockGetFreeMemoryGb,
   getAvailableMemoryGb: mockGetAvailableMemoryGb,
 }));
@@ -35,7 +33,6 @@ describe('autohandai local setup', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsMLXSupported.mockReturnValue(true);
-    mockGetTotalMemoryGb.mockReturnValue(64);
     mockGetFreeMemoryGb.mockReturnValue(48);
     mockGetAvailableMemoryGb.mockReturnValue(48);
     globalThis.fetch = vi.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch;

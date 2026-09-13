@@ -5,13 +5,5 @@
  *
  * Auth module exports
  */
-export { AuthClient, getAuthClient } from './AuthClient.js';
+export { getAuthClient } from './AuthClient.js';
 export { ensureAuthenticated, checkAuthenticated } from './ensureAuth.js';
-export type {
-  AuthUser,
-  DeviceAuthInitResponse,
-  DeviceAuthPollResponse,
-  DeviceAuthCancelResponse,
-  SessionValidationResponse,
-  LogoutResponse,
-} from './types.js';
