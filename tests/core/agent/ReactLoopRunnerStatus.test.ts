@@ -18,7 +18,31 @@ import type { LLMRetryEvent, ToolCallRequest } from '../../../src/types.js';
 import { ReactionParser } from '../../../src/core/agent/ReactionParser.js';
 
 describe('ReactLoopRunner composer status', () => {
-<<<<<<< ours
+  it('renders cloud content deltas before completion without exposing reasoning or duplicating history', async () => {
+    const preview = vi.fn();
+    const complete = vi.fn(async (request) => {
+      expect(request.stream).toBe(true);
+      request.onDelta({ type: 'reasoning', text: 'private reasoning' });
+      expect(preview).not.toHaveBeenCalledWith('private reasoning');
+      request.onDelta({ type: 'content', text: 'The answer' });
+      expect(preview).toHaveBeenCalledWith('The answer');
+      expect(host.saveAssistantMessage).not.toHaveBeenCalled();
+      return { id: 'streamed', created: 1, content: 'The answer is ready.', raw: {} };
+    });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    host.llm.getCapabilities = () => ({ nativeToolCalling: true, streaming: true });
+    host.inkRenderer = {
+      setStatus: vi.fn(), addToolCall: vi.fn(), addToolOutputBatch: vi.fn(),
+      addToolOutput: vi.fn(), setThinking: vi.fn(), setElapsed: vi.fn(),
+      setTokens: vi.fn(), setWorking: vi.fn(), setFinalResponse: vi.fn(),
+      setStreamingResponse: preview,
+    };
+    await runAgentReactLoop(host, new AbortController());
+    expect(preview).toHaveBeenLastCalledWith(null);
+    expect(host.saveAssistantMessage).toHaveBeenCalledTimes(1);
+    expect(host.inkRenderer.setFinalResponse).toHaveBeenCalledWith('The answer is ready.');
+  });
+
   it.each([
     { attached: 1, error: undefined },
     { attached: 0, error: 'Screenshot was removed before visual inspection.' },
@@ -119,31 +143,6 @@ describe('ReactLoopRunner composer status', () => {
     } finally {
       vi.useRealTimers();
     }
-=======
-  it('renders cloud content deltas before completion without exposing reasoning or duplicating history', async () => {
-    const preview = vi.fn();
-    const complete = vi.fn(async (request) => {
-      expect(request.stream).toBe(true);
-      request.onDelta({ type: 'reasoning', text: 'private reasoning' });
-      expect(preview).not.toHaveBeenCalledWith('private reasoning');
-      request.onDelta({ type: 'content', text: 'The answer' });
-      expect(preview).toHaveBeenCalledWith('The answer');
-      expect(host.saveAssistantMessage).not.toHaveBeenCalled();
-      return { id: 'streamed', created: 1, content: 'The answer is ready.', raw: {} };
-    });
-    const host = createReactLoopTestHost(complete, new ReactionParser());
-    host.llm.getCapabilities = () => ({ nativeToolCalling: true, streaming: true });
-    host.inkRenderer = {
-      setStatus: vi.fn(), addToolCall: vi.fn(), addToolOutputBatch: vi.fn(),
-      addToolOutput: vi.fn(), setThinking: vi.fn(), setElapsed: vi.fn(),
-      setTokens: vi.fn(), setWorking: vi.fn(), setFinalResponse: vi.fn(),
-      setStreamingResponse: preview,
-    };
-    await runAgentReactLoop(host, new AbortController());
-    expect(preview).toHaveBeenLastCalledWith(null);
-    expect(host.saveAssistantMessage).toHaveBeenCalledTimes(1);
-    expect(host.inkRenderer.setFinalResponse).toHaveBeenCalledWith('The answer is ready.');
->>>>>>> theirs
   });
 
   it('omits prompt cache affinity while the experimental gate is disabled', async () => {

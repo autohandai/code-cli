@@ -230,7 +230,7 @@ Use `autohand update --models` or `autohand upgrade --models` to force an immedi
 
 ### `autohandai`
 
-Autohand AI provider configuration. Cloud mode uses Autohand-hosted OpenAI-compatible inference at `https://api.autohand.ai/v1`; Local mode uses Apple Silicon MLX inference.
+Autohand AI provider configuration. Cloud mode uses Autohand-hosted OpenAI-compatible inference at `https://inference.autohand.ai/v1` (a saved `https://api.autohand.ai/v1` is migrated automatically; private gateways are left alone). Completions stream, so the first tokens appear while the answer is still being generated. Local mode uses Apple Silicon MLX inference.
 
 Requires `features.autohand_inference: true` or `AUTOHAND_FEATURE_AUTOHAND_INFERENCE=1`.
 
@@ -239,7 +239,7 @@ Requires `features.autohand_inference: true` or `AUTOHAND_FEATURE_AUTOHAND_INFER
   "autohandai": {
     "plan": "cloud",
     "authMode": "account",
-    "baseUrl": "https://api.autohand.ai/v1",
+    "baseUrl": "https://inference.autohand.ai/v1",
     "model": "moa",
     "contextWindow": 1000000,
     "reasoningEffort": "high"
@@ -252,7 +252,7 @@ Requires `features.autohand_inference: true` or `AUTOHAND_FEATURE_AUTOHAND_INFER
 | `plan`           | `"cloud"` or `"local"`     | Yes      | `"cloud"`                     | Hosted Autohand AI or local MLX inference                 |
 | `authMode`       | `"account"` or `"api-key"` | Cloud    | `"account"` in CLI when logged in | CLI can use account auth; SDK Cloud must use API key |
 | `apiKey`         | string                     | SDK Cloud/API-key Cloud | -                   | Autohand AI API key                                       |
-| `baseUrl`        | string                     | No       | `https://api.autohand.ai/v1`  | OpenAI-compatible API endpoint                            |
+| `baseUrl`        | string                     | No       | `https://inference.autohand.ai/v1` | OpenAI-compatible API endpoint                       |
 | `model`          | string                     | Yes      | `fantail`                     | `fantail`, `moa`, or a selected local MLX coding model    |
 | `contextWindow`  | number                     | No       | `262144` for Fantail, `1000000` for Moa, `256000` for Local | Model context window                      |
 | `reasoningEffort` | `"medium"`, `"high"`, or `"xhigh"` | Moa Cloud | `"high"` during setup | Moa thinking effort level |

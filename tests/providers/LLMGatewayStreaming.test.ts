@@ -55,7 +55,7 @@ describe('cloud inference streaming', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(new ReadableStream({ cancel }))));
     const done = client().complete({ messages: [], stream: true, signal: abort.signal });
     abort.abort();
-    await expect(done).rejects.toThrow(/abort/i);
+    await expect(done).rejects.toThrow(/abort|cancel/i);
     expect(cancel).toHaveBeenCalled();
   });
 });

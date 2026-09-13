@@ -83,6 +83,35 @@ afterEach(() => {
 });
 
 describe('AgentUI TextBuffer integration helpers', () => {
+  it('updates streamed text without another working-state transition', async () => {
+    const state = { ...createInitialUIState(), isWorking: true };
+    const frame = (streamingResponse: string | null) => React.createElement(I18nProvider, null,
+      React.createElement(ThemeProvider, null, React.createElement(AgentUI, {
+        state: { ...state, streamingResponse },
+        onInstruction: () => {}, onEscape: () => {}, onCtrlC: () => {},
+      })),
+    );
+    const instance = render(frame(null));
+    instance.rerender(frame('First incremental answer'));
+    await vi.waitFor(() => expect(instance.lastFrame()).toContain('First incremental answer'));
+    instance.rerender(frame('First incremental answer continues'));
+    await vi.waitFor(() => expect(instance.lastFrame()).toContain('answer continues'));
+    instance.rerender(frame(null));
+    await vi.waitFor(() => expect(instance.lastFrame()).not.toContain('First incremental answer'));
+  });
+
+  it('renders a partial assistant response while the turn is still working', async () => {
+    const instance = render(React.createElement(I18nProvider, null,
+      React.createElement(ThemeProvider, null, React.createElement(AgentUI, {
+        state: { ...createInitialUIState(), isWorking: true, streamingResponse: 'First visible token', finalResponse: 'Not complete yet' },
+        onInstruction: () => {}, onEscape: () => {}, onCtrlC: () => {},
+      })),
+    ));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(stripAnsi(instance.lastFrame() ?? '')).toContain('First visible token');
+    expect(stripAnsi(instance.lastFrame() ?? '')).not.toContain('Not complete yet');
+  });
+
   it('recognizes Cmd+T and Ctrl+T as team view shortcuts', () => {
     expect(isTeamViewShortcut('t', createInkKey({ meta: true }))).toBe(true);
     expect(isTeamViewShortcut('t', createInkKey({ ctrl: true }))).toBe(true);
