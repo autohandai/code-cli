@@ -106,11 +106,24 @@ export class SessionManager {
 
     private indexLockWarned = false;
 
-    constructor(baseDir?: string) {
+    /** False for an ephemeral run: sessions live in memory and nothing reaches disk. */
+    private readonly persist: boolean;
+
+    constructor(baseDir?: string, options: { persist?: boolean } = {}) {
         this.sessionsDir = baseDir ?? AUTOHAND_PATHS.sessions;
+        this.persist = options.persist ?? true;
+    }
+
+    /** True when this manager keeps sessions in memory only. */
+    isEphemeral(): boolean {
+        return !this.persist;
     }
 
     async initialize(): Promise<void> {
+        if (!this.persist) {
+            this.index = this.createEmptyIndex();
+            return;
+        }
         await fs.ensureDir(this.sessionsDir);
         await this.loadIndex();
     }
@@ -118,7 +131,7 @@ export class SessionManager {
     async createSession(projectPath: string, model: string): Promise<Session> {
         const sessionId = this.generateSessionId();
         const sessionDir = path.join(this.sessionsDir, sessionId);
-        await fs.ensureDir(sessionDir);
+        if (this.persist) await fs.ensureDir(sessionDir);
 
         // Detect client from environment (set by ACP extensions like Zed)
         const client = process.env.AUTOHAND_CLIENT_NAME || 'terminal';
@@ -137,7 +150,7 @@ export class SessionManager {
             clientVersion,
         };
 
-        const session = new Session(sessionDir, metadata);
+        const session = new Session(sessionDir, metadata, { persist: this.persist });
         await session.save();
 
         this.currentSession = session;
@@ -448,6 +461,10 @@ export class SessionManager {
     }
 
     private async loadIndex(): Promise<void> {
+        if (!this.persist) {
+            this.index ??= this.createEmptyIndex();
+            return;
+        }
         try {
             await withFileLock(this.indexLockPath, async () => {
                 this.index = await this.readIndexFromDisk();
@@ -465,6 +482,14 @@ export class SessionManager {
     }
 
     private async mutateIndex(mutation: (index: SessionIndex) => void): Promise<void> {
+        if (!this.persist) {
+            // An ephemeral run keeps its own in-memory index so listing and
+            // renaming behave, but the shared index on disk never learns of it.
+            const index = this.index ?? this.createEmptyIndex();
+            mutation(index);
+            this.index = index;
+            return;
+        }
         await withFileLock(this.indexLockPath, async () => {
             const latestIndex = await this.readIndexFromDisk();
             mutation(latestIndex);
@@ -539,9 +564,17 @@ export class Session {
     private messages: SessionMessage[] = [];
     private state: WorkspaceState | null = null;
 
-    constructor(sessionDir: string, metadata: SessionMetadata) {
+    /** False for an ephemeral session: every write stays in memory. */
+    private readonly persist: boolean;
+
+    constructor(sessionDir: string, metadata: SessionMetadata, options: { persist?: boolean } = {}) {
         this.sessionDir = sessionDir;
         this.metadata = metadata;
+        this.persist = options.persist ?? true;
+    }
+
+    isEphemeral(): boolean {
+        return !this.persist;
     }
 
     private async ensureSessionDir(): Promise<void> {
@@ -552,6 +585,7 @@ export class Session {
         this.messages.push(message);
         this.metadata.messageCount = this.messages.length;
         this.metadata.lastActiveAt = new Date().toISOString();
+        if (!this.persist) return;
 
         // Append to JSONL file
         await this.ensureSessionDir();
@@ -563,6 +597,7 @@ export class Session {
     }
 
     async appendTransient(message: SessionMessage): Promise<void> {
+        if (!this.persist) return;
         await this.ensureSessionDir();
         const conversationPath = path.join(this.sessionDir, 'conversation.jsonl');
         await fs.appendFile(conversationPath, JSON.stringify(message) + '\n');
@@ -571,6 +606,7 @@ export class Session {
     async replaceMessages(messages: SessionMessage[]): Promise<void> {
         this.messages = [...messages];
         this.metadata.messageCount = this.messages.length;
+        if (!this.persist) return;
         const conversationPath = path.join(this.sessionDir, 'conversation.jsonl');
         const content = this.messages.map((message) => JSON.stringify(message)).join('\n');
         await fs.writeFile(conversationPath, content ? `${content}\n` : '');
@@ -578,6 +614,7 @@ export class Session {
 
     async updateState(state: WorkspaceState): Promise<void> {
         this.state = state;
+        if (!this.persist) return;
         await this.ensureSessionDir();
         const statePath = path.join(this.sessionDir, 'state.json');
         await fs.writeJson(statePath, state, { spaces: 2 });
@@ -609,6 +646,7 @@ export class Session {
     }
 
     async save(): Promise<void> {
+        if (!this.persist) return;
         await this.ensureSessionDir();
         const metadataPath = path.join(this.sessionDir, 'metadata.json');
         await atomicWriteJson(metadataPath, this.metadata);

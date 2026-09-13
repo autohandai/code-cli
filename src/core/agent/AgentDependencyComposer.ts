@@ -1747,7 +1747,8 @@ export function initializeAgentDependencies(
       authorization: toolAuthorization,
     });
 
-    host.sessionManager = new SessionManager();
+    // --ephemeral keeps the session in memory; nothing about the run reaches disk.
+    host.sessionManager = new SessionManager(undefined, { persist: !runtime.options.ephemeral });
     host.projectManager = new ProjectManager();
     host.goalActivityManager = new GoalManager(runtime.workspaceRoot, {
       getSessionId: () => host.sessionManager?.getCurrentSession?.()?.metadata?.sessionId,

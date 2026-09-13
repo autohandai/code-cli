@@ -447,6 +447,45 @@ describe('built CLI Tuistory smoke tests', () => {
     expectCleanExit(session);
   }, 45_000);
 
+  it('leaves no session behind after an --ephemeral command-mode run', async () => {
+    const nativeServer = await createMockAutohandAINativeSequenceServer([{ content: 'EPHEMERAL_OK' }]);
+    mockServers.push(nativeServer);
+    const state = await createTempAutohandHome({
+      config: {
+        provider: 'autohandai',
+        autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'tuistory-autohand-api-key', model: 'moa', baseUrl: nativeServer.baseUrl },
+        features: { autohand_inference: true },
+        agent: { maxIterations: 2, sessionRetryLimit: 0 },
+        network: { maxRetries: 0, retryDelay: 0 },
+      },
+    });
+    tempStates.push(state);
+    const sessionsDir = path.join(state.autohandHome, 'sessions');
+
+    const session = await trackSession(launchBuiltAutohand([
+      '--path', state.workspaceRoot, '--config', state.configPath, '--prompt', 'Say EPHEMERAL_OK.', '--ephemeral', '--y',
+    ], { autohandHome: state.autohandHome, cwd: state.workspaceRoot, waitForDataTimeout: 15_000 }));
+    await waitForExit(session, 30_000);
+    expect(session.readAll()).toContain('EPHEMERAL_OK');
+    expectCleanExit(session);
+
+    const indexPath = path.join(sessionsDir, 'index.json');
+    if (existsSync(indexPath)) {
+      expect((await fs.readJson(indexPath)).sessions).toEqual([]);
+    }
+    const sessionDirs = existsSync(sessionsDir)
+      ? (await fs.readdir(sessionsDir)).filter((entry) => existsSync(path.join(sessionsDir, entry, 'metadata.json')))
+      : [];
+    expect(sessionDirs).toEqual([]);
+
+    const refused = await trackSession(launchBuiltAutohand([
+      '--path', state.workspaceRoot, '--config', state.configPath, '--ephemeral', '--fork', 'anything',
+    ], { autohandHome: state.autohandHome, cwd: state.workspaceRoot, waitForDataTimeout: 15_000 }));
+    await waitForExit(refused, 15_000);
+    expect(refused.readAll()).toContain('--ephemeral cannot be combined with --resume or --fork');
+    expect(refused.exitInfo?.exitCode).toBe(1);
+  }, 60_000);
+
   it('withholds --disallowed-tools from the advertised tool schemas', async () => {
     const nativeServer = await createMockAutohandAINativeSequenceServer([{ content: 'TOOL_SCOPE_OK' }]);
     mockServers.push(nativeServer);

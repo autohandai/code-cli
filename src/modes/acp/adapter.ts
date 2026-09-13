@@ -406,6 +406,7 @@ export class AutohandAcpAdapter implements Agent {
         bare: this.cliOptions.bare,
         allowedTools: this.cliOptions.allowedTools,
         disallowedTools: this.cliOptions.disallowedTools,
+        ephemeral: this.cliOptions.ephemeral,
         yes: modeId === 'yolo' || modeId === 'automode',
         unrestricted: modeId === 'yolo' || modeId === 'automode',
         restricted: false,

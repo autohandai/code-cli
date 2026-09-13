@@ -1117,6 +1117,8 @@ export interface CLIOptions {
   config?: string;
   temperature?: number;
   resumeSessionId?: string;
+  /** Keep this run out of session history: nothing saved, no auto-memory, no session sync. */
+  ephemeral?: boolean;
   /** Name the workspace's most recent session and exit. */
   rename?: string;
   /** Run in unrestricted mode - no approval prompts */

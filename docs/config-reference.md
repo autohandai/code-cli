@@ -2509,6 +2509,7 @@ These flags override config file settings:
 | `--dry-run`                   | Preview without executing                                                                      |
 | `-d, --debug`                 | Enable verbose debug output                                                                    |
 | `--bare`                      | Minimal explicit mode; also sets `AUTOHAND_CODE_SIMPLE=1` and disables slash commands          |
+| `--ephemeral`                 | Keep the run out of session history: no session directory or index entry, no automatic memory extraction, no session sync. Files the agent writes in the workspace are unaffected. Cannot be combined with `--resume` or `--fork` |
 | `--answer-only`               | Classified Blueprint answer RPC profile; requires RPC, restricted, and Blueprint context       |
 | `--setup-only`                | Scoped Autohand device-auth RPC profile; mutually exclusive with `--answer-only`                |
 | `--client-context <context>`  | Typed RPC client context: `vscode`, `chrome`, or `blueprint`                                    |

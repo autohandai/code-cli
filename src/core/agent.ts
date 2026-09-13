@@ -876,7 +876,7 @@ export class AutohandAgent {
   }
 
   private shouldRunTurnMemoryReflection(): boolean {
-    if (this.runtime.options?.bare) return false;
+    if (this.runtime.options?.bare || this.runtime.options?.ephemeral) return false;
     if (this.runtime.isCommandMode || this.runtime.options?.prompt) return false;
     return this.runtime.config?.agent?.autoMemory !== false;
   }

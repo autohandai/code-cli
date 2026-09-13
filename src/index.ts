@@ -336,6 +336,7 @@ program
   .option('--timeout <seconds>', 'Timeout in seconds for auto-approve mode', parseInt)
   .option('--fork <pathOrId>', 'Create and resume a new session branch from an existing session reference')
   .option('--rename <name>', 'Name the most recent session of this workspace and exit')
+  .option('--ephemeral', 'Keep this run out of session history: no session files, no auto-memory, no session sync', false)
   .action(async (positionalPrompt: string | undefined, opts: RootCliOptions) => {
     // Clear screen immediately for Cursor-like behavior (before any output)
     if (
@@ -593,6 +594,12 @@ program
         printDangerousWorkspaceWarning(workspaceRoot, safetyCheck);
         process.exit(1);
       }
+    }
+
+    // An ephemeral run has no session to continue; refuse before asking anyone to sign in.
+    if (opts.ephemeral && (opts.resumeSessionId || opts.fork)) {
+      console.error(chalk.red('--ephemeral cannot be combined with --resume or --fork: an ephemeral run has no session to continue.'));
+      process.exit(1);
     }
 
     // ── Mandatory authentication gate ──
@@ -1412,6 +1419,14 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       import('./permissions/yoloMode.js'),
       commandLifecycleController.signal,
     );
+    // `autohand resume` reaches runCLI directly, after its own sign-in, so the
+    // ephemeral conflict is checked here as well as on the root command.
+    if (options.ephemeral && (options.resumeSessionId || options.fork)) {
+      console.error(chalk.red('--ephemeral cannot be combined with --resume or --fork: an ephemeral run has no session to continue.'));
+      process.exitCode = 1;
+      return;
+    }
+
     const normalizedYolo = normalizeYoloInput(options.yolo as string | boolean | undefined);
     if (normalizedYolo) {
       try {

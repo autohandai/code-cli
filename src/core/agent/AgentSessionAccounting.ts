@@ -224,6 +224,8 @@ export function syncAgentSessionSnapshot(
   host: AgentSessionAccountingHost,
   options: { force?: boolean; session?: SyncableSession; endTimeMs?: number } = {}
 ): Promise<void> {
+  // An ephemeral run keeps nothing, locally or remotely.
+  if (host.runtime.options?.ephemeral) return Promise.resolve();
   const existing = host.sessionSyncPromise;
   if (existing && !options.force) return existing;
 
