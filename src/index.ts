@@ -22,6 +22,7 @@ if (process.stdout.isTTY && !requestsStructuredCommandOutput && !requestsProtoco
 // Set environment variable for detection by Expect and other tools
 process.env.AUTOHAND_CODE = '1';
 import 'dotenv/config';
+import { collectToolPatternOption } from './permissions/cliPolicyMutation.js';
 import { startupTimeline } from './startup/startupTimeline.js';
 import { Command, Option } from 'commander';
 import chalk from 'chalk';
@@ -55,6 +56,7 @@ import { registerBrowserCommand, registerBrowserOptions } from './browser/cliCom
 import { registerReviewCommand } from './review/reviewCliCommand.js';
 import { registerTransferCommand } from './startup/transferCommand.js';
 import { registerResumeCommand } from './startup/resumeCommand.js';
+import { probeMcpServersWithManager, registerDoctorCommand } from './startup/doctorCommand.js';
 import type { ReviewCliExecution } from './review/reviewCliRuntime.js';
 import { formatDeprecatedBrowserOptionWarning } from './browser/compatibility.js';
 import {
@@ -329,6 +331,8 @@ program
   .option('--agents <json|path>', 'Custom agents as inline JSON ({"reviewer":{"description":"...","prompt":"..."}}) or an external agents directory')
   .option('--plugin-dir <path>', 'Explicit plugin/meta-tool directory')
   .option('--yolo [pattern]', 'Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)')
+  .option('--allowed-tools <patterns>', 'Only offer and authorize these tools this run, comma-separated or repeated (e.g. read_file,run_command(git:*))', collectToolPatternOption)
+  .option('--disallowed-tools <patterns>', 'Never offer or authorize these tools this run, comma-separated or repeated (e.g. delete_path,run_command)', collectToolPatternOption)
   .option('--timeout <seconds>', 'Timeout in seconds for auto-approve mode', parseInt)
   .option('--fork <pathOrId>', 'Create and resume a new session branch from an existing session reference')
   .option('--rename <name>', 'Name the most recent session of this workspace and exit')
@@ -699,6 +703,23 @@ registerTransferCommand(program, {
   run: async ({ provider, ...opts }) => {
     const authConfig = await ensureAuthenticated(await loadConfig(opts.config, opts.path));
     await runCLI({ ...opts, _authConfig: { ...authConfig, provider, autohandai: { plan: 'cloud', authMode: 'account', accountToken: authConfig.auth?.token, model: opts.model } } });
+  },
+});
+
+registerDoctorCommand(program, {
+  version: getVersionString,
+  loadConfig: (configPath, workspaceRoot) => loadConfig(configPath, workspaceRoot),
+  runStartupChecks: async (workspaceRoot) => (await import('./startup/checks.js')).runStartupChecks(workspaceRoot),
+  loadNodePty: async () => (await import('./ui/shellCommand.js')).loadNodePty(),
+  checkAuthenticated: async (config) => (await import('./auth/index.js')).checkAuthenticated(config),
+  getProviderConfig: (config, provider) => getProviderConfig(config, provider as Parameters<typeof getProviderConfig>[1]),
+  probeMcpServers: async (servers) => {
+    const { McpClientManager } = await import('./mcp/McpClientManager.js');
+    return probeMcpServersWithManager(servers, () => new McpClientManager());
+  },
+  extensionDoctor: async () => {
+    const { extensionServiceFor } = await import('./extensions/cli.js');
+    return (await extensionServiceFor(program)).doctor();
   },
 });
 

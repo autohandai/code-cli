@@ -3,6 +3,7 @@
  * @license Apache-2.0
  */
 import { spawn } from 'node:child_process';
+import { buildAutohandChildProcessEnv } from '../utils/childProcessEnv.js';
 import { matchesImportedHook, importedHookInput, importedHookEnvironment, importedHookResponse } from './ImportedHookAdapter.js';
 import { HOOK_EVENTS, canonicalHookEvent, hookIdentifier } from './hookEvents.js';
 import { legacyHookMatches, normalizeHooksSettings, renderHookCommandTemplate, resolveHookEvents } from './legacyHookEvents.js';
@@ -681,8 +682,10 @@ export class HookManager {
    * Build environment variables from hook context
    */
   private buildEnvironment(context: HookContext): Record<string, string> {
+    // Hooks inherit the same child environment as shell tools, so the
+    // shell.env policy applies here too.
     const env: Record<string, string> = {
-      ...process.env,
+      ...(buildAutohandChildProcessEnv() as Record<string, string>),
       HOOK_EVENT: context.event,
       HOOK_WORKSPACE: context.workspace,
     };

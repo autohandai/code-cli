@@ -642,6 +642,7 @@ export class InkRenderer {
       status,
       // Clear final response when starting new work
       finalResponse: isWorking ? null : this.state.finalResponse,
+      streamingResponse: null,
       thinking: isWorking ? null : this.state.thinking,
     };
 
@@ -1563,7 +1564,12 @@ export class InkRenderer {
    * Set the final response (displayed when not working)
    */
   setFinalResponse(response: string): void {
-    this.updateState({ finalResponse: response });
+    this.updateState({ finalResponse: response, streamingResponse: null });
+  }
+
+  /** A transient, bounded view of streamed content while the turn is still running. */
+  setStreamingResponse(response: string | null): void {
+    this.updateState({ streamingResponse: response });
   }
 
   /**

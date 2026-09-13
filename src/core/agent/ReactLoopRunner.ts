@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import type { PermissionManager } from '../../permissions/PermissionManager.js';
 import { getProviderConfig } from '../../config.js';
 import { isSearchConfigured } from '../../actions/web.js';
 import { formatToolOutputForDisplay } from '../../ui/toolOutput.js';
@@ -68,6 +69,7 @@ import {
 } from './WorkspaceChangeCapture.js';
 import { stripAnsiCodes } from '../../ui/displayUtils.js';
 import { getSessionPromptCacheDirective as deriveSessionPromptCacheDirective } from './PromptCache.js';
+import { StreamingResponsePreview } from './StreamingResponsePreview.js';
 
 /**
  * Turns provider retry events into a visible countdown. The periodic status renderer rewrites
@@ -154,6 +156,7 @@ export interface ReactLoopInkRenderer {
   setContextTokens?(contextTokens: { used: number; total: number } | undefined): void;
   setWorking(isWorking: boolean): void;
   setFinalResponse(response: string): void;
+  setStreamingResponse?(response: string | null): void;
 }
 
 export interface AgentReactLoopHost {
@@ -168,6 +171,8 @@ export interface AgentReactLoopHost {
   conversation: Pick<ConversationManager, 'addMessage' | 'addSystemNote' | 'history'>;
   /** Messages the user steered into this turn; drained before each model request. */
   steering?: Pick<SteeringQueue, 'drain'>;
+  /** Narrows advertised tool schemas to what the effective permissions can authorize. */
+  permissionManager?: Pick<PermissionManager, 'filterAdvertisedTools' | 'setExtensionPolicies'>;
   /** Set once the per-turn git snapshot exceeded its budget on this repository. */
   workspaceChangeCaptureDisabled?: boolean;
   inkRenderer: ReactLoopInkRenderer | null;
@@ -491,6 +496,12 @@ export async function runAgentReactLoop(
         definitions = definitions.filter((tool) => tool.name !== 'web_search');
       }
 
+      // Tools the permission settings exclude outright are not advertised at
+      // all; this also covers MCP and delegated tools registered at runtime.
+      if (host.permissionManager) {
+        definitions = host.permissionManager.filterAdvertisedTools(definitions);
+      }
+
       return definitions;
     };
 
@@ -731,6 +742,13 @@ export async function runAgentReactLoop(
         const requestTools = supportsNativeToolCalling && tools.length > 0 ? tools : undefined;
 
         const retryWait = createRetryWaitStatus(host);
+        // Streamed cloud completions: the first tokens reach the terminal while
+        // the answer is still being generated, and the client no longer has to
+        // wait for the whole completion inside one timeout budget.
+        const supportsStreaming = host.llm.getCapabilities?.().streaming === true;
+        const preview = supportsStreaming && host.inkRenderer?.setStreamingResponse
+          ? new StreamingResponsePreview((text) => host.inkRenderer?.setStreamingResponse?.(text))
+          : undefined;
         try {
           completion = await host.llm.complete({
             messages: messagesWithImages,
@@ -743,9 +761,11 @@ export async function runAgentReactLoop(
             thinkingLevel,
             promptCache: getSessionPromptCacheDirective(host),
             onRetry: retryWait.handle,
+            ...(supportsStreaming ? { stream: true, onDelta: preview?.onDelta } : {}),
           });
         } finally {
           retryWait.dispose();
+          preview?.dispose();
         }
         if (abortController.signal.aborted) {
           host.stopStatusUpdates();

@@ -22,7 +22,7 @@ describe('getProviderConfig', () => {
 
     const result = getProviderConfig(cfg);
     expect(result).not.toBeNull();
-    expect(result!.baseUrl).toBe('https://api.autohand.ai/v1');
+    expect(result!.baseUrl).toBe('https://inference.autohand.ai/v1');
     expect(result!.model).toBe('fantail');
     expect(result!.apiKey).toBe('ah-test-key');
     expect(result!.contextWindow).toBe(262144);

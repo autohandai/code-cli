@@ -17,6 +17,7 @@ import { joinReasoning, splitInlineThinking } from "./inlineThinking.js";
 import { ApiError, classifyApiError } from "./errors.js";
 import { normalizeOutboundMessages, toTextOnlyContent } from "./messagePayload.js";
 import { normalizeLLMUsage } from "./usage.js";
+import { readOpenAIEventStream } from "./openAIEventStream.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -371,7 +372,8 @@ export class LLMGatewayClient {
           headers,
           request.signal,
           payloadJson,
-          request.stream ?? false
+          request.stream ?? false,
+          request.onDelta,
         );
         return response;
       } catch (error) {
@@ -418,6 +420,7 @@ export class LLMGatewayClient {
       temperature: request.temperature ?? 0.2,
       max_tokens: request.maxTokens ?? 16000,
       stream: request.stream ?? false,
+      ...(request.stream ? { stream_options: { include_usage: true } } : {}),
     };
     if (this.reasoningEffort) {
       payload.reasoning_effort = this.reasoningEffort;
@@ -439,7 +442,8 @@ export class LLMGatewayClient {
     headers: Record<string, string>,
     signal?: AbortSignal,
     preSerializedBody?: string,
-    isStreaming: boolean = false
+    isStreaming: boolean = false,
+    onDelta?: LLMRequest['onDelta'],
   ): Promise<LLMResponse> {
     let response: Response;
 
@@ -498,9 +502,10 @@ export class LLMGatewayClient {
       throw await this.buildFriendlyError(response);
     }
 
-    // Handle streaming responses
-    if (isStreaming) {
-      return this.handleStreamingResponse(response);
+    // Inspection gateways can explicitly return buffered JSON even for stream:true.
+    // Preserve that response without inventing incremental deltas or retrying billed work.
+    if (isStreaming && !response.headers?.get('content-type')?.includes('application/json')) {
+      return readOpenAIEventStream(response, onDelta, signal, this.timeout);
     }
 
     const json = (await response.json()) as any;
@@ -536,78 +541,6 @@ export class LLMGatewayClient {
       usage,
       reasoning,
       raw: json,
-    };
-  }
-
-  private async handleStreamingResponse(response: Response): Promise<LLMResponse> {
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error("No response body for streaming");
-    }
-
-    const decoder = new TextDecoder();
-    let fullContent = "";
-    let fullReasoning = "";
-    let lastChunk: any = null;
-    let finishReason: string = "stop";
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n").filter(line => line.trim());
-
-        for (const line of lines) {
-          // Handle SSE format: "data: {...}"
-          if (line.startsWith("data: ")) {
-            const dataStr = line.slice(6).trim();
-            if (dataStr === "[DONE]") continue;
-
-            try {
-              const data = JSON.parse(dataStr);
-              lastChunk = data;
-
-              const delta = data.choices?.[0]?.delta;
-              if (!delta) continue;
-
-              // Extract reasoning content (DeepSeek uses 'reasoning', Z.ai uses 'reasoning_content')
-              const reasoning = delta.reasoning || delta.reasoning_content;
-              if (reasoning) {
-                fullReasoning += reasoning;
-              }
-
-              // Extract regular content
-              if (delta.content) {
-                fullContent += delta.content;
-              }
-
-              // Track finish reason
-              if (data.choices?.[0]?.finish_reason) {
-                finishReason = data.choices[0].finish_reason;
-              }
-            } catch {
-              // Skip invalid JSON lines
-            }
-          }
-        }
-      }
-    } finally {
-      reader.releaseLock();
-    }
-
-    // Reasoning stays out of `content` so the show-thinking setting, not the
-    // transcript, decides whether the user sees it.
-    const inline = splitInlineThinking(fullContent);
-
-    return {
-      id: lastChunk?.id ?? `llmgateway-stream-${Date.now()}`,
-      created: lastChunk?.created ?? Math.floor(Date.now() / 1000),
-      content: inline.content,
-      reasoning: joinReasoning(fullReasoning, inline.reasoning),
-      finishReason: finishReason as LLMResponse["finishReason"],
-      raw: { content: fullContent, reasoning: fullReasoning, chunks: lastChunk },
     };
   }
 

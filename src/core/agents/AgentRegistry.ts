@@ -48,6 +48,8 @@ export const AgentConfigSchema = z.object({
     model: z.string().optional(),
     /** Reasoning depth the agent wants; providers with a reasoning tier route it there. */
     reasoning: z.enum(AGENT_REASONING_LEVELS).optional(),
+    /** Skills whose instructions are active for this agent from the first request. */
+    skills: z.array(z.string()).optional(),
 });
 
 export function parseAgentReasoning(value: string | undefined): AgentConfig['reasoning'] {
@@ -70,6 +72,7 @@ export const InlineAgentInputSchema = z.object({
     tools: z.union([z.array(z.string()), z.string()]).optional(),
     model: z.string().optional(),
     reasoning: z.enum(AGENT_REASONING_LEVELS).optional(),
+    skills: z.union([z.array(z.string()), z.string()]).optional(),
 });
 
 export const InlineAgentsInputSchema = z
@@ -124,6 +127,8 @@ export function parseInlineAgents(input: string | Record<string, unknown>): Inli
         systemPrompt: def.prompt,
         tools: normalizeInlineTools(def.tools),
         model: def.model,
+        ...(def.reasoning ? { reasoning: def.reasoning } : {}),
+        ...(normalizeInlineTools(def.skills).length ? { skills: normalizeInlineTools(def.skills) } : {}),
     }));
 }
 
@@ -159,6 +164,7 @@ function parseMarkdownAgent(content: string): {
     tools: string[];
     model?: string;
     reasoning?: AgentConfig['reasoning'];
+    skills?: string[];
 } {
     const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
     if (!frontmatterMatch) {
@@ -184,6 +190,7 @@ function parseMarkdownAgent(content: string): {
         tools: meta.tools ? meta.tools.split(',').map((t) => t.trim()).filter(Boolean) : [],
         model: meta.model,
         reasoning: parseAgentReasoning(meta.reasoning),
+        ...(meta.skills ? { skills: meta.skills.split(',').map((name) => name.trim()).filter(Boolean) } : {}),
     };
 }
 
@@ -357,6 +364,8 @@ export class AgentRegistry {
                 systemPrompt: def.systemPrompt,
                 tools: def.tools.length > 0 ? def.tools : ['*'],
                 model: def.model,
+                ...(def.reasoning ? { reasoning: def.reasoning } : {}),
+                ...(def.skills?.length ? { skills: def.skills } : {}),
             });
         }
     }
@@ -423,6 +432,7 @@ export class AgentRegistry {
                 tools: parsed.tools.length > 0 ? parsed.tools : ['*'],
                 model: parsed.model,
                 ...(parsed.reasoning ? { reasoning: parsed.reasoning } : {}),
+                ...(parsed.skills?.length ? { skills: parsed.skills } : {}),
             };
             if (!this.agents.has(name)) {
                 this.agents.set(name, definition);

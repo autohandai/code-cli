@@ -5,13 +5,29 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SimpleChatHandler, type SimpleChatAgent } from '../../../src/core/agent/SimpleChatHandler.js';
-import type { LLMMessage } from '../../../src/types.js';
+import type { LLMMessage, LLMRequest } from '../../../src/types.js';
 import type { LLMProvider } from '../../../src/providers/LLMProvider.js';
 import { ReactionParser } from '../../../src/core/agent/ReactionParser.js';
 
 const sessionId = 'session-123';
 
 describe('SimpleChatHandler prompt cache affinity', () => {
+  it('previews streamed greetings before completion and clears the transient frame', async () => {
+    const { agent } = createAgent();
+    const preview = vi.fn();
+    agent.inkRenderer = { setStreamingResponse: preview };
+    agent.llm.getCapabilities = () => ({ nativeToolCalling: true, streaming: true });
+    agent.llm.complete = async (request: LLMRequest) => {
+      expect(request.stream).toBe(true);
+      request.onDelta?.({ type: 'content', text: 'Hello there' });
+      expect(preview).toHaveBeenCalledWith('Hello there');
+      return { id: 'greeting', created: 1, content: 'Hello there!', raw: {} };
+    };
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    expect(await new SimpleChatHandler(agent).handle('hello')).toBe(true);
+    expect(preview).toHaveBeenLastCalledWith(null);
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { resolveRunToolScope } from '../../permissions/runToolScope.js';
 import { SessionAutoNamer } from './SessionAutoNamer.js';
 import { syncAgentTerminalTitleName } from './AgentSessionTitle.js';
 import { randomUUID } from 'node:crypto';
@@ -496,6 +497,9 @@ export function initializeAgentDependencies(
         await saveConfig(runtime.config);
       }
     });
+    // --allowed-tools / --disallowed-tools: a run-only restriction layer,
+    // applied here so every launch mode that builds an agent honours it.
+    host.permissionManager.setRunToolScope(resolveRunToolScope(runtime.options));
     host.basePermissionMode = host.permissionManager.getMode();
     host.syncInteractiveAutomodePermissions();
 
@@ -777,6 +781,7 @@ export function initializeAgentDependencies(
       authorization: toolAuthorization,
       confirmApproval: (message, context) => host.confirmDangerousAction(message, context),
       getToolDefinitions: () => host.toolManager?.listDefinitions() ?? [],
+      getSkillsRegistry: () => host.skillsRegistry,
       resolveSubagentAssignment: (definition) => {
         const provider = host.activeProvider ?? runtime.config.provider ?? 'openrouter';
         const model = runtime.options.model

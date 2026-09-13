@@ -20,6 +20,8 @@ import {
   mergePermissions
 } from './localProjectPermissions.js';
 import { matchesToolPattern } from './toolPatterns.js';
+import { filterAdvertisedTools } from './toolAdvertising.js';
+import { checkRunToolScope, isToolAdvertisedByScope, type RunToolScope } from './runToolScope.js';
 import {
   addToSessionAllowList,
   addToSessionDenyList,
@@ -250,6 +252,23 @@ export class PermissionManager {
   /**
    * Get merged settings (global + local)
    */
+  private runToolScope: RunToolScope | undefined;
+
+  /** Installs the per-run tool scope from the CLI; it is never merged or persisted. */
+  setRunToolScope(scope: RunToolScope | undefined): void {
+    this.runToolScope = scope;
+  }
+
+  getRunToolScope(): RunToolScope | undefined {
+    return this.runToolScope;
+  }
+
+  /** Tool schemas worth offering the model under the run scope and effective settings. */
+  filterAdvertisedTools<T extends { name: string }>(definitions: readonly T[]): T[] {
+    const inScope = definitions.filter((definition) => isToolAdvertisedByScope(this.runToolScope, definition.name));
+    return filterAdvertisedTools(inScope, this.getMergedSettings());
+  }
+
   private getMergedSettings(): PermissionSettings {
     return this.extensionPolicies.reduce(
       (settings, policy) => mergePermissions(settings, policy.settings),
@@ -616,6 +635,14 @@ export class PermissionManager {
   private checkPatterns(context: PermissionContext): PermissionDecision | null {
     const settings = this.getMergedSettings();
     const call = this.contextToCall(context);
+
+    // 0. The run scope from the CLI is checked before any merged policy so a
+    //    local or extension allowlist cannot widen it. It names the tool the
+    //    model called, not the capability the call maps to.
+    const scoped = checkRunToolScope(this.runToolScope, { kind: context.requestedTool ?? context.tool, target: call.target });
+    if (!scoped.allowed) {
+      return { allowed: false, reason: scoped.reason };
+    }
 
     // 1. denyPatterns – always denied
     if (settings.denyPatterns?.length) {

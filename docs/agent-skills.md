@@ -222,6 +222,10 @@ For manual discovery inside a session, use `/skills install`, `/learn`, `find_ag
 
 ---
 
+## Skills in Sub-Agents and Teammates
+
+Skills are not limited to the lead session. Every delegated sub-agent and every teammate process receives the skills registry, sees declared skills in its system prompt, and can list, inspect, activate, and deactivate skills with the `skill` tool. Activation state is per agent, so activating a skill inside a reviewer does not change the lead's prompt. Agent definitions name their starting skills with a `skills:` frontmatter line; see [Skills per Agent](teams-with-agents.md#skills-per-agent).
+
 ## Available Tools
 
 Skills can specify which tools they need via the `allowed-tools` field. Available tools by category:

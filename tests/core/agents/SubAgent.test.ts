@@ -53,6 +53,73 @@ describe('SubAgent', () => {
     }
   });
 
+  it('gives a delegated agent its declared skills and a working skill tool when a registry is provided', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const requests: Array<Parameters<LLMProvider['complete']>[0]> = [];
+    const skill = (name: string, body: string) => ({ name, description: `${name} help`, body, path: `/s/${name}`, source: 'builtin' as const, isActive: false });
+    const skillsRegistry = {
+      list: [skill('systematic-debugging', 'Reproduce before fixing.'), skill('pull-request-review', 'Read the whole diff.')],
+      listSkills() { return this.list; },
+      getSkill(name: string) { return this.list.find((entry) => entry.name === name) ?? null; },
+    };
+    let turn = 0;
+    const agent = new SubAgent({
+      name: 'debugger', description: 'Debug', systemPrompt: 'Find the bug.',
+      tools: ['read_file', 'skill'], path: '/tmp/debugger.md', skills: ['systematic-debugging'],
+    }, {
+      getName: () => 'autohandai',
+      complete: async request => {
+        requests.push(request);
+        turn += 1;
+        if (turn === 1) {
+          return { id: 'r1', created: 0, raw: null, content: '', toolCalls: [nativeToolCall('skill', { command: 'activate', name: 'pull-request-review' })] };
+        }
+        if (turn === 2) {
+          // A reflection accompanies the second call so the loop guard lets it run.
+          return { id: 'r2', created: 0, raw: null, content: 'The review skill covers this task; the debugging skill is no longer needed.', toolCalls: [nativeToolCall('skill', { command: 'deactivate', name: 'systematic-debugging' }, 'call-deactivate')] };
+        }
+        return { id: 'r3', created: 0, raw: null, content: 'Diagnosed.' };
+      },
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, {} as ActionExecutor, { clientContext: 'cli', depth: 1, maxDepth: 1, skillsRegistry });
+    const systemText = (index: number) => requests[index].messages.filter((message) => message.role === 'system').map((message) => String(message.content)).join('\n');
+    try {
+      await expect(agent.run('Why does login fail?')).resolves.toBe('Diagnosed.');
+      expect(systemText(0)).toContain('### Skill: systematic-debugging\nReproduce before fixing.');
+      expect(systemText(0)).toContain('- **pull-request-review**: pull-request-review help');
+      expect(String(requests[0].messages[0].content)).toContain('skill(');
+      const toolResult = requests[1].messages.find((message) => message.role === 'tool');
+      expect(String(toolResult?.content)).toContain('Activated skill: pull-request-review\n\nRead the whole diff.');
+      // The prompt follows the agent's activation state on every request.
+      expect(systemText(1)).toContain('### Skill: pull-request-review\nRead the whole diff.');
+      expect(systemText(2)).not.toContain('### Skill: systematic-debugging');
+      expect(systemText(2)).toContain('- **systematic-debugging**: systematic-debugging help');
+      expect(requests[2].messages.filter((message) => message.role === 'system' && String(message.content).includes('<!-- subagent-skills -->'))).toHaveLength(1);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('does not advertise the skill tool to a delegated agent without a registry', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const requests: Array<Parameters<LLMProvider['complete']>[0]> = [];
+    const agent = new SubAgent({
+      name: 'plain', description: 'Plain', systemPrompt: 'Work.', tools: ['*'], path: '/tmp/plain.md',
+    }, {
+      getName: () => 'autohandai',
+      complete: async request => { requests.push(request); return { id: 'r', created: 0, raw: null, content: 'Done.' }; },
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, {} as ActionExecutor, { clientContext: 'cli', depth: 1, maxDepth: 1 });
+    try {
+      await agent.run('Go.');
+      expect((requests[0].tools ?? []).map((tool) => tool.function?.name ?? (tool as { name?: string }).name)).not.toContain('skill');
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it('provides installed role names to a child that may delegate further', async () => {
     const roster = vi.spyOn(AgentRegistry.getInstance(), 'getAllAgents').mockReturnValue([{
       name: 'security-reviewer', description: 'Review trust boundaries.', systemPrompt: 'Review security.',

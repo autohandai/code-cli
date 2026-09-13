@@ -5,6 +5,7 @@
  */
 
 import chalk from 'chalk';
+import { SUBAGENT_SKILLS_PROMPT_KEY, SubAgentSkills, type SubAgentSkillsRegistry } from './subAgentSkills.js';
 import { AgentRegistry, type AgentDefinition } from './AgentRegistry.js';
 import { formatAgentRoster } from './agentRoster.js';
 import { buildWorkerProjectMemoryContext } from './workerProjectMemory.js';
@@ -68,6 +69,8 @@ export interface SubAgentOptions {
     confirmApproval?: ToolManagerOptions['confirmApproval'];
     /** Resolve the current runtime tool set, including extension-owned tools. */
     getToolDefinitions?: () => ToolDefinition[];
+    /** Skills the delegated agent may read and activate for itself. */
+    skillsRegistry?: SubAgentSkillsRegistry;
     /** Model selected by the parent delegation policy for this execution. */
     model?: string;
     /** Propagate provider/model resolution through nested delegation. */
@@ -100,7 +103,7 @@ const DELEGATION_TOOL_DEFINITIONS = DEFAULT_TOOL_DEFINITIONS.filter(definition =
 const LEAD_ONLY_TOOL_NAMES = new Set([
     'create_team', 'compose_team', 'add_teammate', 'create_task', 'task_get', 'task_list',
     'task_update', 'task_stop', 'task_output', 'team_status', 'send_team_message',
-    'orchestrate_specialists', 'install_specialist_roster', 'skill', 'sleep',
+    'orchestrate_specialists', 'install_specialist_roster', 'sleep',
     'enter_worktree', 'exit_worktree', 'cron_create', 'cron_delete', 'list_schedules',
     'cancel_schedule', 'exit_plan_mode', 'find_mcp_servers', 'install_mcp_server', 'install_agent_skill',
 ]);
@@ -126,6 +129,7 @@ export class SubAgent {
     private readonly supportsNativeToolCalling: boolean;
     private readonly reactionParser = new ReactionParser();
     private readonly usage: LLMUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+    private readonly skills: SubAgentSkills | null;
 
     constructor(
         private readonly config: AgentDefinition,
@@ -156,9 +160,14 @@ export class SubAgent {
         let definitions = allowedTools.has('*')
             ? availableDefinitions
             : availableDefinitions.filter(def => allowedTools.has(def.name));
+        this.skills = options.skillsRegistry ? new SubAgentSkills(options.skillsRegistry, config.skills ?? []) : null;
         definitions = definitions.filter(definition => !LEAD_ONLY_TOOL_NAMES.has(definition.name)
             && !definition.name.startsWith('mcp__')
+            && (definition.name !== 'skill' || this.skills !== null)
             && (canDelegate || !DELEGATION_TOOL_NAMES.has(definition.name)));
+        // The lead's run scope and exclusions apply to delegated agents too.
+        const scopedDefinitions = options.authorization?.permissionManager?.filterAdvertisedTools(definitions);
+        if (scopedDefinitions) definitions = scopedDefinitions;
 
         // Add delegation tools if sub-agent can delegate further
         if (canDelegate) {
@@ -186,6 +195,7 @@ export class SubAgent {
                 authorization: options.authorization,
                 confirmApproval: options.confirmApproval,
                 getToolDefinitions: options.getToolDefinitions,
+                getSkillsRegistry: () => options.skillsRegistry,
                 resolveSubagentAssignment: options.resolveSubagentAssignment,
                 createSubagentProvider: options.createSubagentProvider,
                 threadBudget: options.threadBudget,
@@ -216,6 +226,9 @@ export class SubAgent {
                 if (action.type === 'delegate_parallel' && this.delegator) {
                     return this.delegator.delegateParallelForTool(action.tasks, { signal: context?.signal });
                 }
+                if (action.type === 'skill' && this.skills) {
+                    return this.skills.handle(action);
+                }
                 return this.actionExecutor.executeForTool(action, context);
             },
             confirmApproval: options.confirmApproval ?? (async () => false),
@@ -234,6 +247,14 @@ export class SubAgent {
         ].filter(Boolean).join('\n\n');
         this.conversation = new ConversationManager();
         this.conversation.reset(enhancedSystemPrompt);
+        this.refreshSkillsPrompt();
+    }
+
+    /** Keeps the skills section in step with this agent's activation state. */
+    private refreshSkillsPrompt(): void {
+        if (!this.skills) return;
+        const canActivate = this.toolManager.listToolNames().includes('skill');
+        this.conversation.addSystemNote(this.skills.buildPrompt({ canActivate }), SUBAGENT_SKILLS_PROMPT_KEY);
     }
 
     /**
@@ -333,6 +354,7 @@ export class SubAgent {
             await this.options.onProgress?.({ status: 'thinking', usage: this.getUsage() });
             options.signal?.throwIfAborted();
             this.consumePendingInstructions();
+            this.refreshSkillsPrompt();
             const requestTools = this.supportsNativeToolCalling
                 && !loopGuard.isForcingFinalResponse()
                 && tools.length > 0

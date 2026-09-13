@@ -51,6 +51,7 @@ export interface PermissionDecision {
     | 'mode_unrestricted' | 'mode_restricted' | 'default'
     | 'external_approved' | 'external_denied' | 'external_error'
     | 'pattern_denied' | 'pattern_allowed' | 'not_in_available' | 'excluded'
+    | 'run_scope_denied' | 'run_scope_not_allowed'
     | 'all_paths_allowed' | 'all_urls_allowed'
     | 'session_allow_list' | 'session_deny_list'
     | 'project_allow_list' | 'project_deny_list'
@@ -125,6 +126,8 @@ export function getPermissionPolicyDisposition(decision: unknown): PermissionPol
 
 export interface PermissionContext {
   tool: string;
+  /** The tool the model named when `tool` is a capability it maps to (delete_path → write_file). */
+  requestedTool?: string;
   command?: string;
   args?: string[];
   path?: string;

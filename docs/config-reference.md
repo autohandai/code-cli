@@ -1399,6 +1399,32 @@ git add -A && git commit -m "feat: add user dashboard with charts"
 
 ---
 
+## Shell Settings
+
+Control what shell commands started by Autohand can see. This covers the `run_command` tool, `!` terminal commands, and streaming or interactive shells. Hook commands and MCP server processes have their own launchers and are not affected.
+
+```json
+{
+  "shell": {
+    "env": {
+      "inherit": "essential",
+      "include": ["NODE_*", "NVM_DIR"],
+      "exclude": ["*_TOKEN", "AWS_*"],
+      "set": { "CI": "1" }
+    }
+  }
+}
+```
+
+| Field         | Type     | Default | Description                                                                                          |
+| ------------- | -------- | ------- | ---------------------------------------------------------------------------------------------------- |
+| `env.inherit` | string   | `all`   | `all` passes the whole parent environment; `essential` keeps PATH, HOME, USER, SHELL, TMPDIR, locale and terminal variables (plus their Windows equivalents); `none` starts empty |
+| `env.include` | string[] | `[]`    | Variable names or globs to add back on top of the inherited set                                      |
+| `env.exclude` | string[] | `[]`    | Variable names or globs removed after inheritance and includes                                        |
+| `env.set`     | object   | `{}`    | Values pinned for every command; applied last                                                         |
+
+Variables Autohand needs to run its own tooling (`AUTOHAND_*`, `AUTOHAND_CLI`, `AUTOHAND_HOME`, `CODEX_HOME`) are always present. Explicit per-command overrides supplied by a tool call still win over the policy.
+
 ## Network Settings
 
 ```json
@@ -2495,6 +2521,8 @@ These flags override config file settings:
 | `--permissions`               | Display current permission settings and exit                                                   |
 | `--no-idle-logout`            | Keep authenticated sessions alive past the idle timeout for long-running agents                |
 | `--yolo [pattern]`            | Auto-approve tool calls matching pattern (e.g., `allow:read,write` or `deny:delete`)           |
+| `--allowed-tools <patterns>`  | Only offer and authorize these tools this run; comma-separated or repeated (e.g. `read_file,run_command(git:*)`). A run-only restriction on top of every configured policy: never saved, never widened by a local or extension allowlist |
+| `--disallowed-tools <patterns>` | Never offer or authorize these tools this run. Matched on the tool the model names, before capability mapping, so `delete_path` stays blocked even when unrestricted. Applies to MCP and delegated tools too |
 | `--timeout <seconds>`         | Timeout in seconds for auto-approve mode                                                       |
 
 ### Git & Worktree
@@ -2627,6 +2655,12 @@ Enable an increment with `autohand experiments enable <feature>`. Partial, clamp
 
 ---
 
+## Doctor
+
+`autohand doctor` checks the installation in one pass: runtime version and executable, config file and provider (custom and extension providers included), required and optional tools, workspace, terminal support, Autohand account status (startup requires a login whatever the inference provider is), every configured MCP server, and extension diagnostics. Each item is marked ok, warning, or failure, and the exit code is 1 when anything fails. Use `--json` for a structured report, `--skip-mcp` to avoid connecting to servers, and `--path` or `--config` to check another workspace or config file.
+
+---
+
 ## Slash Commands
 
 Start directly in planning mode with `autohand --plan`, or generate a one-shot plan with `autohand --plan --prompt "Plan the migration"`. Planning instructions and read-only tool gating apply from the first model request. Interactive plan acceptance requires a user decision even with `--yes` or `--unrestricted`; command and unattended runs leave the plan pending review. Use `/plan off` or Shift+Tab to change modes interactively.
@@ -2639,7 +2673,7 @@ Autohand provides a rich set of slash commands for interactive use. Type `/` in 
 
 From the shell, `autohand resume` opens a picker scoped to the current working directory. Use `--path <path>` to select another workspace, `--all` to browse every project, or `--last` to resume the most recently active session. `--last --all` selects the most recently active session across projects. Older metadata without a valid activity timestamp falls back to creation time.
 
-`autohand resume <reference>` accepts a full session ID, a unique ID prefix, or a saved session directory/file. Ambiguous or missing references exit with an error. Explicit references cannot be combined with `--last` or `--all`. `--config`, `--model`, and `--offline` remain available; `-c` continues to mean auto-commit.
+`autohand resume <reference>` accepts a saved session name (set with `/rename` or `--rename`, matched case-insensitively), a full session ID, a unique ID prefix, or a saved session directory/file. A name wins over an ID prefix. Ambiguous or missing references exit with an error, and a name shared by several sessions lists their ID prefixes. Explicit references cannot be combined with `--last` or `--all`. `--config`, `--model`, and `--offline` remain available; `-c` continues to mean auto-commit.
 
 The picker loads twenty sessions per page and provides **More sessions** and **Previous sessions** navigation. Escape or Ctrl+C cancels without starting an agent. Non-interactive invocations require `--last` or an explicit reference when saved sessions exist. Empty history exits successfully without starting a session.
 

@@ -69,3 +69,8 @@ export function applyPermissionPolicyUpdates(
     ...(updates.excludedTools ? { excludedTools: updates.excludedTools } : {}),
   };
 }
+
+/** Commander collector for repeatable, comma-separated tool pattern options. */
+export function collectToolPatternOption(value: string, previous: string[] = []): string[] {
+  return [...previous, value];
+}

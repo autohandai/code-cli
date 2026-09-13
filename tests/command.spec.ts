@@ -9,6 +9,7 @@ import {
   runShellCommand,
   type BackgroundProcessCompletion,
 } from '../src/actions/command.js';
+import { configureChildProcessEnvPolicy } from '../src/utils/childProcessEnv.js';
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -703,5 +704,23 @@ describe('needsShell', () => {
     // Args are NOT checked — only the command string
     // A commit message like 'fix: handle $variables' should not trigger
     expect(needsShell('git')).toBe(false);
+  });
+});
+
+describe('runCommand child environment policy', () => {
+  afterAll(() => configureChildProcessEnvPolicy(undefined));
+
+  it('withholds excluded variables from a real child process while keeping PATH', async () => {
+    process.env.ZZ_TEST_SENTINEL_SECRET = 'do-not-leak';
+    configureChildProcessEnvPolicy({ exclude: ['ZZ_TEST_SENTINEL_*'], set: { ZZ_TEST_PINNED: 'pinned' } });
+    try {
+      const result = await runCommand(process.execPath, [
+        '-e',
+        'process.stdout.write(JSON.stringify({ secret: process.env.ZZ_TEST_SENTINEL_SECRET ?? null, pinned: process.env.ZZ_TEST_PINNED ?? null, hasPath: Boolean(process.env.PATH), cli: process.env.AUTOHAND_CLI ?? null }))',
+      ], tmpdir());
+      expect(JSON.parse(result.stdout)).toEqual({ secret: null, pinned: 'pinned', hasPath: true, cli: '1' });
+    } finally {
+      delete process.env.ZZ_TEST_SENTINEL_SECRET;
+    }
   });
 });

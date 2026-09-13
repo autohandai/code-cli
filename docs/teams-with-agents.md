@@ -435,6 +435,21 @@ This is the most common pattern for feature work. The researcher establishes con
 
 ---
 
+## Skills per Agent
+
+Delegated agents and teammates see the same skills as the lead. An agent definition can name the skills that apply from its first request:
+
+```markdown
+---
+description: Reproduces and diagnoses bugs before proposing changes
+tools: read_file, find_grep, list_tree, run_command
+reasoning: high
+skills: systematic-debugging, root-cause-analysis
+---
+```
+
+Declared skills are placed in the agent's system prompt in full. The remaining skills are listed by name, and the agent can activate one with the `skill` tool; the instructions come back in the tool result. Activation is private to that agent: a reviewer activating a skill changes nothing for the lead or for sibling agents. The built-in debugger, reviewer, autohand-review, and software-architect agents declare skills this way. Inline agents passed with `--agents <json>` accept a `skills` array or comma-separated string.
+
 ## Model Overrides per Agent
 
 Different agents may benefit from different models. Simple tasks like code cleanup do not require the most capable model, while architecture review benefits from stronger reasoning.

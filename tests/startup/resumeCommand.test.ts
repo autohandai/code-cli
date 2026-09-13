@@ -136,6 +136,15 @@ describe('resume CLI command', () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
+  it('resumes a session by its saved name', async () => {
+    const session = await savedSession('/project', 'One', '2026-01-01');
+    Object.assign(session.metadata, { title: 'Caret fix', titleSource: 'user' });
+    await session.save();
+    await manager.closeSession();
+    await parse(['caret fix']);
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ resumeSessionId: session.metadata.sessionId }));
+  });
+
   it.each(['--last', '--all'])('rejects a reference combined with %s', async (flag) => {
     await expect(parse(['session-id', flag])).rejects.toThrow('cannot be combined');
     expect(run).not.toHaveBeenCalled();

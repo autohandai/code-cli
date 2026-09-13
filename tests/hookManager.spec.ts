@@ -148,6 +148,24 @@ describe('HookManager', () => {
       expect(env?.HOOK_SUBAGENT_ERROR).toHaveLength(4_000);
     });
 
+    it('applies the shell.env policy to hook commands while keeping hook variables', async () => {
+      const { configureChildProcessEnvPolicy } = await import('../src/utils/childProcessEnv.js');
+      process.env.ZZ_HOOK_SECRET = 'leak';
+      configureChildProcessEnvPolicy({ exclude: ['ZZ_HOOK_*'], set: { HOOK_PINNED: 'yes' } });
+      try {
+        await manager.addHook({ event: 'session-start', command: 'true' });
+        await manager.executeHooks('session-start', {});
+        const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as NodeJS.ProcessEnv;
+        expect(env.ZZ_HOOK_SECRET).toBeUndefined();
+        expect(env.HOOK_PINNED).toBe('yes');
+        expect(env.HOOK_EVENT).toBe('session-start');
+        expect(env.AUTOHAND_CLI).toBe('1');
+      } finally {
+        configureChildProcessEnvPolicy(undefined);
+        delete process.env.ZZ_HOOK_SECRET;
+      }
+    });
+
     it('exposes subagent controls in summaries and passes run context through filtered shell hooks', async () => {
       const events = ['subagent-start', 'subagent-progress', 'subagent-message', 'subagent-cancel-requested'] as const;
       for (const event of events) await manager.addHook({ event, command: 'true', matcher: '^reviewer$' });

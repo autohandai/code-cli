@@ -104,6 +104,8 @@ async function executeTaskWithEnvironment(
   const { PermissionManager } = await import('../permissions/PermissionManager.js');
   const { syncDynamicRuntimeExtensions } = await import('../core/agent/dynamicRuntimeExtensions.js');
   const { createTeamMemberProvider, resolveTeamModelAssignment } = await import('../core/teams/TeamModelPolicy.js');
+  const { SkillsRegistry } = await import('../skills/SkillsRegistry.js');
+  const { AUTOHAND_PATHS } = await import('../constants.js');
 
   // Load config and create provider
   const workspacePath = opts.workspacePath || process.cwd();
@@ -118,6 +120,11 @@ async function executeTaskWithEnvironment(
     options: { clientContext: 'cli' },
   };
   const toolsRegistry = createToolsRegistry(workspacePath);
+  // Teammates read the same skills as the lead, bound to the same account
+  // profile, with their own activation state.
+  const skillsRegistry = new SkillsRegistry(AUTOHAND_PATHS.skills, 'autohand-user', { accountConfigPath: config.configPath });
+  await skillsRegistry.initialize();
+  await skillsRegistry.setWorkspace(workspacePath);
   let runtimeToolDefinitions: ToolDefinition[] = [];
   await syncDynamicRuntimeExtensions({
     toolsRegistry,
@@ -126,6 +133,7 @@ async function executeTaskWithEnvironment(
         runtimeToolDefinitions = [...definitions];
       },
     },
+    skillsRegistry,
   }, runtime);
 
   // Resolve the agent only after standalone and extension registries are loaded.
@@ -161,6 +169,7 @@ async function executeTaskWithEnvironment(
   const authorizationContext: string[] = [];
   const agent = new SubAgent(agentDef, provider, executor, {
     ...taskRuntime,
+    skillsRegistry,
     getPendingInstructions: () => [...authorizationContext.splice(0), ...(taskRuntime.getPendingInstructions?.() ?? [])],
     workspaceRoot: workspacePath,
     userRequest: task.userRequest,

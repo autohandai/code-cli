@@ -362,7 +362,7 @@ describe("ProviderConfigManager openai auth mode", () => {
       plan: "cloud",
       authMode: "account",
       accountToken: "account-session-token",
-      baseUrl: "https://api.autohand.ai/v1",
+      baseUrl: "https://inference.autohand.ai/v1",
       model: "moa",
       contextWindow: 1000000,
       reasoningEffort: "high",
@@ -383,7 +383,7 @@ describe("ProviderConfigManager openai auth mode", () => {
       plan: "cloud",
       authMode: "api-key",
       apiKey: "ah-api-key-long-enough",
-      baseUrl: "https://api.autohand.ai/v1",
+      baseUrl: "https://inference.autohand.ai/v1",
       model: "fantail",
       contextWindow: 262144,
     });

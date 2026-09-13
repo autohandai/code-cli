@@ -179,7 +179,7 @@ describe("SetupWizard autohandai onboarding", () => {
       authMode: "account",
       accountToken: "account-token-123",
       model: "fantail",
-      baseUrl: "https://api.autohand.ai/v1",
+      baseUrl: "https://inference.autohand.ai/v1",
     });
     expect(result.config.autohandai).not.toHaveProperty("apiKey");
     expect(mockShowPassword).not.toHaveBeenCalled();
@@ -207,12 +207,12 @@ describe("SetupWizard autohandai onboarding", () => {
       authMode: "api-key",
       apiKey: "autohandai-api-key-long-enough",
       model: "fantail",
-      baseUrl: "https://api.autohand.ai/v1",
+      baseUrl: "https://inference.autohand.ai/v1",
     });
     expect(result.config.autohandai).not.toHaveProperty("accountToken");
     expect(mockShowPassword).toHaveBeenCalledTimes(1);
     expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.autohand.ai/v1/models",
+      "https://inference.autohand.ai/v1/models",
       expect.objectContaining({
         headers: { Authorization: "Bearer autohandai-api-key-long-enough" },
       }),

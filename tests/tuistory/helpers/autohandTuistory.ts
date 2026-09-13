@@ -336,6 +336,19 @@ export async function createMockAutohandAINativeSequenceServer(
 
     const turn = turns[Math.min(requests.length - 1, turns.length - 1)]
       ?? { content: '' };
+    if (body.stream === true) {
+      response.writeHead(200, { 'content-type': 'text/event-stream' });
+      response.end(`data: ${JSON.stringify({
+        id: `chatcmpl-autohand-native-${requests.length}`,
+        choices: [{ delta: {
+          content: turn.content,
+          ...(turn.toolCall ? { tool_calls: [{ index: 0, id: turn.toolCall.id, type: 'function',
+            function: { name: turn.toolCall.name, arguments: JSON.stringify(turn.toolCall.args ?? {}) } }] } : {}),
+        }, finish_reason: turn.toolCall ? 'tool_calls' : 'stop' }],
+        usage: { prompt_tokens: 42, completion_tokens: 12, total_tokens: 54 },
+      })}\n\ndata: [DONE]\n\n`);
+      return;
+    }
     response.writeHead(200, { 'content-type': 'application/json' });
     response.end(JSON.stringify({
       id: `chatcmpl-autohand-native-${requests.length}`,

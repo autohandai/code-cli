@@ -5,6 +5,7 @@
  */
 
 import chalk from 'chalk';
+import type { SubAgentSkillsRegistry } from './subAgentSkills.js';
 import { randomUUID } from 'node:crypto';
 import { AgentRegistry, type AgentDefinition } from './AgentRegistry.js';
 import { SubAgent, type SubAgentOptions, type SubAgentProgress } from './SubAgent.js';
@@ -101,6 +102,8 @@ export interface DelegatorOptions {
     confirmApproval?: ToolManagerOptions['confirmApproval'];
     /** Resolve the current runtime tool set for extension-aware agent allowlists. */
     getToolDefinitions?: () => ToolDefinition[];
+    /** Skills sub-agents may read and activate for themselves; resolved when a sub-agent starts. */
+    getSkillsRegistry?: () => SubAgentSkillsRegistry | undefined;
     /** Resolve the provider/model pair for one in-process sub-agent. */
     resolveSubagentAssignment?: SubagentAssignmentResolver;
     /** Create an isolated LLM client for a resolved sub-agent assignment. */
@@ -188,6 +191,7 @@ export class AgentDelegator {
             authorization: this.authorization,
             confirmApproval: this.confirmApproval,
             getToolDefinitions: this.getToolDefinitions,
+            skillsRegistry: this.options.getSkillsRegistry?.(),
             resolveSubagentAssignment: this.resolveSubagentAssignment,
             createSubagentProvider: this.createSubagentProvider,
             threadBudget: this.threadBudget,

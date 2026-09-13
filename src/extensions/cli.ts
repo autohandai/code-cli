@@ -339,7 +339,7 @@ async function confirmRemoval(extension: LoadedExtension): Promise<boolean> {
   }
 }
 
-async function extensionServiceFor(program: Command): Promise<ExtensionService> {
+export async function extensionServiceFor(program: Command): Promise<ExtensionService> {
   const rootOptions = program.opts<{ path?: string; config?: string }>();
   const workspaceRoot = path.resolve(rootOptions.path ?? process.cwd());
   const config = await loadConfig(rootOptions.config, workspaceRoot);

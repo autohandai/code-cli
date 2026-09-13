@@ -163,6 +163,7 @@ export interface AgentUIState {
   chatHistoryEpoch: number;
   currentInput: string;
   finalResponse: string | null;
+  streamingResponse?: string | null;
   /** Completion stats shown after work finishes */
   completionStats: { elapsed: string; tokens: string; status?: TurnCompletionStatus } | null;
   /** Plan mode indicator (e.g., '[PLAN]' or '[EXEC]') */
@@ -2531,6 +2532,7 @@ export function AgentUI({
       {/* Dynamic content section */}
       <DynamicContent
         thinking={state.thinking}
+        streamingResponse={state.streamingResponse}
         finalResponse={chatIncludesFinalResponse ? null : state.finalResponse}
         isWorking={state.isWorking}
       />
@@ -2638,12 +2640,14 @@ export function AgentUI({
 interface DynamicContentProps {
   thinking: string | null;
   finalResponse: string | null;
+  streamingResponse?: string | null;
   isWorking: boolean;
 }
 
 const DynamicContent = memo(function DynamicContent({
   thinking,
   finalResponse,
+  streamingResponse,
   isWorking
 }: DynamicContentProps) {
   // Parse final response to detect SITREP sections
@@ -2674,6 +2678,10 @@ const DynamicContent = memo(function DynamicContent({
       {/* Thinking output: a final-turn thought stays above its reply while idle */}
       <ThinkingOutput thought={thinking} />
 
+      {isWorking && streamingResponse && (
+        <Box marginTop={1}><Text wrap="truncate-end">{streamingResponse}</Text></Box>
+      )}
+
       {/* Final response (when not working) */}
       {content && (
         <>
@@ -2703,6 +2711,7 @@ const DynamicContent = memo(function DynamicContent({
 }, (prev, next) => {
   return prev.thinking === next.thinking &&
          prev.finalResponse === next.finalResponse &&
+         prev.streamingResponse === next.streamingResponse &&
          prev.isWorking === next.isWorking;
 });
 
@@ -3621,6 +3630,7 @@ export function createInitialUIState(): AgentUIState {
     chatHistoryEpoch: 0,
     currentInput: '',
     finalResponse: null,
+    streamingResponse: null,
     completionStats: null,
     // Default to 100% before any tokens are consumed so the welcome helpline
     // shows "100% context left" right after startup, before the first prompt.

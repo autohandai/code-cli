@@ -94,6 +94,27 @@ describe('resume startup Tuistory', () => {
     expect(await fs.pathExists(path.join(state.autohandHome, 'sessions', 'index.json'))).toBe(false);
   });
 
+  it('resumes a session by its saved name', async () => {
+    const state = await createTempAutohandHome({ config: { ui: { promptSuggestions: false } } });
+    states.push(state);
+    await seedResumeScenario(state.autohandHome, state.workspaceRoot);
+    const sessionsDir = path.join(state.autohandHome, 'sessions');
+    const metadataPath = path.join(sessionsDir, 'resume-newer', 'metadata.json');
+    await fs.writeJson(metadataPath, { ...(await fs.readJson(metadataPath)), title: 'Caret fix', titleSource: 'user' });
+    const indexPath = path.join(sessionsDir, 'index.json');
+    const index = await fs.readJson(indexPath);
+    index.sessions = index.sessions.map((entry: { id: string }) => (entry.id === 'resume-newer' ? { ...entry, title: 'Caret fix' } : entry));
+    await fs.writeJson(indexPath, index);
+
+    const session = await launchBuiltAutohand(['resume', 'caret FIX', '--config', state.configPath, '--offline'], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot,
+    });
+    sessions.push(session);
+    await session.waitForText('Resumed session resume-newer', { timeout: 30_000 });
+    await session.waitForText('❯');
+    await exitInteractive(session);
+  });
+
   it('reports ambiguous references with a nonzero exit', async () => {
     const { session } = await launch(['resume-']);
     await waitForExit(session);

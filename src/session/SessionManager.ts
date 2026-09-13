@@ -185,7 +185,22 @@ export class SessionManager {
         }
 
         await this.loadIndex();
-        const candidates = this.index?.sessions.filter((session) => session.id.startsWith(trimmed)) ?? [];
+        const sessions = this.index?.sessions ?? [];
+
+        // A saved name wins over an id prefix: names are chosen, prefixes are typed.
+        const wantedTitle = normalizeSessionTitle(trimmed).toLowerCase();
+        const named = wantedTitle
+            ? sessions.filter((session) => session.title?.toLowerCase() === wantedTitle)
+            : [];
+        if (named.length === 1) {
+            return named[0].id;
+        }
+        if (named.length > 1) {
+            const ids = named.map((session) => session.id.slice(0, 8)).join(', ');
+            throw new Error(`Ambiguous session name "${trimmed}": matches ${named.length} sessions (${ids}). Use an id prefix instead.`);
+        }
+
+        const candidates = sessions.filter((session) => session.id.startsWith(trimmed));
         if (candidates.length === 1) {
             return candidates[0].id;
         }

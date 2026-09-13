@@ -12,6 +12,8 @@ export interface LLMProviderCapabilities {
      * Autohand's JSON toolCalls prompt protocol as the primary contract.
      */
     nativeToolCalling: boolean;
+    /** Supports incremental content callbacks while assembling the final response. */
+    streaming?: boolean;
 }
 
 /**

@@ -13,6 +13,7 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { buildAutohandChildProcessEnv } from '../utils/childProcessEnv.js';
 import { EventEmitter } from 'node:events';
 import {
   type McpServerConfig,
@@ -156,10 +157,8 @@ export class McpStdioConnection extends EventEmitter {
         const normalized = normalizeMcpCommandForSpawn(this.config.command!, this.config.args);
         this.process = spawn(normalized.command, normalized.args ?? [], {
           stdio: ['pipe', 'pipe', 'pipe'],
-          env: {
-            ...process.env,
-            ...this.config.env,
-          },
+          // Server-specific env still wins; the base follows the shell.env policy.
+          env: buildAutohandChildProcessEnv(this.config.env),
         });
 
         this.process.stdout?.on('data', (data: Buffer) => {

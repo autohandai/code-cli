@@ -451,6 +451,16 @@ export interface PermissionSettings {
   rememberSession?: boolean;
 }
 
+export interface ShellSettings {
+  /** Environment inherited by commands Autohand runs; see docs/config-reference.md. */
+  env?: {
+    inherit?: 'all' | 'essential' | 'none';
+    include?: string[];
+    exclude?: string[];
+    set?: Record<string, string>;
+  };
+}
+
 export interface NetworkSettings {
   /** Maximum retry attempts for failed requests (default: 3, max: 5) */
   maxRetries?: number;
@@ -933,6 +943,8 @@ export interface AutohandConfig {
   telemetry?: TelemetrySettings;
   permissions?: PermissionSettings;
   network?: NetworkSettings;
+  /** Child-process controls for shell tools and `!` commands. */
+  shell?: ShellSettings;
   externalAgents?: ExternalAgentsConfig;
   api?: {
     baseUrl?: string;
@@ -1078,6 +1090,10 @@ export interface InlineAgentDefinition {
   systemPrompt: string;
   tools: string[];
   model?: string;
+  /** Reasoning depth requested by the inline definition. */
+  reasoning?: 'none' | 'low' | 'medium' | 'high' | 'xhigh';
+  /** Skills active for the agent from its first request. */
+  skills?: string[];
 }
 
 export interface CLIOptions {
@@ -1105,6 +1121,10 @@ export interface CLIOptions {
   rename?: string;
   /** Run in unrestricted mode - no approval prompts */
   unrestricted?: boolean;
+  /** --allowed-tools: only these tool patterns are advertised and authorized this run. */
+  allowedTools?: string[];
+  /** --disallowed-tools: these tool patterns are never advertised or authorized this run. */
+  disallowedTools?: string[];
   /** Run in restricted mode - deny all dangerous operations */
   restricted?: boolean;
   /** Run the classified, tool-free Blueprint answer RPC profile. */
@@ -1356,6 +1376,8 @@ export interface LLMRequest {
   temperature?: number;
   maxTokens?: number;
   stream?: boolean;
+  /** Live provider deltas; completion still returns the assembled answer and tool calls. */
+  onDelta?: (delta: { type: 'content' | 'reasoning'; text: string }) => void;
   /** Tool/function definitions for function calling */
   tools?: FunctionDefinition[];
   /** How the model should choose which tool to use */

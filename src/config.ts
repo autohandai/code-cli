@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import fs from "fs-extra";
+import { configureChildProcessEnvPolicy } from './utils/childProcessEnv.js';
 import path from "node:path";
 import YAML from "yaml";
 import type {
@@ -62,7 +63,7 @@ const DEFAULT_ZAI_URL = "https://api.z.ai/api/paas/v4";
 const DEFAULT_SAKANA_URL = "https://api.sakana.ai/v1";
 const DEFAULT_DEEPSEEK_URL = "https://api.deepseek.com";
 const DEFAULT_BEDROCK_REGION = "us-east-1";
-const DEFAULT_AUTOHAND_AI_URL = "https://api.autohand.ai/v1";
+const DEFAULT_AUTOHAND_AI_URL = "https://inference.autohand.ai/v1";
 const DEFAULT_CONTROL_PLANE_API_URL = "https://api.autohand.ai";
 
 interface LegacyConfigShape {
@@ -571,6 +572,7 @@ export async function loadConfig(
   }
 
   validateConfig(withEnv, configPath);
+  configureChildProcessEnvPolicy(withEnv.shell?.env);
 
   if (initializeTheme) {
     // Initialize theme from config.
@@ -1335,7 +1337,28 @@ function isLegacyConfig(
   return typeof (config as LegacyConfigShape).api_key === "string";
 }
 
+function validateShellSettings(config: AutohandConfig, configPath: string): void {
+  if (config.shell === undefined) return;
+  if (!isPlainObject(config.shell)) throw new Error(`shell must be an object in ${configPath}`);
+  const env: unknown = config.shell.env;
+  if (env === undefined) return;
+  if (!isPlainObject(env)) throw new Error(`shell.env must be an object in ${configPath}`);
+  if (env.inherit !== undefined && !['all', 'essential', 'none'].includes(env.inherit as string)) {
+    throw new Error(`shell.env.inherit must be "all", "essential", or "none" in ${configPath}`);
+  }
+  for (const field of ['include', 'exclude'] as const) {
+    const value = env[field];
+    if (value !== undefined && (!Array.isArray(value) || !value.every((entry) => typeof entry === 'string' && entry.trim()))) {
+      throw new Error(`shell.env.${field} must be a list of variable names or globs in ${configPath}`);
+    }
+  }
+  if (env.set !== undefined && (!isPlainObject(env.set) || !Object.values(env.set).every((value) => typeof value === 'string'))) {
+    throw new Error(`shell.env.set must map variable names to strings in ${configPath}`);
+  }
+}
+
 function validateConfig(config: AutohandConfig, configPath: string): void {
+  validateShellSettings(config, configPath);
   const multiAgentConfig: unknown = config.features?.multi_agent_v2;
   if (multiAgentConfig !== undefined) {
     if (!isPlainObject(multiAgentConfig)) {

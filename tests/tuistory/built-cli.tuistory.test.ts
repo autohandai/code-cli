@@ -447,6 +447,50 @@ describe('built CLI Tuistory smoke tests', () => {
     expectCleanExit(session);
   }, 45_000);
 
+  it('withholds --disallowed-tools from the advertised tool schemas', async () => {
+    const nativeServer = await createMockAutohandAINativeSequenceServer([{ content: 'TOOL_SCOPE_OK' }]);
+    mockServers.push(nativeServer);
+    const state = await createTempAutohandHome({
+      config: {
+        provider: 'autohandai',
+        autohandai: {
+          plan: 'cloud',
+          authMode: 'api-key',
+          apiKey: 'tuistory-autohand-api-key',
+          model: 'moa',
+          baseUrl: nativeServer.baseUrl,
+        },
+        features: { autohand_inference: true },
+        agent: { maxIterations: 2, sessionRetryLimit: 0, autoMemory: false },
+        network: { maxRetries: 0, retryDelay: 0 },
+      },
+    });
+    tempStates.push(state);
+
+    const session = await trackSession(launchBuiltAutohand([
+      '--path', state.workspaceRoot,
+      '--config', state.configPath,
+      '--prompt', 'Say TOOL_SCOPE_OK.',
+      '--disallowed-tools', 'delete_path,write_file',
+      '--disallowed-tools', 'run_command',
+      '--y',
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      waitForDataTimeout: 15_000,
+    }));
+
+    await waitForExit(session, 30_000);
+    expect(session.readAll()).toContain('TOOL_SCOPE_OK');
+    expect(nativeServer.requests.length).toBeGreaterThanOrEqual(1);
+    const advertised = (nativeServer.requests[0]?.tools as Array<{ function?: { name?: string } }>).map((tool) => tool.function?.name);
+    expect(advertised).toContain('read_file');
+    expect(advertised).not.toContain('delete_path');
+    expect(advertised).not.toContain('write_file');
+    expect(advertised).not.toContain('run_command');
+    expectCleanExit(session);
+  }, 45_000);
+
   it('recommends upgrading when an Autohand AI request quota is exhausted', async () => {
     const quotaServer = await createMockAutohandAIQuotaServer();
     mockServers.push(quotaServer);

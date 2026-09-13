@@ -1265,6 +1265,7 @@ export class AutohandAgent {
       get activeProvider() { return agent.activeProvider; },
       autoReportManager: agent.autoReportManager,
       steering: agent.steering,
+      get permissionManager() { return agent.permissionManager; },
       get consecutiveCancellations() { return agent.consecutiveCancellations; },
       set consecutiveCancellations(value) { agent.consecutiveCancellations = value; },
       contextOrchestrator: agent.contextOrchestrator,

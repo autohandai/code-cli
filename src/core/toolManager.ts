@@ -20,6 +20,7 @@ import {
   type PermissionPromptResponse,
 } from '../permissions/types.js';
 import { PermissionManager } from '../permissions/PermissionManager.js';
+import { checkRunToolScope, describeRunScopeRefusal } from '../permissions/runToolScope.js';
 import type { HookExecutionResult } from './HookManager.js';
 import {
   getToolCategory,
@@ -219,7 +220,9 @@ function resolveEffectivePermissionTool(
 export function buildToolPermissionContexts(action: AgentAction): PermissionContext[] {
   const values = action as unknown as Record<string, unknown>;
   const effectiveTool = resolveEffectivePermissionTool(action, values);
-  const context: PermissionContext = { tool: effectiveTool };
+  const context: PermissionContext = effectiveTool === action.type
+    ? { tool: effectiveTool }
+    : { tool: effectiveTool, requestedTool: action.type };
 
   if (action.type === 'run_command'
     || action.type === 'shell'
@@ -2706,6 +2709,13 @@ export class ToolManager {
 
       try {
         this.assertNotAborted(signal);
+        // The run scope is matched on the tool the model actually named, before
+        // capability mapping turns e.g. delete_path into a write_file context.
+        const scope = checkRunToolScope(this.permissionManager.getRunToolScope(), { kind: call.tool, target: '' });
+        if (!scope.allowed) {
+          reject(describeRunScopeRefusal(call.tool, scope.reason), 'validation');
+          continue;
+        }
         let action = this.toAction(call);
         let permissionContexts = this.resolvePermissionContexts(action);
         let policyEvaluation = this.evaluatePermissionContexts(permissionContexts);

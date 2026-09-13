@@ -8,6 +8,18 @@ import { describe, expect, it } from 'vitest';
 import { InkRenderer } from '../../../src/ui/ink/InkRenderer.js';
 
 describe('InkRenderer live command blocks', () => {
+  it('keeps partial responses transient and clears them on completion and cancellation', () => {
+    const renderer = new InkRenderer({ onInstruction: () => {}, onEscape: () => {}, onCtrlC: () => {} });
+    renderer.setWorking(true);
+    renderer.setStreamingResponse('First token');
+    expect(renderer.getState()).toMatchObject({ isWorking: true, streamingResponse: 'First token', finalResponse: null, chatMessages: [] });
+    renderer.setFinalResponse('Completed answer');
+    expect(renderer.getState().streamingResponse).toBeNull();
+    renderer.setStreamingResponse('Another incomplete answer');
+    renderer.setWorking(false);
+    expect(renderer.getState().streamingResponse).toBeNull();
+  });
+
   it('advances the static chat identity when session history is replaced', () => {
     const renderer = new InkRenderer({
       onInstruction: () => {},

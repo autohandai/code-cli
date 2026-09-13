@@ -66,6 +66,15 @@ describe('AgentRegistry built-in agents', () => {
     expect(registry.getAgent('implementer')?.reasoning).toBeUndefined();
   });
 
+  it('declares skills for the built-in debugger, reviewers, and architect', async () => {
+    const registry = await loadIsolatedRegistry();
+    expect(registry.getAgent('debugger')?.skills).toEqual(['systematic-debugging', 'root-cause-analysis']);
+    expect(registry.getAgent('reviewer')?.skills).toEqual(['pull-request-review', 'code-reviewer']);
+    expect(registry.getAgent('autohand-review')?.skills).toEqual(['pull-request-review', 'code-reviewer']);
+    expect(registry.getAgent('software-architect')?.skills).toEqual(['architecture-breakdown']);
+    expect(registry.getAgent('tester')?.skills).toBeUndefined();
+  });
+
   it('should load built-in agents', async () => {
     const registry = await loadIsolatedRegistry();
     const builtins = registry.getAgentsBySource('builtin');

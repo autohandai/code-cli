@@ -17,7 +17,7 @@ import type { LLMProvider, LLMProviderCapabilities } from "./LLMProvider.js";
 import { AUTOHAND_AI_LOCAL_CODING_MODEL_FALLBACKS } from "./autohandAILocalSetup.js";
 import { getProviderModelOptions } from "./modelCatalog.js";
 
-export const AUTOHAND_AI_DEFAULT_BASE_URL = "https://api.autohand.ai/v1";
+export const AUTOHAND_AI_DEFAULT_BASE_URL = "https://inference.autohand.ai/v1";
 // Requested output when the caller does not specify one; mirrors the shared
 // LLMGatewayClient default and is itself clamped to the model ceiling below.
 export const AUTOHAND_AI_DEFAULT_MAX_OUTPUT_TOKENS = 16_000;
@@ -72,7 +72,15 @@ export const AUTOHAND_AI_LOCAL_MODELS = [
 
 /** The cloud model the gateway will actually serve for a selection; unknown ids fall back to Fantail. */
 export function resolveAutohandAICloudModel(model: string | undefined): string {
-  return model && AUTOHAND_AI_CLOUD_MODELS.includes(model) ? model : "fantail";
+  const normalized = model?.replace(/^autohand\//, "");
+  return normalized && AUTOHAND_AI_CLOUD_MODELS.includes(normalized) ? normalized : "fantail";
+}
+
+/** Migrate only the old first-party endpoint; private gateways are left alone. */
+export function resolveAutohandAICloudBaseUrl(baseUrl: string | undefined): string {
+  return !baseUrl || /^https:\/\/api\.autohand\.ai\/v1\/?$/.test(baseUrl)
+    ? AUTOHAND_AI_DEFAULT_BASE_URL
+    : baseUrl;
 }
 
 export function getAutohandAICloudModelContextWindow(model: string): number {
@@ -131,12 +139,18 @@ export class AutohandAIProvider implements LLMProvider {
     const authToken = this.resolveCloudToken(config);
     const effectiveConfig: LLMGatewaySettings = {
       apiKey: authToken,
-      baseUrl: config.baseUrl ?? AUTOHAND_AI_DEFAULT_BASE_URL,
+      baseUrl: resolveAutohandAICloudBaseUrl(config.baseUrl),
       model: this.model,
       contextWindow: config.contextWindow ?? getAutohandAICloudModelContextWindow(this.model),
       supportsImageInput: true,
     };
-    this.cloudClient = new LLMGatewayClient(effectiveConfig, networkSettings, {
+    // Streamed completions only need the budget to cover time to headers, but
+    // reasoning and gateway inspection can hold headers back; keep the old
+    // completion budget unless the user set an explicit network timeout.
+    this.cloudClient = new LLMGatewayClient(effectiveConfig, {
+      ...networkSettings,
+      timeout: networkSettings?.timeout ?? 300_000,
+    }, {
       serviceName: "Autohand AI",
       credentialName: "Autohand AI API key",
       accountName: "Autohand AI account",
@@ -155,7 +169,7 @@ export class AutohandAIProvider implements LLMProvider {
     const model = AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS.find(
       (definition) => definition.id === this.model,
     );
-    return { nativeToolCalling: model?.toolCalls === true };
+    return { nativeToolCalling: model?.toolCalls === true, streaming: true };
   }
 
   setModel(model: string): void {

@@ -8,6 +8,7 @@ import type { LLMMessage, TurnUsage } from '../../types.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
 import { getSessionPromptCacheDirective } from './PromptCache.js';
 import type { ReactionParser } from './ReactionParser.js';
+import { StreamingResponsePreview } from './StreamingResponsePreview.js';
 
 interface SimpleChatConversation {
   addMessage(message: LLMMessage): void;
@@ -18,6 +19,7 @@ export interface SimpleChatAgent {
   isInstructionActive: boolean;
   conversation: SimpleChatConversation;
   llm: LLMProvider;
+  inkRenderer?: { setStreamingResponse?(response: string | null): void } | null;
   totalTokensUsed: number;
   currentTurnActualUsage: TurnUsage;
   currentTurnHadUnavailableUsage: boolean;
@@ -57,6 +59,10 @@ export class SimpleChatHandler {
 
   async handle(instruction: string): Promise<boolean> {
     this.agent.isInstructionActive = true;
+    const supportsStreaming = this.agent.llm.getCapabilities?.().streaming === true;
+    const preview = supportsStreaming && this.agent.inkRenderer?.setStreamingResponse
+      ? new StreamingResponsePreview((text) => this.agent.inkRenderer?.setStreamingResponse?.(text))
+      : undefined;
 
     try {
       this.agent.conversation.addMessage({ role: 'user', content: instruction });
@@ -72,6 +78,7 @@ export class SimpleChatHandler {
         maxTokens: 1000,
         temperature: 0.7,
         ...(promptCache ? { promptCache } : {}),
+        ...(supportsStreaming ? { stream: true, onDelta: preview?.onDelta } : {}),
       });
 
       const payload = this.agent.getReactionParser().parseAssistantResponse(completion);
@@ -107,6 +114,7 @@ export class SimpleChatHandler {
       }
       return false;
     } finally {
+      preview?.dispose();
       this.agent.isInstructionActive = false;
     }
   }

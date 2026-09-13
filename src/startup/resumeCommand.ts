@@ -17,7 +17,7 @@ interface ResumeCommandDependencies {
 
 export function registerResumeCommand(program: Command, dependencies: ResumeCommandDependencies): Command {
   return program.command('resume [reference]')
-    .description('Resume a saved session by ID, path, or unique ID prefix; otherwise open the project picker')
+    .description('Resume a saved session by name, ID, path, or unique ID prefix; otherwise open the project picker')
     .option('--last', 'Resume the most recently active session')
     .option('--all', 'Include sessions from all projects')
     .option('--path <path>', 'Workspace path to operate in and filter sessions by')
