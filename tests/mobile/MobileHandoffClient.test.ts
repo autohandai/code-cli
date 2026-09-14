@@ -23,6 +23,22 @@ afterEach(() => {
 });
 
 describe('relay heartbeat', () => {
+  it('releases the response body when the server rejects the heartbeat', async () => {
+    const response = new Response('slow down', { status: 429, headers: { 'Retry-After': '5' } });
+    const cancel = vi.spyOn(response.body!, 'cancel');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
+    const client = new MobileHandoffClient({ baseUrl: 'https://preview-api.example.com' });
+
+    await expect(client.sendRelayHeartbeat('auth', {
+      sessionId: 'session',
+      deviceId: 'cli-device',
+      pairingId: 'pairing',
+      mode: 'steer',
+    })).rejects.toThrow();
+
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it('returns the typed revoked pairing status from the heartbeat response', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       success: true,

@@ -12,6 +12,7 @@ import type { MobileWorkspaceFileQueryResult } from '../core/agent/WorkspaceFile
 import type { MobileComposerCatalog } from './MobileComposerCatalog.js';
 import type { MobileComposerExecutableCommand } from './MobileCommandPolicy.js';
 import packageJson from '../../package.json' with { type: 'json' };
+import { discardResponseBody } from '../utils/responseBody.js';
 
 const DEFAULT_API_BASE_URL = 'https://api.autohand.ai';
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -713,6 +714,7 @@ export class MobileHandoffClient implements MobileHandoffClientLike {
       }
 
       if (!response.ok) {
+        discardResponseBody(response);
         throw new MobileHandoffRequestError(
           response.status,
           parseRetryAfter(response.headers.get('Retry-After')),

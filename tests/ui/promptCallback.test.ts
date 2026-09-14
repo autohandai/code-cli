@@ -18,6 +18,26 @@ function labelsOf(call: ModalCall): string[] {
   return call.options.map((option) => option.label);
 }
 
+describe('external permission callback', () => {
+  it('releases the response body when the callback server rejects the request', async () => {
+    vi.stubEnv('AUTOHAND_PERMISSION_CALLBACK_URL', 'https://callback.example.test/permissions');
+    const response = new Response('boom', { status: 500 });
+    const cancel = vi.spyOn(response.body!, 'cancel');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const { confirm } = await import('../../src/ui/promptCallback.js');
+      await expect(confirm('Run rm -rf build?')).resolves.toEqual({ decision: 'deny_once' });
+      expect(cancel).toHaveBeenCalledOnce();
+    } finally {
+      errorSpy.mockRestore();
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
 describe('permission confirm prompt', () => {
   beforeEach(() => {
     vi.stubEnv('AUTOHAND_PERMISSION_CALLBACK_URL', '');

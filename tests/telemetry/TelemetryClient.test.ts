@@ -476,6 +476,23 @@ describe('TelemetryClient session sync', () => {
       )).toBe(false);
     });
 
+    it('releases the health and telemetry response bodies after a flush', async () => {
+      const healthResponse = new Response('ok', { status: 200 });
+      const telemetryResponse = new Response('{}', { status: 200 });
+      const healthCancel = vi.spyOn(healthResponse.body!, 'cancel');
+      const telemetryCancel = vi.spyOn(telemetryResponse.body!, 'cancel');
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => (
+        String(input).endsWith('/health') ? healthResponse : telemetryResponse
+      )));
+      const client = createEnabledClient();
+      await client.track(event);
+
+      await client.flush();
+
+      expect(healthCancel).toHaveBeenCalledOnce();
+      expect(telemetryCancel).toHaveBeenCalledOnce();
+    });
+
     it('awaits a successful queued-event flush', async () => {
       let resolvePost: ((response: Response) => void) | undefined;
       vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {

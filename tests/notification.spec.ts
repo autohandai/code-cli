@@ -20,9 +20,9 @@ vi.mock('node-notifier', () => ({
 import { spawn } from 'node:child_process';
 import notifier from 'node-notifier';
 import {
+  FOCUS_CHECK_TIMEOUT_MS,
   NotificationService,
   type NotificationGuards,
-
 } from '../src/utils/notification.js';
 
 const mockSpawn = vi.mocked(spawn);
@@ -650,6 +650,37 @@ describe('NotificationService', () => {
       );
 
       expect(mockNotify).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('focus check watchdog', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('kills a hung focus probe and still delivers the notification', async () => {
+      vi.useFakeTimers();
+      Object.defineProperty(process, 'platform', { value: 'darwin' });
+      service = new NotificationService();
+      const hungChild = new EventEmitter() as ChildProcess;
+      (hungChild as any).stdout = new EventEmitter();
+      (hungChild as any).stderr = new EventEmitter();
+      (hungChild as any).kill = vi.fn(() => {
+        hungChild.emit('close', null);
+        return true;
+      });
+      mockSpawn.mockReturnValue(hungChild);
+
+      const pending = service.notify(
+        { body: 'Approval needed', reason: 'confirmation' },
+        defaultGuards(),
+      );
+      await vi.advanceTimersByTimeAsync(FOCUS_CHECK_TIMEOUT_MS);
+      await pending;
+
+      expect((hungChild as any).kill).toHaveBeenCalledOnce();
+      expect(mockNotify).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
     });
   });
 });

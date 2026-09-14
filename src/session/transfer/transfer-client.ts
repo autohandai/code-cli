@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { discardResponseBody } from '../../utils/responseBody.js';
 import { isRecord } from './record.js';
 import { parseSessionTransfer, parseTransferReceipt, TRANSFER_MAX_BYTES, TRANSFER_ORIGIN, type SessionTransfer, type TransferReceipt } from './session-transfer.js';
 
@@ -53,7 +54,9 @@ async function readErrorBody(response: Response): Promise<string> {
   } catch {
     return '';
   } finally {
-    try { await reader.cancel(); } catch { /* the stream is already finished */ }
+    // Hand the stream back and release whatever the prefix left unread.
+    try { reader.releaseLock(); } catch { /* the stream is already finished */ }
+    discardResponseBody(response);
   }
 }
 
@@ -140,6 +143,10 @@ export class SessionTransferClient {
       }
       content += decoder.decode();
       return JSON.parse(content) as unknown;
-    } finally { reader.releaseLock(); }
+    } finally {
+      // Any early exit (bad chunk, bad JSON, size limit) leaves the HTTPS body live unless cancelled.
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
   }
 }

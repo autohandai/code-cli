@@ -103,6 +103,11 @@ export class CliRuntimeResourceOwner<
   private readonly serviceStopPromises = new WeakMap<object, Promise<void>>();
 
   private readonly handleExit = (): void => {
+    // 'exit' listeners run synchronously and microtasks never drain afterwards,
+    // so the interval-holding resources must be released inline here; the
+    // async shutdown below reuses these settled promises instead of re-stopping.
+    this.stopPingSync();
+    if (this.syncService) this.stopServiceSync(this.syncService);
     void this.shutdown();
   };
 
@@ -236,6 +241,29 @@ export class CliRuntimeResourceOwner<
       ...(this.startupPromise ? [this.startupPromise] : []),
     ];
     await this.waitWithDeadline(Promise.allSettled(work));
+  }
+
+  private stopPingSync(): void {
+    if (!this.pingStarted || this.pingStopPromise) return;
+    try {
+      this.pingStopPromise = Promise.resolve(this.stopPingCallback())
+        .then(() => undefined)
+        .catch(() => undefined);
+    } catch {
+      this.pingStopPromise = Promise.resolve();
+    }
+  }
+
+  private stopServiceSync(service: Service): void {
+    if (this.serviceStopPromises.has(service)) return;
+    try {
+      this.serviceStopPromises.set(
+        service,
+        Promise.resolve(service.stop()).then(() => undefined).catch(() => undefined),
+      );
+    } catch {
+      this.serviceStopPromises.set(service, Promise.resolve());
+    }
   }
 
   private stopPing(): Promise<void> {

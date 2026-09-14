@@ -13,6 +13,7 @@ import type {
 } from '../permissions/types.js';
 import { getCommandPrefix, normalizePermissionPromptResponse } from '../permissions/types.js';
 import { t } from '../i18n/index.js';
+import { discardResponseBody } from '../utils/responseBody.js';
 
 /**
  * Check if external callback mode is enabled
@@ -58,6 +59,7 @@ async function sendExternalRequest(request: ExternalPromptRequest): Promise<Exte
     });
 
     if (!response.ok) {
+      discardResponseBody(response);
       throw new Error(`Callback server returned ${response.status}`);
     }
 

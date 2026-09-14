@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import notifier from 'node-notifier';
+import { killAfter } from './processTimeout.js';
 import type { NotificationConfig } from '../types.js';
 
 export interface NotificationGuards {
@@ -34,6 +35,8 @@ const TERMINAL_KEYWORDS = [
 ];
 
 const FOCUS_CACHE_TTL_MS = 2000;
+/** A focus probe blocked on an OS consent dialog must not hold notify() open forever. */
+export const FOCUS_CHECK_TIMEOUT_MS = 3000;
 
 // Resolve icon path once at module level.
 // In dev (src/utils/) the icon is at ../../assets/icon.png;
@@ -140,6 +143,10 @@ export class NotificationService {
       try {
         const script = 'tell application "System Events" to get name of first application process whose frontmost is true';
         const child = spawn('osascript', ['-e', script]);
+        killAfter(child, FOCUS_CHECK_TIMEOUT_MS, () => {
+          child.kill();
+          resolve(false);
+        });
         let stdout = '';
 
         child.stdout?.on('data', (data: Buffer) => {
@@ -166,6 +173,10 @@ export class NotificationService {
     return new Promise((resolve) => {
       try {
         const child = spawn('xdotool', ['getactivewindow', 'getwindowname']);
+        killAfter(child, FOCUS_CHECK_TIMEOUT_MS, () => {
+          child.kill();
+          resolve(false);
+        });
         let stdout = '';
 
         child.stdout?.on('data', (data: Buffer) => {

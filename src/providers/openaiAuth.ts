@@ -123,7 +123,8 @@ function callbackErrorHtml(message: string): string {
   return `<!doctype html><html><body><h1>OpenAI sign-in failed.</h1><p>${message}</p></body></html>`;
 }
 
-async function listenForOAuthCallback(expectedState: string): Promise<{
+/** Exported for tests; the browser sign-in flow is the only production caller. */
+export async function listenForOAuthCallback(expectedState: string): Promise<{
   redirectUri: string;
   waitForResult: () => Promise<OAuthCallbackResult>;
   close: () => Promise<void>;
@@ -216,22 +217,30 @@ async function listenForOAuthCallback(expectedState: string): Promise<{
       });
     });
 
+  let callbackPort: number;
   try {
-    await listenOnPort(OPENAI_BROWSER_CALLBACK_PORT);
-  } catch (error) {
-    if (!(error instanceof Error) || !('code' in error) || error.code !== 'EADDRINUSE') {
-      throw error;
+    try {
+      await listenOnPort(OPENAI_BROWSER_CALLBACK_PORT);
+    } catch (error) {
+      if (!(error instanceof Error) || !('code' in error) || error.code !== 'EADDRINUSE') {
+        throw error;
+      }
+
+      await listenOnPort(0);
     }
 
-    await listenOnPort(0);
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Failed to determine OpenAI OAuth callback address.');
+    }
+    callbackPort = (address as AddressInfo).port;
+  } catch (error) {
+    // Nobody receives the close() handle when listening fails, so release the
+    // five-minute deadline and the socket here instead of leaking both.
+    clearTimeout(timeoutId);
+    server.close();
+    throw error;
   }
-
-  const address = server.address();
-  if (!address || typeof address === 'string') {
-    throw new Error('Failed to determine OpenAI OAuth callback address.');
-  }
-
-  const callbackPort = (address as AddressInfo).port;
 
   return {
     redirectUri: `http://${OPENAI_BROWSER_CALLBACK_URL_HOST}:${callbackPort}${OPENAI_BROWSER_CALLBACK_PATH}`,

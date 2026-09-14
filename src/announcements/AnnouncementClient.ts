@@ -5,6 +5,7 @@
  */
 import packageJson from '../../package.json' with { type: 'json' };
 import type { LoadedConfig } from '../types.js';
+import { discardResponseBody } from '../utils/responseBody.js';
 import {
   parseAnnouncementResponse,
   type ApiAnnouncement,
@@ -109,7 +110,11 @@ export class AnnouncementClient {
         ...init,
         signal: controller.signal,
       });
-      return response.ok ? await consume(response) : null;
+      if (!response.ok) {
+        discardResponseBody(response);
+        return null;
+      }
+      return await consume(response);
     } catch {
       return null;
     } finally {
@@ -122,6 +127,8 @@ export class AnnouncementClient {
   }
 
   private async send(url: URL, init: RequestInit): Promise<void> {
-    await this.withDeadline(url, init, async () => undefined);
+    await this.withDeadline(url, init, async (response) => {
+      discardResponseBody(response);
+    });
   }
 }

@@ -13,6 +13,9 @@ import os from 'node:os';
 import { CommandAbortedError, runCommand } from './command.js';
 import { getCommandCoordination } from '../session/peers/CommandCoordinationGate.js';
 
+/** Setup and sync commands (installs, rebases) may legitimately take minutes, but never forever. */
+const WORKTREE_COMMAND_TIMEOUT_MS = 10 * 60_000;
+
 // ============ Types ============
 
 export interface WorktreeInfo {
@@ -668,8 +671,10 @@ export class WorktreeManager {
     return { status: result.code, stdout: result.stdout, stderr: result.stderr };
   }
 
-  private async runInWorktree(worktreePath: string, command: string, timeout = 0): Promise<string> {
+  private async runInWorktree(worktreePath: string, command: string, timeout = WORKTREE_COMMAND_TIMEOUT_MS): Promise<string> {
     const result = await runCommand('sh', ['-c', command], worktreePath, { timeout });
+    // runCommand reports its own watchdog as a signal exit; name the deadline so callers can tell it from a crash.
+    if (timeout > 0 && result.code === null && result.signal) throw Object.assign(new Error(`Command timed out after ${timeout}ms`), { exitCode: result.code });
     if (result.code !== 0) throw Object.assign(new Error(result.stderr || `Command failed with code ${result.code}`), { exitCode: result.code });
     return result.stdout;
   }

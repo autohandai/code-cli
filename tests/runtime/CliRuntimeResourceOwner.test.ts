@@ -48,6 +48,34 @@ function makeService() {
 }
 
 describe('CliRuntimeResourceOwner', () => {
+  it('stops the ping and sync service synchronously on process exit', async () => {
+    const runtimeProcess = new TestProcess();
+    const service = makeService();
+    const stopPing = vi.fn();
+    const owner = new CliRuntimeResourceOwner<TestAuthUser, TestVersion>({
+      process: runtimeProcess,
+      stopPing,
+      setSyncService: vi.fn(),
+      onSignal: vi.fn(),
+      shutdownTimeoutMs: 100,
+    });
+    owner.startPing(() => {});
+    owner.startBackgroundStartup({
+      resolveAuthAndVersion: async () => ({ authUser: { id: 'user' }, versionResult: null }),
+      onVersionResult: vi.fn(),
+      shouldStartSync: () => true,
+      createSyncService: async () => service,
+    });
+    await vi.waitFor(() => expect(service.start).toHaveBeenCalled());
+
+    runtimeProcess.emit('exit');
+
+    // Node runs 'exit' listeners synchronously and never drains microtasks
+    // afterwards, so anything deferred to a promise never happens.
+    expect(stopPing).toHaveBeenCalledOnce();
+    expect(service.stop).toHaveBeenCalledOnce();
+  });
+
   it('settles a held startup step when the CLI lifecycle aborts', async () => {
     const controller = new AbortController();
     let rejectHeld!: (error: Error) => void;

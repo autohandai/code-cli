@@ -53,6 +53,26 @@ describe('AnnouncementClient', () => {
     expect(await client.fetchAnnouncements()).toBeNull();
   });
 
+  it('releases the body of a rejected announcements response', async () => {
+    const response = new Response('nope', { status: 503 });
+    const cancel = vi.spyOn(response.body!, 'cancel');
+    const client = new AnnouncementClient(config(), { fetch: vi.fn().mockResolvedValue(response) });
+
+    expect(await client.fetchAnnouncements()).toBeNull();
+
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it('releases the body of a successful fire-and-forget post', async () => {
+    const response = new Response('{}', { status: 200 });
+    const cancel = vi.spyOn(response.body!, 'cancel');
+    const client = new AnnouncementClient(config(), { fetch: vi.fn().mockResolvedValue(response) });
+
+    await client.postSeen('announcement-1', null);
+
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it('returns null when authentication is unavailable without making a request', async () => {
     const fetchMock = vi.fn();
     const unauthenticatedConfig = config();
