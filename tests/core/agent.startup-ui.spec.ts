@@ -1141,7 +1141,60 @@ describe('agent startup and active input UI', () => {
     }
   });
 
-  it('setupEscListener queues line submissions from stdin data fallback', () => {
+  it('setupEscListener queues line submissions from stdin data fallback when Enter is configured to queue', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const originalStdin = process.stdin;
+    const mockInput = new EventEmitter() as NodeJS.ReadStream;
+    const queue: Array<{ text: string; timestamp: number }> = [];
+    (mockInput as any).isTTY = true;
+    (mockInput as any).isRaw = false;
+    (mockInput as any).setRawMode = vi.fn((mode: boolean) => {
+      (mockInput as any).isRaw = mode;
+      return mockInput;
+    });
+    (mockInput as any).resume = vi.fn(() => mockInput);
+    (mockInput as any).setEncoding = vi.fn();
+
+    agent.runtime = {
+      config: {
+        agent: {
+          enableRequestQueue: true,
+        },
+        ui: {
+          enterWhileWorking: 'queue',
+        },
+      },
+    };
+    agent.updateInputLine = vi.fn();
+    agent.persistentInput = {
+      queue,
+      enqueue: (text: string) => queue.push({ text, timestamp: Date.now() }),
+      getQueueLength: () => queue.length,
+      setStatusLine: vi.fn(),
+      setActivityLine: vi.fn(),
+    };
+    agent.queueInput = '';
+
+    Object.defineProperty(process, 'stdin', {
+      configurable: true,
+      value: mockInput,
+    });
+
+    try {
+      const cleanup = (agent as any).setupEscListener(new AbortController(), vi.fn());
+      mockInput.emit('data', 'queued from cooked data mode\n');
+      expect(queue).toHaveLength(1);
+      expect(queue[0]?.text).toBe('queued from cooked data mode');
+      cleanup();
+    } finally {
+      Object.defineProperty(process, 'stdin', {
+        configurable: true,
+        value: originalStdin,
+      });
+    }
+  });
+
+  it('setupEscListener steers the running turn from a stdin data line submission by default', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const originalStdin = process.stdin;
     const mockInput = new EventEmitter() as NodeJS.ReadStream;
@@ -1171,6 +1224,7 @@ describe('agent startup and active input UI', () => {
       setActivityLine: vi.fn(),
     };
     agent.queueInput = '';
+    agent.steerActiveInstruction = vi.fn(async () => true);
 
     Object.defineProperty(process, 'stdin', {
       configurable: true,
@@ -1179,9 +1233,9 @@ describe('agent startup and active input UI', () => {
 
     try {
       const cleanup = (agent as any).setupEscListener(new AbortController(), vi.fn());
-      mockInput.emit('data', 'queued from cooked data mode\n');
-      expect(queue).toHaveLength(1);
-      expect(queue[0]?.text).toBe('queued from cooked data mode');
+      mockInput.emit('data', 'steered from cooked data mode\n');
+      expect(agent.steerActiveInstruction).toHaveBeenCalledWith('steered from cooked data mode');
+      expect(queue).toHaveLength(0);
       cleanup();
     } finally {
       Object.defineProperty(process, 'stdin', {

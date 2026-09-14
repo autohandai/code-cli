@@ -266,7 +266,7 @@ program.hook('preAction', (thisCommand, actionCommand) => {
   // later is reported without anyone remembering to instrument it.
   void reportCliCommand({
     commandPath: commandPathOf(actionCommand),
-    loadConfig: () => loadConfig(),
+    loadConfig: () => loadConfig(undefined, undefined, { createIfMissing: false, initializeTheme: false }),
     clientVersion: getVersionString(),
   });
 });
