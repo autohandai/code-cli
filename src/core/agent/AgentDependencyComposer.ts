@@ -466,6 +466,14 @@ export function initializeAgentDependencies(
       onHookEvent: async ({ event, ...context }) => {
         await host.hookManager.executeHooks(event, context);
       },
+      // Resolved through the host on every call, not captured now: the
+      // telemetry manager and the skills registry are both built further down
+      // this function, so binding either by value here would wire in undefined
+      // and leave every compaction unreported.
+      telemetryManager: {
+        trackContextCompaction: (data) => host.telemetryManager.trackContextCompaction(data),
+      },
+      getSurvivingSkillSpanIds: () => host.skillsRegistry.noteContextCompaction(),
     });
 
     // Initialize new feature modules

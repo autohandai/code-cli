@@ -14,6 +14,7 @@ import type {
   ProviderModelMetadata,
   SessionSyncData,
   SkillUseData,
+  ContextCompactionData,
   GoalEventData,
   OutcomeData,
   SessionFailureBugData
@@ -283,6 +284,23 @@ export class TelemetryManager {
       modifiedAt: data.modifiedAt,
       releaseReason: data.releaseReason,
       action: data.action,
+    });
+  }
+
+  /**
+   * Track a context compaction.
+   *
+   * The survivor list is sent even when empty: downstream has to tell "no
+   * skill was being carried" from "this client cannot say", and those price a
+   * session very differently.
+   */
+  async trackContextCompaction(data: ContextCompactionData): Promise<void> {
+    await this.trackEvent('context_compaction', {
+      tokensBefore: data.tokensBefore,
+      tokensAfter: data.tokensAfter,
+      survivingSpanIds: data.survivingSpanIds,
+      reason: data.reason,
+      croppedCount: data.croppedCount,
     });
   }
 

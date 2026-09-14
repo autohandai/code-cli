@@ -20,7 +20,8 @@ export type TelemetryEventType =
   | 'skill_use'
   | 'session_failure_bug'
   | 'goal_event'
-  | 'outcome';
+  | 'outcome'
+  | 'context_compaction';
 
 export interface TelemetryEvent {
   id: string;
@@ -168,6 +169,26 @@ export interface SkillUseData {
   modifiedAt?: string;
   /** Release only. */
   releaseReason?: 'deactivated' | 'session_end' | 'compacted_out';
+}
+
+/**
+ * A compaction is the only point in a session where the context shrinks
+ * without anyone asking.
+ *
+ * A skill is priced as size x requests carried, so a skill that leaves the
+ * window keeps accruing rent for the rest of the run unless something says it
+ * stopped being sent. `survivingSpanIds` is that statement: the spans still
+ * carried after the compaction. An empty array means no skill was open, which
+ * is a different claim from a client too old to report survivors at all, so
+ * the field is required rather than optional.
+ */
+export interface ContextCompactionData {
+  tokensBefore: number;
+  tokensAfter: number;
+  survivingSpanIds: string[];
+  /** Which compaction path ran: tiered, mid-turn, legacy-critical, overflow. */
+  reason?: string;
+  croppedCount?: number;
 }
 
 /**

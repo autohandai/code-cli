@@ -794,6 +794,33 @@ export class SkillsRegistry {
   }
 
   /**
+   * Reconcile open spans against what the context still carries, and report
+   * the ones that survive.
+   *
+   * Called when the context is compacted. A skill costs its size times the
+   * number of requests that carried it, so a span left open after its skill
+   * stopped being sent keeps charging rent for text no longer in the prompt.
+   *
+   * An active skill survives: its body is re-rendered into the system prompt
+   * on every request, and every compaction path here protects the system
+   * message at index 0. What does not survive is a span whose skill is no
+   * longer injected at all, which today means an extension dropping out of
+   * its snapshot: `setExtensionSkills` deletes the skill and leaves the span
+   * open. This is the first point in the session that notices.
+   */
+  noteContextCompaction(): string[] {
+    const surviving: string[] = [];
+    for (const [name, spanId] of [...this.activeSpans]) {
+      if (this.getSkill(name)?.isActive === true) {
+        surviving.push(spanId);
+        continue;
+      }
+      this.closeSpan(name, 'compacted_out');
+    }
+    return surviving;
+  }
+
+  /**
    * Closes a skill's span. Silent when none is open, so deactivating a skill
    * that was never activated reports nothing rather than a release with no
    * matching activate.

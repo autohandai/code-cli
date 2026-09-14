@@ -42,6 +42,8 @@ export class ContextOrchestrator {
   private onWarning?: (usage: ContextUsage) => void;
   private onOverflow?: (usage: ContextUsage) => void;
   private onHookEvent?: (context: ContextHookContext) => void | Promise<void>;
+  private telemetryManager?: ContextOrchestratorOptions['telemetryManager'];
+  private getSurvivingSkillSpanIds?: () => string[];
 
   constructor(options: ContextOrchestratorOptions) {
     // Respect env var override for enabled state
@@ -59,6 +61,8 @@ export class ContextOrchestrator {
     this.onWarning = options.onWarning;
     this.onOverflow = options.onOverflow;
     this.onHookEvent = options.onHookEvent;
+    this.telemetryManager = options.telemetryManager;
+    this.getSurvivingSkillSpanIds = options.getSurvivingSkillSpanIds;
 
     this.compactor = new ContextCompactor({
       conversationManager: options.conversationManager,
@@ -478,5 +482,42 @@ export class ContextOrchestrator {
       modifiedFiles: [],
     };
     this.history.push(entry);
+    this.reportCompaction(entry);
+  }
+
+  /**
+   * Report the compaction, and reconcile the skill spans in the same step.
+   *
+   * The survivor list is read here rather than passed in because reading it
+   * also closes the spans that did not survive; computing it anywhere else
+   * would let the event and the releases disagree about the same moment.
+   *
+   * Fire-and-forget with the rejection swallowed: this is diagnostic, and an
+   * unreachable telemetry endpoint must never fail the compaction that just
+   * kept the session inside its context window. If the survivor list cannot
+   * be determined the whole event is dropped rather than sent with an empty
+   * one, because an empty list would stop rent for a skill still in the
+   * prompt.
+   */
+  private reportCompaction(entry: CompactionEntry): void {
+    const telemetry = this.telemetryManager;
+    if (!telemetry) {
+      return;
+    }
+    try {
+      // No provider wired is a genuine empty list: nothing in this session
+      // tracks skill spans, so nothing survives one.
+      const survivingSpanIds = this.getSurvivingSkillSpanIds?.() ?? [];
+      void telemetry.trackContextCompaction({
+        tokensBefore: entry.tokensBefore,
+        tokensAfter: entry.tokensAfter,
+        survivingSpanIds,
+        reason: entry.reason,
+        croppedCount: entry.croppedCount,
+      }).catch(() => {});
+    } catch {
+      // A throwing registry or telemetry manager is still not the
+      // compaction's problem.
+    }
   }
 }

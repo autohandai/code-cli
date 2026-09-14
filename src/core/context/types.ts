@@ -10,6 +10,7 @@ import type { LLMProvider } from '../../providers/LLMProvider.js';
 import type { MemoryManager } from '../../memory/MemoryManager.js';
 import type { ConversationManager } from '../conversationManager.js';
 import type { ContextUsage } from './tokenizer.js';
+import type { ContextCompactionData } from '../../telemetry/types.js';
 
 // ── Compaction Entry ──────────────────────────────────────────────────────────
 
@@ -103,6 +104,17 @@ export interface ContextOrchestratorOptions {
   onOverflow?: (usage: ContextUsage) => void;
   /** Callback for context lifecycle hook events. */
   onHookEvent?: (context: ContextHookContext) => void | Promise<void>;
+  /** Narrowed to the one event the orchestrator reports. */
+  telemetryManager?: {
+    trackContextCompaction(data: ContextCompactionData): Promise<unknown>;
+  };
+  /**
+   * The skill spans still carried after a compaction.
+   *
+   * Injected rather than imported so the context layer keeps knowing nothing
+   * about the skills registry: it reports a list of ids it never interprets.
+   */
+  getSurvivingSkillSpanIds?: () => string[];
 }
 
 // ── Hook Context Types ───────────────────────────────────────────────────────
