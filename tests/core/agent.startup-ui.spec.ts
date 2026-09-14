@@ -1213,10 +1213,6 @@ describe('agent startup and active input UI', () => {
         agent: {
           enableRequestQueue: true,
         },
-        // Plain Enter steers the active turn by default; this test covers the queue path.
-        ui: {
-          enterWhileWorking: 'queue',
-        },
       },
     };
     agent.updateInputLine = vi.fn();
