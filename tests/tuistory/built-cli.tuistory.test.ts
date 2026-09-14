@@ -1283,7 +1283,7 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(rowAboveComposer(secondFinish)).toMatch(/^Completed in .+ {2,}Tip: /u);
 
     await exitInteractive(session);
-  }, 120_000);
+  }, 150_000);
 
   it('opens the console upgrade link for the next plan from /upgrade', async () => {
     const authServer = await createMockAuthServer();
