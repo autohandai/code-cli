@@ -15,6 +15,10 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v7
 
@@ -40,10 +44,14 @@ jobs:
         run: bun run typecheck
 
       - name: Run tests
-        run: bun run test:ci
+        run: bun run test:ci -- --shard=${{ matrix.shard }}/3
 
   tuistory:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -72,7 +80,7 @@ jobs:
         run: bun run build
 
       - name: Run built terminal tests
-        run: bun run test:tuistory
+        run: bun run test:tuistory -- --shard=${{ matrix.shard }}/4
 
   build-test:
     # These jobs build independently, so report platform failures alongside the suites.

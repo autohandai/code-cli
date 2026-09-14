@@ -88,6 +88,20 @@ describe('CI workflow checkout', () => {
     }
   });
 
+  it('shards the unit and built terminal test jobs across runners', () => {
+    // A single runner took 8 minutes for the unit suite and 20 for the
+    // terminal suite; the shard matrix is what keeps a push under ten minutes.
+    for (const workflow of ['ci.yml', 'release.yml']) {
+      const jobs = readWorkflowJobs().filter((job) => job.workflow === workflow);
+      const unit = jobs.find((job) => job.name === 'test');
+      const tuistory = jobs.find((job) => job.name === 'tuistory');
+      expect(unit?.body, `${workflow}:test`).toMatch(/matrix:\s*\n\s*shard: \[1, 2, 3\]/u);
+      expect(unit?.body, `${workflow}:test`).toContain('test:ci -- --shard=${{ matrix.shard }}/3');
+      expect(tuistory?.body, `${workflow}:tuistory`).toMatch(/matrix:\s*\n\s*shard: \[1, 2, 3, 4\]/u);
+      expect(tuistory?.body, `${workflow}:tuistory`).toContain('test:tuistory -- --shard=${{ matrix.shard }}/4');
+    }
+  });
+
   it('keeps every checkout pinned to a major version', () => {
     for (const file of readdirSync(WORKFLOW_DIR).filter((name) => name.endsWith('.yml'))) {
       const contents = readFileSync(path.join(WORKFLOW_DIR, file), 'utf8');

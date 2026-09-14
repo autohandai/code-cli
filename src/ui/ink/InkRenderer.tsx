@@ -423,6 +423,8 @@ export class InkRenderer {
   /** Pending live command output buffers (accumulated between flushes) */
   private pendingLiveOutput = new Map<string, { stdout: string; stderr: string }>();
   /** Timer for throttling live command output flushes */
+  /** Set when the elapsed or token counters move; cleared once a summary row reports them. */
+  private countersChangedSinceSummary = false;
   private liveOutputFlushTimer: ReturnType<typeof setTimeout> | null = null;
   /** Flush interval in ms - batches rapid output to prevent flickering */
   private static readonly LIVE_OUTPUT_FLUSH_INTERVAL_MS = 100;
@@ -705,8 +707,12 @@ export class InkRenderer {
       Object.assign(updates, this.archiveIdleReply(this.state.chatMessages, this.state.finalResponse, this.state.thinking));
     }
 
-    // When stopping work, save completion stats from current elapsed/tokens
-    if (!isWorking && (this.state.elapsed || this.state.tokens)) {
+    // When stopping work, save completion stats from current elapsed/tokens.
+    // Only a turn that actually ran gets a summary: an idle transition after a
+    // slash command would otherwise reuse the previous turn's counters and
+    // label them "Completed" even when that turn failed.
+    const turnEnded = options.succeeded !== undefined || this.countersChangedSinceSummary;
+    if (!isWorking && turnEnded && (this.state.elapsed || this.state.tokens)) {
       const completionStatus = options.succeeded === false
         ? 'failed'
         : this.state.completionStats?.status;
@@ -715,6 +721,7 @@ export class InkRenderer {
         tokens: this.state.tokens || '0 tokens',
         ...(completionStatus ? { status: completionStatus } : {})
       };
+      this.countersChangedSinceSummary = false;
     }
 
     // When starting new work, clear completion stats
@@ -747,6 +754,7 @@ export class InkRenderer {
    * Update elapsed time display
    */
   setElapsed(elapsed: string): void {
+    this.countersChangedSinceSummary = true;
     this.updateState({ elapsed });
   }
 
@@ -754,6 +762,7 @@ export class InkRenderer {
    * Update token count display
    */
   setTokens(tokens: string): void {
+    this.countersChangedSinceSummary = true;
     this.updateState({ tokens });
   }
 

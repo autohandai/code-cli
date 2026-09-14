@@ -332,6 +332,31 @@ describe('InkRenderer live command blocks', () => {
     });
   });
 
+  it('does not relabel a failed turn as completed when a slash command runs afterwards', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    renderer.addUserMessage('/deep-search premature completion audit');
+    renderer.setWorking(true, 'Researching...');
+    renderer.setElapsed('0m 00s');
+    renderer.setTokens('54 tokens');
+    renderer.setWorking(false, '', { succeeded: false });
+    expect(renderer.getState().completionStats).toMatchObject({ status: 'failed' });
+
+    // A slash command echoes the input, runs without a model turn, then returns to idle.
+    renderer.addUserMessage('/deep-search status');
+    renderer.setWorking(false);
+
+    expect(renderer.getState().completionStats).toBeNull();
+    expect(renderer.getState().chatMessages).toContainEqual({
+      role: 'completion',
+      content: 'Failed in 0m 00s · 54 tokens',
+    });
+  });
+
   it('records tool-call starts in chat history before completed output', () => {
     const renderer = new InkRenderer({
       onInstruction: () => {},
