@@ -57,20 +57,10 @@ const MAX_ALLOWED_RETRIES = 5;
 const DEFAULT_RETRY_DELAY = 1000;
 const DEFAULT_TIMEOUT = 30000;
 /**
- * The timeout guards time to response headers, not the whole exchange — it is cleared as
- * soon as `fetch` resolves. A streaming response sends headers the moment the upstream
- * starts, so `network.timeout` is a fair budget for it. A non-streaming one sends nothing
- * until the entire completion has been generated, so the budget has to cover generation.
- *
- * At 30s it did not. On 2026-08-26 that aborted Autohand AI sessions mid-answer and then
- * retried them three times over — ~2 min burned per turn, `Request timed out`, no output.
- * Measured against api.autohand.ai on 2026-08-27, 4000 completion tokens took 35.6s on
- * `moa` (~112 tok/s) and 100.3s on `fantail` (~40 tok/s), and the agent loop asks for
- * `maxTokens: 16000` — so 30s was never a plausible budget for the answers it requests.
- *
- * 5 min matches the ceiling the inference Worker sets on itself (`limits.cpu_ms`). It
- * still does not cover 16000 tokens at fantail's rate: the fix for that is to stream the
- * agent loop's completions, after which this budget only has to cover time to headers.
+ * Buffered completions may withhold headers until generation finishes. Give them
+ * a larger header budget; streamed completions use a separate idle timeout after
+ * headers arrive, so ongoing generation can outlast this budget. Worker CPU limits
+ * do not bound time spent waiting for inference.
  */
 const COMPLETION_TIMEOUT = 300_000;
 
@@ -473,19 +463,15 @@ export class LLMGatewayClient {
     } catch (error) {
       const err = error as Error;
 
-      // Timeout. Retrying is only worth it for a streaming request, where nothing arrived
-      // within a budget that only ever had to cover time to headers. A non-streaming one
-      // timed out because generating the answer took longer than the budget allows, and
-      // re-sending identical work just spends that budget again — three retries is how a
-      // 30s abort became ~2 min of dead time per turn on 2026-08-26.
+      // No response was accepted. Buffered requests can also hit transient stalls;
+      // let the configured retry policy recover them. Body/partial-stream failures
+      // are handled separately and must not replay an accepted response.
       if (err.name === "AbortError") {
         throw new ApiError(
-          isStreaming
-            ? `Request timed out. The ${this.errorLabels.serviceName} service may be experiencing high load.`
-            : `The ${this.errorLabels.serviceName} response did not arrive within ${Math.round(Math.max(this.timeout, COMPLETION_TIMEOUT) / 1000)}s. Try a smaller request, or a model that answers faster.`,
+          `Request timed out waiting for ${this.errorLabels.serviceName} to start a response (${Math.round((isStreaming ? this.timeout : Math.max(this.timeout, COMPLETION_TIMEOUT)) / 1000)}s).`,
           "timeout",
           0,
-          isStreaming,
+          true,
         );
       }
 

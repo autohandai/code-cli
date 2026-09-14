@@ -236,6 +236,54 @@ describe('AgentUI $ skill mention handling', () => {
   });
 });
 
+describe('AgentUI $ skill mention mid-sentence', () => {
+  it('suggests skills for a $ typed after other words', async () => {
+    const { stdin, lastFrame } = renderAgentUIWithStdin({
+      skillsProvider: () => [
+        { name: 'extension-builder', description: 'Build an extension', isActive: false, source: 'builtin' },
+        { name: 'code-reviewer', description: 'Review code', isActive: false, source: 'builtin' },
+      ],
+    });
+
+    await new Promise(r => setImmediate(r));
+    for (const chunk of ['hep me here ', '$', 'e', 'x']) {
+      stdin.write(chunk);
+      await new Promise(r => setTimeout(r, 20));
+    }
+    await new Promise(r => setTimeout(r, 50));
+
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('$extension-builder');
+    expect(frame).not.toContain('$code-reviewer');
+  });
+
+  it('shows suggestions for a $ typed before the skills registry has loaded', async () => {
+    let skills: Array<{ name: string; description: string; isActive: boolean; source: string }> = [];
+    const { stdin, lastFrame } = renderAgentUIWithStdin({ skillsProvider: () => skills });
+    await new Promise(r => setImmediate(r));
+    stdin.write('hep me here $ex');
+    await new Promise(r => setTimeout(r, 80));
+    expect(lastFrame() ?? '').not.toContain('$extension-builder');
+    skills = [{ name: 'extension-builder', description: 'Build an extension', isActive: false, source: 'builtin' }];
+    await new Promise(r => setTimeout(r, 600));
+    expect(lastFrame() ?? '').toContain('$extension-builder');
+  });
+
+  it('suggests skills when the whole sentence arrives in one input chunk', async () => {
+    const { stdin, lastFrame } = renderAgentUIWithStdin({
+      skillsProvider: () => [
+        { name: 'extension-builder', description: 'Build an extension', isActive: false, source: 'builtin' },
+      ],
+      messageTargetsProvider: () => [],
+      filesProvider: () => [],
+    });
+    await new Promise(r => setImmediate(r));
+    stdin.write('hep me here $ex');
+    await new Promise(r => setTimeout(r, 80));
+    expect(lastFrame() ?? '').toContain('$extension-builder');
+  });
+});
+
 describe('AgentUI : message target handling', () => {
   const messageTargetsProvider = () => [
     { kind: 'run' as const, id: 'subagent-1', alias: 'reviewer', label: 'reviewer', detail: 'reviewer · Review the diff', messageable: true },
@@ -277,24 +325,92 @@ describe('AgentUI : message target handling', () => {
   });
 });
 
-describe('AgentUI Shift+Enter steering', () => {
-  it('steers the composer text into the running turn and clears the composer', async () => {
+describe('AgentUI autocomplete while a turn is running', () => {
+  it.each([
+    ['@', 'src/in', '@src/index.ts'],
+    ['$', 'ex', '$extension-builder'],
+    ['/', 'hel', '/help'],
+  ])('shows the %s dropdown while working so steered and queued text can use it', async (trigger, seed, expected) => {
+    const { stdin, lastFrame } = renderAgentUIWithStdin({
+      state: { ...createInitialUIState(), isWorking: true, status: 'Working...' },
+      filesProvider: () => ['src/index.ts', 'package.json'],
+      skillsProvider: () => [{ name: 'extension-builder', description: 'Build an extension', isActive: false, source: 'builtin' }],
+      slashCommands: [{ command: '/help', description: 'Show help', implemented: true }],
+      onSteer: () => {},
+    });
+    await new Promise(r => setImmediate(r));
+    stdin.write(trigger);
+    await new Promise(r => setTimeout(r, 30));
+    for (const ch of seed) {
+      stdin.write(ch);
+      await new Promise(r => setTimeout(r, 20));
+    }
+    await new Promise(r => setTimeout(r, 60));
+    expect(stripAnsi(lastFrame() ?? '')).toContain(expected);
+  });
+});
+
+describe('AgentUI steering while working', () => {
+  it('steers the composer text with plain Enter and clears the composer', async () => {
     const onSteer = vi.fn();
+    const onInstruction = vi.fn();
     const onInputChange = vi.fn();
     const { stdin, lastFrame } = renderAgentUIWithStdin({
       state: { ...createInitialUIState(), isWorking: true, status: 'Working...' },
       onSteer,
+      onInstruction,
       onInputChange,
     });
     await new Promise(r => setImmediate(r));
     stdin.write('focus on tests');
     await new Promise(r => setTimeout(r, 50));
-    stdin.write('\x1b[13;2u');
+    stdin.write('\r');
     await new Promise(r => setTimeout(r, 50));
 
     expect(onSteer).toHaveBeenCalledWith('focus on tests');
+    expect(onInstruction).not.toHaveBeenCalled();
     expect(onInputChange).toHaveBeenLastCalledWith('');
     expect(stripAnsi(lastFrame() ?? '')).not.toContain('focus on tests');
+  });
+
+  it('queues with Shift+Enter while working under the default setting', async () => {
+    const onSteer = vi.fn();
+    const onInstruction = vi.fn();
+    const { stdin } = renderAgentUIWithStdin({
+      state: { ...createInitialUIState(), isWorking: true, status: 'Working...' },
+      onSteer,
+      onInstruction,
+    });
+    await new Promise(r => setImmediate(r));
+    stdin.write('later please');
+    await new Promise(r => setTimeout(r, 50));
+    stdin.write('\x1b[13;2u');
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(onSteer).not.toHaveBeenCalled();
+    expect(onInstruction).toHaveBeenCalledWith('later please');
+  });
+
+  it('keeps Enter queueing and Shift+Enter steering when ui.enterWhileWorking is queue', async () => {
+    const onSteer = vi.fn();
+    const onInstruction = vi.fn();
+    const { stdin } = renderAgentUIWithStdin({
+      state: { ...createInitialUIState(), isWorking: true, status: 'Working...' },
+      onSteer,
+      onInstruction,
+      enterWhileWorking: 'queue',
+    });
+    await new Promise(r => setImmediate(r));
+    stdin.write('queued');
+    await new Promise(r => setTimeout(r, 50));
+    stdin.write('\r');
+    await new Promise(r => setTimeout(r, 50));
+    expect(onInstruction).toHaveBeenCalledWith('queued');
+    stdin.write('steered');
+    await new Promise(r => setTimeout(r, 50));
+    stdin.write('\x1b[13;2u');
+    await new Promise(r => setTimeout(r, 50));
+    expect(onSteer).toHaveBeenCalledWith('steered');
   });
 
   it('keeps Shift+Enter as a newline while idle', async () => {

@@ -7,7 +7,8 @@ import React from 'react';
 import { cleanup, render } from 'ink-testing-library';
 import stringWidth from 'string-width';
 import stripAnsi from 'strip-ansi';
-import { afterEach, describe, expect, it } from 'vitest';
+import chalk from 'chalk';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   IdleTipRow,
   MIN_IDLE_TIP_WIDTH,
@@ -17,7 +18,10 @@ import {
 } from '../../../src/ui/ink/TipLine.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.unstubAllEnvs();
+});
 
 function frameOf(node: React.ReactElement): string {
   return stripAnsi(render(<ThemeProvider>{node}</ThemeProvider>).lastFrame() ?? '');
@@ -69,6 +73,23 @@ describe('idle tip width', () => {
 });
 
 describe('IdleTipRow', () => {
+  it('renders the rotating tip dim and italic so it stays quiet beside the composer', () => {
+    const level = chalk.level;
+    chalk.level = 3;
+    try {
+      const frame = render(
+        <ThemeProvider>
+          <IdleTipRow tip="Type / to browse commands" columns={60} />
+        </ThemeProvider>,
+      ).lastFrame() ?? '';
+
+      expect(frame).toContain('\u001b[2m');
+      expect(frame).toContain('\u001b[3m');
+    } finally {
+      chalk.level = level;
+    }
+  });
+
   it('right-aligns a lone tip to the composer edge', () => {
     const tip = 'Tip: Type / to browse commands';
     expect(frameOf(<IdleTipRow tip="Type / to browse commands" columns={60} />))

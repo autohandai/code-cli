@@ -13,7 +13,7 @@ describe('slash commands registry', () => {
       '/quit', '/exit', '/model', '/session', '/sessions', '/resume', '/init',
       '/agents', '/agents new', '/feedback', '/help', '/?',
       '/undo', '/new', '/memory', '/browser', '/review', '/pr-review',
-      '/usage', '/upgrade', '/go', '/handoff session', '/handoff web', '/statusline', '/goal', '/goals', '/whatityped', '/rename'
+      '/usage', '/upgrade', '/go', '/handoff', '/handoff session', '/handoff web', '/statusline', '/goal', '/goals', '/whatityped', '/rename'
     ];
     expected.forEach((cmd) => expect(commands).toContain(cmd));
     expect(commands).not.toContain('/chrome');

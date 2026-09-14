@@ -81,7 +81,8 @@ function IdleTipRowComponent({ summary, tip, columns }: IdleTipRowProps): React.
       justifyContent={summary ? 'space-between' : 'flex-end'}
     >
       {summary ? <Text color={colors.muted}>{summary}</Text> : null}
-      <Text color={colors.muted}>{tipText}</Text>
+      {/* Dim and italic so a rotating hint never competes with the turn above it. */}
+      <Text color={colors.muted} dimColor italic>{tipText}</Text>
     </Box>
   );
 }

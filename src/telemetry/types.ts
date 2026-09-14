@@ -18,7 +18,9 @@ export type TelemetryEventType =
   | 'heartbeat'
   | 'session_sync'
   | 'skill_use'
-  | 'session_failure_bug';
+  | 'session_failure_bug'
+  | 'goal_event'
+  | 'outcome';
 
 export interface TelemetryEvent {
   id: string;
@@ -138,7 +140,46 @@ export interface SkillUseData {
   skillName: string;
   source: string;
   activationType: 'auto' | 'explicit';
-  action?: 'activate' | 'install' | 'remove' | 'update';
+  /**
+   * `release` closes the span a matching `activate` opened. An activated
+   * skill is added to the session prompt and stays there, so its body is
+   * re-sent on every later request — without a release there is no way to
+   * know how many requests that was, and therefore no way to price it.
+   */
+  action?: 'activate' | 'install' | 'remove' | 'update' | 'release';
+  /** Correlates an activate with its release. Present on both. */
+  spanId?: string;
+  /** Measured tokens of the injected skill body. Activate only. */
+  tokenSize?: number;
+  /** Bytes of the SKILL.md file on disk. Activate only. */
+  sizeBytes?: number;
+  /** Author-declared version from frontmatter metadata, when present. */
+  version?: string;
+  /** ISO timestamps from the file itself, so a skill can be aged. Activate only. */
+  createdAt?: string;
+  modifiedAt?: string;
+  /** Release only. */
+  releaseReason?: 'deactivated' | 'session_end' | 'compacted_out';
+}
+
+/**
+ * A goal's lifecycle. Emitted so the console can report how work actually
+ * ends, rather than an acceptance rate — an agent has no "suggestion shown"
+ * to accept, so a rate borrowed from autocomplete would mean nothing.
+ */
+export interface GoalEventData {
+  goalId?: string;
+  action: 'created' | 'started' | 'paused' | 'resumed' | 'completed' | 'blocked' | 'cancelled' | 'updated';
+  /** Free-form reason, carried on `blocked` so stalls can be aggregated. */
+  status?: string;
+  source?: string;
+}
+
+export interface OutcomeData {
+  outcome: 'success' | 'failure' | 'cancelled' | 'timeout';
+  surface?: string;
+  action?: string;
+  message?: string;
 }
 
 export interface SessionFailureBugData {

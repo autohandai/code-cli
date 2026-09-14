@@ -139,8 +139,8 @@ describe('LLMGatewayClient', () => {
       return fetchMock.mock.calls.length;
     };
 
-    it('does not retry a non-streaming timeout, which would only spend the budget again', async () => {
-      expect(await attemptsUntilTimeout(false)).toBe(1);
+    it('retries a non-streaming timeout within the configured attempt limit', async () => {
+      expect(await attemptsUntilTimeout(false)).toBe(3);
     });
 
     it('still retries a streaming timeout, where nothing arrived at all', async () => {

@@ -124,6 +124,7 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   automode.metadata,
   share.metadata,
   goCmd.metadata,
+  handoffWebCmd.handoffMetadata,
   goCmd.handoffSessionMetadata,
   handoffWebCmd.metadata,
   sync.metadata,

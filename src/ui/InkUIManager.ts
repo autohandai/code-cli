@@ -22,6 +22,7 @@ import type { TaskListPosition } from '../types.js';
 export interface InkUIManagerOptions {
   onInstruction: (text: string) => void;
   onSteer?: (text: string) => void;
+  enterWhileWorking?: 'steer' | 'queue';
   onEscape: () => void;
   onCtrlC: () => void;
   onDismissAnnouncement?: (id: string) => void;

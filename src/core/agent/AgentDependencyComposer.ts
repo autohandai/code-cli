@@ -125,6 +125,7 @@ import type {
   MobileRelayController,
 } from '../../mobile/MobileRelay.js';
 import type { MobileAgentSessionExecutionContext } from './AgentLifecycleRunner.js';
+import type { GoalEventData } from '../../telemetry/types.js';
 import {
   createQueuedAgentInstruction,
   type PendingPostTurnAction,
@@ -1971,6 +1972,9 @@ export function initializeAgentDependencies(
       isFeatureEnabled: isRuntimeFeatureEnabled,
       trackFeatureActivation: (key: string, metadata?: Record<string, unknown>) => {
         void host.featureFlagManager?.trackFeatureActivation?.(key, metadata);
+      },
+      trackGoalEvent: (data: GoalEventData) => {
+        void host.telemetryManager?.trackGoalEvent(data).catch(() => {});
       },
       refreshFeatureGatedTools: () => {
         const enabled = isGoalFeatureEnabled(runtime.config);

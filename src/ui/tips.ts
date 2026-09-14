@@ -27,8 +27,12 @@ export interface TipContext {
   listCommands?: () => ReadonlyArray<{ command: string; description: string }>;
 }
 
-/** How long each tip stays beside the composer before the next one rotates in. */
-export const TIP_ROTATION_MS = 10_000;
+/**
+ * How long each tip stays beside the composer before the next one rotates in.
+ * Tips only rotate while the composer is idle, so this is a reading pace rather
+ * than a progress pace: long enough to finish the line and look away.
+ */
+export const TIP_ROTATION_MS = 30_000;
 
 const FALLBACK_TIP = 'Type /help to see all available slash commands';
 

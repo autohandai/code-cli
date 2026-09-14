@@ -102,6 +102,68 @@ describe("AutohandAIProvider", () => {
     expect(timer).toHaveBeenCalledWith(expect.any(Function), timeout ?? 300_000);
   });
 
+  it.each([undefined, false])('recovers a buffered completion after 300 seconds with stream=%s', async (stream) => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn<typeof fetch>()
+        .mockImplementationOnce((_input, init) => new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+        }))
+        .mockResolvedValueOnce(Response.json({
+          choices: [{ message: { content: 'Recovered answer' }, finish_reason: 'stop' }],
+        }));
+      globalThis.fetch = fetchMock;
+      const onRetry = vi.fn();
+      const provider = new AutohandAIProvider({
+        plan: 'cloud', authMode: 'api-key', apiKey: 'fixture', model: 'moa',
+      }, { maxRetries: 1, retryDelay: 1 });
+      const result = provider.complete({
+        messages: [{ role: 'user', content: 'Continue the task' }], stream, onRetry,
+      }).then(response => ({ response }), (error: unknown) => ({ error }));
+
+      await vi.advanceTimersByTimeAsync(300_001);
+
+      expect(await result).toMatchObject({ response: { content: 'Recovered answer' } });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(onRetry).toHaveBeenCalledWith(expect.objectContaining({ phase: 'waiting', attempt: 1 }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('allows a Moa completion to exceed 300 seconds while reasoning continues to arrive', async () => {
+    vi.useFakeTimers();
+    try {
+      let controller!: ReadableStreamDefaultController<Uint8Array>;
+      const body = new ReadableStream<Uint8Array>({ start(value) { controller = value; } });
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(body, {
+        headers: { 'content-type': 'text/event-stream' },
+      }));
+      globalThis.fetch = fetchMock;
+      const provider = new AutohandAIProvider({
+        plan: 'cloud', authMode: 'api-key', apiKey: 'fixture', model: 'moa',
+      });
+      const result = provider.complete({ messages: [], stream: true });
+      const send = (delta: object, finish_reason?: string) => controller.enqueue(new TextEncoder().encode(
+        `data: ${JSON.stringify({ choices: [{ delta, finish_reason }] })}\n\n`,
+      ));
+      send({ reasoning_content: 'Working through the request. ' });
+      await vi.advanceTimersByTimeAsync(200_000);
+      send({ reasoning_content: 'Checking the result.' });
+      await vi.advanceTimersByTimeAsync(200_000);
+      send({ content: 'Completed the task.' }, 'stop');
+      controller.close();
+
+      await expect(result).resolves.toMatchObject({
+        content: 'Completed the task.',
+        reasoning: 'Working through the request. Checking the result.',
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("migrates a retired cloud model name to Fantail before sending a request", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

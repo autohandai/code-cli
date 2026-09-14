@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import { buildGoalContinuationInstruction, GoalManager } from '../goals/GoalManager.js';
 import type { SlashCommand, SlashCommandContext } from '../core/slashCommandTypes.js';
 import type { GoalMutationResult, GoalSessionSnapshot, GoalState } from '../goals/types.js';
+import type { GoalEventData } from '../telemetry/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, resolveGoalFeatureEnabled } from '../goals/feature.js';
 
 const GOAL_OBJECTIVE_PREVIEW_LENGTH = 160;
@@ -90,8 +91,11 @@ export async function goal(ctx: SlashCommandContext, args: string[] = []): Promi
     }
     case 'queue':
       return handleQueue(manager, rest);
-    case 'pause':
-      return formatMutation(await manager.updateGoal({ status: 'paused' }));
+    case 'pause': {
+      const paused = await manager.updateGoal({ status: 'paused' });
+      reportGoal(ctx, paused, 'paused');
+      return formatMutation(paused);
+    }
     case 'resume': {
       const snapshot = await manager.getSessionSnapshot();
       if (!snapshot.goal && snapshot.queue.length > 0) {
@@ -102,6 +106,7 @@ export async function goal(ctx: SlashCommandContext, args: string[] = []): Promi
         return formatMutation(started);
       }
       const resumed = await manager.updateGoal({ status: 'active' });
+      reportGoal(ctx, resumed, 'resumed');
       if (resumed.ok && resumed.goal) {
         queueGoalContinuation(ctx, resumed.goal.objective);
       }
@@ -109,13 +114,17 @@ export async function goal(ctx: SlashCommandContext, args: string[] = []): Promi
     }
     case 'complete': {
       const completed = await manager.updateGoal({ status: 'complete' });
+      reportGoal(ctx, completed, 'completed');
       if (completed.ok && completed.started && completed.goal?.status === 'active') {
         queueGoalContinuation(ctx, completed.goal.objective);
       }
       return formatMutation(completed);
     }
-    case 'clear':
-      return formatMutation(await manager.clearGoal());
+    case 'clear': {
+      const cleared = await manager.clearGoal();
+      reportGoal(ctx, cleared, 'cancelled');
+      return formatMutation(cleared);
+    }
     case 'templates': {
       const templates = await manager.listTemplates();
       if (templates.length === 0) return 'No goal templates found in .pi-goals/ or .ai/.pi-goals/.';
@@ -326,4 +335,29 @@ function formatDuration(seconds: number): string {
 
 function unquote(value: string): string {
   return value.replace(/^['"]|['"]$/g, '');
+}
+
+/**
+ * Reports a goal transition, once, only when the mutation actually succeeded.
+ *
+ * A refused mutation still returns a result, and reporting it would inflate
+ * every count on the console's goals page with work that never happened.
+ *
+ * `budgetLimited` is reported as `blocked` with its reason: the goal stopped
+ * without finishing, which is what the surface aggregates, and the reason is
+ * what makes the stall actionable.
+ */
+function reportGoal(
+  ctx: SlashCommandContext,
+  result: GoalMutationResult,
+  action: GoalEventData['action'],
+): void {
+  if (!result.ok) return;
+  const blocked = result.goal?.status === 'budgetLimited';
+  void ctx.trackGoalEvent?.({
+    goalId: result.goal?.goalId,
+    action: blocked ? 'blocked' : action,
+    status: blocked ? 'budget limited' : undefined,
+    source: 'slash_command',
+  });
 }

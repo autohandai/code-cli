@@ -43,7 +43,8 @@ describe('CLI runtime resource boundaries', () => {
     expect(runCli).toMatch(/awaitCliLifecycleStep\(\s*readPipedStdin/);
     expect(runCli).toContain('commandLifecycleController.abort(');
     expect(runCli).toContain('agentHolder.current?.requestExit()');
-    expect(runCli).toMatch(/agent\.runCommandMode\(\s*options\.prompt,\s*commandLifecycleController\.signal/);
+    // Both command-mode branches hand the lifecycle signal to the agent.
+    expect(runCli.match(/agent\.runCommandMode\(\s*options\.prompt,\s*\{\s*signal:\s*commandLifecycleController\.signal/g)).toHaveLength(2);
     expect(runCli.indexOf('new CliRuntimeResourceOwner')).toBeLessThan(
       runCli.indexOf('if (!options.bare)'),
     );

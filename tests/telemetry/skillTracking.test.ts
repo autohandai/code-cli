@@ -125,12 +125,20 @@ describe('SkillsRegistry skill tracking', () => {
     registry.activateSkill('test-skill');
 
     expect(mockTelemetry.trackSkillUse).toHaveBeenCalledOnce();
-    expect(mockTelemetry.trackSkillUse).toHaveBeenCalledWith({
-      skillName: 'test-skill',
-      source: 'autohand-user',
-      activationType: 'explicit',
-      action: 'activate',
-    });
+    expect(mockTelemetry.trackSkillUse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skillName: 'test-skill',
+        source: 'autohand-user',
+        activationType: 'explicit',
+        action: 'activate',
+        // An activate now opens a priceable span. Matched loosely on purpose:
+        // this fixture has no file on disk, so the size and timestamps are
+        // legitimately undefined rather than zero, and pinning them exactly
+        // would make the assertion about the fixture instead of the contract.
+        spanId: expect.any(String),
+        tokenSize: expect.any(Number),
+      }),
+    );
   });
 
   it('does not call trackSkillUse when skill not found', () => {

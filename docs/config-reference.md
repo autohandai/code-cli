@@ -744,6 +744,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `activityVerbsEnabled`       | boolean | `true`  | Show rotating activity verbs like `Compiling...` while the agent is working |
 | `activitySymbol`             | string | `"✳"`   | Symbol shown before the activity verb in activity indicator output |
 | `showTips`                   | boolean | `true`  | Rotate tips about slash commands, the `/ @ $ ! : ?` triggers and shortcuts beside the idle composer |
+| `enterWhileWorking`          | string  | `steer` | What Enter does while a turn runs. `steer` sends the text into the running turn on its next model request and Shift+Enter queues it for after the turn; `queue` keeps Enter queueing and Shift+Enter steering |
 | `statusLine.showProviderModel` | boolean | `true`  | Show the active provider and model in the composer status line |
 | `statusLine.showContext`       | boolean | `true`  | Show the context percentage in the composer status line |
 | `statusLine.showCommandHint`   | boolean | `true`  | Show command, mention, skill, and terminal-entry hints in the composer status line |
@@ -959,7 +960,7 @@ machine), in `/settings` → UI → Keyboard shortcuts, or directly:
 autohand config set ui.keybindingProfile codex
 ```
 
-Every profile keeps Autohand's fixed keys: Enter submits, Esc interrupts,
+Every profile keeps Autohand's fixed keys: Enter submits (while a turn runs it steers that turn and Shift+Enter queues, see `ui.enterWhileWorking`), Esc interrupts,
 Shift+Tab cycles interaction modes, Ctrl+C clears the input and exits on a
 second press, `?` on an empty composer shows the shortcuts panel, and Ctrl+O,
 Ctrl+T and Ctrl+G expand command output and toggle the team and goals panels.

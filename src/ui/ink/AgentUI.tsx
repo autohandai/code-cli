@@ -234,6 +234,8 @@ export interface AgentUIProps {
   onInstruction: (text: string) => void;
   /** Sends the composer text into the running turn (Shift+Enter while working). */
   onSteer?: (text: string) => void;
+  /** Enter while working steers (default) or queues; Shift+Enter does the other. */
+  enterWhileWorking?: 'steer' | 'queue';
   onEscape: () => void;
   onCtrlC: () => void;
   /** Dismiss the currently rendered announcement without changing composer input. */
@@ -563,6 +565,8 @@ export function getTextBufferCursorOffset(buffer: TextBuffer): number {
 }
 
 const COMPOSER_TRIGGER_CHARS = new Set(['/', '@', '$', '!', '#', ':']);
+/** How often a `$` typed before skills loaded is re-checked while they stay absent. */
+const SKILL_RECHECK_INTERVAL_MS = 250;
 const INVISIBLE_OR_WHITESPACE_RE = /[\s\u200B-\u200D\uFEFF]/u;
 
 function compactComposerTriggerText(text: string): string {
@@ -810,6 +814,7 @@ export function AgentUI({
   onEditGoalObjective,
   onInputChange,
   enableQueueInput = true,
+  enterWhileWorking = 'steer',
   onImageDetected,
   filesProvider,
   slashCommands: slashCommandProps,
@@ -943,6 +948,8 @@ export function AgentUI({
   liveCommandsRef.current = state.liveCommands;
   const enableQueueInputRef = useRef(enableQueueInput);
   enableQueueInputRef.current = enableQueueInput;
+  const enterWhileWorkingRef = useRef(enterWhileWorking);
+  enterWhileWorkingRef.current = enterWhileWorking;
   const onEscapeRef = useRef(onEscape);
   onEscapeRef.current = onEscape;
   const onCtrlCRef = useRef(onCtrlC);
@@ -1478,6 +1485,16 @@ export function AgentUI({
     setSlashActiveIndex(prev => Math.min(prev, suggestions.length - 1));
   }, [input, cursorOffset]);
 
+  // A `$` typed before the skills registry has loaded finds nothing; re-check
+  // the pending mention for a while so the dropdown appears once skills arrive.
+  const [skillRecheckTick, setSkillRecheckTick] = useState(0);
+  const skillRecheckRef = useRef<{ timer?: ReturnType<typeof setTimeout> }>({});
+  const clearSkillRecheck = useCallback(() => {
+    if (skillRecheckRef.current.timer) clearTimeout(skillRecheckRef.current.timer);
+    skillRecheckRef.current = {};
+  }, []);
+  useEffect(() => clearSkillRecheck, [clearSkillRecheck]);
+
   // Update skill ($) mention suggestions when input changes
   useEffect(() => {
     if (historyNavigationRef.current) return;
@@ -1498,6 +1515,7 @@ export function AgentUI({
 
     const mention = matchSkillMention(input, cursorOffset);
     if (!mention) {
+      clearSkillRecheck();
       if (skillVisibleRef.current) {
         setSkillVisible(false);
         setSkillSuggestions([]);
@@ -1513,14 +1531,23 @@ export function AgentUI({
         setSkillSuggestions([]);
         skillStartIndexRef.current = null;
       }
+      // Keep polling while the registry is still empty; the timer is cleared as
+      // soon as the mention goes away or suggestions appear.
+      if (provider().length === 0 && !skillRecheckRef.current.timer) {
+        skillRecheckRef.current.timer = setTimeout(() => {
+          skillRecheckRef.current.timer = undefined;
+          setSkillRecheckTick((tick) => tick + 1);
+        }, SKILL_RECHECK_INTERVAL_MS);
+      }
       return;
     }
 
+    clearSkillRecheck();
     skillStartIndexRef.current = mention.startIndex;
     setSkillSuggestions(suggestions);
     setSkillVisible(true);
     setSkillActiveIndex(prev => Math.min(prev, suggestions.length - 1));
-  }, [input, cursorOffset]);
+  }, [input, cursorOffset, skillRecheckTick, clearSkillRecheck]);
 
   // Update message target (:) suggestions when input changes
   useEffect(() => {
@@ -2086,24 +2113,32 @@ export function AgentUI({
 
     const buffer = textBufferRef.current;
     const textBeforeKey = buffer.getText();
-    // Shift+Enter during a turn steers it; when idle it still inserts a newline.
-    if (
-      isWorkingRef.current
-      && enableQueueInputRef.current
-      && onSteerRef.current
-      && isShiftEnterKey(char, key)
-      && textBeforeKey.trim().length > 0
-    ) {
-      const steered = textBeforeKey;
-      buffer.setText('');
-      clearInkHiddenPastes(pasteStateRef.current);
-      dismissAutocompleteState();
-      syncInputFromBuffer();
-      setCtrlCCount(0);
-      onSteerRef.current(steered);
-      return;
+    // While a turn runs, Enter and Shift+Enter split between steering the
+    // turn and queueing for after it; ui.enterWhileWorking decides which is
+    // which. When idle Shift+Enter still inserts a newline.
+    let submitChar = char;
+    let submitKey = key;
+    if (isWorkingRef.current && enableQueueInputRef.current && onSteerRef.current && textBeforeKey.trim().length > 0) {
+      const shiftEnter = isShiftEnterKey(char, key);
+      const plainEnter = !shiftEnter && key.return === true && !key.meta && !key.ctrl;
+      const steerKey = enterWhileWorkingRef.current === 'queue' ? shiftEnter : plainEnter;
+      if (steerKey) {
+        const steered = textBeforeKey;
+        buffer.setText('');
+        clearInkHiddenPastes(pasteStateRef.current);
+        dismissAutocompleteState();
+        syncInputFromBuffer();
+        setCtrlCCount(0);
+        onSteerRef.current(steered);
+        return;
+      }
+      if (enterWhileWorkingRef.current !== 'queue' && shiftEnter) {
+        // Shift+Enter queues: hand the buffer a plain Enter so the submit path runs.
+        submitChar = '\r';
+        submitKey = { ...key, return: true, shift: false, meta: false };
+      }
     }
-    const result = handleInkTextBufferInput(buffer, char, key, activeKeybindings);
+    const result = handleInkTextBufferInput(buffer, submitChar, submitKey, activeKeybindings);
     if (buffer.getText() !== textBeforeKey) historyNavigationRef.current = null;
 
     if (result === 'submit') {
@@ -2592,14 +2627,14 @@ export function AgentUI({
           <FileMentionDropdown
             suggestions={fileMentionSuggestions}
             activeIndex={fileMentionActiveIndex}
-            visible={fileMentionVisible && !state.isWorking}
+            visible={fileMentionVisible && enableQueueInput}
           />
         }
         skillMentionDropdown={
           <SkillMentionDropdown
             suggestions={skillSuggestions}
             activeIndex={skillActiveIndex}
-            visible={skillVisible && !state.isWorking}
+            visible={skillVisible && enableQueueInput}
           />
         }
         messageTargetDropdown={

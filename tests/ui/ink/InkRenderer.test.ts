@@ -222,7 +222,14 @@ describe('InkRenderer live command blocks', () => {
     renderer.setThinking('Weigh two jokes.');
     renderer.setWorking(false);
     renderer.setFinalResponse('Light attracts bugs.');
-    expect(renderer.getState().thinking).toBe('Weigh two jokes.');
+    // The thought moves into the transcript ahead of its reply as soon as the
+    // turn completes, so it stays visible without living in the dynamic frame.
+    expect(renderer.getState().thinking).toBeNull();
+    expect(renderer.getState().chatMessages).toEqual([
+      { role: 'user', content: 'tell me a joke' },
+      { role: 'thinking', content: 'Weigh two jokes.' },
+      { role: 'assistant', content: 'Light attracts bugs.' },
+    ]);
 
     renderer.addUserMessage('another');
     expect(renderer.getState().thinking).toBeNull();
@@ -232,6 +239,51 @@ describe('InkRenderer live command blocks', () => {
       { role: 'assistant', content: 'Light attracts bugs.' },
       { role: 'user', content: 'another' },
     ]);
+  });
+
+  it('archives the final response into the transcript as soon as the turn completes', () => {
+    // A long reply left in the dynamic frame makes Ink clear the screen and
+    // scrollback on every repaint once it is taller than the viewport.
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+    const wall = Array.from({ length: 80 }, (_, index) => `wall line ${index + 1}`).join('\n');
+
+    renderer.addUserMessage('print a wall of text');
+    renderer.setWorking(true, 'Working...');
+    renderer.setWorking(false);
+    renderer.setFinalResponse(wall);
+
+    expect(renderer.getState().chatMessages).toEqual([
+      { role: 'user', content: 'print a wall of text' },
+      { role: 'assistant', content: wall },
+    ]);
+    expect(renderer.getState().finalResponse).toBe(wall);
+  });
+
+  it('archives a final response that arrives before the turn is marked idle', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    renderer.addUserMessage('hi');
+    renderer.setWorking(true, 'Working...');
+    renderer.setFinalResponse('hello');
+    expect(renderer.getState().chatMessages).toEqual([{ role: 'user', content: 'hi' }]);
+
+    renderer.setWorking(false);
+    expect(renderer.getState().chatMessages).toEqual([
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: 'hello' },
+    ]);
+
+    renderer.setWorking(true, 'Working...');
+    renderer.setWorking(false);
+    expect(renderer.getState().chatMessages.filter((message) => message.role === 'assistant')).toHaveLength(1);
   });
 
   it('archives a reply without a thinking entry when no thought was shown', () => {

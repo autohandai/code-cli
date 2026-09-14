@@ -7,7 +7,10 @@
  */
 import fs from 'fs-extra';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { statSync } from 'node:fs';
 import { SkillParser } from './SkillParser.js';
+import { estimateTokens } from '../core/context/tokenizer.js';
 import { resolveEmbeddedBuiltinAssetDirectory } from './embeddedBuiltinAssets.js';
 import { readAccountSkills } from '../sync/AccountSkills.js';
 import type {
@@ -108,6 +111,13 @@ export interface SkillImportResult {
 
 export class SkillsRegistry {
   private skills = new Map<string, SkillDefinition>();
+  /**
+   * Open span per active skill, keyed by name. An activated skill is added to
+   * the session prompt and stays there, so its body is re-sent on every later
+   * request until something closes the span — the cost that was previously
+   * invisible because only the activation was ever reported.
+   */
+  private readonly activeSpans = new Map<string, string>();
   private parser = new SkillParser();
   private workspaceRoot: string | null = null;
   private readonly defaultSource: SkillSource;
@@ -703,12 +713,32 @@ export class SkillsRegistry {
       return false;
     }
 
+    // Re-activating an already-active skill reports nothing: a second
+    // activate would open a span nothing ever closes, and an unclosed span
+    // can be neither priced nor judged.
+    if (this.activeSpans.has(name)) {
+      skill.isActive = true;
+      return true;
+    }
+
     skill.isActive = true;
+    const spanId = randomUUID();
+    this.activeSpans.set(name, spanId);
+    const file = describeSkillFile(skill.path);
     this.trackSkillEvent({
       skillName: name,
       source: skill.source,
       activationType: origin === 'agent' ? 'auto' : 'explicit',
       action: 'activate',
+      spanId,
+      // The body as injected, not the whole file: frontmatter never reaches
+      // the prompt, so charging for it would overstate every skill by a
+      // constant. `sizeBytes` carries the file for age and drift questions.
+      tokenSize: estimateTokens(skill.body ?? ''),
+      sizeBytes: file.sizeBytes,
+      createdAt: file.createdAt,
+      modifiedAt: file.modifiedAt,
+      version: skill.metadata?.version,
     });
     const recorder = this.capabilityUsageRecorder;
     if (!recorder) {
@@ -743,16 +773,45 @@ export class SkillsRegistry {
     }
 
     skill.isActive = false;
+    this.closeSpan(name, 'deactivated');
     return true;
   }
 
   /**
-   * Deactivate all active skills
+   * Deactivate all active skills.
+   *
+   * `reason` separates a session ending from a deliberate deactivation. Both
+   * cost the same but mean different things: a skill released at session end
+   * rode along for the whole run, one deactivated mid-session did not.
    */
-  deactivateAll(): void {
+  deactivateAll(reason: 'deactivated' | 'session_end' | 'compacted_out' = 'deactivated'): void {
     for (const skill of this.listSkills()) {
       skill.isActive = false;
     }
+    for (const name of [...this.activeSpans.keys()]) {
+      this.closeSpan(name, reason);
+    }
+  }
+
+  /**
+   * Closes a skill's span. Silent when none is open, so deactivating a skill
+   * that was never activated reports nothing rather than a release with no
+   * matching activate.
+   */
+  private closeSpan(name: string, reason: 'deactivated' | 'session_end' | 'compacted_out'): void {
+    const spanId = this.activeSpans.get(name);
+    if (!spanId) {
+      return;
+    }
+    this.activeSpans.delete(name);
+    this.trackSkillEvent({
+      skillName: name,
+      source: this.getSkill(name)?.source ?? 'unknown',
+      activationType: 'explicit',
+      action: 'release',
+      spanId,
+      releaseReason: reason,
+    });
   }
 
   /**
@@ -846,5 +905,32 @@ export class SkillsRegistry {
     } catch {
       return false;
     }
+  }
+}
+
+/**
+ * Size and timestamps of a skill's source file, for ageing a skill and
+ * spotting one that has drifted from what its author last touched.
+ *
+ * Read synchronously because activation is a user or agent action, not a hot
+ * path, and threading an async stat through it would be a worse trade. Every
+ * field is undefined when the file cannot be read — a zero size would read
+ * as an empty skill, which is a measured claim about a file nobody opened.
+ */
+function describeSkillFile(filePath: string | undefined): {
+  sizeBytes?: number;
+  createdAt?: string;
+  modifiedAt?: string;
+} {
+  if (!filePath) return {};
+  try {
+    const stats = statSync(filePath);
+    return {
+      sizeBytes: stats.size,
+      createdAt: stats.birthtime.toISOString(),
+      modifiedAt: stats.mtime.toISOString(),
+    };
+  } catch {
+    return {};
   }
 }

@@ -126,6 +126,28 @@ describe('slash command dispatch – output vs instruction', () => {
     expect(await handler.handle('/handoff web')).toContain('/login');
   });
 
+  it('/handoff is registered with both surfaces as subcommands', () => {
+    const handoff = SLASH_COMMANDS.find((cmd) => cmd.command === '/handoff');
+    expect(handoff?.implemented).toBe(true);
+    expect(handoff?.subcommands?.map((sub) => sub.name)).toEqual(['web', 'session']);
+  });
+
+  it('bare /handoff lists the surfaces instead of handing off', async () => {
+    const handler = new SlashCommandHandler(createMinimalContext(), SLASH_COMMANDS);
+    expect(handler.isCommandSupported('/handoff')).toBe(true);
+
+    const result = await handler.handle('/handoff');
+
+    expect(result).toContain('/handoff web');
+    expect(result).toContain('/handoff session');
+    expect(result).not.toContain('/login');
+  });
+
+  it('/handoff web runs the web handoff when the surface arrives as an argument', async () => {
+    const handler = new SlashCommandHandler(createMinimalContext(), SLASH_COMMANDS);
+    expect(await handler.handle('/handoff', ['web'])).toContain('/login');
+  });
+
   it('/go returns display output instead of an LLM instruction', async () => {
     const ctx = createMinimalContext();
     const handler = new SlashCommandHandler(ctx, SLASH_COMMANDS);

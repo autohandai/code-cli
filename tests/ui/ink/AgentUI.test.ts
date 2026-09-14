@@ -474,6 +474,50 @@ describe('AgentUI interaction mode shortcut', () => {
     expect(indicatorIndex).toBeGreaterThan(statusIndex);
   });
 
+  it('keeps every help-line row short of the last terminal column and preserves the mode glyph space', async () => {
+    // A row that fills the final column wraps on terminals without deferred
+    // wrap; Ink then miscounts the frame, the caret lands one row below the
+    // composer text and every repaint scrolls one line. The composer already
+    // reserves that column (getPromptBlockWidth); the help line must too.
+    const widths = Array.from({ length: 41 }, (_, index) => 80 + index);
+    for (const columns of widths) {
+      const { lastFrame, stdout, unmount } = render(
+        React.createElement(
+          I18nProvider,
+          null,
+          React.createElement(
+            ThemeProvider,
+            null,
+            React.createElement(AgentUI, {
+              state: {
+                ...createInitialUIState(),
+                provider: 'autohandai',
+                model: 'auto',
+                planLabel: 'Max',
+                contextTokens: { used: 114_300, total: 262_100 },
+              },
+              onInstruction: () => {},
+              onEscape: () => {},
+              onCtrlC: () => {},
+              getInteractionMode: () => 'automode',
+            })
+          )
+        )
+      );
+      setStdoutColumns(stdout, columns);
+      stdout.emit('resize');
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const frame = stripAnsi(lastFrame() ?? '');
+      unmount();
+
+      const helpIndex = frame.indexOf('● AUTO');
+      expect(helpIndex, `help line missing at ${columns} columns`).toBeGreaterThan(-1);
+      expect(frame, `glyph space lost at ${columns} columns`).toContain('● AUTO Autohand (Max)');
+      const widest = Math.max(...frame.split('\n').map((line) => line.length));
+      expect(widest, `a row reached the last column at ${columns} columns`).toBeLessThan(columns);
+    }
+  });
+
   it('colors the mode glyph per mode, labels it, and hides it in default mode', async () => {
     const modes = ['plan', 'yolo', 'automode', 'default'] as const;
     let currentMode: typeof modes[number] = 'default';

@@ -264,6 +264,7 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
           void host.announcementManager?.dismiss?.(id);
         },
         enableQueueInput: true,
+        enterWhileWorking: host.runtime.config.ui?.enterWhileWorking ?? 'steer',
         onImageDetected: (data: Buffer, mimeType: string, filename?: string) =>
           host.imageManager.add(data, mimeType, filename),
         filesProvider: () => host.workspaceFileCollector.getCachedFiles(),

@@ -333,6 +333,12 @@ export interface UISettings {
   promptSuggestions?: boolean;
   /** Rotate tips about slash commands, composer triggers and shortcuts beside the idle composer (default: true) */
   showTips?: boolean;
+  /**
+   * What Enter does while a turn is running: `steer` sends the text into the
+   * running turn on its next model request (Shift+Enter queues it for after
+   * the turn); `queue` keeps Enter queueing (Shift+Enter steers). Default: steer.
+   */
+  enterWhileWorking?: 'steer' | 'queue';
   /** Enable mouse click-to-position editing in the Ink composer (default: true). */
   mouseComposerCursor?: boolean;
   /** Shortcut profile for the Ink composer: Autohand defaults or another agent's conventions (default: autohand). */

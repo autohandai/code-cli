@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
 import fs from 'fs-extra';
 import { existsSync } from 'node:fs';
@@ -2090,7 +2090,7 @@ describe('interactive built CLI Tuistory tests', () => {
     expect((await fs.readJson(path.join(sessionsDir, entry.id, 'metadata.json'))).title).toBe('Renamed from a script');
   });
 
-  it('steers a running turn with Shift+Enter so the model reads the message on its next request', async () => {
+  it('steers a running turn with Enter so the model reads the message on its next request, and queues with Shift+Enter', async () => {
     const openRouterServer = await createMockOpenRouterSequenceServer([
       JSON.stringify({ toolCalls: [{ tool: 'list_tree', args: { path: '.' } }] }),
       JSON.stringify({ toolCalls: [], finalResponse: 'STEERED_TURN_COMPLETE' }),
@@ -2108,10 +2108,15 @@ describe('interactive built CLI Tuistory tests', () => {
     await session.type('List the workspace and summarize it.');
     await session.press('enter');
     await session.text({ timeout: 10_000, waitFor: (text) => text.includes('esc to cancel') });
+    // Steer only once the first request is in flight, so it lands on the second one.
+    await vi.waitFor(() => expect(openRouterServer.requests.length).toBeGreaterThanOrEqual(1), { timeout: 20_000 });
 
     await session.type('STEER_ME: keep the summary to one line');
-    await session.press(['shift', 'enter']);
+    await session.press('enter');
     await session.text({ timeout: 5_000, waitFor: (text) => text.includes('Steering the running turn') });
+    await session.type('QUEUE_ME for after the turn');
+    await session.press(['shift', 'enter']);
+    await session.text({ timeout: 5_000, waitFor: (text) => /Queue · 1 pending/.test(text) });
 
     await session.text({ timeout: 20_000, waitFor: (text) => text.includes('STEERED_TURN_COMPLETE') });
     expect(openRouterServer.requests.length).toBeGreaterThanOrEqual(2);
@@ -2120,8 +2125,8 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(steered).toHaveLength(1);
     const firstRequest = openRouterServer.requests[0] as { messages: Array<{ role: string; content: unknown }> };
     expect(JSON.stringify(firstRequest.messages)).not.toContain('STEER_ME');
-    // The steer was consumed by the running turn, not queued for a new one.
-    expect(await session.text({ immediate: true })).not.toMatch(/Queue · \d+ pending/);
+    // The steer was consumed by the running turn; only the Shift+Enter text was queued.
+    expect(JSON.stringify(secondRequest.messages)).not.toContain('QUEUE_ME');
 
     await exitInteractive(session);
   });
@@ -2215,6 +2220,47 @@ describe('interactive built CLI Tuistory tests', () => {
     expect(screen).toContain('agent constructed');
     expect(screen).toContain('composer ready');
     await waitForComposer(session);
+    await exitInteractive(session);
+  });
+
+  it('keeps the @ $ and / dropdowns available while a turn is running', async () => {
+    const openRouterServer = await createMockOpenRouterServer('DROPDOWNS_WHILE_WORKING_DONE', 6_000);
+    mockServers.push(openRouterServer);
+    const session = await launchInteractive({
+      config: {
+        openrouter: { baseUrl: openRouterServer.baseUrl },
+        agent: { autoMemory: false, sessionRetryLimit: 0 },
+        ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+      },
+    });
+    await waitForComposer(session);
+    await session.type('Take your time.');
+    await session.press('enter');
+    await session.text({ timeout: 10_000, waitFor: (text) => text.includes('esc to cancel') });
+
+    await session.type('$ex');
+    expect(await session.text({ timeout: 5_000, waitFor: (text) => text.includes('$extension-builder') })).toContain('$extension-builder');
+    await clearComposerInput(session);
+    await session.type('@pack');
+    expect(await session.text({ timeout: 5_000, waitFor: (text) => text.includes('@package.json') })).toContain('@package.json');
+    await clearComposerInput(session);
+    await session.type('/hel');
+    expect(await session.text({ timeout: 5_000, waitFor: (text) => text.includes('/help') })).toContain('/help');
+    await clearComposerInput(session);
+
+    await session.text({ timeout: 20_000, waitFor: (text) => text.includes('DROPDOWNS_WHILE_WORKING_DONE') });
+    await exitInteractive(session);
+  });
+
+  it('suggests skills for a $ typed after other words in the composer', async () => {
+    const session = await launchInteractive({ config: { ui: { promptSuggestions: false } } });
+    await waitForComposer(session);
+    // One write, as a paste or a burst of fast keystrokes arrives, typed
+    // before the skills registry has necessarily finished loading.
+    await session.type('hep me here $ex');
+    const screen = await session.text({ timeout: 20_000, waitFor: (text) => text.includes('$extension-builder') });
+    expect(screen).toContain('$extension-builder');
+    expect(screen).toContain('Tab to accept');
     await exitInteractive(session);
   });
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { TipsBag, expandToolTips, type ToolTip } from '../../src/ui/tips.js';
+import {
+  TIP_ROTATION_MS, TipsBag, expandToolTips, type ToolTip } from '../../src/ui/tips.js';
 import { SLASH_COMMANDS } from '../../src/core/slashCommands.js';
 import toolTips from '../../src/ui/tool_tips.json' with { type: 'json' };
 
@@ -38,14 +39,11 @@ describe('tool_tips.json', () => {
   });
 
   it('names only slash commands that exist', () => {
-    const registered = SLASH_COMMANDS.map((command) => command.command);
-    // `/handoff web` and friends register the full form, so a bare `/handoff`
-    // counts when some registered command continues it.
-    const known = (command: string) => registered.some(
-      (candidate) => candidate === command || candidate.startsWith(`${command} `),
-    );
+    // Every command a tip names must be registered in its own right, so a tip
+    // can never teach a form the composer would reject.
+    const registered = new Set(SLASH_COMMANDS.map((command) => command.command));
     for (const [, , command] of staticTips.join('\n').matchAll(/(^|\s)(\/[a-z-]+)/gu)) {
-      expect(known(command), command).toBe(true);
+      expect(registered.has(command), command).toBe(true);
     }
   });
 
@@ -162,5 +160,11 @@ describe('TipsBag', () => {
       expect(bag.nextFitting(() => false)).toBeUndefined();
       expect(bag.next()).toBe('too long for this');
     });
+  });
+});
+
+describe('TIP_ROTATION_MS', () => {
+  it('leaves an idle tip on screen long enough to read before the next one', () => {
+    expect(TIP_ROTATION_MS).toBeGreaterThanOrEqual(30_000);
   });
 });
