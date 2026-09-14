@@ -118,6 +118,8 @@ export async function createTempAutohandHome(options: CreateTempAutohandHomeOpti
     },
     ui: {
       checkForUpdates: false,
+      // Rotating tips put random command text on idle screens; the tip scenario turns them on.
+      showTips: false,
     },
   };
   const overrideConfig = options.config ?? {};

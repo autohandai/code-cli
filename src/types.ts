@@ -331,6 +331,8 @@ export interface UISettings {
   notifications?: boolean | NotificationConfig;
   /** Show LLM-generated next-step suggestions in prompt placeholder (default: true) */
   promptSuggestions?: boolean;
+  /** Rotate tips about slash commands, composer triggers and shortcuts beside the idle composer (default: true) */
+  showTips?: boolean;
   /** Enable mouse click-to-position editing in the Ink composer (default: true). */
   mouseComposerCursor?: boolean;
   /** Shortcut profile for the Ink composer: Autohand defaults or another agent's conventions (default: autohand). */

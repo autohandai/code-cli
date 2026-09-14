@@ -20,6 +20,7 @@ import { createStalledGoalStatePreload, openGoalsPanel } from '../../src/testing
 import { selectTheme, selectThemeFromSettings } from '../../src/testing/scenarios/themeScenario.js';
 import { createStalledGitVersionPreload } from '../../src/testing/scenarios/gitVersionScenario.js';
 import { getHelpOrderedSlashCommands } from '../../src/ui/inputPrompt.js';
+import { TIP_ROTATION_MS } from '../../src/ui/tips.js';
 import {
   clearComposerInput,
   createMockAutohandAINativeSequenceServer,
@@ -1208,36 +1209,81 @@ describe('interactive built CLI Tuistory tests', () => {
     await exitInteractive(session);
   });
 
-  it('rotates a tip under the working status line and drops it when the turn ends', async () => {
+  /** The nearest line above the composer prompt that is more than its border. */
+  function rowAboveComposer(screen: string): string {
+    const lines = stripAnsi(screen).split('\n');
+    const composerIndex = lines.findIndex((line) => line.includes('❯'));
+    if (composerIndex <= 0) return '';
+    return lines
+      .slice(0, composerIndex)
+      .reverse()
+      .find((line) => line.replace(/[▔▁─\s]/gu, '').length > 0) ?? '';
+  }
+
+  function idleTipOf(screen: string): string | undefined {
+    return rowAboveComposer(screen).match(/ Tip: (.+?)\s*$/u)?.[1];
+  }
+
+  it('rotates a tip beside the idle composer, hides it during a turn, and brings it back on the completion row', async () => {
     const openRouterServer = await createMockOpenRouterServer('Tip check completed.', 4_000);
     mockServers.push(openRouterServer);
     const session = await launchInteractive({
       config: {
         openrouter: { baseUrl: openRouterServer.baseUrl },
         agent: { sessionRetryLimit: 0 },
+        ui: { showTips: true },
       },
     });
     await waitForComposer(session);
+
+    const startup = await session.text({ timeout: 10_000, waitFor: (text) => idleTipOf(text) !== undefined });
+    const firstTip = idleTipOf(startup);
+    const rotated = await session.text({
+      timeout: TIP_ROTATION_MS + 10_000,
+      waitFor: (text) => {
+        const tip = idleTipOf(text);
+        return tip !== undefined && tip !== firstTip;
+      },
+    });
+    expect(idleTipOf(rotated)).not.toBe(firstTip);
 
     await session.type('Run a delayed response so I can read the tip.');
     await session.press('enter');
     const working = stripAnsi(await session.text({
       timeout: 10_000,
-      waitFor: (text) => text.includes('esc to cancel') && text.includes('⎿  Tip:'),
+      waitFor: (text) => text.includes('esc to cancel'),
     }));
-    const lines = working.split('\n');
-    const statusIndex = lines.findIndex((line) => line.includes('esc to cancel'));
-    expect(statusIndex).toBeGreaterThanOrEqual(0);
-    expect(lines[statusIndex + 1]).toContain('⎿  Tip:');
+    expect(working).not.toContain('Tip: ');
 
-    const finished = stripAnsi(await session.text({
+    const finished = await session.text({
       timeout: 15_000,
-      waitFor: (text) => text.includes('Tip check completed.') && !text.includes('esc to cancel'),
-    }));
-    expect(finished).not.toContain('⎿  Tip:');
+      waitFor: (text) => text.includes('Tip check completed.')
+        && !text.includes('esc to cancel')
+        && idleTipOf(text) !== undefined,
+    });
+    expect(rowAboveComposer(finished)).toMatch(/^Completed in .+ {2,}Tip: /u);
+
+    // The first summary moves into the transcript when the next turn starts, and
+    // the second turn keeps its own summary on the row above the composer.
+    await session.type('Run it once more so the second summary lands.');
+    await session.press('enter');
+    await session.text({ timeout: 10_000, waitFor: (text) => text.includes('esc to cancel') });
+    const secondFinish = await session.text({
+      timeout: 20_000,
+      waitFor: (text) => {
+        const screen = stripAnsi(text);
+        return !screen.includes('esc to cancel')
+          && (screen.match(/Completed in /gu)?.length ?? 0) >= 2
+          && idleTipOf(screen) !== undefined;
+      },
+    });
+    // The first summary stays in the transcript, the second keeps the live row.
+    const summaryLines = stripAnsi(secondFinish).split('\n').filter((line) => line.includes('Completed in '));
+    expect(summaryLines.length).toBeGreaterThanOrEqual(2);
+    expect(rowAboveComposer(secondFinish)).toMatch(/^Completed in .+ {2,}Tip: /u);
 
     await exitInteractive(session);
-  });
+  }, 120_000);
 
   it('opens the console upgrade link for the next plan from /upgrade', async () => {
     const authServer = await createMockAuthServer();

@@ -44,6 +44,7 @@ export interface InkUIManagerOptions {
   onEditGoalObjective?: (request: GoalEditRequest) => void | Promise<void>;
   onCancelAgentRun?: (id: string) => void | Promise<unknown>;
   onMessageAgentRun?: (id: string, text: string) => Promise<boolean>;
+  tipProvider?: (accept: (tip: string) => boolean) => string | undefined;
   rendererFactory?: (options: InkRendererOptions) => InkRenderer;
 }
 

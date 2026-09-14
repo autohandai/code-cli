@@ -63,6 +63,23 @@ describe('InkUIManager', () => {
     expect(manager.getInkRenderer()).toBe(renderer);
   });
 
+  it('passes the idle tip provider through to InkRenderer', async () => {
+    const renderer = createRenderer();
+    const tipProvider = vi.fn(() => 'Type / to browse every slash command');
+    const rendererFactory = vi.fn((_options: InkRendererOptions) => renderer);
+    const manager = new InkUIManager({
+      onInstruction: vi.fn(),
+      onEscape: vi.fn(),
+      onCtrlC: vi.fn(),
+      tipProvider,
+      rendererFactory,
+    } as InkUIManagerOptions);
+
+    await manager.start();
+
+    expect(rendererFactory.mock.calls[0]?.[0].tipProvider).toBe(tipProvider);
+  });
+
   it('forwards renderer-submitted instructions to the agent callback', async () => {
     const renderer = createRenderer();
     const onInstruction = vi.fn();

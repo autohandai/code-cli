@@ -23,7 +23,7 @@ import { extensionRuntimeHost } from '../../extensions/ExtensionRuntimeHost.js';
 import { resolveKeybindings } from '../../keybindings/profiles.js';
 import { loadExternalKeybindingOverrides } from '../../keybindings/externalKeybindings.js';
 import { t } from '../../i18n/index.js';
-import type { AnnouncementLineState, TipLineState } from '../../ui/ink/AgentUI.js';
+import type { AnnouncementLineState } from '../../ui/ink/AgentUI.js';
 import type { AgentUILineExtensions } from '../../ui/ink/AgentUI.js';
 import {
   mergeLineExtensions,
@@ -38,8 +38,6 @@ export interface AgentUIRuntimeHost {
 }
 
 const USER_NOTIFICATION_DEDUPE_WINDOW_MS = 10 * 60 * 1000;
-/** How long each working tip stays on screen before the next one rotates in. */
-export const TIP_ROTATION_MS = 10_000;
 const STATUS_TICK_MS = 1_000;
 const MAX_PENDING_INK_SUBMIT_ECHOES = 20;
 
@@ -289,6 +287,12 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
             ? host.resolveLlmShellSuggestion(input)
             : Promise.resolve(null),
         suggestionProvider: () => host.suggestionEngine?.getNextPromptSuggestion() ?? undefined,
+        // Read ui.showTips on every draw so toggling it in /settings applies at the next rotation.
+        tipProvider: host.runtime?.options?.bare
+          ? undefined
+          : (accept) => host.runtime?.config?.ui?.showTips === false
+            ? undefined
+            : host.activityIndicator?.nextTipFitting?.(accept),
         getInteractionMode: () => host.getInteractionMode(),
         onCycleInteractionMode: () => host.cycleInteractionMode(),
         mouseComposerCursor: resolveMouseComposerCursor(host.runtime?.config?.ui?.mouseComposerCursor),
@@ -842,11 +846,6 @@ export function setAgentSpinnerStatus(host: AgentUIRuntimeHost, status: string):
     host.runtime.spinner.text = host.buildSpinnerStatusText(status, footerText);
   }
 
-function currentWorkingTip(host: AgentUIRuntimeHost): TipLineState | undefined {
-  const text = host.activityIndicator?.getTip?.();
-  return text ? { kind: 'tip', text } : undefined;
-}
-
 export function startAgentStatusUpdates(host: AgentUIRuntimeHost): void {
     if (host.statusInterval) {
       clearInterval(host.statusInterval);
@@ -855,25 +854,16 @@ export function startAgentStatusUpdates(host: AgentUIRuntimeHost): void {
     // Reset tracking state
     host.lastRenderedStatus = '';
 
-    // Pick a fresh verb and tip for host working session
+    // Pick a fresh verb for host working session; tips only rotate while idle.
     host.activityIndicator?.next?.();
-    host.inkRenderer?.setTip?.(currentWorkingTip(host));
 
     // Immediate initial render
     host.forceRenderSpinner();
 
     // Update every second for elapsed time, but forceRenderSpinner
-    // handles deduplication so frequent calls are fine. The tip rotates on
-    // its own slower cadence from the same ticker.
-    const ticksPerTip = TIP_ROTATION_MS / STATUS_TICK_MS;
-    let ticks = 0;
+    // handles deduplication so frequent calls are fine.
     host.statusInterval = setInterval(() => {
       host.forceRenderSpinner();
-      ticks += 1;
-      if (ticks % ticksPerTip === 0 && host.inkRenderer?.setTip) {
-        const text = host.activityIndicator?.nextTip?.();
-        if (text) host.inkRenderer.setTip({ kind: 'tip', text });
-      }
     }, STATUS_TICK_MS);
 
     if (process.stdout.isTTY && !host.resizeHandler) {

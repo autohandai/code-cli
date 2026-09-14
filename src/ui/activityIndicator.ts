@@ -106,6 +106,15 @@ export class ActivityIndicator {
     return this.currentTip;
   }
 
+  /**
+   * Rotate to the next tip `accept` allows; the current tip stays when none does.
+   */
+  nextTipFitting(accept: (tip: string) => boolean): string | undefined {
+    const tip = this.tips.nextFitting(accept);
+    if (tip !== undefined) this.currentTip = tip;
+    return tip;
+  }
+
   private pickVerb(): string {
     if (!this.verbsEnabled) {
       return DISABLED_VERB;

@@ -7,7 +7,7 @@ import { shuffleInPlace } from './displayUtils.js';
 import toolTips from './tool_tips.json' with { type: 'json' };
 
 /**
- * Tips shown under the status line while the agent works.
+ * Tips shown beside the composer while no turn is running.
  *
  * Edit `src/ui/tool_tips.json` to add or change them. Entries without a
  * `kind` are shown verbatim. `skill` and `command` entries are templates
@@ -26,6 +26,9 @@ export interface TipContext {
   listSkills?: () => ReadonlyArray<{ name: string; description?: string }>;
   listCommands?: () => ReadonlyArray<{ command: string; description: string }>;
 }
+
+/** How long each tip stays beside the composer before the next one rotates in. */
+export const TIP_ROTATION_MS = 10_000;
 
 const FALLBACK_TIP = 'Type /help to see all available slash commands';
 
@@ -84,6 +87,26 @@ export class TipsBag {
   next(): string {
     if (this.remaining.length === 0) this.refill();
     return this.remaining.pop() ?? FALLBACK_TIP;
+  }
+
+  /**
+   * Like `next`, but only draws a tip `accept` allows, such as one that fits
+   * the room left on screen. Skipped tips stay in the bag for a later draw.
+   */
+  nextFitting(accept: (tip: string) => boolean): string | undefined {
+    const drawn = this.take(accept);
+    if (drawn !== undefined) return drawn;
+    this.refill();
+    return this.take(accept);
+  }
+
+  private take(accept: (tip: string) => boolean): string | undefined {
+    for (let index = this.remaining.length - 1; index >= 0; index--) {
+      if (accept(this.remaining[index])) {
+        return this.remaining.splice(index, 1)[0];
+      }
+    }
+    return undefined;
   }
 
   private refill(): void {

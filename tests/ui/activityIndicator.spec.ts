@@ -86,4 +86,14 @@ describe('ActivityIndicator', () => {
     for (let i = 0; i < 60; i++) tips.add(custom.nextTip());
     expect([...tips].some((tip) => tip.includes('$deploy'))).toBe(true);
   });
+
+  it('rotates to the next tip that passes the caller filter', () => {
+    const custom = new ActivityIndicator({
+      tipContext: { listCommands: () => [{ command: '/undo', description: 'Revert the last change' }] },
+    });
+    const wanted = 'Type /undo to revert the last change';
+    expect(custom.nextTipFitting((tip) => tip === wanted)).toBe(wanted);
+    expect(custom.getTip()).toBe(wanted);
+    expect(custom.nextTipFitting(() => false)).toBeUndefined();
+  });
 });

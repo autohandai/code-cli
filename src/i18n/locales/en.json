@@ -214,6 +214,8 @@
         "showThinkingDesc": "Display the model reasoning process",
         "renderMarkdown": "Render markdown",
         "renderMarkdownDesc": "Show assistant headings, lists, code, and tables formatted instead of raw markdown",
+        "showTips": "Idle tips",
+        "showTipsDesc": "Rotate tips about slash commands, @ $ ! : triggers, and shortcuts beside the idle composer",
         "terminalBell": "Terminal bell",
         "terminalBellDesc": "Ring bell when task completes",
         "checkForUpdates": "Check for updates",

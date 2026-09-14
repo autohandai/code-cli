@@ -16,6 +16,7 @@ import { render, type Instance } from 'ink';
 import {
   AgentUI,
   createInitialUIState,
+  formatCompletionSummary,
   type ActivityItem,
   type AnnouncementLineState,
   type TipLineState,
@@ -23,7 +24,6 @@ import {
   type AgentUIState,
   type CommandResultState,
   type ContextTokenDisplay,
-  type TurnCompletionStatus,
 } from './AgentUI.js';
 import type { GoalEditRequest } from './GoalPanel.js';
 import type { LiveCommandEntry, ToolOutputEntry, ToolOutputBatchEntry, ToolOutputItem, BatchToolItem } from './ToolOutput.js';
@@ -37,6 +37,8 @@ import { getTypedMessageHistory } from '../../session/TypedMessageHistory.js';
 import { I18nProvider } from '../i18n/index.js';
 import { inkRenderOptions } from '../inkRenderOptions.js';
 import { stripAnsiCodes } from '../displayUtils.js';
+import { TIP_ROTATION_MS } from '../tips.js';
+import { fitsIdleTip, idleTipWidth } from './TipLine.js';
 import { safeSetRawMode } from '../rawMode.js';
 import type { ChatLogMessage } from '../../session/chatLog.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
@@ -89,6 +91,8 @@ export interface InkRendererOptions {
   onEditGoalObjective?: (request: GoalEditRequest) => void | Promise<void>;
   onCancelAgentRun?: (id: string) => void | Promise<unknown>;
   onMessageAgentRun?: (id: string, text: string) => Promise<boolean>;
+  /** Draws the next tip `accept` allows; tips rotate beside the composer while no turn runs. */
+  tipProvider?: (accept: (tip: string) => boolean) => string | undefined;
 }
 
 export interface SetWorkingOptions {
@@ -143,10 +147,6 @@ function formatCompletedLiveOutput(
     header,
     ...nonEmptySections.map((section) => completedOutputTail(section, sectionBudget)),
   ].join('\n');
-}
-
-function completionLabel(status?: TurnCompletionStatus): string {
-  return status === 'failed' ? 'Failed' : 'Completed';
 }
 
 function stringArraysEqual(left: string[] = [], right: string[] = []): boolean {
@@ -415,6 +415,9 @@ export class InkRenderer {
   /** Debounce timer for drag-resize events */
   private resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** Rotates tips beside the composer while no turn runs. */
+  private idleTipTimer: ReturnType<typeof setInterval> | null = null;
+
   /** Debounce time for resize events (ms) - longer to batch drag-resize */
   private static readonly RESIZE_DEBOUNCE_MS = 150;
 
@@ -483,6 +486,9 @@ export class InkRenderer {
     if (typeof process.stdout.on === 'function') {
       process.stdout.on('resize', this.resizeHandler);
     }
+
+    // Seed the idle tip before the first frame so it does not pop in a render later.
+    this.syncIdleTips();
 
     this.instance = render(
       <ThemeProvider>
@@ -565,6 +571,8 @@ export class InkRenderer {
       this.resizeDebounceTimer = null;
     }
 
+    this.stopIdleTips();
+
     if (this.unpatchedStdout) {
       this.unpatchedStdout();
       this.unpatchedStdout = null;
@@ -613,7 +621,7 @@ export class InkRenderer {
     }
 
     if (completionStats) {
-      const content = `${completionLabel(completionStats.status)} in ${completionStats.elapsed} · ${completionStats.tokens}`;
+      const content = formatCompletionSummary(completionStats);
       const alreadyArchived = nextMessages
         .some((message) =>
           message.role === 'completion' && message.content === content
@@ -656,6 +664,8 @@ export class InkRenderer {
       if (archivedMessages !== this.state.chatMessages) {
         updates.chatMessages = archivedMessages;
       }
+    } else {
+      Object.assign(updates, this.archiveIdleReply(this.state.chatMessages, this.state.finalResponse, this.state.thinking));
     }
 
     // When stopping work, save completion stats from current elapsed/tokens
@@ -676,13 +686,13 @@ export class InkRenderer {
       updates.commandResult = undefined;
     }
 
-    // A rotating tip only lives while working; an upgrade hint stays until the next turn starts.
-    const tip = this.state.tip;
-    if (tip && (isWorking ? tip.kind === 'upgrade' : tip.kind === 'tip')) {
+    // Tips rotate only while idle; an upgrade hint stays until the next turn starts.
+    if (isWorking && this.state.tip) {
       updates.tip = undefined;
     }
 
     this.updateState(updates);
+    this.syncIdleTips();
   }
 
   /**
@@ -1150,6 +1160,37 @@ export class InkRenderer {
     this.updateState({ tip });
   }
 
+  private syncIdleTips(): void {
+    if (this.state.isWorking) {
+      this.stopIdleTips();
+      return;
+    }
+    if (this.idleTipTimer || !this.options.tipProvider) {
+      return;
+    }
+    this.showNextIdleTip();
+    this.idleTipTimer = setInterval(() => this.showNextIdleTip(), TIP_ROTATION_MS);
+    this.idleTipTimer.unref?.();
+  }
+
+  private stopIdleTips(): void {
+    if (this.idleTipTimer) {
+      clearInterval(this.idleTipTimer);
+      this.idleTipTimer = null;
+    }
+  }
+
+  /** Draws a tip that fits the room left beside the completion summary; a pinned upgrade hint wins. */
+  private showNextIdleTip(): void {
+    if (this.state.isWorking || this.state.tip?.kind === 'upgrade') {
+      return;
+    }
+    const stats = this.state.completionStats;
+    const width = idleTipWidth(process.stdout.columns ?? 80, stats ? formatCompletionSummary(stats) : undefined);
+    const text = this.options.tipProvider?.((tip) => fitsIdleTip(tip, width));
+    this.updateState({ tip: text ? { kind: 'tip', text } : undefined });
+  }
+
   /**
    * Replace todo-kind activity items while preserving active sub-agent rows.
    */
@@ -1564,7 +1605,32 @@ export class InkRenderer {
    * Set the final response (displayed when not working)
    */
   setFinalResponse(response: string): void {
-    this.updateState({ finalResponse: response, streamingResponse: null });
+    const updates: Partial<AgentUIState> = { finalResponse: response, streamingResponse: null };
+    if (!this.state.isWorking) {
+      Object.assign(updates, this.archiveIdleReply(this.state.chatMessages, response, this.state.thinking));
+    }
+    this.updateState(updates);
+  }
+
+  /**
+   * Move a finished reply (and the thought ahead of it) into the transcript.
+   * A reply left in the dynamic frame makes Ink clear the screen and scrollback
+   * on every repaint once it is taller than the viewport.
+   */
+  private archiveIdleReply(
+    messages: ChatLogMessage[],
+    finalResponse: string | null | undefined,
+    thinking: string | null,
+  ): Partial<AgentUIState> {
+    const reply = finalResponse?.trim();
+    if (!reply) {
+      return {};
+    }
+    const archived = this.archiveCompletedTurnMessages(messages, reply, null, thinking);
+    return {
+      thinking: null,
+      ...(archived !== messages ? { chatMessages: archived } : {}),
+    };
   }
 
   /** A transient, bounded view of streamed content while the turn is still running. */

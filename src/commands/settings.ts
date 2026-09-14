@@ -155,6 +155,7 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
   { key: 'ui.keybindingProfile', labelKey: 'commands.settings.ui.keybindingProfile', descriptionKey: 'commands.settings.ui.keybindingProfileDesc', category: 'ui', type: 'enum', enumValues: [...KEYBINDING_PROFILE_IDS], defaultValue: 'autohand' },
   { key: 'ui.activityVerbsEnabled', labelKey: 'commands.settings.ui.activityVerbsEnabled', descriptionKey: 'commands.settings.ui.activityVerbsEnabledDesc', category: 'ui', type: 'boolean', defaultValue: true },
   { key: 'ui.activitySymbol', labelKey: 'commands.settings.ui.activitySymbol', descriptionKey: 'commands.settings.ui.activitySymbolDesc', category: 'ui', type: 'string', defaultValue: '\u2733' },
+  { key: 'ui.showTips', labelKey: 'commands.settings.ui.showTips', descriptionKey: 'commands.settings.ui.showTipsDesc', category: 'ui', type: 'boolean', defaultValue: true },
   { key: 'ui.statusLine', labelKey: 'commands.settings.ui.statusLine', descriptionKey: 'commands.settings.ui.statusLineDesc', category: 'ui', type: 'string', redirect: '/statusline' },
   { key: 'ui.updateCheckInterval', labelKey: 'commands.settings.ui.updateCheckInterval', descriptionKey: 'commands.settings.ui.updateCheckIntervalDesc', category: 'ui', type: 'number', defaultValue: 24 },
 

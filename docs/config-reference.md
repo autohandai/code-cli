@@ -743,6 +743,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `activityVerbs`              | string or string[] | built-in pool | Custom activity verb or verb pool for the working indicator, rendered as `Verb...` |
 | `activityVerbsEnabled`       | boolean | `true`  | Show rotating activity verbs like `Compiling...` while the agent is working |
 | `activitySymbol`             | string | `"✳"`   | Symbol shown before the activity verb in activity indicator output |
+| `showTips`                   | boolean | `true`  | Rotate tips about slash commands, the `/ @ $ ! : ?` triggers and shortcuts beside the idle composer |
 | `statusLine.showProviderModel` | boolean | `true`  | Show the active provider and model in the composer status line |
 | `statusLine.showContext`       | boolean | `true`  | Show the context percentage in the composer status line |
 | `statusLine.showCommandHint`   | boolean | `true`  | Show command, mention, skill, and terminal-entry hints in the composer status line |
@@ -882,7 +883,7 @@ Customize the verbs in the config file when you want a fixed status label or a s
 }
 ```
 
-`activityVerbs` accepts either a single string or a non-empty string array. When `activityVerbsEnabled` is `false`, Autohand falls back to `Working...` instead of rotating through custom or built-in verbs. While the agent works, a rotating tip line also appears under the status line with shortcuts, slash commands, sub-agent hints and your installed skills; it disappears when the turn ends.
+`activityVerbs` accepts either a single string or a non-empty string array. When `activityVerbsEnabled` is `false`, Autohand falls back to `Working...` instead of rotating through custom or built-in verbs. While no turn is running, a tip rotates every 10 seconds at the right end of the row above the composer, beside the `Completed in …` summary. Tips cover slash commands, the `/ @ $ ! : ?` composer triggers, keyboard shortcuts and your installed skills; only tips that fit the remaining width are drawn, and they hide while the agent works. Set `showTips` to `false`, or toggle Idle tips in `/settings`, to turn them off.
 
 You can toggle completion reports, including the structured `SITREP` prompt, without editing the file:
 

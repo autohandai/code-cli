@@ -119,6 +119,24 @@ describe('getProviderConfig', () => {
     }
   });
 
+  it('rejects non-boolean idle tip values', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
+    const configPath = path.join(tempDir, 'config.json');
+
+    await fs.writeJson(configPath, {
+      provider: 'openrouter',
+      ui: {
+        showTips: 'yes',
+      },
+    });
+
+    try {
+      await expect(loadConfig(configPath)).rejects.toThrow('ui.showTips must be boolean');
+    } finally {
+      await fs.remove(tempDir);
+    }
+  });
+
   it('rejects unsupported task list positions', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
     const configPath = path.join(tempDir, 'config.json');

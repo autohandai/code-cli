@@ -1469,6 +1469,12 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
     ) {
       throw new Error(`ui.renderMarkdown must be boolean in ${configPath}`);
     }
+    if (
+      config.ui.showTips !== undefined &&
+      typeof config.ui.showTips !== "boolean"
+    ) {
+      throw new Error(`ui.showTips must be boolean in ${configPath}`);
+    }
     const taskListPosition: unknown = config.ui.taskListPosition;
     if (
       taskListPosition !== undefined &&

@@ -70,7 +70,7 @@ import {
   type InteractionMode,
 } from '../../core/agent/InteractionModeController.js';
 import { AnnouncementLine } from './AnnouncementLine.js';
-import { TipLine } from './TipLine.js';
+import { IdleTipRow, TipLine } from './TipLine.js';
 import {
   REQUEST_CURSOR_POSITION,
   parseCursorPositionReport,
@@ -130,10 +130,15 @@ export interface AnnouncementLineState {
   visible: boolean;
 }
 
-/** One-line hint under the status line: a rotating tip while working, or a pinned upgrade hint. */
+/** A tip rotating beside the idle composer, or an upgrade hint pinned under the status line. */
 export interface TipLineState {
   text: string;
   kind: 'tip' | 'upgrade';
+}
+
+/** The "Completed in 0m 4s · ↑1.2k ↓40" line a finished turn leaves above the composer. */
+export function formatCompletionSummary(stats: { elapsed: string; tokens: string; status?: TurnCompletionStatus }): string {
+  return `${stats.status === 'failed' ? 'Failed' : 'Completed'} in ${stats.elapsed} · ${stats.tokens}`;
 }
 
 /** A slash-command result held in the fixed composer area until the next turn. */
@@ -2480,10 +2485,6 @@ export function AgentUI({
       message.role === 'assistant' && message.content === finalResponse
     );
   }, [state.chatMessages, state.finalResponse, state.isWorking]);
-  const chatIncludesCompletion = useMemo(() =>
-    state.chatMessages.some((message) => message.role === 'completion'),
-    [state.chatMessages]
-  );
 
   // Compute border style to match readline/terminal regions behavior
   const inputBorderStyle: InputBorderStyle = (() => {
@@ -2562,7 +2563,11 @@ export function AgentUI({
         tokens={state.tokens}
         queuedInstructions={state.queuedInstructions}
         selectedQueueIndex={queueSelectionIndex}
-        completionStats={chatIncludesCompletion ? null : state.completionStats}
+        completionStats={
+          // The renderer archives a summary into the transcript and clears this
+          // in the same update, so every finished turn keeps its own row.
+          state.completionStats
+        }
         activityItems={state.activityItems ?? []}
         teamActivity={state.teamActivity}
         teamPanelVisible={state.teamPanelVisible}
@@ -3046,7 +3051,7 @@ const StatusSection = memo(function StatusSection({
         teamActivity={teamActivity}
         lineExtension={lineExtension}
       />
-      <TipLine tip={tip} isWorking={isWorking} columns={columns} />
+      <TipLine tip={tip} columns={columns} />
 
       {/* Keep interactive panels adjacent to the status line, before the composer. */}
       {commandResult && <CommandResultPanel commandResult={commandResult} />}
@@ -3081,13 +3086,11 @@ const StatusSection = memo(function StatusSection({
           selectedQueueIndex={selectedQueueIndex}
         />
       )}
-      {showCompletionStats && (
-        <Box marginTop={1}>
-          <Text color={colors.muted}>
-            {completionStats.status === 'failed' ? 'Failed' : 'Completed'} in {completionStats.elapsed} · {completionStats.tokens}
-          </Text>
-        </Box>
-      )}
+      <IdleTipRow
+        summary={showCompletionStats ? formatCompletionSummary(showCompletionStats) : undefined}
+        tip={!isWorking && tip?.kind === 'tip' ? tip.text : undefined}
+        columns={columns}
+      />
     </>
   );
 }, (prev, next) => {
@@ -3207,6 +3210,8 @@ interface HelpLineSectionProps {
   lineExtension?: LineExtension;
   interactionMode?: InteractionMode;
   showModeLabel?: boolean;
+  /** Row width; the composer reserves the last terminal column and so must this line. */
+  width?: number;
 }
 
 const HelpLineSection = memo(function HelpLineSection({
@@ -3219,6 +3224,7 @@ const HelpLineSection = memo(function HelpLineSection({
   lineExtension,
   interactionMode = 'default',
   showModeLabel = true,
+  width,
 }: HelpLineSectionProps) {
   const { colors } = useTheme();
   const { t } = useTranslation();
@@ -3240,9 +3246,11 @@ const HelpLineSection = memo(function HelpLineSection({
     ? getInteractionModeLabel(interactionMode)
     : '';
   return (
-    <Box>
+    <Box width={width}>
       {glyphColor ? (
-        <Text>{colorizeGlyphText(glyphColor, modeLabel ? `● ${modeLabel} ` : '● ')}</Text>
+        <Box flexShrink={0}>
+          <Text>{colorizeGlyphText(glyphColor, modeLabel ? `● ${modeLabel} ` : '● ')}</Text>
+        </Box>
       ) : null}
       <Text color={colors.dim}>
         {getComposerHelpLine(isWorking, providerDisplay, contextDisplay, t('ui.commandHint'), lineExtension)}
@@ -3259,6 +3267,7 @@ const HelpLineSection = memo(function HelpLineSection({
          prev.planLabel === next.planLabel &&
          prev.interactionMode === next.interactionMode &&
          prev.showModeLabel === next.showModeLabel &&
+         prev.width === next.width &&
          prev.lineExtension === next.lineExtension;
 });
 
@@ -3598,6 +3607,7 @@ const FixedBottom = memo(function FixedBottom({
         planLabel={planLabel}
         interactionMode={interactionMode}
         showModeLabel={showModeLabel}
+        width={inputWidth}
         lineExtension={mergeLineExtensions(
           configuredLineExtensions?.help,
           lineExtensions?.help,

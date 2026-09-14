@@ -430,6 +430,11 @@ describe('getSettingsForCategory', () => {
     }
   });
 
+  it('offers idle tips as a UI toggle that is on by default', () => {
+    const showTips = getSettingsForCategory('ui').find((setting) => setting.key === 'ui.showTips');
+    expect(showTips).toMatchObject({ type: 'boolean', defaultValue: true });
+  });
+
   it('returns empty array for unknown category', () => {
     expect(getSettingsForCategory('nonexistent' as SettingCategory)).toEqual([]);
   });
