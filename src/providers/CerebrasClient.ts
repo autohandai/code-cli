@@ -7,12 +7,12 @@ import type {
   LLMRequest,
   LLMResponse,
   LLMToolCall,
-  LLMUsage,
   CerebrasSettings,
   NetworkSettings,
   FunctionDefinition,
   MultimodalMessage,
 } from "../types.js";
+import { normalizeLLMUsage } from "./usage.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -234,14 +234,10 @@ export class CerebrasClient {
       }));
     }
 
-    let usage: LLMUsage | undefined;
-    if (data.usage) {
-      usage = {
-        promptTokens: data.usage.prompt_tokens,
-        completionTokens: data.usage.completion_tokens,
-        totalTokens: data.usage.total_tokens,
-      };
-    }
+    // Through the shared normalizer rather than by hand, so a cached-prompt
+    // detail is carried when Cerebras reports one, and an impossible breakdown
+    // is discarded instead of passed on.
+    const usage = normalizeLLMUsage(data.usage, 'openai-chat');
 
     const finishReason = toolCalls?.length
       ? "tool_calls"

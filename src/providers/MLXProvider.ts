@@ -5,7 +5,8 @@
  */
 
 import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
-import type { LLMRequest, LLMResponse, LLMToolCall, LLMUsage, ProviderSettings, NetworkSettings, FunctionDefinition } from '../types.js';
+import type { LLMRequest, LLMResponse, LLMToolCall, ProviderSettings, NetworkSettings, FunctionDefinition } from '../types.js';
+import { normalizeLLMUsage } from './usage.js';
 import { isMLXSupported } from '../utils/platform.js';
 import { ApiError, classifyApiError } from './errors.js';
 import { toTextOnlyContent } from './messagePayload.js';
@@ -287,14 +288,10 @@ export class MLXProvider implements LLMProvider {
             }));
         }
 
-        let usage: LLMUsage | undefined;
-        if (data.usage) {
-            usage = {
-                promptTokens: data.usage.prompt_tokens,
-                completionTokens: data.usage.completion_tokens,
-                totalTokens: data.usage.total_tokens
-            };
-        }
+        // Through the shared normalizer rather than by hand, so a cached-prompt
+        // detail is carried when the server reports one, and an impossible
+        // breakdown is discarded instead of passed on.
+        const usage = normalizeLLMUsage(data.usage, 'openai-chat');
 
         const finishReason = toolCalls?.length
             ? 'tool_calls'
