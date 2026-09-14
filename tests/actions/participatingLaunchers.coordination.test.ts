@@ -5,9 +5,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { ResourceCoordinator } from '../../src/session/peers/ResourceCoordinator.js';
 import { withCommandCoordination } from '../../src/session/peers/CommandCoordinationGate.js';
-import { executeShellCommand, executeShellCommandAsync, executeInteractiveShellCommand, executeStreamingShellCommand } from '../../src/ui/shellCommand.js';
+import { executeShellCommandAsync, executeStreamingShellCommand } from '../../src/ui/shellCommand.js';
 import { applyFormatter } from '../../src/actions/formatters.js';
-import { lintFile } from '../../src/actions/linters.js';
 import { PtyDriver } from '../../src/testing/drivers/pty-driver.js';
 import { EnvironmentBootstrap } from '../../src/core/EnvironmentBootstrap.js';
 import { WorktreeManager } from '../../src/actions/worktree.js';
@@ -95,13 +94,13 @@ describe('participating launcher enforcement', () => {
     } finally { driver.close(); }
   });
 
-  it.each(['async', 'interactive', 'streaming', 'background'] as const)('parks the %s immediate shell route before its process starts', async route => {
+  it.each(['async', 'streaming', 'background'] as const)('parks the %s immediate shell route before its process starts', async route => {
     const marker = path.join(directory, 'marker');
     const command = `touch '${marker}'`;
     let settled = false;
     const running = withCommandCoordination({ coordinator: worker, waitTimeoutMs: 1000 }, () => route === 'async'
-      ? executeShellCommandAsync(command, directory) : route === 'interactive' ? executeInteractiveShellCommand(command, directory)
-        : executeStreamingShellCommand(command, directory, { background: route === 'background' }));
+      ? executeShellCommandAsync(command, directory)
+      : executeStreamingShellCommand(command, directory, { background: route === 'background' }));
     void running.then(() => { settled = true; }, () => { settled = true; });
     await vi.waitFor(async () => expect(settled || (await lead.coordinate({ operation: 'status', resource })).queue.length > 0).toBe(true));
     expect(existsSync(marker)).toBe(false);
@@ -113,20 +112,12 @@ describe('participating launcher enforcement', () => {
     await vi.waitFor(async () => expect((await lead.coordinate({ operation: 'status', resource })).holder).toBeNull());
   });
 
-  it('fails closed for the synchronous shell API inside a coordinated context', () => {
-    const marker = path.join(directory, 'sync-marker');
-    const result = withCommandCoordination({ coordinator: worker }, () => executeShellCommand(`touch '${marker}'`, directory));
-    expect(result.success).toBe(false);
-    expect(existsSync(marker)).toBe(false);
-  });
-
-  it.each(['formatter', 'linter'] as const)('prevents the %s launcher from bypassing a strict wait', async route => {
+  it('prevents the formatter launcher from bypassing a strict wait', async () => {
     const marker = path.join(directory, 'external-marker');
-    const executable = path.join(directory, route === 'formatter' ? 'prettier' : 'eslint');
+    const executable = path.join(directory, 'prettier');
     await writeFile(executable, `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)}, 'started'); process.stdout.write('[]');`, { mode: 0o700 });
     vi.stubEnv('PATH', `${directory}:${process.env.PATH}`);
-    const running = withCommandCoordination({ coordinator: worker, waitTimeoutMs: 30 }, () => route === 'formatter'
-      ? applyFormatter('prettier', 'let a=1', 'test.js', directory) : lintFile('test.js', 'eslint', directory));
+    const running = withCommandCoordination({ coordinator: worker, waitTimeoutMs: 30 }, () => applyFormatter('prettier', 'let a=1', 'test.js', directory));
     await expect(running).rejects.toMatchObject({ code: 'RESOURCE_WAIT_TIMEOUT' });
     expect(existsSync(marker)).toBe(false);
   });

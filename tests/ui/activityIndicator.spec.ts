@@ -83,7 +83,9 @@ describe('ActivityIndicator', () => {
       tipContext: { listSkills: () => [{ name: 'deploy', description: 'Ship it' }] },
     });
     const tips = new Set<string>();
-    for (let i = 0; i < 60; i++) tips.add(custom.nextTip());
+    // The bag holds every static tip plus the skill expansions, and hands each
+    // one out once per refill, so one full cycle is guaranteed to include it.
+    for (let i = 0; i < 200; i++) tips.add(custom.nextTip());
     expect([...tips].some((tip) => tip.includes('$deploy'))).toBe(true);
   });
 

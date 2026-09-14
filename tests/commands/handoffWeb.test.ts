@@ -77,6 +77,8 @@ describe('/handoff web', () => {
     const result = await handoffWeb(ctx, ['--no-open']);
     expect(ctx.client.upload.mock.calls[0][2]).toEqual({ origin: { transferId: receipt.id } });
     expect(result).toContain('This resumes your Web conversation "Continue my parser" with 1 new message.');
+    // Own line: joined with the expiry notice it wraps mid-word in a 160-column terminal.
+    expect(result).toContain('with 1 new message.\nSign in with the same Autohand account.');
     expect(result).not.toContain('opens this as a new conversation');
   });
 

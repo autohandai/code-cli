@@ -120,7 +120,8 @@ export async function handoffWeb(ctx: HandoffWebContext, args: string[] = []): P
     try { await (ctx.openBrowser ?? open)(url); }
     catch { browser = '\nOpen the link above to continue; this terminal could not open a browser.'; }
   }
-  const resume = resumed ? `This resumes your Web conversation "${session.metadata.summary ?? 'your conversation'}" with ${newMessages} new ${newMessages === 1 ? 'message' : 'messages'}. ` : '';
+  // One sentence per line: a joined line wraps in a narrow terminal and hides the expiry notice mid-word.
+  const resume = resumed ? `This resumes your Web conversation "${session.metadata.summary ?? 'your conversation'}" with ${newMessages} new ${newMessages === 1 ? 'message' : 'messages'}.\n` : '';
   const fallback = downgrade === 'diverged'
     ? '\nYour Web conversation moved on since you left, so this opens as a new conversation.'
     : downgrade === 'unsupported' ? '\nYour Web version opens this as a new conversation.' : '';

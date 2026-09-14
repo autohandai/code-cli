@@ -19,7 +19,12 @@ export async function capturePeerProcess(pid: number, processGroupId = pid): Pro
       const fields = record.slice(record.lastIndexOf(')') + 2).split(' ');
       if (Number(fields[2]) !== processGroupId || !/^\d+$/.test(fields[19] ?? '')) throw new PeerError('RECOVERY_REQUIRED', 'The process does not belong to the reserved process group.');
       return { pid, processGroupId, startedAt: `linux:${boot.trim()}:${fields[19]}` };
-    } catch (error) { if (peerFilesystemErrorCode(error) === 'ENOENT') return undefined; throw error; }
+    } catch (error) {
+      // /proc entries vanish (ENOENT) or refuse reads (ESRCH) once the process has exited; both mean it is gone.
+      const code = peerFilesystemErrorCode(error);
+      if (code === 'ENOENT' || code === 'ESRCH') return undefined;
+      throw error;
+    }
   }
   if (process.platform === 'darwin') {
     const record = await new Promise<string | undefined>((resolve, reject) => {
