@@ -6,6 +6,7 @@
 
 import chalk from 'chalk';
 import type { SubAgentSkillsRegistry } from './subAgentSkills.js';
+import type { RunBudgetGate } from '../agent/RunBudget.js';
 import { randomUUID } from 'node:crypto';
 import { AgentRegistry, type AgentDefinition } from './AgentRegistry.js';
 import { SubAgent, type SubAgentOptions, type SubAgentProgress } from './SubAgent.js';
@@ -104,6 +105,8 @@ export interface DelegatorOptions {
     getToolDefinitions?: () => ToolDefinition[];
     /** Skills sub-agents may read and activate for themselves; resolved when a sub-agent starts. */
     getSkillsRegistry?: () => SubAgentSkillsRegistry | undefined;
+    /** The lead's run budget, shared by every in-process sub-agent. */
+    runBudget?: RunBudgetGate;
     /** Resolve the provider/model pair for one in-process sub-agent. */
     resolveSubagentAssignment?: SubagentAssignmentResolver;
     /** Create an isolated LLM client for a resolved sub-agent assignment. */
@@ -192,6 +195,7 @@ export class AgentDelegator {
             confirmApproval: this.confirmApproval,
             getToolDefinitions: this.getToolDefinitions,
             skillsRegistry: this.options.getSkillsRegistry?.(),
+            runBudget: this.options.runBudget,
             resolveSubagentAssignment: this.resolveSubagentAssignment,
             createSubagentProvider: this.createSubagentProvider,
             threadBudget: this.threadBudget,

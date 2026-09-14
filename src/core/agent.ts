@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import type { RunBudget } from './agent/RunBudget.js';
 import { SteeringQueue } from './agent/SteeringQueue.js';
 import { syncAgentTerminalTitleName } from './agent/AgentSessionTitle.js';
 import { shouldWriteTerminalTitle, TerminalTitleController } from '../ui/terminalTitle.js';
@@ -1266,6 +1267,7 @@ export class AutohandAgent {
       autoReportManager: agent.autoReportManager,
       steering: agent.steering,
       get permissionManager() { return agent.permissionManager; },
+      get runBudget() { return agent.runBudget; },
       get consecutiveCancellations() { return agent.consecutiveCancellations; },
       set consecutiveCancellations(value) { agent.consecutiveCancellations = value; },
       contextOrchestrator: agent.contextOrchestrator,
@@ -2799,6 +2801,8 @@ export class AutohandAgent {
   /** The last final message this run emitted; command mode validates it against --output-schema. */
   lastEmittedMessage?: string;
 
+  /** Requests, tokens, and time this run may spend; undefined when no limit is set. */
+  runBudget?: RunBudget;
 
   /** Command mode uses this to publish a validated result or a terminal error. */
   emitCommandOutput(event: AgentOutputEvent): void {

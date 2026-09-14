@@ -342,6 +342,15 @@ export interface UISettings {
 export interface AgentSettings {
   /** Maximum iterations per user request (default: 100) */
   maxIterations?: number;
+  /** Limits for one run, shared with in-process sub-agents; CLI flags --max-requests, --max-tokens, --max-duration win. */
+  budget?: {
+    /** Model requests before the run stops. */
+    maxRequests?: number;
+    /** Reported tokens before the run stops. */
+    maxTokens?: number;
+    /** Seconds of wall time before the run stops. */
+    maxDurationSeconds?: number;
+  };
   /** Enable request queue - allow typing while agent works (default: true) */
   enableRequestQueue?: boolean;
   /** Switch the session into auto mode while a goal is active (default: true) */

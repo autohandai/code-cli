@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
-import type { LLMMessage, TurnUsage } from '../../types.js';
+import type { LLMMessage, LLMUsage, TurnUsage } from '../../types.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
 import { getSessionPromptCacheDirective } from './PromptCache.js';
 import type { ReactionParser } from './ReactionParser.js';
@@ -20,6 +20,7 @@ export interface SimpleChatAgent {
   conversation: SimpleChatConversation;
   llm: LLMProvider;
   inkRenderer?: { setStreamingResponse?(response: string | null): void } | null;
+  runBudget?: { assertRequestAllowed(): void; recordRequest(): void; recordUsage(usage: LLMUsage | undefined): void };
   totalTokensUsed: number;
   currentTurnActualUsage: TurnUsage;
   currentTurnHadUnavailableUsage: boolean;
@@ -72,6 +73,8 @@ export class SimpleChatHandler {
       const promptCache = this.agent.isPromptCachingEnabled?.() === true
         ? getSessionPromptCacheDirective(sessionId)
         : undefined;
+      this.agent.runBudget?.assertRequestAllowed();
+      this.agent.runBudget?.recordRequest();
       const completion = await this.agent.llm.complete({
         messages: this.agent.conversation.history(),
         tools: [],
@@ -81,6 +84,7 @@ export class SimpleChatHandler {
         ...(supportsStreaming ? { stream: true, onDelta: preview?.onDelta } : {}),
       });
 
+      this.agent.runBudget?.recordUsage(completion.usage);
       const payload = this.agent.getReactionParser().parseAssistantResponse(completion);
       const rawContent = (payload.finalResponse ?? payload.response ?? completion.content).trim();
       const content = this.agent.cleanupModelResponse(rawContent);

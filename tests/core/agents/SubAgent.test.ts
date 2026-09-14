@@ -101,6 +101,34 @@ describe('SubAgent', () => {
     }
   });
 
+  it('charges every sub-agent request to the shared run budget and stops when it is spent', async () => {
+    const { RunBudget, RunBudgetExceededError } = await import('../../../src/core/agent/RunBudget.js');
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const budget = new RunBudget({ maxRequests: 2 });
+    budget.recordRequest(); // the lead already spent one
+    let turn = 0;
+    const agent = new SubAgent({
+      name: 'worker', description: 'Work', systemPrompt: 'Work.', tools: ['read_file'], path: '/tmp/worker.md',
+    }, {
+      getName: () => 'autohandai',
+      complete: async () => {
+        turn += 1;
+        if (turn === 1) return { id: 'r1', created: 0, raw: null, content: '', usage: { promptTokens: 5, completionTokens: 5, totalTokens: 10 },
+          toolCalls: [nativeToolCall('read_file', { path: 'a.ts' })] };
+        return { id: 'r2', created: 0, raw: null, content: 'Read it.' };
+      },
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, { executeForTool: async () => ({ success: true, output: 'contents' }) } as unknown as ActionExecutor, { clientContext: 'cli', depth: 1, maxDepth: 1, runBudget: budget });
+    try {
+      await expect(agent.run('Read a.ts')).rejects.toBeInstanceOf(RunBudgetExceededError);
+      expect(turn).toBe(1);
+      expect(budget.status()).toMatchObject({ requests: 2, tokens: 10 });
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it('does not advertise the skill tool to a delegated agent without a registry', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const requests: Array<Parameters<LLMProvider['complete']>[0]> = [];

@@ -5,6 +5,7 @@
  */
 import chalk from 'chalk';
 import { resolveRunToolScope } from '../../permissions/runToolScope.js';
+import { RunBudget } from './RunBudget.js';
 import { SessionAutoNamer } from './SessionAutoNamer.js';
 import { syncAgentTerminalTitleName } from './AgentSessionTitle.js';
 import { randomUUID } from 'node:crypto';
@@ -595,6 +596,8 @@ export function initializeAgentDependencies(
       signal: host.runtimeResourceShutdownController?.signal,
       isVisible: () => host.inkRenderer?.getState?.().agentRunsPanelVisible === true,
     });
+    // One budget for the whole run: lead requests and in-process sub-agents alike.
+    host.runBudget = RunBudget.fromSettings(runtime.options, runtime.config.agent?.budget);
     host.sessionThreadBudget = new SessionThreadBudget(() =>
       runtime.config.features?.multi_agent_v2?.max_concurrent_threads_per_session
         ?? DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION);
@@ -782,6 +785,7 @@ export function initializeAgentDependencies(
       confirmApproval: (message, context) => host.confirmDangerousAction(message, context),
       getToolDefinitions: () => host.toolManager?.listDefinitions() ?? [],
       getSkillsRegistry: () => host.skillsRegistry,
+      runBudget: host.runBudget,
       resolveSubagentAssignment: (definition) => {
         const provider = host.activeProvider ?? runtime.config.provider ?? 'openrouter';
         const model = runtime.options.model

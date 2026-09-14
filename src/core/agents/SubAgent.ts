@@ -6,6 +6,7 @@
 
 import chalk from 'chalk';
 import { SUBAGENT_SKILLS_PROMPT_KEY, SubAgentSkills, type SubAgentSkillsRegistry } from './subAgentSkills.js';
+import type { RunBudgetGate } from '../agent/RunBudget.js';
 import { AgentRegistry, type AgentDefinition } from './AgentRegistry.js';
 import { formatAgentRoster } from './agentRoster.js';
 import { buildWorkerProjectMemoryContext } from './workerProjectMemory.js';
@@ -71,6 +72,8 @@ export interface SubAgentOptions {
     getToolDefinitions?: () => ToolDefinition[];
     /** Skills the delegated agent may read and activate for itself. */
     skillsRegistry?: SubAgentSkillsRegistry;
+    /** The lead's run budget; every sub-agent request counts against it. */
+    runBudget?: RunBudgetGate;
     /** Model selected by the parent delegation policy for this execution. */
     model?: string;
     /** Propagate provider/model resolution through nested delegation. */
@@ -196,6 +199,7 @@ export class SubAgent {
                 confirmApproval: options.confirmApproval,
                 getToolDefinitions: options.getToolDefinitions,
                 getSkillsRegistry: () => options.skillsRegistry,
+                runBudget: options.runBudget,
                 resolveSubagentAssignment: options.resolveSubagentAssignment,
                 createSubagentProvider: options.createSubagentProvider,
                 threadBudget: options.threadBudget,
@@ -361,6 +365,8 @@ export class SubAgent {
                 ? tools
                 : undefined;
 
+            this.options.runBudget?.assertRequestAllowed();
+            this.options.runBudget?.recordRequest();
             const completion = await this.llm.complete({
                 messages: this.toolImages.prepare(this.conversation.history()),
                 // A definition's model is a suggestion resolved by the team policy; never send it raw.
@@ -370,6 +376,7 @@ export class SubAgent {
                 tools: requestTools,
                 toolChoice: requestTools ? 'auto' : undefined
             });
+            this.options.runBudget?.recordUsage(completion.usage);
             if (completion.usage) {
                 this.usage.promptTokens += completion.usage.promptTokens;
                 this.usage.completionTokens += completion.usage.completionTokens;

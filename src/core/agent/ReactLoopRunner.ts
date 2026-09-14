@@ -70,6 +70,7 @@ import {
 import { stripAnsiCodes } from '../../ui/displayUtils.js';
 import { getSessionPromptCacheDirective as deriveSessionPromptCacheDirective } from './PromptCache.js';
 import { StreamingResponsePreview } from './StreamingResponsePreview.js';
+import type { RunBudgetGate } from './RunBudget.js';
 
 /**
  * Turns provider retry events into a visible countdown. The periodic status renderer rewrites
@@ -175,6 +176,8 @@ export interface AgentReactLoopHost {
   permissionManager?: Pick<PermissionManager, 'filterAdvertisedTools' | 'setExtensionPolicies'>;
   /** Set once the per-turn git snapshot exceeded its budget on this repository. */
   workspaceChangeCaptureDisabled?: boolean;
+  /** Run budget shared with in-process sub-agents; checked before every model request. */
+  runBudget?: RunBudgetGate;
   inkRenderer: ReactLoopInkRenderer | null;
   lastAssistantResponseForNotification: string;
   llm: LLMProvider;
@@ -741,6 +744,8 @@ export async function runAgentReactLoop(
 
         const requestTools = supportsNativeToolCalling && tools.length > 0 ? tools : undefined;
 
+        host.runBudget?.assertRequestAllowed();
+        host.runBudget?.recordRequest();
         const retryWait = createRetryWaitStatus(host);
         // Streamed cloud completions: the first tokens reach the terminal while
         // the answer is still being generated, and the client no longer has to
@@ -808,6 +813,7 @@ export async function runAgentReactLoop(
       }
 
       // Track token usage from response and immediately update UI
+      host.runBudget?.recordUsage(completion.usage);
       if (completion.usage) {
         host.currentTurnActualUsage = addUsageToTurn(
           host.currentTurnActualUsage,

@@ -18,6 +18,21 @@ import type { LLMRetryEvent, ToolCallRequest } from '../../../src/types.js';
 import { ReactionParser } from '../../../src/core/agent/ReactionParser.js';
 
 describe('ReactLoopRunner composer status', () => {
+  it('stops before the model request that would exceed the run budget and records usage', async () => {
+    const { RunBudget, RunBudgetExceededError } = await import('../../../src/core/agent/RunBudget.js');
+    const llmComplete = vi.fn()
+      .mockResolvedValueOnce({ id: 'first', created: 1, raw: {}, usage: { promptTokens: 50, completionTokens: 10, totalTokens: 60 },
+        content: JSON.stringify({ toolCalls: [{ tool: 'list_tree', args: { path: '.' } }] }) })
+      .mockResolvedValueOnce({ id: 'second', created: 2, raw: {}, content: '{"finalResponse":"Done."}' });
+    const host = createReactLoopTestHost(llmComplete, new ReactionParser());
+    host.toolManager.execute = vi.fn().mockResolvedValue([{ tool: 'list_tree', success: true, output: 'src/' }]);
+    const budget = new RunBudget({ maxRequests: 1 });
+    host.runBudget = budget;
+    await expect(runAgentReactLoop(host, new AbortController())).rejects.toBeInstanceOf(RunBudgetExceededError);
+    expect(llmComplete).toHaveBeenCalledTimes(1);
+    expect(budget.status()).toMatchObject({ requests: 1, tokens: 60 });
+  });
+
   it('renders cloud content deltas before completion without exposing reasoning or duplicating history', async () => {
     const preview = vi.fn();
     const complete = vi.fn(async (request) => {

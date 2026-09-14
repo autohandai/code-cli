@@ -1072,6 +1072,7 @@ Control agent behavior and iteration limits.
 | `goalAutoMode`       | boolean | `true`  | Put the session in auto mode while a goal is active (autonomous turns, no tool approval prompts) |
 | `idleLogoutEnabled`  | boolean | `true`  | End authenticated interactive sessions after the idle timeout                  |
 | `idleTimeoutMs`      | number  | `14400000` | Milliseconds of inactivity before ending an authenticated session (4 hours)   |
+| `budget`             | object  | unset   | Limits for one run, shared with in-process sub-agents: `maxRequests` (model requests), `maxTokens` (reported prompt plus completion tokens; requests that report no usage are counted but their tokens are unknown), `maxDurationSeconds` (wall time). A request the budget no longer covers is refused before it is sent and the turn fails with the limit named. `--max-requests`, `--max-tokens`, and `--max-duration` override these for a run |
 | `sessionRetryLimit`  | number  | `3`     | Times a failed turn is re-run after a retryable error before the turn is reported as failed |
 | `sessionRetryDelay`  | number  | unset   | Milliseconds before the first re-run, growing 1.5× per attempt. When unset, provider outages (5xx, network, timeout) wait 5 s, 15 s, 45 s and other errors 1 s, 1.5 s, 2.25 s; a provider retry-after always wins |
 | `debug`              | boolean | `false` | Enable verbose debug output (logs agent internal state to stderr)              |
@@ -2556,6 +2557,9 @@ These flags override config file settings:
 | `--allowed-tools <patterns>`  | Only offer and authorize these tools this run; comma-separated or repeated (e.g. `read_file,run_command(git:*)`). A run-only restriction on top of every configured policy: never saved, never widened by a local or extension allowlist |
 | `--disallowed-tools <patterns>` | Never offer or authorize these tools this run. Matched on the tool the model names, before capability mapping, so `delete_path` stays blocked even when unrestricted. Applies to MCP and delegated tools too |
 | `--timeout <seconds>`         | Timeout in seconds for auto-approve mode                                                       |
+| `--max-requests <n>`          | Stop the run after this many model requests, sub-agents included; the turn fails with the limit named and exit code 1 in command mode |
+| `--max-tokens <n>`            | Stop the run once reported token usage reaches this total, sub-agents included                  |
+| `--max-duration <seconds>`    | Stop the run after this much wall time; checked before each model request                       |
 
 ### Git & Worktree
 

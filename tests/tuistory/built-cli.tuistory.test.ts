@@ -623,6 +623,36 @@ describe('built CLI Tuistory smoke tests', () => {
     await exitInteractive(session);
   });
 
+  it('stops a command-mode run at --max-requests before the next model request', async () => {
+    const nativeServer = await createMockAutohandAINativeSequenceServer([
+      { content: '', toolCall: { id: 'call_tree', name: 'list_tree', args: { path: '.' } } },
+      { content: 'BUDGET_SHOULD_NOT_REACH_THIS' },
+    ]);
+    mockServers.push(nativeServer);
+    const state = await createTempAutohandHome({
+      config: {
+        provider: 'autohandai',
+        autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'tuistory-autohand-api-key', model: 'moa', baseUrl: nativeServer.baseUrl },
+        features: { autohand_inference: true },
+        agent: { maxIterations: 4, sessionRetryLimit: 0, autoMemory: false },
+        network: { maxRetries: 0, retryDelay: 0 },
+        ui: { promptSuggestions: false, showCompletionNotification: false },
+      },
+    });
+    tempStates.push(state);
+    const session = await trackSession(launchBuiltAutohand([
+      '--path', state.workspaceRoot, '--config', state.configPath, '--prompt', 'List the tree, then summarize.', '--max-requests', '1', '--json', 'local', '--y',
+    ], { autohandHome: state.autohandHome, cwd: state.workspaceRoot, waitForDataTimeout: 15_000 }));
+    await waitForExit(session, 45_000);
+    const output = stripAnsi(session.readAll());
+    const last = JSON.parse(output.split('\n').filter((line) => line.startsWith('{')).at(-1) ?? '{}');
+    expect(last.type).toBe('error');
+    expect(last.message).toContain('Run budget exhausted: 1 of 1 model requests used');
+    expect(output).not.toContain('BUDGET_SHOULD_NOT_REACH_THIS');
+    expect(nativeServer.requests).toHaveLength(1);
+    expect(session.exitInfo?.exitCode).toBe(1);
+  }, 60_000);
+
   it('renders help from the built dist entrypoint', async () => {
     const session = await trackSession(launchBuiltAutohand(['--help'], {
       waitForDataTimeout: 15_000,
