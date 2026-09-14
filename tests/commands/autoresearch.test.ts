@@ -42,6 +42,39 @@ describe('/autoresearch command', () => {
     } as SlashCommandContext;
   });
 
+  it('emits an error hook when finalize has no session to complete', async () => {
+    const result = await autoresearch(ctx, ['finalize']);
+
+    expect(result).toContain('No auto-research session found');
+    expect(executeHooks).toHaveBeenCalledWith('autoresearch:error', expect.objectContaining({
+      autoresearchSubcommand: 'finalize',
+      reason: expect.stringContaining('No auto-research session found'),
+    }));
+  });
+
+  it('emits a complete hook once a finalize plan is written', async () => {
+    await writeConfigJson(workspaceRoot, {
+      name: 'optimize test runtime',
+      metricName: 'duration',
+      metricUnit: 'ms',
+      direction: 'minimize',
+    });
+    await appendLogEntry(workspaceRoot, {
+      run: 1,
+      status: 'kept',
+      metric: 1,
+      description: 'baseline',
+    });
+    executeHooks.mockClear();
+
+    const result = await autoresearch(ctx, ['finalize']);
+
+    expect(result).toContain('Finalize plan written');
+    expect(executeHooks).toHaveBeenCalledWith('autoresearch:complete', expect.objectContaining({
+      autoresearchSubcommand: 'finalize',
+    }));
+  });
+
   it('exports command metadata with subcommands', () => {
     expect(metadata.command).toBe('/autoresearch');
     expect(metadata.implemented).toBe(true);

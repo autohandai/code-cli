@@ -195,6 +195,7 @@ export class AutohandAcpAdapter implements Agent {
   private permissionBridges = new Map<string, ReturnType<typeof createPermissionBridge>>();
   private sessionConfigOptions = new Map<string, SessionConfigOption[]>();
   private cancelledSessions = new Set<string>();
+  private hookForwarders = new Map<string, () => void>();
   private config: LoadedConfig | null = null;
   private clientCapabilities?: InitializeRequest['clientCapabilities'];
   private toolStartTimes = new Map<string, number>();
@@ -436,6 +437,7 @@ export class AutohandAcpAdapter implements Agent {
 
     this.sessions.set(managedSessionId, state);
     this.agents.set(managedSessionId, agent);
+    this.forwardHookLifecycle(managedSessionId, agent);
     this.sessionConfigOptions.set(managedSessionId, buildConfigOptions(config));
 
     agent.setOutputListener((event: AgentOutputEvent) => {
@@ -586,10 +588,7 @@ export class AutohandAcpAdapter implements Agent {
       this.sessions.set(sessionId, state);
       return { config, state, messages };
     } catch (error) {
-      this.sessions.delete(sessionId);
-      this.agents.delete(sessionId);
-      this.permissionBridges.delete(sessionId);
-      this.sessionConfigOptions.delete(sessionId);
+      this.forgetSession(sessionId);
       throw error;
     }
   }
@@ -1145,6 +1144,77 @@ export class AutohandAcpAdapter implements Agent {
    * Safely emit a hook notification via extNotification.
    * Hook notifications must never crash the agent — errors are logged and swallowed.
    */
+  /**
+   * Mirror hook events to the client for the notifications ACP declares but
+   * never sent. Events the adapter already emits by hand are skipped so a
+   * client never sees the same event twice.
+   */
+  private forwardHookLifecycle(sessionId: string, agent: AutohandAgent): void {
+    this.hookForwarders.get(sessionId)?.();
+    const unsubscribe = agent.getHookManager?.()?.subscribeLifecycle?.((context) => {
+      switch (context.event) {
+        case 'permission-request':
+          this.emitHookPermissionRequest(sessionId, context.tool ?? '', context.path, context.command, context.args);
+          break;
+        case 'notification':
+          this.emitHookNotification(sessionId, context.notificationType ?? '', context.notificationMessage ?? '');
+          break;
+        case 'subagent-stop':
+          this.emitHookSubagentStop(
+            sessionId,
+            context.subagentId ?? '',
+            context.subagentName ?? '',
+            context.subagentType ?? '',
+            context.subagentSuccess ?? false,
+            context.subagentDuration ?? 0,
+            context.subagentError,
+          );
+          break;
+        case 'post-response':
+          this.emitHookPostResponse(sessionId, context.tokensUsed ?? 0, context.toolCallsCount ?? 0, context.duration ?? 0);
+          break;
+        default:
+          break;
+      }
+    });
+    if (unsubscribe) {
+      this.hookForwarders.set(sessionId, unsubscribe);
+    }
+  }
+
+  private forgetSession(sessionId: string): void {
+    this.hookForwarders.get(sessionId)?.();
+    this.hookForwarders.delete(sessionId);
+    this.sessions.delete(sessionId);
+    this.agents.delete(sessionId);
+    this.permissionBridges.delete(sessionId);
+    this.sessionConfigOptions.delete(sessionId);
+  }
+
+  /**
+   * End every live session when the connection closes. Without this, hooks that
+   * clean up or record the end of a session never run for ACP clients.
+   */
+  async shutdown(reason: 'quit' | 'exit' | 'error' = 'exit'): Promise<void> {
+    const sessions = [...this.sessions.entries()];
+    for (const [sessionId, state] of sessions) {
+      const duration = Math.max(0, Date.now() - state.createdAt);
+      try {
+        await this.agents.get(sessionId)?.getHookManager?.()?.executeHooks('session-end', {
+          sessionId,
+          sessionEndReason: reason,
+          duration,
+        });
+      } catch (error) {
+        process.stderr.write(
+          `[ACP] Session end hook failed: ${error instanceof Error ? error.message : String(error)}\n`,
+        );
+      }
+      this.emitHookSessionEnd(sessionId, reason, duration);
+      this.forgetSession(sessionId);
+    }
+  }
+
   private async emitHookSafe(method: string, params: Record<string, unknown>): Promise<void> {
     try {
       await this.connection.extNotification(method, params);

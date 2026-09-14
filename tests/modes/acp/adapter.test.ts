@@ -441,6 +441,68 @@ describe("AutohandAcpAdapter", () => {
   // newSession()
   // -------------------------------------------------------------------------
 
+  describe("hook lifecycle", () => {
+    let executeHooks: ReturnType<typeof vi.fn>;
+    let lifecycleListener: ((context: Record<string, unknown>) => void) | null;
+
+    beforeEach(async () => {
+      executeHooks = vi.fn().mockResolvedValue([]);
+      lifecycleListener = null;
+      mockAgent.getHookManager.mockReturnValue({
+        executeHooks,
+        subscribeLifecycle: (listener: (context: Record<string, unknown>) => void) => {
+          lifecycleListener = listener;
+          return () => {
+            lifecycleListener = null;
+          };
+        },
+      });
+      await adapter.initialize(makeInitRequest());
+      await adapter.newSession(makeNewSessionRequest());
+    });
+
+    it("runs the session-end hook and notifies the client when the connection closes", async () => {
+      await adapter.shutdown("exit");
+
+      expect(executeHooks).toHaveBeenCalledWith(
+        "session-end",
+        expect.objectContaining({ sessionEndReason: "exit" }),
+      );
+      expect(connection.extNotification).toHaveBeenCalledWith(
+        "autohand.hook.sessionEnd",
+        expect.objectContaining({ reason: "exit" }),
+      );
+    });
+
+    it("forwards permission, notification, and subagent hook events to the client", () => {
+      expect(typeof lifecycleListener).toBe("function");
+
+      lifecycleListener!({ event: "permission-request", tool: "run_command", command: "ls" });
+      lifecycleListener!({ event: "notification", notificationType: "info", notificationMessage: "done" });
+      lifecycleListener!({
+        event: "subagent-stop",
+        subagentId: "a1",
+        subagentName: "helper",
+        subagentType: "task",
+        subagentSuccess: true,
+        subagentDuration: 5,
+      });
+
+      expect(connection.extNotification).toHaveBeenCalledWith(
+        "autohand.hook.permissionRequest",
+        expect.objectContaining({ tool: "run_command", command: "ls" }),
+      );
+      expect(connection.extNotification).toHaveBeenCalledWith(
+        "autohand.hook.notification",
+        expect.objectContaining({ notificationType: "info", message: "done" }),
+      );
+      expect(connection.extNotification).toHaveBeenCalledWith(
+        "autohand.hook.subagentStop",
+        expect.objectContaining({ subagentName: "helper", success: true }),
+      );
+    });
+  });
+
   describe("newSession()", () => {
     beforeEach(async () => {
       await adapter.initialize(makeInitRequest());

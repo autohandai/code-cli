@@ -72,8 +72,12 @@ export async function runAcpMode(options: CLIOptions): Promise<void> {
   const stream = ndJsonStream(input, output);
 
   // Create the ACP connection with our adapter
+  let adapter: AutohandAcpAdapter | null = null;
   const _connection = new AgentSideConnection(
-    (conn) => new AutohandAcpAdapter(conn, options),
+    (conn) => {
+      adapter = new AutohandAcpAdapter(conn, options);
+      return adapter;
+    },
     stream,
   );
 
@@ -83,7 +87,10 @@ export async function runAcpMode(options: CLIOptions): Promise<void> {
   // Monitor connection lifecycle
   _connection.signal.addEventListener('abort', () => {
     process.stderr.write('[ACP] Connection closed.\n');
-    process.exit(0);
+    // Let session-end hooks run before the process leaves.
+    void Promise.resolve(adapter?.shutdown('exit'))
+      .catch(() => {})
+      .finally(() => process.exit(0));
   });
 
   process.stderr.write('[ACP] Native ACP mode ready. Waiting for client...\n');

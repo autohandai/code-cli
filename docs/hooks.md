@@ -140,6 +140,8 @@ Enabled, trusted extensions register lifecycle handlers through `api.hooks.on(ev
 ### 3. JSON-RPC 2.0 Notifications (IDE Integration)
 When running in RPC mode (VS Code, Zed, etc.), hook events are also emitted as JSON-RPC 2.0 notifications that IDE extensions can subscribe to.
 
+Native ACP clients receive hook events as `autohand.hook.*` notifications, including permission requests, notifications, sub-agent completion, and the end of a turn. The hooks themselves run identically in every mode, so a configured hook fires whether the session is interactive, RPC, or ACP. When an ACP connection closes, the `session-end` hook runs for every live session before the process exits.
+
 ---
 
 ## Hook Events

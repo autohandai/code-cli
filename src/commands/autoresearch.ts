@@ -315,8 +315,21 @@ export async function autoresearch(
     }
 
     case 'finalize': {
-      const result = await finalizeSession(workspaceRoot);
-      return result.message;
+      try {
+        const result = await finalizeSession(workspaceRoot);
+        await emitLifecycleHook(
+          ctx,
+          result.success ? 'autoresearch:complete' : 'autoresearch:error',
+          'finalize',
+          await manager.getState(),
+          result.success ? { filePath: result.filePath } : { reason: result.message },
+        );
+        return result.message;
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        await emitLifecycleHook(ctx, 'autoresearch:error', 'finalize', await manager.getState(), { reason });
+        throw error;
+      }
     }
 
     case 'status': {
@@ -466,9 +479,10 @@ export async function runAutoResearchCli(workspaceRoot: string, args: string[] =
 
 async function emitLifecycleHook(
   ctx: SlashCommandContext,
-  event: 'autoresearch:start' | 'autoresearch:pause',
-  subcommand: 'start' | 'resume' | 'off',
-  state: AutoResearchState | null
+  event: 'autoresearch:start' | 'autoresearch:pause' | 'autoresearch:complete' | 'autoresearch:error',
+  subcommand: 'start' | 'resume' | 'off' | 'finalize',
+  state: AutoResearchState | null,
+  extra: Record<string, unknown> = {},
 ): Promise<void> {
   await ctx.hookManager?.executeHooks(event, {
     autoresearchGoal: state?.goal,
@@ -476,6 +490,7 @@ async function emitLifecycleHook(
     autoresearchIteration: state?.iteration,
     autoresearchMaxIterations: state?.maxIterations,
     autoresearchSubcommand: subcommand,
+    ...extra,
   });
 }
 
