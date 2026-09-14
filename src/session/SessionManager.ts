@@ -628,10 +628,15 @@ export class Session {
         const durationMs = normalizeUsageCount(input.durationMs);
         const updatedAt = input.occurredAt ?? new Date().toISOString();
 
+        const cacheReadTokens = addOptionalUsageCount(current?.cacheReadTokens, input.cacheReadTokens);
+        const cacheWriteTokens = addOptionalUsageCount(current?.cacheWriteTokens, input.cacheWriteTokens);
+
         this.metadata.usage = {
             promptTokens: (current?.promptTokens ?? 0) + promptTokens,
             completionTokens: (current?.completionTokens ?? 0) + completionTokens,
             totalTokens: (current?.totalTokens ?? 0) + totalTokens,
+            ...(cacheReadTokens === undefined ? {} : { cacheReadTokens }),
+            ...(cacheWriteTokens === undefined ? {} : { cacheWriteTokens }),
             turnCount: (current?.turnCount ?? 0) + 1,
             tokenUsageStatus:
                 current?.tokenUsageStatus === 'unavailable' || input.tokenUsageStatus === 'unavailable'
@@ -705,4 +710,20 @@ function normalizeUsageCount(value: number | undefined): number {
     return typeof value === 'number' && Number.isFinite(value) && value > 0
         ? Math.round(value)
         : 0;
+}
+
+/**
+ * Accumulates a figure only the reporting providers supply. Unlike
+ * `normalizeUsageCount` a reported zero is kept rather than folded away,
+ * because a provider that measured no cache hits said something, and a
+ * provider that stayed silent did not.
+ */
+function addOptionalUsageCount(
+    current: number | undefined,
+    incoming: number | undefined,
+): number | undefined {
+    if (typeof incoming !== 'number' || !Number.isFinite(incoming) || incoming < 0) {
+        return current;
+    }
+    return (current ?? 0) + Math.round(incoming);
 }

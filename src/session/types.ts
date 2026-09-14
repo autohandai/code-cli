@@ -10,6 +10,13 @@ export interface SessionUsageMetadata {
     totalTokens: number;
     promptTokens?: number;
     completionTokens?: number;
+    /**
+     * Absent, never zero, for a session whose provider reported no cache
+     * figures. A zero would say every request missed cache, which is a
+     * measured claim about a provider that never spoke.
+     */
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
     turnCount: number;
     tokenUsageStatus: 'actual' | 'unavailable';
     longestTurnDurationMs?: number;
@@ -20,6 +27,8 @@ export interface SessionTurnUsageInput {
     promptTokens?: number;
     completionTokens?: number;
     totalTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
     tokenUsageStatus: 'actual' | 'unavailable';
     durationMs?: number;
     occurredAt?: string;

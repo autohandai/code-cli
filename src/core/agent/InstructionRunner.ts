@@ -741,6 +741,12 @@ export class InstructionRunner {
               promptTokens: completedTurnUsage.promptTokens,
               completionTokens: completedTurnUsage.completionTokens,
               totalTokens: completedTurnUsage.totalTokens,
+              ...(completedTurnUsage.cacheReadTokens === undefined
+                ? {}
+                : { cacheReadTokens: completedTurnUsage.cacheReadTokens }),
+              ...(completedTurnUsage.cacheWriteTokens === undefined
+                ? {}
+                : { cacheWriteTokens: completedTurnUsage.cacheWriteTokens }),
               tokenUsageStatus: 'actual',
               durationMs: host.taskStartedAt ? turnCompletedAt - host.taskStartedAt : undefined,
               occurredAt: new Date(turnCompletedAt).toISOString(),

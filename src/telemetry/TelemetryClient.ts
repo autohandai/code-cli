@@ -71,6 +71,8 @@ function isOptionalSessionUsageMetadata(value: unknown): boolean {
     && typeof value.updatedAt === 'string'
     && isOptionalFiniteNumber(value.promptTokens)
     && isOptionalFiniteNumber(value.completionTokens)
+    && isOptionalFiniteNumber(value.cacheReadTokens)
+    && isOptionalFiniteNumber(value.cacheWriteTokens)
     && isOptionalFiniteNumber(value.longestTurnDurationMs);
 }
 

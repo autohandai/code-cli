@@ -132,6 +132,58 @@ describe("BedrockProvider", () => {
     expect(toolResult.content[0]?.text.trim()).not.toBe("");
   });
 
+  it("carries Converse cache figures, which AWS reports alongside inputTokens", async () => {
+    mockRuntimeSend.mockResolvedValueOnce({
+      output: { message: { role: "assistant", content: [{ text: "ok" }] } },
+      stopReason: "end_turn",
+      usage: {
+        inputTokens: 100,
+        outputTokens: 20,
+        totalTokens: 8_312,
+        cacheReadInputTokens: 8_000,
+        cacheWriteInputTokens: 192,
+      },
+    });
+
+    const { BedrockProvider } = await import("../../src/providers/BedrockProvider.js");
+    const provider = new BedrockProvider({
+      model: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+      region: "us-east-1",
+      authMode: "aws-credentials",
+    });
+
+    const response = await provider.complete({ messages: [{ role: "user", content: "go" }] });
+
+    expect(response.usage?.cacheReadTokens).toBe(8_000);
+    expect(response.usage?.cacheWriteTokens).toBe(192);
+    // Converse reports inputTokens without the cached share. Folding it in
+    // keeps promptTokens meaning the same thing it means for every other
+    // provider here, and keeps the cache breakdown inside the total it is
+    // checked against.
+    expect(response.usage?.promptTokens).toBe(8_292);
+  });
+
+  it("leaves Converse cache figures absent when AWS reports none", async () => {
+    mockRuntimeSend.mockResolvedValueOnce({
+      output: { message: { role: "assistant", content: [{ text: "ok" }] } },
+      stopReason: "end_turn",
+      usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+    });
+
+    const { BedrockProvider } = await import("../../src/providers/BedrockProvider.js");
+    const provider = new BedrockProvider({
+      model: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+      region: "us-east-1",
+      authMode: "aws-credentials",
+    });
+
+    const response = await provider.complete({ messages: [{ role: "user", content: "go" }] });
+
+    expect(response.usage?.promptTokens).toBe(100);
+    expect(response.usage?.cacheReadTokens).toBeUndefined();
+    expect(response.usage?.cacheWriteTokens).toBeUndefined();
+  });
+
   it("reports omitted screenshot input in the text-only Converse adapter", async () => {
     mockRuntimeSend.mockResolvedValueOnce({
       output: { message: { role: "assistant", content: [{ text: "Image unavailable." }] } },

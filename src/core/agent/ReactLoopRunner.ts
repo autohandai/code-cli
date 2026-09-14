@@ -251,23 +251,29 @@ function getSessionPromptCacheDirective(host: AgentReactLoopHost) {
   return deriveSessionPromptCacheDirective(sessionId);
 }
 
-function addUsageToTurn(existing: TurnUsage, provider: ProviderName | undefined, usage: LLMUsage): TurnUsage {
-  if (existing.kind === 'actual') {
-    return {
-      kind: 'actual',
-      provider,
-      promptTokens: existing.promptTokens + usage.promptTokens,
-      completionTokens: existing.completionTokens + usage.completionTokens,
-      totalTokens: existing.totalTokens + usage.totalTokens,
-    };
-  }
+/**
+ * Sums an optional per-request figure across a turn. A provider that says
+ * nothing contributes nothing rather than a zero, because a zero here is a
+ * measurement — "this request hit cache for nothing" — and would make every
+ * silent provider look like a permanent cache miss.
+ */
+function addOptionalTokens(existing: number | undefined, incoming: number | undefined): number | undefined {
+  return incoming === undefined ? existing : (existing ?? 0) + incoming;
+}
+
+export function addUsageToTurn(existing: TurnUsage, provider: ProviderName | undefined, usage: LLMUsage): TurnUsage {
+  const previous = existing.kind === 'actual' ? existing : undefined;
+  const cacheReadTokens = addOptionalTokens(previous?.cacheReadTokens, usage.cacheReadTokens);
+  const cacheWriteTokens = addOptionalTokens(previous?.cacheWriteTokens, usage.cacheWriteTokens);
 
   return {
     kind: 'actual',
     provider,
-    promptTokens: usage.promptTokens,
-    completionTokens: usage.completionTokens,
-    totalTokens: usage.totalTokens,
+    promptTokens: (previous?.promptTokens ?? 0) + usage.promptTokens,
+    completionTokens: (previous?.completionTokens ?? 0) + usage.completionTokens,
+    totalTokens: (previous?.totalTokens ?? 0) + usage.totalTokens,
+    ...(cacheReadTokens === undefined ? {} : { cacheReadTokens }),
+    ...(cacheWriteTokens === undefined ? {} : { cacheWriteTokens }),
   };
 }
 

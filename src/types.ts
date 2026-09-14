@@ -1490,6 +1490,13 @@ export type TurnUsage =
       promptTokens: number;
       completionTokens: number;
       totalTokens: number;
+      /**
+       * Summed over only the requests in the turn that reported a figure, so a
+       * turn against a provider that never reports cache usage is not recorded
+       * as a turn that missed cache.
+       */
+      cacheReadTokens?: number;
+      cacheWriteTokens?: number;
     }
   | {
       kind: 'unavailable';

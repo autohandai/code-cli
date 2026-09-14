@@ -101,6 +101,12 @@ export class SimpleChatHandler {
           promptTokens: completion.usage.promptTokens,
           completionTokens: completion.usage.completionTokens,
           totalTokens: completion.usage.totalTokens,
+          ...(completion.usage.cacheReadTokens === undefined
+            ? {}
+            : { cacheReadTokens: completion.usage.cacheReadTokens }),
+          ...(completion.usage.cacheWriteTokens === undefined
+            ? {}
+            : { cacheWriteTokens: completion.usage.cacheWriteTokens }),
         };
       } else {
         this.agent.currentTurnHadUnavailableUsage = true;

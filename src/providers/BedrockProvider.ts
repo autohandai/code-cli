@@ -80,6 +80,8 @@ interface ConverseResponse {
     inputTokens?: number;
     outputTokens?: number;
     totalTokens?: number;
+    cacheReadInputTokens?: number;
+    cacheWriteInputTokens?: number;
   };
 }
 
@@ -302,6 +304,32 @@ function toResponsesTools(tools: FunctionDefinition[]): Array<Record<string, unk
     description: tool.description,
     parameters: tool.parameters ?? { type: "object", properties: {} },
   }));
+}
+
+/**
+ * Restate Converse usage in the shape the shared normalizer expects.
+ *
+ * Converse reports the cached share beside `inputTokens` rather than inside
+ * it, so passing the payload through untouched both loses the cache figures —
+ * the normalizer does not know these AWS spellings — and, once it did know
+ * them, would trip its own guard that a cache breakdown cannot exceed the
+ * prompt it came from. Folding the cached tokens into the prompt count matches
+ * what AnthropicProvider already does for the identical upstream API, and
+ * keeps `promptTokens` meaning one thing across every provider here.
+ */
+function converseUsage(usage: ConverseResponse["usage"]): Record<string, number> | undefined {
+  if (!usage) return undefined;
+  const cacheRead = usage.cacheReadInputTokens;
+  const cacheWrite = usage.cacheWriteInputTokens;
+  return {
+    ...(usage.inputTokens === undefined
+      ? {}
+      : { prompt_tokens: usage.inputTokens + (cacheRead ?? 0) + (cacheWrite ?? 0) }),
+    ...(usage.outputTokens === undefined ? {} : { completion_tokens: usage.outputTokens }),
+    ...(usage.totalTokens === undefined ? {} : { total_tokens: usage.totalTokens }),
+    ...(cacheRead === undefined ? {} : { cache_read_input_tokens: cacheRead }),
+    ...(cacheWrite === undefined ? {} : { cache_creation_input_tokens: cacheWrite }),
+  };
 }
 
 function toConverseTools(tools: FunctionDefinition[]): Array<Record<string, unknown>> {
@@ -611,7 +639,7 @@ export class BedrockProvider implements LLMProvider {
         content: textFromConverseBlocks(blocks),
         ...(toolCalls.length > 0 && { toolCalls }),
         finishReason: normalizeStopReason(data.stopReason),
-        usage: normalizeLLMUsage(data.usage),
+        usage: normalizeLLMUsage(converseUsage(data.usage)),
         raw: data,
       };
     } catch (error) {
