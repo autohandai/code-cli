@@ -30,6 +30,10 @@ import { ContextCompactor } from './compactor.js';
 import { boundCompactionSummary, summarizeWithLLM } from './summarizer.js';
 import { ConversationManager } from '../conversationManager.js';
 import { findProtectedRecentTurnIndices } from './priority.js';
+import { pushBounded } from '../../utils/bounded.js';
+
+/** Each entry holds a full LLM summary; only a recent window is ever inspected. */
+export const MAX_COMPACTION_HISTORY = 50;
 
 export class ContextOrchestrator {
   private enabled: boolean;
@@ -481,7 +485,7 @@ export class ContextOrchestrator {
       readFiles: [],
       modifiedFiles: [],
     };
-    this.history.push(entry);
+    pushBounded(this.history, entry, MAX_COMPACTION_HISTORY);
     this.reportCompaction(entry);
   }
 

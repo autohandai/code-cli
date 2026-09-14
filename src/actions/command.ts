@@ -393,7 +393,7 @@ export async function runCommand(
  * kill on Windows or if the group no longer exists. Returns whether the
  * signal was delivered to something — false means the pid is already gone.
  */
-function attemptKill(pid: number, signal: NodeJS.Signals): boolean {
+export function attemptKill(pid: number, signal: NodeJS.Signals): boolean {
   if (process.platform !== 'win32') {
     try {
       process.kill(-pid, signal);

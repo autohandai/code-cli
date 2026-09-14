@@ -18,6 +18,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import {
+  DEFAULT_SHELL_TIMEOUT_MS,
   ensureNodePtyHelperExecutable,
   executeStreamingShellCommand,
   getDirectoryEntriesCacheSizeForTests,
@@ -598,6 +599,48 @@ describe('executeStreamingShellCommand', () => {
 
     expect(addEventListener).toHaveBeenCalledWith('abort', expect.any(Function), { once: true });
     expect(removeEventListener).toHaveBeenCalledWith('abort', expect.any(Function));
+  });
+});
+
+describe('executeStreamingShellCommand PTY watchdog', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    setNodePtyLoaderForTests();
+  });
+
+  it('kills a PTY command that never exits once the shell timeout elapses', async () => {
+    vi.useFakeTimers();
+    const stdinIsTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const stdoutIsTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+
+    const kill = vi.fn();
+    setNodePtyLoaderForTests(async () => ({
+      spawn: () => ({
+        pid: 4242,
+        onData: () => ({ dispose: vi.fn() }),
+        onExit: () => ({ dispose: vi.fn() }),
+        kill,
+      }),
+    }));
+
+    try {
+      const pending = executeStreamingShellCommand('sleep 999', tmpdir(), { preferPty: true });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(kill).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(DEFAULT_SHELL_TIMEOUT_MS);
+
+      expect(kill).toHaveBeenCalledOnce();
+      await expect(pending).resolves.toMatchObject({ success: false, error: expect.stringMatching(/timed out/i) });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      if (stdinIsTty) Object.defineProperty(process.stdin, 'isTTY', stdinIsTty);
+      else delete (process.stdin as { isTTY?: boolean }).isTTY;
+      if (stdoutIsTty) Object.defineProperty(process.stdout, 'isTTY', stdoutIsTty);
+      else delete (process.stdout as { isTTY?: boolean }).isTTY;
+    }
   });
 });
 

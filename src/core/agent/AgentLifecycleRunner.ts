@@ -52,7 +52,7 @@ import {
   type SequencedQueuedAgentInstruction,
   type QueuedMobileComposerCommand,
 } from './PostTurnActionCoordinator.js';
-import type { MobileClaimedTurnContext } from '../../mobile/MobileRelay.js';
+import { stopMobileRelay, type MobileClaimedTurnContext } from '../../mobile/MobileRelay.js';
 import type { MobileImageAttachment } from '../../mobile/MobileHandoffClient.js';
 import { validateMobileCommandInvocationForWorkspace } from '../../mobile/MobileCommandPolicy.js';
 import { executeReviewWithLifecycle } from '../../review/reviewLifecycle.js';
@@ -617,8 +617,10 @@ export function installAgentExitSignalHandlers(host: AgentLifecycleHost): void {
 
     const handleExitSignal = () => {
       if (host.shouldExit) {
-        // Second signal - force immediate exit
+        // Second signal - force immediate exit. process.exit skips the async
+        // shutdown path, so detached background children must be signalled here.
         console.log(formatForceExit());
+        callResourceCleanupSync(() => host.backgroundProcessRegistry?.killAllSync());
         process.exit(0);
       }
       host.shouldExit = true;
@@ -734,6 +736,7 @@ export async function shutdownAgentRuntimeResources(host: AgentLifecycleHost): P
       host.goalActivityUnsubscribe = null;
 
       callResourceCleanupSync(() => host.repeatManager?.shutdown());
+      callResourceCleanupSync(() => stopMobileRelay());
       host.persistentInputActiveTurn = false;
       callResourceCleanupSync(() => host.persistentInput?.dispose?.());
       callResourceCleanupSync(() => process.stdin.pause());

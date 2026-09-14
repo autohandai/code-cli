@@ -28,7 +28,7 @@ export type { BackgroundProcessCompletion } from '../actions/command.js';
 /**
  * Default timeout for shell commands (30 seconds)
  */
-const DEFAULT_SHELL_TIMEOUT = 30000;
+export const DEFAULT_SHELL_TIMEOUT_MS = 30000;
 const DEFAULT_KILL_GRACE_PERIOD_MS = 1_000;
 const SUPPORTS_PROCESS_GROUP_SIGNALS = process.platform !== 'win32';
 
@@ -537,7 +537,7 @@ export function isImmediateCommand(input: string): boolean {
 export async function executeShellCommandAsync(
   command: string,
   cwd?: string,
-  timeout: number = DEFAULT_SHELL_TIMEOUT,
+  timeout: number = DEFAULT_SHELL_TIMEOUT_MS,
   options: ExecuteShellCommandAsyncOptions = {}
 ): Promise<ShellCommandResult> {
   const trimmedCommand = command.trim();
@@ -746,7 +746,7 @@ export async function executeStreamingShellCommand(
     && supportsPtyExecution();
 
   if (!shouldUsePty) {
-    return executeShellCommandAsync(trimmedCommand, cwd, DEFAULT_SHELL_TIMEOUT, options);
+    return executeShellCommandAsync(trimmedCommand, cwd, DEFAULT_SHELL_TIMEOUT_MS, options);
   }
 
   const nodePty = await loadNodePty();
@@ -755,7 +755,7 @@ export async function executeStreamingShellCommand(
   }
   if (!nodePty) {
     writeAutohandDebugLine('[pty] unavailable, using non-PTY execution');
-    return executeShellCommandAsync(trimmedCommand, cwd, DEFAULT_SHELL_TIMEOUT, options);
+    return executeShellCommandAsync(trimmedCommand, cwd, DEFAULT_SHELL_TIMEOUT_MS, options);
   }
 
   const { file, args } = getPtyShellLaunch(trimmedCommand);
@@ -776,7 +776,7 @@ export async function executeStreamingShellCommand(
     writeAutohandDebugLine(
       `[pty] spawn failed, using non-PTY execution: ${error instanceof Error ? error.message : String(error)}`,
     );
-    return executeShellCommandAsync(trimmedCommand, cwd, DEFAULT_SHELL_TIMEOUT, options);
+    return executeShellCommandAsync(trimmedCommand, cwd, DEFAULT_SHELL_TIMEOUT_MS, options);
   }
   coordinated?.observePty(ptyProcess);
 
@@ -794,10 +794,26 @@ export async function executeStreamingShellCommand(
     let settled = false;
     let sawOutput = false;
     function cleanup(): void {
+      clearTimeout(watchdog);
       dataDisposable.dispose();
       exitDisposable.dispose();
       options.signal?.removeEventListener('abort', handleAbort);
     }
+    // Mirror the non-PTY branch: a command that never exits must not hold the
+    // PTY, the child, and its growing output buffer for the rest of the session.
+    const watchdog = setTimeout(() => {
+      if (settled) return;
+      writeAutohandDebugLine(
+        `[pty] timeout pid=${ptyProcess.pid ?? 'unknown'} after=${sincePtyStart()}ms bytes=${output.length}`,
+      );
+      ptyProcess.kill();
+      const normalized = output.toString().replace(/\r\n/g, '\n');
+      finish({
+        success: false,
+        error: [normalized, `Command timed out after ${DEFAULT_SHELL_TIMEOUT_MS}ms`].filter(Boolean).join('\n'),
+      });
+    }, DEFAULT_SHELL_TIMEOUT_MS);
+    watchdog.unref?.();
     const finish = (result: ShellCommandResult): void => {
       if (settled) return;
       settled = true;

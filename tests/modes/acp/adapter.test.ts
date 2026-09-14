@@ -57,6 +57,8 @@ const {
   };
 
   const mockAgent = {
+    shutdown: vi.fn().mockResolvedValue(undefined),
+    shutdownRuntimeResources: vi.fn().mockResolvedValue(undefined),
     initializeForRPC: vi.fn().mockResolvedValue(undefined),
     setOutputListener: vi.fn(),
     setConfirmationCallback: vi.fn(),
@@ -489,7 +491,11 @@ describe("AutohandAcpAdapter", () => {
     });
 
     it("runs the session-end hook and notifies the client when the connection closes", async () => {
+      mockAgent.shutdownRuntimeResources.mockClear();
       await adapter.shutdown("exit");
+
+      // Ending the session must not leave its MCP servers or background processes behind.
+      expect(mockAgent.shutdownRuntimeResources).toHaveBeenCalledOnce();
 
       expect(executeHooks).toHaveBeenCalledWith(
         "session-end",
@@ -527,6 +533,24 @@ describe("AutohandAcpAdapter", () => {
         "autohand.hook.subagentStop",
         expect.objectContaining({ subagentName: "helper", success: true }),
       );
+    });
+  });
+
+  describe("dispose()", () => {
+    it("shuts down every session agent so MCP servers and background processes do not outlive the connection", async () => {
+      mockAgent.shutdown.mockClear();
+      mockAgent.shutdownRuntimeResources.mockClear();
+      const { sessionId } = await adapter.newSession(makeNewSessionRequest());
+
+      await adapter.dispose();
+
+      expect(mockAgent.shutdown).toHaveBeenCalledOnce();
+      expect(mockAgent.shutdownRuntimeResources).toHaveBeenCalledOnce();
+      mockAgent.runInstruction.mockClear();
+      await expect(
+        adapter.prompt({ sessionId, prompt: [{ type: "text", text: "hi" }] }),
+      ).rejects.toThrow();
+      expect(mockAgent.runInstruction).not.toHaveBeenCalled();
     });
   });
 

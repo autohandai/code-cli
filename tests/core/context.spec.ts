@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ConversationManager } from '../../src/core/conversationManager.js';
-import { ContextOrchestrator } from '../../src/core/context/orchestrator.js';
+import { ContextOrchestrator, MAX_COMPACTION_HISTORY } from '../../src/core/context/orchestrator.js';
 import { ContextCompactor } from '../../src/core/context/compactor.js';
 import {
   getContextWindow,
@@ -761,6 +761,29 @@ describe('context/orchestrator', () => {
     orchestrator = new ContextOrchestrator({
       model: 'openai/gpt-4o-mini',
       conversationManager,
+    });
+  });
+
+  describe('compaction history retention', () => {
+    it('keeps only the most recent compaction entries', () => {
+      const usage: unknown = { totalTokens: 1_000 };
+      const internals = orchestrator as unknown as {
+        recordCompaction: (
+          croppedCount: number,
+          summary: string | undefined,
+          reason: string,
+          usageBefore: unknown,
+          usageAfter: unknown,
+        ) => void;
+      };
+
+      for (let index = 0; index < MAX_COMPACTION_HISTORY + 10; index += 1) {
+        internals.recordCompaction(1, `summary ${index}`, 'test', usage, usage);
+      }
+
+      const history = orchestrator.getHistory();
+      expect(history).toHaveLength(MAX_COMPACTION_HISTORY);
+      expect(history[history.length - 1]?.summary).toBe(`summary ${MAX_COMPACTION_HISTORY + 9}`);
     });
   });
 

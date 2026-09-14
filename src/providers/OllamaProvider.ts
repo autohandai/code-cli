@@ -617,6 +617,11 @@ export class OllamaProvider implements LLMProvider {
                 }
             }
         } finally {
+            // A chunk timeout or an early exit leaves the HTTP body open and
+            // Ollama generating into it; cancelling tells the server to stop.
+            if (!streamEndedWithDone) {
+                await reader.cancel().catch(() => {});
+            }
             reader.releaseLock();
         }
 

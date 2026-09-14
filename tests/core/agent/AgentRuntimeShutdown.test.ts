@@ -9,6 +9,12 @@ import {
   installAgentExitSignalHandlers,
   removeAgentExitSignalHandlers,
 } from '../../../src/core/agent/AgentLifecycleRunner.js';
+import { stopMobileRelay } from '../../../src/mobile/MobileRelay.js';
+
+vi.mock('../../../src/mobile/MobileRelay.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/mobile/MobileRelay.js')>()),
+  stopMobileRelay: vi.fn(),
+}));
 
 type ShutdownCapableAgent = AutohandAgent & {
   shutdownRuntimeResources(): Promise<void>;
@@ -101,6 +107,15 @@ describe('AutohandAgent runtime resource shutdown', () => {
     expect(internals.hookManager.executeHooks).not.toHaveBeenCalled();
     expect(internals.telemetryManager.endSession).not.toHaveBeenCalled();
     expect(internals.sessionManager.closeSession).not.toHaveBeenCalled();
+  });
+
+  it('stops the mobile relay so its poll interval and keep-awake child do not outlive the CLI', async () => {
+    const agent = createShutdownAgent();
+    vi.mocked(stopMobileRelay).mockClear();
+
+    await agent.shutdownRuntimeResources();
+
+    expect(stopMobileRelay).toHaveBeenCalledOnce();
   });
 
   it('terminates registered background processes so none outlive the CLI', async () => {
@@ -403,6 +418,36 @@ describe('AutohandAgent runtime resource shutdown', () => {
 });
 
 describe('agent exit signal listeners', () => {
+  it('kills tracked background process groups before a forced second-signal exit', () => {
+    const killAllSync = vi.fn();
+    const host = {
+      exitSignalHandlersInstalled: false,
+      exitSignalHandler: null,
+      shouldExit: true,
+      clearAllQueuesAndAbort: vi.fn(),
+      backgroundProcessRegistry: { killAllSync },
+    };
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const sigintBefore = new Set(process.listeners('SIGINT'));
+
+    try {
+      installAgentExitSignalHandlers(host);
+      const sigintHandler = process.listeners('SIGINT').find((listener) => !sigintBefore.has(listener));
+      expect(sigintHandler).toBeDefined();
+
+      (sigintHandler as () => void)();
+
+      expect(killAllSync).toHaveBeenCalledOnce();
+      expect(exitSpy).toHaveBeenCalledWith(0);
+      expect(killAllSync.mock.invocationCallOrder[0]).toBeLessThan(exitSpy.mock.invocationCallOrder[0]!);
+    } finally {
+      removeAgentExitSignalHandlers(host);
+      exitSpy.mockRestore();
+      logSpy.mockRestore();
+    }
+  });
+
   it('removes the exact SIGINT and SIGTERM listener that it installed', () => {
     const host = {
       exitSignalHandlersInstalled: false,

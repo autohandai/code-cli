@@ -753,6 +753,42 @@ describe('OllamaProvider', () => {
             resolveHangingRead({ done: true, value: undefined });
         });
 
+        it('cancels the response body after a chunk timeout so Ollama stops generating into a dead socket', async () => {
+            let readCount = 0;
+            const mockReader = {
+                read: vi.fn().mockImplementation(() => {
+                    readCount++;
+                    if (readCount === 1) {
+                        return Promise.resolve({
+                            done: false,
+                            value: new TextEncoder().encode(
+                                '{"message":{"content":"Partial data"},"created_at":"2024-11-21T10:30:00Z"}\n'
+                            )
+                        });
+                    }
+                    return new Promise<ReadableStreamReadResult<Uint8Array>>(() => {});
+                }),
+                releaseLock: vi.fn(),
+                cancel: vi.fn().mockResolvedValue(undefined)
+            };
+
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                body: { getReader: vi.fn().mockReturnValue(mockReader) }
+            });
+
+            const p = new OllamaProvider(config, { timeout: 120_000, maxRetries: 0 });
+            (p as unknown as Record<string, unknown>)['chunkTimeout'] = 50;
+
+            await p.complete({
+                messages: [{ role: 'user', content: 'Hello' }],
+                stream: true
+            });
+
+            expect(mockReader.cancel).toHaveBeenCalledOnce();
+            expect(mockReader.releaseLock).toHaveBeenCalledOnce();
+        });
+
         it('handleStreamingResponse returns length finishReason when reader ends without done:true JSON', async () => {
             // A stream that ends immediately (done: true from reader) without any Ollama done:true JSON
             // This simulates a connection dropped in the middle of a response

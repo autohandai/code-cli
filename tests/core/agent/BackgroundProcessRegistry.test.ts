@@ -12,6 +12,19 @@ describe('BackgroundProcessRegistry', () => {
     vi.restoreAllMocks();
   });
 
+  it('kills every tracked process group synchronously and forgets them', () => {
+    const registry = new BackgroundProcessRegistry();
+    registry.register(4242, 'bun run dev');
+    registry.register(5151, 'tail -f log');
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+
+    registry.killAllSync();
+
+    const signalled = killSpy.mock.calls.map(([pid, signal]) => [pid, signal]);
+    expect(signalled).toEqual(expect.arrayContaining([[-4242, 'SIGKILL'], [-5151, 'SIGKILL']]));
+    expect(registry.list()).toEqual([]);
+  });
+
   it('registers an entry and lists it', () => {
     const registry = new BackgroundProcessRegistry();
     const id = registry.register(4242, 'bun run dev', 'apps/web');

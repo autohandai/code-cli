@@ -87,7 +87,7 @@ export async function runAcpMode(options: CLIOptions): Promise<void> {
   // Monitor connection lifecycle
   _connection.signal.addEventListener('abort', () => {
     process.stderr.write('[ACP] Connection closed.\n');
-    // Let session-end hooks run before the process leaves.
+    // Let session-end hooks run and release each agent's resources before the process leaves.
     void Promise.resolve(adapter?.shutdown('exit'))
       .catch(() => {})
       .finally(() => process.exit(0));

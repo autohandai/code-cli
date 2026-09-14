@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { AgentAction, AgentRuntime } from '../src/types.js';
 import type { FileActionManager } from '../src/actions/filesystem.js';
-import { ActionExecutor } from '../src/core/actionExecutor.js';
+import { ActionExecutor, MAX_SEARCH_CACHE_ENTRIES } from '../src/core/actionExecutor.js';
 import type { MetaToolDefinition } from '../src/core/toolsRegistry.js';
 import * as gitActions from '../src/actions/git.js';
 import * as commandActions from '../src/actions/command.js';
@@ -537,6 +537,24 @@ describe('ActionExecutor', () => {
   });
 
   describe('Search Operations', () => {
+    it('bounds the find result cache across a long session', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const search = vi.fn().mockReturnValue([{ file: 'src/index.ts', line: 1, text: 'hit' }]);
+      const executor = createExecutor({ search });
+
+      try {
+        for (let index = 0; index < MAX_SEARCH_CACHE_ENTRIES + 20; index += 1) {
+          await executor.execute({ type: 'find', query: `query-${index}` } as any);
+        }
+      } finally {
+        warnSpy.mockRestore();
+      }
+
+      const cache = (executor as unknown as { searchCache: Map<string, string> }).searchCache;
+      expect(cache.size).toBe(MAX_SEARCH_CACHE_ENTRIES);
+      expect([...cache.keys()].some((key) => key.includes('query-0:'))).toBe(false);
+    });
+
     it('executes find as the canonical search tool', async () => {
       const search = vi.fn().mockReturnValue([
         { file: 'src/index.ts', line: 10, text: 'console.log("hello")' },

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { setBounded } from '../utils/bounded.js';
 import path from 'node:path';
 import fse from 'fs-extra';
 import { showModal, showInput, type ModalOption } from '../ui/ink/components/Modal.js';
@@ -306,6 +307,9 @@ const PEER_DIRECT_WRITE_ACTIONS = new Set<string>([
   'git_checkout',
 ]);
 
+/** Search results are full text blobs keyed by query; keep a recent window, not the session's history. */
+export const MAX_SEARCH_CACHE_ENTRIES = 100;
+
 export class ActionExecutor {
   private readonly runtime: AgentExecutorDeps['runtime'];
   private readonly files: AgentExecutorDeps['files'];
@@ -343,6 +347,10 @@ export class ActionExecutor {
   private readonly readSessionLedger: ReadSessionLedger;
   private readonly securityScanner: SecurityScanner;
   private readonly searchCache: Map<string, string> = new Map();
+
+  private cacheSearchResult(cacheKey: string, result: string): void {
+    setBounded(this.searchCache, cacheKey, result, MAX_SEARCH_CACHE_ENTRIES);
+  }
   private todoActivityForCurrentTurn: ActivityTodo[] | null = null;
   private fffSearchProviderPromise: Promise<FFFSearchProvider> | null = null;
   private fffSearchWorkspaceRoot: string | null = null;
@@ -3912,13 +3920,13 @@ export class ActionExecutor {
         relativePath: action.path
       });
       if (!results.length) {
-        this.searchCache.set(cacheKey, 'No matches found.');
+        this.cacheSearchResult(cacheKey, 'No matches found.');
         return 'No matches found.';
       }
       const result = results
         .map((hit) => `${chalk.cyan(hit.file)}\n${hit.snippet}`)
         .join('\n\n');
-      this.searchCache.set(cacheKey, result);
+      this.cacheSearchResult(cacheKey, result);
       return result;
     }
 
@@ -3928,7 +3936,7 @@ export class ActionExecutor {
         context: action.context,
         relativePath: action.path
       });
-      this.searchCache.set(cacheKey, result);
+      this.cacheSearchResult(cacheKey, result);
       return result;
     }
 
@@ -3937,7 +3945,7 @@ export class ActionExecutor {
       .slice(0, action.limit ?? 10)
       .map((hit) => `${hit.file}:${hit.line}: ${hit.text}`)
       .join('\n');
-    this.searchCache.set(cacheKey, result);
+    this.cacheSearchResult(cacheKey, result);
     return result;
   }
 

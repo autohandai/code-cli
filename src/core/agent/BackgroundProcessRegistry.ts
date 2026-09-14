@@ -3,7 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { killProcessGroup } from '../../actions/command.js';
+import { attemptKill, killProcessGroup } from '../../actions/command.js';
 
 export interface BackgroundProcessEntry {
   id: number;
@@ -82,6 +82,18 @@ export class BackgroundProcessRegistry {
   async killAll(gracePeriodMs?: number): Promise<void> {
     const ids = [...this.entries.keys()];
     await Promise.all(ids.map((id) => this.stop(id, gracePeriodMs)));
+  }
+
+  /**
+   * Synchronous last resort for a forced exit: `process.exit` skips every
+   * pending promise, so the graceful `killAll` path never completes and the
+   * detached children would be orphaned.
+   */
+  killAllSync(): void {
+    for (const entry of this.entries.values()) {
+      attemptKill(entry.pid, 'SIGKILL');
+    }
+    this.entries.clear();
   }
 
   async shutdown(gracePeriodMs?: number): Promise<void> {

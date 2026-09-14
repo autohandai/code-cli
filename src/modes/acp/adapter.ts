@@ -438,6 +438,10 @@ export class AutohandAcpAdapter implements Agent {
       promptCount: 0,
     };
 
+    const previousAgent = this.agents.get(managedSessionId);
+    if (previousAgent && previousAgent !== agent) {
+      void this.shutdownAgent(previousAgent);
+    }
     this.sessions.set(managedSessionId, state);
     this.agents.set(managedSessionId, agent);
     this.forwardHookLifecycle(managedSessionId, agent);
@@ -896,6 +900,35 @@ export class AutohandAcpAdapter implements Agent {
   // ACP Agent Interface: cancel
   // ==========================================================================
 
+  /**
+   * Release every session's agent (MCP connections, background processes,
+   * telemetry) when the ACP connection closes. Without this the process exit
+   * orphans the MCP servers each session spawned.
+   */
+  async dispose(): Promise<void> {
+    const agents = [...this.agents.values()];
+    this.sessions.clear();
+    this.agents.clear();
+    this.permissionBridges.clear();
+    this.sessionConfigOptions.clear();
+    this.cancelledSessions.clear();
+    await Promise.all(agents.map((agent) => this.shutdownAgent(agent)));
+  }
+
+  private async shutdownAgent(agent: AutohandAgent): Promise<void> {
+    try {
+      await agent.shutdown({
+        sessionEndReason: 'completed',
+        telemetryReason: 'completed',
+        showSessionSummary: false,
+      });
+    } catch {
+      // Session finalization is best-effort; runtime resources still need teardown.
+    } finally {
+      await agent.shutdownRuntimeResources().catch(() => {});
+    }
+  }
+
   async cancel(params: CancelNotification): Promise<void> {
     const session = this.sessions.get(params.sessionId);
     const agent = this.agents.get(params.sessionId);
@@ -1202,10 +1235,13 @@ export class AutohandAcpAdapter implements Agent {
    */
   async shutdown(reason: 'quit' | 'exit' | 'error' = 'exit'): Promise<void> {
     const sessions = [...this.sessions.entries()];
+    const agents: AutohandAgent[] = [];
     for (const [sessionId, state] of sessions) {
       const duration = Math.max(0, Date.now() - state.createdAt);
+      const agent = this.agents.get(sessionId);
+      if (agent) agents.push(agent);
       try {
-        await this.agents.get(sessionId)?.getHookManager?.()?.executeHooks('session-end', {
+        await agent?.getHookManager?.()?.executeHooks('session-end', {
           sessionId,
           sessionEndReason: reason,
           duration,
@@ -1218,6 +1254,9 @@ export class AutohandAcpAdapter implements Agent {
       this.emitHookSessionEnd(sessionId, reason, duration);
       this.forgetSession(sessionId);
     }
+    // The hooks above already ended the session; only the MCP servers, relays
+    // and background processes each agent still owns need releasing.
+    await Promise.all(agents.map((agent) => agent.shutdownRuntimeResources().catch(() => {})));
   }
 
   private async emitHookSafe(method: string, params: Record<string, unknown>): Promise<void> {
