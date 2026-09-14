@@ -126,6 +126,7 @@ import type {
 } from '../../mobile/MobileRelay.js';
 import type { MobileAgentSessionExecutionContext } from './AgentLifecycleRunner.js';
 import type { GoalEventData } from '../../telemetry/types.js';
+import { estimateTokens } from '../context/tokenizer.js';
 import {
   createQueuedAgentInstruction,
   type PendingPostTurnAction,
@@ -1670,10 +1671,13 @@ export function initializeAgentDependencies(
           host.recordExecutedAction(action.type);
 
           // Track the same explicit outcome used by hooks and transports.
+          const outputText = typeof readableOutput === 'string' ? readableOutput : '';
           await host.telemetryManager.trackToolUse({
             tool: action.type,
             success: finalOutcome.success,
             duration: Date.now() - startTime,
+            resultTokens: estimateTokens(outputText),
+            resultTruncated: isTruncatedToolResult(outputText),
             ...(finalOutcome.success ? {} : { error: finalOutcome.error }),
           });
 
@@ -2196,3 +2200,16 @@ export function initializeAgentDependencies(
   /**
    * Sync discovered MCP tools with tool definitions exposed to the LLM.
    */
+
+/**
+ * Whether a tool result was clipped before it reached the model.
+ *
+ * Detected from the markers the executor writes into the output itself,
+ * because truncation happens inside it and is not otherwise reported back.
+ * String sniffing is fragile — if those markers change this silently returns
+ * false — but the alternative is implying every result was complete and
+ * letting a floor read as an exact figure.
+ */
+function isTruncatedToolResult(result: string): boolean {
+  return result.includes('... (truncated)') || result.includes('output truncated at');
+}

@@ -161,7 +161,9 @@ export class TelemetryManager {
       tool: data.tool,
       success: data.success,
       duration: data.duration,
-      error: data.error
+      error: data.error,
+      resultTokens: data.resultTokens,
+      resultTruncated: data.resultTruncated
     });
   }
 

@@ -33,6 +33,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { getProviderConfig, loadConfig, resolveRequestedWorkspaceRoot, resolveWorkspaceRoot, saveConfig } from './config.js';
+import { reportCliCommand } from './telemetry/commandUsage.js';
 import { runStartupChecks, printStartupCheckResults, validateWorkspacePath } from './startup/checks.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/workspaceSafety.js';
 import { ensureAuthenticated } from './auth/index.js';
@@ -254,10 +255,36 @@ const collectRepeatable = (value: string, previous: string[] = []): string[] => 
 
 // --profile and --set apply to every command, including subcommands, and to
 // every config load in this process, before any of them reads the config.
-program.hook('preAction', (thisCommand) => {
+program.hook('preAction', (thisCommand, actionCommand) => {
   const { profile, set } = thisCommand.opts<{ profile?: string; set?: string[] }>();
   configureRunConfigOverlay({ profile, sets: set });
+
+  // Every top-level command reports itself from here rather than from its own
+  // action. Interactive slash commands are already covered by a single call
+  // site in AgentCommandRuntime; top-level commands never reach that runtime,
+  // so all of them were invisible. Hooking the program means a command added
+  // later is reported without anyone remembering to instrument it.
+  void reportCliCommand({
+    commandPath: commandPathOf(actionCommand),
+    loadConfig: () => loadConfig(),
+    clientVersion: getVersionString(),
+  });
 });
+
+/**
+ * The command's full path, e.g. ['mcp', 'connect']. Names only — arguments
+ * carry paths, server names and prompts, and none of that belongs in
+ * telemetry.
+ */
+function commandPathOf(command: Command): string[] {
+  const parts: string[] = [];
+  let current: Command | null = command;
+  while (current && current.name() && current.name() !== 'autohand') {
+    parts.unshift(current.name());
+    current = current.parent as Command | null;
+  }
+  return parts;
+}
 registerBrowserCommand(program);
 registerBrowserOptions(program);
 registerExtensionsCommand(program);

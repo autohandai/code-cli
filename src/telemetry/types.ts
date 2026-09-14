@@ -86,6 +86,14 @@ export interface ToolUseData {
   success: boolean;
   duration?: number;
   error?: string;
+  /**
+   * Tokens this tool's result added to the context. Ranking tools by call
+   * count alone hides the one that ran twice and returned a fifty-thousand
+   * token file, which is usually the expensive one.
+   */
+  resultTokens?: number;
+  /** True when the result was clipped, so `resultTokens` is a floor. */
+  resultTruncated?: boolean;
 }
 
 export interface ErrorData {
