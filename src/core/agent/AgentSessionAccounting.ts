@@ -41,6 +41,8 @@ export interface AgentSessionAccountingHost {
   teamShutdownPromise?: Promise<void> | null;
   modifiedFilePaths: Set<string>;
   outputListener?: (event: AgentOutputEvent) => void;
+  /** The most recent final message emitted to the output listener; command mode validates it against --output-schema. */
+  lastEmittedMessage?: string;
   getReactionParser(): ReactionParser;
   persistentInput: { dispose(): void };
   runtime: AgentRuntime;
@@ -571,6 +573,7 @@ export function emitAgentOutput(
   host: AgentSessionAccountingHost,
   event: AgentOutputEvent
 ): void {
+  if (event.type === 'message') host.lastEmittedMessage = event.content;
   if (host.outputListener) {
     host.outputListener(event);
   }

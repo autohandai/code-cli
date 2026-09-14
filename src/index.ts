@@ -24,6 +24,7 @@ process.env.AUTOHAND_CODE = '1';
 import 'dotenv/config';
 import { collectToolPatternOption } from './permissions/cliPolicyMutation.js';
 import { configureRunConfigOverlay } from './runConfigOverlay.js';
+import { loadOutputSchema } from './modes/outputSchema.js';
 import { startupTimeline } from './startup/startupTimeline.js';
 import { Command, Option } from 'commander';
 import chalk from 'chalk';
@@ -270,6 +271,7 @@ program
   .option('-p, --prompt [text]', 'Run a single instruction in command mode')
   .option('--output-format <format>', 'Command output format: stream-json')
   .option('--json [mode]', 'Command JSON output: stream (default) or local')
+  .option('--output-schema <file>', 'Command mode only: the final answer must be one JSON document valid against this JSON Schema file')
   .option('--bare', 'Minimal mode: skip hooks, LSP, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and AGENTS.md auto-discovery', false)
   .option('--offline', 'Disable startup network operations, including model catalog refreshes', false)
   .option('--path <path>', 'Workspace path to operate in')
@@ -606,6 +608,11 @@ program
         printDangerousWorkspaceWarning(workspaceRoot, safetyCheck);
         process.exit(1);
       }
+    }
+
+    if (opts.outputSchema && !opts.prompt) {
+      console.error(chalk.red('--output-schema applies to command mode: pass the instruction with --prompt.'));
+      process.exit(1);
     }
 
     // An ephemeral run has no session to continue; refuse before asking anyone to sign in.
@@ -1930,15 +1937,18 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       if (commandOutputWriter) {
         agent.setOutputListener((event) => commandOutputWriter.handleEvent(event));
       }
+      const outputSchema = options.outputSchema && !options.reviewExecution
+        ? await loadOutputSchema(options.outputSchema)
+        : undefined;
       const succeeded = options.reviewExecution
         ? await agent.runCommandMode(options.prompt, {
             signal: commandLifecycleController.signal,
             review: options.reviewExecution,
           })
-        : await agent.runCommandMode(
-            options.prompt,
-            commandLifecycleController.signal,
-          );
+        : await agent.runCommandMode(options.prompt, {
+            signal: commandLifecycleController.signal,
+            ...(outputSchema ? { outputSchema } : {}),
+          });
       commandOutputWriter?.finish(succeeded);
       commandOutputCompleted = true;
       agent.setOutputListener(undefined);

@@ -1143,6 +1143,14 @@ export interface CLIOptions {
   resumeSessionId?: string;
   /** Keep this run out of session history: nothing saved, no auto-memory, no session sync. */
   ephemeral?: boolean;
+  /** --output-schema <file>: the command-mode final answer must be JSON validating against this schema. */
+  outputSchema?: string;
+  /** --max-requests: model requests this run may make, sub-agents included. */
+  maxRequests?: number;
+  /** --max-tokens: reported tokens this run may spend, sub-agents included. */
+  maxTokens?: number;
+  /** --max-duration: seconds of wall time this run may take. */
+  maxDuration?: number;
   /** --profile: layer `profiles.<name>` from the config for this run only. */
   profile?: string;
   /** --set key=value overrides for this run only. */

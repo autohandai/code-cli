@@ -2526,6 +2526,7 @@ These flags override config file settings:
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `-v, --version`               | Output the current version                                                                     |
 | `-p, --prompt [text]`         | Run a single instruction in command mode                                                       |
+| `--output-schema <file>`      | Command mode only: the final answer must be one JSON document valid against this JSON Schema file. The answer is validated locally; one repair turn is attempted; the run exits 1 with the violations if it still fails. With `--json local` the result `content` is the canonical JSON text |
 | `--path <path>`               | Override workspace root                                                                        |
 | `--config <path>`             | Use custom config file                                                                         |
 | `--model <model>`             | Override model                                                                                 |

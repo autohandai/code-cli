@@ -21,7 +21,7 @@ The order balances everyday usefulness, reuse of existing modules, and strategic
 
 | # | Capability to implement | Current status | Comparison basis | Size |
 | --- | --- | --- | --- | --- |
-| 1 | [Schema-validated command results](#1-schema-validated-command-results) | Partial | Both | M |
+| 1 | [Schema-validated command results](#1-schema-validated-command-results) | Implemented | Both | M |
 | 2 | [Resume latest session and CLI session picker](#2-resume-latest-session-and-cli-session-picker) | Implemented | Both | S |
 | 3 | [Tool allowlists and denylists at launch](#3-tool-allowlists-and-denylists-at-launch) | Implemented | Claude doc | M |
 | 4 | [Ephemeral full-agent sessions](#4-ephemeral-full-agent-sessions) | Implemented | Both | M |
@@ -35,20 +35,21 @@ The order balances everyday usefulness, reuse of existing modules, and strategic
 | 12 | [First-class TypeScript SDK over existing RPC](#12-first-class-typescript-sdk-over-existing-rpc) | Partial | Codex | M |
 | 13 | [User-named, searchable sessions](#13-user-named-searchable-sessions) | Implemented | Both | S |
 | 14 | [Start directly in plan mode](#14-start-directly-in-plan-mode) | Implemented | Claude doc | S |
-| 15 | [Budgets for every normal agent run](#15-budgets-for-every-normal-agent-run) | Partial | Claude doc | M |
+| 15 | [Budgets for every normal agent run](#15-budgets-for-every-normal-agent-run) | Implemented (requests, tokens, time; no dollar cap) | Claude doc | M |
 | 16 | [User-configured ordered model fallback](#16-user-configured-ordered-model-fallback) | Missing | Claude doc | M |
 | 17 | [Installation and runtime doctor](#17-installation-and-runtime-doctor) | Implemented | Claude doc | M |
 | 18 | [Screen-reader-friendly interactive terminal mode](#18-screen-reader-friendly-interactive-terminal-mode) | Missing | Claude doc | M |
 | 19 | [MCP elicitation and interactive server requests](#19-mcp-elicitation-and-interactive-server-requests) | Missing | Codex | M |
 | 20 | [Native image generation and editing](#20-native-image-generation-and-editing) | Missing | Codex | L |
 
-Items **2, 3, 4, 5, 10, 13, 14, and 17** are implemented. Continue with **1** for the first delivery sequence: they build on existing output, session, permission, and config infrastructure. Plan **7–10** together as the execution-security milestone; network restrictions need real enforcement, and managed policy must survive CLI and runtime overrides. Prioritize **6, 12, and 19** when integration adoption is the immediate goal; Codex moved on all three since the pin, so the distance is growing there rather than shrinking.
+Items **1, 2, 3, 4, 5, 10, 13, 14, and 17** are implemented; the first delivery sequence is complete. Plan **7–10** together as the execution-security milestone; network restrictions need real enforcement, and managed policy must survive CLI and runtime overrides. Prioritize **6, 12, and 19** when integration adoption is the immediate goal; Codex moved on all three since the pin, so the distance is growing there rather than shrinking.
 
 ## Implementation detail
 
 ### 1. Schema-validated command results
 
-**Current evidence:** `--json local` already writes one JSON result, but its `content` is text. Strict schemas exist only in the restricted, tool-free Blueprint RPC flow. Owning code: [src/modes/commandOutput.ts:30](../src/modes/commandOutput.ts#L30), [src/modes/rpc/blueprintAnswer.ts:149](../src/modes/rpc/blueprintAnswer.ts#L149), [src/types.ts:1259](../src/types.ts#L1259).
+**Status:** Implemented on 2026-09-14. `autohand --prompt "…" --output-schema <file>` appends an output contract to the instruction, validates the final answer locally against the JSON Schema (types, required, enum, const, ranges, lengths, patterns, items, additionalProperties, anyOf/oneOf/allOf, local `$ref`), asks once for a corrected document when it fails, and otherwise ends the run with exit code 1 and the violations as its error. A valid answer is republished as canonical JSON, so `--json local` carries it in `content`. Validation is local and provider-independent; the Anthropic provider additionally receives the schema as a constrained output format when a caller sets `outputSchema` on a request. The flag is refused outside command mode. Owning code: [output schema](../src/modes/outputSchema.ts), [command-mode enforcement](../src/core/agent/AgentLifecycleRunner.ts), [flag](../src/index.ts). Validation: [validator and loader unit tests](../tests/modes/outputSchema.test.ts), [lifecycle tests](../tests/core/agent/AgentLifecycleRunner.command-mode.test.ts) for accept, repair, and fail, and a built-CLI Tuistory scenario that inspects the repair request and both exit codes.
+**Original evidence:** `--json local` already writes one JSON result, but its `content` is text. Strict schemas exist only in the restricted, tool-free Blueprint RPC flow. Owning code: [src/modes/commandOutput.ts:30](../src/modes/commandOutput.ts#L30), [src/modes/rpc/blueprintAnswer.ts:149](../src/modes/rpc/blueprintAnswer.ts#L149), [src/types.ts:1259](../src/types.ts#L1259).
 
 **Comparator:** [Codex output-schema option](https://github.com/openai/codex/blob/ddf04ad26789d040f9ef6a96736f76602e35a6cc/codex-rs/exec/src/cli.rs#L47). The exec CLI accepts a final-response JSON Schema; this is more than a JSON transport envelope.
 
@@ -262,6 +263,7 @@ Autohand HEAD `4336efd9` versus the worktree audited on 2026-09-05, and Codex ma
 
 | # | Autohand since 2026-09-05 | Codex since the pin |
 | --- | --- | --- |
+| 1 | `--output-schema` implemented (2026-09-14). | No change found. |
 | 2 | Unchanged (implemented). | Resume picker rebuilt on the new TUI stack; read-only resume when another app holds the session; worktree-aware discovery ([#43253](https://github.com/openai/codex/pull/43253)). |
 | 3 | `--allowed-tools` / `--disallowed-tools` implemented (2026-09-13). | Per-thread disabled plugin IDs, persisted and exposed via app-server ([#44332](https://github.com/openai/codex/pull/44332)). |
 | 4 | `--ephemeral` implemented (2026-09-14). | "Ephemeral forks" keep the parent's cache affinity ([#44862](https://github.com/openai/codex/pull/44862)). |

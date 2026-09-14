@@ -2796,6 +2796,15 @@ export class AutohandAgent {
     return setAgentOutputListener(this as unknown as AgentSessionAccountingHost, listener);
   }
 
+  /** The last final message this run emitted; command mode validates it against --output-schema. */
+  lastEmittedMessage?: string;
+
+
+  /** Command mode uses this to publish a validated result or a terminal error. */
+  emitCommandOutput(event: AgentOutputEvent): void {
+    this.emitOutput(event);
+  }
+
   /**
    * Set a callback for confirmation prompts (used by RPC mode)
    * When set, this callback is used instead of the default Modal prompt

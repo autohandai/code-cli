@@ -97,6 +97,50 @@ describe('runAgentCommandMode', () => {
     expect(host.useInkRenderer).toBe(true);
   });
 
+  describe('--output-schema', () => {
+    const spec = { path: '/tmp/schema.json', schema: { type: 'object', required: ['files'], properties: { files: { type: 'integer' } } } };
+
+    function schemaHost(replies: string[]) {
+      const host = createHost(true) as ReturnType<typeof createHost> & { lastEmittedMessage?: string; emitCommandOutput: ReturnType<typeof vi.fn> };
+      host.runInstruction = vi.fn(async () => {
+        host.lastEmittedMessage = replies.shift();
+        return true;
+      });
+      host.emitCommandOutput = vi.fn();
+      return host;
+    }
+
+    it('appends the contract, accepts a valid answer, and publishes it as canonical JSON', async () => {
+      const host = schemaHost(['Done: ```json\n{"files": 3}\n```']);
+      vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+      await expect(runAgentCommandMode(host, 'count files', { outputSchema: spec })).resolves.toBe(true);
+      expect(host.runInstruction).toHaveBeenCalledTimes(1);
+      expect(host.runInstruction.mock.calls[0][0]).toContain('count files\n\n## Output contract');
+      expect(host.runInstruction.mock.calls[0][0]).toContain('"required":["files"]');
+      expect(host.emitCommandOutput).toHaveBeenCalledWith({ type: 'message', content: JSON.stringify({ files: 3 }, null, 2) });
+    });
+
+    it('asks once for a corrected document and then accepts it', async () => {
+      const host = schemaHost(['{"files": "three"}', '{"files": 3}']);
+      vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+      await expect(runAgentCommandMode(host, 'count files', { outputSchema: spec })).resolves.toBe(true);
+      expect(host.runInstruction).toHaveBeenCalledTimes(2);
+      expect(host.runInstruction.mock.calls[1][0]).toContain('- /files: expected integer, got string');
+      expect(host.emitCommandOutput).toHaveBeenLastCalledWith({ type: 'message', content: JSON.stringify({ files: 3 }, null, 2) });
+    });
+
+    it('fails the run with the violations when the repair also misses', async () => {
+      const host = schemaHost(['no json', 'still prose']);
+      await expect(runAgentCommandMode(host, 'count files', { outputSchema: spec })).resolves.toBe(false);
+      expect(host.runInstruction).toHaveBeenCalledTimes(2);
+      expect(host.emitCommandOutput).toHaveBeenLastCalledWith({
+        type: 'error',
+        content: expect.stringContaining('did not match the output schema (/tmp/schema.json):\n- /: the final response contained no JSON document'),
+      });
+      expect(host.performAutoCommit).not.toHaveBeenCalled();
+    });
+  });
+
   it('does not reactivate terminal input while finalizing command mode', async () => {
     const host = createHost(false);
 

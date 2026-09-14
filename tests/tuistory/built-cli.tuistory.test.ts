@@ -447,6 +447,53 @@ describe('built CLI Tuistory smoke tests', () => {
     expectCleanExit(session);
   }, 45_000);
 
+  it('validates a command-mode answer against --output-schema, repairing once and failing with the violations', async () => {
+    const autohandConfig = (baseUrl: string) => ({
+      provider: 'autohandai',
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'tuistory-autohand-api-key', model: 'moa', baseUrl },
+      features: { autohand_inference: true },
+      agent: { maxIterations: 2, sessionRetryLimit: 0, autoMemory: false },
+      network: { maxRetries: 0, retryDelay: 0 },
+      ui: { promptSuggestions: false, showCompletionNotification: false },
+    });
+    const repairedServer = await createMockAutohandAINativeSequenceServer([
+      { content: 'The workspace has two files.' },
+      { content: '{"files": 2, "summary": "two files"}' },
+    ]);
+    mockServers.push(repairedServer);
+    const state = await createTempAutohandHome({ config: autohandConfig(repairedServer.baseUrl) });
+    tempStates.push(state);
+    const schemaPath = path.join(state.workspaceRoot, 'answer.schema.json');
+    await writeFile(schemaPath, JSON.stringify({ type: 'object', required: ['files'], properties: { files: { type: 'integer' }, summary: { type: 'string' } } }));
+
+    const session = await trackSession(launchBuiltAutohand([
+      '--path', state.workspaceRoot, '--config', state.configPath, '--prompt', 'Count the files.', '--output-schema', schemaPath, '--json', 'local', '--y',
+    ], { autohandHome: state.autohandHome, cwd: state.workspaceRoot, waitForDataTimeout: 15_000 }));
+    await waitForExit(session, 45_000);
+    const result = JSON.parse(stripAnsi(session.readAll()).split('\n').filter((line) => line.startsWith('{')).at(-1) ?? '{}');
+    expect(result.type).toBe('result');
+    expect(JSON.parse(result.content)).toEqual({ files: 2, summary: 'two files' });
+    // Side requests (naming, suggestions) may interleave; the repair turn is the one carrying the violations.
+    const repairRequests = repairedServer.requests.filter((request) => JSON.stringify(request.messages).includes('the final response contained no JSON document'));
+    expect(repairRequests).toHaveLength(1);
+    expect(repairedServer.requests.length).toBeGreaterThanOrEqual(2);
+    expect(session.exitInfo?.exitCode).toBe(0);
+
+    const stubbornServer = await createMockAutohandAINativeSequenceServer([{ content: 'I cannot produce JSON right now.' }]);
+    mockServers.push(stubbornServer);
+    const failing = await createTempAutohandHome({ config: autohandConfig(stubbornServer.baseUrl) });
+    tempStates.push(failing);
+    const failure = await trackSession(launchBuiltAutohand([
+      '--path', failing.workspaceRoot, '--config', failing.configPath, '--prompt', 'Count the files.', '--output-schema', schemaPath, '--json', 'local', '--y',
+    ], { autohandHome: failing.autohandHome, cwd: failing.workspaceRoot, waitForDataTimeout: 15_000 }));
+    await waitForExit(failure, 45_000);
+    const error = JSON.parse(stripAnsi(failure.readAll()).split('\n').filter((line) => line.startsWith('{')).at(-1) ?? '{}');
+    expect(error.type).toBe('error');
+    expect(error.message).toContain('did not match the output schema');
+    expect(error.message).toContain('contained no JSON document');
+    expect(failure.exitInfo?.exitCode).toBe(1);
+  }, 120_000);
+
   it('leaves no session behind after an --ephemeral command-mode run', async () => {
     const nativeServer = await createMockAutohandAINativeSequenceServer([{ content: 'EPHEMERAL_OK' }]);
     mockServers.push(nativeServer);

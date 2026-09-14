@@ -5,6 +5,7 @@
  */
 import chalk from 'chalk';
 import { isStartupTimingEnabled, startupTimeline } from '../../startup/startupTimeline.js';
+import { buildOutputSchemaInstruction, buildOutputSchemaRepairInstruction, checkOutputAgainstSchema, type OutputSchemaSpec } from '../../modes/outputSchema.js';
 import { autoNameAgentSessionFromInstruction, refineAgentSessionTitle, syncAgentTerminalTitleName } from './AgentSessionTitle.js';
 import { execFile } from 'node:child_process';
 import path from 'node:path';
@@ -84,6 +85,8 @@ export interface AgentLifecycleHost {
 export interface RunAgentCommandModeOptions {
   signal?: AbortSignal;
   keepAlive?: boolean;
+  /** --output-schema: the final answer must validate; one repair turn is attempted. */
+  outputSchema?: OutputSchemaSpec;
   review?: {
     request: ReviewRequest;
     surface: ReviewExecutionSurface;
@@ -1094,6 +1097,35 @@ export async function initializeAgentForRPC(
     }), signal);
   }
 
+/**
+ * Checks the run's final answer against the output schema. A first failure
+ * gets one repair turn that only asks for the corrected document; a second
+ * failure ends the run with the violations as its error.
+ */
+async function enforceCommandOutputSchema(
+  host: AgentLifecycleHost,
+  spec: OutputSchemaSpec,
+  signal: AbortSignal | undefined,
+): Promise<boolean> {
+  let check = checkOutputAgainstSchema(host.lastEmittedMessage, spec);
+  if (!check.ok) {
+    const repaired = await awaitLifecycleStep(
+      Promise.resolve(host.runInstruction(buildOutputSchemaRepairInstruction(check.errors), { signal })),
+      signal,
+    );
+    check = repaired ? checkOutputAgainstSchema(host.lastEmittedMessage, spec) : check;
+  }
+  if (check.ok && check.json !== undefined) {
+    host.emitCommandOutput?.({ type: 'message', content: check.json });
+    return true;
+  }
+  host.emitCommandOutput?.({
+    type: 'error',
+    content: `The final response did not match the output schema (${spec.path}):\n${check.errors.map((error) => `- ${error}`).join('\n')}`,
+  });
+  return false;
+}
+
 export async function runAgentCommandMode(
   host: AgentLifecycleHost,
   instruction: string,
@@ -1185,8 +1217,11 @@ export async function runAgentCommandMode(
       }
 
       turnStartedAt = Date.now();
+      const effectiveInstruction = options.outputSchema && !options.review
+        ? `${instruction}\n\n${buildOutputSchemaInstruction(options.outputSchema)}`
+        : instruction;
       const executeInstruction = (): Promise<boolean> => awaitLifecycleStep(
-        Promise.resolve(host.runInstruction(instruction, {
+        Promise.resolve(host.runInstruction(effectiveInstruction, {
           signal,
           ...(options.review ? { echoInTranscript: false } : {}),
         })),
@@ -1203,6 +1238,10 @@ export async function runAgentCommandMode(
             execute: executeInstruction,
           })
         : await executeInstruction();
+
+      if (succeeded && options.outputSchema && !options.review) {
+        succeeded = await enforceCommandOutputSchema(host, options.outputSchema, signal);
+      }
 
       if (!succeeded) {
         finalizationDeadline.start();
