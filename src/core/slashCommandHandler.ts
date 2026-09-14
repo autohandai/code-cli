@@ -375,6 +375,18 @@ export class SlashCommandHandler {
             applyPermissionMode: this.ctx.applyMobilePermissionMode,
           }, args);
         }
+        case '/handoff': {
+          const surface = args[0]?.toLowerCase();
+          if (surface === 'web' || surface === 'session') {
+            return this.handle(`/handoff ${surface}`, args.slice(1));
+          }
+          const lines = ['Hand this session to another Autohand surface:'];
+          for (const name of ['/handoff web', '/handoff session']) {
+            const description = this.commandMap.get(name)?.description ?? '';
+            lines.push(`  ${name.padEnd(18)}${description}`.trimEnd());
+          }
+          return lines.join('\n');
+        }
         case '/handoff web': {
           const { handoffWeb } = await import('../commands/handoff-web.js');
           return handoffWeb({

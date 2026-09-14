@@ -884,7 +884,7 @@ Customize the verbs in the config file when you want a fixed status label or a s
 }
 ```
 
-`activityVerbs` accepts either a single string or a non-empty string array. When `activityVerbsEnabled` is `false`, Autohand falls back to `Working...` instead of rotating through custom or built-in verbs. While no turn is running, a tip rotates every 10 seconds at the right end of the row above the composer, beside the `Completed in …` summary. Tips cover slash commands, the `/ @ $ ! : ?` composer triggers, keyboard shortcuts and your installed skills; only tips that fit the remaining width are drawn, and they hide while the agent works. Set `showTips` to `false`, or toggle Idle tips in `/settings`, to turn them off.
+`activityVerbs` accepts either a single string or a non-empty string array. When `activityVerbsEnabled` is `false`, Autohand falls back to `Working...` instead of rotating through custom or built-in verbs. While no turn is running, a tip rotates every 30 seconds at the right end of the row above the composer, beside the `Completed in …` summary. Tips cover slash commands, the `/ @ $ ! : ?` composer triggers, keyboard shortcuts and your installed skills; only tips that fit the remaining width are drawn, and they hide while the agent works. Set `showTips` to `false`, or toggle Idle tips in `/settings`, to turn them off.
 
 You can toggle completion reports, including the structured `SITREP` prompt, without editing the file:
 

@@ -1,5 +1,7 @@
 # Continue between CLI and Web
 
+Run `/handoff` on its own to see the surfaces this session can move to: `/handoff web` and `/handoff session` (the Autohand Code iOS app).
+
 In an active CLI session, run `/handoff web`. Autohand saves a private conversation snapshot and opens `https://dev.autohand.ai/new?transfer=…&account=…`. Sign in with the same Autohand account, review the conversation and model, then choose **Continue here**. No prompt runs automatically.
 
 Use `/handoff web --workspace` to include your GitHub repository, branch and a patch containing local commits, staged and unstaged changes, and non-ignored new files. Review what is in your working directory before using this option. The destination reviews and restores changes in a separate cloud workspace. Repository access must be connected in the destination account. Unsupported remotes and oversized snapshots produce an error without uploading a partial session.
