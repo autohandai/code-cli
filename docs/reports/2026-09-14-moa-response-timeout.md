@@ -45,6 +45,11 @@ A separate aggregate query of `error_reports` since 2026-08-25 found no reports
 containing this exact timeout text. The inspected CLI `AutoReportManager` excludes
 structured timeouts as operational errors. That reporting surface therefore cannot
 establish how many other users encountered this failure.
+The separate `telemetry` query for `session_failure_bug` events with the same text
+and date range also returned no matching rows. No population-wide incident count
+is established. Additionally, v0.9.7 derives the telemetry `isRetrying` flag from
+`retryAttempt < maxRetries`, without checking whether recovery actually starts;
+that flag is not evidence that a non-retryable timeout was retried.
 
 The production inference deployment observed during this investigation serves
 version `0c71ffee-4fdc-4634-8c48-ba08cdbbd25f` at 100%, deployed 2026-09-10.
@@ -103,6 +108,13 @@ or production inference replay was performed by this investigation.
   the targeted run. A separate tool-output rendering assertion failed in that
   aggregate run and passed unchanged both against archived HEAD and in a focused
   unrestricted rerun; its cause is not established by those passes.
+- A subsequent eight-file run passed 319 tests, failed three startup UI tests,
+  and skipped one. All provider/retry, cancellation, stream parsing, and command
+  recovery tests in that run passed. The three startup cases also pass against
+  the original `6027308c` snapshot, before concurrent UI/config changes. Two now
+  fail because their UI host fixtures omit `runtime.config`; the other expects
+  a cooked-input line to enter the queue. Neither path uses the timeout repair.
+  The two tip suites that failed earlier now pass after concurrent corrections.
 - `bun run build` and `bun run lint` passed.
 - Both compiled cloud Tuistory cases passed outside the sandbox: first content
   before completion, and a visible timeout retry preserving the prior turn and
@@ -111,5 +123,15 @@ or production inference replay was performed by this investigation.
   terminal evidence.
 - The initial `CI=true bun run proof` passed lint/typecheck but was interrupted
   with exit 130 while waiting on Git subprocesses in the sandbox. It is incomplete.
-  An unrestricted run of the same required gate is tracked separately until it
-  finishes.
+  The unrestricted run has also reported startup/tip failures and failures in
+  `extensionsCliCommand.spec.ts`, `gitAutoCommit.spec.ts`,
+  `autoresearchCliCommand.spec.ts`, `configCliCommands.spec.ts`, `command.spec.ts`,
+  `WorkspaceFileCollector.mobile-query.test.ts`, and `shellBackground.test.ts`.
+  A native sample showed the
+  Vitest worker waiting inside synchronous child-process execution. This run
+  was stopped with exit 130 after approximately 28 minutes, after those failures
+  and concurrent changes to the checkout. Its log is preserved at
+  `.autohand/timeout-investigation/proof-unrestricted.log`.
+  Full proof is incomplete and has not passed; its aggregate build/Tuistory stage
+  was not reached. The dedicated terminal scenarios above are focused evidence,
+  not a substitute for the full release gate.
