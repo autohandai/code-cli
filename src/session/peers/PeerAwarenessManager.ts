@@ -18,8 +18,11 @@ import {
   type PeerWarning,
 } from './PeerWarnings.js';
 import { readRepoHead, type RepoHead } from './RepoStateReader.js';
+import { setBounded } from '../../utils/bounded.js';
 
 const MAX_PUBLISHED_PATHS = 20;
+/** Read timestamps are only consulted when the same path is written back; keep a recent window. */
+export const MAX_TRACKED_READS = 500;
 
 export interface PeerAwarenessManagerOptions {
   workspaceRoot: string;
@@ -80,7 +83,7 @@ export class PeerAwarenessManager {
     if (!Number.isFinite(mtimeMs)) {
       return;
     }
-    this.readCache.set(normalizePeerPath(relativePath), mtimeMs);
+    setBounded(this.readCache, normalizePeerPath(relativePath), mtimeMs, MAX_TRACKED_READS);
   }
 
   recordWrite(relativePath: string): void {

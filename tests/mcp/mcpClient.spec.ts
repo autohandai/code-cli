@@ -2,13 +2,45 @@
  * MCP (Model Context Protocol) Client Tests
  * TDD: Tests written first, implementation follows
  */
+import { EventEmitter } from 'node:events';
 import { describe, it, expect } from 'vitest';
 import {
   validateMcpServerConfig,
   convertMcpToolToAutohand,
   type McpServerConfig,
 } from '../../src/mcp/types.js';
-import { McpClientManager } from '../../src/mcp/McpClientManager.js';
+import {
+  captureHandshakeStderr,
+  MAX_HANDSHAKE_STDERR_CHARS,
+  McpClientManager,
+} from '../../src/mcp/McpClientManager.js';
+
+describe('captureHandshakeStderr', () => {
+  it('keeps only the tail of the server stderr instead of the whole stream', () => {
+    const connection = new EventEmitter();
+    const capture = captureHandshakeStderr(connection);
+
+    for (let index = 0; index < 20; index += 1) {
+      connection.emit('stderr', `${String(index).padStart(4, '0')}:${'x'.repeat(995)}\n`);
+    }
+
+    const tail = capture.tail();
+    expect(tail.length).toBeLessThanOrEqual(MAX_HANDSHAKE_STDERR_CHARS);
+    expect(tail.endsWith('0019:' + 'x'.repeat(995))).toBe(true);
+  });
+
+  it('stops listening once detached so a chatty server cannot grow the buffer for the session', () => {
+    const connection = new EventEmitter();
+    const capture = captureHandshakeStderr(connection);
+    connection.emit('stderr', 'before detach');
+
+    capture.detach();
+    connection.emit('stderr', 'after detach');
+
+    expect(connection.listenerCount('stderr')).toBe(0);
+    expect(capture.tail()).toBe('before detach');
+  });
+});
 
 // ============================================================================
 // Types: validateMcpServerConfig

@@ -314,15 +314,11 @@ export class FeedbackApiClient {
    */
   async healthCheck(): Promise<boolean> {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
-
       const response = await fetch(`${this.config.baseUrl}/health`, {
         method: 'GET',
-        signal: controller.signal
+        signal: AbortSignal.timeout(3000)
       });
 
-      clearTimeout(timeoutId);
       return response.ok;
     } catch {
       return false;

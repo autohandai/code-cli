@@ -486,17 +486,21 @@ export class InstructionRunner {
         ? host.setupPersistentInputInterruptHandlers(abortController, handleCancel)
         : host.setupEscListener(abortController, handleCancel, true);
 
-    const specialistResults = await host.prepareSpecialists?.(instruction);
-    if (specialistResults) {
-      host.conversation.addSystemNote(specialistResults, '[Specialist Results]');
-    }
-    if (abortController.signal.aborted) {
-      success = false;
-      return false;
-    }
-
-    const stopPreparation = host.startPreparationStatus(instruction);
+    // Everything after the interrupt listener is registered runs inside this
+    // try so the finally below always releases it, including the early abort
+    // return and any failure raised while preparing specialists.
+    let stopPreparation: () => void = () => {};
     try {
+      const specialistResults = await host.prepareSpecialists?.(instruction);
+      if (specialistResults) {
+        host.conversation.addSystemNote(specialistResults, '[Specialist Results]');
+      }
+      if (abortController.signal.aborted) {
+        success = false;
+        return false;
+      }
+
+      stopPreparation = host.startPreparationStatus(instruction);
       const userMessage = await host.buildUserMessage(instruction);
       stopPreparation();
       host.setUIStatus('Reasoning with the AI (ReAct loop)...');

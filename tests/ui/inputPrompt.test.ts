@@ -2070,3 +2070,96 @@ describe('idle prompt mention selection', () => {
     await expect(promptPromise).resolves.toBe('@tests/ui/ink/LiveCommandBlock.test.tsx');
   });
 });
+
+describe('readInstruction chord timer cleanup', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  async function runPromptAndCountLeftoverTimers(startChord: boolean): Promise<number> {
+    const stdOutput = new EventEmitter() as NodeJS.WriteStream & {
+      columns: number;
+      write: (chunk: string | Buffer) => boolean;
+    };
+    stdOutput.columns = 120;
+    stdOutput.write = vi.fn(() => true);
+
+    const stdInput = new EventEmitter() as NodeJS.ReadStream & {
+      isTTY: boolean;
+      setRawMode: (mode: boolean) => void;
+      setEncoding: (encoding: string) => void;
+      resume: () => void;
+      pause: () => void;
+      read: () => null;
+    };
+    stdInput.isTTY = true;
+    stdInput.setRawMode = vi.fn();
+    stdInput.setEncoding = vi.fn();
+    stdInput.resume = vi.fn();
+    stdInput.pause = vi.fn();
+    stdInput.read = vi.fn(() => null);
+
+    const rl = new EventEmitter() as readline.Interface & {
+      line: string;
+      cursor: number;
+      input: NodeJS.ReadStream;
+      output: NodeJS.WriteStream;
+      close: () => void;
+      pause: () => void;
+      resume: () => void;
+      prompt: () => void;
+      setPrompt: (prompt: string) => void;
+      _refreshLine?: () => void;
+      _moveCursor?: () => void;
+      _ttyWrite?: (s: string, key: readline.Key) => void;
+    };
+    rl.line = '';
+    rl.cursor = 0;
+    rl.input = stdInput;
+    rl.output = stdOutput;
+    rl.close = vi.fn();
+    rl.pause = vi.fn();
+    rl.resume = vi.fn();
+    rl.prompt = vi.fn();
+    rl.setPrompt = vi.fn();
+    rl._refreshLine = vi.fn();
+    rl._moveCursor = vi.fn();
+    rl._ttyWrite = vi.fn();
+
+    vi.spyOn(readline, 'createInterface').mockReturnValue(rl);
+    vi.spyOn(readline, 'emitKeypressEvents').mockImplementation(() => undefined);
+    vi.spyOn(readline, 'cursorTo').mockImplementation(() => true as any);
+    vi.spyOn(readline, 'clearLine').mockImplementation(() => true as any);
+    vi.spyOn(readline, 'moveCursor').mockImplementation(() => true as any);
+
+    const { readInstruction, promptInterrupt } = await import('../../src/ui/inputPrompt.js');
+
+    const promptPromise = readInstruction(() => [], [], undefined, { input: stdInput, output: stdOutput });
+    await vi.advanceTimersByTimeAsync(0);
+
+    if (startChord) {
+      const timersBeforeChord = vi.getTimerCount();
+      stdInput.emit('keypress', '', { name: 'x', ctrl: true, sequence: '' });
+      expect(vi.getTimerCount()).toBeGreaterThan(timersBeforeChord);
+    }
+
+    promptInterrupt('done');
+    await expect(promptPromise).resolves.toBe('done');
+    // Let any already-scheduled render immediates drain; only real timers should remain.
+    await vi.advanceTimersByTimeAsync(0);
+
+    const leftover = vi.getTimerCount();
+    vi.clearAllTimers();
+    return leftover;
+  }
+
+  it('clears a pending Ctrl+X chord timer when the prompt closes', async () => {
+    vi.useFakeTimers();
+
+    const withoutChord = await runPromptAndCountLeftoverTimers(false);
+    const withChord = await runPromptAndCountLeftoverTimers(true);
+
+    expect(withChord).toBe(withoutChord);
+  });
+});

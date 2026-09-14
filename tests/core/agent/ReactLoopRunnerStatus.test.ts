@@ -11,6 +11,7 @@ import {
   createRetryWaitStatus,
   formatComposerToolCallStatus,
   isDeferredFinalResponse,
+  MAX_TRACKED_SEARCH_QUERIES,
   runAgentReactLoop,
   shouldDisplayToolOutput,
 } from '../../../src/core/agent/ReactLoopRunner.js';
@@ -1659,6 +1660,48 @@ describe('thinking display default', () => {
     await runAgentReactLoop(host, new AbortController());
 
     expect(host.inkRenderer.setThinking).toHaveBeenCalledWith('Weigh two jokes.');
+  });
+
+  it('keeps the tracked search history bounded across a long session', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const parser = new ReactionParser();
+    const llmComplete = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: 'search',
+        created: 1,
+        content: JSON.stringify({
+          thought: 'Look for the handler.',
+          toolCalls: [
+            { tool: 'search', args: { query: 'brand new query' } },
+          ],
+        }),
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'answer',
+        created: 2,
+        content: '{"finalResponse":"Found it."}',
+        raw: {},
+      });
+
+    const host = createReactLoopTestHost(llmComplete, parser);
+    host.searchQueries = Array.from({ length: MAX_TRACKED_SEARCH_QUERIES }, (_, index) => `old query ${index}`);
+    host.toolManager.execute = vi.fn(async (_calls, onResult) => {
+      const result = { tool: 'search' as const, success: true, output: 'match' };
+      onResult(0, result);
+      return [result];
+    });
+
+    try {
+      await runAgentReactLoop(host, new AbortController());
+
+      expect(host.searchQueries).toHaveLength(MAX_TRACKED_SEARCH_QUERIES);
+      expect(host.searchQueries[host.searchQueries.length - 1]).toBe('brand new query');
+      expect(host.searchQueries).not.toContain('old query 0');
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 });
 

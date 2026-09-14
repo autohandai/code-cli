@@ -883,3 +883,35 @@ describe('InstructionRunner command mode UI', () => {
     }
   });
 });
+
+describe('InstructionRunner interrupt listener cleanup', () => {
+  it('removes the ESC listener when the turn is aborted during specialist preparation', async () => {
+    const host = createHost();
+    const cleanupEsc = vi.fn();
+    host.setupEscListener = vi.fn(() => cleanupEsc);
+    host.prepareSpecialists = vi.fn(async () => {
+      host.activeAbortController?.abort();
+      return null;
+    });
+
+    await expect(new InstructionRunner(host).run('abort while preparing')).resolves.toBe(false);
+
+    expect(host.setupEscListener).toHaveBeenCalledOnce();
+    expect(cleanupEsc).toHaveBeenCalledOnce();
+    expect(host.runReactLoop).not.toHaveBeenCalled();
+  });
+
+  it('removes the ESC listener when specialist preparation throws', async () => {
+    const host = createHost();
+    const cleanupEsc = vi.fn();
+    host.setupEscListener = vi.fn(() => cleanupEsc);
+    host.prepareSpecialists = vi.fn(async () => {
+      throw new Error('specialist registry unavailable');
+    });
+
+    await expect(new InstructionRunner(host).run('throw while preparing')).resolves.toBe(false);
+
+    expect(cleanupEsc).toHaveBeenCalledOnce();
+    expect(host.runReactLoop).not.toHaveBeenCalled();
+  });
+});

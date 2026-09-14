@@ -3,8 +3,9 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  checkForUpdates,
   evaluateUpdateStatus,
   selectLatestPrereleaseRelease,
 } from '../../src/utils/versionCheck.js';
@@ -78,4 +79,38 @@ describe('evaluateUpdateStatus', () => {
     expect(status.isUpToDate).toBe(false);
     expect(status.updateAvailable).toBe(true);
   });
+});
+
+describe('checkForUpdates request timeout handling', () => {
+  const originalFetch = globalThis.fetch;
+  const originalSkip = process.env.AUTOHAND_SKIP_UPDATE_CHECK;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    delete process.env.AUTOHAND_SKIP_UPDATE_CHECK;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    globalThis.fetch = originalFetch;
+    if (originalSkip === undefined) {
+      delete process.env.AUTOHAND_SKIP_UPDATE_CHECK;
+    } else {
+      process.env.AUTOHAND_SKIP_UPDATE_CHECK = originalSkip;
+    }
+  });
+
+  it.each(['0.8.2', '0.8.2-alpha.abc1234'])(
+    'leaves no abort timer behind when the release fetch rejects for %s',
+    async (currentVersion) => {
+      globalThis.fetch = vi.fn(async () => {
+        throw new Error('offline');
+      }) as typeof fetch;
+
+      const result = await checkForUpdates(currentVersion, { forceCheck: true });
+
+      expect(result.latestVersion).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
 });

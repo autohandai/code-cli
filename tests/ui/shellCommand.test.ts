@@ -20,6 +20,8 @@ import {
 import {
   ensureNodePtyHelperExecutable,
   executeStreamingShellCommand,
+  getDirectoryEntriesCacheSizeForTests,
+  getShellCommandSuggestions,
   isImmediateCommand,
   isShellCommand,
   parseShellCommand,
@@ -596,5 +598,30 @@ describe('executeStreamingShellCommand', () => {
 
     expect(addEventListener).toHaveBeenCalledWith('abort', expect.any(Function), { once: true });
     expect(removeEventListener).toHaveBeenCalledWith('abort', expect.any(Function));
+  });
+});
+
+describe('shell path completion cache', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('drops expired directory listings instead of retaining every directory ever completed', () => {
+    vi.useFakeTimers();
+    const root = mkdtempSync(join(tmpdir(), 'autohand-shell-cache-'));
+    try {
+      mkdirSync(join(root, 'alpha'));
+      mkdirSync(join(root, 'beta'));
+
+      getShellCommandSuggestions('! ls alpha/', { cwd: root });
+      expect(getDirectoryEntriesCacheSizeForTests()).toBe(1);
+
+      vi.advanceTimersByTime(60_000);
+      getShellCommandSuggestions('! ls beta/', { cwd: root });
+
+      expect(getDirectoryEntriesCacheSizeForTests()).toBe(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

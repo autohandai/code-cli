@@ -99,6 +99,32 @@ function resolveMcpRequestTimeoutMs(config: McpServerConfig, method: string): nu
     : MCP_REQUEST_TIMEOUT_MS;
 }
 
+/** Only the tail of a server's stderr is ever reported, so only the tail is retained. */
+export const MAX_HANDSHAKE_STDERR_CHARS = 2000;
+
+/**
+ * Collect the tail of a connection's stderr for handshake diagnostics.
+ * Callers must `detach()` once the handshake settles; MCP servers commonly
+ * log to stderr for their whole lifetime and the buffer would otherwise
+ * grow for the rest of the session.
+ */
+export function captureHandshakeStderr(
+  source: EventEmitter,
+  maxChars: number = MAX_HANDSHAKE_STDERR_CHARS,
+): { tail(): string; detach(): void } {
+  let buffer = '';
+  const onStderr = (data: string): void => {
+    buffer = (buffer + data).slice(-maxChars);
+  };
+  source.on('stderr', onStderr);
+  return {
+    tail: () => buffer.trim(),
+    detach: () => {
+      source.off('stderr', onStderr);
+    },
+  };
+}
+
 function waitForChildClose(child: ChildProcess, timeoutMs: number): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     let settled = false;
@@ -1116,8 +1142,7 @@ export class McpClientManager {
     // Track error state
     let connectionError: Error | null = null;
 
-    // Capture stderr output for diagnostics
-    let stderrOutput = '';
+    const stderrCapture = captureHandshakeStderr(connection);
     let closeCode: number | null | undefined;
     let handshakeComplete = false;
 
@@ -1139,10 +1164,6 @@ export class McpClientManager {
           ? `MCP server process exited with code ${code}`
           : 'MCP server process exited before completing initialization'
       );
-    });
-
-    connection.on('stderr', (data: string) => {
-      stderrOutput += data;
     });
 
     try {
@@ -1194,7 +1215,7 @@ export class McpClientManager {
       }
 
       // Enrich error with stderr output for diagnostics
-      const detail = stderrOutput.trim();
+      const detail = stderrCapture.tail();
       if (detail) {
         const stderrSnippet = detail.length > 500 ? detail.slice(-500) : detail;
         throw new Error(`${errMsg}\n  Server stderr (tail): ${stderrSnippet}`);
@@ -1202,6 +1223,7 @@ export class McpClientManager {
 
       throw new Error(errMsg);
     } finally {
+      stderrCapture.detach();
       if (!handshakeComplete) this.inFlightConnections.delete(connection);
     }
   }

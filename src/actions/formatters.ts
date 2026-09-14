@@ -8,6 +8,7 @@
  */
 import path from 'node:path';
 import { signalCoordinatedProcess, spawnCoordinatedProcess, waitForProcessPublication } from '../session/peers/CommandCoordinationGate.js';
+import { killAfter } from '../utils/processTimeout.js';
 
 export type Formatter = (contents: string, file: string, workspaceRoot?: string) => Promise<string>;
 
@@ -96,14 +97,13 @@ async function isCommandAvailable(command: string): Promise<boolean> {
     stdio: 'ignore', shell: process.platform === 'win32',
   });
   return new Promise<boolean>((resolve) => {
-    proc.on('error', () => { clearTimeout(timer); resolve(false); });
-    proc.on('close', (code) => { clearTimeout(timer); resolve(code === 0); });
+    proc.on('error', () => { resolve(false); });
+    proc.on('close', (code) => { resolve(code === 0); });
 
-    // Timeout after 2 seconds
-    const timer = setTimeout(() => {
+    killAfter(proc, 2000, () => {
       signalCoordinatedProcess(proc);
       resolve(false);
-    }, 2000);
+    });
   }).finally(() => waitForProcessPublication(proc));
 }
 
@@ -132,7 +132,6 @@ async function runExternalFormatter(
     });
 
     proc.on('error', (err) => {
-      clearTimeout(timer);
       resolve({
         success: false,
         output: input,
@@ -141,7 +140,6 @@ async function runExternalFormatter(
     });
 
     proc.on('close', (code) => {
-      clearTimeout(timer);
       if (code === 0) {
         resolve({ success: true, output: stdout || input });
       } else {
@@ -157,15 +155,14 @@ async function runExternalFormatter(
     proc.stdin?.write(input);
     proc.stdin?.end();
 
-    // Timeout after 30 seconds
-    const timer = setTimeout(() => {
+    killAfter(proc, 30000, () => {
       signalCoordinatedProcess(proc);
       resolve({
         success: false,
         output: input,
         error: `${command} timed out after 30 seconds`,
       });
-    }, 30000);
+    });
   }).finally(() => waitForProcessPublication(proc));
 }
 

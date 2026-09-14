@@ -152,6 +152,14 @@ export interface CommandResultState {
   output: string;
 }
 
+/**
+ * Renderer-side retention limits. The renderer lives for the whole session, so
+ * anything appended to its state without a cap grows for hours. These bounds
+ * match what the UI can actually draw; older entries are never shown again.
+ */
+export const MAX_TOOL_OUTPUT_ENTRIES = 50;
+export const MAX_VISIBLE_NOTIFICATIONS = 3;
+
 export interface AgentUIState {
   peerDirectoryVersion?: number;
   isWorking: boolean;
@@ -2481,7 +2489,7 @@ export function AgentUI({
   // Memoize tool outputs to prevent unnecessary re-renders
   // Static items use the entry id as key and never re-render
   const toolOutputItems = useMemo(() =>
-    state.toolOutputs.slice(-50), // Limit to last 50 for performance
+    state.toolOutputs.slice(-MAX_TOOL_OUTPUT_ENTRIES),
     [state.toolOutputs]
   );
   const liveCommandItems = useMemo(() =>
@@ -2950,7 +2958,7 @@ const NotificationStack = memo(function NotificationStack({
 }: {
   notifications: string[];
 }) {
-  const recentNotifications = notifications.slice(-3);
+  const recentNotifications = notifications.slice(-MAX_VISIBLE_NOTIFICATIONS);
   if (recentNotifications.length === 0) {
     return null;
   }

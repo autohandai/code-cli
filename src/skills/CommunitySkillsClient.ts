@@ -203,16 +203,11 @@ export class CommunitySkillsClient {
     };
 
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-
       const response = await fetch(url, {
         ...options,
         headers,
-        signal: controller.signal,
+        signal: AbortSignal.timeout(this.timeout),
       });
-
-      clearTimeout(timeoutId);
 
       const data = await response.json() as T & { success?: boolean; error?: string };
 

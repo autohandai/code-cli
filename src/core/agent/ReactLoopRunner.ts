@@ -39,6 +39,7 @@ import { calculateContextUsage } from '../context/tokenizer.js';
 import { filterToolsByRelevance } from '../toolFilter.js';
 import type { PeerCommunicationRuntime } from './PeerCommunicationRuntime.js';
 import type { AgentPeerRuntime } from './AgentPeerRuntime.js';
+import { pushBounded } from '../../utils/bounded.js';
 import { EXIT_PLAN_MODE_TOOL_DEFINITION, PLAN_TOOL_DEFINITION } from '../toolManager.js';
 import {
   buildHostTokenUsageStatus,
@@ -396,6 +397,8 @@ export interface ToolCallLogLine {
 }
 
 const MAX_GROUPED_LOG_DETAILS = 2;
+/** Only the most recent searches are ever summarised back to the model; older ones are dropped. */
+export const MAX_TRACKED_SEARCH_QUERIES = 20;
 
 /**
  * Collapse runs of parallel calls to the same tool into a single log line so
@@ -1402,7 +1405,7 @@ export async function runAgentReactLoop(
         // Track search queries for this iteration
         for (const call of searchCallsThisIteration) {
           const query = String(call.args?.query || call.args?.pattern || 'unknown');
-          host.searchQueries.push(query);
+          pushBounded(host.searchQueries, query, MAX_TRACKED_SEARCH_QUERIES);
         }
 
         // Add search limit warning if too many searches in one iteration

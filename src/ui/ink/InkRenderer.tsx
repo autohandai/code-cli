@@ -17,6 +17,8 @@ import {
   AgentUI,
   createInitialUIState,
   formatCompletionSummary,
+  MAX_TOOL_OUTPUT_ENTRIES,
+  MAX_VISIBLE_NOTIFICATIONS,
   type ActivityItem,
   type AnnouncementLineState,
   type TipLineState,
@@ -602,6 +604,11 @@ export class InkRenderer {
     }
 
     this.stopIdleTips();
+    if (this.liveOutputFlushTimer) {
+      clearTimeout(this.liveOutputFlushTimer);
+      this.liveOutputFlushTimer = null;
+    }
+    this.pendingLiveOutput.clear();
 
     if (this.unpatchedStdout) {
       this.unpatchedStdout();
@@ -801,8 +808,18 @@ export class InkRenderer {
     }
 
     this.updateState({
-      notifications: [...this.state.notifications, content],
+      notifications: this.appendNotifications(content),
     });
+  }
+
+  /** Only the newest notifications are ever drawn, so older ones are released immediately. */
+  private appendNotifications(content: string): string[] {
+    return [...this.state.notifications, content].slice(-MAX_VISIBLE_NOTIFICATIONS);
+  }
+
+  /** Only the newest tool outputs are ever drawn, so older ones are released immediately. */
+  private appendToolOutputs(...entries: ToolOutputItem[]): ToolOutputItem[] {
+    return [...this.state.toolOutputs, ...entries].slice(-MAX_TOOL_OUTPUT_ENTRIES);
   }
 
   upsertNotification(key: string, message: string): void {
@@ -820,7 +837,7 @@ export class InkRenderer {
       ? -1
       : this.state.notifications.lastIndexOf(previousContent);
     const notifications = previousIndex === -1
-      ? [...this.state.notifications, content]
+      ? this.appendNotifications(content)
       : this.state.notifications.map((notification, index) =>
         index === previousIndex ? content : notification,
       );
@@ -862,7 +879,7 @@ export class InkRenderer {
       thought
     };
     this.updateState({
-      toolOutputs: [...this.state.toolOutputs, entry],
+      toolOutputs: this.appendToolOutputs(entry),
       chatMessages: [
         ...this.state.chatMessages,
         { role: 'tool', tool, success, content: output },
@@ -888,7 +905,7 @@ export class InkRenderer {
       thought: i === 0 ? o.thought : undefined
     }));
     this.updateState({
-      toolOutputs: [...this.state.toolOutputs, ...entries],
+      toolOutputs: this.appendToolOutputs(...entries),
       chatMessages: [
         ...this.state.chatMessages,
         ...entries.map((entry) => ({
@@ -931,7 +948,7 @@ export class InkRenderer {
     };
 
     this.updateState({
-      toolOutputs: [...this.state.toolOutputs, entry],
+      toolOutputs: this.appendToolOutputs(entry),
       chatMessages: [
         ...this.state.chatMessages,
         {
@@ -1110,7 +1127,7 @@ export class InkRenderer {
 
     this.updateState({
       liveCommands: this.state.liveCommands.filter((item) => item.id !== id),
-      toolOutputs: [...this.state.toolOutputs, finalizedEntry],
+      toolOutputs: this.appendToolOutputs(finalizedEntry),
       chatMessages: [
         ...this.state.chatMessages,
         {

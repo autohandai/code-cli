@@ -197,18 +197,13 @@ function isCacheValid(cache: VersionCache, intervalHours: number): boolean {
  */
 async function fetchLatestStableRelease(): Promise<{ version: string; url: string } | null> {
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
     const response = await fetch(GITHUB_API_LATEST_URL, {
       headers: {
         'Accept': 'application/vnd.github.v3+json',
         'User-Agent': 'autohand-cli',
       },
-      signal: controller.signal,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
-
-    clearTimeout(timeout);
 
     if (!response.ok) {
       return null;
@@ -233,18 +228,13 @@ async function fetchLatestStableRelease(): Promise<{ version: string; url: strin
  */
 async function fetchLatestAlphaRelease(): Promise<{ version: string; url: string } | null> {
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
     const response = await fetch(GITHUB_API_RELEASES_URL, {
       headers: {
         'Accept': 'application/vnd.github.v3+json',
         'User-Agent': 'autohand-cli',
       },
-      signal: controller.signal,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
-
-    clearTimeout(timeout);
 
     if (!response.ok) {
       return null;

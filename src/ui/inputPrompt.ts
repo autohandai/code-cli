@@ -2195,6 +2195,10 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
         clearTimeout(inlineShellSuggestionTimeout);
         inlineShellSuggestionTimeout = undefined;
       }
+      if (chordTimeout) {
+        clearTimeout(chordTimeout);
+        chordTimeout = null;
+      }
       // Disable bracketed paste mode and restore the terminal cursor shape.
       disableBracketedPaste(stdOutput);
       stdOutput.write('\x1b[0 q\x1b[?25h');

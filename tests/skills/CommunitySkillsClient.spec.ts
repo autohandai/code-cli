@@ -428,4 +428,20 @@ describe('CommunitySkillsClient', () => {
       expect(backups).toEqual([]);
     });
   });
+
+  describe('request timeout handling', () => {
+    it('leaves no abort timer behind when the request rejects', async () => {
+      vi.useFakeTimers();
+      try {
+        mockFetch.mockRejectedValueOnce(new Error('network down'));
+
+        const result = await client.listSkills();
+
+        expect(result).toEqual([]);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
 });

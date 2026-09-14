@@ -145,6 +145,7 @@ function getCachedDirectoryEntries(absDir: string): Dirent[] {
 
   try {
     const entries = readdirSync(absDir, { withFileTypes: true });
+    evictExpiredDirectoryEntries(now);
     dirEntriesCache.set(absDir, {
       expiresAt: now + DIR_ENTRIES_CACHE_TTL_MS,
       entries,
@@ -153,6 +154,22 @@ function getCachedDirectoryEntries(absDir: string): Dirent[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * The TTL is only checked on read, so directories that are never completed
+ * again would otherwise stay cached for the life of the process.
+ */
+function evictExpiredDirectoryEntries(now: number): void {
+  for (const [dir, cached] of dirEntriesCache) {
+    if (cached.expiresAt <= now) {
+      dirEntriesCache.delete(dir);
+    }
+  }
+}
+
+export function getDirectoryEntriesCacheSizeForTests(): number {
+  return dirEntriesCache.size;
 }
 
 function completePathToken(

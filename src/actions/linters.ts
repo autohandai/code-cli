@@ -7,6 +7,7 @@
  * Supports eslint, pylint, clippy, golangci-lint, and more
  */
 import { signalCoordinatedProcess, spawnCoordinatedProcess, waitForProcessPublication } from '../session/peers/CommandCoordinationGate.js';
+import { killAfter } from '../utils/processTimeout.js';
 
 export interface LinterInfo {
   name: string;
@@ -87,13 +88,13 @@ async function isCommandAvailable(command: string, args: string[] = ['--version'
     stdio: 'ignore', shell: process.platform === 'win32',
   });
   return new Promise<boolean>((resolve) => {
-    proc.on('error', () => { clearTimeout(timer); resolve(false); });
-    proc.on('close', (code) => { clearTimeout(timer); resolve(code === 0); });
+    proc.on('error', () => { resolve(false); });
+    proc.on('close', (code) => { resolve(code === 0); });
 
-    const timer = setTimeout(() => {
+    killAfter(proc, 3000, () => {
       signalCoordinatedProcess(proc);
       resolve(false);
-    }, 3000);
+    });
   }).finally(() => waitForProcessPublication(proc));
 }
 

@@ -11,7 +11,7 @@ import {
   ActiveAgentRegistry,
   type ActiveAgentRecord,
 } from '../../../src/session/ActiveAgentRegistry.js';
-import { PeerAwarenessManager } from '../../../src/session/peers/PeerAwarenessManager.js';
+import { MAX_TRACKED_READS, PeerAwarenessManager } from '../../../src/session/peers/PeerAwarenessManager.js';
 
 const tempRoots: string[] = [];
 
@@ -139,5 +139,26 @@ describe('PeerAwarenessManager', () => {
     expect(manager.getPathsWritten()).toHaveLength(20);
     expect(manager.getPathsWritten()[0]).toBe('src/f29.ts');
     expect(manager.getClaims()).toHaveLength(20);
+  });
+
+  it('forgets the oldest read timestamps instead of retaining every file ever read', async () => {
+    const registry = await createRegistry();
+    const manager = new PeerAwarenessManager({
+      workspaceRoot: '/repo',
+      sessionId: 'me',
+      tier: 'warn',
+      registry,
+    });
+
+    manager.recordRead('src/first.ts', 1);
+    for (let index = 0; index < MAX_TRACKED_READS; index += 1) {
+      manager.recordRead(`src/later-${index}.ts`, 1);
+    }
+
+    const firstWarnings = manager.warnForWrite('src/first.ts', 2);
+    const latestWarnings = manager.warnForWrite(`src/later-${MAX_TRACKED_READS - 1}.ts`, 2);
+
+    expect(firstWarnings.some((warning) => warning.kind === 'file-collision')).toBe(false);
+    expect(latestWarnings.some((warning) => warning.kind === 'file-collision')).toBe(true);
   });
 });

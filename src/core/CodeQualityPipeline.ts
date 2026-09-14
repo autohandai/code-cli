@@ -7,6 +7,7 @@
 import fs from 'fs-extra';
 import { join } from 'path';
 import { signalCoordinatedProcess, spawnCoordinatedProcess, waitForProcessPublication } from '../session/peers/CommandCoordinationGate.js';
+import { killAfter } from '../utils/processTimeout.js';
 
 /**
  * Quality check types
@@ -282,9 +283,9 @@ export class CodeQualityPipeline {
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
           signalCoordinatedProcess(child, 'SIGTERM');
-          setTimeout(() => {
+          killAfter(child, 2000, () => {
             if (child.exitCode === null && child.signalCode === null) signalCoordinatedProcess(child, 'SIGKILL');
-          }, 2000);
+          });
           reject(new Error(`Timeout after ${this.defaultTimeout}ms`));
         }, this.defaultTimeout);
 

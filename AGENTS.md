@@ -220,6 +220,19 @@ Example scenarios:
 
 Comments are only allowed for genuinely complex business logic.
 
+### Resource lifecycle
+
+The interactive session runs for hours. Anything registered per turn, tool call, or request must be released on every path, not just the success path.
+
+- spawned child watchdogs: use `killAfter` from `src/utils/processTimeout.ts`; never a bare `setTimeout(() => proc.kill())`
+- `fetch` deadlines: use `AbortSignal.timeout(ms)`; do not hand-roll an `AbortController` plus timer
+- listeners registered before a `try` must be released in that `try`'s `finally`, including early `return`s
+- diagnostic listeners attached for a handshake (for example `captureHandshakeStderr` in `McpClientManager`) are detached once the handshake settles and buffer only a bounded tail
+- every timer field on a long-lived class is cleared in its `stop()`/`dispose()`
+- session-lived arrays and maps are bounded (`pushBounded` / `setBounded` in `src/utils/bounded.ts`) unless they are the transcript itself
+- TTL caches evict on write, not only on read
+- regression tests: `vi.useFakeTimers()` and assert `vi.getTimerCount()` returns to its baseline after the operation settles
+
 ---
 
 ## Constraints
