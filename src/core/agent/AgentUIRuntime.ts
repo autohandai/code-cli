@@ -14,6 +14,7 @@ import { createPlainUIManager } from '../../ui/PlainUIManager.js';
 import { setTerminalMarkdownPreference } from '../../ui/terminalMarkdown.js';
 import { getPromptBlockWidth, promptNotify } from '../../ui/inputPrompt.js';
 import { executeShellCommandAsync, executeStreamingShellCommand, isShellCommand, parseShellCommand } from '../../ui/shellCommand.js';
+import { canSteerComposerInput } from '../../ui/composerSteering.js';
 import { createImmediateShellCommandBlockWriter, formatImmediateShellCommandHeader } from '../immediateCommandRouter.js';
 import { SLASH_COMMANDS } from '../slashCommands.js';
 import { buildHostTokenUsageStatus, formatElapsedTime, formatSessionActualTokens, formatTurnUsage } from './AgentFormatter.js';
@@ -623,7 +624,7 @@ export function addAgentUIToolOutputs(host: AgentUIRuntimeHost, outputs: Array<{
 export async function steerAgentActiveInstruction(host: AgentUIRuntimeHost, text: string): Promise<boolean> {
     const content = text.trim();
     if (!content) return false;
-    if (!host.isInstructionActive || !host.steering) {
+    if (!host.isInstructionActive || !host.steering || !canSteerComposerInput(content)) {
       await host.handleInkSubmittedInstruction(content);
       return false;
     }

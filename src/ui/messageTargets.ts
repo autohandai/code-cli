@@ -182,6 +182,12 @@ export interface LeadingTargetMessage {
  * the alias names exactly one known target. Anything else is an ordinary
  * prompt, so `:smile:` or a mid-sentence reference never sends.
  */
+/** Text shaped like a `:alias message` send, before the alias is checked against live targets. */
+export function isLeadingTargetInput(text: string): boolean {
+  const trimmed = text.trim();
+  return !trimmed.includes('\n') && LEADING_TARGET_RE.test(trimmed);
+}
+
 export function parseLeadingTargetMessage(text: string, targets: readonly MessageTarget[]): LeadingTargetMessage | null {
   const trimmed = text.trim();
   if (trimmed.includes('\n')) return null;

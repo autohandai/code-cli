@@ -20,6 +20,7 @@ import { SlashCommandDropdown, matchSlashCommand, buildSlashSuggestions, buildSu
 import { SkillMentionDropdown, matchSkillMention, buildSkillSuggestions, type SkillSuggestion } from './SkillMentionDropdown.js';
 import { MessageTargetDropdown } from './MessageTargetDropdown.js';
 import { buildTargetSuggestions, matchTargetMention, type MessageTarget, type MessageTargetSuggestion } from '../messageTargets.js';
+import { canSteerComposerInput } from '../composerSteering.js';
 import { usePeerComposer } from './usePeerComposer.js';
 import { PeerMentionDropdown } from './PeerMentionDropdown.js';
 import type { PeerDescriptor, PeerReceipt, PeerScope } from '../../session/peers/PeerProtocol.js';
@@ -2162,7 +2163,8 @@ export function AgentUI({
     // which. When idle Shift+Enter still inserts a newline.
     let submitChar = char;
     let submitKey = key;
-    if (isWorkingRef.current && enableQueueInputRef.current && onSteerRef.current && textBeforeKey.trim().length > 0) {
+    // Shell, slash, and :alias inputs skip this split and run at once.
+    if (isWorkingRef.current && enableQueueInputRef.current && onSteerRef.current && textBeforeKey.trim().length > 0 && canSteerComposerInput(textBeforeKey)) {
       const shiftEnter = isShiftEnterKey(char, key);
       const plainEnter = !shiftEnter && key.return === true && !key.meta && !key.ctrl;
       const steerKey = enterWhileWorkingRef.current === 'queue' ? shiftEnter : plainEnter;

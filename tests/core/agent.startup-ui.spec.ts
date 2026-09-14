@@ -1141,6 +1141,39 @@ describe('agent startup and active input UI', () => {
     }
   });
 
+  it('setupEscListener runs a slash command typed mid-turn instead of steering it', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    const originalStdin = process.stdin;
+    const mockInput = new EventEmitter() as NodeJS.ReadStream;
+    (mockInput as any).isTTY = true;
+    (mockInput as any).isRaw = true;
+    (mockInput as any).setRawMode = vi.fn(() => mockInput);
+    (mockInput as any).resume = vi.fn(() => mockInput);
+    (mockInput as any).setEncoding = vi.fn();
+
+    agent.runtime = { config: { agent: { enableRequestQueue: true } }, options: {} };
+    agent.updateInputLine = vi.fn();
+    agent.persistentInput = { queue: [], enqueue: vi.fn(), getQueueLength: () => 0, writeAbove: vi.fn(), setStatusLine: vi.fn(), setActivityLine: vi.fn() };
+    agent.persistentInputActiveTurn = false;
+    agent.queueInput = '';
+    agent.steerActiveInstruction = vi.fn(async () => true);
+    agent.parseSlashCommand = vi.fn(() => ({ command: 'ps', args: [] }));
+    agent.handleSlashCommand = vi.fn(async () => null);
+
+    Object.defineProperty(process, 'stdin', { configurable: true, value: mockInput });
+    try {
+      const cleanup = (agent as any).setupEscListener(new AbortController(), vi.fn());
+      for (const ch of '/ps') mockInput.emit('keypress', ch, { name: ch, sequence: ch });
+      mockInput.emit('keypress', '\r', { name: 'return', sequence: '\r' });
+      expect(agent.steerActiveInstruction).not.toHaveBeenCalled();
+      expect(agent.persistentInput.enqueue).not.toHaveBeenCalled();
+      expect(agent.handleSlashCommand).toHaveBeenCalledWith('ps', []);
+      cleanup();
+    } finally {
+      Object.defineProperty(process, 'stdin', { configurable: true, value: originalStdin });
+    }
+  });
+
   it('setupEscListener queues line submissions from stdin data fallback when Enter is configured to queue', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const originalStdin = process.stdin;

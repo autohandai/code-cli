@@ -12,6 +12,7 @@ import { ApiError, classifyApiError } from '../../providers/errors.js';
 import { safeEmitKeypressEvents } from '../../ui/inputPrompt.js';
 import { safeSetRawMode } from '../../ui/rawMode.js';
 import { isImmediateCommand, isShellCommand, parseShellCommand } from '../../ui/shellCommand.js';
+import { canSteerComposerInput } from '../../ui/composerSteering.js';
 import { routeOutput } from '../immediateCommandRouter.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { describeInstruction, formatElapsedTime } from './AgentFormatter.js';
@@ -230,7 +231,7 @@ export function setupAgentEscListener(host: AgentInputTurnHost, controller: Abor
         if (key?.name === 'return' || key?.name === 'enter') {
           const steerOnPlainEnter = (host.runtime.config.ui?.enterWhileWorking ?? 'steer') === 'steer';
           const wantsSteer = steerOnPlainEnter ? !key?.shift : key?.shift === true;
-          if (wantsSteer && host.queueInput.trim() && typeof host.steerActiveInstruction === 'function') {
+          if (wantsSteer && host.queueInput.trim() && canSteerComposerInput(host.queueInput) && typeof host.steerActiveInstruction === 'function') {
             const steered = host.queueInput;
             host.queueInput = '';
             void host.steerActiveInstruction(steered);

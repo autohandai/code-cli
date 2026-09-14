@@ -373,6 +373,24 @@ describe('AgentUI steering while working', () => {
     expect(stripAnsi(lastFrame() ?? '')).not.toContain('focus on tests');
   });
 
+  it.each(['/ps', '!ls', ':reviewer ship it'])('submits %s immediately with plain Enter while working instead of steering it', async (text) => {
+    const onSteer = vi.fn();
+    const onInstruction = vi.fn();
+    const { stdin } = renderAgentUIWithStdin({
+      state: { ...createInitialUIState(), isWorking: true, status: 'Working...' },
+      onSteer,
+      onInstruction,
+    });
+    await new Promise(r => setImmediate(r));
+    stdin.write(text);
+    await new Promise(r => setTimeout(r, 50));
+    stdin.write('\r');
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(onSteer).not.toHaveBeenCalled();
+    expect(onInstruction.mock.calls.map((call) => call[0])).toEqual([text]);
+  });
+
   it('queues with Shift+Enter while working under the default setting', async () => {
     const onSteer = vi.fn();
     const onInstruction = vi.fn();

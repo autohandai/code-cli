@@ -97,6 +97,18 @@ describe('steerAgentActiveInstruction', () => {
     expect(host.inkRenderer.addNotification).toHaveBeenCalledWith(expect.stringContaining('Steering the running turn'));
   });
 
+  it.each(['/ps', '!ls', ':reviewer ship it'])('runs %s through the submit path even while a turn is active', async (text) => {
+    const { steerAgentActiveInstruction } = await import('../../../src/core/agent/AgentUIRuntime.js');
+    const { SteeringQueue } = await import('../../../src/core/agent/SteeringQueue.js');
+    const host = createHost();
+    host.steering = new SteeringQueue();
+    host.handleInkSubmittedInstruction = vi.fn().mockResolvedValue(undefined);
+
+    expect(await steerAgentActiveInstruction(host, text)).toBe(false);
+    expect(host.handleInkSubmittedInstruction).toHaveBeenCalledWith(text);
+    expect(host.steering.size).toBe(0);
+  });
+
   it('submits normally when no turn is running', async () => {
     const { steerAgentActiveInstruction } = await import('../../../src/core/agent/AgentUIRuntime.js');
     const { SteeringQueue } = await import('../../../src/core/agent/SteeringQueue.js');
