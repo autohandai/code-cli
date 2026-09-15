@@ -234,6 +234,8 @@
         "activitySymbolDesc": "Symbol shown before activity verb",
         "statusLine": "Status line",
         "statusLineDesc": "Choose what appears in the composer status line",
+        "statusBar": "Status bar",
+        "statusBarDesc": "Configure status bar sections and layout",
         "updateCheckInterval": "Update check interval (hours)",
         "updateCheckIntervalDesc": "Hours between update checks"
       },

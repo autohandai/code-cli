@@ -35,6 +35,8 @@ export interface ModalOption {
   checked?: boolean;
   /** Whether the option is disabled (cannot be selected) */
   disabled?: boolean;
+  /** When true, renders as an action button (no checkbox, no number, not toggleable) */
+  action?: boolean;
 }
 
 /**
@@ -684,16 +686,20 @@ function Modal(props: ModalProps) {
         color = 'accent';
       }
 
-      const checkbox = isMultiSelect
+      const isHeader = choice.value.startsWith('__header');
+      const isAction = choice.action === true;
+      const checkbox = isMultiSelect && !isHeader && !isAction
         ? (checkedSet.has(choice.value) ? '\u2611 ' : '\u2610 ')
         : '';
+      const numberPrefix = isHeader || isAction ? '' : `${i + 1}. `;
+      const disabledSuffix = isDisabled && !isHeader && !isAction ? ' (disabled)' : '';
 
       return (
         <Box key={`${choice.value}-${i}`} flexDirection="column">
           {header && vi > 0 && <Text> </Text>}
           {header && <Text>{theme.fg('muted', header)}</Text>}
           <Text>
-            {theme.fg(color ?? 'text', `${isSelected ? '\u25b8 ' : '  '}${checkbox}${i + 1}. ${choice.label}${isDisabled ? ' (disabled)' : ''}`)}
+            {theme.fg(color ?? 'text', `${isSelected ? '\u25b8 ' : '  '}${checkbox}${numberPrefix}${choice.label}${disabledSuffix}`)}
           </Text>
           {choice.description && (
             <Text>{theme.fg('muted', `     ${choice.description}`)}</Text>

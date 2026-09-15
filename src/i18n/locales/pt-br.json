@@ -212,6 +212,8 @@
         "promptSuggestionsDesc": "Mostrar sugestões de próximos passos geradas pela IA",
         "activitySymbol": "Símbolo de atividade",
         "activitySymbolDesc": "Símbolo mostrado antes do verbo de atividade",
+        "statusBar": "Barra de status",
+        "statusBarDesc": "Configurar seções e layout da barra de status",
         "updateCheckInterval": "Intervalo de verificação de atualizações (horas)",
         "updateCheckIntervalDesc": "Horas entre verificações de atualização"
       },

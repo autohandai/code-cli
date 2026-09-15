@@ -289,6 +289,47 @@ export interface StatusLineSettings {
   showModeLabel?: boolean;
 }
 
+// ── Status bar section model ──────────────────────────────────────────────
+
+/** Priority tier for overflow pipeline (lowest dropped first). */
+export type SectionPriority = 'critical' | 'high' | 'normal' | 'low' | 'ambient';
+
+/** A single pluggable status bar section. */
+export interface StatusSectionConfig {
+  /** Section identifier — must be a known section ID (see STATUS_SECTION_IDS). */
+  id: string;
+  /** Which line this section renders on (1 = identity, 2 = state). */
+  line: 1 | 2;
+  /** Whether this section is enabled (default: true). */
+  enabled?: boolean;
+  /** Override the default priority for this section. */
+  priority?: SectionPriority;
+  /** Override the theme color token for this section. */
+  color?: string;
+}
+
+/** All known section IDs from the design doc. */
+export const STATUS_SECTION_IDS = [
+  // Line 1: identity
+  'project', 'git', 'gitAhead', 'gitBehind', 'dirty', 'worktree', 'pr',
+  'model', 'provider', 'mode', 'context', 'tokens', 'cost', 'clock',
+  // Line 2: state
+  'agents', 'mcp', 'diff', 'research', 'tasks', 'hints',
+] as const;
+
+export type StatusSectionId = (typeof STATUS_SECTION_IDS)[number];
+
+/** Layout mode for the status bar. */
+export type StatusBarLayout = 'classic' | 'two-line';
+
+/** New section-based status bar configuration. */
+export interface StatusBarConfig {
+  /** Layout mode (default: classic for backward compatibility). */
+  layout?: StatusBarLayout;
+  /** Ordered list of sections to render. */
+  sections?: StatusSectionConfig[];
+}
+
 export type TaskListPosition = 'up' | 'above-composer';
 
 export interface UISettings {
@@ -335,8 +376,10 @@ export interface UISettings {
   mouseComposerCursor?: boolean;
   /** Shortcut profile for the Ink composer: Autohand defaults or another agent's conventions (default: autohand). */
   keybindingProfile?: KeybindingProfileId;
-  /** Fixed composer status-line display preferences. */
+  /** Legacy fixed composer status-line display preferences (migrated to statusBar). */
   statusLine?: StatusLineSettings;
+  /** New section-based status bar configuration. */
+  statusBar?: StatusBarConfig;
 }
 
 export interface AgentSettings {
