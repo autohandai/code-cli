@@ -85,6 +85,23 @@ describe('session titles', () => {
     expect(h.sessionManager.getCurrentSession()?.metadata.title).toBe('Ship the release');
   });
 
+  it('keeps a failed automatic rename out of the terminal unless debugging is on', async () => {
+    const h = await host();
+    const writeDebugLine = vi.fn();
+    vi.spyOn(h.sessionManager, 'renameCurrentSession').mockRejectedValue(new Error('disk full'));
+    try {
+      vi.stubEnv('AUTOHAND_DEBUG', '');
+      await autoNameAgentSessionFromInstruction({ ...h, writeDebugLine }, 'fix the caret after startup');
+      expect(writeDebugLine).not.toHaveBeenCalled();
+
+      vi.stubEnv('AUTOHAND_DEBUG', '1');
+      await autoNameAgentSessionFromInstruction({ ...h, writeDebugLine }, 'fix the caret after startup');
+      expect(writeDebugLine).toHaveBeenCalledWith(expect.stringContaining('auto session name skipped: disk full'));
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('syncs the display name into the terminal title', async () => {
     const h = await host();
     syncAgentTerminalTitleName(h);

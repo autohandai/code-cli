@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { getSessionDisplayName } from '../../session/sessionTitle.js';
+import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import type { SessionMetadata } from '../../session/types.js';
 import type { TerminalTitleController } from '../../ui/terminalTitle.js';
 import { deriveSessionTitleFromInstruction, type SessionAutoNamer } from './SessionAutoNamer.js';
@@ -51,7 +52,7 @@ export async function autoNameAgentSessionFromInstruction(host: AgentSessionTitl
     await manager(host).renameCurrentSession(derived, { source: 'auto' });
     syncAgentTerminalTitleName(host);
   } catch (error) {
-    host.writeDebugLine?.(`[DEBUG] auto session name skipped: ${error instanceof Error ? error.message : String(error)}`);
+    writeAutohandDebugLine(`[DEBUG] auto session name skipped: ${error instanceof Error ? error.message : String(error)}`, host.writeDebugLine?.bind(host));
   }
 }
 
@@ -75,6 +76,6 @@ export async function refineAgentSessionTitle(host: AgentSessionTitleHost, signa
     await manager(host).renameCurrentSession(refined, { source: 'auto' });
     syncAgentTerminalTitleName(host);
   } catch (error) {
-    host.writeDebugLine?.(`[DEBUG] session name refinement skipped: ${error instanceof Error ? error.message : String(error)}`);
+    writeAutohandDebugLine(`[DEBUG] session name refinement skipped: ${error instanceof Error ? error.message : String(error)}`, host.writeDebugLine?.bind(host));
   }
 }

@@ -538,7 +538,7 @@ export async function runAgentReactLoop(
     const workspaceChangeCapture = host.inkRenderer && displayToolOutput && !host.workspaceChangeCaptureDisabled
       ? await WorkspaceChangeCapture.create(host.runtime.workspaceRoot).catch((error: unknown) => {
           if (error instanceof WorkspaceChangeCaptureBudgetError) host.workspaceChangeCaptureDisabled = true;
-          host.writeDebugLine(`[DEBUG] Workspace change capture unavailable: ${error instanceof Error ? error.message : String(error)}`);
+          if (debugMode) host.writeDebugLine(`[DEBUG] Workspace change capture unavailable: ${error instanceof Error ? error.message : String(error)}`);
           return null;
         })
       : null;
@@ -1179,7 +1179,7 @@ export async function runAgentReactLoop(
 
           const checkpoint = workspaceChangeCapture
             ? await workspaceChangeCapture.begin().catch((error: unknown) => {
-                host.writeDebugLine(`[DEBUG] Workspace change checkpoint failed: ${error instanceof Error ? error.message : String(error)}`);
+                if (debugMode) host.writeDebugLine(`[DEBUG] Workspace change checkpoint failed: ${error instanceof Error ? error.message : String(error)}`);
                 return null;
               })
             : null;
@@ -1213,7 +1213,7 @@ export async function runAgentReactLoop(
           } finally {
             if (workspaceChangeCapture && checkpoint) {
               workspaceChanges = await workspaceChangeCapture.finish(checkpoint).catch((error: unknown) => {
-                host.writeDebugLine(`[DEBUG] Workspace change comparison failed: ${error instanceof Error ? error.message : String(error)}`);
+                if (debugMode) host.writeDebugLine(`[DEBUG] Workspace change comparison failed: ${error instanceof Error ? error.message : String(error)}`);
                 return null;
               });
             }
@@ -1514,10 +1514,10 @@ export async function runAgentReactLoop(
     } finally {
       if (workspaceChangeCapture?.hasExceededBudget() && !host.workspaceChangeCaptureDisabled) {
         host.workspaceChangeCaptureDisabled = true;
-        host.writeDebugLine(`[DEBUG] Workspace change capture disabled for this session: a git snapshot exceeded ${WORKSPACE_CHANGE_CAPTURE_BUDGET_MS} ms.`);
+        if (debugMode) host.writeDebugLine(`[DEBUG] Workspace change capture disabled for this session: a git snapshot exceeded ${WORKSPACE_CHANGE_CAPTURE_BUDGET_MS} ms.`);
       }
       await workspaceChangeCapture?.dispose().catch((error: unknown) => {
-        host.writeDebugLine(`[DEBUG] Workspace change capture cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+        if (debugMode) host.writeDebugLine(`[DEBUG] Workspace change capture cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
       });
     }
   }

@@ -961,7 +961,7 @@ export async function ensureAgentInitComplete(
     } finally {
       if (waitStatus) host.ui?.setWorking?.(false);
       const gate = startupTimeline.mark('first turn released');
-      host.writeDebugLine?.(`[DEBUG] first turn waited ${Math.round(gate.delta)} ms on startup init`);
+      writeAutohandDebugLine(`[DEBUG] first turn waited ${Math.round(gate.delta)} ms on startup init`, host.writeDebugLine?.bind(host));
       if (isStartupTimingEnabled() && gate.delta >= 1_000) {
         host.inkRenderer?.addNotification?.(`Startup timing: the first turn waited ${Math.round(gate.delta)} ms for background init (${waitStatus ?? 'init'}).`);
       }

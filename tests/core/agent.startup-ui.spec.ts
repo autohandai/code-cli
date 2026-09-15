@@ -520,6 +520,32 @@ describe('agent startup and active input UI', () => {
     return agent;
   }
 
+  it('keeps the first-turn wait line off the terminal unless AUTOHAND_DEBUG is set', async () => {
+    const agent = createInitGateAgent();
+    agent.writeDebugLine = vi.fn();
+    vi.stubEnv('AUTOHAND_DEBUG', '');
+    try {
+      await (agent as any).ensureInitComplete();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(agent.writeDebugLine).not.toHaveBeenCalled();
+  });
+
+  it('reports the first-turn wait through the debug writer when AUTOHAND_DEBUG is set', async () => {
+    const agent = createInitGateAgent();
+    agent.writeDebugLine = vi.fn();
+    vi.stubEnv('AUTOHAND_DEBUG', '1');
+    try {
+      await (agent as any).ensureInitComplete();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(agent.writeDebugLine).toHaveBeenCalledWith(
+      expect.stringMatching(/^\[DEBUG\] first turn waited \d+ ms on startup init$/),
+    );
+  });
+
   it('releases the first instruction once MCP registration completes before the deadline', async () => {
     const agent = createInitGateAgent();
     let resolveMcp: (() => void) | undefined;
