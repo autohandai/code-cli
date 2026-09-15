@@ -124,4 +124,46 @@ describe('Modal rendering a full-width session picker row', () => {
     };
     expect(msgsColumn('Task 00')).toBe(msgsColumn('Task 09'));
   });
+
+  it('reserves room via extraRows for a paging row the caller appends after building', () => {
+    // Regression: buildSessionPickerRows takes `extraRows` so its row-number
+    // column reserves width for rows the *caller* appends after this
+    // function returns (resume.ts's "Newer sessions" / "Older sessions"
+    // paging rows) - the modal still numbers those rows alongside every
+    // session row. Dropping the argument is silent: every other test in this
+    // suite still passes, because none of them append a caller-side row that
+    // pushes the total row count across a digit boundary. 9 sessions plus 1
+    // appended paging row is exactly that case - the total goes from 9 to 10
+    // rows, so at 100 columns it wraps without `extraRows: 1` and fits
+    // exactly with it.
+    const now = new Date(2026, 8, 15, 14, 0);
+    const entries = Array.from({ length: 9 }, (_, index) => ({
+      session: session({
+        sessionId: `s${index}`,
+        messageCount: index + 1,
+        lastActiveAt: new Date(now.getTime() - index * 60_000).toISOString(),
+      }),
+      title: `Session number ${index}`,
+    }));
+    const { options } = buildSessionPickerRows({
+      entries, now, columns: 100, singleProject: true, extraRows: 1,
+    });
+    options.push({ label: 'Older sessions', value: '__next__' });
+
+    const { lastFrame } = render(
+      <ThemeProvider>
+        <Modal title="Resume a session" options={options} onSelect={vi.fn()} onCancel={vi.fn()} maxVisible={15} />
+      </ThemeProvider>
+    );
+
+    const rawLines = stripAnsi(lastFrame() ?? '').split('\n').map((line) => line.trimEnd());
+    const listLines = rawLines.filter((line) => {
+      const trimmed = line.trim();
+      return trimmed !== '' && trimmed !== 'Resume a session' && trimmed !== 'Today';
+    });
+    listLines.pop(); // trailing keyboard hint
+
+    // No wrap: one physical line per option (9 session rows + 1 paging row).
+    expect(listLines).toHaveLength(options.length);
+  });
 });

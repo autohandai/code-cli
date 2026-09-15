@@ -60,8 +60,17 @@ export function sessionGroupLabel(activeAt: Date, now: Date): 'Today' | 'Yesterd
   return 'Earlier';
 }
 
-/** Compact age: 2m, 5h, 3d, 2w — the picker sorts by recency, so precision past weeks adds nothing. */
+/**
+ * Compact age: 2m, 5h, 3d, 2w — the picker sorts by recency, so precision
+ * past weeks adds nothing. `sessionActivityAt` returns the Unix epoch as a
+ * sentinel when a session's timestamps are both missing or unparseable
+ * (metadata written by older versions); formatting that literally produced a
+ * technically-correct but meaningless "2960w ago", so it renders as
+ * "unknown" instead. Sort order is unaffected — the sentinel is still the
+ * oldest possible Date and sorts last.
+ */
 export function formatAge(activeAt: Date, now: Date): string {
+  if (activeAt.getTime() === 0) return 'unknown';
   const minutes = Math.max(0, Math.floor((now.getTime() - activeAt.getTime()) / 60000));
   if (minutes < 1) return 'just now';
   if (minutes < 60) return `${minutes}m ago`;

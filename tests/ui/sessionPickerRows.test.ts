@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import stringWidth from 'string-width';
-import { buildSessionPickerRows, sessionGroupLabel } from '../../src/ui/sessionPickerRows.js';
+import { buildSessionPickerRows, formatAge, sessionGroupLabel } from '../../src/ui/sessionPickerRows.js';
+import { sessionActivityAt } from '../../src/session/sessionActivity.js';
 import type { SessionMetadata } from '../../src/session/types.js';
 
 const NOW = new Date('2026-09-15T12:00:00Z');
@@ -18,6 +19,22 @@ function session(overrides: Partial<SessionMetadata> = {}): SessionMetadata {
     ...overrides,
   } as SessionMetadata;
 }
+
+describe('formatAge', () => {
+  // Regression: sessionActivityAt returns the Unix epoch as a stable
+  // sentinel when a session's timestamps are both missing or unparseable
+  // (see tests/session/sessionActivity.test.ts). Formatting that literally
+  // produced a technically NaN-free but meaningless "2960w ago" - render
+  // something honest instead.
+  it('renders the epoch sentinel as "unknown" rather than a bogus multi-decade age', () => {
+    expect(formatAge(new Date(0), NOW)).toBe('unknown');
+  });
+
+  it('formats real ages normally, unaffected by the sentinel special-case', () => {
+    expect(formatAge(new Date(NOW.getTime() - 5 * 60_000), NOW)).toBe('5m ago');
+    expect(formatAge(new Date(NOW.getTime() - 3 * 24 * 60 * 60_000), NOW)).toBe('3d ago');
+  });
+});
 
 describe('sessionGroupLabel', () => {
   it('names the recency bands from local day boundaries', () => {
@@ -222,5 +239,18 @@ describe('buildSessionPickerRows', () => {
 
     expect(options[0]?.label).toContain('first line second line');
     expect(options[0]?.label).not.toContain('\x1b');
+  });
+
+  it('renders a session with unparseable timestamps as "unknown" and sorts it last', () => {
+    const entries = [
+      { session: session({ sessionId: 'good', lastActiveAt: sessionActivityAt(session()).toISOString() }), title: 'real work' },
+      { session: session({ sessionId: 'broken', lastActiveAt: 'garbage', createdAt: 'also-garbage' }), title: 'old metadata' },
+    ];
+    const { options } = buildSessionPickerRows({ entries, now: NOW, columns: 100, singleProject: true });
+
+    expect(options.map((option) => option.value)).toEqual(['good', 'broken']);
+    const brokenRow = options.find((option) => option.value === 'broken');
+    expect(brokenRow?.label).toContain('unknown');
+    expect(brokenRow?.label).not.toContain('NaN');
   });
 });

@@ -429,24 +429,38 @@ describe('Resume Command', () => {
 describe('resolveResumeMaxVisible', () => {
   // Regression: the picker passed a fixed maxVisible: 15 straight to the
   // modal, which counts *options* rather than rendered lines. Each recency
-  // group heading this picker adds costs two extra lines the modal never
-  // counts, so a 15-row window spanning all four groups (Today/Yesterday/
-  // Previous 7 days/Earlier) can render ~23 lines and scroll off a short
-  // terminal. This clamps to what the terminal can actually show.
-  it('caps at the previous default of 15 on a tall terminal', () => {
-    expect(resolveResumeMaxVisible(50)).toBe(15);
+  // group heading this picker adds costs 1 rendered line for the first
+  // heading and 2 for every heading after it, which an earlier fixed
+  // reservation of 8 lines only approximated - a window spanning all four
+  // groups (Today/Yesterday/Previous 7 days/Earlier) still rendered past a
+  // short terminal. headingCount must be the exact count from the rows the
+  // picker built for the current page.
+  it('caps at the previous default of 15 on a tall terminal with a single heading', () => {
+    // reserved = 4 + (2*1 - 1) = 5; 50-5=45, capped at 15
+    expect(resolveResumeMaxVisible(50, 1)).toBe(15);
+  });
+
+  it('reserves only the fixed chrome when the page has no heading at all', () => {
+    // reserved = 4 + 0 = 4; 50-4=46, capped at 15
+    expect(resolveResumeMaxVisible(50, 0)).toBe(15);
+  });
+
+  it('reserves exactly 11 lines for the four-group worst case (Today/Yesterday/Previous 7 days/Earlier)', () => {
+    // reserved = 4 + (2*4 - 1) = 11; 20-11=9
+    expect(resolveResumeMaxVisible(20, 4)).toBe(9);
   });
 
   it('shrinks to fit a short terminal', () => {
-    expect(resolveResumeMaxVisible(20)).toBe(12);
+    // reserved = 4 + (2*1 - 1) = 5; 17-5=12
+    expect(resolveResumeMaxVisible(17, 1)).toBe(12);
   });
 
   it('never drops below a usable floor of 5 rows on a very short terminal', () => {
-    expect(resolveResumeMaxVisible(10)).toBe(5);
-    expect(resolveResumeMaxVisible(1)).toBe(5);
+    expect(resolveResumeMaxVisible(10, 4)).toBe(5);
+    expect(resolveResumeMaxVisible(1, 1)).toBe(5);
   });
 
   it('falls back to a 24-row assumption when rows is unknown', () => {
-    expect(resolveResumeMaxVisible(undefined)).toBe(15);
+    expect(resolveResumeMaxVisible(undefined, 1)).toBe(15);
   });
 });

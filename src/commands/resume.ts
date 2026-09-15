@@ -85,16 +85,21 @@ async function readFirstUserMessage(sessionMeta: SessionMetadata): Promise<strin
 
 /**
  * How many rows the resume picker's modal should show. The modal counts
- * *options*, not rendered lines, and each recency group heading this picker
- * adds (Today / Yesterday / Previous 7 days / Earlier) costs two extra lines
- * that count never sees — a fixed 15-row window spanning all four groups can
- * render ~23 lines and scroll off a terminal shorter than that. Reserve room
- * for the modal's own chrome (title, spacer, hint line, and the paging/reveal
- * rows) and never exceed the previous default of 15 or drop below a usable
- * floor of 5.
+ * *options*, not rendered lines: 4 lines are fixed modal chrome (title, two
+ * spacers, the keyboard hint), and on top of that every recency-group
+ * heading (Today / Yesterday / Previous 7 days / Earlier) this picker adds
+ * costs 1 rendered line for the first heading and 2 for every heading after
+ * it (a blank separator line above the group, plus the heading text) — see
+ * `buildSessionPickerRows`. `headingCount` must be counted from the rows the
+ * picker actually built for the current page, since it varies with how many
+ * recency groups that page spans; this guarantees an exact reservation
+ * rather than an approximation that can still under-reserve. Never exceeds
+ * the previous default of 15 or drops below a usable floor of 5.
  */
-export function resolveResumeMaxVisible(rows: number | undefined): number {
-    return Math.max(5, Math.min(15, (rows ?? 24) - 8));
+export function resolveResumeMaxVisible(rows: number | undefined, headingCount: number): number {
+    const headingRows = headingCount > 0 ? 2 * headingCount - 1 : 0;
+    const reserved = 4 + headingRows;
+    return Math.max(5, Math.min(15, (rows ?? 24) - reserved));
 }
 
 interface ResumePickerContext {
@@ -153,6 +158,7 @@ export async function selectResumeSession(ctx: ResumePickerContext): Promise<str
             options.push({ label: 'Older sessions', value: '__next__' });
         }
 
+        const headingCount = options.filter((option) => option.header).length;
         await ctx.onBeforeModal?.();
         const result = await (async () => {
             try {
@@ -160,7 +166,7 @@ export async function selectResumeSession(ctx: ResumePickerContext): Promise<str
                     title: 'Resume a session',
                     options,
                     filterable: true,
-                    maxVisible: resolveResumeMaxVisible(process.stdout.rows),
+                    maxVisible: resolveResumeMaxVisible(process.stdout.rows, headingCount),
                 });
             } finally {
                 await ctx.onAfterModal?.();

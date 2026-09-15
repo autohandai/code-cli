@@ -5,7 +5,6 @@
  */
 import { describe, expect, it } from 'vitest';
 import { sessionActivityAt } from '../../src/session/sessionActivity.js';
-import { formatAge } from '../../src/ui/sessionPickerRows.js';
 import type { SessionMetadata } from '../../src/session/types.js';
 
 function session(overrides: Partial<SessionMetadata> = {}): SessionMetadata {
@@ -35,7 +34,9 @@ describe('sessionActivityAt', () => {
   // `new Date(session.createdAt)` unconditionally, which produced an Invalid
   // Date whenever createdAt was also missing/unparseable - poisoning
   // formatAge ("NaNw ago") and the recency sort (NaN comparisons make
-  // Array#sort order engine-defined).
+  // Array#sort order engine-defined). formatAge's own handling of this
+  // sentinel (rendered as "unknown") is a ui-layer concern and is tested in
+  // tests/ui/sessionPickerRows.test.ts, where formatAge lives.
   it('returns a valid, stable sentinel when both timestamps are missing', () => {
     const s = session({
       lastActiveAt: undefined as unknown as string,
@@ -44,7 +45,6 @@ describe('sessionActivityAt', () => {
     const activeAt = sessionActivityAt(s);
     expect(Number.isNaN(activeAt.getTime())).toBe(false);
     expect(activeAt.getTime()).toBe(0);
-    expect(formatAge(activeAt, new Date('2026-09-15T12:00:00Z'))).not.toContain('NaN');
   });
 
   it('returns a valid, stable sentinel when both timestamps are unparseable garbage', () => {
@@ -52,7 +52,6 @@ describe('sessionActivityAt', () => {
     const activeAt = sessionActivityAt(s);
     expect(Number.isNaN(activeAt.getTime())).toBe(false);
     expect(activeAt.getTime()).toBe(0);
-    expect(formatAge(activeAt, new Date('2026-09-15T12:00:00Z'))).not.toContain('NaN');
   });
 
   it('sorts deterministically when some entries have unparseable timestamps', () => {
