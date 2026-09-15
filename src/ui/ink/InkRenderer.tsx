@@ -63,6 +63,7 @@ import {
 
 export interface InkRendererOptions {
   onSteer?: (text: string) => void;
+  onWorkingSpinnerFrame?: (frame: number) => void;
   onInstruction: (text: string, metadata?: PeerInstructionMetadata) => void;
   peerScopes?: PeerScope[];
   peersProvider?: (scope?: PeerScope) => PeerDescriptor[];
@@ -206,6 +207,7 @@ export interface AgentUIWrapperHandle {
 interface AgentUIWrapperProps {
   initialState: AgentUIState;
   onSteer?: (text: string) => void;
+  onWorkingSpinnerFrame?: (frame: number) => void;
   onInstruction: InkRendererOptions['onInstruction'];
   peerScopes?: InkRendererOptions['peerScopes'];
   peersProvider?: InkRendererOptions['peersProvider'];
@@ -252,6 +254,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       initialState,
       onInstruction,
       onSteer,
+      onWorkingSpinnerFrame,
       onEscape,
       onCtrlC,
       onDismissAnnouncement,
@@ -313,6 +316,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         typedMessageHistory={getTypedMessageHistory()}
         onInstruction={onInstruction}
         onSteer={onSteer}
+        onWorkingSpinnerFrame={onWorkingSpinnerFrame}
         onEscape={onEscape}
         onCtrlC={onCtrlC}
         onDismissAnnouncement={onDismissAnnouncement}
@@ -528,6 +532,7 @@ export class InkRenderer {
             initialState={this.state}
             onInstruction={this.options.onInstruction}
             onSteer={this.options.onSteer}
+            onWorkingSpinnerFrame={this.options.onWorkingSpinnerFrame}
             onEscape={this.options.onEscape}
             onCtrlC={this.options.onCtrlC}
             onDismissAnnouncement={this.options.onDismissAnnouncement}

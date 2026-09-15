@@ -3,9 +3,9 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { memo, type ReactNode } from 'react';
+import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Box, Text } from 'ink';
-import Spinner from 'ink-spinner';
+import { WORKING_SPINNER_FRAMES } from '../terminalTitle.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/index.js';
 import type { Theme } from '../theme/Theme.js';
@@ -52,6 +52,29 @@ export interface StatusLineProps {
   teamActivity?: TeamActivitySnapshot;
   /** Optional extension points for status-line text segments. */
   lineExtension?: LineExtension;
+  /** Fires with each spinner frame so the terminal tab can animate in step. */
+  onSpinnerFrame?: (frame: number) => void;
+}
+
+export const WORKING_SPINNER_INTERVAL_MS = 80;
+
+/** The status-row spinner; the single animation clock the tab title follows. */
+function WorkingSpinner({ onFrame }: { onFrame?: (frame: number) => void }) {
+  const [frame, setFrame] = useState(0);
+  const frameRef = useRef(0);
+  const onFrameRef = useRef(onFrame);
+  onFrameRef.current = onFrame;
+  useEffect(() => {
+    // The tab title is told about the frame on the timer itself, not from a
+    // render, so it keeps pace even when Ink batches or defers the repaint.
+    const timer = setInterval(() => {
+      frameRef.current = (frameRef.current + 1) % WORKING_SPINNER_FRAMES.length;
+      onFrameRef.current?.(frameRef.current);
+      setFrame(frameRef.current);
+    }, WORKING_SPINNER_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, []);
+  return <Text>{WORKING_SPINNER_FRAMES[frame]}</Text>;
 }
 
 export function buildTeamActivitySegment(
@@ -196,6 +219,7 @@ function StatusLineComponent({
   queueCount = 0,
   teamActivity,
   lineExtension,
+  onSpinnerFrame,
 }: StatusLineProps) {
   const { colors, theme } = useTheme();
   const { t } = useTranslation();
@@ -221,7 +245,7 @@ function StatusLineComponent({
       {(isWorking || teamStatus.busy) && (
         <>
           <Text color={colors.accent}>
-            <Spinner type="dots" />
+            <WorkingSpinner onFrame={onSpinnerFrame} />
           </Text>
           <Text> </Text>
         </>

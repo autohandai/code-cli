@@ -560,8 +560,6 @@ export function initializeAgentDependencies(
         }
       }
     });
-    // The tab-title spinner advances on agent activity rather than a clock.
-    host.hookManager.subscribeLifecycle(() => host.terminalTitle?.tick());
     host.permissionManager.setModeChangeListener?.(async (mode: PermissionMode, previousMode: PermissionMode) => {
       await host.hookManager.executeHooks('mode-change', { mode, previousMode });
     });

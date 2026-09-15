@@ -21,6 +21,7 @@ import type { TaskListPosition } from '../types.js';
 
 export interface InkUIManagerOptions {
   onSteer?: (text: string) => void;
+  onWorkingSpinnerFrame?: (frame: number) => void;
   enterWhileWorking?: 'steer' | 'queue';
   onInstruction: InkRendererOptions['onInstruction'];
   peerScopes?: InkRendererOptions['peerScopes'];

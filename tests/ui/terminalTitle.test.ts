@@ -38,16 +38,16 @@ describe('terminal title', () => {
     expect(terminalTitleSequence('a\x1b]0;b\x07c')).toBe('\x1b]0;a ]0;b c\x07');
   });
 
-  it('advances the spinner only on ticks while working, and never after the turn ends', () => {
+  it('mirrors status-row spinner frames only while working, and never after the turn ends', () => {
     const write = vi.fn();
     const controller = new TerminalTitleController(write, true);
     controller.setName('Fix caret');
-    controller.tick();
+    controller.setFrame(4);
     controller.setState('working');
-    controller.tick();
-    controller.tick();
+    controller.setFrame(1);
+    controller.setFrame(2);
     controller.setState('waiting');
-    controller.tick();
+    controller.setFrame(5);
     controller.setState('working');
     controller.restore();
 

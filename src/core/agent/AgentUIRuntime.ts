@@ -255,6 +255,7 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
       const inkUIManager = createInkUIManager({
         onInstruction: (text, metadata) => { void handleAgentInkSubmittedInstruction(host, text, metadata); },
         onSteer: (text: string) => { void steerAgentActiveInstruction(host, text); },
+        onWorkingSpinnerFrame: (frame: number) => host.terminalTitle?.setFrame(frame),
         ...(host.runtime?.config?.sessions?.communication?.enabled === true ? {
           peerScopes: allowedPeerScopes(host.runtime.config.sessions?.communication?.scope ?? 'workspace'),
           peersProvider: scope => host.peerMessaging?.cachedPeers(scope) ?? [],

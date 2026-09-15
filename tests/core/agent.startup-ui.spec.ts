@@ -2341,6 +2341,30 @@ describe('agent startup and active input UI', () => {
     }
   });
 
+  it('wires the status-row spinner frames into the terminal tab title', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    let restoreStdoutTTY: () => void = () => {};
+    let restoreStdinTTY: () => void = () => {};
+    agent.useInkRenderer = true;
+    agent.ui = null;
+    agent.workspaceFileCollector = { getCachedFiles: vi.fn(() => []) };
+    agent.skillsRegistry = { listSkills: vi.fn(() => []) };
+    agent.terminalTitle = { setFrame: vi.fn() };
+
+    try {
+      restoreStdoutTTY = overrideStreamTTY(process.stdout, true);
+      restoreStdinTTY = overrideStreamTTY(process.stdin, true);
+      (agent as any).initializeUIManager();
+      const options = (agent.ui as any).options;
+      expect(options.onWorkingSpinnerFrame).toBeTypeOf('function');
+      options.onWorkingSpinnerFrame(7);
+      expect(agent.terminalTitle.setFrame).toHaveBeenCalledWith(7);
+    } finally {
+      restoreStdoutTTY();
+      restoreStdinTTY();
+    }
+  });
+
   it('handleInkSubmittedInstruction executes shell commands immediately instead of queueing them', async () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     agent.inkRenderer = {

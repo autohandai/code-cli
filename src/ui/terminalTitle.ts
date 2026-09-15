@@ -5,8 +5,8 @@
  *
  * Terminal window/tab title (OSC 0). Shows the session name and a small
  * marker for its state so the tab strip tells them apart: a braille spinner
- * that advances on every lifecycle event while a turn runs, ◐ while the turn
- * waits on you, ✓ once it completed, ✗ when it failed. A failure stays until
+ * that moves in step with the status-row spinner while a turn runs, ◐ while
+ * the turn waits on you, ✓ once it completed, ✗ when it failed. A failure stays until
  * the next turn starts. In iTerm2 the tab itself is also coloured green,
  * orange, or red through its proprietary tab-colour escape; other terminals
  * ignore that sequence, so they get the glyph alone.
@@ -16,7 +16,7 @@ export type TerminalTitleState = 'idle' | 'working' | 'waiting' | 'failed';
 
 export const TERMINAL_TITLE_BASE = 'Autohand Code';
 
-/** Braille "jumping beans": the next frame each time the agent does something. */
+/** Braille "jumping beans", shared with the status-row spinner so both move together. */
 export const WORKING_SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
 
 const STATE_MARKERS: Record<Exclude<TerminalTitleState, 'working'>, string> = {
@@ -98,10 +98,10 @@ export class TerminalTitleController {
     this.apply();
   }
 
-  /** Advances the spinner one frame; the agent calls this on each lifecycle event. */
-  tick(): void {
+  /** Mirrors the status-row spinner frame while a turn runs; ignored in every other state. */
+  setFrame(frame: number): void {
     if (this.state !== 'working') return;
-    this.frame = (this.frame + 1) % WORKING_SPINNER_FRAMES.length;
+    this.frame = Math.abs(frame) % WORKING_SPINNER_FRAMES.length;
     this.apply();
   }
 

@@ -250,6 +250,8 @@ export interface AgentUIProps {
   typedMessageHistory?: TypedMessageHistory;
   /** Sends the composer text into the running turn (Shift+Enter while working). */
   onSteer?: (text: string) => void;
+  /** Each status-row spinner frame, so the terminal tab can animate in step. */
+  onWorkingSpinnerFrame?: (frame: number) => void;
   /** Enter while working steers (default) or queues; Shift+Enter does the other. */
   enterWhileWorking?: 'steer' | 'queue';
   onInstruction: (text: string, metadata?: PeerInstructionMetadata) => void;
@@ -823,6 +825,7 @@ export function AgentUI({
   typedMessageHistory,
   onInstruction,
   onSteer,
+  onWorkingSpinnerFrame,
   onEscape,
   onCtrlC,
   onDismissAnnouncement,
@@ -2659,6 +2662,7 @@ export function AgentUI({
           onCtrlC={onCtrlC}
         />
       ) : <FixedBottom
+        onWorkingSpinnerFrame={onWorkingSpinnerFrame}
         announcement={state.announcement}
         tip={state.tip}
         terminalColumns={windowSize.columns ?? process.stdout.columns ?? 80}
@@ -3005,6 +3009,7 @@ const CompletionHistoryMessage = memo(function CompletionHistoryMessage({
  */
 interface StatusSectionProps {
   terminalRows?: number;
+  onWorkingSpinnerFrame?: (frame: number) => void;
   isWorking: boolean;
   status: string;
   elapsed: string;
@@ -3105,6 +3110,7 @@ const CommandResultPanel = memo(function CommandResultPanel({
 
 const StatusSection = memo(function StatusSection({
   terminalRows,
+  onWorkingSpinnerFrame,
   isWorking,
   status,
   elapsed,
@@ -3157,6 +3163,7 @@ const StatusSection = memo(function StatusSection({
         model={model}
         teamActivity={teamActivity}
         lineExtension={lineExtension}
+        onSpinnerFrame={onWorkingSpinnerFrame}
       />
       <TipLine tip={tip} columns={columns} />
 
@@ -3476,6 +3483,7 @@ const MessageTargetWrapper = memo(function MessageTargetWrapper({
  * Split into StatusSection and InputSection for better memoization
  */
 interface FixedBottomProps {
+  onWorkingSpinnerFrame?: (frame: number) => void;
   announcement?: AnnouncementLineState;
   terminalColumns: number;
   terminalRows?: number;
@@ -3591,6 +3599,7 @@ function useUserDrivenComposerCursor(
 }
 
 const FixedBottom = memo(function FixedBottom({
+  onWorkingSpinnerFrame,
   announcement,
   terminalColumns,
   terminalRows,
@@ -3658,6 +3667,7 @@ const FixedBottom = memo(function FixedBottom({
       ) : null}
       <StatusSection
         terminalRows={terminalRows}
+        onWorkingSpinnerFrame={onWorkingSpinnerFrame}
         isWorking={isWorking}
         status={status}
         elapsed={elapsed}

@@ -6,10 +6,10 @@
 
 import React from 'react';
 import { render } from 'ink-testing-library';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { StatusLine, formatLineSegments, mergeLineExtensions } from '../../../src/ui/ink/StatusLine.js';
+import { StatusLine, WORKING_SPINNER_INTERVAL_MS, formatLineSegments, mergeLineExtensions } from '../../../src/ui/ink/StatusLine.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import { I18nProvider } from '../../../src/ui/i18n/index.js';
 
@@ -24,6 +24,25 @@ function renderStatusLine(props: React.ComponentProps<typeof StatusLine>) {
 }
 
 describe('StatusLine extensions', () => {
+  it('reports each spinner frame while working so the terminal tab can follow it', async () => {
+    vi.useFakeTimers();
+    try {
+      const onSpinnerFrame = vi.fn();
+      const working = renderStatusLine({ isWorking: true, status: 'Working...', onSpinnerFrame });
+      await vi.advanceTimersByTimeAsync(WORKING_SPINNER_INTERVAL_MS * 3);
+      expect(onSpinnerFrame.mock.calls.map(([frame]) => frame)).toEqual([1, 2, 3]);
+      expect(working.lastFrame()).toContain('⠸');
+      working.unmount();
+
+      const idle = vi.fn();
+      renderStatusLine({ isWorking: false, status: '', onSpinnerFrame: idle });
+      await vi.advanceTimersByTimeAsync(WORKING_SPINNER_INTERVAL_MS * 3);
+      expect(idle).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('uses the theme ANSI formatter for status segments and separators', () => {
     const source = readFileSync(
       path.resolve(process.cwd(), 'src/ui/ink/StatusLine.tsx'),
