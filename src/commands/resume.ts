@@ -10,7 +10,7 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import type { Session, SessionManager } from '../session/SessionManager.js';
 import { getSessionDisplayName } from '../session/sessionTitle.js';
-import { buildSessionPickerRows, SHOW_EMPTY_VALUE } from '../session/sessionPickerRows.js';
+import { buildSessionPickerRows, SHOW_EMPTY_VALUE } from '../ui/sessionPickerRows.js';
 import type { SessionMetadata, SessionMessage } from '../session/types.js';
 import { buildSessionChatLog, formatChatLogPreview } from '../session/chatLog.js';
 import { AUTOHAND_PATHS } from '../constants.js';
@@ -83,6 +83,20 @@ async function readFirstUserMessage(sessionMeta: SessionMetadata): Promise<strin
     return undefined;
 }
 
+/**
+ * How many rows the resume picker's modal should show. The modal counts
+ * *options*, not rendered lines, and each recency group heading this picker
+ * adds (Today / Yesterday / Previous 7 days / Earlier) costs two extra lines
+ * that count never sees — a fixed 15-row window spanning all four groups can
+ * render ~23 lines and scroll off a terminal shorter than that. Reserve room
+ * for the modal's own chrome (title, spacer, hint line, and the paging/reveal
+ * rows) and never exceed the previous default of 15 or drop below a usable
+ * floor of 5.
+ */
+export function resolveResumeMaxVisible(rows: number | undefined): number {
+    return Math.max(5, Math.min(15, (rows ?? 24) - 8));
+}
+
 interface ResumePickerContext {
     sessionManager: SessionManager;
     workspaceRoot?: string;
@@ -142,7 +156,12 @@ export async function selectResumeSession(ctx: ResumePickerContext): Promise<str
         await ctx.onBeforeModal?.();
         const result = await (async () => {
             try {
-                return await showModalFn({ title: 'Resume a session', options, filterable: true, maxVisible: 15 });
+                return await showModalFn({
+                    title: 'Resume a session',
+                    options,
+                    filterable: true,
+                    maxVisible: resolveResumeMaxVisible(process.stdout.rows),
+                });
             } finally {
                 await ctx.onAfterModal?.();
             }

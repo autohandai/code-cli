@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import stringWidth from 'string-width';
-import { buildSessionPickerRows, sessionGroupLabel } from '../../src/session/sessionPickerRows.js';
+import { buildSessionPickerRows, sessionGroupLabel } from '../../src/ui/sessionPickerRows.js';
 import type { SessionMetadata } from '../../src/session/types.js';
 
 const NOW = new Date('2026-09-15T12:00:00Z');
@@ -156,6 +156,24 @@ describe('buildSessionPickerRows', () => {
     expect(across.options[1]?.label).toContain('elsewhere');
   });
 
+  it('scopes searchText to the title and project name, excluding rendered columns', () => {
+    // Regression: the modal's `/` search used to fall back to the whole
+    // rendered label, and the label bakes in message count and age, so a
+    // query like "msgs" matched every row and "2m" matched every recently
+    // active one. searchText scopes matching to the session title and
+    // project name only.
+    const entries = [
+      { session: session({ sessionId: 'a', projectName: 'cli-3', messageCount: 4 }), title: 'parser rewrite' },
+    ];
+
+    const { options } = buildSessionPickerRows({ entries, now: NOW, columns: 100, singleProject: false });
+
+    expect(options[0]?.searchText).toContain('parser rewrite');
+    expect(options[0]?.searchText).toContain('cli-3');
+    expect(options[0]?.searchText).not.toContain('msgs');
+    expect(options[0]?.searchText).not.toContain('ago');
+  });
+
   it('truncates a long title and never exceeds the width', () => {
     const { options } = buildSessionPickerRows({
       now: NOW,
@@ -199,10 +217,10 @@ describe('buildSessionPickerRows', () => {
       now: NOW,
       columns: 100,
       singleProject: true,
-      entries: [{ session: session(), title: '[31mfirst line\nsecond line[39m' }],
+      entries: [{ session: session(), title: '\x1b[31mfirst line\nsecond line\x1b[39m' }],
     });
 
     expect(options[0]?.label).toContain('first line second line');
-    expect(options[0]?.label).not.toContain('');
+    expect(options[0]?.label).not.toContain('\x1b');
   });
 });

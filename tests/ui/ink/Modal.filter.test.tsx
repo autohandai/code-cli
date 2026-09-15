@@ -134,6 +134,80 @@ describe('Modal filtering', () => {
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ value: 'v1' }));
   });
 
+  it('filters on searchText when present, ignoring label text outside it', async () => {
+    // The picker bakes message count and age into the label itself, so
+    // filtering on the label lets column text like "msgs" match every row.
+    // searchText lets a caller scope matching to just the meaningful fields.
+    const rowOptions = [
+      { label: 'Newer project session   4 msgs   2m ago', value: 'a', searchText: 'recent work cli-3' },
+      { label: 'Other project session   6 msgs   3d ago', value: 'b', searchText: 'other work elsewhere' },
+    ];
+    const onSelect = vi.fn();
+    const { stdin } = renderModal({
+      title: 'Choose', options: rowOptions, filterable: true, onSelect, onCancel: vi.fn(),
+    });
+
+    stdin.write('/');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    stdin.write('recent');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    stdin.write('\r');
+
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ value: 'a' }));
+  });
+
+  it('does not match column text once searchText scopes the query away from the label', async () => {
+    const rowOptions = [
+      { label: 'Newer project session   4 msgs   2m ago', value: 'a', searchText: 'recent work cli-3' },
+      { label: 'Other project session   6 msgs   3d ago', value: 'b', searchText: 'other work elsewhere' },
+    ];
+    const { stdin, lastFrame } = renderModal({
+      title: 'Choose', options: rowOptions, filterable: true, onSelect: vi.fn(), onCancel: vi.fn(),
+    });
+
+    stdin.write('/');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    stdin.write('msgs');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(stripAnsi(lastFrame() ?? '')).toContain('No matches for "msgs"');
+  });
+
+  it('falls back to filtering on label when searchText is absent, unchanged from before', async () => {
+    const onSelect = vi.fn();
+    const { stdin } = renderModal({ title: 'Choose', options, filterable: true, onSelect, onCancel: vi.fn() });
+
+    stdin.write('/');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    stdin.write('billing');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    stdin.write('\r');
+
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ value: 'b' }));
+  });
+
+  it('returns the caller\'s original option object on select while filtering, not a stripped copy', async () => {
+    // Regression: filtering used to map every option (to drop `header` so a
+    // filtered view never shows stale headings), which meant a selected
+    // option came back to onSelect as a different object with
+    // `header: undefined` — silently changing the callback's contract.
+    const original = { label: 'parser rewrite', value: 'a', header: 'Today' };
+    const rowOptions = [original, { label: 'billing bug', value: 'b', header: 'Yesterday' }];
+    const onSelect = vi.fn();
+    const { stdin } = renderModal({
+      title: 'Choose', options: rowOptions, filterable: true, onSelect, onCancel: vi.fn(),
+    });
+
+    stdin.write('/');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    stdin.write('parser');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    stdin.write('\r');
+
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect.mock.calls[0]?.[0]).toBe(original);
+  });
+
   it('routes keystrokes to the custom input, not the filter, once "Other" is selected from a filtered list', async () => {
     const onSelect = vi.fn();
     const { stdin, lastFrame } = renderModal({

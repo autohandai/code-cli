@@ -10,7 +10,7 @@ import { render } from 'ink-testing-library';
 import stripAnsi from 'strip-ansi';
 import { Modal } from '../../../src/ui/ink/components/Modal.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
-import { buildSessionPickerRows } from '../../../src/session/sessionPickerRows.js';
+import { buildSessionPickerRows } from '../../../src/ui/sessionPickerRows.js';
 import type { SessionMetadata } from '../../../src/session/types.js';
 
 function session(overrides: Partial<SessionMetadata> = {}): SessionMetadata {

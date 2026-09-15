@@ -5,9 +5,9 @@
  */
 import stringWidth from 'string-width';
 import stripAnsi from 'strip-ansi';
-import type { ModalOption } from '../ui/ink/components/Modal.js';
-import { sessionActivityAt } from './sessionActivity.js';
-import type { SessionMetadata } from './types.js';
+import type { ModalOption } from './ink/components/Modal.js';
+import { sessionActivityAt } from '../session/sessionActivity.js';
+import type { SessionMetadata } from '../session/types.js';
 
 export const SHOW_EMPTY_VALUE = '__show_empty__';
 
@@ -137,9 +137,15 @@ export function buildSessionPickerRows(input: SessionPickerInput): SessionPicker
     cells.push(padStart(counts[index] ?? '', countWidth), padStart(ages[index] ?? '', ageWidth));
 
     const label = cells.join(' '.repeat(COLUMN_GAP)).trimEnd();
+    // Scope `/` search to the title and project name, not the whole
+    // rendered label - the label also bakes in message count and age, which
+    // would otherwise let "msgs" match every row and "2m" match every
+    // recently active one.
+    const searchText = `${flatten(entry.title)} ${entry.session.projectName}`;
     return {
       label,
       value: entry.session.sessionId,
+      searchText,
       ...(withHeader ? { header } : {}),
     };
   });

@@ -21,6 +21,14 @@ export interface ModalOption {
   label: string;
   /** Value returned when selected */
   value: string;
+  /**
+   * Text the `filterable` type-to-search query matches against, in place of
+   * `label`. Use this when `label` bakes in rendering-only text (padding,
+   * computed columns) that would otherwise make unrelated queries match
+   * every row. Falls back to `label` when unset, so every other picker is
+   * unaffected.
+   */
+  searchText?: string;
   /** Optional description shown below the label */
   description?: string;
   /** Optional preview text shown in a side panel or tooltip */
@@ -415,16 +423,18 @@ function Modal(props: ModalProps) {
   const [filter, setFilter] = useState<string | null>(null);
 
   const matchesFilter = (option: ModalOption, query: string): boolean =>
-    option.label.toLowerCase().includes(query.toLowerCase());
+    (option.searchText ?? option.label).toLowerCase().includes(query.toLowerCase());
 
+  // A query filters, never mutates: the caller's original option objects
+  // flow straight through so a selected option comes back to onSelect as the
+  // exact reference the caller passed in. A filtered view is no longer
+  // contiguous, so its headings would lie about grouping — that is handled
+  // at the render site (isFilterQueryActive), not by copying options here.
+  const isFilterQueryActive = filterable && Boolean(filter);
   const choices = useMemo(() => {
-    if (!filterable || !filter) return baseChoices;
-    // A filtered view is no longer contiguous, so its headings would lie
-    // about grouping — strip them.
-    return baseChoices
-      .filter((choice) => matchesFilter(choice, filter))
-      .map((choice) => (choice.header ? { ...choice, header: undefined } : choice));
-  }, [baseChoices, filter, filterable]);
+    if (!isFilterQueryActive) return baseChoices;
+    return baseChoices.filter((choice) => matchesFilter(choice, filter as string));
+  }, [baseChoices, filter, isFilterQueryActive]);
 
   const hasNoChoices = mode === 'select' && baseChoices.length === 0;
 
@@ -744,7 +754,10 @@ function Modal(props: ModalProps) {
       const i = needsScroll ? windowStart + vi : vi;
       const isSelected = i === cursor;
       const isDisabled = choice.disabled;
-      const header = vi === 0 ? inheritedHeader(i) : choice.header;
+      // A filtered view is no longer contiguous, so its headings would lie
+      // about grouping — suppress them here rather than stripping `header`
+      // from the option objects themselves (see `choices` above).
+      const header = isFilterQueryActive ? undefined : (vi === 0 ? inheritedHeader(i) : choice.header);
 
       let color: ColorToken | undefined;
       if (isDisabled) {

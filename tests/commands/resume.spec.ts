@@ -33,7 +33,7 @@ vi.spyOn(console, 'log').mockImplementation(() => {});
 vi.spyOn(console, 'error').mockImplementation(() => {});
 
 // Import after mocks
-import { resume, metadata } from '../../src/commands/resume';
+import { resume, metadata, resolveResumeMaxVisible } from '../../src/commands/resume';
 
 describe('Resume Command', () => {
   beforeEach(() => {
@@ -423,5 +423,30 @@ describe('Resume Command', () => {
       const expected = `${diffDays}d ago`;
       expect(expected).toBe('3d ago');
     });
+  });
+});
+
+describe('resolveResumeMaxVisible', () => {
+  // Regression: the picker passed a fixed maxVisible: 15 straight to the
+  // modal, which counts *options* rather than rendered lines. Each recency
+  // group heading this picker adds costs two extra lines the modal never
+  // counts, so a 15-row window spanning all four groups (Today/Yesterday/
+  // Previous 7 days/Earlier) can render ~23 lines and scroll off a short
+  // terminal. This clamps to what the terminal can actually show.
+  it('caps at the previous default of 15 on a tall terminal', () => {
+    expect(resolveResumeMaxVisible(50)).toBe(15);
+  });
+
+  it('shrinks to fit a short terminal', () => {
+    expect(resolveResumeMaxVisible(20)).toBe(12);
+  });
+
+  it('never drops below a usable floor of 5 rows on a very short terminal', () => {
+    expect(resolveResumeMaxVisible(10)).toBe(5);
+    expect(resolveResumeMaxVisible(1)).toBe(5);
+  });
+
+  it('falls back to a 24-row assumption when rows is unknown', () => {
+    expect(resolveResumeMaxVisible(undefined)).toBe(15);
   });
 });

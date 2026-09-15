@@ -59,7 +59,7 @@ describe('resume CLI command', () => {
 
     const labels = showModal.mock.calls[0][0].options.map((option: { label: string }) => option.label);
     expect(labels).toHaveLength(1);
-    expect(labels[0]).toContain('Current project');
+    expect(labels[0].startsWith('Current project')).toBe(true);
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       resumeSessionId: session.metadata.sessionId,
       path: process.cwd(),
