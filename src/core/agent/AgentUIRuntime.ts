@@ -459,7 +459,7 @@ export function setAgentComposerFinalResponse(host: AgentUIRuntimeHost, response
   }
 
 export function stopAgentUI(host: AgentUIRuntimeHost, failed = false, message?: string): void {
-    host.terminalTitle?.setState('idle');
+    host.terminalTitle?.setState(failed ? 'failed' : 'idle');
     if (host.inkRenderer) {
       host.inkRenderer.setElapsed(formatElapsedTime(host.taskStartedAt ?? host.sessionStartedAt));
       const stopTokens = buildHostTokenUsageStatus(

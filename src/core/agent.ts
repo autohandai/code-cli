@@ -8,6 +8,7 @@ import type { RunBudget } from './agent/RunBudget.js';
 import { SteeringQueue } from './agent/SteeringQueue.js';
 import { syncAgentTerminalTitleName } from './agent/AgentSessionTitle.js';
 import { shouldWriteTerminalTitle, TerminalTitleController } from '../ui/terminalTitle.js';
+import { isITerm2 } from '../ui/mouseReporting.js';
 import type { SessionAutoNamer } from './agent/SessionAutoNamer.js';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
@@ -467,6 +468,7 @@ export class AutohandAgent {
   readonly terminalTitle = new TerminalTitleController(
     (text) => { process.stdout.write(text); },
     shouldWriteTerminalTitle(process.argv, process.stdout.isTTY),
+    { tabColour: isITerm2() },
   );
   sessionAutoNamer: SessionAutoNamer | null = null;
   sessionTitleRefined = false;

@@ -109,20 +109,20 @@ describe('interactive built CLI Tuistory tests: steering, caret, slash commands,
     await session.press('enter');
     await session.text({ timeout: 10_000, waitFor: (text) => text.includes('esc to cancel') });
     // Derived name and the working marker appear as soon as the turn starts.
-    expect(session.getRawOutput()).toContain('\x1b]0;🔴 Fix the caret after startup · Autohand\x07');
+    expect(session.getRawOutput()).toMatch(/\x1b\]0;[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Fix the caret after startup · Autohand\x07/u);
 
     await session.text({ timeout: 15_000, waitFor: (text) => text.includes('TITLE_TURN_COMPLETE') });
     await waitForComposer(session);
-    await session.text({ timeout: 5_000, waitFor: () => session.getRawOutput().includes('\x1b]0;🟢 Fix the caret after startup · Autohand\x07') });
+    await session.text({ timeout: 5_000, waitFor: () => session.getRawOutput().includes('\x1b]0;✓ Fix the caret after startup · Autohand\x07') });
 
     await session.type('/rename Caret fix');
     await session.press('enter');
     await session.waitForText('Session renamed to "Caret fix".', { timeout: 10_000 });
-    await session.text({ timeout: 5_000, waitFor: () => session.getRawOutput().includes('\x1b]0;🟢 Caret fix · Autohand\x07') });
+    await session.text({ timeout: 5_000, waitFor: () => session.getRawOutput().includes('\x1b]0;✓ Caret fix · Autohand\x07') });
 
     await exitInteractive(session);
     const raw = session.getRawOutput();
-    expect(raw.lastIndexOf('\x1b]0;Autohand Code\x07')).toBeGreaterThan(raw.lastIndexOf('🟢 Caret fix'));
+    expect(raw.lastIndexOf('\x1b]0;Autohand Code\x07')).toBeGreaterThan(raw.lastIndexOf('✓ Caret fix'));
   });
 
   it('runs /init as a background repository read and keeps /init --basic instant', async () => {

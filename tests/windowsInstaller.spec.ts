@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -438,6 +438,108 @@ finally {
       ]);
     },
   );
+});
+
+describe('Windows installer binary replacement', () => {
+  // `autohand update` runs this script from inside a running autohand.exe.
+  // Windows refuses to overwrite or delete a running executable but lets it be
+  // renamed, so the installer must move the old binary aside and rename the
+  // new one into place instead of copying over it.
+  it('never copies over the installed executable in place', () => {
+    expect(installer).toContain('function Install-BinaryFile');
+    expect(installer).toContain('Install-BinaryFile -Source $extractedAutohand -Destination $binaryPath');
+    expect(installer).not.toContain('Copy-Item -Path $extractedAutohand -Destination $binaryPath');
+  });
+
+  function seedReplacement(): {
+    directory: string;
+    destination: string;
+    source: string;
+    cleanup: () => void;
+  } {
+    const directory = mkdtempSync(join(tmpdir(), 'autohand-install-replace-'));
+    const destination = join(directory, 'autohand.exe');
+    const source = join(directory, 'staging', 'autohand.exe');
+    mkdirSync(join(directory, 'staging'));
+    writeFileSync(destination, 'old binary');
+    writeFileSync(source, 'new binary');
+    return { directory, destination, source, cleanup: () => rmSync(directory, { recursive: true, force: true }) };
+  }
+
+  powerShellTest('swaps a fresh file into place and leaves no retired or staged copies behind', () => {
+    const { directory, destination, source, cleanup } = seedReplacement();
+    try {
+      writeFileSync(`${destination}.old`, 'stale retired copy from an earlier update');
+
+      const result = runPowerShellProbe(`${installerWithoutEntrypoint}
+Install-BinaryFile -Source '${source}' -Destination '${destination}'
+Write-Output "installed=$([System.IO.File]::ReadAllText('${destination}'))"
+`);
+
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('installed=new binary');
+      expect(readdirSync(directory).sort()).toEqual(['autohand.exe', 'staging']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  powerShellTest('restores the previous binary when the new one cannot be moved into place', () => {
+    const { destination, source, cleanup } = seedReplacement();
+    try {
+      const result = runPowerShellProbe(`${installerWithoutEntrypoint}
+function Move-Item {
+    param([string]$LiteralPath, [string]$Destination, [switch]$Force)
+    if ($LiteralPath -like '*.new') { throw 'fixture rename failure' }
+    Microsoft.PowerShell.Management\\Move-Item -LiteralPath $LiteralPath -Destination $Destination -Force:$Force
+}
+try {
+    Install-BinaryFile -Source '${source}' -Destination '${destination}'
+    Write-Output 'unexpected success'
+}
+catch {
+    Write-Output "ERROR:$($_.Exception.Message)"
+}
+Write-Output "installed=$([System.IO.File]::ReadAllText('${destination}'))"
+`);
+
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('ERROR:fixture rename failure');
+      expect(result.stdout).toContain('installed=old binary');
+    } finally {
+      cleanup();
+    }
+  });
+
+  windowsPowerShellTest('replaces an executable that is still running', () => {
+    const { directory, destination, source, cleanup } = seedReplacement();
+    try {
+      const result = runPowerShellProbe(`${installerWithoutEntrypoint}
+Copy-Item -LiteralPath "$env:SystemRoot\\System32\\ping.exe" -Destination '${destination}' -Force
+$running = Start-Process -FilePath '${destination}' -ArgumentList '-n', '30', '127.0.0.1' -PassThru -WindowStyle Hidden
+try {
+    Start-Sleep -Seconds 1
+    Install-BinaryFile -Source '${source}' -Destination '${destination}'
+    Write-Output "installed=$([System.IO.File]::ReadAllText('${destination}'))"
+    Write-Output "stillRunning=$(-not $running.HasExited)"
+}
+finally {
+    Stop-Process -Id $running.Id -Force -ErrorAction SilentlyContinue
+    $running.WaitForExit()
+}
+`);
+
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('installed=new binary');
+      expect(result.stdout).toContain('stillRunning=True');
+      expect(readdirSync(directory)).toContain('autohand.exe');
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 describe('Windows installer first run', () => {

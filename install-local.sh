@@ -35,6 +35,34 @@ else
     exit 1
 fi
 
+# Compile first: a failed build must never leave the machine without autohand.
+if [ "$SKIP_COMPILE" = false ]; then
+    # Always compile fresh to ensure latest code
+    echo "📦 Compiling latest $BINARY..."
+    case "$BINARY" in
+        autohand-macos-arm64)
+            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-darwin-arm64 --outfile ./binaries/autohand-macos-arm64
+            ;;
+        autohand-macos-x64)
+            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-darwin-x64 --outfile ./binaries/autohand-macos-x64
+            ;;
+        autohand-linux-x64)
+            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-linux-x64 --outfile ./binaries/autohand-linux-x64
+            ;;
+        autohand-linux-arm64)
+            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-linux-arm64 --outfile ./binaries/autohand-linux-arm64
+            ;;
+        *)
+            echo "❌ Unsupported binary target: $BINARY"
+            exit 1
+            ;;
+    esac
+elif [ ! -f "binaries/$BINARY" ]; then
+    echo "❌ Missing precompiled binary: binaries/$BINARY"
+    exit 1
+fi
+
+# Install to /usr/local/bin when writable, otherwise use the user-local bin.
 # Remove existing installations from all common paths
 echo "🧹 Removing existing autohand installations..."
 
@@ -81,33 +109,6 @@ fi
 
 echo "✅ Cleaned up existing installations"
 
-if [ "$SKIP_COMPILE" = false ]; then
-    # Always compile fresh to ensure latest code
-    echo "📦 Compiling latest $BINARY..."
-    case "$BINARY" in
-        autohand-macos-arm64)
-            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-darwin-arm64 --outfile ./binaries/autohand-macos-arm64
-            ;;
-        autohand-macos-x64)
-            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-darwin-x64 --outfile ./binaries/autohand-macos-x64
-            ;;
-        autohand-linux-x64)
-            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-linux-x64 --outfile ./binaries/autohand-linux-x64
-            ;;
-        autohand-linux-arm64)
-            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-linux-arm64 --outfile ./binaries/autohand-linux-arm64
-            ;;
-        *)
-            echo "❌ Unsupported binary target: $BINARY"
-            exit 1
-            ;;
-    esac
-elif [ ! -f "binaries/$BINARY" ]; then
-    echo "❌ Missing precompiled binary: binaries/$BINARY"
-    exit 1
-fi
-
-# Install to /usr/local/bin when writable, otherwise use the user-local bin.
 if [ -w "/usr/local/bin" ]; then
     INSTALL_PATH="/usr/local/bin/autohand"
 else

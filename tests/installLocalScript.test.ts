@@ -29,6 +29,16 @@ describe('local install scripts', () => {
     expect(goScript).not.toContain('--skip-compile');
   });
 
+  localInstallScriptTest('compiles the new binary before removing the installed one', () => {
+    // A failed compile used to leave the machine with no autohand at all,
+    // because the cleanup ran first. Build first, replace only on success.
+    const installScript = readFileSync('install-local.sh', 'utf8');
+    const compileIndex = installScript.indexOf('Compiling latest');
+    const removeIndex = installScript.indexOf('Removing existing autohand installations');
+    expect(compileIndex).toBeGreaterThan(0);
+    expect(removeIndex).toBeGreaterThan(compileIndex);
+  });
+
   it('runs unit and built Tuistory gates from the proof command', () => {
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
       scripts?: Record<string, string>;

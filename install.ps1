@@ -601,6 +601,54 @@ function Start-FirstRun {
     return $true
 }
 
+function Install-BinaryFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+
+    # `autohand update` runs this script from inside a running autohand.exe.
+    # Windows refuses to overwrite or delete a running executable but allows
+    # renaming it, so stage the new file beside the destination, move the old
+    # binary aside, rename the new one into place and only then retire the old
+    # copy. A copy over the live file would fail with "being used by another
+    # process" and leave the installation half updated.
+    $staged = "$Destination.new"
+    $retired = "$Destination.old"
+
+    foreach ($leftover in @($staged, $retired)) {
+        if (Test-Path -LiteralPath $leftover) {
+            Remove-Item -LiteralPath $leftover -Force -ErrorAction SilentlyContinue
+        }
+    }
+    if (Test-Path -LiteralPath $retired) {
+        # Still locked by a previous version that has not exited yet.
+        $retired = "$Destination." + [System.Guid]::NewGuid().ToString("N") + ".old"
+    }
+
+    Copy-Item -LiteralPath $Source -Destination $staged -Force
+
+    $hadExisting = Test-Path -LiteralPath $Destination
+    if ($hadExisting) {
+        Move-Item -LiteralPath $Destination -Destination $retired -Force
+    }
+
+    try {
+        Move-Item -LiteralPath $staged -Destination $Destination -Force
+    }
+    catch {
+        if ($hadExisting -and -not (Test-Path -LiteralPath $Destination)) {
+            Move-Item -LiteralPath $retired -Destination $Destination -Force
+        }
+        Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue
+        throw
+    }
+
+    if ($hadExisting) {
+        Remove-Item -LiteralPath $retired -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Install-Autohand {
     Write-Logo
 
@@ -728,7 +776,7 @@ function Install-Autohand {
             throw "Bundle does not contain autohand.exe"
         }
 
-        Copy-Item -Path $extractedAutohand -Destination $binaryPath -Force
+        Install-BinaryFile -Source $extractedAutohand -Destination $binaryPath
         foreach ($agentCollisionName in $agentCollisionNames) {
             $agentCollisionPath = Join-Path $installPath $agentCollisionName
             if (Test-Path -LiteralPath $agentCollisionPath) {
