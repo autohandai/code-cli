@@ -6,6 +6,7 @@
 import stringWidth from 'string-width';
 import stripAnsi from 'strip-ansi';
 import type { ModalOption } from '../ui/ink/components/Modal.js';
+import { sessionActivityAt } from './sessionActivity.js';
 import type { SessionMetadata } from './types.js';
 
 export const SHOW_EMPTY_VALUE = '__show_empty__';
@@ -26,11 +27,6 @@ export interface SessionPickerInput {
 }
 
 export interface SessionPickerRows { options: ModalOption[]; hiddenEmptyCount: number; }
-
-export function sessionActivityAt(session: SessionMetadata): Date {
-  const active = Date.parse(session.lastActiveAt ?? '');
-  return Number.isNaN(active) ? new Date(session.createdAt) : new Date(active);
-}
 
 function startOfLocalDay(date: Date): number {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();

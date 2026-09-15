@@ -429,6 +429,28 @@ describe('SessionManager', () => {
     const nextPage = await manager.listRecentSessions(undefined, 2, 2);
     expect(nextPage.sessions.map((session) => session.sessionId)).toEqual(['oldest']);
   });
+
+  it('orders a recent page by last activity, not creation', async () => {
+    const manager = new SessionManager(tmpDir);
+    const older = await manager.createSession('/workspace/cli-3', 'test-model');
+    Object.assign(older.metadata, {
+      createdAt: '2026-01-01T00:00:00.000Z',
+      lastActiveAt: '2026-01-05T00:00:00.000Z', // used again just now
+    });
+    await older.save();
+    const newer = await manager.createSession('/workspace/cli-3', 'test-model');
+    Object.assign(newer.metadata, {
+      createdAt: '2026-01-03T00:00:00.000Z',
+      lastActiveAt: '2026-01-03T00:00:00.000Z',
+    });
+    await newer.save();
+
+    const page = await manager.listRecentSessions(undefined, 10);
+
+    expect(page.sessions.map((session) => session.sessionId)).toEqual([
+      older.metadata.sessionId, newer.metadata.sessionId,
+    ]);
+  });
 });
 
 describe('session index lock contention', () => {
