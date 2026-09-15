@@ -236,6 +236,24 @@ describe('AgentUI $ skill mention handling', () => {
   });
 });
 
+describe('AgentUI dropdown placement', () => {
+  it('keeps the composer status line directly under the composer while the mention dropdown is open', async () => {
+    const { stdin, lastFrame } = renderAgentUIWithStdin({
+      filesProvider: () => ['src/index.ts'],
+    });
+
+    await new Promise(r => setImmediate(r));
+    stdin.write('@');
+    await new Promise(r => setTimeout(r, 50));
+
+    const frame = stripAnsi(lastFrame() ?? '');
+    const helpIndex = frame.indexOf('context left');
+    const dropdownIndex = frame.indexOf('Tab to accept');
+    expect(helpIndex, frame).toBeGreaterThan(-1);
+    expect(dropdownIndex, frame).toBeGreaterThan(helpIndex);
+  });
+});
+
 describe('AgentUI $ skill mention mid-sentence', () => {
   it('suggests skills for a $ typed after other words', async () => {
     const { stdin, lastFrame } = renderAgentUIWithStdin({

@@ -3712,12 +3712,6 @@ const FixedBottom = memo(function FixedBottom({
         enableMouseCursor={mouseComposerCursor && !isReadingHistory}
         onLayoutChange={onComposerLayoutChange}
       />
-      <FileMentionWrapper fileMentionDropdown={fileMentionDropdown} />
-      {peerMentionDropdown}
-      <SlashCommandWrapper slashCommandDropdown={slashCommandDropdown} />
-      <SkillMentionWrapper skillMentionDropdown={skillMentionDropdown} />
-      <MessageTargetWrapper messageTargetDropdown={messageTargetDropdown} />
-      <ShortcutsHelpPanel visible={showShortcuts && !isWorking} keybindings={keybindings} />
       <HelpLineSection
         isWorking={isWorking}
         contextPercent={contextPercent}
@@ -3734,6 +3728,12 @@ const FixedBottom = memo(function FixedBottom({
           runtimeLineExtensions?.help,
         )}
       />
+      <FileMentionWrapper fileMentionDropdown={fileMentionDropdown} />
+      {peerMentionDropdown}
+      <SlashCommandWrapper slashCommandDropdown={slashCommandDropdown} />
+      <SkillMentionWrapper skillMentionDropdown={skillMentionDropdown} />
+      <MessageTargetWrapper messageTargetDropdown={messageTargetDropdown} />
+      <ShortcutsHelpPanel visible={showShortcuts && !isWorking} keybindings={keybindings} />
       <CtrlCWarning ctrlCCount={ctrlCCount} />
       <FooterClearance />
     </>

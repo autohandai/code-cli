@@ -510,6 +510,13 @@ describe('interactive built CLI Tuistory tests: steering, caret, slash commands,
     expect(screen).toContain('/about');
     expect(screen).toContain('/add-dir');
     expect(screen).toContain('Tab to accept');
+    const lines = screen.split('\n');
+    const composerRow = lines.findIndex((line) => line.includes('❯ /'));
+    const statusRow = lines.findIndex((line) => line.includes('context left'));
+    const dropdownRow = lines.findIndex((line) => line.includes('show information about Autohand'));
+    expect(composerRow, screen).toBeGreaterThan(-1);
+    expect(statusRow, screen).toBeGreaterThan(composerRow);
+    expect(dropdownRow, screen).toBeGreaterThan(statusRow);
 
     await exitInteractive(session);
   });

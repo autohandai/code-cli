@@ -859,6 +859,38 @@ describe('AgentUI composer suggestions', () => {
     expect(frame).toContain('Tab to accept');
   });
 
+  it('keeps the composer status line directly under the composer while the slash dropdown is open', async () => {
+    const state = {
+      ...createInitialUIState(),
+      currentInput: '/',
+    };
+    const { lastFrame } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+            slashCommands,
+          })
+        )
+      )
+    );
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    const frame = stripAnsi(lastFrame() ?? '');
+    const helpIndex = frame.indexOf('context left');
+    const dropdownIndex = frame.indexOf('Tab to accept');
+    expect(helpIndex, frame).toBeGreaterThan(-1);
+    expect(dropdownIndex, frame).toBeGreaterThan(helpIndex);
+  });
+
   it('renders slash command suggestions while the assistant is working', async () => {
     const state = {
       ...createInitialUIState(),
