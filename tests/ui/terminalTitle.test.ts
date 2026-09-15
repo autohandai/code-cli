@@ -35,7 +35,7 @@ describe('terminal title', () => {
   });
 
   it('strips control characters from the escape payload', () => {
-    expect(terminalTitleSequence('a\x1b]0;b\x07c')).toBe('\x1b]0;a ]0;b c\x07');
+    expect(terminalTitleSequence('a\x1b]0;b\x07c')).toBe('\x1b]0;a ]0;b c\x1b\\');
   });
 
   it('mirrors status-row spinner frames only while working, and never after the turn ends', () => {
@@ -52,13 +52,13 @@ describe('terminal title', () => {
     controller.restore();
 
     expect(write.mock.calls.map(([text]) => text)).toEqual([
-      '\x1b]0;✓ Fix caret · Autohand\x07',
-      '\x1b]0;⠋ Fix caret · Autohand\x07',
-      '\x1b]0;⠙ Fix caret · Autohand\x07',
-      '\x1b]0;⠹ Fix caret · Autohand\x07',
-      '\x1b]0;◐ Fix caret · Autohand\x07',
-      '\x1b]0;⠋ Fix caret · Autohand\x07',
-      '\x1b]0;Autohand Code\x07',
+      '\x1b]0;✓ Fix caret · Autohand\x1b\\',
+      '\x1b]0;⠋ Fix caret · Autohand\x1b\\',
+      '\x1b]0;⠙ Fix caret · Autohand\x1b\\',
+      '\x1b]0;⠹ Fix caret · Autohand\x1b\\',
+      '\x1b]0;◐ Fix caret · Autohand\x1b\\',
+      '\x1b]0;⠋ Fix caret · Autohand\x1b\\',
+      '\x1b]0;Autohand Code\x1b\\',
     ]);
   });
 
@@ -89,7 +89,7 @@ describe('terminal title', () => {
       iTermTabColourSequence(undefined),
     ]);
     expect(iTermTabColourSequence([52, 199, 89])).toBe(
-      '\x1b]6;1;bg;red;brightness;52\x07\x1b]6;1;bg;green;brightness;199\x07\x1b]6;1;bg;blue;brightness;89\x07',
+      '\x1b]6;1;bg;red;brightness;52\x1b\\\x1b]6;1;bg;green;brightness;199\x1b\\\x1b]6;1;bg;blue;brightness;89\x1b\\',
     );
   });
 

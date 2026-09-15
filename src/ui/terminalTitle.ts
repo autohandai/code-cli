@@ -61,15 +61,16 @@ export function formatTerminalTitle(name: string | undefined, state: TerminalTit
   return label ? `${marker} ${label} · Autohand` : `${marker} ${TERMINAL_TITLE_BASE}`;
 }
 
+/** OSC 0 terminated with ST rather than BEL, so no terminal can mistake a title change for a bell. */
 export function terminalTitleSequence(title: string): string {
-  return `\x1b]0;${title.replace(/[\x00-\x1f\x7f]/g, ' ')}\x07`;
+  return `\x1b]0;${title.replace(/[\x00-\x1f\x7f]/g, ' ')}\x1b\\`;
 }
 
 /** iTerm2 tab colour (OSC 6); `undefined` puts the tab back to its default colour. */
 export function iTermTabColourSequence(colour: Rgb | undefined): string {
-  if (!colour) return '\x1b]6;1;bg;*;default\x07';
+  if (!colour) return '\x1b]6;1;bg;*;default\x1b\\';
   const [red, green, blue] = colour;
-  return `\x1b]6;1;bg;red;brightness;${red}\x07\x1b]6;1;bg;green;brightness;${green}\x07\x1b]6;1;bg;blue;brightness;${blue}\x07`;
+  return `\x1b]6;1;bg;red;brightness;${red}\x1b\\\x1b]6;1;bg;green;brightness;${green}\x1b\\\x1b]6;1;bg;blue;brightness;${blue}\x1b\\`;
 }
 
 export class TerminalTitleController {

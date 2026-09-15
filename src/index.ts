@@ -17,7 +17,7 @@ const requestsProtocolOutput = process.argv.some((arg, index, argv) => (
 ));
 if (process.stdout.isTTY && !requestsStructuredCommandOutput && !requestsProtocolOutput) {
   // The agent later replaces this with the session name and state; see ui/terminalTitle.ts.
-  process.stdout.write('\x1b]0;Autohand Code\x07');
+  process.stdout.write('\x1b]0;Autohand Code\x1b\\');
 }
 // Set environment variable for detection by Expect and other tools
 process.env.AUTOHAND_CODE = '1';
