@@ -671,6 +671,8 @@ function Modal(props: ModalProps) {
       return undefined;
     };
 
+    const numberWidth = String(choices.length).length;
+
     const items = visibleChoices.map((choice, vi) => {
       const i = needsScroll ? windowStart + vi : vi;
       const isSelected = i === cursor;
@@ -687,13 +689,14 @@ function Modal(props: ModalProps) {
       const checkbox = isMultiSelect
         ? (checkedSet.has(choice.value) ? '\u2611 ' : '\u2610 ')
         : '';
+      const rowNumber = `${String(i + 1).padStart(numberWidth, ' ')}. `;
 
       return (
         <Box key={`${choice.value}-${i}`} flexDirection="column">
           {header && vi > 0 && <Text> </Text>}
           {header && <Text>{theme.fg('muted', header)}</Text>}
           <Text>
-            {theme.fg(color ?? 'text', `${isSelected ? '\u25b8 ' : '  '}${checkbox}${i + 1}. ${choice.label}${isDisabled ? ' (disabled)' : ''}`)}
+            {theme.fg(color ?? 'text', `${isSelected ? '\u25b8 ' : '  '}${checkbox}${rowNumber}${choice.label}${isDisabled ? ' (disabled)' : ''}`)}
           </Text>
           {choice.description && (
             <Text>{theme.fg('muted', `     ${choice.description}`)}</Text>

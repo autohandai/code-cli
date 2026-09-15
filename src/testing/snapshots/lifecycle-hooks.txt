@@ -2,15 +2,15 @@
  Lifecycle hooks from config and enabled plugins.
 
        Event                     Installed  Active  Description
- ▸ 1.  session-start             0          0       When a session begins
-   2.  session-end               0          0       When a session ends
-   3.  pre-clear                 0          0       Before memory extraction on /clear or /new
-   4.  pre-prompt                0          0       Before processing user input
-   5.  pre-tool                  0          0       Before a tool executes
-   6.  post-tool                 0          0       After a tool completes
-   7.  file-modified             0          0       When files are changed
-   8.  stop                      0          0       When a turn completes
-   9.  subagent-start            0          0       When a subagent starts; can queue context or
+ ▸  1.  session-start             0          0       When a session begins
+    2.  session-end               0          0       When a session ends
+    3.  pre-clear                 0          0       Before memory extraction on /clear or /new
+    4.  pre-prompt                0          0       Before processing user input
+    5.  pre-tool                  0          0       Before a tool executes
+    6.  post-tool                 0          0       After a tool completes
+    7.  file-modified             0          0       When files are changed
+    8.  stop                      0          0       When a turn completes
+    9.  subagent-start            0          0       When a subagent starts; can queue context or
    10. subagent-progress         0          0       When a subagent changes activity; can queue c
    11. subagent-message          0          0       When a message is queued for a subagent
    12. subagent-cancel-requested 0          0       When cancellation is requested for a subagent
