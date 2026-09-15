@@ -33,7 +33,7 @@ export function sessionActivityAt(session: SessionMetadata): Date {
 }
 
 function startOfLocalDay(date: Date): number {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())).getTime();
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }
 
 export function sessionGroupLabel(activeAt: Date, now: Date): 'Today' | 'Yesterday' | 'Previous 7 days' | 'Earlier' {
@@ -125,13 +125,11 @@ export function buildSessionPickerRows(input: SessionPickerInput): SessionPicker
   });
 
   if (hiddenEmptyCount > 0) {
-    const revealRowIndex = visible.length;
-    const revealRowNumberWidth = `${revealRowIndex + 1}. `.length;
-    const revealRowSlack = numberWidth - revealRowNumberWidth;
+    // The reveal row is an action, not a session row — it has no columns to
+    // line up with, so its label is never padded to the session column widths.
     const revealLabel = `Show ${hiddenEmptyCount} empty session${hiddenEmptyCount === 1 ? '' : 's'}`;
-    const revealLabelPadded = pad(revealLabel, titleWidth + revealRowSlack + COLUMN_GAP + countWidth + COLUMN_GAP + ageWidth);
     options.push({
-      label: revealLabelPadded,
+      label: revealLabel,
       value: SHOW_EMPTY_VALUE,
     });
   }

@@ -21,23 +21,51 @@ function session(overrides: Partial<SessionMetadata> = {}): SessionMetadata {
 
 describe('sessionGroupLabel', () => {
   it('names the recency bands from local day boundaries', () => {
-    expect(sessionGroupLabel(new Date('2026-09-15T00:05:00Z'), NOW)).toBe('Today');
-    expect(sessionGroupLabel(new Date('2026-09-14T23:00:00Z'), NOW)).toBe('Yesterday');
-    expect(sessionGroupLabel(new Date('2026-09-10T09:00:00Z'), NOW)).toBe('Previous 7 days');
-    expect(sessionGroupLabel(new Date('2026-08-01T09:00:00Z'), NOW)).toBe('Earlier');
+    // Built from local wall-clock components (not UTC ISO strings) so this
+    // reflects the host's own local calendar day regardless of its offset —
+    // NOW itself sits at a UTC instant that lands on different local days
+    // depending on timezone, which is exactly the ambiguity local grouping
+    // must not have.
+    const now = new Date(2026, 8, 15, 14, 0);
+    expect(sessionGroupLabel(new Date(2026, 8, 15, 0, 5), now)).toBe('Today');
+    expect(sessionGroupLabel(new Date(2026, 8, 14, 23, 0), now)).toBe('Yesterday');
+    expect(sessionGroupLabel(new Date(2026, 8, 10, 9, 0), now)).toBe('Previous 7 days');
+    expect(sessionGroupLabel(new Date(2026, 8, 1, 9, 0), now)).toBe('Earlier');
+  });
+
+  // Regression for a UTC-based startOfLocalDay: these values are built from the
+  // running machine's own local wall clock (never process.env.TZ, which worker
+  // threads ignore), so the boundary they straddle is always LOCAL midnight,
+  // not UTC midnight. A UTC implementation reads 'Today' here in any
+  // positive-offset zone; the correct local grouping reads 'Yesterday'.
+  it('groups by local calendar day, not UTC day', () => {
+    const now = new Date(2026, 8, 15, 0, 30); // 00:30 local time
+    const activeAt = new Date(now.getTime() - 60 * 60 * 1000); // 23:30 local, previous local day
+    expect(sessionGroupLabel(activeAt, now)).toBe('Yesterday');
+  });
+
+  it('keeps two times within the same local day both as Today', () => {
+    const now = new Date(2026, 8, 15, 23, 0);
+    const activeAt = new Date(2026, 8, 15, 0, 30);
+    expect(sessionGroupLabel(activeAt, now)).toBe('Today');
   });
 });
 
 describe('buildSessionPickerRows', () => {
   it('heads each recency group once and keeps rows most recent first', () => {
+    // Local wall-clock fixtures, same reasoning as the sessionGroupLabel test
+    // above: NOW is a fixed UTC instant that straddles different local days
+    // depending on the host's offset, which would make this header assertion
+    // flaky across timezones.
+    const now = new Date(2026, 8, 15, 20, 0);
     const { options } = buildSessionPickerRows({
-      now: NOW,
+      now,
       columns: 100,
       singleProject: true,
       entries: [
-        { session: session({ sessionId: 'a' }), title: 'recent work' },
-        { session: session({ sessionId: 'b', lastActiveAt: '2026-09-14T10:00:00Z' }), title: 'older work' },
-        { session: session({ sessionId: 'c', lastActiveAt: '2026-09-14T09:00:00Z' }), title: 'older still' },
+        { session: session({ sessionId: 'a', lastActiveAt: new Date(2026, 8, 15, 19, 0).toISOString() }), title: 'recent work' },
+        { session: session({ sessionId: 'b', lastActiveAt: new Date(2026, 8, 14, 10, 0).toISOString() }), title: 'older work' },
+        { session: session({ sessionId: 'c', lastActiveAt: new Date(2026, 8, 14, 9, 0).toISOString() }), title: 'older still' },
       ],
     });
 
@@ -48,8 +76,11 @@ describe('buildSessionPickerRows', () => {
   });
 
   it('right-aligns the count and age columns whatever the row number width', () => {
+    // messageCount: index + 1 keeps every entry a real session (none hidden as
+    // empty), so no reveal row lands in this list — the reveal row is an
+    // action with no columns and must not be pulled into this alignment check.
     const entries = Array.from({ length: 12 }, (_, index) => ({
-      session: session({ sessionId: `s${index}`, messageCount: index }),
+      session: session({ sessionId: `s${index}`, messageCount: index + 1 }),
       title: `session ${index}`,
     }));
     const { options } = buildSessionPickerRows({ entries, now: NOW, columns: 100, singleProject: true });
