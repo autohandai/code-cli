@@ -7,6 +7,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   chmodSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -224,5 +225,87 @@ describe('release installer command aliases', () => {
     expect(execFileSync(competitorAgent, ['--version'], { encoding: 'utf8' })).toBe(
       'test-version\n',
     );
+  });
+});
+
+describe('release installer first run', () => {
+  // A fixture binary that answers --version for the startup probe and records
+  // whatever the installer feeds it, so the test can see the first message.
+  function seedFirstRunFixture(tempRoot: string): { installDir: string; env: Record<string, string> } {
+    const payloadDir = join(tempRoot, 'payload');
+    const fixtureBinDir = join(tempRoot, 'fixture-bin');
+    const installDir = join(tempRoot, 'install');
+    const archivePath = join(tempRoot, 'autohand.tar.gz');
+    const checksumPath = `${archivePath}.sha256`;
+    const launchLog = join(tempRoot, 'launch.log');
+    mkdirSync(payloadDir, { recursive: true });
+    mkdirSync(fixtureBinDir, { recursive: true });
+    mkdirSync(installDir, { recursive: true });
+    writeFileSync(
+      join(payloadDir, 'autohand'),
+      `#!/bin/sh
+if [ "\${1:-}" = "--version" ]; then printf "test-version\\n"; exit 0; fi
+{ printf "args=%s\\n" "$*"; printf "stdin="; cat; } > "$AUTOHAND_TEST_LAUNCH_LOG"
+`,
+    );
+    chmodSync(join(payloadDir, 'autohand'), 0o755);
+    execFileSync('tar', ['-czf', archivePath, '-C', payloadDir, 'autohand']);
+    const checksum = createHash('sha256').update(readFileSync(archivePath)).digest('hex');
+    writeFileSync(checksumPath, `${checksum}  autohand.tar.gz\n`);
+    writeFakeCurl(fixtureBinDir);
+    return {
+      installDir,
+      env: {
+        ...process.env,
+        PATH: `${fixtureBinDir}:${SAFE_SYSTEM_PATH}`,
+        AUTOHAND_INSTALL_DIR: installDir,
+        AUTOHAND_TEST_ARCHIVE: archivePath,
+        AUTOHAND_TEST_CHECKSUM: checksumPath,
+        AUTOHAND_TEST_LAUNCH_LOG: launchLog,
+        AUTOHAND_VERSION: 'test-version',
+      } as Record<string, string>,
+    };
+  }
+
+  function runInstaller(env: Record<string, string>): string {
+    return execFileSync('/bin/sh', ['install.sh'], { cwd: ROOT, encoding: 'utf8', env, stdio: ['pipe', 'pipe', 'pipe'] });
+  }
+
+  unixIt('starts the installed binary with "hello world" as its first message when asked to', () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), 'autohand-installer-first-run-'));
+    tempRoots.push(tempRoot);
+    const { env } = seedFirstRunFixture(tempRoot);
+
+    const output = runInstaller({ ...env, AUTOHAND_INSTALL_FIRST_RUN: 'yes' });
+
+    expect(readFileSync(env.AUTOHAND_TEST_LAUNCH_LOG, 'utf8')).toBe('args=\nstdin=hello world\n');
+    expect(output).toContain('Starting Autohand with your first message');
+  });
+
+  unixIt('does not start the binary when the first run is declined', () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), 'autohand-installer-first-run-'));
+    tempRoots.push(tempRoot);
+    const { env } = seedFirstRunFixture(tempRoot);
+
+    const output = runInstaller({ ...env, AUTOHAND_INSTALL_FIRST_RUN: 'no' });
+
+    expect(existsSync(env.AUTOHAND_TEST_LAUNCH_LOG)).toBe(false);
+    expect(output).not.toContain('first message');
+  });
+
+  unixIt('neither asks nor starts the binary without a terminal or inside a running Autohand', () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), 'autohand-installer-first-run-'));
+    tempRoots.push(tempRoot);
+    const { env } = seedFirstRunFixture(tempRoot);
+
+    // execFileSync gives the installer pipes, not a terminal: an unattended install must finish on its own.
+    const unattended = runInstaller(env);
+    expect(existsSync(env.AUTOHAND_TEST_LAUNCH_LOG)).toBe(false);
+    expect(unattended).not.toContain('first message');
+
+    // `autohand upgrade` runs this script from inside Autohand; a nested session must never start.
+    const nested = runInstaller({ ...env, AUTOHAND_CLI: '1', AUTOHAND_INSTALL_FIRST_RUN: '' });
+    expect(existsSync(env.AUTOHAND_TEST_LAUNCH_LOG)).toBe(false);
+    expect(nested).not.toContain('first message');
   });
 });

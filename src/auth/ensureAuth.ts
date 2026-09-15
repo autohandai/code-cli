@@ -71,6 +71,9 @@ async function runUpgrade(): Promise<void> {
     const child = spawn(command, args, {
       stdio: 'inherit',
       shell: shell || undefined,
+      // The installer offers to start Autohand with a first message; a nested
+      // session inside the one being upgraded must never start.
+      env: { ...process.env, AUTOHAND_INSTALL_FIRST_RUN: 'no' },
     });
 
     child.on('close', (code) => {

@@ -40,6 +40,7 @@ $BINARY_NAME = "autohand.exe"
 $COMPAT_BINARY_NAME = "autohand-code.cmd"
 $AGENT_ALIAS_NAME = "agent.cmd"
 $SHORT_ALIAS_NAME = "ah.cmd"
+$FIRST_RUN_MESSAGE = "hello world"
 
 function Write-Logo {
     $logo = @"
@@ -93,6 +94,8 @@ Environment variables:
   AUTOHAND_VERSION      Install specific version (e.g., 0.7.3)
   AUTOHAND_INSTALL_DIR  Custom installation directory
   AUTOHAND_CHANNEL      Set to "alpha" for pre-release builds
+  AUTOHAND_INSTALL_FIRST_RUN  "yes" starts Autohand with a first message after
+                        installing without asking; "no" never offers to
 
 Examples:
   iwr -useb https://autohand.ai/install.ps1 | iex
@@ -560,6 +563,44 @@ function Claim-PathWideAgentAlias {
     }
 }
 
+# Offers to start Autohand right away with a first message, so a new user
+# sees it answer before reading any docs. Skipped when input or output is not
+# a console, inside a running Autohand (`autohand upgrade`), or when
+# AUTOHAND_INSTALL_FIRST_RUN is "no"; "yes" starts without asking. Returns
+# whether Autohand was started; the installer's result never depends on it.
+function Start-FirstRun {
+    param(
+        [Parameter(Mandatory = $true)][string]$BinaryPath,
+        [string]$Answer = $env:AUTOHAND_INSTALL_FIRST_RUN
+    )
+
+    $normalized = if ($null -eq $Answer) { "" } else { $Answer.Trim().ToLowerInvariant() }
+    if ($normalized -match '^(n|no|0|false)$') {
+        return $false
+    }
+    if ($normalized -notmatch '^(y|yes|1|true)$') {
+        if ($env:AUTOHAND_CLI -or [Console]::IsInputRedirected -or [Console]::IsOutputRedirected) {
+            return $false
+        }
+        $reply = Read-Host "Start Autohand now and send it a first message (`"$FIRST_RUN_MESSAGE`")? [Y/n]"
+        if ($reply -match '^\s*n') {
+            Write-Host "Run 'autohand' whenever you are ready."
+            return $false
+        }
+    }
+
+    Write-Host ""
+    Write-Success "Starting Autohand with your first message: `"$FIRST_RUN_MESSAGE`""
+    Write-Host ""
+    try {
+        & $BinaryPath $FIRST_RUN_MESSAGE
+    }
+    catch {
+        Write-Host "Autohand exited: $($_.Exception.Message)"
+    }
+    return $true
+}
+
 function Install-Autohand {
     Write-Logo
 
@@ -745,6 +786,8 @@ function Install-Autohand {
     Write-Host "  autohand --help       # Show all options"
     Write-Host "  autohand login        # Sign in to your account"
     Write-Host ""
+
+    [void](Start-FirstRun -BinaryPath $binaryPath)
 }
 
 # Run installer

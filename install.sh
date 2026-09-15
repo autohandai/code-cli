@@ -6,6 +6,7 @@ BINARY_NAME="autohand"
 COMPAT_BINARY_NAME="autohand-code"
 AGENT_ALIAS_NAME="agent"
 SHORT_ALIAS_NAME="ah"
+FIRST_RUN_MESSAGE="hello world"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -23,6 +24,46 @@ success() {
 
 warn() {
     printf "${YELLOW}%s${NC}\n" "$1"
+}
+
+# Offer to start Autohand right away with a first message, so a new user sees
+# it answer before reading any docs. The message is piped in: the CLI turns
+# piped input into the first instruction of an interactive session. Skipped
+# without a terminal, inside a running Autohand (`autohand upgrade`), or when
+# AUTOHAND_INSTALL_FIRST_RUN=no; AUTOHAND_INSTALL_FIRST_RUN=yes starts without
+# asking. The installer's own exit status never depends on that session.
+offer_first_run() {
+    local _binary="$1"
+    local _answer="${AUTOHAND_INSTALL_FIRST_RUN:-}"
+
+    case "$_answer" in
+        [Nn]*|0|false)
+            return 0
+            ;;
+        [Yy]*|1|true)
+            ;;
+        *)
+            if [ -n "${AUTOHAND_CLI:-}" ] || [ ! -t 1 ] || ! ( : < /dev/tty ) 2>/dev/null; then
+                return 0
+            fi
+            printf "Start Autohand now and send it a first message (\"%s\")? [Y/n] " "$FIRST_RUN_MESSAGE"
+            if ! read -r _answer < /dev/tty; then
+                echo ""
+                return 0
+            fi
+            case "$_answer" in
+                [Nn]*)
+                    echo "Run 'autohand' whenever you are ready."
+                    return 0
+                    ;;
+            esac
+            ;;
+    esac
+
+    echo ""
+    printf "${GREEN}Starting Autohand with your first message: \"%s\"${NC}\n" "$FIRST_RUN_MESSAGE"
+    echo ""
+    printf '%s\n' "$FIRST_RUN_MESSAGE" | "$_binary" || true
 }
 
 install_local_ai_runtime_if_requested() {
@@ -225,6 +266,7 @@ EOF
     fi
 
     echo ""
+    offer_first_run "$_dir/$BINARY_NAME"
 }
 
 compute_sha256() {

@@ -27,6 +27,12 @@ vi.mock('../../src/commands/login.js', () => ({
   login: vi.fn(),
 }));
 
+const mockSpawn = vi.fn();
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:child_process')>()),
+  spawn: (...args: unknown[]) => mockSpawn(...args),
+}));
+
 vi.mock('../../src/utils/versionCheck.js', () => ({
   checkForUpdates: vi.fn().mockResolvedValue({
     currentVersion: '0.0.0',
@@ -307,6 +313,29 @@ describe('ensureAuthenticated', () => {
         { label: 'Exit', value: 'exit' },
       ],
     }));
+  });
+
+  it('runs the installer for an upgrade without letting it start a nested Autohand', async () => {
+    const { EventEmitter } = await import('node:events');
+    mockCheckForUpdates.mockResolvedValue({
+      currentVersion: '0.8.2',
+      latestVersion: '0.9.0',
+      isUpToDate: false,
+      updateAvailable: true,
+      channel: 'stable',
+    });
+    mockShowModal.mockResolvedValue({ value: 'upgrade' });
+    mockSpawn.mockImplementation(() => {
+      const child = new EventEmitter();
+      queueMicrotask(() => child.emit('close', 0));
+      return child;
+    });
+
+    await expect(ensureAuthenticated({ configPath: '/tmp/config.json' })).rejects.toThrow('PROCESS_EXIT');
+
+    expect(mockSpawn).toHaveBeenCalledOnce();
+    const [, , options] = mockSpawn.mock.calls[0] as [string, string[], { env?: Record<string, string> }];
+    expect(options.env?.AUTOHAND_INSTALL_FIRST_RUN).toBe('no');
   });
 
   it('trusts local token on network error during validation', async () => {

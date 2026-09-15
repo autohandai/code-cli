@@ -439,3 +439,50 @@ finally {
     },
   );
 });
+
+describe('Windows installer first run', () => {
+  function seedFixtureBinary(): { fixture: string; log: string; cleanup: () => void } {
+    const directory = mkdtempSync(join(tmpdir(), 'autohand-install-first-run-'));
+    const fixture = join(directory, 'fixture.ps1');
+    const log = join(directory, 'launch.log');
+    writeFileSync(fixture, `Set-Content -LiteralPath '${log}' -Value ($args -join ' ')\n`);
+    return { fixture, log, cleanup: () => rmSync(directory, { recursive: true, force: true }) };
+  }
+
+  powerShellTest('starts the installed binary with "hello world" when the first run is accepted', () => {
+    const { fixture, log, cleanup } = seedFixtureBinary();
+    try {
+      const result = runPowerShellProbe(`${installerWithoutEntrypoint}
+Write-Output (Start-FirstRun -BinaryPath '${fixture}' -Answer 'yes')
+`);
+
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('True');
+      expect(readFileSync(log, 'utf8').trim()).toBe('hello world');
+    } finally {
+      cleanup();
+    }
+  });
+
+  powerShellTest('does not start the binary when declined, unattended, or inside a running Autohand', () => {
+    const { fixture, log, cleanup } = seedFixtureBinary();
+    try {
+      // The probe runs -NonInteractive with redirected input: an unattended
+      // install must finish without a prompt, and Read-Host would fail loudly.
+      const result = runPowerShellProbe(`${installerWithoutEntrypoint}
+Write-Output (Start-FirstRun -BinaryPath '${fixture}' -Answer 'no')
+Write-Output (Start-FirstRun -BinaryPath '${fixture}' -Answer '')
+$env:AUTOHAND_CLI = '1'
+Write-Output (Start-FirstRun -BinaryPath '${fixture}' -Answer $null)
+`);
+
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+      expect(result.stdout.trim().split(/\r?\n/u)).toEqual(['False', 'False', 'False']);
+      expect(readdirSync(join(log, '..'))).not.toContain('launch.log');
+    } finally {
+      cleanup();
+    }
+  });
+});
