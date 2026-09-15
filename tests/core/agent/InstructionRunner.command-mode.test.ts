@@ -405,6 +405,44 @@ describe('InstructionRunner command mode UI', () => {
     expect(clearActivityForCompletedTurn).toHaveBeenCalledOnce();
   });
 
+  function createActivityHost() {
+    const host = createHost();
+    const completeTodoActivityForSuccessfulTurn = vi.fn(async () => true);
+    const clearActivityForCompletedTurn = vi.fn();
+    const activityHost = host as AgentInstructionHost & {
+      completeTodoActivityForSuccessfulTurn: () => Promise<boolean>;
+      clearActivityForCompletedTurn: () => void;
+    };
+    activityHost.completeTodoActivityForSuccessfulTurn = completeTodoActivityForSuccessfulTurn;
+    activityHost.clearActivityForCompletedTurn = clearActivityForCompletedTurn;
+    return { host: activityHost, completeTodoActivityForSuccessfulTurn, clearActivityForCompletedTurn };
+  }
+
+  it('clears sticky activity after a turn fails so in-progress tasks do not linger', async () => {
+    const { host, completeTodoActivityForSuccessfulTurn, clearActivityForCompletedTurn } = createActivityHost();
+    host.runReactLoop = vi.fn(async () => {
+      throw new Error('provider returned 500');
+    });
+
+    await expect(new InstructionRunner(host).run('finish the active task')).resolves.toBe(false);
+
+    expect(completeTodoActivityForSuccessfulTurn).not.toHaveBeenCalled();
+    expect(clearActivityForCompletedTurn).toHaveBeenCalledOnce();
+  });
+
+  it('clears sticky activity when the user cancels the turn', async () => {
+    const { host, completeTodoActivityForSuccessfulTurn, clearActivityForCompletedTurn } = createActivityHost();
+    host.runReactLoop = vi.fn(async (controller: AbortController) => {
+      controller.abort();
+      throw new Error('aborted');
+    });
+
+    await expect(new InstructionRunner(host).run('finish the active task')).resolves.toBe(false);
+
+    expect(completeTodoActivityForSuccessfulTurn).not.toHaveBeenCalled();
+    expect(clearActivityForCompletedTurn).toHaveBeenCalledOnce();
+  });
+
   it('keeps the Ink renderer mounted while running quality checks after an implementation turn', async () => {
     const host = createHost();
     const inkRenderer = {
@@ -456,7 +494,8 @@ describe('InstructionRunner command mode UI', () => {
 
     expect(result).toBe(false);
     expect(host.stopUI).toHaveBeenCalledWith(true, 'Quality checks failed');
-    expect(clearActivityForCompletedTurn).not.toHaveBeenCalled();
+    // The turn is over either way: the task panel must not keep showing work in progress.
+    expect(clearActivityForCompletedTurn).toHaveBeenCalledOnce();
     expect(host.printCompletionSummary).toHaveBeenCalledWith(false, false);
     expect(host.scheduleTurnMemoryReflection).toHaveBeenCalledWith({
       status: 'failed',

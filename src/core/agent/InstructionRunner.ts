@@ -553,11 +553,14 @@ export class InstructionRunner {
       success = await finalizeResearchForTurn(success);
       if (success) {
         await host.completeTodoActivityForSuccessfulTurn?.();
-        host.clearActivityForCompletedTurn?.();
       }
+      // The task panel describes this turn; once the turn is over, an
+      // "in progress" entry would otherwise sit above the composer forever.
+      host.clearActivityForCompletedTurn?.();
     } catch (error) {
       success = false;
       if (abortController.signal.aborted) {
+        host.clearActivityForCompletedTurn?.();
         return false;
       }
 
@@ -582,6 +585,7 @@ export class InstructionRunner {
       // error UI so we don't double-print failure messages.
       if (error instanceof Error && error.name === 'LoopAbortedError') {
         recordReflectionFailure('loop-guard', error.message);
+        host.clearActivityForCompletedTurn?.();
         // Fall through to finally with success = false
       } else {
         // Session failure retry logic
@@ -670,6 +674,7 @@ export class InstructionRunner {
           errorMessage,
         );
         host.recordTurnFailure?.(errorMessage);
+        host.clearActivityForCompletedTurn?.();
         host.emitOutput({ type: 'error', content: errorMessage });
         if (err instanceof Error) {
           console.error(chalk.red(errorMessage));
