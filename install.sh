@@ -357,12 +357,27 @@ probe_binary_version() {
 install_file() {
     local _source="$1"
     local _dest="$2"
+    local _dest_dir _staged
+    _dest_dir=$(dirname "$_dest")
+    _staged="${_dest}.tmp.$$"
 
-    if [ -w "$(dirname "$_dest")" ]; then
-        cp "$_source" "$_dest"
+    # Stage next to the destination and swap it in with rename so the
+    # installed path always gets a fresh inode. `autohand update` runs this
+    # script from inside a running autohand, and writing into the executable
+    # it is running from invalidates the kernel's cached code signature on
+    # macOS (every later launch dies with "zsh: killed") and fails with
+    # ETXTBSY on Linux.
+    if [ -w "$_dest_dir" ]; then
+        if ! cp "$_source" "$_staged" || ! mv -f "$_staged" "$_dest"; then
+            rm -f "$_staged"
+            err "Failed to install $_dest"
+        fi
     else
-        printf "${YELLOW}Elevated permissions required to install to $(dirname "$_dest")${NC}\n"
-        sudo cp "$_source" "$_dest"
+        printf "${YELLOW}Elevated permissions required to install to ${_dest_dir}${NC}\n"
+        if ! sudo cp "$_source" "$_staged" || ! sudo mv -f "$_staged" "$_dest"; then
+            sudo rm -f "$_staged"
+            err "Failed to install $_dest"
+        fi
     fi
 }
 

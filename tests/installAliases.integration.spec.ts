@@ -11,9 +11,11 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -225,6 +227,67 @@ describe('release installer command aliases', () => {
     expect(execFileSync(competitorAgent, ['--version'], { encoding: 'utf8' })).toBe(
       'test-version\n',
     );
+  });
+});
+
+describe('release installer binary replacement', () => {
+  // `autohand update` runs install.sh from inside a running autohand, so the
+  // installer always replaces an executable that is currently mapped by the
+  // kernel. On macOS, writing into that inode in place invalidates the cached
+  // code signature and every later launch dies with SIGKILL ("zsh: killed");
+  // on Linux the same in-place write fails with ETXTBSY. Swapping in a fresh
+  // inode via rename is safe on both, so the installed path must never keep
+  // the inode of the binary it replaces.
+  unixIt('replaces an existing binary with a fresh inode instead of writing into it', () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), 'autohand-installer-replace-'));
+    tempRoots.push(tempRoot);
+    const payloadDir = join(tempRoot, 'payload');
+    const fixtureBinDir = join(tempRoot, 'fixture-bin');
+    const installDir = join(tempRoot, 'install');
+    const archivePath = join(tempRoot, 'autohand.tar.gz');
+    const checksumPath = `${archivePath}.sha256`;
+    const fixtureBinary = join(payloadDir, 'autohand');
+    const installedBinary = join(installDir, 'autohand');
+    const newBinary = '#!/bin/sh\n[ "${1:-}" = "--version" ] && printf "test-version\\n"\n';
+
+    mkdirSync(payloadDir, { recursive: true });
+    mkdirSync(fixtureBinDir, { recursive: true });
+    mkdirSync(installDir, { recursive: true });
+    writeFileSync(fixtureBinary, newBinary);
+    chmodSync(fixtureBinary, 0o755);
+    writeFileSync(installedBinary, '#!/bin/sh\nprintf "existing-version\\n"\n');
+    chmodSync(installedBinary, 0o755);
+    execFileSync('tar', ['-czf', archivePath, '-C', payloadDir, 'autohand']);
+    const checksum = createHash('sha256')
+      .update(readFileSync(archivePath))
+      .digest('hex');
+    writeFileSync(checksumPath, `${checksum}  autohand.tar.gz\n`);
+
+    writeFakeCurl(fixtureBinDir);
+
+    const existingInode = statSync(installedBinary).ino;
+
+    execFileSync('/bin/sh', ['install.sh'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${fixtureBinDir}:${SAFE_SYSTEM_PATH}`,
+        AUTOHAND_INSTALL_DIR: installDir,
+        AUTOHAND_TEST_ARCHIVE: archivePath,
+        AUTOHAND_TEST_CHECKSUM: checksumPath,
+        AUTOHAND_VERSION: 'test-version',
+      },
+    });
+
+    const installed = statSync(installedBinary);
+    expect(installed.ino).not.toBe(existingInode);
+    expect(installed.mode & 0o111).not.toBe(0);
+    expect(readFileSync(installedBinary, 'utf8')).toBe(newBinary);
+    expect(execFileSync(installedBinary, ['--version'], { encoding: 'utf8' })).toBe(
+      'test-version\n',
+    );
+    expect(readdirSync(installDir).filter((name) => name.includes('.tmp'))).toEqual([]);
   });
 });
 
