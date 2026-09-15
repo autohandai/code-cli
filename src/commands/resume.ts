@@ -28,20 +28,24 @@ const GENERIC_SUMMARIES = new Set([
 ]);
 
 /**
- * Decide a session's display title with no filesystem access, so it is unit
- * testable on its own: the name given with /rename, then the summary
- * (skipping a generic placeholder summary that carries no information), then
- * the caller-supplied first user message, then a fallback for a session with
- * no messages at all.
+ * Decide a session's display title: the name given with /rename, then the
+ * summary (skipping a generic placeholder summary that carries no
+ * information), then the first user message, then a fallback for a session
+ * with no messages at all.
+ *
+ * The first user message is expensive to obtain (it means reading the
+ * session's conversation file), so it is passed as a thunk and only invoked
+ * when the cheaper title sources above it are unavailable.
  */
 export async function resolveSessionTitle(
     meta: SessionMetadata,
-    firstUserMessage?: string
+    getFirstUserMessage?: () => Promise<string | undefined>
 ): Promise<string> {
     const named = getSessionDisplayName(meta);
     if (named && !GENERIC_SUMMARIES.has(named.trim().toLowerCase())) {
         return named.slice(0, 120);
     }
+    const firstUserMessage = await getFirstUserMessage?.();
     if (firstUserMessage?.trim()) {
         return firstUserMessage.trim().slice(0, 120);
     }
@@ -116,7 +120,7 @@ export async function selectResumeSession(ctx: ResumePickerContext): Promise<str
 
         const entries = await Promise.all(sessions.map(async (session) => ({
             session,
-            title: await resolveSessionTitle(session, await readFirstUserMessage(session)),
+            title: await resolveSessionTitle(session, () => readFirstUserMessage(session)),
         })));
         const { options } = buildSessionPickerRows({
             entries,

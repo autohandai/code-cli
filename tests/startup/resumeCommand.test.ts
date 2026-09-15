@@ -82,7 +82,7 @@ describe('resume CLI command', () => {
     const session = await savedSession('/another-project', 'Other project', '2026-01-01');
     showModal.mockResolvedValueOnce({ value: session.metadata.sessionId });
     await parse(['--all']);
-    expect(showModal.mock.calls[0][0].options[0].label).toContain('Other project');
+    expect(showModal.mock.calls[0][0].options[0].label.startsWith('Other project')).toBe(true);
     expect(run).toHaveBeenCalledWith(expect.objectContaining({ resumeSessionId: session.metadata.sessionId }));
   });
 
@@ -232,7 +232,16 @@ describe('selectResumeSession picker rows', () => {
   });
 
   it('falls back past a generic summary to the first user message', async () => {
-    expect(await resolveSessionTitle(metadata({ summary: 'Session complete' }), 'fix the parser'))
+    expect(await resolveSessionTitle(metadata({ summary: 'Session complete' }), async () => 'fix the parser'))
       .toBe('fix the parser');
+  });
+
+  it('never reads the first user message when a /rename title is already usable', async () => {
+    const getFirstUserMessage = vi.fn(async () => 'should not be read');
+
+    const title = await resolveSessionTitle(metadata({ title: 'Caret fix' }), getFirstUserMessage);
+
+    expect(title).toBe('Caret fix');
+    expect(getFirstUserMessage).not.toHaveBeenCalled();
   });
 });

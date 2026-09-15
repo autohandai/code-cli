@@ -339,7 +339,7 @@ describe('Resume Command', () => {
       // Verify showModal was called with options containing summary as label
       expect(mockShowModal).toHaveBeenCalled();
       const promptCall = mockShowModal.mock.calls[0][0];
-      expect(promptCall.options[0].label).toContain('Building an artifact');
+      expect(promptCall.options[0].label.startsWith('Building an artifact')).toBe(true);
     });
 
     it('prefers the name given with /rename over the summary', async () => {
@@ -359,7 +359,7 @@ describe('Resume Command', () => {
 
       await resume({ sessionManager: mockSessionManager as any, args: [] });
 
-      expect(mockShowModal.mock.calls[0][0].options[0].label).toContain('Caret fix');
+      expect(mockShowModal.mock.calls[0][0].options[0].label.startsWith('Caret fix')).toBe(true);
     });
 
     it('should use first user message when no summary', async () => {

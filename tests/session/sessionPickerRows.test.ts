@@ -107,6 +107,22 @@ describe('buildSessionPickerRows', () => {
     expect(options[1]?.label).toContain('2 empty sessions');
   });
 
+  it('shows only the reveal row when every session on the page is empty', () => {
+    const entries = [
+      { session: session({ sessionId: 'empty1', messageCount: 0 }), title: '(no messages)' },
+      { session: session({ sessionId: 'empty2', messageCount: 0 }), title: '(no messages)' },
+      { session: session({ sessionId: 'empty3', messageCount: 0 }), title: '(no messages)' },
+    ];
+    const { options, hiddenEmptyCount } = buildSessionPickerRows({
+      entries, now: NOW, columns: 100, singleProject: true, includeEmpty: false,
+    });
+
+    expect(hiddenEmptyCount).toBe(3);
+    expect(options).toHaveLength(1);
+    expect(options[0]?.value).toBe('__show_empty__');
+    expect(options[0]?.label).toContain('3 empty sessions');
+  });
+
   it('includes empty sessions once revealed', () => {
     const entries = [
       { session: session({ sessionId: 'real', messageCount: 3 }), title: 'real work' },
