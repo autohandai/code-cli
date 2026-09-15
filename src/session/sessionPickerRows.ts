@@ -11,8 +11,14 @@ import type { SessionMetadata } from './types.js';
 
 export const SHOW_EMPTY_VALUE = '__show_empty__';
 
-/** Widest row number the modal can print for this page, e.g. "12. " is 4 columns. */
-const MODAL_PREFIX = 2; // the modal's "▸ " / "  " gutter
+/**
+ * Columns the modal reserves around every row before a single character of
+ * label reaches the terminal: 2 for the "▸ " / "  " cursor gutter, and 2 more
+ * for the `<Box paddingX={1}>` the modal wraps its list in (Modal.tsx). A row
+ * built to fill exactly `columns` renders 2 columns past the terminal edge
+ * and wraps mid-cell (e.g. a "36w ago" age splitting across two lines).
+ */
+const MODAL_CHROME = 4;
 const COLUMN_GAP = 2;
 const MIN_TITLE_WIDTH = 16;
 
@@ -96,7 +102,7 @@ export function buildSessionPickerRows(input: SessionPickerInput): SessionPicker
   const numberWidth = `${visible.length}. `.length;
 
   const meta = countWidth + COLUMN_GAP + ageWidth + (projectWidth ? projectWidth + COLUMN_GAP : 0);
-  const titleWidth = Math.max(MIN_TITLE_WIDTH, columns - MODAL_PREFIX - numberWidth - meta - COLUMN_GAP);
+  const titleWidth = Math.max(MIN_TITLE_WIDTH, columns - MODAL_CHROME - numberWidth - meta - COLUMN_GAP);
 
   let lastHeader: string | undefined;
   const options: ModalOption[] = visible.map((entry, index) => {

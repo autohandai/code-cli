@@ -162,6 +162,32 @@ describe('buildSessionPickerRows', () => {
     expect(options[0]?.label).toContain('…');
   });
 
+  // Regression for a real-terminal bug: a row built to exactly fill `columns`
+  // renders past the terminal edge and wraps mid-cell (e.g. a "36w ago" age
+  // splitting across two lines), because the modal's own chrome around the
+  // label was never subtracted. These numbers mirror Modal.tsx's actual
+  // layout (not this module's internal chrome constant, so a regression to a
+  // too-small chrome value is caught rather than validated against itself):
+  // a 2-column "▸ " / "  " cursor gutter, plus the 1-column paddingX the
+  // modal's <Box paddingX={1}> reserves on each side.
+  const CURSOR_GUTTER = 2;
+  const MODAL_BOX_PADDING_X = 1;
+
+  it.each([80, 100, 120, 160, 200])('keeps every row within %i columns once the modal\'s chrome is added', (columns) => {
+    const entries = [
+      { session: session({ sessionId: 'a', projectName: 'workspace', messageCount: 4 }), title: 'Newer project session' },
+      { session: session({ sessionId: 'b', projectName: 'elsewhere', messageCount: 6 }), title: 'Other project session' },
+    ];
+    const { options } = buildSessionPickerRows({ entries, now: NOW, columns, singleProject: false });
+
+    const numberWidth = String(options.length).length;
+    for (const [index, option] of options.entries()) {
+      const rowNumber = `${String(index + 1).padStart(numberWidth, ' ')}. `;
+      const renderedWidth = MODAL_BOX_PADDING_X + CURSOR_GUTTER + stringWidth(rowNumber) + stringWidth(option.label) + MODAL_BOX_PADDING_X;
+      expect(renderedWidth).toBeLessThanOrEqual(columns);
+    }
+  });
+
   it('flattens newlines and strips ANSI from titles', () => {
     const { options } = buildSessionPickerRows({
       now: NOW,

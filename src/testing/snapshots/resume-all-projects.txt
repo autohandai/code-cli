@@ -1,11 +1,9 @@
 
- Choose a session
+ Resume a session
 
- ▸ 1. Other project session
-      Jan 4 - 0 messages - elsewhere
-   2. Newer project session
-      Jan 3 - 0 messages - workspace
-   3. Active project session
-      Jan 1 - 0 messages - workspace
+ Earlier
+ ▸ 1. Other project session                                                                  elsewhere  6 msgs  <age>
+   2. Newer project session                                                                  workspace  4 msgs  <age>
+   3. Show 1 empty session
 
- ↑↓ Navigate · ↵ Select · 1-9 Shortcut · ESC Cancel
+ ↑↓ Navigate · ↵ Select · 1-9 Shortcut · ESC Cancel · / search
