@@ -75,8 +75,6 @@ export interface SelectModalProps extends BaseModalProps {
    * by label; other modals are unaffected. Off by default.
    */
   filterable?: boolean;
-  /** Placeholder shown in the filter line before a query is typed. */
-  filterPlaceholder?: string;
 }
 
 /**
@@ -212,7 +210,14 @@ export function resolveInitialCursor(
   return Math.max(0, Math.min(optionsLength - 1, Math.floor(initialIndex)));
 }
 
-export function isModalCancelInput(char: string, key: Pick<InkKey, 'escape' | 'ctrl'>): boolean {
+/**
+ * Recognize Escape alone: Ink's parsed `key.escape`, a raw ESC byte, or a
+ * kitty-protocol CSI-27 sequence. Factored out of `isModalCancelInput` so a
+ * caller that wants only "Escape" — e.g. the filter query's clear-on-Escape
+ * handling — doesn't also inherit `isModalCancelInput`'s Ctrl+C recognition,
+ * which must keep hard-cancelling the modal instead of clearing the query.
+ */
+export function isEscapeInput(char: string, key: Pick<InkKey, 'escape'>): boolean {
   if (key.escape) {
     return true;
   }
@@ -221,11 +226,15 @@ export function isModalCancelInput(char: string, key: Pick<InkKey, 'escape' | 'c
     return true;
   }
 
-  if (char === 'c' && key.ctrl) {
+  return /^\x1b\[27(?:;\d+)?[u~]$/.test(char);
+}
+
+export function isModalCancelInput(char: string, key: Pick<InkKey, 'escape' | 'ctrl'>): boolean {
+  if (isEscapeInput(char, key)) {
     return true;
   }
 
-  return /^\x1b\[27(?:;\d+)?[u~]$/.test(char);
+  return char === 'c' && key.ctrl;
 }
 
 function unmountAndResolve<T>(
@@ -403,7 +412,6 @@ function Modal(props: ModalProps) {
   // `filter`, so `choices` below is always `baseChoices` for it — unfiltered
   // behavior is unreachable, not just untriggered.
   const filterable = mode === 'select' && 'filterable' in props && props.filterable === true;
-  const filterPlaceholder = mode === 'select' && 'filterPlaceholder' in props ? props.filterPlaceholder : undefined;
   const [filter, setFilter] = useState<string | null>(null);
 
   const matchesFilter = (option: ModalOption, query: string): boolean =>
@@ -446,7 +454,7 @@ function Modal(props: ModalProps) {
     // Custom-input mode (the "Other" text field) owns those same keys once
     // active, so it takes precedence over a filter left over from before it.
     if (filterable && filter !== null && !isCustomMode) {
-      if (key.escape) {
+      if (isEscapeInput(char, key)) {
         setFilter(null);
         setCursor(0);
         setWindowStart(0);
@@ -454,6 +462,8 @@ function Modal(props: ModalProps) {
       }
       if (key.backspace || key.delete) {
         setFilter((prev) => (prev ?? '').slice(0, -1));
+        setCursor(0);
+        setWindowStart(0);
         return;
       }
       if (char && !key.ctrl && !key.meta && !key.return && char >= ' ') {
@@ -765,7 +775,7 @@ function Modal(props: ModalProps) {
     return (
       <>
         {filterable && filter !== null && (
-          <Text>{theme.fg('muted', `  / ${filter || filterPlaceholder || ''}`)}</Text>
+          <Text>{theme.fg('muted', `  / ${filter}`)}</Text>
         )}
         {filterable && filter && choices.length === 0 ? (
           <Text>{theme.fg('muted', `  No matches for "${filter}"`)}</Text>
@@ -851,6 +861,11 @@ export interface ShowModalOptions {
   skipAltScreen?: boolean;
   /** Optional override for the keyboard help rendered below the modal. */
   hint?: string;
+  /**
+   * Opt-in type-to-search. When true, `/` opens a query that filters options
+   * by label. Off by default.
+   */
+  filterable?: boolean;
 }
 
 /**
@@ -886,6 +901,7 @@ export async function showModal(
     skipAltScreen,
     initialIndex,
     hint,
+    filterable,
   } = options;
 
   // Non-interactive fallback
@@ -970,6 +986,7 @@ export async function showModal(
             multiSelect={multiSelect}
             maxVisible={maxVisible}
             onToggle={onToggle}
+            filterable={filterable}
             onSelect={(option) => {
               complete(option);
             }}
