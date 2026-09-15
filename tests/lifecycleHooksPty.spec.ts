@@ -13,10 +13,10 @@ describe('lifecycle hook node-pty terminal', () => {
     await terminal.waitFor('Lifecycle hooks from config and enabled plugins.');
     expect(terminal.snapshot()).toMatch(/session-start\s+2\s+2/);
     terminal.down();
-    await terminal.waitFor(/▸ 2\.\s+session-end/);
+    await terminal.waitFor(/▸\s+2\.\s+session-end/);
     const beforeUp = terminal.snapshot().length;
     terminal.up();
-    await terminal.waitFor(/▸ 1\.\s+session-start/, 10_000, beforeUp);
+    await terminal.waitFor(/▸\s+1\.\s+session-start/, 10_000, beforeUp);
     terminal.enter();
     await terminal.waitFor('Describe what this hook should do in plain English');
     expect(terminal.snapshot()).toContain('example.plugin');
