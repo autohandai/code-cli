@@ -34,6 +34,7 @@ import { KEYBINDING_PROFILE_IDS, isKeybindingProfileId } from "./keybindings/pro
 import { hookIdentifier } from "./core/hookEvents.js";
 import { normalizeHooksSettings } from "./core/legacyHookEvents.js";
 import { isAutohandInferenceEnabled } from "./featureFlags.js";
+import { validateStatusBarConfig } from "./core/agent/StatusBarConfig.js";
 import { autoInitTheme, configureThemeSources, getDefaultThemeName, themeExists } from "./ui/theme/index.js";
 import { loadLocalProjectSettings, type LocalProjectSettings } from "./permissions/localProjectPermissions.js";
 import {
@@ -1468,6 +1469,10 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
       typeof config.ui.activityVerbsEnabled !== "boolean"
     ) {
       throw new Error(`ui.activityVerbsEnabled must be boolean in ${configPath}`);
+    }
+
+    if (config.ui.statusBar !== undefined) {
+      validateStatusBarConfig(config.ui.statusBar, configPath);
     }
   }
 

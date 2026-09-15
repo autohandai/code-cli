@@ -31,7 +31,7 @@ describe('StatusLine extensions', () => {
     );
 
     expect(source).toContain("theme.fg('muted', separator)");
-    expect(source).toContain('theme.fg(getSegmentToken(segment.color), normalizeSegmentText(segment))');
+    expect(source).toContain('theme.fg(getSegmentToken(segment.color), displayText)');
   });
 
   it('does not render account plan metadata above the composer', () => {

@@ -25,6 +25,8 @@ export interface LineSegment {
   text: string;
   color?: LineSegmentColor;
   visible?: boolean;
+  /** When true, reserves visual space even when text is empty — prevents layout popping. */
+  reserveSpace?: boolean;
 }
 
 export interface LineExtension {
@@ -96,7 +98,7 @@ export function resolveLineSegments(
 
   return {
     segments: segments.filter((segment) =>
-      segment.visible !== false && normalizeSegmentText(segment).trim().length > 0
+      segment.visible !== false && (segment.reserveSpace || normalizeSegmentText(segment).trim().length > 0)
     ),
     separator: extension?.separator ?? ' · ',
   };
@@ -147,7 +149,7 @@ function getSegmentToken(color?: LineSegmentColor): Parameters<Theme['fg']>[0] {
   }
 }
 
-function renderLineSegments(
+export function renderLineSegments(
   segments: LineSegment[],
   separator: string,
   theme: Theme
@@ -157,8 +159,11 @@ function renderLineSegments(
     if (index > 0) {
       nodes.push(<Text key={`${segment.id}:sep`}>{theme.fg('muted', separator)}</Text>);
     }
+    const text = normalizeSegmentText(segment);
+    // Reserve space: render invisible placeholder when text is empty
+    const displayText = text.trim().length > 0 ? text : (segment.reserveSpace ? '\u00A0' : '');
     nodes.push(
-      <Text key={segment.id}>{theme.fg(getSegmentToken(segment.color), normalizeSegmentText(segment))}</Text>
+      <Text key={segment.id}>{theme.fg(getSegmentToken(segment.color), displayText)}</Text>
     );
     return nodes;
   });

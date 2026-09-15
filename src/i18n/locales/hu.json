@@ -212,6 +212,8 @@
         "promptSuggestionsDesc": "LLM által generált következő lépés javaslatok megjelenítése",
         "activitySymbol": "Tevékenység szimbólum",
         "activitySymbolDesc": "Szimbólum, amely a tevékenység ige előtt jelenik meg",
+        "statusBar": "Állapotsor",
+        "statusBarDesc": "Állapotsor szakaszok és elrendezés konfigurálása",
         "updateCheckInterval": "Frissítés keresési időköz (óra)",
         "updateCheckIntervalDesc": "Órák között a frissítés keresések között"
       },

@@ -16,7 +16,8 @@ import { createImmediateShellCommandBlockWriter, formatImmediateShellCommandHead
 import { SLASH_COMMANDS } from '../slashCommands.js';
 import { buildHostTokenUsageStatus, formatElapsedTime, formatSessionActualTokens, formatTurnUsage } from './AgentFormatter.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
-import { buildStatusLineExtension, getConfigStatusLineSettings } from './StatusLineSettings.js';
+import { getConfigStatusLineSettings } from './StatusLineSettings.js';
+import { buildStatusBarExtensions } from './StatusBarRenderer.js';
 import { resolveStatusLineGitLabel } from './AgentContextRuntime.js';
 import { extensionRuntimeHost } from '../../extensions/ExtensionRuntimeHost.js';
 import { resolveKeybindings } from '../../keybindings/profiles.js';
@@ -718,14 +719,29 @@ export function forceRenderAgentSpinner(host: AgentUIRuntimeHost): void {
     const footerLine = host.formatStatusLine();
     host.persistentInput.setStatusLine(footerLine);
     const statusLineSettings = getConfigStatusLineSettings(host.runtime.config);
-    host.inkRenderer?.setConfiguredLineExtensions?.(withPeerLineExtension(buildStatusLineExtension({
-      settings: statusLineSettings,
+    const model = host.runtime.options.model ?? 'unconfigured';
+    const providerLabel = host.activeProvider ?? host.runtime.config.provider ?? 'openrouter';
+    const planLabel = host.accountPlan
+      ? host.accountPlan.tier === 'team'
+        ? host.accountPlan.accountName || host.accountPlan.label
+        : host.accountPlan.label
+      : undefined;
+    const statusBarExtensions = buildStatusBarExtensions(host.runtime.config, {
       workspaceRoot: host.runtime.workspaceRoot,
       homeDir: os.homedir(),
       gitLabel: resolveStatusLineGitLabel(host),
       sessionDiffStats: host.sessionDiffStatsTracker?.getStats?.(),
       sessionHasFileChanges: host.filesModifiedThisSession === true,
-    }), host.peerAwareness?.getPeers?.().length ?? 0));
+      interactionMode: host.getInteractionMode?.(),
+      model,
+      providerLabel,
+      planLabel,
+      contextPercentLeft: host.contextPercentLeft,
+      sessionTokensUsed: (host.sessionActualTokensUsed ?? host.sessionTokensUsed ?? 0) + (host.currentTurnActualUsage?.kind === 'actual' ? host.currentTurnActualUsage.totalTokens : (host.currentTurnActualUsage ? 0 : (host.totalTokensUsed ?? 0))),
+      sessionTokenUsageUnavailable: host.sessionTokenUsageUnavailable || host.currentTurnHadUnavailableUsage,
+      commandHint: t('ui.commandHint'),
+    });
+    host.inkRenderer?.setConfiguredLineExtensions?.(withPeerLineExtension(statusBarExtensions, host.peerAwareness?.getPeers?.().length ?? 0));
     host.inkRenderer?.setShowModeLabel?.(statusLineSettings.showModeLabel);
     const usingTerminalRegions = host.isUsingTerminalRegionsForActiveTurn();
 

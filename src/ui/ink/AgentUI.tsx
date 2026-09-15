@@ -9,6 +9,7 @@ import {
   StatusLine,
   formatLineSegments,
   mergeLineExtensions,
+  renderLineSegments,
   type LineExtension,
   type LineSegment,
 } from './StatusLine.js';
@@ -3059,7 +3060,7 @@ const HelpLineSection = memo(function HelpLineSection({
   interactionMode = 'default',
   showModeLabel = true,
 }: HelpLineSectionProps) {
-  const { colors } = useTheme();
+  const { colors, theme } = useTheme();
   const { t } = useTranslation();
 
   // Format context usage.
@@ -3074,18 +3075,31 @@ const HelpLineSection = memo(function HelpLineSection({
   const providerDisplay = provider
     ? `${namePrefix} (${t(`providers.${provider}`) ?? provider}${model ? `, ${model}` : ''})`
     : '';
-  const glyphColor = INTERACTION_MODE_GLYPH_COLOR[interactionMode];
-  const modeLabel = interactionMode !== 'default' && showModeLabel
+  
+  // When the new status bar is active (lineExtension has segments from
+  // StatusBarRenderer), suppress the old mode chip — the mode section
+  // already renders its own colored glyph + label.
+  const hasStatusBarSegments = lineExtension?.segments && lineExtension.segments.length > 0;
+  const hasModeSection = hasStatusBarSegments && lineExtension!.segments!.some((s) => s.id === 'mode');
+  const glyphColor = !hasModeSection ? INTERACTION_MODE_GLYPH_COLOR[interactionMode] : undefined;
+  const modeLabel = interactionMode !== 'default' && showModeLabel && !hasModeSection
     ? getInteractionModeLabel(interactionMode)
     : '';
+
   return (
     <Box>
       {glyphColor ? (
         <Text>{colorizeGlyphText(glyphColor, modeLabel ? `● ${modeLabel} ` : '● ')}</Text>
       ) : null}
-      <Text color={colors.dim}>
-        {getComposerHelpLine(isWorking, providerDisplay, contextDisplay, t('ui.commandHint'), lineExtension)}
-      </Text>
+      {hasStatusBarSegments ? (
+        <Text>
+          {renderLineSegments(lineExtension!.segments!, ' · ', theme)}
+        </Text>
+      ) : (
+        <Text color={colors.dim}>
+          {getComposerHelpLine(isWorking, providerDisplay, contextDisplay, t('ui.commandHint'), lineExtension)}
+        </Text>
+      )}
     </Box>
   );
 }, (prev, next) => {
