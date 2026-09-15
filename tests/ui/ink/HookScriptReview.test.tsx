@@ -35,6 +35,16 @@ describe('hook terminal screens', () => {
       .split('\n')
       .map(line => line.trimEnd())
       .join('\n');
+    // Row numbers are right-aligned to a shared width by the modal (`1.` vs `10.`),
+    // so every row's label must start in the same column regardless of digit count.
+    // A single-digit row (`session-start`, row 1) and a double-digit row
+    // (`subagent-progress`, row 10) pin down the two cases that regressed in the past.
+    const labelStartColumn = (needle: string) => {
+      const line = frame.split('\n').find(candidate => candidate.includes(needle));
+      if (!line) throw new Error(`expected a rendered row containing "${needle}"`);
+      return line.indexOf(needle);
+    };
+    expect(labelStartColumn('session-start')).toBe(labelStartColumn('subagent-progress'));
     await expect(frame).toMatchFileSnapshot('../../../src/testing/snapshots/lifecycle-hooks.txt');
     await settle();
     view.stdin.write('\u001b[B');
