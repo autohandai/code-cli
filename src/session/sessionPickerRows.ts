@@ -1,0 +1,140 @@
+/**
+ * @license
+ * Copyright 2026 Autohand AI LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+import stringWidth from 'string-width';
+import stripAnsi from 'strip-ansi';
+import type { ModalOption } from '../ui/ink/components/Modal.js';
+import type { SessionMetadata } from './types.js';
+
+export const SHOW_EMPTY_VALUE = '__show_empty__';
+
+/** Widest row number the modal can print for this page, e.g. "12. " is 4 columns. */
+const MODAL_PREFIX = 2; // the modal's "▸ " / "  " gutter
+const COLUMN_GAP = 2;
+const MIN_TITLE_WIDTH = 16;
+
+export interface SessionPickerEntry { session: SessionMetadata; title: string; }
+
+export interface SessionPickerInput {
+  entries: SessionPickerEntry[];
+  now: Date;
+  columns: number;
+  singleProject: boolean;
+  includeEmpty?: boolean;
+}
+
+export interface SessionPickerRows { options: ModalOption[]; hiddenEmptyCount: number; }
+
+export function sessionActivityAt(session: SessionMetadata): Date {
+  const active = Date.parse(session.lastActiveAt ?? '');
+  return Number.isNaN(active) ? new Date(session.createdAt) : new Date(active);
+}
+
+function startOfLocalDay(date: Date): number {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())).getTime();
+}
+
+export function sessionGroupLabel(activeAt: Date, now: Date): 'Today' | 'Yesterday' | 'Previous 7 days' | 'Earlier' {
+  const today = startOfLocalDay(now);
+  const day = startOfLocalDay(activeAt);
+  const dayMs = 24 * 60 * 60 * 1000;
+  if (day >= today) return 'Today';
+  if (day >= today - dayMs) return 'Yesterday';
+  if (day >= today - 7 * dayMs) return 'Previous 7 days';
+  return 'Earlier';
+}
+
+/** Compact age: 2m, 5h, 3d, 2w — the picker sorts by recency, so precision past weeks adds nothing. */
+export function formatAge(activeAt: Date, now: Date): string {
+  const minutes = Math.max(0, Math.floor((now.getTime() - activeAt.getTime()) / 60000));
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return `${Math.floor(days / 7)}w ago`;
+}
+
+function flatten(title: string): string {
+  return stripAnsi(title).replace(/\s+/gu, ' ').trim();
+}
+
+function truncate(value: string, width: number): string {
+  if (width <= 0) return '';
+  if (stringWidth(value) <= width) return value;
+  let out = '';
+  for (const char of value) {
+    if (stringWidth(out) + stringWidth(char) + 1 > width) break;
+    out += char;
+  }
+  return `${out}…`;
+}
+
+function pad(value: string, width: number): string {
+  return value + ' '.repeat(Math.max(0, width - stringWidth(value)));
+}
+
+function padStart(value: string, width: number): string {
+  return ' '.repeat(Math.max(0, width - stringWidth(value))) + value;
+}
+
+export function buildSessionPickerRows(input: SessionPickerInput): SessionPickerRows {
+  const { entries, now, columns, singleProject, includeEmpty = false } = input;
+
+  const ordered = [...entries].sort(
+    (a, b) => sessionActivityAt(b.session).getTime() - sessionActivityAt(a.session).getTime(),
+  );
+  const visible = includeEmpty ? ordered : ordered.filter((entry) => entry.session.messageCount > 0);
+  const hiddenEmptyCount = ordered.length - visible.length;
+
+  const counts = visible.map((entry) => `${entry.session.messageCount} msgs`);
+  const ages = visible.map((entry) => formatAge(sessionActivityAt(entry.session), now));
+  const projects = singleProject ? [] : visible.map((entry) => entry.session.projectName);
+
+  const countWidth = Math.max(0, ...counts.map((s) => stringWidth(s)));
+  const ageWidth = Math.max(0, ...ages.map((s) => stringWidth(s)));
+  const projectWidth = projects.length ? Math.max(...projects.map((s) => stringWidth(s))) : 0;
+  const numberWidth = `${visible.length}. `.length;
+
+  const meta = countWidth + COLUMN_GAP + ageWidth + (projectWidth ? projectWidth + COLUMN_GAP : 0);
+  const titleWidth = Math.max(MIN_TITLE_WIDTH, columns - MODAL_PREFIX - numberWidth - meta - COLUMN_GAP);
+
+  let lastHeader: string | undefined;
+  const options: ModalOption[] = visible.map((entry, index) => {
+    const header = sessionGroupLabel(sessionActivityAt(entry.session), now);
+    const withHeader = header !== lastHeader;
+    lastHeader = header;
+
+    // The modal prints "N. " itself, so shorter numbers get the slack back and
+    // every row's columns still line up.
+    const ownNumberWidth = `${index + 1}. `.length;
+    const title = pad(truncate(flatten(entry.title), titleWidth), titleWidth + (numberWidth - ownNumberWidth));
+    const cells = [title];
+    if (projectWidth) cells.push(pad(entry.session.projectName, projectWidth));
+    cells.push(padStart(counts[index] ?? '', countWidth), padStart(ages[index] ?? '', ageWidth));
+
+    const label = cells.join(' '.repeat(COLUMN_GAP)).trimEnd();
+    return {
+      label,
+      value: entry.session.sessionId,
+      ...(withHeader ? { header } : {}),
+    };
+  });
+
+  if (hiddenEmptyCount > 0) {
+    const revealRowIndex = visible.length;
+    const revealRowNumberWidth = `${revealRowIndex + 1}. `.length;
+    const revealRowSlack = numberWidth - revealRowNumberWidth;
+    const revealLabel = `Show ${hiddenEmptyCount} empty session${hiddenEmptyCount === 1 ? '' : 's'}`;
+    const revealLabelPadded = pad(revealLabel, titleWidth + revealRowSlack + COLUMN_GAP + countWidth + COLUMN_GAP + ageWidth);
+    options.push({
+      label: revealLabelPadded,
+      value: SHOW_EMPTY_VALUE,
+    });
+  }
+
+  return { options, hiddenEmptyCount };
+}
