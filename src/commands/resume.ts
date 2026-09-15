@@ -122,17 +122,20 @@ export async function selectResumeSession(ctx: ResumePickerContext): Promise<str
             session,
             title: await resolveSessionTitle(session, () => readFirstUserMessage(session)),
         })));
+        const hasPreviousPage = offset > 0;
+        const hasNextPage = offset + pageSize < total;
         const { options } = buildSessionPickerRows({
             entries,
             now: new Date(),
             columns: process.stdout.columns ?? 80,
             singleProject: Boolean(projectFilter?.project),
             includeEmpty,
+            extraRows: (hasPreviousPage ? 1 : 0) + (hasNextPage ? 1 : 0),
         });
-        if (offset > 0) {
+        if (hasPreviousPage) {
             options.push({ label: 'Newer sessions', value: '__previous__' });
         }
-        if (offset + pageSize < total) {
+        if (hasNextPage) {
             options.push({ label: 'Older sessions', value: '__next__' });
         }
 

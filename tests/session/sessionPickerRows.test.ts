@@ -85,8 +85,14 @@ describe('buildSessionPickerRows', () => {
     }));
     const { options } = buildSessionPickerRows({ entries, now: NOW, columns: 100, singleProject: true });
 
-    // The modal prefixes "  N. "; the builder pads so every row ends flush.
-    const widths = options.map((option, index) => stringWidth(`${index + 1}. ${option.label}`));
+    // The modal right-aligns every "N. " to a shared width via padStart (it
+    // does not print a left-aligned "1. " / "12. "), so mirror that here -
+    // the builder pads titles to one flush width and relies on the modal's
+    // own padding to reserve room for the number itself.
+    const numberWidth = String(options.length).length;
+    const widths = options.map((option, index) =>
+      stringWidth(`${String(index + 1).padStart(numberWidth, ' ')}. ${option.label}`)
+    );
     expect(new Set(widths).size).toBe(1);
   });
 

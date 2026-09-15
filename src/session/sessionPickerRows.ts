@@ -30,6 +30,18 @@ export interface SessionPickerInput {
   columns: number;
   singleProject: boolean;
   includeEmpty?: boolean;
+  /**
+   * Rows the caller will append after this call returns (e.g. resume.ts's
+   * "Newer sessions" / "Older sessions" paging rows) that the modal still
+   * numbers alongside every session row. The number column must be wide
+   * enough for the total row count the modal renders, not just the rows this
+   * function returns, or a page whose session count is one digit short of a
+   * digit boundary (e.g. 9 sessions + 1 paging row = 10 numbered rows) will
+   * disagree with the modal about how wide the number column is. Over-
+   * reserving is safe - rows stay mutually aligned, one column narrower;
+   * under-reserving wraps.
+   */
+  extraRows?: number;
 }
 
 export interface SessionPickerRows { options: ModalOption[]; hiddenEmptyCount: number; }
@@ -84,7 +96,7 @@ function padStart(value: string, width: number): string {
 }
 
 export function buildSessionPickerRows(input: SessionPickerInput): SessionPickerRows {
-  const { entries, now, columns, singleProject, includeEmpty = false } = input;
+  const { entries, now, columns, singleProject, includeEmpty = false, extraRows = 0 } = input;
 
   const ordered = [...entries].sort(
     (a, b) => sessionActivityAt(b.session).getTime() - sessionActivityAt(a.session).getTime(),
@@ -99,7 +111,13 @@ export function buildSessionPickerRows(input: SessionPickerInput): SessionPicker
   const countWidth = Math.max(0, ...counts.map((s) => stringWidth(s)));
   const ageWidth = Math.max(0, ...ages.map((s) => stringWidth(s)));
   const projectWidth = projects.length ? Math.max(...projects.map((s) => stringWidth(s))) : 0;
-  const numberWidth = `${visible.length}. `.length;
+  // The modal right-aligns every row's number to a shared width (padStart),
+  // sized off the total row count it renders - including the reveal row this
+  // function appends below and any paging rows the caller appends after it
+  // returns. Reserve the same total here so every row's title lands at the
+  // same column regardless of how many digits its own number has.
+  const reservedRows = Math.max(1, visible.length + (hiddenEmptyCount > 0 ? 1 : 0) + Math.max(0, extraRows));
+  const numberWidth = `${reservedRows}. `.length;
 
   const meta = countWidth + COLUMN_GAP + ageWidth + (projectWidth ? projectWidth + COLUMN_GAP : 0);
   const titleWidth = Math.max(MIN_TITLE_WIDTH, columns - MODAL_CHROME - numberWidth - meta - COLUMN_GAP);
@@ -110,10 +128,10 @@ export function buildSessionPickerRows(input: SessionPickerInput): SessionPicker
     const withHeader = header !== lastHeader;
     lastHeader = header;
 
-    // The modal prints "N. " itself, so shorter numbers get the slack back and
-    // every row's columns still line up.
-    const ownNumberWidth = `${index + 1}. `.length;
-    const title = pad(truncate(flatten(entry.title), titleWidth), titleWidth + (numberWidth - ownNumberWidth));
+    // Every row's title is padded to the same width - the modal reserves its
+    // own room for the row number (padStart to a shared width), so this
+    // function must not add any further per-row slack on top of that.
+    const title = pad(truncate(flatten(entry.title), titleWidth), titleWidth);
     const cells = [title];
     if (projectWidth) cells.push(pad(entry.session.projectName, projectWidth));
     cells.push(padStart(counts[index] ?? '', countWidth), padStart(ages[index] ?? '', ageWidth));
