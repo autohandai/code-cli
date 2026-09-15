@@ -212,6 +212,8 @@
         "promptSuggestionsDesc": "顯示 LLM 生成的下一步建議",
         "activitySymbol": "活動符號",
         "activitySymbolDesc": "活動動詞前的符號",
+        "statusBar": "狀態列",
+        "statusBarDesc": "設定狀態列區段和版面配置",
         "updateCheckInterval": "更新檢查間隔（小時）",
         "updateCheckIntervalDesc": "更新檢查間隔（小時）"
       },

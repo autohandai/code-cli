@@ -212,6 +212,8 @@
         "promptSuggestionsDesc": "显示 LLM 生成的下一步建议",
         "activitySymbol": "活动符号",
         "activitySymbolDesc": "活动动词前的符号",
+        "statusBar": "状态栏",
+        "statusBarDesc": "配置状态栏区域和布局",
         "updateCheckInterval": "更新检查间隔（小时）",
         "updateCheckIntervalDesc": "更新检查间隔（小时）"
       },

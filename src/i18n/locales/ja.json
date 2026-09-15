@@ -212,6 +212,8 @@
         "promptSuggestionsDesc": "LLM生成の次のステップ提案を表示",
         "activitySymbol": "アクティビティシンボル",
         "activitySymbolDesc": "アクティビティ動詞の前に表示されるシンボル",
+        "statusBar": "ステータスバー",
+        "statusBarDesc": "ステータスバーのセクションとレイアウトを設定",
         "updateCheckInterval": "更新確認間隔（時間）",
         "updateCheckIntervalDesc": "更新確認の間隔（時間）"
       },

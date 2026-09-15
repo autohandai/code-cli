@@ -212,6 +212,8 @@
         "promptSuggestionsDesc": "LLM-generierte Vorschläge für nächste Schritte anzeigen",
         "activitySymbol": "Aktivitätssymbol",
         "activitySymbolDesc": "Symbol vor Aktionsverb angezeigt",
+        "statusBar": "Statusleiste",
+        "statusBarDesc": "Statusleisten-Bereiche und Layout konfigurieren",
         "updateCheckInterval": "Update-Prüfintervall (Stunden)",
         "updateCheckIntervalDesc": "Stunden zwischen Update-Prüfungen"
       },

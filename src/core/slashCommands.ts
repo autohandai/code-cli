@@ -19,7 +19,7 @@ import * as undo from '../commands/undo.js';
 import * as newCmd from '../commands/new.js';
 import * as clearCmd from '../commands/clear.js';
 import * as settingsCmd from '../commands/settings.js';
-import * as statuslineCmd from '../commands/statusline.js';
+import * as statusbarCmd from '../commands/statusbar.js';
 import * as memory from '../commands/memory.js';
 import * as formatters from '../commands/formatters.js';
 import * as lint from '../commands/lint.js';
@@ -99,7 +99,7 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   newCmd.metadata,
   clearCmd.metadata,
   settingsCmd.metadata,
-  statuslineCmd.metadata,
+  statusbarCmd.metadata,
   memory.metadata,
   formatters.metadata,
   lint.metadata,

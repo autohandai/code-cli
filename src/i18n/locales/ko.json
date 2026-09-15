@@ -212,6 +212,8 @@
         "promptSuggestionsDesc": "LLM 생성 다음 단계 제안 표시",
         "activitySymbol": "활동 기호",
         "activitySymbolDesc": "활동 동사 앞에 표시되는 기호",
+        "statusBar": "상태 표시줄",
+        "statusBarDesc": "상태 표시줄 섹션 및 레이아웃 구성",
         "updateCheckInterval": "업데이트 확인 간격 (시간)",
         "updateCheckIntervalDesc": "업데이트 확인 간격 (시간)"
       },

@@ -313,6 +313,22 @@ export class SlashCommandHandler {
           this.ctx.refreshStatusLine?.();
           return result;
         }
+        case '/statusbar': {
+          const { statusbar } = await import('../commands/statusbar.js');
+          if (!this.ctx.config) {
+            console.log(chalk.yellow('Config not available.'));
+            return null;
+          }
+          await this.ctx.onBeforeModal?.();
+          let result: string | null = null;
+          try {
+            result = await statusbar({ config: this.ctx.config });
+          } finally {
+            await this.ctx.onAfterModal?.();
+          }
+          this.ctx.refreshStatusLine?.();
+          return result;
+        }
         case '/memory': {
           const { memory } = await import('../commands/memory.js');
           return memory({ memoryManager: this.ctx.memoryManager }, args);
