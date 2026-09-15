@@ -5,6 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { SessionManager } from '../../src/session/SessionManager.js';
 import { registerResumeCommand } from '../../src/startup/resumeCommand.js';
+import { resolveSessionTitle, selectResumeSession } from '../../src/commands/resume.js';
+import type { ModalOption } from '../../src/ui/ink/components/Modal.js';
+import type { SessionMetadata } from '../../src/session/types.js';
 
 const { showModal } = vi.hoisted(() => ({ showModal: vi.fn() }));
 vi.mock('../../src/ui/ink/components/Modal.js', () => ({ showModal }));
@@ -37,6 +40,9 @@ describe('resume CLI command', () => {
 
   async function savedSession(project: string, title: string, createdAt: string, lastActiveAt = createdAt) {
     const session = await manager.createSession(project, 'test-model');
+    // A real message so the picker's hide-empty-sessions rule (Task 1) never
+    // hides these fixtures behind the reveal row.
+    await session.append({ role: 'user', content: title, timestamp: createdAt });
     Object.assign(session.metadata, { summary: title, createdAt, lastActiveAt });
     await session.save();
     return session;
@@ -51,8 +57,9 @@ describe('resume CLI command', () => {
 
     await parse([]);
 
-    expect(showModal.mock.calls[0][0].options.map((option: { label: string }) => option.label))
-      .toEqual(['Current project']);
+    const labels = showModal.mock.calls[0][0].options.map((option: { label: string }) => option.label);
+    expect(labels).toHaveLength(1);
+    expect(labels[0]).toContain('Current project');
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       resumeSessionId: session.metadata.sessionId,
       path: process.cwd(),
@@ -75,7 +82,7 @@ describe('resume CLI command', () => {
     const session = await savedSession('/another-project', 'Other project', '2026-01-01');
     showModal.mockResolvedValueOnce({ value: session.metadata.sessionId });
     await parse(['--all']);
-    expect(showModal.mock.calls[0][0].options[0].label).toBe('Other project');
+    expect(showModal.mock.calls[0][0].options[0].label).toContain('Other project');
     expect(run).toHaveBeenCalledWith(expect.objectContaining({ resumeSessionId: session.metadata.sessionId }));
   });
 
@@ -157,5 +164,75 @@ describe('resume CLI command', () => {
     expect(showModal).not.toHaveBeenCalled();
     await parse(['--last']);
     expect(run).toHaveBeenCalledOnce();
+  });
+});
+
+describe('selectResumeSession picker rows', () => {
+  function minutesAgo(minutes: number): string {
+    return new Date(Date.now() - minutes * 60_000).toISOString();
+  }
+
+  function metadata(overrides: Partial<SessionMetadata> = {}): SessionMetadata {
+    return {
+      sessionId: overrides.sessionId ?? 'session-id',
+      createdAt: overrides.createdAt ?? minutesAgo(10),
+      lastActiveAt: overrides.lastActiveAt ?? overrides.createdAt ?? minutesAgo(10),
+      projectPath: '/w/cli-3',
+      projectName: overrides.projectName ?? 'cli-3',
+      model: 'test-model',
+      messageCount: overrides.messageCount ?? 1,
+      status: 'completed',
+      ...overrides,
+    } as SessionMetadata;
+  }
+
+  function fakeManagerWith(sessions: SessionMetadata[]): SessionManager {
+    return {
+      listRecentSessions: vi.fn(async (_filter?: { project?: string }, limit = 20, offset = 0) => ({
+        sessions: sessions.slice(offset, offset + limit),
+        total: sessions.length,
+      })),
+    } as unknown as SessionManager;
+  }
+
+  it('lists sessions as grouped single rows and hides the empty ones', async () => {
+    const shown: ModalOption[] = [];
+    const manager = fakeManagerWith([
+      metadata({ sessionId: 'a', messageCount: 26, lastActiveAt: minutesAgo(2) }),
+      metadata({ sessionId: 'b', messageCount: 0, lastActiveAt: minutesAgo(5) }),
+    ]);
+
+    await selectResumeSession({
+      sessionManager: manager,
+      workspaceRoot: '/w/cli-3',
+      showModal: async ({ options }) => { shown.push(...options); return { value: 'a' }; },
+    });
+
+    expect(shown.map((option) => option.value)).toEqual(['a', '__show_empty__']);
+    expect(shown[0]?.header).toBe('Today');
+    expect(shown[0]?.description).toBeUndefined();
+  });
+
+  it('re-opens with empty sessions after the reveal row is chosen', async () => {
+    const pages: ModalOption[][] = [];
+    const manager = fakeManagerWith([
+      metadata({ sessionId: 'a', messageCount: 3 }),
+      metadata({ sessionId: 'b', messageCount: 0 }),
+    ]);
+    const answers = ['__show_empty__', 'b'];
+
+    const chosen = await selectResumeSession({
+      sessionManager: manager,
+      workspaceRoot: '/w/cli-3',
+      showModal: async ({ options }) => { pages.push(options); return { value: answers.shift()! }; },
+    });
+
+    expect(pages[1]?.map((option) => option.value)).toEqual(['a', 'b']);
+    expect(chosen).toBe('b');
+  });
+
+  it('falls back past a generic summary to the first user message', async () => {
+    expect(await resolveSessionTitle(metadata({ summary: 'Session complete' }), 'fix the parser'))
+      .toBe('fix the parser');
   });
 });

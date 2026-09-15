@@ -5,11 +5,12 @@
  */
 import chalk from 'chalk';
 import { t } from '../i18n/index.js';
-import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
+import { showModal } from '../ui/ink/components/Modal.js';
 import fs from 'fs-extra';
 import path from 'node:path';
 import type { Session, SessionManager } from '../session/SessionManager.js';
 import { getSessionDisplayName } from '../session/sessionTitle.js';
+import { buildSessionPickerRows, SHOW_EMPTY_VALUE } from '../session/sessionPickerRows.js';
 import type { SessionMetadata, SessionMessage } from '../session/types.js';
 import { buildSessionChatLog, formatChatLogPreview } from '../session/chatLog.js';
 import { AUTOHAND_PATHS } from '../constants.js';
@@ -20,84 +21,62 @@ export const metadata = {
     implemented: true
 };
 
-/**
- * Extract a title from a session - uses summary or first user message
- * Note: This reads the conversation file directly to avoid calling loadSession()
- * which would change the currentSession as a side effect
- */
-async function getSessionTitle(
-    sessionMeta: SessionMetadata
-): Promise<string> {
-    // A user-given name wins; otherwise the summary if it exists
-    const displayName = getSessionDisplayName(sessionMeta);
-    if (displayName) {
-        return displayName.slice(0, 60);
-    }
+/** Summaries that carry no information over "we don't have a title" and should fall through. */
+const GENERIC_SUMMARIES = new Set([
+    'session complete',
+    'session ended - new conversation started',
+]);
 
-    // Otherwise, read the conversation file directly to find first user message
-    // This avoids calling loadSession() which sets currentSession as a side effect
+/**
+ * Decide a session's display title with no filesystem access, so it is unit
+ * testable on its own: the name given with /rename, then the summary
+ * (skipping a generic placeholder summary that carries no information), then
+ * the caller-supplied first user message, then a fallback for a session with
+ * no messages at all.
+ */
+export async function resolveSessionTitle(
+    meta: SessionMetadata,
+    firstUserMessage?: string
+): Promise<string> {
+    const named = getSessionDisplayName(meta);
+    if (named && !GENERIC_SUMMARIES.has(named.trim().toLowerCase())) {
+        return named.slice(0, 120);
+    }
+    if (firstUserMessage?.trim()) {
+        return firstUserMessage.trim().slice(0, 120);
+    }
+    return '(no messages)';
+}
+
+/**
+ * Read a session's first user message directly from its conversation file.
+ * Reads the file rather than calling loadSession(), which would change the
+ * currentSession as a side effect.
+ */
+async function readFirstUserMessage(sessionMeta: SessionMetadata): Promise<string | undefined> {
     try {
         const conversationPath = path.join(AUTOHAND_PATHS.sessions, sessionMeta.sessionId, 'conversation.jsonl');
-        if (await fs.pathExists(conversationPath)) {
-            const content = await fs.readFile(conversationPath, 'utf-8');
-            const lines = content.trim().split('\n').filter(line => line);
+        if (!await fs.pathExists(conversationPath)) {
+            return undefined;
+        }
+        const content = await fs.readFile(conversationPath, 'utf-8');
+        const lines = content.trim().split('\n').filter(line => line);
 
-            // Find first user message
-            for (const line of lines) {
-                try {
-                    const msg = JSON.parse(line) as SessionMessage;
-                    if (msg.role === 'user' && msg.content) {
-                        const cleanContent = msg.content
-                            .replace(/\n/g, ' ')
-                            .replace(/\s+/g, ' ')
-                            .trim();
-                        return cleanContent.slice(0, 60) + (cleanContent.length > 60 ? '...' : '');
-                    }
-                } catch {
-                    // Skip malformed lines
+        for (const line of lines) {
+            try {
+                const msg = JSON.parse(line) as SessionMessage;
+                if (msg.role === 'user' && msg.content) {
+                    return msg.content.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
                 }
+            } catch {
+                // Skip malformed lines
             }
         }
     } catch {
         // Ignore errors reading session
     }
 
-    return chalk.gray('(no title)');
-}
-
-/**
- * Format a session for display in the picker
- */
-function formatSessionChoice(
-    sessionMeta: SessionMetadata,
-    title: string
-): { name: string; message: string; hint: string } {
-    const date = new Date(sessionMeta.createdAt);
-    const timeAgo = getTimeAgo(date);
-    const msgCount = sessionMeta.messageCount;
-
-    return {
-        name: sessionMeta.sessionId,
-        message: title,
-        hint: `${timeAgo} - ${msgCount} messages - ${sessionMeta.projectName}`
-    };
-}
-
-/**
- * Get a human-readable time ago string
- */
-function getTimeAgo(date: Date): string {
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-    if (diffMins < 1) return 'just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return undefined;
 }
 
 interface ResumePickerContext {
@@ -107,12 +86,16 @@ interface ResumePickerContext {
     onAfterModal?: () => Promise<void> | void;
     interactive?: boolean;
     emptyHint?: string;
+    /** Testing seam; defaults to the real showModal. */
+    showModal?: typeof showModal;
 }
 
 export async function selectResumeSession(ctx: ResumePickerContext): Promise<string | null> {
     const projectFilter = ctx.workspaceRoot ? { project: ctx.workspaceRoot } : undefined;
+    const showModalFn = ctx.showModal ?? showModal;
     const pageSize = 20;
     let offset = 0;
+    let includeEmpty = false;
     while (true) {
         const recentPage = ctx.sessionManager.listRecentSessions
             ? await ctx.sessionManager.listRecentSessions(projectFilter, pageSize, offset)
@@ -131,21 +114,28 @@ export async function selectResumeSession(ctx: ResumePickerContext): Promise<str
             throw new Error('The session picker requires an interactive terminal. Use autohand resume --last or provide a session reference.');
         }
 
-        const options: ModalOption[] = await Promise.all(sessions.map(async (session) => {
-            const choice = formatSessionChoice(session, await getSessionTitle(session));
-            return { label: choice.message, value: choice.name, description: choice.hint };
-        }));
+        const entries = await Promise.all(sessions.map(async (session) => ({
+            session,
+            title: await resolveSessionTitle(session, await readFirstUserMessage(session)),
+        })));
+        const { options } = buildSessionPickerRows({
+            entries,
+            now: new Date(),
+            columns: process.stdout.columns ?? 80,
+            singleProject: Boolean(projectFilter?.project),
+            includeEmpty,
+        });
         if (offset > 0) {
-            options.push({ label: 'Previous sessions', value: '__previous__' });
+            options.push({ label: 'Newer sessions', value: '__previous__' });
         }
         if (offset + pageSize < total) {
-            options.push({ label: 'More sessions', value: '__next__' });
+            options.push({ label: 'Older sessions', value: '__next__' });
         }
 
         await ctx.onBeforeModal?.();
         const result = await (async () => {
             try {
-                return await showModal({ title: 'Choose a session', options });
+                return await showModalFn({ title: 'Resume a session', options, filterable: true, maxVisible: 15 });
             } finally {
                 await ctx.onAfterModal?.();
             }
@@ -154,10 +144,14 @@ export async function selectResumeSession(ctx: ResumePickerContext): Promise<str
             console.log(chalk.gray('\nResume cancelled.'));
             return null;
         }
-        if (result.value === '__next__') {
+        if (result.value === SHOW_EMPTY_VALUE) {
+            includeEmpty = true;
+        } else if (result.value === '__next__') {
             offset += pageSize;
+            includeEmpty = false;
         } else if (result.value === '__previous__') {
             offset = Math.max(0, offset - pageSize);
+            includeEmpty = false;
         } else {
             return result.value;
         }
