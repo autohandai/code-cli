@@ -70,6 +70,13 @@ export interface SelectModalProps extends BaseModalProps {
   multiSelect?: boolean;
   /** Called each time an item is toggled via spacebar in multiSelect mode. */
   onToggle?: (option: ModalOption, checked: boolean) => void;
+  /**
+   * Opt-in type-to-search. When true, `/` opens a query that filters options
+   * by label; other modals are unaffected. Off by default.
+   */
+  filterable?: boolean;
+  /** Placeholder shown in the filter line before a query is typed. */
+  filterPlaceholder?: string;
 }
 
 /**
@@ -367,7 +374,7 @@ function Modal(props: ModalProps) {
   const [validationError, setValidationError] = useState<string | null>(null);
 
   // Build choices for select/confirm modes
-  const choices = useMemo(() => {
+  const baseChoices = useMemo(() => {
     if (mode === 'select' && 'options' in props) {
       const items = [...props.options];
       if ('allowCustomInput' in props && props.allowCustomInput) {
@@ -392,7 +399,26 @@ function Modal(props: ModalProps) {
     return [];
   }, [mode, props, t]);
 
-  const hasNoChoices = mode === 'select' && choices.length === 0;
+  // Opt-in type-to-search (Task 3). A modal without `filterable` never sets
+  // `filter`, so `choices` below is always `baseChoices` for it — unfiltered
+  // behavior is unreachable, not just untriggered.
+  const filterable = mode === 'select' && 'filterable' in props && props.filterable === true;
+  const filterPlaceholder = mode === 'select' && 'filterPlaceholder' in props ? props.filterPlaceholder : undefined;
+  const [filter, setFilter] = useState<string | null>(null);
+
+  const matchesFilter = (option: ModalOption, query: string): boolean =>
+    option.label.toLowerCase().includes(query.toLowerCase());
+
+  const choices = useMemo(() => {
+    if (!filterable || !filter) return baseChoices;
+    // A filtered view is no longer contiguous, so its headings would lie
+    // about grouping — strip them.
+    return baseChoices
+      .filter((choice) => matchesFilter(choice, filter))
+      .map((choice) => (choice.header ? { ...choice, header: undefined } : choice));
+  }, [baseChoices, filter, filterable]);
+
+  const hasNoChoices = mode === 'select' && baseChoices.length === 0;
 
   // Find next/previous non-disabled option
   const findNextEnabled = useCallback(
@@ -414,6 +440,30 @@ function Modal(props: ModalProps) {
   );
 
   useInput((char, key) => {
+    // Opt-in filtering (Task 3): while a query is active it owns Escape,
+    // backspace, and printable keys before the general cancel/select handling
+    // below ever sees them — Escape clears the query instead of cancelling.
+    // Custom-input mode (the "Other" text field) owns those same keys once
+    // active, so it takes precedence over a filter left over from before it.
+    if (filterable && filter !== null && !isCustomMode) {
+      if (key.escape) {
+        setFilter(null);
+        setCursor(0);
+        setWindowStart(0);
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setFilter((prev) => (prev ?? '').slice(0, -1));
+        return;
+      }
+      if (char && !key.ctrl && !key.meta && !key.return && char >= ' ') {
+        setFilter((prev) => `${prev ?? ''}${char}`);
+        setCursor(0);
+        setWindowStart(0);
+        return;
+      }
+    }
+
     // ESC cancels
     if (isModalCancelInput(char, key)) {
       if (mode === 'select' && isCustomMode) {
@@ -572,6 +622,13 @@ function Modal(props: ModalProps) {
       return;
     }
 
+    // Opt-in filtering (Task 3): '/' opens the query. Placed after arrow
+    // navigation and Enter handling above, so it never steals those keys.
+    if (filterable && filter === null && char === '/') {
+      setFilter('');
+      return;
+    }
+
     // Number shortcuts (1-9)
     if (char && char >= '1' && char <= '9') {
       const index = parseInt(char, 10) - 1;
@@ -707,12 +764,21 @@ function Modal(props: ModalProps) {
 
     return (
       <>
-        {needsScroll && windowStart > 0 && (
-          <Text>{theme.fg('muted', `  \u2191 ${windowStart} more above`)}</Text>
+        {filterable && filter !== null && (
+          <Text>{theme.fg('muted', `  / ${filter || filterPlaceholder || ''}`)}</Text>
         )}
-        {items}
-        {needsScroll && windowEnd < choices.length && (
-          <Text>{theme.fg('muted', `  \u2193 ${choices.length - windowEnd} more below`)}</Text>
+        {filterable && filter && choices.length === 0 ? (
+          <Text>{theme.fg('muted', `  No matches for "${filter}"`)}</Text>
+        ) : (
+          <>
+            {needsScroll && windowStart > 0 && (
+              <Text>{theme.fg('muted', `  \u2191 ${windowStart} more above`)}</Text>
+            )}
+            {items}
+            {needsScroll && windowEnd < choices.length && (
+              <Text>{theme.fg('muted', `  \u2193 ${choices.length - windowEnd} more below`)}</Text>
+            )}
+          </>
         )}
       </>
     );
@@ -734,6 +800,9 @@ function Modal(props: ModalProps) {
     }
     if (isMultiSelect) {
       return 'Space toggle \u00b7 Enter confirm \u00b7 ESC cancel';
+    }
+    if (filterable) {
+      return `${t('ui.questionSelectHint')} \u00b7 / search`;
     }
     return t('ui.questionSelectHint');
   };
