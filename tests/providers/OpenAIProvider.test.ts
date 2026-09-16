@@ -1499,4 +1499,23 @@ describe('OpenAIProvider', () => {
       expect(result.finishReason).toBe('tool_calls');
     });
   });
+
+
+  describe('Chat Completions finish reason normalization', () => {
+    const mockJson = (body: unknown) => vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    );
+
+    it('maps a vendor max_tokens finish reason to length', async () => {
+      mockJson({ id: 'r-1', created: 1, choices: [{ message: { role: 'assistant', content: '', }, finish_reason: 'max_tokens' }] });
+      const result = await provider.complete({ messages: [{ role: 'user', content: 'hi' }] });
+      expect(result.finishReason).toBe('length');
+    });
+
+    it('keeps tool_calls as tool_calls', async () => {
+      mockJson({ id: 'r-1', created: 1, choices: [{ message: { role: 'assistant', content: '', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read_file', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] });
+      const result = await provider.complete({ messages: [{ role: 'user', content: 'hi' }] });
+      expect(result.finishReason).toBe('tool_calls');
+    });
+  });
 });

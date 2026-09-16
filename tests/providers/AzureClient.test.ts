@@ -359,4 +359,26 @@ describe('AzureClient', () => {
       expect(msg.metadata).toBeUndefined();
     });
   });
+
+
+  describe('finish reason normalization', () => {
+    const client = () => new AzureClient({
+      model: 'gpt-4o', resourceName: 'my-resource', deploymentName: 'my-deploy',
+      apiVersion: '2024-10-21', apiKey: 'test-key', authMethod: 'api-key'
+    });
+    const mockJson = (body: unknown) => vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce({ ok: true, json: async () => body } as Response);
+
+    it('maps a vendor max_tokens finish reason to length', async () => {
+      mockJson({ id: 'r-1', created: 1, choices: [{ message: { role: 'assistant', content: '', }, finish_reason: 'max_tokens' }] });
+      const response = await client().complete({ messages: [{ role: 'user', content: 'hi' }] });
+      expect(response.finishReason).toBe('length');
+    });
+
+    it('keeps tool_calls as tool_calls', async () => {
+      mockJson({ id: 'r-1', created: 1, choices: [{ message: { role: 'assistant', content: '', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read_file', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] });
+      const response = await client().complete({ messages: [{ role: 'user', content: 'hi' }] });
+      expect(response.finishReason).toBe('tool_calls');
+    });
+  });
 });

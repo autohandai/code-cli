@@ -560,6 +560,38 @@ describe("BedrockProvider", () => {
     expect(response).toMatchObject({ content: "partial", finishReason: "length" });
   });
 
+  it.each([
+    ["max_output_tokens", "length"],
+    ["content_filter", "content_filter"],
+    [undefined, "stop"],
+  ] as const)("normalizes a Responses incomplete_details reason of %s to %s", async (reason, expected) => {
+    globalThis.fetch = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: "bedrock-finish-response",
+          created_at: 123,
+          output_text: "answer",
+          output: [],
+          ...(reason ? { incomplete_details: { reason } } : {}),
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    ) as typeof globalThis.fetch;
+
+    const { BedrockProvider } = await import("../../src/providers/BedrockProvider.js");
+    const provider = new BedrockProvider({
+      model: "openai.gpt-oss-120b-1:0",
+      region: "us-east-1",
+      apiMode: "openai-responses",
+      authMode: "bedrock-api-key",
+      apiKey: "bedrock-api-key",
+    });
+
+    const response = await provider.complete({ messages: [{ role: "user", content: "write" }] });
+
+    expect(response.finishReason).toBe(expected);
+  });
+
   it("turns Bedrock access and throttling failures into friendly errors", async () => {
     mockRuntimeSend.mockRejectedValueOnce(
       Object.assign(new Error("You do not have access to the model."), {

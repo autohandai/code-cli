@@ -748,7 +748,7 @@ export class BedrockProvider implements LLMProvider {
       ...(functionCalls.length > 0 && { toolCalls: functionCalls }),
       finishReason: functionCalls.length > 0
         ? "tool_calls"
-        : (data.incomplete_details?.reason ? "length" : "stop"),
+        : normalizeProviderFinishReason(data.incomplete_details?.reason, "stop"),
       usage: normalizeLLMUsage(data.usage),
       raw: data,
     };

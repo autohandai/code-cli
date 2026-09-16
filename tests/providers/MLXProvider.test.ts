@@ -812,4 +812,24 @@ describe('MLXProvider', () => {
             expect(p.getName()).toBe('mlx');
         });
     });
+
+
+    describe('finish reason normalization', () => {
+        const mockJson = (body: unknown) => {
+            mockIsMLXSupported.mockReturnValue(true);
+            global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => body });
+        };
+
+        it('maps a vendor max_tokens finish reason to length', async () => {
+            mockJson({ id: 'r-1', created: 1, choices: [{ message: { role: 'assistant', content: '', }, finish_reason: 'max_tokens' }] });
+            const response = await provider.complete({ messages: [{ role: 'user', content: 'hi' }] });
+            expect(response.finishReason).toBe('length');
+        });
+
+        it('keeps tool_calls as tool_calls', async () => {
+            mockJson({ id: 'r-1', created: 1, choices: [{ message: { role: 'assistant', content: '', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read_file', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] });
+            const response = await provider.complete({ messages: [{ role: 'user', content: 'hi' }] });
+            expect(response.finishReason).toBe('tool_calls');
+        });
+    });
 });

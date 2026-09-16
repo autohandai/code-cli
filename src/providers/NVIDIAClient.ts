@@ -17,7 +17,7 @@ import { normalizeLLMUsage } from "./usage.js";
 import { joinReasoning, splitInlineThinking } from "./inlineThinking.js";
 import { toTextOnlyContent } from "./messagePayload.js";
 import { buildChatTemplateKwargs, coerceErrorDetail } from "./openAICompatibleShared.js";
-import { normalizeOpenAICompatibleFinishReason } from "./finishReason.js";
+import { normalizeProviderFinishReason } from "./finishReason.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -285,7 +285,7 @@ export class NVIDIAClient {
       created: json.created ?? Date.now(),
       content: inline.content,
       toolCalls,
-      finishReason: normalizeOpenAICompatibleFinishReason(finishReason),
+      finishReason: normalizeProviderFinishReason(finishReason),
       usage,
       reasoning,
       raw: json,
@@ -335,7 +335,7 @@ export class NVIDIAClient {
               }
 
               if (data.choices?.[0]?.finish_reason) {
-                finishReason = normalizeOpenAICompatibleFinishReason(data.choices[0].finish_reason, 'length');
+                finishReason = normalizeProviderFinishReason(data.choices[0].finish_reason, 'length');
               }
             } catch {
               // Skip invalid JSON lines

@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it } from 'vitest';
-import { normalizeOpenAICompatibleFinishReason } from '../../src/providers/finishReason.js';
+import { normalizeProviderFinishReason } from '../../src/providers/finishReason.js';
 
-describe('normalizeOpenAICompatibleFinishReason', () => {
+describe('normalizeProviderFinishReason', () => {
   it.each([
     ['stop', 'stop'],
     ['end_turn', 'stop'],
@@ -25,15 +25,15 @@ describe('normalizeOpenAICompatibleFinishReason', () => {
     ['content_filtered', 'content_filter'],
     ['eogToken', 'stop'],
   ] as const)('maps %s to %s', (raw, expected) => {
-    expect(normalizeOpenAICompatibleFinishReason(raw)).toBe(expected);
+    expect(normalizeProviderFinishReason(raw)).toBe(expected);
   });
 
   it('treats an unknown non-empty termination reason as incomplete', () => {
-    expect(normalizeOpenAICompatibleFinishReason('upstream_interrupted')).toBe('length');
+    expect(normalizeProviderFinishReason('upstream_interrupted')).toBe('length');
   });
 
   it('uses the caller fallback only when no reason was reported', () => {
-    expect(normalizeOpenAICompatibleFinishReason(undefined, 'stop')).toBe('stop');
-    expect(normalizeOpenAICompatibleFinishReason(null, 'length')).toBe('length');
+    expect(normalizeProviderFinishReason(undefined, 'stop')).toBe('stop');
+    expect(normalizeProviderFinishReason(null, 'length')).toBe('length');
   });
 });

@@ -16,6 +16,7 @@ import type {
     XAIOAuthAuth,
 } from '../types.js';
 import { ApiError, classifyApiError, type ApiErrorCode } from './errors.js';
+import { normalizeProviderFinishReason } from './finishReason.js';
 import { normalizeLLMUsage } from './usage.js';
 import { toTextOnlyContent } from './messagePayload.js';
 import {
@@ -304,7 +305,7 @@ export class XAIProvider implements LLMProvider {
             toolCalls,
             finishReason: toolCalls.length > 0
                 ? 'tool_calls'
-                : (data.incomplete_details?.reason ? 'length' : 'stop'),
+                : normalizeProviderFinishReason(data.incomplete_details?.reason, 'stop'),
             usage,
             raw: data,
         };

@@ -22,7 +22,7 @@ import {
 import { normalizeOpenRouterModelId } from "./modelCatalog.js";
 import { normalizeOutboundMessages } from "./messagePayload.js";
 import { normalizeLLMUsage } from "./usage.js";
-import { normalizeOpenAICompatibleFinishReason } from "./finishReason.js";
+import { normalizeProviderFinishReason } from "./finishReason.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -464,7 +464,7 @@ export class OpenRouterClient {
       created: json.created ?? Date.now(),
       content: text,
       toolCalls,
-      finishReason: normalizeOpenAICompatibleFinishReason(finishReason),
+      finishReason: normalizeProviderFinishReason(finishReason),
       usage,
       raw: json,
     };

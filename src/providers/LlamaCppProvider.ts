@@ -7,7 +7,7 @@
 import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, LLMToolCall, ProviderSettings, FunctionDefinition } from '../types.js';
 import { normalizeLLMUsage } from './usage.js';
-import { normalizeOpenAICompatibleFinishReason } from './finishReason.js';
+import { normalizeProviderFinishReason } from './finishReason.js';
 import { ApiError, classifyApiError } from './errors.js';
 import {
     getProviderModelIds,
@@ -158,7 +158,7 @@ export class LlamaCppProvider implements LLMProvider {
 
         const finishReason = toolCalls?.length
             ? 'tool_calls'
-            : normalizeOpenAICompatibleFinishReason(choice?.finish_reason);
+            : normalizeProviderFinishReason(choice?.finish_reason);
 
         return {
             id: data.id || `llamacpp-${Date.now()}`,

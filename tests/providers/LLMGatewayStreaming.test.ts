@@ -60,6 +60,19 @@ describe('cloud inference streaming', () => {
 
     expect(result).toMatchObject({ content: 'partial', finishReason: 'length' });
   });
+  it('reports complete streamed tool calls as tool_calls when the stream ends without a finish reason', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+      event({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-1', type: 'function', function: { name: 'read_file', arguments: '{"pa' } }] } }] })
+      + event({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: 'th":"a.ts"}' } }] } }] })
+      + 'data: [DONE]\n\n',
+      { headers: { 'content-type': 'text/event-stream' } },
+    )));
+
+    const result = await client().complete({ messages: [], stream: true });
+
+    expect(result).toMatchObject({ finishReason: 'tool_calls',
+      toolCalls: [{ id: 'call-1', type: 'function', function: { name: 'read_file', arguments: '{"path":"a.ts"}' } }] });
+  });
   it('treats a done marker without an explicit finish reason as incomplete', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
       event({ choices: [{ delta: { content: 'partial' } }] })

@@ -13,7 +13,7 @@ import type {
   MultimodalMessage,
 } from "../types.js";
 import { normalizeLLMUsage } from "./usage.js";
-import { normalizeOpenAICompatibleFinishReason } from "./finishReason.js";
+import { normalizeProviderFinishReason } from "./finishReason.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -242,7 +242,7 @@ export class CerebrasClient {
 
     const finishReason = toolCalls?.length
       ? "tool_calls"
-      : normalizeOpenAICompatibleFinishReason(choice?.finish_reason);
+      : normalizeProviderFinishReason(choice?.finish_reason);
 
     return {
       id: data.id || `cerebras-${Date.now()}`,
@@ -284,7 +284,7 @@ export class CerebrasClient {
                 content += delta.content;
               }
               if (parsed.choices?.[0]?.finish_reason) {
-                finishReason = normalizeOpenAICompatibleFinishReason(parsed.choices[0].finish_reason, "length");
+                finishReason = normalizeProviderFinishReason(parsed.choices[0].finish_reason, "length");
               }
             } catch {
               // Ignore malformed SSE data

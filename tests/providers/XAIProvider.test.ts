@@ -237,6 +237,36 @@ describe('XAIProvider', () => {
     expect(result.finishReason).toBe('length');
   });
 
+  it.each([
+    ['max_output_tokens', 'length'],
+    ['content_filter', 'content_filter'],
+    [undefined, 'stop'],
+  ] as const)('normalizes an incomplete_details reason of %s to %s', async (reason, expected) => {
+    const provider = new XAIProvider({ apiKey: 'xai-key', model: 'grok-4.20-reasoning' });
+    const eventName = reason ? 'response.incomplete' : 'response.completed';
+    const sseBody = [
+      `event: ${eventName}`,
+      `data: ${JSON.stringify({
+        type: eventName,
+        response: {
+          id: 'resp-finish',
+          created_at: 1234567890,
+          output_text: 'answer',
+          output: [],
+          ...(reason ? { incomplete_details: { reason } } : {}),
+        },
+      })}`,
+      '',
+    ].join('\n');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(sseBody, { status: 200, headers: { 'Content-Type': 'text/event-stream' } }),
+    );
+
+    const result = await provider.complete({ messages: [{ role: 'user', content: 'hi' }] });
+
+    expect(result.finishReason).toBe(expected);
+  });
+
   it('surfaces response.failed stream errors instead of a missing completion error', async () => {
     const provider = new XAIProvider({
       apiKey: 'xai-key',

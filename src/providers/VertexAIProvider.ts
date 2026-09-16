@@ -26,10 +26,7 @@ import {
 } from "./anthropicModels.js";
 import { normalizeLLMUsage } from "./usage.js";
 import { getProviderModelIds } from "./modelCatalog.js";
-import {
-  normalizeOpenAICompatibleFinishReason,
-  normalizeProviderFinishReason,
-} from "./finishReason.js";
+import { normalizeProviderFinishReason } from "./finishReason.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -484,7 +481,7 @@ export class VertexAIProvider implements LLMProvider {
       created: json.created ?? Date.now(),
       content: text,
       toolCalls,
-      finishReason: normalizeOpenAICompatibleFinishReason(finishReason),
+      finishReason: normalizeProviderFinishReason(finishReason),
       usage,
       raw: json,
     };

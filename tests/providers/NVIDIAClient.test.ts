@@ -346,6 +346,34 @@ describe('NVIDIAClient', () => {
       expect(response.finishReason).toBe('stop');
     });
 
+    it('treats a stream that ends without a finish reason as truncated', async () => {
+      const encoder = new TextEncoder();
+      const streamData = [
+        'data: {"id":"stream-test","created":1234567890,"choices":[{"delta":{"content":"partial"},"finish_reason":null}]}\n\n',
+        'data: [DONE]\n\n'
+      ];
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        body: new ReadableStream({
+          start(controller) {
+            streamData.forEach(chunk => controller.enqueue(encoder.encode(chunk)));
+            controller.close();
+          }
+        })
+      });
+
+      const client = new NVIDIAClient({ apiKey: 'nvapi-test-key', model: 'z-ai/glm-5.1' });
+
+      const response = await client.complete({
+        messages: [{ role: 'user', content: 'Hello' }],
+        stream: true
+      });
+
+      expect(response.content).toBe('partial');
+      expect(response.finishReason).toBe('length');
+    });
+
     it('should include Authorization header with nvapi key', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,

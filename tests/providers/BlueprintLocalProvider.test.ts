@@ -253,4 +253,34 @@ describe('BlueprintLocalProvider', () => {
       .toBe('blueprint-local');
     expect(ProviderFactory.getProviderNames(config)).not.toContain('blueprint-local');
   });
+
+
+  describe('finish reason normalization', () => {
+    async function completeWithStopReason(stopReason: string): Promise<string | undefined> {
+      const { settings } = await modelFixture();
+      const engine: BlueprintLocalEngine = {
+        buildType: 'prebuilt',
+        llamaCppRelease: { repo: 'ggml-org/llama.cpp', release: 'b8390' },
+        generate: vi.fn(async () => ({ content: '{"answer":"ok"}', stopReason })),
+        dispose: vi.fn(async () => {}),
+      };
+      const provider = new BlueprintLocalProvider(
+        settings,
+        vi.fn(async () => engine),
+        vi.fn(async () => nativeIdentity()),
+      );
+      const response = await provider.complete(answerRequest());
+      return response.finishReason;
+    }
+
+    it('reports an end-of-sequence stop as a complete response', async () => {
+      expect(await completeWithStopReason('eosToken')).toBe('stop');
+      expect(await completeWithStopReason('eogToken')).toBe('stop');
+    });
+
+    it('treats an unknown or missing engine stop reason as truncated', async () => {
+      expect(await completeWithStopReason('customStopTrigger')).toBe('length');
+      expect(await completeWithStopReason('')).toBe('length');
+    });
+  });
 });

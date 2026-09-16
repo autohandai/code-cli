@@ -56,10 +56,3 @@ export function normalizeProviderFinishReason(
   if (FILTER_REASONS.has(normalized)) return 'content_filter';
   return 'length';
 }
-
-export function normalizeOpenAICompatibleFinishReason(
-  value: unknown,
-  missingFallback: NormalizedFinishReason = 'stop',
-): NormalizedFinishReason {
-  return normalizeProviderFinishReason(value, missingFallback);
-}
