@@ -18,6 +18,7 @@ import { normalizeOutboundMessages, toTextOnlyContent } from "./messagePayload.j
 import { normalizeLLMUsage } from "./usage.js";
 import { readOpenAIEventStream } from "./openAIEventStream.js";
 import { buildChatTemplateKwargs, coerceErrorDetail } from "./openAICompatibleShared.js";
+import { normalizeOpenAICompatibleFinishReason } from "./finishReason.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -504,7 +505,7 @@ export class LLMGatewayClient {
       created: json.created ?? Date.now(),
       content: inline.content,
       toolCalls,
-      finishReason: finishReason as LLMResponse["finishReason"],
+      finishReason: normalizeOpenAICompatibleFinishReason(finishReason),
       usage,
       reasoning,
       raw: json,

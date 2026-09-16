@@ -9,6 +9,7 @@ import type { ContentPart, MultimodalMessage, LLMRequest, LLMResponse, LLMToolCa
 import { ApiError, classifyApiError, type ApiErrorCode } from './errors.js';
 import { isChatGPTAuthExpired, refreshChatGPTAuth } from './openaiAuth.js';
 import { normalizeLLMUsage } from './usage.js';
+import { normalizeOpenAICompatibleFinishReason } from './finishReason.js';
 import {
     getProviderDefaultModel,
     getProviderModelIds,
@@ -361,7 +362,7 @@ export class OpenAIProvider implements LLMProvider {
             created: data.created,
             content: message.content ?? '',
             toolCalls,
-            finishReason: finishReason as LLMResponse['finishReason'],
+            finishReason: normalizeOpenAICompatibleFinishReason(finishReason),
             usage,
             raw: data
         };

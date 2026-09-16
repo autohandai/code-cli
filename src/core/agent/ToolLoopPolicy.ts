@@ -33,6 +33,15 @@ export type ToolReflectionDecision =
   | { type: 'proceed_unreflected' }
   | { type: 'integrity_failure' };
 
+export interface ToolReflectionEvaluationOptions {
+  /**
+   * Text-protocol providers can emit the structured `reflection` field from
+   * the system prompt. Native tool protocols cannot, and many providers keep
+   * their reasoning private, so absence of prose is not a protocol failure.
+   */
+  requireExplicitReflection?: boolean;
+}
+
 export interface ToolLoopGuardOptions {
   identicalCallHardLimit?: number;
   identicalCallAndResultLimit?: number;
@@ -173,7 +182,10 @@ export class ToolReflectionGuard {
     this.awaitingReflection = true;
   }
 
-  evaluate(payload: AssistantReactPayload): ToolReflectionDecision {
+  evaluate(
+    payload: AssistantReactPayload,
+    options: ToolReflectionEvaluationOptions = {},
+  ): ToolReflectionDecision {
     if (!this.awaitingReflection) {
       return { type: 'allow' };
     }
@@ -189,6 +201,12 @@ export class ToolReflectionGuard {
       this.awaitingReflection = false;
       this.violationCount = 0;
       return { type: 'integrity_failure' };
+    }
+
+    if (options.requireExplicitReflection === false) {
+      this.awaitingReflection = false;
+      this.violationCount = 0;
+      return { type: 'allow' };
     }
 
     const hasMeaningfulReflection = Boolean(payload.reflection?.trim());

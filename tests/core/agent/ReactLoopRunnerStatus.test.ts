@@ -1016,7 +1016,7 @@ describe('ReactLoopRunner composer status', () => {
 
       expect(llmComplete).toHaveBeenCalledTimes(3);
       expect(addSystemNote).toHaveBeenCalledTimes(2);
-      expect(addSystemNote).toHaveBeenLastCalledWith(expect.stringContaining('Tools are unavailable for this recovery response'));
+      expect(addSystemNote).toHaveBeenLastCalledWith(expect.stringContaining('Tools are unavailable for one recovery response'));
       expect(reportError).not.toHaveBeenCalled();
       expect(emitOutput).toHaveBeenCalledWith({
         type: 'message',

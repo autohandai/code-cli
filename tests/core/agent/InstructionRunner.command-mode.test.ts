@@ -388,6 +388,27 @@ describe('InstructionRunner command mode UI', () => {
     expect(host.scheduleTurnMemoryReflection).toHaveBeenCalledWith({ status: 'succeeded' });
   });
 
+  it('records an incomplete loop as failed reflection evidence instead of successful work', async () => {
+    const host = createHost();
+    host.runtime = {
+      ...host.runtime,
+      options: {},
+      isCommandMode: false,
+    };
+    host.runReactLoop = vi.fn(async () => ({
+      status: 'incomplete',
+      reason: 'iteration_limit',
+    } as never));
+
+    await expect(new InstructionRunner(host).run('finish the active task')).resolves.toBe(false);
+
+    expect(host.scheduleTurnMemoryReflection).toHaveBeenCalledWith({
+      status: 'failed',
+      category: 'incomplete',
+      reason: 'The agent loop reached its iteration limit before completion',
+    });
+  });
+
   it('clears sticky activity after a successful turn reaches final completion', async () => {
     const host = createHost();
     const completeTodoActivityForSuccessfulTurn = vi.fn(async () => true);

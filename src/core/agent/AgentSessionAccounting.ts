@@ -528,9 +528,12 @@ export function getAgentCompletionNotificationBody(host: AgentSessionAccountingH
     }
 
     const payload = host.getReactionParser().parseAssistantReactPayload(message.content);
+    const plainTextFallback = message.content.trimStart().startsWith('{')
+      ? ''
+      : message.content;
     const candidate = normalizeAgentCompletionNotificationBody(
       host,
-      payload.finalResponse ?? payload.response ?? payload.thought ?? message.content
+      payload.finalResponse ?? payload.response ?? plainTextFallback
     );
     if (candidate) {
       return candidate;

@@ -402,29 +402,14 @@ export class ActionExecutor {
     this.todoActivityForCurrentTurn = null;
   }
 
+  hasIncompleteTodoActivity(): boolean {
+    return this.todoActivityForCurrentTurn?.some(
+      (todo) => todo.status === 'pending' || todo.status === 'in_progress',
+    ) ?? false;
+  }
+
   async completeTodoActivityForSuccessfulTurn(): Promise<boolean> {
-    const todos = this.todoActivityForCurrentTurn;
-    if (!todos) {
-      return false;
-    }
-
-    let changed = false;
-    const completedTodos = todos.map((todo) => {
-      if (todo.status !== 'pending' && todo.status !== 'in_progress') {
-        return todo;
-      }
-      changed = true;
-      return { ...todo, status: 'completed' };
-    });
-
-    if (!changed) {
-      return false;
-    }
-
-    await this.files.writeFile(TODO_ACTIVITY_STATE_PATH, JSON.stringify(completedTodos, null, 2));
-    this.todoActivityForCurrentTurn = completedTodos;
-    this.onActivityTodosUpdated?.(completedTodos);
-    return true;
+    return false;
   }
 
   private createGoalManager(): GoalManager {

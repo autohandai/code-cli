@@ -527,6 +527,16 @@ export class InstructionRunner {
         return true;
       }
 
+      if (loopResult.status === 'incomplete') {
+        success = false;
+        recordReflectionFailure(
+          'incomplete',
+          'The agent loop reached its iteration limit before completion',
+        );
+        host.clearActivityForCompletedTurn?.();
+        return false;
+      }
+
       if (host.lastIntent === 'implementation' && host.filesModifiedThisSession) {
         host.modalActive = true;
         try {
@@ -635,6 +645,15 @@ export class InstructionRunner {
               reflectionSuperseded = true;
               host.sessionRetryCount = 0;
               return true;
+            }
+            if (retryResult.status === 'incomplete') {
+              success = false;
+              recordReflectionFailure(
+                'incomplete',
+                'The agent loop reached its iteration limit before completion',
+              );
+              host.clearActivityForCompletedTurn?.();
+              return false;
             }
 
             // If we get here, retry succeeded - reset counter

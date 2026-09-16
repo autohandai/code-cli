@@ -17,6 +17,7 @@ import { normalizeLLMUsage } from "./usage.js";
 import { joinReasoning, splitInlineThinking } from "./inlineThinking.js";
 import { toTextOnlyContent } from "./messagePayload.js";
 import { buildChatTemplateKwargs, coerceErrorDetail } from "./openAICompatibleShared.js";
+import { normalizeOpenAICompatibleFinishReason } from "./finishReason.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -284,7 +285,7 @@ export class NVIDIAClient {
       created: json.created ?? Date.now(),
       content: inline.content,
       toolCalls,
-      finishReason: finishReason as LLMResponse["finishReason"],
+      finishReason: normalizeOpenAICompatibleFinishReason(finishReason),
       usage,
       reasoning,
       raw: json,
@@ -301,7 +302,7 @@ export class NVIDIAClient {
     let fullContent = "";
     let fullReasoning = "";
     let lastChunk: any = null;
-    let finishReason: string = "stop";
+    let finishReason: LLMResponse['finishReason'];
 
     try {
       while (true) {
@@ -334,7 +335,7 @@ export class NVIDIAClient {
               }
 
               if (data.choices?.[0]?.finish_reason) {
-                finishReason = data.choices[0].finish_reason;
+                finishReason = normalizeOpenAICompatibleFinishReason(data.choices[0].finish_reason, 'length');
               }
             } catch {
               // Skip invalid JSON lines
@@ -355,7 +356,7 @@ export class NVIDIAClient {
       created: lastChunk?.created ?? Math.floor(Date.now() / 1000),
       content: inline.content,
       reasoning: joinReasoning(fullReasoning, inline.reasoning),
-      finishReason: finishReason as LLMResponse["finishReason"],
+      finishReason: finishReason ?? 'length',
       raw: { content: fullContent, reasoning: fullReasoning, chunks: lastChunk },
     };
   }

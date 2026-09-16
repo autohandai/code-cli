@@ -74,6 +74,19 @@ describe('TurnOutcomeEvaluator', () => {
     });
   });
 
+  it('repairs reasoning-only turns instead of exposing private reasoning as the final answer', () => {
+    const result = evaluate({
+      completion: { content: '', reasoning: 'Private chain of thought that is not a user answer.' },
+      payload: { thought: 'Private chain of thought that is not a user answer.' },
+    });
+
+    expect(result).toMatchObject({
+      type: 'repair',
+      reason: 'empty_no_tool_response',
+      saveAssistantMessage: false,
+    });
+  });
+
   it('repairs truncated turns before tool execution or final rendering', () => {
     const result = evaluate({
       completion: { content: '{"thought":"half done"', finishReason: 'length' },
@@ -84,7 +97,7 @@ describe('TurnOutcomeEvaluator', () => {
       type: 'repair',
       reason: 'truncated_response',
       instruction:
-        '[System] Your previous response was truncated due to output length limits. Please continue from where you left off. If you were making a tool call, retry it.',
+        '[System] Your previous response was truncated due to output length limits. The partial response is preserved in the immediately preceding assistant message. Produce a concise, complete replacement answer rather than only the missing suffix. If an intended tool call was cut off, emit the complete tool call again.',
       saveAssistantMessage: false,
     });
   });

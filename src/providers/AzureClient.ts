@@ -14,6 +14,7 @@ import type {
 } from "../types.js";
 import { AzureTokenManager } from "./azure/tokenManager.js";
 import { normalizeLLMUsage } from "./usage.js";
+import { normalizeOpenAICompatibleFinishReason } from "./finishReason.js";
 
 /**
  * Constructor options for AzureClient.
@@ -320,7 +321,7 @@ export class AzureClient {
       created: json.created ?? Date.now(),
       content: text,
       toolCalls,
-      finishReason: finishReason as LLMResponse["finishReason"],
+      finishReason: normalizeOpenAICompatibleFinishReason(finishReason),
       usage,
       raw: json,
     };

@@ -1316,6 +1316,10 @@ export class AutohandAgent {
     return this.actionExecutor?.completeTodoActivityForSuccessfulTurn() ?? false;
   }
 
+  private hasIncompleteTodoActivity(): boolean {
+    return this.actionExecutor?.hasIncompleteTodoActivity() ?? false;
+  }
+
   private clearActivityForCompletedTurn(): void {
     return clearAgentActivityForCompletedTurn(this);
   }
@@ -1372,6 +1376,7 @@ export class AutohandAgent {
       attachToolImages: (message, imagePaths, signal) => agent.getToolImageStore().attach(message, imagePaths, signal),
       getReactionParser: () => agent.getReactionParser(),
       handleSmartContextCrop: (call) => agent.handleSmartContextCrop(call),
+      hasIncompleteTodoActivity: () => agent.hasIncompleteTodoActivity(),
       isContextOverflowError: (errorOrMessage) => agent.isContextOverflowError(errorOrMessage),
       isPromptCachingEnabled: () => agent.isPromptCachingEnabled(),
       saveAssistantMessage: (content, toolCalls) => agent.saveAssistantMessage(content, toolCalls),

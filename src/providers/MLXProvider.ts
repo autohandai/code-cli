@@ -7,6 +7,7 @@
 import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
 import type { LLMRequest, LLMResponse, LLMToolCall, ProviderSettings, NetworkSettings, FunctionDefinition } from '../types.js';
 import { normalizeLLMUsage } from './usage.js';
+import { normalizeOpenAICompatibleFinishReason } from './finishReason.js';
 import { isMLXSupported } from '../utils/platform.js';
 import { ApiError, classifyApiError } from './errors.js';
 import { toTextOnlyContent } from './messagePayload.js';
@@ -299,9 +300,7 @@ export class MLXProvider implements LLMProvider {
 
         const finishReason = toolCalls?.length
             ? 'tool_calls'
-            : (choice?.finish_reason === 'stop' || choice?.finish_reason === 'length' || choice?.finish_reason === 'content_filter')
-                ? choice.finish_reason
-                : 'stop';
+            : normalizeOpenAICompatibleFinishReason(choice?.finish_reason);
 
         return {
             id: data.id || `mlx-${Date.now()}`,

@@ -110,6 +110,19 @@ describe('ResponseCompletionClassifier', () => {
         'Let me try reading those files now.',
       ].join('\n'),
     ],
+    [
+      'SITREP that explicitly remains in progress',
+      [
+        'SITREP:',
+        '- Done: inspected the first phase.',
+        '- Status: in-progress',
+        '- Next: awaiting the remaining implementation work.',
+      ].join('\n'),
+    ],
+    [
+      'partial phase with remaining work',
+      'Phase 1 of 3 is done. Remaining: phases 2 and 3 still need implementation and verification.',
+    ],
   ])('classifies %s as invalid deferred action', (_name, response) => {
     const result = classifyResponseCompletion({ response });
 
@@ -169,6 +182,7 @@ describe('ResponseCompletionClassifier', () => {
     ['quoted tool limitation', 'The old failure message was:\n> Tools unavailable\nThe connection is now restored.'],
     ['application behavior', 'Done. The search app is ready.\nNext: the results update automatically when you type.'],
     ['separate answer sentences', 'I will leave it there. The search implementation is complete.'],
+    ['completed status with nothing remaining', 'Status: completed. Remaining: none.'],
     ['delivered code answer', 'I will provide the implementation for you:\n```ts\nexport const hello = 1;\n```'],
     ['delivered quote answer', 'I will provide the exact message for you:\n> I will inspect the remaining file now.'],
   ])('accepts %s without treating reported content as an action promise', (_name, response) => {

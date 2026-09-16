@@ -66,40 +66,19 @@ describe('parseAssistantReactPayload thought extraction', () => {
 
     // Should extract thought via regex fallback (requires complete quoted value)
     expect(result.thought).toBe('partial response here');
-    expect(result.finalResponse).toBe('partial response here');
+    expect(result.finalResponse).toBeUndefined();
   });
 });
 
-describe('usedThoughtAsResponse logic', () => {
-  it('thought becomes the response when no finalResponse, response, or toolCalls', () => {
+describe('thought-only response handling', () => {
+  it('keeps thought separate when no finalResponse, response, or toolCalls exist', () => {
     const parser = createParser();
     const raw = '{"thought": "The user said hi. I should respond warmly."}';
     const payload = parser.parseAssistantReactPayload(raw);
 
-    // Simulate the usedThoughtAsResponse logic from agent.ts
-    const usedThoughtAsResponse = Boolean(payload.thought) &&
-      !payload.finalResponse &&
-      !payload.response &&
-      !payload.toolCalls?.length;
-
-    expect(usedThoughtAsResponse).toBe(true);
-
-    // The raw response should be the thought text
-    let rawResponse: string;
-    if (payload.finalResponse) {
-      rawResponse = payload.finalResponse;
-    } else if (payload.response) {
-      rawResponse = payload.response;
-    } else if (!payload.toolCalls?.length && payload.thought) {
-      rawResponse = payload.thought;
-    } else {
-      rawResponse = '';
-    }
-
-    expect(rawResponse).toBe('The user said hi. I should respond warmly.');
-    // The thought is clean text, not raw JSON
-    expect(rawResponse).not.toContain('{');
-    expect(rawResponse).not.toContain('"thought"');
+    expect(payload.thought).toBe('The user said hi. I should respond warmly.');
+    expect(payload.finalResponse).toBeUndefined();
+    expect(payload.response).toBeUndefined();
   });
 
   it('finalResponse takes priority over thought when both present', () => {

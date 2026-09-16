@@ -311,6 +311,83 @@ describe('SubAgent', () => {
     await expect(agent.run('Keep reading')).rejects.toThrow('within 10 iterations');
   });
 
+  it('does not accept a progress update as the delegated task result', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const executeForTool = vi.fn().mockResolvedValue({ success: true, output: 'verified source' });
+    const complete = vi.fn()
+      .mockResolvedValueOnce({ content: 'I will inspect the source now.' })
+      .mockResolvedValueOnce({
+        content: '',
+        toolCalls: [nativeToolCall('read_file', { path: 'src/index.ts' }, 'call-read')],
+      })
+      .mockResolvedValueOnce({ content: 'Inspection completed with verified evidence.' });
+    const agent = new SubAgent({
+      name: 'reader', description: 'Read source', systemPrompt: 'Inspect source.',
+      tools: ['read_file'], path: '/tmp/reader.md',
+    }, {
+      getName: () => 'autohandai', complete,
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, { executeForTool } as unknown as ActionExecutor, {
+      clientContext: 'cli', depth: 1, maxDepth: 1,
+    });
+
+    try {
+      await expect(agent.run('Inspect src/index.ts')).resolves.toBe('Inspection completed with verified evidence.');
+      expect(complete).toHaveBeenCalledTimes(3);
+      expect(executeForTool).toHaveBeenCalledOnce();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('preserves a truncated fragment for a bounded replacement attempt', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const complete = vi.fn()
+      .mockResolvedValueOnce({ content: 'Partial delegated result.', finishReason: 'length' as const })
+      .mockResolvedValueOnce({ content: 'Complete delegated result.' });
+    const agent = new SubAgent({
+      name: 'writer', description: 'Write result', systemPrompt: 'Produce a complete result.',
+      tools: [], path: '/tmp/writer.md',
+    }, {
+      getName: () => 'autohandai', complete,
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, {} as ActionExecutor, { clientContext: 'cli', depth: 1, maxDepth: 1 });
+
+    try {
+      await expect(agent.run('Write the result')).resolves.toBe('Complete delegated result.');
+      expect(complete.mock.calls[1]?.[0]?.messages).toContainEqual({
+        role: 'assistant',
+        content: 'Partial delegated result.',
+      });
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('rejects reasoning-only output instead of exposing it as a delegated result', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const complete = vi.fn()
+      .mockResolvedValueOnce({ content: '{"thought":"I still need to verify the result."}' })
+      .mockResolvedValueOnce({ content: 'Verified delegated result.' });
+    const agent = new SubAgent({
+      name: 'reviewer', description: 'Review result', systemPrompt: 'Verify before answering.',
+      tools: [], path: '/tmp/reviewer.md',
+    }, {
+      getName: () => 'legacy', complete,
+      getCapabilities: () => ({ nativeToolCalling: false }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, {} as ActionExecutor, { clientContext: 'cli', depth: 1, maxDepth: 1 });
+
+    try {
+      await expect(agent.run('Review the result')).resolves.toBe('Verified delegated result.');
+      expect(complete).toHaveBeenCalledTimes(2);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it('includes context queued by a progress hook in the immediately following provider request', async () => {
     const pending: string[] = [];
     let queued = false;
@@ -836,7 +913,7 @@ describe('SubAgent', () => {
     }
   });
 
-  it('stops when reflection reports missing tool outputs instead of blindly retrying', async () => {
+  it('rejects integrity recovery calls once and restores delegated tool access afterward', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const executeForTool = vi.fn().mockResolvedValue({ success: true, output: 'package contents' });
     const complete = vi.fn()
@@ -855,9 +932,23 @@ describe('SubAgent', () => {
         raw: {},
       })
       .mockResolvedValueOnce({
-        id: 'answer',
+        id: 'withheld-retry',
         created: 3,
-        content: 'Stopped without repeating the read.',
+        content: '',
+        toolCalls: [nativeToolCall('read_file', { path: 'withheld.ts' }, 'call-3')],
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'restored-read',
+        created: 4,
+        content: '',
+        toolCalls: [nativeToolCall('read_file', { path: 'restored.ts' }, 'call-4')],
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        id: 'answer',
+        created: 5,
+        content: 'Recovered without blindly repeating the read.',
         raw: {},
       });
     const llm = {
@@ -882,12 +973,18 @@ describe('SubAgent', () => {
     });
 
     try {
-      await expect(subAgent.run('Read package.json')).resolves.toBe('Stopped without repeating the read.');
-      expect(executeForTool).toHaveBeenCalledTimes(1);
+      await expect(subAgent.run('Read package.json')).resolves.toBe('Recovered without blindly repeating the read.');
+      expect(executeForTool).toHaveBeenCalledTimes(2);
       expect(complete.mock.calls[2]?.[0]?.tools).toBeUndefined();
+      expect(complete.mock.calls[3]?.[0]?.tools).toBeDefined();
       expect(complete.mock.calls[2]?.[0]?.messages).toContainEqual(expect.objectContaining({
         role: 'tool',
         tool_call_id: 'call-2',
+        content: expect.stringContaining('not executed'),
+      }));
+      expect(complete.mock.calls[3]?.[0]?.messages).toContainEqual(expect.objectContaining({
+        role: 'tool',
+        tool_call_id: 'call-3',
         content: expect.stringContaining('not executed'),
       }));
     } finally {
@@ -895,7 +992,7 @@ describe('SubAgent', () => {
     }
   });
 
-  it('requires reflection before a delegated agent can call another tool', async () => {
+  it('executes consecutive native delegated tool calls without synthetic reflection prose', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const executedIds: string[] = [];
     const executeForTool = vi.fn().mockImplementation((_action, context) => {
@@ -948,11 +1045,11 @@ describe('SubAgent', () => {
 
     try {
       await expect(subAgent.run('Inspect dependencies')).resolves.toBe('Done.');
-      expect(executedIds).toEqual(['call-1', 'call-3']);
+      expect(executedIds).toEqual(['call-1', 'call-2', 'call-3']);
       expect(complete.mock.calls[2]?.[0]?.messages).toContainEqual(expect.objectContaining({
         role: 'tool',
         tool_call_id: 'call-2',
-        content: expect.stringContaining('not executed'),
+        content: 'observed output',
       }));
     } finally {
       logSpy.mockRestore();

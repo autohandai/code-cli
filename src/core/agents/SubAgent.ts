@@ -42,6 +42,8 @@ import {
     ToolLoopGuard,
     ToolReflectionGuard,
 } from '../agent/ToolLoopPolicy.js';
+import { evaluateAssistantTurn } from '../agent/TurnOutcomeEvaluator.js';
+import { DEFAULT_RESPONSE_COMPLETION_HOOKS } from '../agent/ResponseCompletionClassifier.js';
 
 /**
  * Options for creating a SubAgent with context inheritance
@@ -381,6 +383,9 @@ export class SubAgent {
         const tools = this.toolManager.toFunctionDefinitions();
         const loopGuard = new ToolLoopGuard();
         const reflectionGuard = new ToolReflectionGuard();
+        let withholdToolsNextRequest = false;
+        let consecutiveRepairCount = 0;
+        let consecutiveTruncationCount = 0;
         const maxIterations = 10;
         for (let i = 0; i < maxIterations; i++) {
             options.signal?.throwIfAborted();
@@ -390,8 +395,11 @@ export class SubAgent {
             this.consumePendingInstructions();
             this.refreshSkillsPrompt();
             await peerRuntime?.safeBoundary();
+            const withholdToolsForRequest = withholdToolsNextRequest;
+            withholdToolsNextRequest = false;
             const requestTools = this.supportsNativeToolCalling
                 && !loopGuard.isForcingFinalResponse()
+                && !withholdToolsForRequest
                 && tools.length > 0
                 ? tools
                 : undefined;
@@ -423,6 +431,47 @@ export class SubAgent {
 
             // Prefer native tool calls if available
             const payload = this.reactionParser.parseAssistantResponse(completion);
+            const turnOutcome = evaluateAssistantTurn({
+                completion,
+                payload,
+                cleanupModelResponse: content => content,
+                responseCompletionHooks: DEFAULT_RESPONSE_COMPLETION_HOOKS,
+            });
+
+            if (turnOutcome.type === 'repair') {
+                if (turnOutcome.reason === 'truncated_response') {
+                    consecutiveTruncationCount += 1;
+                    consecutiveRepairCount = 0;
+                    if (completion.content.trim()) {
+                        this.conversation.addMessage({ role: 'assistant', content: completion.content });
+                    }
+                    if (consecutiveTruncationCount >= 3) {
+                        throw new SubAgentExecutionError(
+                            `[${this.name}] Provider truncated three consecutive responses before the delegated task completed.`,
+                        );
+                    }
+                    const conciseInstruction = consecutiveTruncationCount > 1
+                        ? ' Keep the complete replacement under 1,000 tokens.'
+                        : '';
+                    this.conversation.addSystemNote(
+                        `${turnOutcome.instruction} Recovery ${consecutiveTruncationCount}/3.${conciseInstruction}`,
+                    );
+                    continue;
+                }
+
+                consecutiveTruncationCount = 0;
+                consecutiveRepairCount += 1;
+                if (consecutiveRepairCount >= 3) {
+                    throw new SubAgentExecutionError(
+                        `[${this.name}] Failed to provide a complete delegated result after three recovery attempts.`,
+                    );
+                }
+                this.conversation.addSystemNote(turnOutcome.instruction);
+                continue;
+            }
+
+            consecutiveRepairCount = 0;
+            consecutiveTruncationCount = 0;
 
             // Preserve native tool_calls on the assistant turn so Responses API
             // providers (xAI OAuth / Grok 4.5) can continue multi-turn tool use.
@@ -447,12 +496,26 @@ export class SubAgent {
                 console.log(chalk.gray(`[${this.name}] ${payload.thought}`));
             }
 
-            if (payload.toolCalls && payload.toolCalls.length > 0) {
-                const reflectionDecision = reflectionGuard.evaluate(payload);
-                if (reflectionDecision.type === 'integrity_failure') {
-                    loopGuard.forceFinalResponse();
+            if (turnOutcome.type === 'continue_with_tools') {
+                const toolCalls = turnOutcome.toolCalls;
+                if (withholdToolsForRequest) {
                     this.recordRejectedNativeToolCalls(
-                        payload.toolCalls,
+                        toolCalls,
+                        'Tool call not executed: tools were unavailable for the one-response integrity recovery.',
+                    );
+                    this.conversation.addSystemNote(
+                        '[Tool Result Integrity] A tool call emitted during the tool-free recovery was not executed. '
+                        + 'Tool access is restored for the next response; retry the required call once, or provide the final answer.',
+                    );
+                    continue;
+                }
+                const reflectionDecision = reflectionGuard.evaluate(payload, {
+                    requireExplicitReflection: !this.supportsNativeToolCalling,
+                });
+                if (reflectionDecision.type === 'integrity_failure') {
+                    withholdToolsNextRequest = true;
+                    this.recordRejectedNativeToolCalls(
+                        toolCalls,
                         'Tool call not executed: prior tool-result visibility was reported as unavailable.',
                     );
                     this.conversation.addSystemNote(
@@ -465,7 +528,7 @@ export class SubAgent {
 
                 if (reflectionDecision.type === 'require_reflection') {
                     this.recordRejectedNativeToolCalls(
-                        payload.toolCalls,
+                        toolCalls,
                         'Tool call not executed: reflection on the previous tool results is required first.',
                     );
                     this.conversation.addSystemNote(
@@ -475,10 +538,10 @@ export class SubAgent {
                     continue;
                 }
 
-                const decision = loopGuard.observeCalls(payload.toolCalls);
+                const decision = loopGuard.observeCalls(toolCalls);
                 if (decision.type !== 'allow') {
                     this.recordRejectedNativeToolCalls(
-                        payload.toolCalls,
+                        toolCalls,
                         'Tool call not executed: the loop guard requires a final response.',
                     );
                     this.conversation.addSystemNote(
@@ -493,15 +556,15 @@ export class SubAgent {
 
                 // Execute tools
                 await this.options.onProgress?.({
-                    status: 'tool', tool: payload.toolCalls.map(call => call.tool).join(', '), usage: this.getUsage(),
+                    status: 'tool', tool: toolCalls.map(call => call.tool).join(', '), usage: this.getUsage(),
                 });
                 options.signal?.throwIfAborted();
-                const results = await this.toolManager.execute(payload.toolCalls, undefined, { signal: options.signal });
+                const results = await this.toolManager.execute(toolCalls, undefined, { signal: options.signal });
                 options.signal?.throwIfAborted();
 
                 for (let j = 0; j < results.length; j++) {
                     const result = results[j];
-                    const toolCall = payload.toolCalls[j];
+                    const toolCall = toolCalls[j];
                     const content = result.success
                         ? result.output ?? '(no output)'
                         : result.error ?? 'Tool failed';
@@ -538,9 +601,8 @@ export class SubAgent {
             if ((await peerRuntime?.finishTurn())?.continueTurn) continue;
 
             // No tools, return final response
-            const response = payload.finalResponse ?? payload.response ?? completion.content;
             console.log(chalk.cyan(`[${this.name}] Finished.`));
-            return response;
+            return turnOutcome.response;
         }
 
         throw new SubAgentExecutionError(`[${this.name}] Failed to complete task within ${maxIterations} iterations.`);

@@ -49,6 +49,28 @@ describe('cloud inference streaming', () => {
     await expect(client().complete({ messages: [], stream: true, onDelta: vi.fn() })).rejects.toThrow(/incomplete|ended/i);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+  it('normalizes upstream max-token termination to a truncated response', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+      event({ choices: [{ delta: { content: 'partial' }, finish_reason: 'max_tokens' }] })
+      + 'data: [DONE]\n\n',
+      { headers: { 'content-type': 'text/event-stream' } },
+    )));
+
+    const result = await client().complete({ messages: [], stream: true });
+
+    expect(result).toMatchObject({ content: 'partial', finishReason: 'length' });
+  });
+  it('treats a done marker without an explicit finish reason as incomplete', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+      event({ choices: [{ delta: { content: 'partial' } }] })
+      + 'data: [DONE]\n\n',
+      { headers: { 'content-type': 'text/event-stream' } },
+    )));
+
+    const result = await client().complete({ messages: [], stream: true });
+
+    expect(result).toMatchObject({ content: 'partial', finishReason: 'length' });
+  });
   it('cancels a stalled stream on user abort', async () => {
     const abort = new AbortController();
     const cancel = vi.fn();

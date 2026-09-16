@@ -110,4 +110,56 @@ describe('response completion', () => {
     expect(screen).toContain(expectedContent);
     expect(session.readAll()).not.toContain('UNEXPECTED_COMPLETION_REPAIR');
   }, 45_000);
+
+  it('restores Autohand AI native tools after a one-response completion recovery', async () => {
+    const server = await createMockAutohandAINativeSequenceServer([
+      { content: 'I will inspect package.json now.' },
+      { content: 'I will run the verification next.' },
+      { content: 'I will read the file after this update.' },
+      {
+        content: 'Reading package.json with restored tool access.',
+        toolCall: { id: 'call_recovered_package', name: 'read_file', args: { path: 'package.json' } },
+      },
+      { content: 'TOOL_RECOVERY_RESTORED_OK' },
+    ]);
+    servers.push(server);
+    const state = await createTempAutohandHome({
+      config: {
+        provider: 'autohandai',
+        autohandai: {
+          plan: 'cloud',
+          authMode: 'api-key',
+          apiKey: 'tuistory-autohand-api-key',
+          model: 'moa',
+          baseUrl: server.baseUrl,
+        },
+        features: { autohand_inference: true },
+        agent: { autoMemory: false, maxIterations: 6, sessionRetryLimit: 0 },
+        network: { maxRetries: 0, retryDelay: 0 },
+        ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+      },
+    });
+    states.push(state);
+    const session = await launchBuiltAutohand([
+      '--path', state.workspaceRoot,
+      '--config', state.configPath,
+      '--y',
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      waitForDataTimeout: 15_000,
+    });
+    sessions.push(session);
+
+    const screen = await requestCompletedWorkSummary(session, 'TOOL_RECOVERY_RESTORED_OK');
+    await exitInteractive(session);
+
+    expect(server.requests).toHaveLength(5);
+    expect(server.requests[2]?.tools).toBeUndefined();
+    expect(server.requests[3]?.tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({ function: expect.objectContaining({ name: 'read_file' }) }),
+    ]));
+    expect(screen).toContain('TOOL_RECOVERY_RESTORED_OK');
+    expect(session.readAll()).not.toContain('I will read the file after this update.');
+  }, 45_000);
 });

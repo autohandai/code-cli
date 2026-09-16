@@ -1019,6 +1019,20 @@ describe('agent startup and active input UI', () => {
     expect(body).toBe('Great progress on the UI composer.');
   });
 
+  it('does not expose thought-only JSON in a completion notification fallback', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    agent.lastAssistantResponseForNotification = '';
+    agent.conversation = {
+      history: vi.fn(() => [
+        { role: 'assistant', content: '{"thought":"Private reasoning still in progress."}' },
+      ]),
+    };
+
+    const body = (agent as any).getCompletionNotificationBody();
+
+    expect(body).toBe('Task completed');
+  });
+
   it('forceRenderSpinner does not show live typing preview while working', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const spinner = { text: '' };

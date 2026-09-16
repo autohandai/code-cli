@@ -7,6 +7,7 @@ import type { LLMRequest, LLMResponse, LLMToolCall } from '../types.js';
 import { ApiError } from './errors.js';
 import { normalizeLLMUsage } from './usage.js';
 import { joinReasoning, splitInlineThinking } from './inlineThinking.js';
+import { normalizeOpenAICompatibleFinishReason } from './finishReason.js';
 
 const MAX_EVENT_CHARS = 1_048_576;
 const MAX_RESPONSE_CHARS = 16_777_216;
@@ -59,7 +60,9 @@ export async function readOpenAIEventStream(
     const choice = record(Array.isArray(data.choices) ? data.choices[0] : undefined);
     const delta = record(choice?.delta);
     const finish = choice?.finish_reason;
-    if (finish === 'stop' || finish === 'tool_calls' || finish === 'length' || finish === 'content_filter') finishReason = finish;
+    if (finish !== undefined && finish !== null) {
+      finishReason = normalizeOpenAICompatibleFinishReason(finish, 'length');
+    }
     if (!delta) return;
     const thinking = delta.reasoning ?? delta.reasoning_content;
     for (const [type, piece] of [['reasoning', thinking], ['content', delta.content]] as const) {
@@ -131,7 +134,7 @@ export async function readOpenAIEventStream(
     return {
       id, created, content: inline.content,
       reasoning: joinReasoning(reasoning, inline.reasoning),
-      finishReason: finishReason ?? 'stop', usage,
+      finishReason: finishReason ?? 'length', usage,
       ...(toolCalls.length ? { toolCalls } : {}),
       raw: { content, reasoning },
     };

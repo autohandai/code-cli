@@ -51,7 +51,11 @@ function createNativeToolCall(id: string, name = 'read_file', args: Record<strin
 
 function createReactLoopHarness(
   completions: LLMResponse[],
-  harnessOptions: { responseCompletionHooks?: readonly ResponseCompletionHook[] } = {},
+  harnessOptions: {
+    responseCompletionHooks?: readonly ResponseCompletionHook[];
+    nativeToolCalling?: boolean;
+    hasIncompleteTodoActivity?: () => boolean;
+  } = {},
 ) {
   const parser = createParser();
   const messages: LLMMessage[] = [{ role: 'user', content: 'check reflection' }];
@@ -100,7 +104,7 @@ function createReactLoopHarness(
     inkRenderer: null,
     lastAssistantResponseForNotification: '',
     llm: {
-      getCapabilities: vi.fn(() => ({ nativeToolCalling: true })),
+      getCapabilities: vi.fn(() => ({ nativeToolCalling: harnessOptions.nativeToolCalling ?? true })),
       complete,
     },
     projectManager: {
@@ -160,6 +164,9 @@ function createReactLoopHarness(
     stopStatusUpdates: vi.fn(),
     updateContextUsage: vi.fn(),
     writeDebugLine: vi.fn(),
+    ...(harnessOptions.hasIncompleteTodoActivity
+      ? { hasIncompleteTodoActivity: harnessOptions.hasIncompleteTodoActivity }
+      : {}),
   };
 
   return { host, systemNotes, executedCalls, emittedMessages, complete };
@@ -418,6 +425,17 @@ describe('Reflection loop guard logic', () => {
     expect(guard.evaluate(payload)).toEqual({ type: 'require_reflection' });
   });
 
+  it('does not accumulate false reflection violations across a long native tool sequence', () => {
+    const guard = new ToolReflectionGuard();
+
+    for (let index = 0; index < 500; index += 1) {
+      guard.expectReflection();
+      expect(guard.evaluate({
+        toolCalls: [{ tool: 'read_file', args: { path: `file-${index}.ts` } }],
+      }, { requireExplicitReflection: false })).toEqual({ type: 'allow' });
+    }
+  });
+
   it('does not trigger guard on first iteration (no prior tool results)', () => {
     const needsReflection = false; // Not set yet — no tool results received
 
@@ -440,6 +458,159 @@ describe('Reflection loop guard logic', () => {
 });
 
 describe('Reflection guard integration', () => {
+  it('executes consecutive native tool calls without requiring synthetic reflection prose', async () => {
+    const { host, systemNotes, executedCalls, emittedMessages } = createReactLoopHarness([
+      {
+        content: '',
+        toolCalls: [createNativeToolCall('call_1', 'read_file', { path: 'first.ts' })],
+      },
+      {
+        content: '',
+        toolCalls: [createNativeToolCall('call_2', 'read_file', { path: 'second.ts' })],
+      },
+      { content: 'Both files were inspected.' },
+    ]);
+
+    await runAgentReactLoop(host, new AbortController());
+
+    expect(executedCalls.map((call) => call.args?.path)).toEqual(['first.ts', 'second.ts']);
+    expect(systemNotes.some((note) => note.startsWith('[Reflection Required]'))).toBe(false);
+    expect(emittedMessages).toContain('Both files were inspected.');
+  });
+
+  it('emits at most one completion reminder after a sustained successful tool run', async () => {
+    const reflectiveContent =
+      'The prior output identified another independent file that must be inspected before answering.';
+    const { host, systemNotes, executedCalls } = createReactLoopHarness([
+      {
+        content: reflectiveContent,
+        toolCalls: [createNativeToolCall('call_1', 'read_file', { path: 'one.ts' })],
+      },
+      {
+        content: reflectiveContent,
+        toolCalls: [createNativeToolCall('call_2', 'read_file', { path: 'two.ts' })],
+      },
+      {
+        content: reflectiveContent,
+        toolCalls: [createNativeToolCall('call_3', 'read_file', { path: 'three.ts' })],
+      },
+      {
+        content: reflectiveContent,
+        toolCalls: [createNativeToolCall('call_4', 'read_file', { path: 'four.ts' })],
+      },
+      { content: 'Inspection complete.' },
+    ]);
+
+    await runAgentReactLoop(host, new AbortController());
+
+    expect(executedCalls).toHaveLength(4);
+    expect(systemNotes.filter((note) => note.startsWith('[Reminder]'))).toHaveLength(1);
+  });
+
+  it('restores tools when a one-shot final-answer recovery still narrates unfinished work', async () => {
+    const { host, complete, executedCalls, emittedMessages } = createReactLoopHarness(
+      [
+        { content: 'I will inspect the implementation now.' },
+        { content: 'I will run the focused regression test now.' },
+        { content: 'I will edit the implementation next.' },
+        {
+          content: '',
+          toolCalls: [createNativeToolCall('call_recovered', 'read_file', { path: 'recovered.ts' })],
+        },
+        { content: 'Recovered and completed the inspection.' },
+      ],
+      { responseCompletionHooks: DEFAULT_RESPONSE_COMPLETION_HOOKS },
+    );
+
+    await runAgentReactLoop(host, new AbortController());
+
+    expect(complete).toHaveBeenCalledTimes(5);
+    expect(complete.mock.calls[2]?.[0]?.tools).toBeUndefined();
+    expect(complete.mock.calls[3]?.[0]?.tools).toBeDefined();
+    expect(executedCalls.map((call) => call.id)).toEqual(['call_recovered']);
+    expect(emittedMessages).toContain('Recovered and completed the inspection.');
+    expect(emittedMessages).not.toContain('I will edit the implementation next.');
+  });
+
+  it('rejects a tool emitted during the tool-free recovery and restores tools afterward', async () => {
+    const { host, complete, executedCalls } = createReactLoopHarness(
+      [
+        { content: 'I will inspect the implementation now.' },
+        { content: 'I will run the focused regression test now.' },
+        {
+          content: '',
+          toolCalls: [createNativeToolCall('call_withheld', 'read_file', { path: 'withheld.ts' })],
+        },
+        {
+          content: '',
+          toolCalls: [createNativeToolCall('call_restored', 'read_file', { path: 'restored.ts' })],
+        },
+        { content: 'Recovered after the guarded response.' },
+      ],
+      { responseCompletionHooks: DEFAULT_RESPONSE_COMPLETION_HOOKS },
+    );
+
+    await runAgentReactLoop(host, new AbortController());
+
+    expect(complete.mock.calls[2]?.[0]?.tools).toBeUndefined();
+    expect(complete.mock.calls[3]?.[0]?.tools).toBeDefined();
+    expect(executedCalls.map((call) => call.id)).toEqual(['call_restored']);
+  });
+
+  it('keeps a truncated partial response in provider history before requesting continuation', async () => {
+    const { host, complete, emittedMessages } = createReactLoopHarness([
+      {
+        content: 'Partial explanation that the next response must be able to see.',
+        finishReason: 'length',
+      },
+      { content: 'The complete explanation is now available.' },
+    ]);
+
+    await runAgentReactLoop(host, new AbortController());
+
+    const continuationMessages = complete.mock.calls[1]?.[0]?.messages as LLMMessage[];
+    expect(continuationMessages).toContainEqual({
+      role: 'assistant',
+      content: 'Partial explanation that the next response must be able to see.',
+    });
+    expect(emittedMessages).toContain('The complete explanation is now available.');
+  });
+
+  it('fails explicitly after bounded consecutive truncation repairs', async () => {
+    const { host, complete, emittedMessages } = createReactLoopHarness([
+      { content: 'First truncated fragment.', finishReason: 'length' },
+      { content: 'Second truncated fragment.', finishReason: 'length' },
+      { content: 'Third truncated fragment.', finishReason: 'length' },
+    ]);
+
+    await expect(runAgentReactLoop(host, new AbortController())).rejects.toThrow(
+      /truncated three consecutive responses/i,
+    );
+
+    expect(complete).toHaveBeenCalledTimes(3);
+    expect(emittedMessages).toContainEqual(expect.stringContaining('stopped without marking the task complete'));
+    expect(emittedMessages).not.toContain('Third truncated fragment.');
+  });
+
+  it('does not publish a final response while the current turn still has unfinished todos', async () => {
+    const hasIncompleteTodoActivity = vi.fn()
+      .mockReturnValueOnce(true)
+      .mockReturnValue(false);
+    const { host, complete, systemNotes, emittedMessages } = createReactLoopHarness(
+      [
+        { content: 'The work is done.' },
+        { content: 'The todos are complete and the work is verified.' },
+      ],
+      { hasIncompleteTodoActivity },
+    );
+
+    await runAgentReactLoop(host, new AbortController());
+
+    expect(complete).toHaveBeenCalledTimes(2);
+    expect(systemNotes.some((note) => note.includes('unfinished todo'))).toBe(true);
+    expect(emittedMessages).toEqual(['The todos are complete and the work is verified.']);
+  });
+
   it('promotes legacy JSON tool calls into valid native history before the next reflection', async () => {
     const { host, systemNotes, executedCalls, emittedMessages, complete } = createReactLoopHarness([
       {
@@ -480,7 +651,7 @@ describe('Reflection guard integration', () => {
     expect(emittedMessages).toContain('Legacy fallback completed.');
   });
 
-  it('blocks a follow-up native tool call until the assistant reflects on tool results', async () => {
+  it('blocks a follow-up structured tool call until the assistant reflects on tool results', async () => {
     const { host, systemNotes, executedCalls, emittedMessages } = createReactLoopHarness([
       {
         content: 'Initial lookup',
@@ -497,7 +668,7 @@ describe('Reflection guard integration', () => {
       {
         content: '{"finalResponse":"Reflection flow completed."}',
       },
-    ]);
+    ], { nativeToolCalling: false });
 
     await runAgentReactLoop(host, new AbortController());
 
@@ -520,7 +691,7 @@ describe('Reflection guard integration', () => {
       {
         content: '{"finalResponse":"Stopped after reminder."}',
       },
-    ]);
+    ], { nativeToolCalling: false });
 
     await runAgentReactLoop(host, new AbortController());
 
@@ -546,14 +717,14 @@ describe('Reflection guard integration', () => {
       {
         content: '{"finalResponse":"Finished after one reflection reminder."}',
       },
-    ]);
+    ], { nativeToolCalling: false });
 
     await runAgentReactLoop(host, new AbortController());
 
     expect(executedCalls.map((call) => call.id)).toEqual(['call_1', 'call_3']);
     expect(systemNotes.some((note) => note.startsWith('[Reflection Required]'))).toBe(true);
     expect(systemNotes.some((note) => note.startsWith('[Critical Reflection Guard]'))).toBe(false);
-    expect(complete.mock.calls[3]?.[0]?.tools).toBeDefined();
+    expect(complete.mock.calls[3]?.[0]?.tools).toBeUndefined();
     expect(emittedMessages).toContain('Finished after one reflection reminder.');
   });
 
@@ -675,7 +846,7 @@ describe('System prompt includes reflection instructions', () => {
  *     instead of being rejected and retried.
  */
 describe('Reflection guard dead-end regression', () => {
-  it('lets the assistant keep working after a second unreflected tool call', async () => {
+  it('lets a native assistant keep working across consecutive tool calls without reflection prose', async () => {
     const { host, systemNotes, executedCalls, emittedMessages, complete } = createReactLoopHarness([
       {
         content: 'Initial lookup',
@@ -696,8 +867,8 @@ describe('Reflection guard dead-end regression', () => {
 
     await runAgentReactLoop(host, new AbortController());
 
-    expect(executedCalls.map((call) => call.args?.path)).toEqual(['first.ts', 'recovered.ts']);
-    expect(systemNotes.some((note) => note.startsWith('[Reflection Required]'))).toBe(true);
+    expect(executedCalls.map((call) => call.args?.path)).toEqual(['first.ts', 'reminded.ts', 'recovered.ts']);
+    expect(systemNotes.some((note) => note.startsWith('[Reflection Required]'))).toBe(false);
     expect(systemNotes.some((note) => note.startsWith('[Critical Reflection Guard]'))).toBe(false);
     expect(complete.mock.calls[2]?.[0]?.tools).toBeDefined();
     expect(emittedMessages).toContain('Both files read.');
@@ -765,8 +936,8 @@ describe('Reflection guard dead-end regression', () => {
     expect(emittedMessages).not.toContain(announcement);
   });
 
-  it('does not police announced actions on a turn where tools were withheld', async () => {
-    const { host, systemNotes, emittedMessages } = createReactLoopHarness(
+  it('restores tools when integrity recovery still announces an unfinished action', async () => {
+    const { host, systemNotes, executedCalls, emittedMessages, complete } = createReactLoopHarness(
       [
         {
           content: 'Initial lookup',
@@ -777,6 +948,11 @@ describe('Reflection guard dead-end regression', () => {
           toolCalls: [createNativeToolCall('call_2', 'read_file', { path: 'same.ts' })],
         },
         { content: 'I need to read the file again before I can answer.' },
+        {
+          content: '',
+          toolCalls: [createNativeToolCall('call_3', 'read_file', { path: 'recovered.ts' })],
+        },
+        { content: 'Recovered after re-reading the required file.' },
       ],
       { responseCompletionHooks: DEFAULT_RESPONSE_COMPLETION_HOOKS },
     );
@@ -784,8 +960,12 @@ describe('Reflection guard dead-end regression', () => {
     await runAgentReactLoop(host, new AbortController());
 
     expect(systemNotes.some((note) => note.startsWith('[Tool Result Integrity]'))).toBe(true);
-    expect(systemNotes.some((note) => note.includes('announced an action but emitted no tool calls'))).toBe(false);
-    expect(emittedMessages).toContain('I need to read the file again before I can answer.');
+    expect(systemNotes.some((note) => note.includes('Tool access is restored'))).toBe(true);
+    expect(complete.mock.calls[2]?.[0]?.tools).toBeUndefined();
+    expect(complete.mock.calls[3]?.[0]?.tools).toBeDefined();
+    expect(executedCalls.map((call) => call.id)).toEqual(['call_1', 'call_3']);
+    expect(emittedMessages).toContain('Recovered after re-reading the required file.');
+    expect(emittedMessages).not.toContain('I need to read the file again before I can answer.');
   });
 
   it('wires the response-completion hooks onto the real react-loop host', () => {

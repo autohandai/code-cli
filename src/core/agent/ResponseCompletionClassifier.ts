@@ -15,7 +15,7 @@ export interface FinalAnswerCompletion {
 
 export interface InvalidDeferredActionCompletion {
   kind: 'invalid_deferred_action';
-  reason: 'announced_action_without_tool' | 'blocked_without_tools';
+  reason: 'announced_action_without_tool' | 'blocked_without_tools' | 'incomplete_status';
   excerpt: string;
 }
 
@@ -270,6 +270,35 @@ function classifyBlockedWithoutTools({ normalized, response }: ResponseCompletio
   return undefined;
 }
 
+function classifyExplicitlyIncomplete({
+  statements,
+  response,
+}: ResponseCompletionContext): ResponseCompletionClassification | undefined {
+  const incompleteStatement = statements.find((statement) => {
+    if (/^status\s*:\s*(?:in progress|incomplete|ongoing|pending|working)\b/u.test(statement)) {
+      return true;
+    }
+
+    const remaining = /^remaining\s*:\s*(.+)$/u.exec(statement)?.[1]?.trim();
+    if (remaining && !/^(?:none|nothing|no further work|n\/a|not applicable|zero)$/u.test(remaining)) {
+      return true;
+    }
+
+    return /\b(?:work|task|implementation|verification)\s+(?:is|remains)\s+not\s+(?:complete|completed|done|finished)\b/u.test(statement)
+      || /\bstill\s+(?:need|needs|required|requires)\s+to\b/u.test(statement);
+  });
+
+  if (incompleteStatement === undefined) {
+    return undefined;
+  }
+
+  return {
+    kind: 'invalid_deferred_action',
+    reason: 'incomplete_status',
+    excerpt: getExcerpt(response),
+  };
+}
+
 function classifyAnnouncedActionWithoutTools({
   statements,
 }: ResponseCompletionContext): ResponseCompletionClassification | undefined {
@@ -292,6 +321,7 @@ function classifyAnnouncedActionWithoutTools({
 export const DEFAULT_RESPONSE_COMPLETION_HOOKS: readonly ResponseCompletionHook[] = [
   classifyToolCallCompletion,
   classifyBlockedWithoutTools,
+  classifyExplicitlyIncomplete,
   classifyAnnouncedActionWithoutTools,
 ] as const;
 

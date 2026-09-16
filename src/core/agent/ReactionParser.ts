@@ -410,7 +410,6 @@ export class ReactionParser {
         return {
           thought: thoughtMatch[1],
           reflection,
-          finalResponse: thoughtMatch[1],
         };
       }
       if (raw.trim().startsWith('{')) {

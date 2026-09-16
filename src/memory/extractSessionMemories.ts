@@ -22,6 +22,7 @@ export interface ExtractedMemory {
 export type TurnMemoryReflectionFailureCategory =
   | 'quality'
   | 'deep-research'
+  | 'incomplete'
   | 'loop-guard'
   | 'provider'
   | 'unexpected';
