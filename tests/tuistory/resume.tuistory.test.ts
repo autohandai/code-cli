@@ -15,6 +15,16 @@ afterEach(async () => {
   for (const state of states.splice(0)) await state.cleanup();
 });
 
+/**
+ * The picker's age column ("just now", "3d ago", "36w ago") is relative to
+ * the moment the test runs, so a stored snapshot would drift and eventually
+ * fail on its own. Replace it with a stable placeholder before comparing or
+ * storing a snapshot.
+ */
+function normalizeVolatileText(text: string): string {
+  return text.replace(/\bjust now\b|\b\d+[mhdw] ago\b/gu, '<age>');
+}
+
 async function launch(args: string[], seed = true, olderSessionCount = 0) {
   const state = await createTempAutohandHome({ config: { ui: { promptSuggestions: false } } });
   states.push(state);
@@ -57,7 +67,14 @@ describe('resume startup Tuistory', () => {
     const screen = await chooseResumeSession(session);
     expect(screen).toContain('Newer project session');
     expect(screen.includes('Other project session')).toBe(otherProjectVisible);
-    await expect(`${screen.trimEnd()}\n`).toMatchFileSnapshot(path.resolve(
+    // A single row carries both the title and its message-count/age columns,
+    // grouped under a relative-day heading. The fixture sessions are from
+    // January 2026, well outside the "Previous 7 days" window, so they group
+    // under "Earlier" rather than "Today".
+    expect(screen).toMatch(/Earlier\n\s*▸\s*1\.\s+\S.*\s{2,}\d+ msgs\s{2,}\S+ ago/u);
+    // `resume-active` has no messages and stays hidden behind the reveal row.
+    expect(screen).toMatch(/Show 1 empty session/u);
+    await expect(`${normalizeVolatileText(screen.trimEnd())}\n`).toMatchFileSnapshot(path.resolve(
       import.meta.dirname, '../../src/testing/snapshots',
       otherProjectVisible ? 'resume-all-projects.txt' : 'resume-current-project.txt',
     ));
@@ -70,7 +87,7 @@ describe('resume startup Tuistory', () => {
 
   it('navigates forward and backward and resumes a session beyond the first page', async () => {
     const { session } = await launch([], true, 19);
-    await session.waitForText('Choose a session');
+    await session.waitForText('Resume a session');
     await chooseOlderResumeSession(session);
     await session.waitForText('Resumed session older-page-18', { timeout: 30_000 });
     await session.waitForText('❯');
@@ -79,7 +96,7 @@ describe('resume startup Tuistory', () => {
 
   it.each(['escape', 'ctrl-c'])('cancels the picker using %s without starting a session', async (key) => {
     const { session, state } = await launch([]);
-    await session.waitForText('Choose a session');
+    await session.waitForText('Resume a session');
     if (key === 'ctrl-c') await session.press(['ctrl', 'c']);
     else await session.press('escape');
     await waitForExit(session);

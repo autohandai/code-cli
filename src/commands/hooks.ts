@@ -211,7 +211,7 @@ export function hookBrowserOptions(rows: LifecycleHookRow[], notice = '', initia
     title: ['Hooks', 'Lifecycle hooks from config and enabled plugins.', notice].filter(Boolean).join('\n'),
     options: rows.map((row, index) => ({
       value: row.event,
-      label: `${index < 9 ? ' ' : ''}${row.event.padEnd(25)} ${String(row.installed).padEnd(10)} ${String(row.active).padEnd(8)}${wide ? row.description.slice(0, Math.max(10, columns - 55)) : ''}`,
+      label: `${row.event.padEnd(25)} ${String(row.installed).padEnd(10)} ${String(row.active).padEnd(8)}${wide ? row.description.slice(0, Math.max(10, columns - 55)) : ''}`,
       ...(index === 0 ? { header } : {}),
       ...(!wide ? { description: row.description } : {}),
     })),

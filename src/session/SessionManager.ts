@@ -16,6 +16,7 @@ import type {
     SessionReadFileState,
 } from './types.js';
 import { normalizeSessionTitle } from './sessionTitle.js';
+import { sessionActivityAt } from './sessionActivity.js';
 import { AUTOHAND_PATHS } from '../constants.js';
 import { atomicWriteJson, FileLockTimeoutError, withFileLock } from '../utils/atomicFile.js';
 import { runWithConcurrency } from '../utils/parallel.js';
@@ -338,8 +339,12 @@ export class SessionManager {
     }
 
     /**
-     * Return a bounded, newest-first page for interactive session pickers.
+     * Return a bounded, most-recently-active-first page for interactive session pickers.
      * This avoids waiting for every historical metadata file before the picker opens.
+     *
+     * The index only records `createdAt`, so paging (the slice below) is still bounded
+     * by creation order. Only the metadata loaded for the returned page is re-sorted by
+     * last activity, which is enough to keep each page's picker groups contiguous.
      */
     async listRecentSessions(
         filter?: { project?: string; since?: Date },
@@ -355,7 +360,7 @@ export class SessionManager {
 
         return {
             sessions: sessions.sort((a, b) =>
-                new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                sessionActivityAt(b).getTime() - sessionActivityAt(a).getTime()
             ),
             total: indexedSessions.length,
         };

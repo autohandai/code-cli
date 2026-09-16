@@ -33,7 +33,7 @@ vi.spyOn(console, 'log').mockImplementation(() => {});
 vi.spyOn(console, 'error').mockImplementation(() => {});
 
 // Import after mocks
-import { resume, metadata } from '../../src/commands/resume';
+import { resume, metadata, resolveResumeMaxVisible } from '../../src/commands/resume';
 
 describe('Resume Command', () => {
   beforeEach(() => {
@@ -339,7 +339,7 @@ describe('Resume Command', () => {
       // Verify showModal was called with options containing summary as label
       expect(mockShowModal).toHaveBeenCalled();
       const promptCall = mockShowModal.mock.calls[0][0];
-      expect(promptCall.options[0].label).toBe('Building an artifact');
+      expect(promptCall.options[0].label.startsWith('Building an artifact')).toBe(true);
     });
 
     it('prefers the name given with /rename over the summary', async () => {
@@ -359,7 +359,7 @@ describe('Resume Command', () => {
 
       await resume({ sessionManager: mockSessionManager as any, args: [] });
 
-      expect(mockShowModal.mock.calls[0][0].options[0].label).toBe('Caret fix');
+      expect(mockShowModal.mock.calls[0][0].options[0].label.startsWith('Caret fix')).toBe(true);
     });
 
     it('should use first user message when no summary', async () => {
@@ -423,5 +423,44 @@ describe('Resume Command', () => {
       const expected = `${diffDays}d ago`;
       expect(expected).toBe('3d ago');
     });
+  });
+});
+
+describe('resolveResumeMaxVisible', () => {
+  // Regression: the picker passed a fixed maxVisible: 15 straight to the
+  // modal, which counts *options* rather than rendered lines. Each recency
+  // group heading this picker adds costs 1 rendered line for the first
+  // heading and 2 for every heading after it, which an earlier fixed
+  // reservation of 8 lines only approximated - a window spanning all four
+  // groups (Today/Yesterday/Previous 7 days/Earlier) still rendered past a
+  // short terminal. headingCount must be the exact count from the rows the
+  // picker built for the current page.
+  it('caps at the previous default of 15 on a tall terminal with a single heading', () => {
+    // reserved = 4 + (2*1 - 1) = 5; 50-5=45, capped at 15
+    expect(resolveResumeMaxVisible(50, 1)).toBe(15);
+  });
+
+  it('reserves only the fixed chrome when the page has no heading at all', () => {
+    // reserved = 4 + 0 = 4; 50-4=46, capped at 15
+    expect(resolveResumeMaxVisible(50, 0)).toBe(15);
+  });
+
+  it('reserves exactly 11 lines for the four-group worst case (Today/Yesterday/Previous 7 days/Earlier)', () => {
+    // reserved = 4 + (2*4 - 1) = 11; 20-11=9
+    expect(resolveResumeMaxVisible(20, 4)).toBe(9);
+  });
+
+  it('shrinks to fit a short terminal', () => {
+    // reserved = 4 + (2*1 - 1) = 5; 17-5=12
+    expect(resolveResumeMaxVisible(17, 1)).toBe(12);
+  });
+
+  it('never drops below a usable floor of 5 rows on a very short terminal', () => {
+    expect(resolveResumeMaxVisible(10, 4)).toBe(5);
+    expect(resolveResumeMaxVisible(1, 1)).toBe(5);
+  });
+
+  it('falls back to a 24-row assumption when rows is unknown', () => {
+    expect(resolveResumeMaxVisible(undefined, 1)).toBe(15);
   });
 });
