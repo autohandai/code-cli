@@ -5,6 +5,24 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
+
+// The real capture snapshots this repository through git under a 3 s budget.
+// On a loaded host the budget trips, previews disappear and outputs regroup,
+// so the grouping assertions below would depend on machine load.
+vi.mock('../../../src/core/agent/WorkspaceChangeCapture.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/core/agent/WorkspaceChangeCapture.js')>();
+  return {
+    ...actual,
+    WorkspaceChangeCapture: {
+      create: vi.fn(async () => ({
+        hasExceededBudget: () => false,
+        begin: async () => ({ token: 'stub-checkpoint' }),
+        finish: async () => ({ files: [], omittedFiles: 0 }),
+        dispose: async () => {},
+      })),
+    },
+  };
+});
 import {
   type AgentReactLoopHost,
   collapseToolCallLogLines,

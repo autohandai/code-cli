@@ -1020,7 +1020,11 @@ describe('agent startup and active input UI', () => {
   });
 
   it('does not expose thought-only JSON in a completion notification fallback', () => {
-    const agent = Object.create(AutohandAgent.prototype) as any;
+    const agent = Object.create(AutohandAgent.prototype) as unknown as {
+      lastAssistantResponseForNotification: string;
+      conversation: { history: () => Array<{ role: string; content: string }> };
+      getCompletionNotificationBody(): string;
+    };
     agent.lastAssistantResponseForNotification = '';
     agent.conversation = {
       history: vi.fn(() => [
@@ -1028,7 +1032,7 @@ describe('agent startup and active input UI', () => {
       ]),
     };
 
-    const body = (agent as any).getCompletionNotificationBody();
+    const body = agent.getCompletionNotificationBody();
 
     expect(body).toBe('Task completed');
   });
@@ -2356,7 +2360,14 @@ describe('agent startup and active input UI', () => {
   });
 
   it('wires the status-row spinner frames into the terminal tab title', () => {
-    const agent = Object.create(AutohandAgent.prototype) as any;
+    const agent = Object.create(AutohandAgent.prototype) as unknown as {
+      useInkRenderer: boolean;
+      ui: { options: { onWorkingSpinnerFrame?: (frame: number) => void } } | null;
+      workspaceFileCollector: { getCachedFiles: () => string[] };
+      skillsRegistry: { listSkills: () => unknown[] };
+      terminalTitle: { setFrame: ReturnType<typeof vi.fn> };
+      initializeUIManager(): void;
+    };
     let restoreStdoutTTY: () => void = () => {};
     let restoreStdinTTY: () => void = () => {};
     agent.useInkRenderer = true;
@@ -2368,10 +2379,10 @@ describe('agent startup and active input UI', () => {
     try {
       restoreStdoutTTY = overrideStreamTTY(process.stdout, true);
       restoreStdinTTY = overrideStreamTTY(process.stdin, true);
-      (agent as any).initializeUIManager();
-      const options = (agent.ui as any).options;
-      expect(options.onWorkingSpinnerFrame).toBeTypeOf('function');
-      options.onWorkingSpinnerFrame(7);
+      agent.initializeUIManager();
+      const options = agent.ui?.options;
+      expect(options?.onWorkingSpinnerFrame).toBeTypeOf('function');
+      options?.onWorkingSpinnerFrame?.(7);
       expect(agent.terminalTitle.setFrame).toHaveBeenCalledWith(7);
     } finally {
       restoreStdoutTTY();
