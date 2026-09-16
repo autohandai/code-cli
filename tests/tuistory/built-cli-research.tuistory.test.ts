@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
 import fs from 'fs-extra';
+import stripAnsi from 'strip-ansi';
 import { SLASH_COMMANDS } from '../../src/core/slashCommands.js';
 import { hasTerminalProcessPid } from '../../src/testing/assertions/terminalOutput.js';
 import { selectTheme, selectThemeFromSettings } from '../../src/testing/scenarios/themeScenario.js';
@@ -290,6 +291,13 @@ describe('interactive built CLI Tuistory tests: processes, research, usage, sett
     await session.press('enter');
     await session.waitForText('Token activity', { timeout: 10_000 });
     const output = session.readAll();
+    const screen = stripAnsi(await session.text({ immediate: true, trimEnd: true }));
+    const screenLines = screen.split('\n');
+    const sundayIndex = screenLines.findIndex((line) => line.startsWith('Su  '));
+    const monthHeader = sundayIndex > 0
+      ? screenLines.slice(0, sundayIndex).reverse().find((line) => line.trim().length > 0) ?? ''
+      : '';
+    const visibleMonthLabels = monthHeader.match(/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/gu) ?? [];
 
     expect(output).toContain('/usage daily');
     expect(output).toContain('last 12 months');
@@ -301,8 +309,18 @@ describe('interactive built CLI Tuistory tests: processes, research, usage, sett
     expect(output).toContain('More');
     expect(output).toContain('daily · weekly · monthly');
     expect(output).not.toContain('Provider limits:');
+    expect(sundayIndex, screen).toBeGreaterThan(0);
+    expect(visibleMonthLabels.length, screen).toBeGreaterThanOrEqual(12);
 
     await exitInteractive(session);
+    const finalScreen = stripAnsi(await session.text({ immediate: true, trimEnd: true }));
+    const teardownLines = finalScreen
+      .split('\n')
+      .filter((line) => line.includes('Ending Autohand session') || line.includes('Session saved'));
+
+    expect(teardownLines.some((line) => line.includes('Ending Autohand session')), finalScreen).toBe(true);
+    expect(teardownLines.some((line) => line.includes('Session saved')), finalScreen).toBe(true);
+    expect(teardownLines.every((line) => !/[·░▒▓█]/u.test(line)), finalScreen).toBe(true);
   });
 
   it('shows the signed-in Autohand plan and quota in /usage', async () => {

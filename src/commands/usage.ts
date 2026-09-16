@@ -608,6 +608,27 @@ function formatActivitySummary(data: UsageActivityData): string {
   ].join(theme.muted(' · '));
 }
 
+function renderDailyMonthHeader(weekStarts: readonly Date[]): string {
+  const calendarWidth = Math.max(0, weekStarts.length * 2 - 1);
+  const header = Array<string>(calendarWidth).fill(' ');
+
+  for (let index = 0; index < weekStarts.length; index += 1) {
+    const week = weekStarts[index];
+    const previous = weekStarts[index - 1];
+    if (index > 0 && week.getUTCMonth() === previous?.getUTCMonth()) {
+      continue;
+    }
+
+    const label = MONTH_LABELS[week.getUTCMonth()];
+    const labelStart = Math.min(index * 2, Math.max(0, calendarWidth - label.length));
+    for (let offset = 0; offset < label.length; offset += 1) {
+      header[labelStart + offset] = label[offset];
+    }
+  }
+
+  return `    ${header.join('')}`;
+}
+
 function renderDailyHeatmap(data: UsageActivityData): string[] {
   const today = startOfUtcDay(data.generatedAt);
   const rangeStart = addDays(today, -364);
@@ -617,13 +638,7 @@ function renderDailyHeatmap(data: UsageActivityData): string[] {
     weekStarts.push(cursor);
   }
 
-  const monthHeader = `    ${weekStarts.map((week, index) => {
-    const next = weekStarts[index - 1];
-    if (index === 0 || week.getUTCMonth() !== next?.getUTCMonth()) {
-      return MONTH_LABELS[week.getUTCMonth()].padEnd(3, ' ');
-    }
-    return '   ';
-  }).join(' ')}`;
+  const monthHeader = renderDailyMonthHeader(weekStarts);
 
   const rows = WEEKDAY_LABELS.map((label, weekday) => {
     const cells = weekStarts.map((week) => {

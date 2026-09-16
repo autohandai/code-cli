@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it, vi } from 'vitest';
+import stringWidth from 'string-width';
+import stripAnsi from 'strip-ansi';
 import type { SlashCommandContext } from '../../src/core/slashCommandTypes.js';
 import type { LoadedConfig } from '../../src/types.js';
 import type { SessionMetadata } from '../../src/session/types.js';
@@ -243,6 +245,20 @@ describe('/usage command', () => {
     expect(output).toContain('daily · weekly · monthly');
     expect(output).not.toContain('Provider limits:');
     expect(ctx.sessionManager.listSessions).toHaveBeenCalledWith({ project: PROJECT_ROOT });
+  });
+
+  it('aligns daily month labels to the same calendar width as the weekday rows', async () => {
+    const { usage } = await import('../../src/commands/usage.js');
+    const output = stripAnsi(await usage(makeContext()));
+    const lines = output.split('\n');
+    const sundayIndex = lines.findIndex((line) => line.startsWith('Su  '));
+
+    expect(sundayIndex).toBeGreaterThan(0);
+    const monthHeader = lines[sundayIndex - 1] ?? '';
+    const weekdayRows = lines.slice(sundayIndex, sundayIndex + 7);
+
+    expect(weekdayRows).toHaveLength(7);
+    expect(weekdayRows.every((line) => stringWidth(line) === stringWidth(monthHeader))).toBe(true);
   });
 
   it('renders weekly when /usage weekly is requested', async () => {
