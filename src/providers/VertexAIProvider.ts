@@ -26,7 +26,10 @@ import {
 } from "./anthropicModels.js";
 import { normalizeLLMUsage } from "./usage.js";
 import { getProviderModelIds } from "./modelCatalog.js";
-import { normalizeOpenAICompatibleFinishReason } from "./finishReason.js";
+import {
+  normalizeOpenAICompatibleFinishReason,
+  normalizeProviderFinishReason,
+} from "./finishReason.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -513,16 +516,8 @@ export class VertexAIProvider implements LLMProvider {
 
     const usage = normalizeLLMUsage(json?.usage);
 
-    // Map Anthropic stop_reason to finish_reason
     const stopReason = json?.stop_reason;
-    let finishReason: LLMResponse["finishReason"];
-    if (stopReason === "end_turn" || stopReason === "stop_sequence") {
-      finishReason = "stop";
-    } else if (stopReason === "tool_use") {
-      finishReason = "tool_calls";
-    } else if (stopReason === "max_tokens") {
-      finishReason = "length";
-    }
+    const finishReason = normalizeProviderFinishReason(stopReason, "length");
 
     return {
       id: json.id ?? "vertexai-anthropic-response",

@@ -351,6 +351,28 @@ describe("VertexAIProvider", () => {
       expect(calledUrl).toContain("publishers/anthropic/models/claude-opus-4-7:streamRawPredict");
     });
 
+    it("treats a native Anthropic pause_turn as incomplete", async () => {
+      const provider = createProvider("anthropic/claude-opus-4-7", { maxRetries: 0 });
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => ({
+          id: "msg_paused",
+          type: "message",
+          role: "assistant",
+          content: [{ type: "text", text: "Partial server-tool result" }],
+          stop_reason: "pause_turn",
+          usage: { input_tokens: 10, output_tokens: 5 },
+        }),
+        text: async () => "",
+      });
+
+      const response = await provider.complete({ messages: [{ role: "user", content: "continue" }] });
+
+      expect(response.finishReason).toBe("length");
+    });
+
     it("sends native Anthropic message shape rather than OpenAI chat shape", async () => {
       const provider = createProvider("anthropic/claude-opus-4-7", { maxRetries: 0 });
       mockFetch.mockResolvedValue({

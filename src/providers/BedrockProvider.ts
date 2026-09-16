@@ -20,6 +20,7 @@ import {
   classifyApiError,
   type ApiErrorCode,
 } from "./errors.js";
+import { normalizeProviderFinishReason } from "./finishReason.js";
 import { normalizeLLMUsage } from "./usage.js";
 import { toTextOnlyContent } from './messagePayload.js';
 import type {
@@ -127,6 +128,7 @@ interface OpenAIResponsesResponse {
   output_text?: string;
   output?: Array<OpenAIResponsesFunctionCall | { type?: string; [key: string]: unknown }>;
   usage?: unknown;
+  incomplete_details?: { reason?: string };
 }
 
 export function resolveBedrockRegion(region?: string): string {
@@ -345,16 +347,7 @@ function toConverseTools(tools: FunctionDefinition[]): Array<Record<string, unkn
 }
 
 function normalizeStopReason(stopReason?: string): LLMResponse["finishReason"] {
-  if (stopReason === "tool_use" || stopReason === "tool_calls") {
-    return "tool_calls";
-  }
-  if (stopReason === "max_tokens" || stopReason === "length") {
-    return "length";
-  }
-  if (stopReason === "content_filter") {
-    return "content_filter";
-  }
-  return "stop";
+  return normalizeProviderFinishReason(stopReason, "length");
 }
 
 function toolCallsFromConverseBlocks(blocks: ConverseContentBlock[]): LLMToolCall[] {
@@ -753,7 +746,9 @@ export class BedrockProvider implements LLMProvider {
       created: data.created_at ?? Math.floor(Date.now() / 1000),
       content: data.output_text ?? "",
       ...(functionCalls.length > 0 && { toolCalls: functionCalls }),
-      finishReason: functionCalls.length > 0 ? "tool_calls" : "stop",
+      finishReason: functionCalls.length > 0
+        ? "tool_calls"
+        : (data.incomplete_details?.reason ? "length" : "stop"),
       usage: normalizeLLMUsage(data.usage),
       raw: data,
     };

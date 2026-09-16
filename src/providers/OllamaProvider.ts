@@ -15,6 +15,7 @@ import type {
     FunctionDefinition,
 } from '../types.js';
 import { ApiError, classifyApiError } from './errors.js';
+import { normalizeProviderFinishReason } from './finishReason.js';
 import { toTextOnlyContent } from './messagePayload.js';
 import { normalizeLLMUsage } from './usage.js';
 import {
@@ -64,6 +65,7 @@ interface OllamaChatResponse {
     };
     created_at: string;
     done: boolean;
+    done_reason?: string;
     prompt_eval_count?: number;
     eval_count?: number;
 }
@@ -291,7 +293,9 @@ export class OllamaProvider implements LLMProvider {
             content: message.content,
             toolCalls,
             ...(reasoning ? { reasoning } : {}),
-            finishReason: toolCalls?.length ? 'tool_calls' : 'stop',
+            finishReason: toolCalls?.length
+                ? 'tool_calls'
+                : (data.done === false ? 'length' : normalizeProviderFinishReason(data.done_reason, 'stop')),
             usage,
             raw: data
         };
@@ -627,7 +631,9 @@ export class OllamaProvider implements LLMProvider {
 
         // If stream closed without done:true it means it ended abruptly
         const finishReason = streamEndedWithDone
-            ? (toolCalls?.length ? 'tool_calls' : 'stop')
+            ? (toolCalls?.length
+                ? 'tool_calls'
+                : normalizeProviderFinishReason(lastData?.done_reason, 'stop'))
             : 'length';
         const reasoning = fullThinking.trim() || undefined;
         const usage = normalizeLLMUsage({

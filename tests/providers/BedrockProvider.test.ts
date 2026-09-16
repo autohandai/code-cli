@@ -132,6 +132,25 @@ describe("BedrockProvider", () => {
     expect(toolResult.content[0]?.text.trim()).not.toBe("");
   });
 
+  it("treats a paused Converse turn as incomplete", async () => {
+    mockRuntimeSend.mockResolvedValueOnce({
+      output: { message: { role: "assistant", content: [{ text: "Partial server-tool result" }] } },
+      stopReason: "pause_turn",
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    });
+
+    const { BedrockProvider } = await import("../../src/providers/BedrockProvider.js");
+    const provider = new BedrockProvider({
+      model: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+      region: "us-east-1",
+      authMode: "aws-credentials",
+    });
+
+    const response = await provider.complete({ messages: [{ role: "user", content: "continue" }] });
+
+    expect(response.finishReason).toBe("length");
+  });
+
   it("carries Converse cache figures, which AWS reports alongside inputTokens", async () => {
     mockRuntimeSend.mockResolvedValueOnce({
       output: { message: { role: "assistant", content: [{ text: "ok" }] } },
@@ -510,6 +529,35 @@ describe("BedrockProvider", () => {
       completionTokens: 6,
       totalTokens: 10,
     });
+  });
+
+  it("preserves incomplete Bedrock Responses output as a truncated turn", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: "bedrock-incomplete-response",
+          created_at: 123,
+          output_text: "partial",
+          output: [],
+          incomplete_details: { reason: "max_output_tokens" },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    globalThis.fetch = fetchMock as typeof globalThis.fetch;
+
+    const { BedrockProvider } = await import("../../src/providers/BedrockProvider.js");
+    const provider = new BedrockProvider({
+      model: "openai.gpt-oss-120b-1:0",
+      region: "us-east-1",
+      apiMode: "openai-responses",
+      authMode: "bedrock-api-key",
+      apiKey: "bedrock-api-key",
+    });
+
+    const response = await provider.complete({ messages: [{ role: "user", content: "write" }] });
+
+    expect(response).toMatchObject({ content: "partial", finishReason: "length" });
   });
 
   it("turns Bedrock access and throttling failures into friendly errors", async () => {

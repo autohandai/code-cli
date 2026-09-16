@@ -209,6 +209,25 @@ describe('OllamaProvider', () => {
             expect(response.finishReason).toBe('stop');
         });
 
+        it('treats a completed non-stream response with done_reason length as truncated', async () => {
+            const p = new OllamaProvider(config, { maxRetries: 0 });
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                json: async () => ({
+                    message: { role: 'assistant', content: 'partial local response' },
+                    created_at: '2024-11-21T10:30:00Z',
+                    done: true,
+                    done_reason: 'length'
+                })
+            });
+
+            const response = await p.complete({
+                messages: [{ role: 'user', content: 'Hello' }]
+            });
+
+            expect(response.finishReason).toBe('length');
+        });
+
         it('should handle streaming responses', async () => {
             const mockStream = new ReadableStream({
                 start(controller) {

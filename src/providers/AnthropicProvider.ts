@@ -39,6 +39,7 @@ import {
   type AnthropicEffort,
 } from "./anthropicModels.js";
 import { ApiError, classifyApiError, type ApiErrorCode } from "./errors.js";
+import { normalizeProviderFinishReason } from "./finishReason.js";
 import { getProviderModelIds } from "./modelCatalog.js";
 import { normalizeLLMUsage } from "./usage.js";
 
@@ -131,16 +132,7 @@ function toThinkingConfig(
 // ── Response translation ───────────────────────────────────────────────────
 
 function toFinishReason(stopReason: Message["stop_reason"]): LLMResponse["finishReason"] {
-  if (stopReason === "tool_use") {
-    return "tool_calls";
-  }
-  if (stopReason === "max_tokens" || stopReason === "model_context_window_exceeded") {
-    return "length";
-  }
-  if (stopReason === "refusal") {
-    return "content_filter";
-  }
-  return "stop";
+  return normalizeProviderFinishReason(stopReason, "length");
 }
 
 /**

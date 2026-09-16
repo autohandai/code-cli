@@ -35,6 +35,7 @@ import type {
   LLMProvider,
   LLMProviderCapabilities,
 } from './LLMProvider.js';
+import { normalizeProviderFinishReason } from './finishReason.js';
 
 export const BLUEPRINT_LOCAL_PROVIDER_ID = 'blueprint-local' as const;
 
@@ -679,7 +680,7 @@ export class BlueprintLocalProvider implements LLMProvider {
       id: `blueprint-local-${randomUUID()}`,
       created: Date.now(),
       content: generated.content,
-      finishReason: generated.stopReason === 'maxTokens' ? 'length' : 'stop',
+      finishReason: normalizeProviderFinishReason(generated.stopReason, 'length'),
       raw: {
         engine: BLUEPRINT_LOCAL_ENGINE_IDENTITY.packageName,
         engineVersion: BLUEPRINT_LOCAL_ENGINE_IDENTITY.packageVersion,

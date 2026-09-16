@@ -21,6 +21,9 @@ describe('normalizeOpenAICompatibleFinishReason', () => {
     ['pause_turn', 'length'],
     ['content_filter', 'content_filter'],
     ['refusal', 'content_filter'],
+    ['guardrail_intervened', 'content_filter'],
+    ['content_filtered', 'content_filter'],
+    ['eogToken', 'stop'],
   ] as const)('maps %s to %s', (raw, expected) => {
     expect(normalizeOpenAICompatibleFinishReason(raw)).toBe(expected);
   });

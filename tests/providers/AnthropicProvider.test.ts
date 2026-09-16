@@ -164,6 +164,29 @@ describe("AnthropicProvider", () => {
     expect(JSON.parse(request?.body as string).model).toBe("claude-opus-5");
   });
 
+  it("treats a paused turn as incomplete instead of publishing partial text", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({
+      id: "msg_paused",
+      type: "message",
+      role: "assistant",
+      model: "claude-sonnet-5",
+      content: [{ type: "text", text: "Partial server-tool result" }],
+      stop_reason: "pause_turn",
+      stop_sequence: null,
+      usage: { input_tokens: 4, output_tokens: 3 },
+    }));
+    const provider = new AnthropicProvider({
+      apiKey: "test-anthropic-key",
+      model: "claude-sonnet-5",
+    });
+
+    const response = await provider.complete({
+      messages: [{ role: "user", content: "continue the server tool" }],
+    });
+
+    expect(response.finishReason).toBe("length");
+  });
+
   it("uses adaptive thinking and omits unsupported temperature for current Claude models", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({
       id: "msg_789",
