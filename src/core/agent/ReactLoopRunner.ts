@@ -61,6 +61,7 @@ import { syncDynamicRuntimeExtensions } from './dynamicRuntimeExtensions.js';
 import { isDeferredFinalResponse } from './ResponseCompletionClassifier.js';
 import type { ResponseCompletionHook } from './ResponseCompletionClassifier.js';
 import { evaluateAssistantTurn } from './TurnOutcomeEvaluator.js';
+import { TruncationRecoveryTracker } from './TruncationRecovery.js';
 import {
   WorkspaceChangeCapture,
   WorkspaceChangeCaptureBudgetError,
@@ -73,8 +74,7 @@ import { StreamingResponsePreview } from './StreamingResponsePreview.js';
 import type { RunBudgetGate } from './RunBudget.js';
 
 const COMPLETION_REMINDER_TOOL_BATCH_THRESHOLD = 3;
-const MAX_CONSECUTIVE_TRUNCATION_REPAIRS = 3;
-type ToolFreeRecoveryReason = 'deferred_action' | 'tool_result_integrity';
+const MAX_TOOL_FREE_RECOVERIES = 2;
 
 /**
  * Turns provider retry events into a visible countdown. The periodic status renderer rewrites
@@ -249,7 +249,7 @@ export interface ReactLoopControl {
 
 export type ReactLoopResult =
   | { status: 'completed' }
-  | { status: 'incomplete'; reason: 'iteration_limit' }
+  | { status: 'incomplete'; reason: 'iteration_limit' | 'pending_todos' }
   | { status: 'stopped'; stepNumber: number }
   | { status: 'aborted' };
 
@@ -557,28 +557,29 @@ export async function runAgentReactLoop(
     let expectedOutboundToolResultIds: string[] = [];
     let invalidDeferredActionCount = 0;
     let consecutiveEmptyResponseCount = 0;
-    let consecutiveTruncationCount = 0;
+    const truncationRecovery = new TruncationRecoveryTracker();
     let consecutiveSuccessfulToolBatches = 0;
     let completionReminderSent = false;
-    let pendingToolFreeRecovery: ToolFreeRecoveryReason | undefined;
+    let pendingToolFreeRecovery = false;
+    let toolFreeRecoveryCount = 0;
     let invalidLoopGuardFinalCount = 0;
+    let pendingTodoReminderSent = false;
 
     const renderFinalResponse = (
       response: string,
-      options: { thought?: string; usedThoughtAsResponse: boolean },
+      options: { thought?: string } = {},
     ): void => {
       host.stopStatusUpdates();
       consecutiveEmptyResponseCount = 0;
       host.lastAssistantResponseForNotification = response;
 
-      const suppressThinking = options.usedThoughtAsResponse && response.length > 0;
-      if (options.thought && !suppressThinking) {
+      if (options.thought) {
         host.emitOutput({ type: 'thinking', thought: options.thought });
       }
       host.emitOutput({ type: 'message', content: response });
 
       if (host.inkRenderer) {
-        if (showThinking && options.thought && !suppressThinking) {
+        if (showThinking && options.thought) {
           host.inkRenderer.setThinking(options.thought);
         }
         host.inkRenderer.setElapsed(formatElapsedTime(host.taskStartedAt ?? host.sessionStartedAt));
@@ -591,15 +592,11 @@ export async function runAgentReactLoop(
       } else {
         host.runtime.spinner?.stop();
         if (!host.runtime.commandOutputCaptured) {
-          if (showThinking && options.thought && !suppressThinking) {
+          if (showThinking && options.thought) {
             console.log(chalk.gray(`Thinking: ${options.thought}`));
             console.log();
           }
-          if (options.usedThoughtAsResponse) {
-            console.log(chalk.gray('Thinking: ') + response);
-          } else {
-            console.log(response);
-          }
+          console.log(response);
         }
       }
     };
@@ -666,10 +663,9 @@ export async function runAgentReactLoop(
       // Set whenever the loop deliberately removes tools for a recovery turn:
       // the assistant physically cannot emit a tool call, so announcing a next
       // step is narration rather than a deferred action worth rejecting.
-      let activeToolFreeRecovery = pendingToolFreeRecovery;
-      pendingToolFreeRecovery = undefined;
+      let toolsWithheldForRecovery = pendingToolFreeRecovery;
+      pendingToolFreeRecovery = false;
       const toolsWithheldByLoopGuard = loopGuard.isForcingFinalResponse();
-      let toolsWithheldForRecovery = activeToolFreeRecovery !== undefined;
       if (toolsWithheldByLoopGuard || toolsWithheldForRecovery) {
         tools = [];
       }
@@ -710,7 +706,6 @@ export async function runAgentReactLoop(
         if (!integrity.ok) {
           tools = [];
           toolsWithheldForRecovery = true;
-          activeToolFreeRecovery = 'tool_result_integrity';
           const integrityNote =
             '[Tool Result Integrity] One or more prior tool results were not available in the outbound provider payload. ' +
             'Tools have been disabled for this recovery response. Do not retry the calls; explain the integrity failure ' +
@@ -878,7 +873,6 @@ export async function runAgentReactLoop(
 
       if (turnOutcome.type === 'repair') {
         if (turnOutcome.reason === 'truncated_response') {
-          consecutiveTruncationCount += 1;
           const partialContent = completion.content.trim();
           if (partialContent) {
             host.conversation.addMessage({
@@ -889,26 +883,28 @@ export async function runAgentReactLoop(
             host.updateContextUsage(host.conversation.history(), tools);
           }
 
-          if (consecutiveTruncationCount >= MAX_CONSECUTIVE_TRUNCATION_REPAIRS) {
-            const truncationFailure =
-              'The provider truncated three consecutive responses. I stopped without marking the task complete so partial output is not mistaken for a finished result. Please retry with a narrower requested output or a model with a larger output limit.';
-            renderFinalResponse(truncationFailure, { usedThoughtAsResponse: false });
-            throw new LoopAbortedError('The provider truncated three consecutive responses');
+          const truncationDecision = truncationRecovery.observeTruncation(turnOutcome.instruction);
+          if (truncationDecision.type === 'exhausted') {
+            renderFinalResponse(
+              `The provider ${truncationDecision.summary}. I stopped without marking the task complete so partial output is not mistaken for a finished result. Please retry with a narrower requested output or a model with a larger output limit.`,
+            );
+            throw new LoopAbortedError(`The provider ${truncationDecision.summary}`);
           }
-
-          const conciseInstruction = consecutiveTruncationCount > 1
-            ? ' Keep the complete replacement under 1,000 tokens.'
-            : '';
-          host.conversation.addSystemNote(
-            `${turnOutcome.instruction} Recovery ${consecutiveTruncationCount}/${MAX_CONSECUTIVE_TRUNCATION_REPAIRS}.${conciseInstruction}`
-          );
+          host.conversation.addSystemNote(truncationDecision.note);
           continue;
         }
 
-        consecutiveTruncationCount = 0;
+        truncationRecovery.observeCompleteResponse();
         if (turnOutcome.reason === 'invalid_deferred_action') {
           if (toolsWithheldForRecovery) {
             invalidDeferredActionCount = 0;
+            if (toolFreeRecoveryCount >= MAX_TOOL_FREE_RECOVERIES) {
+              renderFinalResponse(
+                `The model kept announcing steps instead of executing them through ${MAX_TOOL_FREE_RECOVERIES} tool-free recoveries. `
+                + 'I stopped without marking the task complete so the narrated plan is not mistaken for a finished result.',
+              );
+              throw new LoopAbortedError('Tool-free recovery limit exceeded');
+            }
             host.conversation.addSystemNote(
               '[System] RECOVERY: The tool-free recovery response still described unfinished work. '
               + 'Tool access is restored for the next response. Emit the required tool call, or provide a complete answer now.'
@@ -935,7 +931,8 @@ export async function runAgentReactLoop(
           }
 
           invalidDeferredActionCount = 0;
-          pendingToolFreeRecovery = 'deferred_action';
+          pendingToolFreeRecovery = true;
+          toolFreeRecoveryCount += 1;
           host.conversation.addSystemNote(
             '[System] RECOVERY: You twice announced an action without emitting a tool call. ' +
             'Tools are unavailable for one recovery response. Do not narrate another action, progress update, ' +
@@ -953,9 +950,7 @@ export async function runAgentReactLoop(
             console.log(chalk.yellow('\n⚠ Model not providing response after multiple attempts. Showing available context.'));
             const fallback = 'The model did not provide a clear response. Please try rephrasing your question.';
             host.setComposerIdle();
-            renderFinalResponse(fallback, {
-              usedThoughtAsResponse: false,
-            });
+            renderFinalResponse(fallback);
             throw new LoopAbortedError('Model produced empty responses after multiple attempts');
           }
         }
@@ -965,7 +960,7 @@ export async function runAgentReactLoop(
       }
 
       consecutiveEmptyResponseCount = 0;
-      consecutiveTruncationCount = 0;
+      truncationRecovery.observeCompleteResponse();
       invalidDeferredActionCount = 0;
       const assistantToolCalls = resolveAssistantToolCalls(
         completion.toolCalls,
@@ -1028,7 +1023,7 @@ export async function runAgentReactLoop(
         requireExplicitReflection: !supportsNativeToolCalling,
       });
       if (reflectionDecision.type === 'integrity_failure' && payload.toolCalls?.length) {
-        pendingToolFreeRecovery = 'tool_result_integrity';
+        pendingToolFreeRecovery = true;
         const integrityMessage =
           '[Tool Result Integrity] The assistant reported that prior tool results were unavailable. ' +
           'The proposed follow-up tools were not executed to prevent a blind retry loop. ' +
@@ -1465,6 +1460,7 @@ export async function runAgentReactLoop(
 
         if (stepResults.length > 0 && stepResults.every((result) => result.success)) {
           consecutiveSuccessfulToolBatches += 1;
+          toolFreeRecoveryCount = 0;
         } else {
           consecutiveSuccessfulToolBatches = 0;
         }
@@ -1541,16 +1537,18 @@ export async function runAgentReactLoop(
       }
       if ((await host.peerCommunicationRuntime?.finishTurn())?.continueTurn) continue;
       if (host.hasIncompleteTodoActivity?.()) {
-        host.conversation.addSystemNote(
-          '[Completion Check] The current turn still has unfinished todo items. '
-          + 'Continue the work and update the todo list explicitly before providing a final answer.'
-        );
-        continue;
+        if (!pendingTodoReminderSent && !toolsWithheldByLoopGuard) {
+          pendingTodoReminderSent = true;
+          host.conversation.addSystemNote(
+            '[Completion Check] The current turn still has unfinished todo items. '
+            + 'Continue the work and update the todo list explicitly before providing a final answer.'
+          );
+          continue;
+        }
+        renderFinalResponse(turnOutcome.response, { thought: payload.thought });
+        return { status: 'incomplete', reason: 'pending_todos' };
       }
-      renderFinalResponse(turnOutcome.response, {
-        thought: payload.thought,
-        usedThoughtAsResponse: turnOutcome.usedThoughtAsResponse,
-      });
+      renderFinalResponse(turnOutcome.response, { thought: payload.thought });
       return { status: 'completed' };
     }
     if (abortController.signal.aborted) {

@@ -34,6 +34,11 @@ import {
   markDeepResearchRunStarted,
 } from '../../deepResearch/session.js';
 
+const INCOMPLETE_LOOP_REASONS: Record<Extract<ReactLoopResult, { status: 'incomplete' }>['reason'], string> = {
+  iteration_limit: 'The agent loop reached its iteration limit before completion',
+  pending_todos: 'The turn ended with unfinished todo items',
+};
+
 interface InstructionConversation {
   addMessage(message: { role: 'user'; content: string }): void;
   addSystemNote(content: string, label?: string): void;
@@ -169,7 +174,6 @@ export interface AgentInstructionHost {
   emitOutput(event: AgentOutputEvent): void;
   printCompletionSummary(regionsStillActive: boolean, succeeded?: boolean): void;
   beginTodoActivityTurn?(): void;
-  completeTodoActivityForSuccessfulTurn?(): Promise<boolean>;
   clearActivityForCompletedTurn?(): void;
   scheduleTurnMemoryReflection(outcome: TurnMemoryReflectionOutcome): void;
   writeDebugLine?(message: string): void;
@@ -412,6 +416,12 @@ export class InstructionRunner {
     ): void => {
       failureOutcome ??= { status: 'failed', category, reason };
     };
+    const recordIncompleteLoop = (result: Extract<ReactLoopResult, { status: 'incomplete' }>): false => {
+      success = false;
+      recordReflectionFailure('incomplete', INCOMPLETE_LOOP_REASONS[result.reason]);
+      host.clearActivityForCompletedTurn?.();
+      return false;
+    };
     const finalizeResearchForTurn = async (turnSucceeded: boolean): Promise<boolean> => {
       const finalized = await finalizeResearch(turnSucceeded);
       if (turnSucceeded && !finalized) {
@@ -528,13 +538,7 @@ export class InstructionRunner {
       }
 
       if (loopResult.status === 'incomplete') {
-        success = false;
-        recordReflectionFailure(
-          'incomplete',
-          'The agent loop reached its iteration limit before completion',
-        );
-        host.clearActivityForCompletedTurn?.();
-        return false;
+        return recordIncompleteLoop(loopResult);
       }
 
       if (host.lastIntent === 'implementation' && host.filesModifiedThisSession) {
@@ -561,9 +565,6 @@ export class InstructionRunner {
         }
       }
       success = await finalizeResearchForTurn(success);
-      if (success) {
-        await host.completeTodoActivityForSuccessfulTurn?.();
-      }
       // The task panel describes this turn; once the turn is over, an
       // "in progress" entry would otherwise sit above the composer forever.
       host.clearActivityForCompletedTurn?.();
@@ -647,13 +648,7 @@ export class InstructionRunner {
               return true;
             }
             if (retryResult.status === 'incomplete') {
-              success = false;
-              recordReflectionFailure(
-                'incomplete',
-                'The agent loop reached its iteration limit before completion',
-              );
-              host.clearActivityForCompletedTurn?.();
-              return false;
+              return recordIncompleteLoop(retryResult);
             }
 
             // If we get here, retry succeeded - reset counter
@@ -661,7 +656,6 @@ export class InstructionRunner {
             success = true;
             success = await finalizeResearchForTurn(success);
             if (success) {
-              await host.completeTodoActivityForSuccessfulTurn?.();
               host.clearActivityForCompletedTurn?.();
             }
             return success;

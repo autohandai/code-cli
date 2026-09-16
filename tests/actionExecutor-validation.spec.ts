@@ -334,12 +334,11 @@ describe('actionExecutor input validation', () => {
           { content: 'Finish the implementation', status: 'in_progress' as const, activeForm: 'Finishing the implementation' },
           { content: 'Run proof', status: 'pending' as const, activeForm: 'Running proof' },
         ],
-      } as any);
+      });
 
       onActivityTodosUpdated.mockClear();
       mockFileActionManager.writeFile.mockClear();
 
-      await expect(executor.completeTodoActivityForSuccessfulTurn()).resolves.toBe(false);
       expect(mockFileActionManager.writeFile).not.toHaveBeenCalled();
       expect(onActivityTodosUpdated).not.toHaveBeenCalled();
     });
@@ -354,19 +353,17 @@ describe('actionExecutor input validation', () => {
           { content: 'Verify the task panel', status: 'completed' as const, activeForm: 'Verifying the task panel' },
           { content: 'Report the task result', status: 'in_progress' as const, activeForm: 'Reporting the task result' },
         ],
-      } as any);
+      });
 
       onActivityTodosUpdated.mockClear();
       mockFileActionManager.writeFile.mockClear();
 
       expect(executor.hasIncompleteTodoActivity()).toBe(true);
-      await expect(executor.completeTodoActivityForSuccessfulTurn()).resolves.toBe(false);
       expect(mockFileActionManager.writeFile).not.toHaveBeenCalled();
       expect(onActivityTodosUpdated).not.toHaveBeenCalled();
 
       executor.beginTodoActivityTurn();
       expect(executor.hasIncompleteTodoActivity()).toBe(false);
-      await expect(executor.completeTodoActivityForSuccessfulTurn()).resolves.toBe(false);
     });
 
     it('publishes the complete normalized task list to the sticky activity surface', async () => {

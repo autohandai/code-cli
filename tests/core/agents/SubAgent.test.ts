@@ -366,6 +366,34 @@ describe('SubAgent', () => {
     }
   });
 
+  it('fails explicitly after bounded consecutive truncation repairs', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const complete = vi.fn()
+      .mockResolvedValueOnce({ content: 'First fragment.', finishReason: 'length' as const })
+      .mockResolvedValueOnce({ content: 'Second fragment.', finishReason: 'length' as const })
+      .mockResolvedValueOnce({ content: 'Third fragment.', finishReason: 'length' as const })
+      .mockResolvedValueOnce({ content: 'Unreachable complete result.' });
+    const agent = new SubAgent({
+      name: 'writer', description: 'Write result', systemPrompt: 'Produce a complete result.',
+      tools: [], path: '/tmp/writer.md',
+    }, {
+      getName: () => 'autohandai', complete,
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, {} as ActionExecutor, { clientContext: 'cli', depth: 1, maxDepth: 1 });
+
+    try {
+      await expect(agent.run('Write the result')).rejects.toThrow(/truncated 3 consecutive responses/i);
+      expect(complete).toHaveBeenCalledTimes(3);
+      const secondRecoveryNote = (complete.mock.calls[2]?.[0]?.messages as Array<{ role: string; content: string }>)
+        .filter((message) => message.role === 'system')
+        .at(-1);
+      expect(secondRecoveryNote?.content).toContain('Recovery 2/3');
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it('rejects reasoning-only output instead of exposing it as a delegated result', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const complete = vi.fn()

@@ -43,6 +43,7 @@ import {
     ToolReflectionGuard,
 } from '../agent/ToolLoopPolicy.js';
 import { evaluateAssistantTurn } from '../agent/TurnOutcomeEvaluator.js';
+import { TruncationRecoveryTracker } from '../agent/TruncationRecovery.js';
 import { DEFAULT_RESPONSE_COMPLETION_HOOKS } from '../agent/ResponseCompletionClassifier.js';
 
 /**
@@ -385,7 +386,7 @@ export class SubAgent {
         const reflectionGuard = new ToolReflectionGuard();
         let withholdToolsNextRequest = false;
         let consecutiveRepairCount = 0;
-        let consecutiveTruncationCount = 0;
+        const truncationRecovery = new TruncationRecoveryTracker();
         const maxIterations = 10;
         for (let i = 0; i < maxIterations; i++) {
             options.signal?.throwIfAborted();
@@ -440,26 +441,21 @@ export class SubAgent {
 
             if (turnOutcome.type === 'repair') {
                 if (turnOutcome.reason === 'truncated_response') {
-                    consecutiveTruncationCount += 1;
                     consecutiveRepairCount = 0;
                     if (completion.content.trim()) {
                         this.conversation.addMessage({ role: 'assistant', content: completion.content });
                     }
-                    if (consecutiveTruncationCount >= 3) {
+                    const truncationDecision = truncationRecovery.observeTruncation(turnOutcome.instruction);
+                    if (truncationDecision.type === 'exhausted') {
                         throw new SubAgentExecutionError(
-                            `[${this.name}] Provider truncated three consecutive responses before the delegated task completed.`,
+                            `[${this.name}] Provider ${truncationDecision.summary} before the delegated task completed.`,
                         );
                     }
-                    const conciseInstruction = consecutiveTruncationCount > 1
-                        ? ' Keep the complete replacement under 1,000 tokens.'
-                        : '';
-                    this.conversation.addSystemNote(
-                        `${turnOutcome.instruction} Recovery ${consecutiveTruncationCount}/3.${conciseInstruction}`,
-                    );
+                    this.conversation.addSystemNote(truncationDecision.note);
                     continue;
                 }
 
-                consecutiveTruncationCount = 0;
+                truncationRecovery.observeCompleteResponse();
                 consecutiveRepairCount += 1;
                 if (consecutiveRepairCount >= 3) {
                     throw new SubAgentExecutionError(
@@ -471,7 +467,7 @@ export class SubAgent {
             }
 
             consecutiveRepairCount = 0;
-            consecutiveTruncationCount = 0;
+            truncationRecovery.observeCompleteResponse();
 
             // Preserve native tool_calls on the assistant turn so Responses API
             // providers (xAI OAuth / Grok 4.5) can continue multi-turn tool use.

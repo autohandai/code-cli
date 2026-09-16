@@ -409,50 +409,95 @@ describe('InstructionRunner command mode UI', () => {
     });
   });
 
-  it('clears sticky activity after a successful turn reaches final completion', async () => {
+  it('records unfinished todos as failed reflection evidence when the loop ends with pending items', async () => {
     const host = createHost();
-    const completeTodoActivityForSuccessfulTurn = vi.fn(async () => true);
-    const clearActivityForCompletedTurn = vi.fn();
-    const activityHost = host as AgentInstructionHost & {
-      completeTodoActivityForSuccessfulTurn: () => Promise<boolean>;
-      clearActivityForCompletedTurn: () => void;
+    host.runtime = {
+      ...host.runtime,
+      options: {},
+      isCommandMode: false,
     };
-    activityHost.completeTodoActivityForSuccessfulTurn = completeTodoActivityForSuccessfulTurn;
-    activityHost.clearActivityForCompletedTurn = clearActivityForCompletedTurn;
+    host.runReactLoop = vi.fn(async () => ({
+      status: 'incomplete',
+      reason: 'pending_todos',
+    } as never));
 
-    await expect(new InstructionRunner(activityHost).run('finish the active task')).resolves.toBe(true);
+    await expect(new InstructionRunner(host).run('finish the active task')).resolves.toBe(false);
 
-    expect(completeTodoActivityForSuccessfulTurn).toHaveBeenCalledOnce();
-    expect(clearActivityForCompletedTurn).toHaveBeenCalledOnce();
+    expect(host.scheduleTurnMemoryReflection).toHaveBeenCalledWith({
+      status: 'failed',
+      category: 'incomplete',
+      reason: 'The turn ended with unfinished todo items',
+    });
+  });
+
+  it('records an incomplete loop reached through session retry as failed reflection evidence', async () => {
+    const host = createHost();
+    host.runtime = {
+      ...host.runtime,
+      options: {},
+      isCommandMode: false,
+      config: {
+        ...host.runtime.config,
+        agent: { enableRequestQueue: true, sessionRetryLimit: 3, sessionRetryDelay: 0 },
+      },
+    };
+    host.isRetryableSessionError = vi.fn(() => true);
+    host.shouldUsePassiveSessionRetry = vi.fn(() => true);
+    const clearActivityForCompletedTurn = vi.fn();
+    (host as AgentInstructionHost & { clearActivityForCompletedTurn: () => void })
+      .clearActivityForCompletedTurn = clearActivityForCompletedTurn;
+    host.runReactLoop = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('provider timeout'))
+      .mockResolvedValueOnce({ status: 'incomplete', reason: 'iteration_limit' });
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    try {
+      await expect(new InstructionRunner(host).run('finish the active task')).resolves.toBe(false);
+
+      expect(host.runReactLoop).toHaveBeenCalledTimes(2);
+      expect(host.scheduleTurnMemoryReflection).toHaveBeenCalledWith({
+        status: 'failed',
+        category: 'incomplete',
+        reason: 'The agent loop reached its iteration limit before completion',
+      });
+      expect(clearActivityForCompletedTurn).toHaveBeenCalledOnce();
+    } finally {
+      consoleLogSpy.mockRestore();
+    }
   });
 
   function createActivityHost() {
     const host = createHost();
-    const completeTodoActivityForSuccessfulTurn = vi.fn(async () => true);
     const clearActivityForCompletedTurn = vi.fn();
     const activityHost = host as AgentInstructionHost & {
-      completeTodoActivityForSuccessfulTurn: () => Promise<boolean>;
       clearActivityForCompletedTurn: () => void;
     };
-    activityHost.completeTodoActivityForSuccessfulTurn = completeTodoActivityForSuccessfulTurn;
     activityHost.clearActivityForCompletedTurn = clearActivityForCompletedTurn;
-    return { host: activityHost, completeTodoActivityForSuccessfulTurn, clearActivityForCompletedTurn };
+    return { host: activityHost, clearActivityForCompletedTurn };
   }
 
+  it('clears sticky activity after a successful turn reaches final completion', async () => {
+    const { host, clearActivityForCompletedTurn } = createActivityHost();
+
+    await expect(new InstructionRunner(host).run('finish the active task')).resolves.toBe(true);
+
+    expect(clearActivityForCompletedTurn).toHaveBeenCalledOnce();
+  });
+
   it('clears sticky activity after a turn fails so in-progress tasks do not linger', async () => {
-    const { host, completeTodoActivityForSuccessfulTurn, clearActivityForCompletedTurn } = createActivityHost();
+    const { host, clearActivityForCompletedTurn } = createActivityHost();
     host.runReactLoop = vi.fn(async () => {
       throw new Error('provider returned 500');
     });
 
     await expect(new InstructionRunner(host).run('finish the active task')).resolves.toBe(false);
 
-    expect(completeTodoActivityForSuccessfulTurn).not.toHaveBeenCalled();
     expect(clearActivityForCompletedTurn).toHaveBeenCalledOnce();
   });
 
   it('clears sticky activity when the user cancels the turn', async () => {
-    const { host, completeTodoActivityForSuccessfulTurn, clearActivityForCompletedTurn } = createActivityHost();
+    const { host, clearActivityForCompletedTurn } = createActivityHost();
     host.runReactLoop = vi.fn(async (controller: AbortController) => {
       controller.abort();
       throw new Error('aborted');
@@ -460,7 +505,6 @@ describe('InstructionRunner command mode UI', () => {
 
     await expect(new InstructionRunner(host).run('finish the active task')).resolves.toBe(false);
 
-    expect(completeTodoActivityForSuccessfulTurn).not.toHaveBeenCalled();
     expect(clearActivityForCompletedTurn).toHaveBeenCalledOnce();
   });
 

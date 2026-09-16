@@ -39,7 +39,6 @@ export type TurnOutcome =
   | {
       type: 'finish';
       response: string;
-      usedThoughtAsResponse: boolean;
       saveAssistantMessage: true;
     };
 
@@ -65,22 +64,19 @@ function extractUsableResponse({
   completion,
   payload,
   cleanupModelResponse,
-}: TurnOutcomeInput): { response: string; usedThoughtAsResponse: boolean } {
+}: TurnOutcomeInput): string {
   const cleanedContent = cleanupModelResponse(completion.content);
   const rawResponse = payload.finalResponse ??
     payload.response ??
     (cleanedContent.startsWith('{') ? '' : cleanedContent);
 
-  return {
-    response: cleanupModelResponse(rawResponse.trim()),
-    usedThoughtAsResponse: false,
-  };
+  return cleanupModelResponse(rawResponse.trim());
 }
 
 export function evaluateAssistantTurn(input: TurnOutcomeInput): TurnOutcome {
   const { completion, payload, responseCompletionHooks } = input;
   const toolCalls = payload.toolCalls ?? [];
-  const { response, usedThoughtAsResponse } = extractUsableResponse(input);
+  const response = extractUsableResponse(input);
 
   if (completion.finishReason === 'length') {
     return {
@@ -136,7 +132,6 @@ export function evaluateAssistantTurn(input: TurnOutcomeInput): TurnOutcome {
   return {
     type: 'finish',
     response,
-    usedThoughtAsResponse,
     saveAssistantMessage: true,
   };
 }

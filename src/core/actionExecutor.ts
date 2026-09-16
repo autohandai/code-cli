@@ -408,10 +408,6 @@ export class ActionExecutor {
     ) ?? false;
   }
 
-  async completeTodoActivityForSuccessfulTurn(): Promise<boolean> {
-    return false;
-  }
-
   private createGoalManager(): GoalManager {
     return new GoalManager(this.runtime.workspaceRoot, {
       sessionId: this.deps.getCurrentSessionId?.() ?? this.sessionId,

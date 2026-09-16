@@ -584,7 +584,7 @@ describe('Reflection guard integration', () => {
     ]);
 
     await expect(runAgentReactLoop(host, new AbortController())).rejects.toThrow(
-      /truncated three consecutive responses/i,
+      /truncated 3 consecutive responses/i,
     );
 
     expect(complete).toHaveBeenCalledTimes(3);
@@ -609,6 +609,124 @@ describe('Reflection guard integration', () => {
     expect(complete).toHaveBeenCalledTimes(2);
     expect(systemNotes.some((note) => note.includes('unfinished todo'))).toBe(true);
     expect(emittedMessages).toEqual(['The todos are complete and the work is verified.']);
+  });
+
+  it('ends the turn as incomplete instead of looping when todos stay unfinished after the completion check', async () => {
+    const { host, complete, systemNotes, emittedMessages } = createReactLoopHarness(
+      [
+        { content: 'The work is done.' },
+        { content: 'The implementation is in place; two todo items remain open.' },
+      ],
+      { hasIncompleteTodoActivity: () => true },
+    );
+
+    const result = await runAgentReactLoop(host, new AbortController());
+
+    expect(complete).toHaveBeenCalledTimes(2);
+    expect(systemNotes.filter((note) => note.includes('unfinished todo'))).toHaveLength(1);
+    expect(emittedMessages).toEqual(['The implementation is in place; two todo items remain open.']);
+    expect(result).toEqual({ status: 'incomplete', reason: 'pending_todos' });
+  });
+
+  it('does not demand a todo update once the loop guard has withheld tools', async () => {
+    const repeatedRead = (id: string) => ({
+      content: 'Reading the same file again.',
+      toolCalls: [createNativeToolCall(id, 'read_file', { path: 'same.ts' })],
+    });
+    const { host, complete, systemNotes, emittedMessages } = createReactLoopHarness(
+      [
+        repeatedRead('call_1'),
+        repeatedRead('call_2'),
+        repeatedRead('call_3'),
+        { content: 'The same file was read three times and its content is unchanged.' },
+      ],
+      { hasIncompleteTodoActivity: () => true },
+    );
+
+    const result = await runAgentReactLoop(host, new AbortController());
+
+    expect(complete).toHaveBeenCalledTimes(4);
+    expect(complete.mock.calls[3]?.[0]?.tools).toBeUndefined();
+    expect(systemNotes.some((note) => note.includes('unfinished todo'))).toBe(false);
+    expect(emittedMessages).toEqual(['The same file was read three times and its content is unchanged.']);
+    expect(result).toEqual({ status: 'incomplete', reason: 'pending_todos' });
+  });
+
+  it('stops after bounded tool-free recoveries instead of cycling narration until the iteration limit', async () => {
+    const narration = (step: string) => ({ content: `I will ${step} now.` });
+    const { host, complete, emittedMessages } = createReactLoopHarness(
+      [
+        narration('inspect the implementation'),
+        narration('run the focused test'),
+        narration('edit the implementation'),
+        narration('inspect the second file'),
+        narration('run the second test'),
+        narration('edit the second file'),
+        narration('inspect the third file'),
+        narration('run the third test'),
+      ],
+      { responseCompletionHooks: DEFAULT_RESPONSE_COMPLETION_HOOKS },
+    );
+
+    await expect(runAgentReactLoop(host, new AbortController())).rejects.toThrow(
+      /tool-free recover/i,
+    );
+
+    expect(complete).toHaveBeenCalledTimes(6);
+    expect(complete.mock.calls[2]?.[0]?.tools).toBeUndefined();
+    expect(complete.mock.calls[3]?.[0]?.tools).toBeDefined();
+    expect(complete.mock.calls[5]?.[0]?.tools).toBeUndefined();
+    expect(emittedMessages).toContainEqual(expect.stringContaining('without marking the task complete'));
+    expect(emittedMessages).not.toContainEqual(expect.stringMatching(/^I will /));
+  });
+
+  it('asks once more for a complete answer when the loop guard has disabled repeated tools', async () => {
+    const repeatedRead = (id: string) => ({
+      content: 'Reading the same file again.',
+      toolCalls: [createNativeToolCall(id, 'read_file', { path: 'same.ts' })],
+    });
+    const { host, complete, systemNotes, emittedMessages } = createReactLoopHarness(
+      [
+        repeatedRead('call_1'),
+        repeatedRead('call_2'),
+        repeatedRead('call_3'),
+        { content: 'I will read the file one more time now.' },
+        { content: 'The file content is stable across all three reads.' },
+      ],
+      { responseCompletionHooks: DEFAULT_RESPONSE_COMPLETION_HOOKS },
+    );
+
+    await runAgentReactLoop(host, new AbortController());
+
+    expect(complete).toHaveBeenCalledTimes(5);
+    expect(complete.mock.calls[4]?.[0]?.tools).toBeUndefined();
+    expect(systemNotes.some((note) => note.includes('Repeated tools remain disabled'))).toBe(true);
+    expect(emittedMessages).toEqual(['The file content is stable across all three reads.']);
+  });
+
+  it('aborts when the model narrates twice after the loop guard has disabled repeated tools', async () => {
+    const repeatedRead = (id: string) => ({
+      content: 'Reading the same file again.',
+      toolCalls: [createNativeToolCall(id, 'read_file', { path: 'same.ts' })],
+    });
+    const { host, complete, emittedMessages } = createReactLoopHarness(
+      [
+        repeatedRead('call_1'),
+        repeatedRead('call_2'),
+        repeatedRead('call_3'),
+        { content: 'I will read the file one more time now.' },
+        { content: 'I will check the reads once more now.' },
+        { content: 'Unreachable final answer.' },
+      ],
+      { responseCompletionHooks: DEFAULT_RESPONSE_COMPLETION_HOOKS },
+    );
+
+    await expect(runAgentReactLoop(host, new AbortController())).rejects.toThrow(
+      /repeated-tool loop guard/i,
+    );
+
+    expect(complete).toHaveBeenCalledTimes(5);
+    expect(emittedMessages).not.toContain('Unreachable final answer.');
   });
 
   it('promotes legacy JSON tool calls into valid native history before the next reflection', async () => {

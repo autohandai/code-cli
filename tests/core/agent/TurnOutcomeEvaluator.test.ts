@@ -128,7 +128,6 @@ describe('TurnOutcomeEvaluator', () => {
     expect(result).toEqual({
       type: 'finish',
       response: 'I should inspect the codebase structure before answering.',
-      usedThoughtAsResponse: false,
       saveAssistantMessage: true,
     });
   });
@@ -169,7 +168,6 @@ describe('TurnOutcomeEvaluator', () => {
     expect(result).toEqual({
       type: 'finish',
       response: 'The repo is a TypeScript CLI with src and tests.',
-      usedThoughtAsResponse: false,
       saveAssistantMessage: true,
     });
   });

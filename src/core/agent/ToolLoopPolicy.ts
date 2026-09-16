@@ -97,10 +97,6 @@ export class ToolLoopGuard {
     return this.forceFinal;
   }
 
-  forceFinalResponse(): void {
-    this.forceFinal = true;
-  }
-
   observeCalls(calls: ToolCallRequest[]): ToolLoopCallDecision {
     const signature = buildToolLoopCallSignature(calls);
     if (signature === this.lastCallSignature) {

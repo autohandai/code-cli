@@ -1312,10 +1312,6 @@ export class AutohandAgent {
     this.actionExecutor?.beginTodoActivityTurn();
   }
 
-  private async completeTodoActivityForSuccessfulTurn(): Promise<boolean> {
-    return this.actionExecutor?.completeTodoActivityForSuccessfulTurn() ?? false;
-  }
-
   private hasIncompleteTodoActivity(): boolean {
     return this.actionExecutor?.hasIncompleteTodoActivity() ?? false;
   }
