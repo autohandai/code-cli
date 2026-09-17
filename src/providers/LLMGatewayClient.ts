@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type {
+import { recordRateLimitHeaders } from './rateLimitHeaders.js';
   LLMRequest,
   LLMResponse,
   LLMToolCall,
@@ -469,6 +470,11 @@ export class LLMGatewayClient {
     if (!response.ok) {
       throw await this.buildFriendlyError(response);
     }
+
+    // The response is in hand and about to be read for content; keep what it
+    // said about the account first. classifyApiError already understands these
+    // headers, but only sees them once a request has been refused.
+    recordRateLimitHeaders(this.baseUrl, response.headers);
 
     // Inspection gateways can explicitly return buffered JSON even for stream:true.
     // Preserve that response without inventing incremental deltas or retrying billed work.
