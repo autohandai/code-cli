@@ -709,6 +709,20 @@ describe("SetupWizard", () => {
   });
 
   describe("Telemetry Preference", () => {
+    it("discloses pseudonymous identifiers and free-form diagnostic risk without absolute privacy claims", async () => {
+      const wizard = new SetupWizard(testWorkspace);
+      setupLocalProviderMocks("ollama", "llama3.2:latest");
+
+      await wizard.run({ skipWelcome: true });
+
+      const output = vi.mocked(console.log).mock.calls.flat().join("\n");
+      expect(output).toContain("persistent pseudonymous device and session IDs");
+      expect(output).toContain("Error and status text can contain sensitive information");
+      expect(output).toContain("Path sanitization is not a general secret detector");
+      expect(output).not.toContain("What we never collect:");
+      expect(output).not.toContain("What we never report:");
+    });
+
     it("should save telemetry enabled preference", async () => {
       const wizard = new SetupWizard(testWorkspace);
       setupLocalProviderMocks("ollama", "llama3.2:latest");
@@ -716,6 +730,29 @@ describe("SetupWizard", () => {
       const result = await wizard.run({ skipWelcome: true });
 
       expect(result.config.telemetry?.enabled).toBe(true);
+      expect(result.config.telemetry?.enableSessionSync).toBe(false);
+      expect(result.config.traces).toEqual({
+        enabled: false,
+        cloudSync: false,
+        contentMode: 'metadata',
+        discoveryMap: false,
+      });
+    });
+
+    it("persists separate full-content trace consent without enabling legacy session sync", async () => {
+      const wizard = new SetupWizard(testWorkspace);
+      setupLocalProviderMocks("ollama", "llama3.2:latest");
+      mockShowModal.mockResolvedValueOnce({ value: 'cloud-full' });
+
+      const result = await wizard.run({ skipWelcome: true });
+
+      expect(result.config.traces).toEqual({
+        enabled: true,
+        cloudSync: true,
+        contentMode: 'full',
+        discoveryMap: true,
+      });
+      expect(result.config.telemetry?.enableSessionSync).toBe(false);
     });
 
     it("should save telemetry disabled preference", async () => {
@@ -724,7 +761,8 @@ describe("SetupWizard", () => {
       mockShowModal
         .mockResolvedValueOnce({ value: "en" })
         .mockResolvedValueOnce({ value: "ollama" })
-        .mockResolvedValueOnce({ value: "interactive" });
+        .mockResolvedValueOnce({ value: "interactive" })
+        .mockResolvedValueOnce({ value: "disabled" }); // trace consent
       mockShowInput.mockResolvedValueOnce("llama3.2:latest");
       mockShowConfirm
         .mockResolvedValueOnce(true) // remember
@@ -759,7 +797,8 @@ describe("SetupWizard", () => {
       mockShowModal
         .mockResolvedValueOnce({ value: "en" })
         .mockResolvedValueOnce({ value: "ollama" })
-        .mockResolvedValueOnce({ value: "interactive" });
+        .mockResolvedValueOnce({ value: "interactive" })
+        .mockResolvedValueOnce({ value: "disabled" }); // trace consent
       mockShowInput.mockResolvedValueOnce("llama3.2:latest");
       mockShowConfirm
         .mockResolvedValueOnce(true) // remember
@@ -812,7 +851,8 @@ describe("SetupWizard", () => {
       mockShowModal
         .mockResolvedValueOnce({ value: "en" })
         .mockResolvedValueOnce({ value: "ollama" })
-        .mockResolvedValueOnce({ value: "interactive" });
+        .mockResolvedValueOnce({ value: "interactive" })
+        .mockResolvedValueOnce({ value: "disabled" }); // trace consent
       mockShowInput.mockResolvedValueOnce("llama3.2:latest");
       mockShowConfirm
         .mockResolvedValueOnce(true) // remember
@@ -1506,7 +1546,8 @@ describe("SetupWizard", () => {
       mockShowModal
         .mockResolvedValueOnce({ value: "en" })
         .mockResolvedValueOnce({ value: "ollama" })
-        .mockResolvedValueOnce({ value: "interactive" });
+        .mockResolvedValueOnce({ value: "interactive" })
+        .mockResolvedValueOnce({ value: "disabled" }); // trace consent
       mockShowInput.mockResolvedValueOnce("llama3.2:latest");
       mockShowConfirm
         .mockResolvedValueOnce(true) // remember
@@ -1554,7 +1595,8 @@ describe("SetupWizard", () => {
       mockShowModal
         .mockResolvedValueOnce({ value: "en" })
         .mockResolvedValueOnce({ value: "ollama" })
-        .mockResolvedValueOnce({ value: "interactive" });
+        .mockResolvedValueOnce({ value: "interactive" })
+        .mockResolvedValueOnce({ value: "disabled" }); // trace consent
       mockShowInput.mockResolvedValueOnce("llama3.2:latest");
       mockShowConfirm
         .mockResolvedValueOnce(true) // remember
@@ -1618,7 +1660,8 @@ describe("SetupWizard", () => {
       mockShowModal
         .mockResolvedValueOnce({ value: "de" }) // language
         .mockResolvedValueOnce({ value: "ollama" }) // provider
-        .mockResolvedValueOnce({ value: "restricted" }); // permissions
+        .mockResolvedValueOnce({ value: "restricted" }) // permissions
+        .mockResolvedValueOnce({ value: "disabled" }); // trace consent
       mockShowInput.mockResolvedValueOnce("llama3.2:latest");
       mockShowConfirm
         .mockResolvedValueOnce(true) // remember
@@ -1702,6 +1745,7 @@ describe("SetupWizard", () => {
         .mockResolvedValueOnce({ value: "en" }) // language
         .mockResolvedValueOnce({ value: "openrouter" }) // provider
         .mockResolvedValueOnce({ value: "interactive" }) // permissions
+        .mockResolvedValueOnce({ value: "disabled" }) // trace consent
         .mockResolvedValueOnce({ value: options.profile }); // keyboard shortcuts
       mockShowPassword.mockResolvedValueOnce("sk-test-key-long-enough");
       mockShowInput.mockResolvedValueOnce("your-modelcard-id-here");
@@ -1727,7 +1771,7 @@ describe("SetupWizard", () => {
       });
 
       expect(result.success).toBe(true);
-      expect(mockShowModal).toHaveBeenCalledTimes(3);
+      expect(mockShowModal).toHaveBeenCalledTimes(4);
       expect(result.skippedSteps).toEqual(expect.arrayContaining(["keybindings", "importAgents"]));
       expect(result.config.ui?.keybindingProfile).toBeUndefined();
     });
@@ -1744,7 +1788,7 @@ describe("SetupWizard", () => {
       });
 
       expect(result.success).toBe(true);
-      const keybindingsCall = mockShowModal.mock.calls[3]?.[0] as { options: Array<{ value: string }> };
+      const keybindingsCall = mockShowModal.mock.calls[4]?.[0] as { options: Array<{ value: string }> };
       expect(keybindingsCall.options.map((option) => option.value)).toEqual(["autohand", "claude-code", "devin"]);
       expect(result.config.ui?.keybindingProfile).toBe("claude-code");
       expect(runImport).not.toHaveBeenCalled();

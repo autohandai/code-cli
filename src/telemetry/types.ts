@@ -59,7 +59,7 @@ export interface TelemetryConfig {
   maxQueueSize: number;
   /** Retry attempts for failed requests */
   maxRetries: number;
-  /** Include session data for cloud sync */
+  /** Upload full session content to cloud. Requires telemetry to be enabled. */
   enableSessionSync: boolean;
   /** Company secret for API authentication */
   companySecret: string;

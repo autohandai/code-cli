@@ -16,6 +16,12 @@ import { getUserSkillLocations } from '../constants.js';
 import { createDiscoveryAnalyzer } from './analysis.js';
 import { createDiscoveryProgress } from './progress.js';
 import type { DiscoveryProgressEvent } from './DiscoveryProgress.js';
+import {
+  buildLocalWorkMap,
+  parseWorkMapHarnesses,
+  renderWorkMap,
+  writeWorkMapOutput,
+} from '../traces/localWorkMap.js';
 
 type DiscoveryOptions = {
   workspace?: string;
@@ -29,6 +35,9 @@ type DiscoveryOptions = {
   analyze?: boolean;
   withReport?: boolean;
   push?: boolean;
+  since?: string;
+  agent?: string;
+  output?: string;
 };
 type RootOptions = {
   config?: string;
@@ -97,20 +106,45 @@ export function registerDiscoveryCommand(program: Command): void {
       '--push',
       'Scan, save and upload suggested workflows with their findings'
     )
+    .option('--since <duration>', 'Work Map lookback such as 30d, 24h, or 60m', '30d')
+    .option('--agent <id,id>', 'Work Map agent harness filter')
+    .option('--output <path>', 'Write the aggregate Work Map JSON atomically')
     .addHelpText(
       'after',
-      '\nActions: scan (default), list, push\n\nExamples:\n  autohand discovery\n  autohand discovery --workspace /path/to/projects --depth 2\n  autohand discovery --skill-query "release" --no-behavior\n  autohand discovery --github --analyze\n  autohand discovery push --dry-run\n  autohand discovery push --select repository-onboarding,ci-diagnosis\n  autohand discovery push --with-report\n  autohand discovery --push\n\nScan and list work offline. Push, --with-report, --push and --analyze reuse AUTOHAND_API_KEY or your stored Autohand credential. --push implies --with-report.\n'
+      '\nActions: scan (default), list, push, map\n\nExamples:\n  autohand discovery\n  autohand discovery map --since 30d\n  autohand discovery map --agent autohand,codex --json\n  autohand discovery --workspace /path/to/projects --depth 2\n  autohand discovery --skill-query "release" --no-behavior\n  autohand discovery --github --analyze\n  autohand discovery push --dry-run\n  autohand discovery push --select repository-onboarding,ci-diagnosis\n  autohand discovery push --with-report\n  autohand discovery --push\n\nScan, list and map work offline. Map performs a fresh bounded local scan and outputs aggregate data only. Push, --with-report, --push and --analyze reuse AUTOHAND_API_KEY or your stored Autohand credential. --push implies --with-report.\n'
     )
-    .action(async (action: string | undefined, options: DiscoveryOptions) => {
+    .action(async (action: string | undefined, options: DiscoveryOptions, command: Command) => {
       const mode = action ?? 'scan';
-      if (!['scan', 'list', 'push'].includes(mode))
+      if (!['scan', 'list', 'push', 'map'].includes(mode))
         throw new Error(
-          'Use autohand discovery, discovery list, or discovery push.'
+          'Use autohand discovery, discovery list, discovery push, or discovery map.'
         );
       const root = program.opts<RootOptions>();
       const workspace =
         options.workspace ?? root.path ?? root.dir ?? process.cwd();
       const dryRun = options.dryRun || root.dryRun;
+      if (mode === 'map') {
+        const agent = options.agent
+          ?? command.getOptionValue('agent') as string | undefined
+          ?? argumentValue(process.argv, '--agent');
+        const output = options.output
+          ?? command.getOptionValue('output') as string | undefined
+          ?? argumentValue(process.argv, '--output');
+        const config = await loadConfig(root.config, undefined, {
+          createIfMissing: false,
+          initializeTheme: false,
+        });
+        const map = await buildLocalWorkMap(config, {
+          since: options.since ?? '30d',
+          workspace,
+          harnesses: parseWorkMapHarnesses(agent),
+        });
+        if (output) await writeWorkMapOutput(output, map);
+        console.log(options.json || root.json !== undefined
+          ? JSON.stringify(map, null, 2)
+          : renderWorkMap(map));
+        return;
+      }
       const args = [
         mode,
         '--workspace',
@@ -147,6 +181,13 @@ export function registerDiscoveryCommand(program: Command): void {
         root.config
       );
     });
+}
+
+function argumentValue(argv: readonly string[], name: string): string | undefined {
+  const index = argv.lastIndexOf(name);
+  if (index < 0) return undefined;
+  const value = argv[index + 1];
+  return value && !value.startsWith('-') ? value : undefined;
 }
 
 export function discoveryProcessArguments(

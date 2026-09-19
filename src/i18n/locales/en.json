@@ -197,6 +197,7 @@
         "permissions": "Permissions",
         "network": "Network",
         "telemetry": "Telemetry & Reporting",
+        "traces": "Agent Traces & Work Map",
         "automode": "Auto-mode",
         "teams": "Teams",
         "search": "Search"
@@ -273,9 +274,21 @@
       },
       "telemetry": {
         "enabled": "Telemetry",
-        "enabledDesc": "Send anonymous usage data",
+        "enabledDesc": "Send pseudonymous product usage and diagnostic events; free-form errors can contain sensitive text",
+        "enableSessionSync": "Session history sync",
+        "enableSessionSyncDesc": "Upload full Autohand session messages and metadata after sign-in; separate from agent traces",
         "autoReportEnabled": "Auto error reporting",
-        "autoReportEnabledDesc": "Automatically report errors to GitHub"
+        "autoReportEnabledDesc": "Send path-sanitized errors and diagnostic context; error text can contain sensitive data"
+      },
+      "traces": {
+        "enabled": "Agent trace monitoring",
+        "enabledDesc": "Run the local ahtraces monitor and enable Work Map",
+        "cloudSync": "Cloud trace sync",
+        "cloudSyncDesc": "Upload normalized trace data to your authenticated Autohand account",
+        "contentMode": "Cloud content mode",
+        "contentModeDesc": "Metadata excludes message content; full includes redacted messages and tool parts",
+        "discoveryMap": "Discovery Work Map",
+        "discoveryMapDesc": "Use local trace aggregates in discovery and agent inspection"
       },
       "automode": {
         "maxIterations": "Max iterations",
@@ -572,16 +585,16 @@
     "connectionFailed": "Connection failed: {{error}}",
     "telemetry": {
       "title": "Help us improve Autohand",
-      "description": "We collect anonymous usage data to understand how Autohand is used.",
+      "description": "We collect pseudonymous product usage data using persistent device and session IDs.",
       "whatWeCollect": "What we collect:",
       "collectItem1": "Command usage (which features are popular)",
-      "collectItem2": "Error rates (to fix bugs faster)",
-      "collectItem3": "Performance metrics (to speed things up)",
-      "whatWeNeverCollect": "What we never collect:",
-      "neverItem1": "Your code or file contents",
-      "neverItem2": "API keys or credentials",
-      "neverItem3": "Personal information",
-      "prompt": "Share anonymous usage data to help improve Autohand?",
+      "collectItem2": "Tool outcomes, free-form errors, and runtime metrics",
+      "collectItem3": "Model, provider, skill, goal, and context lifecycle metadata",
+      "whatWeNeverCollect": "What we never collect as dedicated telemetry fields:",
+      "neverItem1": "Conversation messages",
+      "neverItem2": "File contents or diffs",
+      "neverItem3": "Tool arguments and results (error text can still contain sensitive data)",
+      "prompt": "Share pseudonymous product usage data to help improve Autohand?",
       "thanks": "Thanks for helping us improve Autohand!",
       "declined": "No problem! You can change this anytime in config."
     },

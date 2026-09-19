@@ -34,6 +34,7 @@ else
     echo "❌ Unsupported OS: $OS (use Windows installer for Windows)"
     exit 1
 fi
+TRACES_BINARY="${BINARY/autohand-/ahtraces-}"
 
 # Compile first: a failed build must never leave the machine without autohand.
 if [ "$SKIP_COMPILE" = false ]; then
@@ -42,23 +43,27 @@ if [ "$SKIP_COMPILE" = false ]; then
     case "$BINARY" in
         autohand-macos-arm64)
             env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-darwin-arm64 --outfile ./binaries/autohand-macos-arm64
+            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/ahtraces.ts --compile --target=bun-darwin-arm64 --outfile ./binaries/ahtraces-macos-arm64
             ;;
         autohand-macos-x64)
             env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-darwin-x64 --outfile ./binaries/autohand-macos-x64
+            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/ahtraces.ts --compile --target=bun-darwin-x64 --outfile ./binaries/ahtraces-macos-x64
             ;;
         autohand-linux-x64)
             env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-linux-x64 --outfile ./binaries/autohand-linux-x64
+            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/ahtraces.ts --compile --target=bun-linux-x64 --outfile ./binaries/ahtraces-linux-x64
             ;;
         autohand-linux-arm64)
             env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-linux-arm64 --outfile ./binaries/autohand-linux-arm64
+            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/ahtraces.ts --compile --target=bun-linux-arm64 --outfile ./binaries/ahtraces-linux-arm64
             ;;
         *)
             echo "❌ Unsupported binary target: $BINARY"
             exit 1
             ;;
     esac
-elif [ ! -f "binaries/$BINARY" ]; then
-    echo "❌ Missing precompiled binary: binaries/$BINARY"
+elif [ ! -f "binaries/$BINARY" ] || [ ! -f "binaries/$TRACES_BINARY" ]; then
+    echo "❌ Missing precompiled binaries: binaries/$BINARY and binaries/$TRACES_BINARY"
     exit 1
 fi
 
@@ -81,7 +86,18 @@ POSSIBLE_PATHS=(
     "$HOME/.bun/bin/autohand-code"
     "$HOME/.autohand/bin/autohand"
     "$HOME/.autohand/bin/autohand-code"
+    "/usr/local/bin/ahtraces"
+    "/usr/bin/ahtraces"
+    "/opt/homebrew/bin/ahtraces"
+    "$HOME/.local/bin/ahtraces"
+    "$HOME/bin/ahtraces"
+    "$HOME/.bun/bin/ahtraces"
+    "$HOME/.autohand/bin/ahtraces"
 )
+
+if command -v ahtraces >/dev/null 2>&1; then
+    ahtraces stop >/dev/null 2>&1 || true
+fi
 
 for path in "${POSSIBLE_PATHS[@]}"; do
     if [ -f "$path" ]; then
@@ -118,17 +134,22 @@ fi
 ALIAS_PATH="$(dirname "$INSTALL_PATH")/autohand-code"
 AGENT_ALIAS_PATH="$(dirname "$INSTALL_PATH")/agent"
 SHORT_ALIAS_PATH="$(dirname "$INSTALL_PATH")/ah"
+TRACES_INSTALL_PATH="$(dirname "$INSTALL_PATH")/ahtraces"
 
 echo "📥 Installing to $INSTALL_PATH..."
 if [ -w "$(dirname "$INSTALL_PATH")" ]; then
     cp "binaries/$BINARY" "$INSTALL_PATH"
+    cp "binaries/$TRACES_BINARY" "$TRACES_INSTALL_PATH"
     chmod +x "$INSTALL_PATH"
+    chmod +x "$TRACES_INSTALL_PATH"
     ln -sfn "$(basename "$INSTALL_PATH")" "$ALIAS_PATH"
     ln -sfn "$(basename "$INSTALL_PATH")" "$AGENT_ALIAS_PATH"
     ln -sfn "$(basename "$INSTALL_PATH")" "$SHORT_ALIAS_PATH"
 else
     sudo cp "binaries/$BINARY" "$INSTALL_PATH"
+    sudo cp "binaries/$TRACES_BINARY" "$TRACES_INSTALL_PATH"
     sudo chmod +x "$INSTALL_PATH"
+    sudo chmod +x "$TRACES_INSTALL_PATH"
     sudo ln -sfn "$(basename "$INSTALL_PATH")" "$ALIAS_PATH"
     sudo ln -sfn "$(basename "$INSTALL_PATH")" "$AGENT_ALIAS_PATH"
     sudo ln -sfn "$(basename "$INSTALL_PATH")" "$SHORT_ALIAS_PATH"

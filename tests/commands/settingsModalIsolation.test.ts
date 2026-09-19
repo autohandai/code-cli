@@ -37,7 +37,10 @@ describe('/settings renderer lifecycle', () => {
       [settingsCommand.metadata]);
 
     expect(await handler.handle('/settings', args)).toBe('settings result');
-    expect(settings).toHaveBeenCalledWith({ config }, args);
+    expect(settings).toHaveBeenCalledWith({
+      config,
+      onSettingChanged: expect.any(Function),
+    }, args);
     expect(onBeforeModal).not.toHaveBeenCalled();
     expect(onAfterModal).not.toHaveBeenCalled();
   });

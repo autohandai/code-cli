@@ -102,6 +102,7 @@ interface OnboardingState {
   model?: string;
   providerBaseUrl?: string;
   telemetryEnabled?: boolean;
+  traceConsent?: 'disabled' | 'local' | 'cloud-metadata' | 'cloud-full';
   autoReportEnabled?: boolean;
   preferences?: {
     theme?: string;
@@ -926,23 +927,22 @@ export class SetupWizard {
     console.log(chalk.white.bold('  Help us improve Autohand'));
     console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
     console.log();
-    console.log(chalk.gray('  We collect anonymous usage data to understand how'));
-    console.log(chalk.gray('  Autohand is used and where we can make it better.'));
+    console.log(chalk.gray('  Product telemetry uses persistent pseudonymous device and session IDs'));
+    console.log(chalk.gray('  to understand how Autohand is used and where it can improve.'));
     console.log();
     console.log(chalk.gray('  What we collect:'));
     console.log(chalk.gray('  - Command usage (which features are popular)'));
-    console.log(chalk.gray('  - Error rates (to fix bugs faster)'));
-    console.log(chalk.gray('  - Performance metrics (to speed things up)'));
+    console.log(chalk.gray('  - Tool outcomes, errors, and performance/runtime metrics'));
+    console.log(chalk.gray('  - Model, provider, skill, goal, and context lifecycle metadata'));
     console.log();
-    console.log(chalk.gray('  What we never collect:'));
-    console.log(chalk.gray('  - Your code or file contents'));
-    console.log(chalk.gray('  - API keys or credentials'));
-    console.log(chalk.gray('  - Personal information'));
+    console.log(chalk.gray('  Conversation messages, file contents, diffs, and tool arguments/results'));
+    console.log(chalk.gray('  are not telemetry fields. Error and status text can contain sensitive information.'));
+    console.log(chalk.gray('  Common home paths are sanitized; this is not a general secret detector.'));
     console.log();
 
     const telemetryEnabled = await showConfirm({
-      title: 'Share anonymous usage data to help improve Autohand?',
-      defaultValue: true
+      title: 'Share pseudonymous product usage data to help improve Autohand?',
+      defaultValue: false
     });
 
     this.state.telemetryEnabled = telemetryEnabled;
@@ -952,6 +952,50 @@ export class SetupWizard {
     } else {
       console.log(chalk.gray('  No problem! You can change this anytime in config.'));
     }
+
+    await this.promptTraceConsent();
+  }
+
+  private async promptTraceConsent(): Promise<void> {
+    console.log();
+    console.log(chalk.white.bold('  Agent traces and Work Map'));
+    console.log(chalk.gray('  Autohand can monitor supported coding-agent session files after the CLI exits.'));
+    console.log(chalk.gray('  Local mode stores a pseudonymous aggregate index, never raw prompts or code.'));
+    console.log(chalk.gray('  Cloud modes require authentication and a separate explicit choice below.'));
+    console.log();
+
+    const result = await showModal({
+      title: 'Choose trace monitoring and cloud sharing',
+      initialIndex: 0,
+      options: [
+        {
+          label: 'Disabled (recommended default)',
+          value: 'disabled',
+          description: 'Do not monitor coding-agent session files and do not run ahtraces.',
+        },
+        {
+          label: 'Local Work Map only',
+          value: 'local',
+          description: 'Process sessions locally and retain aggregate usage, outcome, and workflow signals.',
+        },
+        {
+          label: 'Cloud sync — metadata only',
+          value: 'cloud-metadata',
+          description: 'Upload pseudonymous timing, agent, model, provider, reasoning, token, relationship, and outcome metadata.',
+        },
+        {
+          label: 'Cloud sync — redacted full traces',
+          value: 'cloud-full',
+          description: 'Also upload bounded, redacted message and tool parts; this can include prompts, responses, and reasoning.',
+        },
+      ],
+    });
+    const selected = result?.value;
+    this.state.traceConsent = selected === 'local'
+      || selected === 'cloud-metadata'
+      || selected === 'cloud-full'
+      ? selected
+      : 'disabled';
   }
 
   /**
@@ -970,12 +1014,11 @@ export class SetupWizard {
     console.log();
     console.log(chalk.gray('  What gets reported:'));
     console.log(chalk.gray('  - Error type, message, and sanitized stack trace'));
-    console.log(chalk.gray('  - CLI version, platform, and model info'));
+    console.log(chalk.gray('  - CLI/device/runtime data and call-site diagnostic context'));
     console.log();
-    console.log(chalk.gray('  What we never report:'));
-    console.log(chalk.gray('  - Your code or file contents'));
-    console.log(chalk.gray('  - API keys or credentials'));
-    console.log(chalk.gray('  - Personal information'));
+    console.log(chalk.gray('  Reports do not attach session messages or source files, but error text'));
+    console.log(chalk.gray('  and diagnostic context can contain sensitive information.'));
+    console.log(chalk.gray('  Path sanitization is not a general secret detector.'));
     console.log();
 
     const autoReportEnabled = await showConfirm({
@@ -1454,7 +1497,16 @@ export class SetupWizard {
 
     // Set telemetry preference
     config.telemetry = {
-      enabled: this.state.telemetryEnabled ?? true
+      enabled: this.state.telemetryEnabled ?? false,
+      enableSessionSync: false,
+    };
+
+    const traceConsent = this.state.traceConsent ?? 'disabled';
+    config.traces = {
+      enabled: traceConsent !== 'disabled',
+      cloudSync: traceConsent === 'cloud-metadata' || traceConsent === 'cloud-full',
+      contentMode: traceConsent === 'cloud-full' ? 'full' : 'metadata',
+      discoveryMap: traceConsent !== 'disabled',
     };
 
     // Set auto report preference
@@ -2478,6 +2530,7 @@ export class SetupWizard {
       console.log(chalk.white(`  Permissions: ${this.state.permissionMode}`));
     }
     console.log(chalk.white(`  Telemetry: ${this.state.telemetryEnabled ? 'enabled' : 'disabled'}`));
+    console.log(chalk.white(`  Agent traces: ${this.state.traceConsent ?? 'disabled'}`));
     console.log(chalk.white(`  Auto-report: ${this.state.autoReportEnabled ? 'enabled' : 'disabled'}`));
 
     if (this.state.notifications) {

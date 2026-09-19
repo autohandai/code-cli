@@ -29,6 +29,7 @@ interface WorkflowJob {
         os: string;
         target?: string;
         artifact: string;
+        tracesArtifact?: string;
       }>;
     };
   };
@@ -168,16 +169,22 @@ describe('release workflow', () => {
     expect(signStep?.if).toBe("runner.os == 'macOS'");
     expect(signStep?.run).toContain('codesign --force --sign - --timestamp=none');
     expect(signStep?.run).toContain('codesign --verify --strict --verbose=4');
+    expect(signStep?.run).toContain('matrix.tracesArtifact');
+    expect(buildSteps[compileIndex]?.run).toContain('./src/ahtraces.ts');
+    expect(buildSteps[smokeIndex]?.run).toContain('matrix.tracesArtifact');
+    expect(buildSteps[uploadIndex]?.with?.path).toContain('${{ matrix.tracesArtifact }}');
     expect(buildTargets).toEqual(expect.arrayContaining([
       {
         os: 'macos-latest',
         target: 'darwin-arm64',
         artifact: 'autohand-macos-arm64',
+        tracesArtifact: 'ahtraces-macos-arm64',
       },
       {
         os: 'macos-15-intel',
         target: 'darwin-x64',
         artifact: 'autohand-macos-x64',
+        tracesArtifact: 'ahtraces-macos-x64',
       },
     ]));
 
@@ -192,8 +199,16 @@ describe('release workflow', () => {
     expect(transportJob?.needs).toEqual(['prepare', 'build']);
     expect(transportJob?.['runs-on']).toBe('${{ matrix.os }}');
     expect(transportJob?.strategy?.matrix?.include).toEqual([
-      { os: 'macos-latest', artifact: 'autohand-macos-arm64' },
-      { os: 'macos-15-intel', artifact: 'autohand-macos-x64' },
+      {
+        os: 'macos-latest',
+        artifact: 'autohand-macos-arm64',
+        tracesArtifact: 'ahtraces-macos-arm64',
+      },
+      {
+        os: 'macos-15-intel',
+        artifact: 'autohand-macos-x64',
+        tracesArtifact: 'ahtraces-macos-x64',
+      },
     ]);
     expect(downloadStep?.uses).toBe('actions/download-artifact@v8');
     expect(downloadStep?.with).toEqual({
@@ -202,6 +217,7 @@ describe('release workflow', () => {
     });
     expect(verifyStep?.run).toContain('codesign --verify --strict --verbose=4');
     expect(verifyStep?.run).toContain('"$binary" --version < /dev/null');
+    expect(verifyStep?.run).toContain('ahtraces');
     expect(workflow.jobs.release.needs).toEqual([
       'prepare',
       'build',

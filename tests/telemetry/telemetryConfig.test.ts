@@ -8,9 +8,11 @@ describe('telemetry API configuration', () => {
     expect(source).toContain("companySecret: runtime.config.telemetry?.companySecret || runtime.config.api?.companySecret || ''");
   });
 
-  it('syncs sessions by default unless the user explicitly disables it', () => {
+  it('syncs session content only after both telemetry and session sync are explicitly enabled', () => {
     const source = readFileSync('src/core/agent/AgentDependencyComposer.ts', 'utf8');
 
-    expect(source).toContain('enableSessionSync: runtime.config.telemetry?.enableSessionSync !== false');
+    expect(source).toContain(
+      'enableSessionSync: runtime.config.telemetry?.enabled === true && runtime.config.telemetry?.enableSessionSync === true',
+    );
   });
 });

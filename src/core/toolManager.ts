@@ -441,6 +441,18 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
+    name: 'inspect_work_map',
+    description: 'Inspect the privacy-safe local Work Map derived from opted-in coding-agent traces. Returns bounded aggregates only; it does not expose prompts, responses, commands, paths, or raw trace content.',
+    parameters: {
+      type: 'object',
+      properties: {
+        since: { type: 'string', description: 'Bounded lookback such as 30d, 24h, or 60m (default: 30d)' },
+        agents: { type: 'array', description: 'Optional coding-agent harness IDs', items: { type: 'string', enum: ['autohand', 'claude-code', 'cursor', 'opencode', 'opencode2', 'codex', 'pi', 'amp', 'copilot', 'cline', 'openclaw', 'hermes', 'droid', 'grok', 'kimi', 'antigravity', 'prime-agent', 'fx', 'deepseek'] } },
+      },
+    },
+    requiresApproval: false,
+  },
+  {
     name: 'ask_followup_question',
     description: 'Ask the user a follow-up question to gather clarification or preferences. Use when you need specific information to proceed. Include suggested answers when possible to guide the response. Only available in interactive and plan mode.',
     parameters: {

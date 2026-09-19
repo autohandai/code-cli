@@ -138,6 +138,46 @@ describe('built discovery terminal command', () => {
       )
     ).toContain('team/cli');
   });
+  it('renders the aggregate-only Work Map from the built terminal without network access', async () => {
+    const state = await createTempAutohandHome({ config: { auth: undefined } });
+    states.push(state);
+    const configPath = path.join(state.workspaceRoot, 'work-map-config.json');
+    await writeFile(configPath, JSON.stringify({
+      traces: { enabled: true, cloudSync: false, discoveryMap: true },
+      ui: { checkForUpdates: false },
+    }));
+    const session = await launchBuiltAutohand([
+      '--config',
+      configPath,
+      '--path',
+      state.workspaceRoot,
+      'discovery',
+      'map',
+      '--since',
+      '7d',
+      '--agent',
+      'autohand',
+    ], {
+      cwd: state.workspaceRoot,
+      autohandHome: state.autohandHome,
+      env: {
+        HOME: state.workspaceRoot,
+        CODEX_HOME: path.join(state.workspaceRoot, '.codex'),
+        CLAUDE_CONFIG_DIR: path.join(state.workspaceRoot, '.claude'),
+        AUTOHAND_API_KEY: '',
+      },
+      waitForDataTimeout: 15_000,
+    });
+    sessions.push(session);
+
+    await waitForExit(session, 20_000);
+    const output = session.readAll();
+    expect(session.exitInfo?.exitCode, output).toBe(0);
+    expect(output).toContain('WORK MAP');
+    expect(output).toContain('Window     7d');
+    expect(output).toContain('Sessions   0');
+    expect(output).toContain('aggregate-only · local processing · no network requests');
+  });
   it('cancels an active upload from the progress view and exits with 130', async () => {
     const state = await createTempAutohandHome({ config: { auth: undefined } });
     states.push(state);

@@ -80,7 +80,7 @@ describe('TelemetryClient session sync', () => {
 
   it('does not upload session snapshots without a logged-in auth token', async () => {
     const client = createClient({
-      enabled: false,
+      enabled: true,
       enableSessionSync: true,
       apiBaseUrl: 'https://api.example.test',
     });
@@ -97,7 +97,7 @@ describe('TelemetryClient session sync', () => {
     );
   });
 
-  it('uploads session snapshots with the user auth token even when telemetry events are disabled', async () => {
+  it('does not upload authenticated session content while telemetry is disabled', async () => {
     const client = createClient({
       enabled: false,
       enableSessionSync: true,
@@ -111,22 +111,26 @@ describe('TelemetryClient session sync', () => {
       messages: [{ role: 'user', content: 'hello' }],
     });
 
-    expect(result).toEqual({ success: true, id: 'history-1' });
-    expect(fetch).toHaveBeenCalledWith(
-      'https://api.example.test/v1/history',
-      expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer auth-token-123',
-          'X-CLI-Version': '0.8.2',
-        }),
-      })
-    );
+    expect(result).toEqual({ success: false, error: 'Telemetry disabled' });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps session content sync disabled unless the user explicitly enables it', async () => {
+    const client = createClient({
+      enabled: true,
+      apiBaseUrl: 'https://api.example.test',
+      authToken: 'auth-token-123',
+    });
+
+    const result = await client.uploadSession(sessionSnapshot('session-default-off'));
+
+    expect(result).toEqual({ success: false, error: 'Session sync disabled' });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('queues session snapshots locally without any network request when configured offline', async () => {
     const client = createClient({
-      enabled: false,
+      enabled: true,
       enableSessionSync: true,
       offline: true,
       apiBaseUrl: 'https://api.example.test',
@@ -143,7 +147,7 @@ describe('TelemetryClient session sync', () => {
 
   it('preserves enriched usage metadata in the history payload', async () => {
     const client = createClient({
-      enabled: false,
+      enabled: true,
       enableSessionSync: true,
       apiBaseUrl: 'https://api.example.test',
       authToken: 'auth-token-123',
@@ -184,11 +188,33 @@ describe('TelemetryClient session sync', () => {
     });
   });
 
+  it('releases an unread history response body when upload fails', async () => {
+    const failed = new Response('unavailable', { status: 503 });
+    const cancel = vi.spyOn(failed.body!, 'cancel');
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => (
+      String(input).endsWith('/health')
+        ? new Response('ok', { status: 200 })
+        : failed
+    )));
+    const client = createClient({
+      enabled: true,
+      enableSessionSync: true,
+      apiBaseUrl: 'https://api.example.test',
+      authToken: 'auth-token-123',
+    });
+
+    await expect(client.uploadSession(sessionSnapshot('session-failed'))).resolves.toEqual({
+      success: false,
+      error: 'HTTP 503',
+    });
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   describe('durable session sync queue', () => {
     function createOfflineClient(): TelemetryClient {
       vi.stubGlobal('fetch', vi.fn(async () => new Response('offline', { status: 503 })));
       return createClient({
-        enabled: false,
+        enabled: true,
         enableSessionSync: true,
         apiBaseUrl: 'https://api.example.test',
         authToken: 'auth-token-123',
@@ -268,7 +294,7 @@ describe('TelemetryClient session sync', () => {
         Array.from({ length: 12 }, (_, index) => sessionSnapshot(`session-${index + 1}`)),
       );
       const client = createClient({
-        enabled: false,
+        enabled: true,
         enableSessionSync: true,
         apiBaseUrl: 'https://api.example.test',
         authToken: 'auth-token-123',
@@ -305,7 +331,7 @@ describe('TelemetryClient session sync', () => {
       };
       await fs.outputJson(queuePath, [snapshot]);
       const client = createClient({
-        enabled: false,
+        enabled: true,
         enableSessionSync: true,
         apiBaseUrl: 'https://api.example.test',
         authToken: 'auth-token-123',
@@ -346,7 +372,7 @@ describe('TelemetryClient session sync', () => {
       const previousQueue = [sessionSnapshot('waiting-for-login')];
       await fs.outputJson(queuePath, previousQueue);
       const client = createClient({
-        enabled: false,
+        enabled: true,
         enableSessionSync: true,
         apiBaseUrl: 'https://api.example.test',
       });
@@ -365,7 +391,7 @@ describe('TelemetryClient session sync', () => {
           : new Response('unavailable', { status: 503 })
       )));
       const client = createClient({
-        enabled: false,
+        enabled: true,
         enableSessionSync: true,
         apiBaseUrl: 'https://api.example.test',
         authToken: 'auth-token-123',
@@ -391,7 +417,7 @@ describe('TelemetryClient session sync', () => {
           : new Response('unavailable', { status: 503 });
       }));
       const client = createClient({
-        enabled: false,
+        enabled: true,
         enableSessionSync: true,
         apiBaseUrl: 'https://api.example.test',
         authToken: 'auth-token-123',
@@ -475,6 +501,21 @@ describe('TelemetryClient session sync', () => {
         (entry) => entry.startsWith('queue.json.corrupt-')
       )).toBe(false);
     });
+
+    it.each(['goal_event', 'outcome', 'context_compaction'] as const)(
+      'restores declared %s events from the durable queue',
+      async (eventType) => {
+        const queuePath = `${tempRoot}/telemetry/queue.json`;
+        await fs.outputJson(queuePath, [{ ...persistedEvent(`event-${eventType}`), eventType }]);
+
+        const client = createEnabledClient();
+
+        expect(client.getStats().queued).toBe(1);
+        expect((await fs.readdir(`${tempRoot}/telemetry`)).some(
+          (entry) => entry.startsWith('queue.json.corrupt-')
+        )).toBe(false);
+      },
+    );
 
     it('releases the health and telemetry response bodies after a flush', async () => {
       const healthResponse = new Response('ok', { status: 200 });

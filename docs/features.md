@@ -8,6 +8,7 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 - [x] npm: `npm install -g autohand-cli`
 - [x] Homebrew: `brew install autohandai/code/autohand-code`
 - [x] Standalone binaries (macOS, Linux, Windows)
+- [x] `ahtraces` companion included by npm, Homebrew, installers, and release archives
 
 ## Core Intelligence
 - [x] **Autonomous Agent**: ReAct (Reasoning + Acting) loop for complex coding tasks
@@ -48,8 +49,8 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 
 The `/settings` command opens an interactive settings editor directly in the terminal.
 
-- **Two-level category navigation** across 8 categories: UI, Agent, Permissions, Network, Telemetry, Auto-mode, Teams, and Search
-- **35 configurable settings** editable without leaving the TUI
+- **Two-level category navigation** across UI, Agent, Sessions, Permissions, Network, Telemetry, Agent traces, Auto-mode, Teams, and Search
+- **Typed configurable settings** editable without leaving the TUI
 - **Auto-save on change** — values are written to `~/.autohand/config.json` immediately
 - **Type-aware inputs**: booleans toggle on Enter, enums show a pick list, strings and numbers use inline editing, passwords are masked
 - **Smart redirects**: Provider config opens `/model`, theme opens `/theme`, language opens `/language`
@@ -264,8 +265,18 @@ effect immediately — no restart required.
 - [x] Model switch tracking
 - [x] Slash command usage
 - [x] Offline batching (syncs when back online)
-- [x] Session cloud sync (resume from any device)
-- [x] Privacy-first: no PII, anonymous device IDs
+- [x] Separately consented full-content session cloud sync (off by default)
+- [x] Pseudonymous persistent device IDs and documented sensitive-field boundaries
+- [x] Independent automatic diagnostic-report control
+
+## Agent Traces & Work Map
+- [x] Local-first, explicit opt-in monitoring across 19 coding-agent harnesses
+- [x] Versioned normalized session/message/tool/outcome trace model
+- [x] Content-free local index with opaque identities
+- [x] Aggregate-only `autohand discovery map` and `inspect_work_map` agent tool
+- [x] Separate cloud metadata and cloud full-content consent modes
+- [x] Bounded scans, uploads, redaction, retry backoff, and persistent checkpoints
+- [x] Cross-platform `ahtraces` lifecycle, packaging, and installer support
 
 ## Sub-Agent Architecture
 - [x] Agent registry from `~/.autohand/agents/`

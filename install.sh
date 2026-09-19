@@ -3,6 +3,7 @@ set -e
 
 REPO="autohandai/code-cli"
 BINARY_NAME="autohand"
+TRACES_BINARY_NAME="ahtraces"
 COMPAT_BINARY_NAME="autohand-code"
 AGENT_ALIAS_NAME="agent"
 SHORT_ALIAS_NAME="ah"
@@ -214,8 +215,12 @@ EOF
         rm -rf "$_tmp_dir"
         exit 1
     fi
-
     chmod +x "${_tmp_dir}/autohand"
+    local _has_traces=false
+    if [ -f "${_tmp_dir}/ahtraces" ]; then
+        chmod +x "${_tmp_dir}/ahtraces"
+        _has_traces=true
+    fi
 
     local _binary_version
     if ! _binary_version=$(probe_binary_version "${_tmp_dir}/autohand" "${_tmp_dir}/version"); then
@@ -225,7 +230,26 @@ EOF
         exit 1
     fi
 
+    if [ "$_has_traces" = true ] && ! probe_binary_version "${_tmp_dir}/ahtraces" "${_tmp_dir}/traces-version" >/dev/null; then
+        printf "${RED}Error: Downloaded ahtraces sidecar failed to start${NC}\n"
+        printf "${YELLOW}The existing installation was not changed.${NC}\n"
+        rm -rf "$_tmp_dir"
+        exit 1
+    fi
+
+    if [ -x "$_dir/$TRACES_BINARY_NAME" ]; then
+        "$_dir/$TRACES_BINARY_NAME" stop >/dev/null 2>&1 || true
+    fi
     install_file "${_tmp_dir}/autohand" "$_dir/$BINARY_NAME"
+    if [ "$_has_traces" = true ]; then
+        install_file "${_tmp_dir}/ahtraces" "$_dir/$TRACES_BINARY_NAME"
+    elif [ -e "$_dir/$TRACES_BINARY_NAME" ] || [ -L "$_dir/$TRACES_BINARY_NAME" ]; then
+        if [ -w "$_dir" ]; then
+            rm -f "$_dir/$TRACES_BINARY_NAME"
+        else
+            sudo rm -f "$_dir/$TRACES_BINARY_NAME"
+        fi
+    fi
     install_symlink "$BINARY_NAME" "$_dir/$COMPAT_BINARY_NAME"
     install_symlink "$BINARY_NAME" "$_dir/$AGENT_ALIAS_NAME"
     install_symlink "$BINARY_NAME" "$_dir/$SHORT_ALIAS_NAME"

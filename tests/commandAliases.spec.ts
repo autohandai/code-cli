@@ -24,6 +24,7 @@ describe('CLI command aliases', () => {
       'autohand-code': 'dist/index.js',
       agent: 'dist/index.js',
       ah: 'dist/index.js',
+      ahtraces: 'dist/ahtraces.js',
     });
   });
 

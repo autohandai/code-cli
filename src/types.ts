@@ -393,10 +393,25 @@ export interface TelemetrySettings {
   enabled?: boolean;
   /** API endpoint (default: https://api.autohand.ai) */
   apiBaseUrl?: string;
-  /** Enable session sync to cloud (default: true when telemetry is enabled) */
+  /** Upload full session content to cloud (default: false, explicit opt-in) */
   enableSessionSync?: boolean;
   /** Company secret for API authentication */
   companySecret?: string;
+}
+
+export interface TracesSettings {
+  /** Master switch for local agent-session monitoring and Work Map (default: false). */
+  enabled?: boolean;
+  /** Upload normalized trace data to the authenticated Autohand account (default: false). */
+  cloudSync?: boolean;
+  /** Metadata omits message/part content; full requires a separate explicit choice. */
+  contentMode?: 'metadata' | 'full';
+  /** Make locally derived aggregate data available to discovery and the agent (default: true when enabled). */
+  discoveryMap?: boolean;
+  /** Override the control-plane API endpoint. */
+  apiBaseUrl?: string;
+  /** Daemon scan interval in milliseconds. */
+  pollIntervalMs?: number;
 }
 
 export interface AutoReportSettings {
@@ -976,6 +991,7 @@ export interface AutohandConfig {
   agent?: AgentSettings;
   sessions?: SessionsSettings;
   telemetry?: TelemetrySettings;
+  traces?: TracesSettings;
   permissions?: PermissionSettings;
   network?: NetworkSettings;
   /** Child-process controls for shell tools and `!` commands. */
@@ -1569,6 +1585,11 @@ export type BrowserFormAssignment =
 
 export type AgentAction =
   | { type: 'list_hooks' }
+  | {
+      type: 'inspect_work_map';
+      since?: string;
+      agents?: import('./traces/model.js').TraceHarness[];
+    }
   | { type: 'create_hook'; prompt: string; event?: HookEvent; level?: string }
   | {
       type: 'set_lifecycle_hook';

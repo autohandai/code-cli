@@ -451,6 +451,13 @@ describe('Windows installer binary replacement', () => {
     expect(installer).not.toContain('Copy-Item -Path $extractedAutohand -Destination $binaryPath');
   });
 
+  it('installs ahtraces when bundled without rejecting pre-ahtraces release archives', () => {
+    expect(installer).toContain('if ($extractedAhtraces) {');
+    expect(installer).toContain('Install-BinaryFile -Source $extractedAhtraces -Destination $tracesBinaryPath');
+    expect(installer).toContain('elseif (Test-Path -LiteralPath $tracesBinaryPath) {');
+    expect(installer).not.toContain('throw "Bundle does not contain ahtraces.exe"');
+  });
+
   function seedReplacement(): {
     directory: string;
     destination: string;

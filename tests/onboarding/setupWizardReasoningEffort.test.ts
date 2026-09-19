@@ -243,7 +243,7 @@ describe("SetupWizard — Reasoning Effort", () => {
     const result = await wizard.run({ skipWelcome: true });
 
     expect(result.success).toBe(true);
-    expect(mockShowModal).toHaveBeenCalledTimes(5);
+    expect(mockShowModal).toHaveBeenCalledTimes(6);
   });
 
   it("should include reasoningEffort in final config for OpenAI", async () => {
@@ -267,8 +267,8 @@ describe("SetupWizard — Reasoning Effort", () => {
     const result = await wizard.run({ skipWelcome: true });
 
     expect(result.success).toBe(true);
-    // Only 3 showModal calls (language, provider, permissions) - NO reasoning effort
-    expect(mockShowModal).toHaveBeenCalledTimes(3);
+    // Language, provider, permissions, and trace consent; no reasoning effort.
+    expect(mockShowModal).toHaveBeenCalledTimes(4);
   });
 
   it.each(["none", "low", "medium", "high", "xhigh"])(

@@ -43,6 +43,7 @@ For local repository scanning and credential reuse during workflow uploads, see
 - [Network Settings](#network-settings)
 - [Required Ports and Agent Transports](#required-ports-and-agent-transports)
 - [Telemetry Settings](#telemetry-settings)
+- [Agent Trace Settings](#agent-trace-settings)
 - [External Agents](#external-agents)
 - [Skills System](#skills-system)
 - [API Settings](#api-settings)
@@ -1705,35 +1706,75 @@ firewall and does not force a cloud provider or tool to run locally.
 
 ## Telemetry Settings
 
-Telemetry is **disabled by default** (opt-in). Enable it to help improve Autohand.
+Product telemetry is **disabled by default**. Full cloud session sync is a
+separate content-bearing consent and is also disabled by default.
 
 ```json
 {
   "telemetry": {
     "enabled": false,
     "apiBaseUrl": "https://api.autohand.ai",
-    "batchSize": 20,
-    "flushIntervalMs": 60000,
-    "maxQueueSize": 500,
-    "maxRetries": 3,
-    "enableSessionSync": true,
+    "enableSessionSync": false,
     "companySecret": ""
+  },
+  "autoReport": {
+    "enabled": true
   }
 }
 ```
 
-| Field               | Type    | Default                   | Description                                   |
-| ------------------- | ------- | ------------------------- | --------------------------------------------- |
-| `enabled`           | boolean | `false`                   | Enable/disable telemetry (opt-in)             |
-| `apiBaseUrl`        | string  | `https://api.autohand.ai` | Telemetry API endpoint                        |
-| `batchSize`         | number  | `20`                      | Number of events to batch before auto-flush   |
-| `flushIntervalMs`   | number  | `60000`                   | Flush interval in milliseconds (1 minute)     |
-| `maxQueueSize`      | number  | `500`                     | Maximum queue size before dropping old events |
-| `maxRetries`        | number  | `3`                       | Retry attempts for failed telemetry requests  |
-| `enableSessionSync` | boolean | `true`                    | Sync sessions to cloud for team features when telemetry is enabled |
-| `companySecret`     | string  | `""`                      | Company secret for API authentication         |
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | boolean | `false` | Queue and send pseudonymous product telemetry |
+| `apiBaseUrl` | string | `https://api.autohand.ai` | Product telemetry and session-sync API base |
+| `enableSessionSync` | boolean | `false` | Upload full saved session messages and metadata; requires telemetry and account authentication |
+| `companySecret` | string | `""` | Optional company secret used by the telemetry transport |
 
-Provider/model telemetry includes the active provider id, model id, and available non-secret metadata such as custom provider display name, API format, reasoning effort, and context window. API keys and bearer tokens are never included.
+Product telemetry includes the active provider/model, runtime/device envelope,
+tool names and outcomes, commands without free-form arguments, skill/goal/context
+lifecycle, and path-sanitized errors. Error strings can still contain sensitive
+text. Session sync includes message content, workspace path and session metadata.
+`autoReport.enabled` is an independent diagnostic-report switch and defaults to
+`true`; it does not follow `telemetry.enabled`. See
+[Data collection, telemetry, and agent traces](./telemetry.md) for the exact
+payloads and privacy boundaries.
+
+---
+
+## Agent Trace Settings
+
+Agent traces are disabled by default and independent of product telemetry. The
+local mode reads supported coding-agent session stores, maintains a content-free
+local index, and powers the aggregate Work Map.
+
+```json
+{
+  "traces": {
+    "enabled": false,
+    "cloudSync": false,
+    "contentMode": "metadata",
+    "discoveryMap": true,
+    "pollIntervalMs": 60000,
+    "apiBaseUrl": "https://api.autohand.ai"
+  }
+}
+```
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | boolean | `false` | Start local trace monitoring and allow Work Map scans |
+| `cloudSync` | boolean | `false` | Upload changed normalized traces to the authenticated account |
+| `contentMode` | `metadata` \| `full` | `metadata` | Metadata excludes messages; full adds bounded, redacted message/tool content |
+| `discoveryMap` | boolean | `true` | Allow aggregate Work Map output for discovery and the agent |
+| `pollIntervalMs` | integer | `60000` | Monitor interval from 1,000 through 3,600,000 ms |
+| `apiBaseUrl` | string | `api.baseUrl` or `https://api.autohand.ai` | HTTPS trace API base; HTTP is accepted only for localhost development |
+
+Cloud sync requires `enabled`, `cloudSync`, and a signed-in account. Full mode
+can contain prompts, responses, tool data, source text, and paths after bounded
+heuristic redaction, so it requires an explicit separate choice. Local-only mode
+never enables cloud upload. Setting `enabled` to `false` stops the companion and
+deletes its derived Work Map and checkpoints, without modifying any native agent
+session store.
 
 ---
 
@@ -2519,11 +2560,16 @@ autohand --no-browser       # Start with browser bridge disabled
   "telemetry": {
     "enabled": false,
     "apiBaseUrl": "https://api.autohand.ai",
-    "batchSize": 20,
-    "flushIntervalMs": 60000,
-    "maxQueueSize": 500,
-    "maxRetries": 3,
-    "enableSessionSync": true
+    "enableSessionSync": false
+  },
+  "traces": {
+    "enabled": false,
+    "cloudSync": false,
+    "contentMode": "metadata",
+    "discoveryMap": true
+  },
+  "autoReport": {
+    "enabled": true
   },
   "externalAgents": {
     "enabled": false,
@@ -2609,11 +2655,16 @@ network:
 telemetry:
   enabled: false
   apiBaseUrl: https://api.autohand.ai
-  batchSize: 20
-  flushIntervalMs: 60000
-  maxQueueSize: 500
-  maxRetries: 3
-  enableSessionSync: true
+  enableSessionSync: false
+
+traces:
+  enabled: false
+  cloudSync: false
+  contentMode: metadata
+  discoveryMap: true
+
+autoReport:
+  enabled: true
 
 externalAgents:
   enabled: false

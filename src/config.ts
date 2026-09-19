@@ -159,6 +159,8 @@ export interface LoadConfigOptions {
   createIfMissing?: boolean;
   /** Initialize terminal theme state after loading. */
   initializeTheme?: boolean;
+  /** Apply process-only `--profile` and `--set` overlays. Defaults to true. */
+  applyRunConfigOverlay?: boolean;
   /** Where workspace trust decisions are stored. Defaults to the user's Autohand home. */
   workspaceTrustStorePath?: string;
 }
@@ -186,6 +188,12 @@ function createDefaultConfig(): AutohandConfig {
     },
     telemetry: {
       enabled: false,
+    },
+    traces: {
+      enabled: false,
+      cloudSync: false,
+      contentMode: 'metadata',
+      discoveryMap: true,
     },
     autoReport: {
       enabled: true,
@@ -586,7 +594,9 @@ export async function loadConfig(
     ? createWorkspaceOverlaySnapshot(overlayBase, withEnvOnly, overlayLayers)
     : undefined;
   // --profile and --set are layered last and recorded so saves leave them out.
-  const run = applyRunConfigOverlay(withEnvOnly);
+  const run = options.applyRunConfigOverlay === false
+    ? { config: withEnvOnly }
+    : applyRunConfigOverlay(withEnvOnly);
   const withEnv = run.config;
 
   if (initializeTheme) {
@@ -1390,6 +1400,57 @@ function validateShellSettings(config: AutohandConfig, configPath: string): void
 
 function validateConfig(config: AutohandConfig, configPath: string): void {
   validateShellSettings(config, configPath);
+  if (config.traces !== undefined) {
+    if (!isPlainObject(config.traces)) {
+      throw new Error(`traces must be an object in ${configPath}`);
+    }
+    const traces: Record<string, unknown> = config.traces;
+    for (const field of ['enabled', 'cloudSync', 'discoveryMap'] as const) {
+      const value = traces[field];
+      if (value !== undefined && typeof value !== 'boolean') {
+        throw new Error(`traces.${field} must be boolean in ${configPath}`);
+      }
+    }
+    if (
+      traces.contentMode !== undefined
+      && traces.contentMode !== 'metadata'
+      && traces.contentMode !== 'full'
+    ) {
+      throw new Error(`traces.contentMode must be metadata or full in ${configPath}`);
+    }
+    if (
+      traces.pollIntervalMs !== undefined
+      && (
+        typeof traces.pollIntervalMs !== 'number'
+        || !Number.isSafeInteger(traces.pollIntervalMs)
+        || traces.pollIntervalMs < 1_000
+        || traces.pollIntervalMs > 3_600_000
+      )
+    ) {
+      throw new Error(`traces.pollIntervalMs must be an integer from 1000 to 3600000 in ${configPath}`);
+    }
+    if (traces.apiBaseUrl !== undefined) {
+      try {
+        if (typeof traces.apiBaseUrl !== 'string') throw new Error('invalid');
+        const url = new URL(traces.apiBaseUrl);
+        const loopback = url.hostname === 'localhost'
+          || url.hostname === '127.0.0.1'
+          || url.hostname === '[::1]'
+          || url.hostname === '::1';
+        if (
+          (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback))
+          || url.username !== ''
+          || url.password !== ''
+          || url.search !== ''
+          || url.hash !== ''
+        ) {
+          throw new Error('insecure');
+        }
+      } catch {
+        throw new Error(`traces.apiBaseUrl must be an HTTPS URL or localhost in ${configPath}`);
+      }
+    }
+  }
   const multiAgentConfig: unknown = config.features?.multi_agent_v2;
   if (multiAgentConfig !== undefined) {
     if (!isPlainObject(multiAgentConfig)) {

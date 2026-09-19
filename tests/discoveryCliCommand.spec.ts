@@ -51,6 +51,45 @@ const run = (args: string[], env: Record<string, string> = {}) =>
   });
 
 describe('native discovery command', () => {
+  it('describes map as a fresh bounded scan without a redundant refresh switch', async () => {
+    const result = await run(['discovery', '--help']);
+
+    expect(result.stdout).toContain('Map performs a fresh bounded local scan');
+    expect(result.stdout).not.toContain('--refresh');
+  });
+
+  it('renders a local-only Work Map for explicitly enabled trace monitoring', async () => {
+    const configuration = path.join(temporary, 'work-map-config.json');
+    await writeFile(configuration, JSON.stringify({
+      traces: { enabled: true, cloudSync: false, discoveryMap: true },
+      ui: { checkForUpdates: false },
+    }));
+
+    const result = await run([
+      '--config', configuration,
+      'discovery', 'map',
+      '--json',
+      '--since', '7d',
+      '--agent', 'autohand',
+      '--workspace', workspace,
+    ]);
+    const map = JSON.parse(result.stdout);
+
+    expect(map.schemaVersion).toBe(1);
+    expect(map.request.since).toBe('7d');
+    expect(map.request.harnesses).toEqual(['autohand']);
+    expect(map.privacy).toEqual(expect.objectContaining({
+      networkRequests: false,
+      outputContainsAggregatesOnly: true,
+    }));
+  });
+
+  it('refuses Work Map access until local trace monitoring is explicitly enabled', async () => {
+    await expect(run(['discovery', 'map', '--json'])).rejects.toMatchObject({
+      stderr: expect.stringContaining('Enable local trace monitoring'),
+    });
+  });
+
   it('activates the discovery skill in the real noninteractive analysis child and validates its result', async () => {
     const initial = JSON.parse(
       (await run(['discovery', '--dry-run', '--json', '--no-behavior'])).stdout

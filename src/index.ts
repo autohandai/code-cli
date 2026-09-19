@@ -34,6 +34,11 @@ import { pathToFileURL } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { applyCliProviderOverride, getProviderConfig, loadConfig, resolveRequestedWorkspaceRoot, resolveWorkspaceRoot, saveConfig } from './config.js';
 import { reportCliCommand } from './telemetry/commandUsage.js';
+import {
+  reconcileAhTraces,
+  shouldReconcileAhTracesAtStartup,
+} from './traces/supervisor/runtime.js';
+import { applyTraceSettingChange } from './traces/settingsLifecycle.js';
 import { runStartupChecks, printStartupCheckResults, validateWorkspacePath } from './startup/checks.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/workspaceSafety.js';
 import { ensureAuthenticated } from './auth/index.js';
@@ -307,9 +312,25 @@ const collectRepeatable = (value: string, previous: string[] = []): string[] => 
 
 // --profile and --set apply to every command, including subcommands, and to
 // every config load in this process, before any of them reads the config.
-program.hook('preAction', (thisCommand, actionCommand) => {
-  const { profile, set } = thisCommand.opts<{ profile?: string; set?: string[] }>();
+program.hook('preAction', async (thisCommand, actionCommand) => {
+  const { profile, set, config, bare } = thisCommand.opts<{
+    profile?: string;
+    set?: string[];
+    config?: string;
+    bare?: boolean;
+  }>();
   configureRunConfigOverlay({ profile, sets: set });
+
+  const traceSupervision = shouldReconcileAhTracesAtStartup(bare === true)
+    ? loadConfig(config, undefined, {
+        createIfMissing: false,
+        initializeTheme: false,
+        applyRunConfigOverlay: false,
+      }).then((loaded) => reconcileAhTraces(loaded)).catch(() => ({
+        status: 'error' as const,
+        code: 'unavailable' as const,
+      }))
+    : Promise.resolve({ status: 'disabled' as const });
 
   // Every top-level command reports itself from here rather than from its own
   // action. Interactive slash commands are already covered by a single call
@@ -321,6 +342,7 @@ program.hook('preAction', (thisCommand, actionCommand) => {
     loadConfig: () => loadConfig(undefined, undefined, { createIfMissing: false, initializeTheme: false }),
     clientVersion: getVersionString(),
   });
+  await traceSupervision;
 });
 
 /**
@@ -560,7 +582,10 @@ program
     if ((opts as any).settings) {
       const config = await loadConfig(opts.config, process.cwd());
       const { settings } = await import('./commands/settings.js');
-      await settings({ config });
+      await settings({
+        config,
+        onSettingChanged: (change) => applyTraceSettingChange(config, change),
+      });
       process.exit(0);
     }
 
@@ -890,7 +915,10 @@ const configCmd = program
   .action(async () => {
     const config = await loadConfig(program.opts<{ config?: string }>().config);
     const { settings } = await import('./commands/settings.js');
-    await settings({ config });
+    await settings({
+      config,
+      onSettingChanged: (change) => applyTraceSettingChange(config, change),
+    });
     process.exit(0);
   });
 
@@ -904,6 +932,7 @@ configCmd
       const { key, value } = parseConfigSetArgs(parts);
       const result = setConfigSetting(config, key, value);
       await saveConfig(config);
+      await applyTraceSettingChange(config, result);
       console.log(chalk.green(formatConfigSetResult(result)));
       process.exit(0);
     } catch (error) {

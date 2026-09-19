@@ -60,6 +60,7 @@ export function renderHomebrewFormula({ version, checksums }) {
 
   def install
     bin.install "autohand"
+    bin.install "ahtraces"
     bin.install_symlink "autohand" => "autohand-code"
     bin.install_symlink "autohand" => "agent"
     bin.install_symlink "autohand" => "ah"
@@ -90,6 +91,7 @@ export function renderHomebrewFormula({ version, checksums }) {
 
   test do
     assert_match version.to_s, shell_output("#{bin}/autohand --version")
+    assert_match version.to_s, shell_output("#{bin}/ahtraces --version")
   end
 end
 `;

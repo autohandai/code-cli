@@ -19,6 +19,9 @@ autohand discovery --github --analyze
 autohand discovery push --with-report --dry-run
 autohand discovery push --with-report
 autohand discovery --push
+autohand discovery map --since 30d
+autohand discovery map --agent autohand,codex --json
+autohand discovery map --workspace /path/to/project --output ./work-map.json
 ```
 
 Discovery writes an evidence report to `.autohand/discovery.json` and editable
@@ -37,6 +40,42 @@ exact payload with `--dry-run` first. Uploads are limited to 20 workflows and
 512 KB per request. Narrow the workspace, skill query or selection if necessary.
 `--push` scans, preserves local drafts, and uploads them with findings. Combined
 with `--dry-run`, it previews freshly suggested graphs without writing or uploading.
+
+## Work Map
+
+`autohand discovery map` is the local agent-activity view. It is distinct from
+workflow recommendation scanning: each invocation performs a fresh bounded scan
+of supported coding-agent session stores, normalizes their different formats,
+and prints aggregate-only results. It does not make a network request.
+
+The map reports coverage, session states and duration, token usage/provenance,
+agent/model/provider/reasoning dimensions, tool categories, recurring workflow
+motifs, derived outcomes, observed test/lint/build/proof evidence, trace
+relationships, repository counts and evidence-based recommendation kinds. It
+does not output prompts, responses, reasoning, commands, tool arguments/results,
+source code, diffs, paths, repository identities, session identifiers,
+credentials, or environment values.
+
+Local monitoring is explicit opt-in. Enable **Agent traces → Local trace
+monitoring** in `/settings` (or set `traces.enabled: true`) before running the
+command. `traces.discoveryMap` must also remain enabled. Neither setting enables
+cloud upload; that has its own `traces.cloudSync` consent.
+
+Options:
+
+- `--since <duration>` uses a bounded duration such as `30d`, `24h`, or `60m`;
+- `--agent <id,id>` restricts the supported harnesses;
+- `--workspace <path>` scopes sessions to a project tree;
+- `--json` emits the versioned aggregate schema;
+- `--output <path>` writes that JSON atomically as well as rendering it.
+
+There is no refresh switch because the command and the agent's
+`inspect_work_map` tool always scan current local data. The companion `ahtraces`
+executable maintains the privacy-safe background aggregate and incremental
+checkpoints. Use `ahtraces status` and `ahtraces stop` for local lifecycle
+diagnostics. See [Data collection, telemetry, and agent
+traces](./telemetry.md) for the normalized source model, scan limits, supported
+harnesses, and optional cloud modes.
 
 Explicit uploads and optional model analysis read authentication. `AUTOHAND_API_KEY` takes precedence;
 otherwise the command reads the durable credential saved by `autohand login`,

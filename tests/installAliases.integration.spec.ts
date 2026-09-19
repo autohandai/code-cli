@@ -60,6 +60,19 @@ esac
 `,
   );
   chmodSync(fakeCurl, 0o755);
+
+  const fakeTimeout = join(fixtureBinDir, 'timeout');
+  writeFileSync(fakeTimeout, '#!/bin/sh\nshift\n"$@"\n');
+  chmodSync(fakeTimeout, 0o755);
+}
+
+function writeFixtureAhtraces(payloadDir: string): void {
+  const fixture = join(payloadDir, 'ahtraces');
+  writeFileSync(
+    fixture,
+    '#!/bin/sh\n[ "${1:-}" = "--version" ] && printf "test-version\\n"\nexit 0\n',
+  );
+  chmodSync(fixture, 0o755);
 }
 
 afterEach(() => {
@@ -86,9 +99,10 @@ describe('release installer command aliases', () => {
     mkdirSync(installDir, { recursive: true });
     writeFileSync(fixtureBinary, '#!/bin/sh\nkill -9 $$\n');
     chmodSync(fixtureBinary, 0o755);
+    writeFixtureAhtraces(payloadDir);
     writeFileSync(installedBinary, existingBinary);
     chmodSync(installedBinary, 0o755);
-    execFileSync('tar', ['-czf', archivePath, '-C', payloadDir, 'autohand']);
+    execFileSync('tar', ['-czf', archivePath, '-C', payloadDir, 'autohand', 'ahtraces']);
     const checksum = createHash('sha256')
       .update(readFileSync(archivePath))
       .digest('hex');
@@ -114,6 +128,46 @@ describe('release installer command aliases', () => {
     expect(readFileSync(installedBinary, 'utf8')).toBe(existingBinary);
   });
 
+  unixIt('keeps the installer compatible with a release archive from before ahtraces', () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), 'autohand-installer-legacy-'));
+    tempRoots.push(tempRoot);
+    const payloadDir = join(tempRoot, 'payload');
+    const fixtureBinDir = join(tempRoot, 'fixture-bin');
+    const installDir = join(tempRoot, 'install');
+    const archivePath = join(tempRoot, 'autohand.tar.gz');
+    const checksumPath = `${archivePath}.sha256`;
+
+    mkdirSync(payloadDir, { recursive: true });
+    mkdirSync(fixtureBinDir, { recursive: true });
+    mkdirSync(installDir, { recursive: true });
+    writeFileSync(
+      join(payloadDir, 'autohand'),
+      '#!/bin/sh\n[ "${1:-}" = "--version" ] && printf "test-version\\n"\n',
+    );
+    chmodSync(join(payloadDir, 'autohand'), 0o755);
+    execFileSync('tar', ['-czf', archivePath, '-C', payloadDir, 'autohand']);
+    const checksum = createHash('sha256').update(readFileSync(archivePath)).digest('hex');
+    writeFileSync(checksumPath, `${checksum}  autohand.tar.gz\n`);
+    writeFakeCurl(fixtureBinDir);
+
+    execFileSync('/bin/sh', ['install.sh'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${fixtureBinDir}:${SAFE_SYSTEM_PATH}`,
+        AUTOHAND_INSTALL_DIR: installDir,
+        AUTOHAND_TEST_ARCHIVE: archivePath,
+        AUTOHAND_TEST_CHECKSUM: checksumPath,
+        AUTOHAND_VERSION: 'test-version',
+      },
+    });
+
+    expect(execFileSync(join(installDir, 'autohand'), ['--version'], { encoding: 'utf8' }))
+      .toBe('test-version\n');
+    expect(existsSync(join(installDir, 'ahtraces'))).toBe(false);
+  });
+
   unixIt('force-refreshes autohand-code, agent, and ah aliases in the install directory', () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'autohand-installer-aliases-'));
     tempRoots.push(tempRoot);
@@ -132,7 +186,8 @@ describe('release installer command aliases', () => {
       '#!/bin/sh\n[ "${1:-}" = "--version" ] && printf "test-version\\n"\n',
     );
     chmodSync(fixtureBinary, 0o755);
-    execFileSync('tar', ['-czf', archivePath, '-C', payloadDir, 'autohand']);
+    writeFixtureAhtraces(payloadDir);
+    execFileSync('tar', ['-czf', archivePath, '-C', payloadDir, 'autohand', 'ahtraces']);
     const checksum = createHash('sha256')
       .update(readFileSync(archivePath))
       .digest('hex');
@@ -175,6 +230,9 @@ describe('release installer command aliases', () => {
     expect(execFileSync(shortAlias, ['--version'], { encoding: 'utf8' })).toBe(
       'test-version\n',
     );
+    expect(execFileSync(join(installDir, 'ahtraces'), ['--version'], { encoding: 'utf8' })).toBe(
+      'test-version\n',
+    );
   });
 
   unixIt('claims a competing agent binary elsewhere on PATH', () => {
@@ -197,7 +255,8 @@ describe('release installer command aliases', () => {
       '#!/bin/sh\n[ "${1:-}" = "--version" ] && printf "test-version\\n"\n',
     );
     chmodSync(fixtureBinary, 0o755);
-    execFileSync('tar', ['-czf', archivePath, '-C', payloadDir, 'autohand']);
+    writeFixtureAhtraces(payloadDir);
+    execFileSync('tar', ['-czf', archivePath, '-C', payloadDir, 'autohand', 'ahtraces']);
     const checksum = createHash('sha256')
       .update(readFileSync(archivePath))
       .digest('hex');
@@ -255,9 +314,10 @@ describe('release installer binary replacement', () => {
     mkdirSync(installDir, { recursive: true });
     writeFileSync(fixtureBinary, newBinary);
     chmodSync(fixtureBinary, 0o755);
+    writeFixtureAhtraces(payloadDir);
     writeFileSync(installedBinary, '#!/bin/sh\nprintf "existing-version\\n"\n');
     chmodSync(installedBinary, 0o755);
-    execFileSync('tar', ['-czf', archivePath, '-C', payloadDir, 'autohand']);
+    execFileSync('tar', ['-czf', archivePath, '-C', payloadDir, 'autohand', 'ahtraces']);
     const checksum = createHash('sha256')
       .update(readFileSync(archivePath))
       .digest('hex');
@@ -312,7 +372,8 @@ if [ "\${1:-}" = "--version" ]; then printf "test-version\\n"; exit 0; fi
 `,
     );
     chmodSync(join(payloadDir, 'autohand'), 0o755);
-    execFileSync('tar', ['-czf', archivePath, '-C', payloadDir, 'autohand']);
+    writeFixtureAhtraces(payloadDir);
+    execFileSync('tar', ['-czf', archivePath, '-C', payloadDir, 'autohand', 'ahtraces']);
     const checksum = createHash('sha256').update(readFileSync(archivePath)).digest('hex');
     writeFileSync(checksumPath, `${checksum}  autohand.tar.gz\n`);
     writeFakeCurl(fixtureBinDir);

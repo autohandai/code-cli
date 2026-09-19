@@ -278,13 +278,17 @@ export class SlashCommandHandler {
         }
         case '/settings': {
           const { settings, normalizeSettingKey } = await import('../commands/settings.js');
+          const { applyTraceSettingChange } = await import('../traces/settingsLifecycle.js');
           if (!this.ctx.config) {
             console.log(chalk.yellow('Config not available.'));
             return null;
           }
           const opensPositionPicker = normalizeSettingKey(args.join(' ')) === 'ui.taskListPosition';
           if (args.length > 0 && !opensPositionPicker) {
-            return await settings({ config: this.ctx.config }, args);
+            return await settings({
+              config: this.ctx.config,
+              onSettingChanged: (change) => applyTraceSettingChange(this.ctx.config!, change),
+            }, args);
           }
           // Pause the InkRenderer for the entire /settings session.
           // settings() runs its own while(true) loop with multiple showModal
@@ -292,7 +296,10 @@ export class SlashCommandHandler {
           // modal's useInput for stdin and ESC events get dropped.
           await this.ctx.onBeforeModal?.();
           try {
-            return await settings({ config: this.ctx.config }, args);
+            return await settings({
+              config: this.ctx.config,
+              onSettingChanged: (change) => applyTraceSettingChange(this.ctx.config!, change),
+            }, args);
           } finally {
             await this.ctx.onAfterModal?.();
           }
