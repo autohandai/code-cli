@@ -93,6 +93,24 @@ function runVersionStep(manualVersion: string): string {
 }
 
 describe('release workflow', () => {
+  it('keeps local native compile scripts aligned with release optional dependency handling', () => {
+    const packageJson = JSON.parse(readFileSync(path.join(REPOSITORY_ROOT, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    const compileStep = loadReleaseWorkflow().jobs.build.steps.find(
+      (step) => step.name === 'Compile binary',
+    );
+
+    expect(compileStep?.run).toContain('--external node-llama-cpp');
+    for (const target of ['macos-arm64', 'macos-x64', 'linux-x64', 'linux-arm64', 'windows-x64']) {
+      expect(packageJson.scripts[`compile:${target}`]).toContain(
+        './src/index.ts --compile --target=',
+      );
+      expect(packageJson.scripts[`compile:${target}`]).toContain('--external node-llama-cpp');
+      expect(packageJson.scripts[`compile:${target}`]).toContain('./src/ahtraces.ts --compile');
+    }
+  });
+
   it('normalizes a v-prefixed manual stable version before publishing', () => {
     expect(runVersionStep('v0.9.3')).toContain('version=0.9.3\n');
   });
