@@ -42,7 +42,7 @@ function createInkKey(overrides: Partial<InkKey> = {}): InkKey {
 }
 
 function renderAgentUIWithStdin(props: Partial<React.ComponentProps<typeof AgentUI>> = {}) {
-  const { lastFrame, stdin } = render(
+  const { lastFrame, stdin, unmount } = render(
     React.createElement(
       I18nProvider,
       null,
@@ -60,7 +60,7 @@ function renderAgentUIWithStdin(props: Partial<React.ComponentProps<typeof Agent
     )
   );
 
-  return { stdin, lastFrame };
+  return { stdin, lastFrame, unmount };
 }
 
 afterEach(() => {
@@ -285,6 +285,43 @@ describe('AgentUI $ skill mention mid-sentence', () => {
     skills = [{ name: 'extension-builder', description: 'Build an extension', isActive: false, source: 'builtin' }];
     await new Promise(r => setTimeout(r, 600));
     expect(lastFrame() ?? '').toContain('$extension-builder');
+  });
+
+  it('rechecks an unmatched skill mention while other skills have already loaded', async () => {
+    let skills = [
+      { name: 'code-reviewer', description: 'Review code', isActive: false, source: 'builtin' },
+    ];
+    const { stdin, lastFrame } = renderAgentUIWithStdin({ skillsProvider: () => skills });
+    await new Promise(r => setImmediate(r));
+    stdin.write('hep me here $ex');
+    await new Promise(r => setTimeout(r, 80));
+    expect(lastFrame() ?? '').not.toContain('$extension-builder');
+    skills = [
+      ...skills,
+      { name: 'extension-builder', description: 'Build an extension', isActive: false, source: 'builtin' },
+    ];
+    await new Promise(r => setTimeout(r, 600));
+    expect(lastFrame() ?? '').toContain('$extension-builder');
+  });
+
+  it('releases a pending skill recheck when the composer unmounts', async () => {
+    const { stdin, unmount } = renderAgentUIWithStdin({
+      skillsProvider: () => [
+        { name: 'code-reviewer', description: 'Review code', isActive: false, source: 'builtin' },
+      ],
+    });
+    await new Promise(r => setImmediate(r));
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const baseline = vi.getTimerCount();
+      stdin.write('hep me here $ex');
+      await new Promise(r => setImmediate(r));
+      expect(vi.getTimerCount()).toBeGreaterThan(baseline);
+      unmount();
+      expect(vi.getTimerCount()).toBe(baseline);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('suggests skills when the whole sentence arrives in one input chunk', async () => {

@@ -38,6 +38,7 @@ describe('trace source registry', () => {
         DSH_HOME: '/Users/tester/custom-deepseek',
         CLAUDE_CONFIG_DIR: '/Users/tester/custom-claude',
         CODEX_HOME: '/Users/tester/custom-codex',
+        TRACES_CURSOR_GLOBAL_DB: '/Users/tester/mounted-cursor/state.vscdb',
       },
       platform: 'darwin',
     });
@@ -58,6 +59,7 @@ describe('trace source registry', () => {
       '/Users/tester/custom-codex/sessions',
       '/Users/tester/custom-codex/codex.json',
     ]);
+    expect(registry.get('cursor')?.locations).toContain('/Users/tester/mounted-cursor/state.vscdb');
   });
 
   it('covers each native store used by multi-agent and desktop harness variants', () => {
@@ -81,6 +83,9 @@ describe('trace source registry', () => {
     expect(registry.get('cursor')?.formats).toEqual(expect.arrayContaining(['json', 'jsonl', 'sqlite']));
     expect(registry.get('cline')?.locations).toContain(
       '/Users/tester/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev',
+    );
+    expect(registry.get('copilot')?.locations).toContain(
+      '/Users/tester/Library/Application Support/Code/User/globalStorage/emptyWindowChatSessions',
     );
     expect(registry.get('openclaw')?.locations).toEqual(['/Users/tester/.openclaw/agents']);
     expect(registry.get('antigravity')?.locations).toEqual(expect.arrayContaining([

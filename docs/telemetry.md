@@ -138,6 +138,10 @@ into schema version 1:
 - derived outcome state, evidence facts and confidence;
 - parser version, completeness and warnings.
 
+Cursor's global SQLite path can be overridden with `TRACES_CURSOR_GLOBAL_DB`
+for a mounted host database. Copilot scanning includes CLI sessions and VS Code
+workspace and empty-window chat stores.
+
 A single harness scan is bounded to 5,000 files, 64 MiB per file, 64 MiB total,
 100,000 records and directory depth 12. Work Map scans at most three harnesses
 concurrently by default. Truncation and parse failures are surfaced as coverage

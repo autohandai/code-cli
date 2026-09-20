@@ -590,6 +590,7 @@ export function getTextBufferCursorOffset(buffer: TextBuffer): number {
 const COMPOSER_TRIGGER_CHARS = new Set(['/', '@', '$', '!', '#', ':']);
 /** How often a `$` typed before skills loaded is re-checked while they stay absent. */
 const SKILL_RECHECK_INTERVAL_MS = 250;
+const SKILL_RECHECK_MAX_MS = 30_000;
 const INVISIBLE_OR_WHITESPACE_RE = /[\s\u200B-\u200D\uFEFF]/u;
 
 function compactComposerTriggerText(text: string): string {
@@ -1538,7 +1539,11 @@ export function AgentUI({
   // A `$` typed before the skills registry has loaded finds nothing; re-check
   // the pending mention for a while so the dropdown appears once skills arrive.
   const [skillRecheckTick, setSkillRecheckTick] = useState(0);
-  const skillRecheckRef = useRef<{ timer?: ReturnType<typeof setTimeout> }>({});
+  const skillRecheckRef = useRef<{
+    timer?: ReturnType<typeof setTimeout>;
+    mentionKey?: string;
+    startedAt?: number;
+  }>({});
   const clearSkillRecheck = useCallback(() => {
     if (skillRecheckRef.current.timer) clearTimeout(skillRecheckRef.current.timer);
     skillRecheckRef.current = {};
@@ -1581,9 +1586,18 @@ export function AgentUI({
         setSkillSuggestions([]);
         skillStartIndexRef.current = null;
       }
-      // Keep polling while the registry is still empty; the timer is cleared as
-      // soon as the mention goes away or suggestions appear.
-      if (provider().length === 0 && !skillRecheckRef.current.timer) {
+      // Built-in skills load one by one. A nonempty registry can still be
+      // missing the matching skill, so retry this mention for a bounded period.
+      const mentionKey = `${mention.startIndex}:${mention.seed}`;
+      if (skillRecheckRef.current.mentionKey !== mentionKey) {
+        clearSkillRecheck();
+        skillRecheckRef.current.mentionKey = mentionKey;
+        skillRecheckRef.current.startedAt = Date.now();
+      }
+      if (
+        !skillRecheckRef.current.timer
+        && Date.now() - (skillRecheckRef.current.startedAt ?? 0) < SKILL_RECHECK_MAX_MS
+      ) {
         skillRecheckRef.current.timer = setTimeout(() => {
           skillRecheckRef.current.timer = undefined;
           setSkillRecheckTick((tick) => tick + 1);

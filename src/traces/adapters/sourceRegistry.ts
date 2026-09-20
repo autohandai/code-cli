@@ -118,6 +118,7 @@ const DEFINITIONS: readonly SourceDefinition[] = [
   {
     harness: 'cursor', displayName: 'Cursor', formats: ['json', 'jsonl', 'sqlite'],
     locations: (options) => unique([
+      options.environment.TRACES_CURSOR_GLOBAL_DB,
       joinHome(options, '.cursor', 'projects'),
       path.join(applicationSupport(options, 'Cursor'), 'User', 'globalStorage', 'state.vscdb'),
       path.join(applicationSupport(options, 'Cursor'), 'User', 'workspaceStorage'),
@@ -159,6 +160,7 @@ const DEFINITIONS: readonly SourceDefinition[] = [
     harness: 'copilot', displayName: 'GitHub Copilot', formats: ['json', 'jsonl'],
     locations: (options) => [
       joinHome(options, '.copilot'),
+      path.join(applicationSupport(options, 'Code'), 'User', 'globalStorage', 'emptyWindowChatSessions'),
       path.join(applicationSupport(options, 'Code'), 'User', 'workspaceStorage'),
     ],
   },
