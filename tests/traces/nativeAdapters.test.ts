@@ -46,6 +46,185 @@ describe('native trace Adapters', () => {
     });
   });
 
+  it.each<{
+    harness: TraceHarness;
+    decoy: string;
+    session: string;
+  }>([
+    { harness: 'pi', decoy: '.pi/auth.json', session: '.pi/agent/sessions/project/session.jsonl' },
+    { harness: 'amp', decoy: '.local/share/amp/secrets.json', session: '.local/share/amp/threads/session.json' },
+    { harness: 'copilot', decoy: '.copilot/config.json', session: '.copilot/session-state/session-1/events.jsonl' },
+    { harness: 'cline', decoy: '.cline/data/secrets.json', session: '.cline/data/tasks/session-1/ui_messages.json' },
+    { harness: 'grok', decoy: '.grok/config.json', session: '.grok/sessions/session.jsonl' },
+    { harness: 'kimi', decoy: '.kimi-code/migration-report.json', session: '.kimi-code/sessions/wd_project/session/wire.jsonl' },
+    { harness: 'openclaw', decoy: '.openclaw/agents/main/auth.jsonl', session: '.openclaw/agents/main/sessions/session.jsonl' },
+    { harness: 'antigravity', decoy: '.gemini/antigravity/brain/secrets.jsonl', session: '.gemini/antigravity/conversations/session.jsonl' },
+    { harness: 'prime-agent', decoy: '.prime/auth.jsonl', session: '.prime/agent/sessions/session.jsonl' },
+  ])('opens only $harness session files, not neighboring app configuration', async ({ harness, decoy, session }) => {
+    const root = await tempRoot();
+    const decoyPath = path.join(root, decoy);
+    const sessionPath = path.join(root, session);
+    await fs.ensureDir(path.dirname(decoyPath));
+    await fs.ensureDir(path.dirname(sessionPath));
+    await fs.writeFile(decoyPath, JSON.stringify({
+      sessionId: 'credential-decoy',
+      messages: [{ role: 'user', content: 'must not be read' }],
+    }));
+    await fs.writeFile(sessionPath, JSON.stringify({
+      sessionId: 'native-session',
+      messages: [{ role: 'user', content: 'native session' }],
+    }));
+    const adapter = createTraceSourceRegistry({
+      homeDirectory: root,
+      autohandHome: path.join(root, '.autohand'),
+      environment: {},
+      platform: process.platform,
+    }).get(harness)!;
+
+    const result = await adapter.scan();
+
+    expect(result.traces.map((trace) => trace.source.externalId)).toEqual(['native-session']);
+    expect(result.sourceFiles).toHaveLength(1);
+    expect(result.filesScanned).toBe(1);
+  });
+
+  it.each([
+    'auth.json',
+    'auth.backup.json',
+    'secrets.json',
+    'credentials.json',
+    'settings.json',
+    'tokens.json',
+    'oauth.json',
+    'account.json',
+    'api_keys.json',
+    'identity.json',
+  ])('does not read %s inside an explicitly selected session root', async (decoyName) => {
+    const root = await tempRoot();
+    await fs.writeFile(path.join(root, decoyName), JSON.stringify({
+      sessionId: 'credential-decoy',
+      messages: [{ role: 'user', content: 'must not be read' }],
+    }));
+    await fs.writeFile(path.join(root, 'session.json'), JSON.stringify({
+      sessionId: 'native-session',
+      messages: [{ role: 'user', content: 'native session' }],
+    }));
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'amp')).get('amp')!;
+
+    const result = await adapter.scan();
+
+    expect(result.traces.map((trace) => trace.source.externalId)).toEqual(['native-session']);
+    expect(result.sourceFiles).toHaveLength(1);
+  });
+
+  it.each(['auth', 'secrets', 'credentials', 'oauth', 'api_keys'])
+  ('does not descend into %s directories inside a session root', async (decoyDirectory) => {
+    const root = await tempRoot();
+    await fs.ensureDir(path.join(root, decoyDirectory));
+    await fs.writeFile(path.join(root, decoyDirectory, 'session.jsonl'), JSON.stringify({
+      sessionId: 'credential-decoy',
+      messages: [{ role: 'user', content: 'must not be read' }],
+    }));
+    await fs.writeFile(path.join(root, 'session.jsonl'), JSON.stringify({
+      sessionId: 'native-session',
+      messages: [{ role: 'user', content: 'native session' }],
+    }));
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'amp')).get('amp')!;
+
+    const result = await adapter.scan();
+
+    expect(result.traces.map((trace) => trace.source.externalId)).toEqual(['native-session']);
+    expect(result.sourceFiles).toHaveLength(1);
+  });
+
+  it.each<TraceHarness>(['cursor', 'copilot'])('ignores non-chat JSON in %s VS Code workspace storage', async (harness) => {
+    const root = await tempRoot();
+    const app = harness === 'cursor' ? 'Cursor' : 'Code';
+    const storage = path.join(root, 'Library', 'Application Support', app, 'User', 'workspaceStorage', 'workspace-hash');
+    await fs.ensureDir(path.join(storage, 'chatSessions'));
+    await fs.writeFile(path.join(storage, 'config.json'), JSON.stringify({
+      sessionId: 'credential-decoy',
+      messages: [{ role: 'user', content: 'must not be read' }],
+    }));
+    await fs.writeFile(path.join(storage, 'chatSessions', 'session.json'), JSON.stringify({
+      sessionId: 'native-session',
+      messages: [{ role: 'user', content: 'native session' }],
+    }));
+    const adapter = createTraceSourceRegistry({
+      homeDirectory: root,
+      autohandHome: path.join(root, '.autohand'),
+      environment: {},
+      platform: 'darwin',
+    }).get(harness)!;
+
+    const result = await adapter.scan();
+
+    expect(result.traces.map((trace) => trace.source.externalId)).toEqual(['native-session']);
+    expect(result.sourceFiles).toHaveLength(1);
+  });
+
+  it('does not treat Cursor project markers as conversation history', async () => {
+    const root = await tempRoot();
+    const project = path.join(root, '.cursor', 'projects', 'project-hash');
+    await fs.ensureDir(project);
+    await fs.writeFile(path.join(project, 'project_settings.json'), JSON.stringify({
+      sessionId: 'credential-decoy',
+      messages: [{ role: 'user', content: 'must not be read' }],
+    }));
+    const adapter = createTraceSourceRegistry({
+      homeDirectory: root,
+      autohandHome: path.join(root, '.autohand'),
+      environment: {},
+      platform: 'darwin',
+    }).get('cursor')!;
+
+    const result = await adapter.scan();
+
+    expect(result.traces).toEqual([]);
+    expect(result.sourceFiles).toEqual([]);
+  });
+
+  it('does not open arbitrary Hermes databases next to the session store', async () => {
+    const root = await tempRoot();
+    const hermes = path.join(root, '.hermes');
+    await fs.ensureDir(hermes);
+    await fs.writeFile(path.join(hermes, 'auth.db'), 'not a session database');
+    const adapter = createTraceSourceRegistry({
+      homeDirectory: root,
+      autohandHome: path.join(root, '.autohand'),
+      environment: {},
+      platform: process.platform,
+    }).get('hermes')!;
+
+    const result = await adapter.scan();
+
+    expect(result.sourceFiles).toEqual([]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('treats DSH_HOME as a home directory, not permission to scan its configuration', async () => {
+    const root = await tempRoot();
+    const dshHome = path.join(root, '.dsh');
+    await fs.ensureDir(path.join(dshHome, 'sessions'));
+    await fs.writeFile(path.join(dshHome, 'auth.jsonl.zst'), zstdCompressSync(Buffer.from(JSON.stringify({
+      sessionId: 'credential-decoy', messages: [{ role: 'user', content: 'must not be read' }],
+    }))));
+    await fs.writeFile(path.join(dshHome, 'sessions', 'native.jsonl.zst'), zstdCompressSync(Buffer.from(JSON.stringify({
+      sessionId: 'native-session', messages: [{ role: 'user', content: 'native session' }],
+    }))));
+    const adapter = createTraceSourceRegistry({
+      homeDirectory: root,
+      autohandHome: path.join(root, '.autohand'),
+      environment: { DSH_HOME: dshHome },
+      platform: process.platform,
+    }).get('deepseek')!;
+
+    const result = await adapter.scan();
+
+    expect(result.traces.map((trace) => trace.source.externalId)).toEqual(['native-session']);
+    expect(result.sourceFiles).toHaveLength(1);
+  });
+
   it('rejects a trace source that grows after discovery instead of reading past its budget', async () => {
     const root = await tempRoot();
     const filePath = path.join(root, 'growing.jsonl');

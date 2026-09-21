@@ -154,12 +154,15 @@ source budget. Legacy OpenCode JSON joins, authentic native-version fixtures
 for the other harnesses, and OpenCode 2's service-API fallback remain release
 gates.
 
-Several other harness definitions still point at broad application directories.
-The generic walker reads matching JSON/JSONL files beneath those roots, not just
-verified session filenames. That may include unrelated configuration or auth
-files in memory, even though the persistent Work Map excludes their content.
-Source-specific allowlists and decoy credential-file tests are required before
-these adapters can be considered safe for a production opt-in rollout.
+The registry now selects known session stores rather than application roots for
+Pi, Amp, Copilot, Cline, Grok, Kimi, Prime Agent, Hermes, DeepSeek, Codex, and
+Cursor. The walker limits VS Code workspace storage to `chatSessions`, Copilot
+CLI to `events.jsonl`, Cline to task history files, Kimi to session state/wire
+files, and OpenClaw to agent session directories; credential-shaped filenames
+are rejected before reading. Decoy-file tests cover these paths. This reduces
+accidental configuration reads, but it is not proof of complete or future-safe
+native parsing. Each upstream version still needs an authentic session fixture
+and a source-minimization review before a production opt-in rollout.
 
 A single harness scan is bounded to 5,000 files, 64 MiB per file, 64 MiB total,
 100,000 records and directory depth 12. Work Map scans at most three harnesses

@@ -51,8 +51,8 @@ describe('trace source registry', () => {
       expect(adapter?.locations.length).toBeLessThanOrEqual(8);
       expect(adapter?.formats.length).toBeGreaterThan(0);
     }
-    expect(registry.get('kimi')?.locations).toContain('/Users/tester/custom-kimi');
-    expect(registry.get('deepseek')?.locations).toContain('/Users/tester/custom-deepseek');
+    expect(registry.get('kimi')?.locations).toContain('/Users/tester/custom-kimi/sessions');
+    expect(registry.get('deepseek')?.locations).toContain('/Users/tester/custom-deepseek/sessions');
     expect(registry.get('opencode')?.locations).toEqual([
       '/Users/tester/.xdg/data/opencode/opencode.db',
       '/Users/tester/.xdg/data/opencode/storage/session',
@@ -64,10 +64,7 @@ describe('trace source registry', () => {
       '/Users/tester/.xdg/data/opencode/opencode-local.db',
     ]);
     expect(registry.get('claude-code')?.locations).toEqual(['/Users/tester/custom-claude/projects']);
-    expect(registry.get('codex')?.locations).toEqual([
-      '/Users/tester/custom-codex/sessions',
-      '/Users/tester/custom-codex/codex.json',
-    ]);
+    expect(registry.get('codex')?.locations).toEqual(['/Users/tester/custom-codex/sessions']);
     expect(registry.get('cursor')?.locations).toContain('/Users/tester/mounted-cursor/state.vscdb');
   });
 
@@ -85,23 +82,39 @@ describe('trace source registry', () => {
     expect(registry.get('claude-code')?.locations).toContain(
       '/Users/tester/Library/Application Support/Claude/claude-code-sessions',
     );
-    expect(registry.get('cursor')?.locations).toContain('/Users/tester/.cursor/projects');
+    expect(registry.get('cursor')?.locations).not.toContain('/Users/tester/.cursor/projects');
     expect(registry.get('cursor')?.locations).toContain(
       '/Users/tester/Library/Application Support/Cursor/User/globalStorage/state.vscdb',
     );
     expect(registry.get('cursor')?.formats).toEqual(expect.arrayContaining(['json', 'jsonl', 'sqlite']));
     expect(registry.get('cline')?.locations).toContain(
-      '/Users/tester/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev',
+      '/Users/tester/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/tasks',
     );
     expect(registry.get('copilot')?.locations).toContain(
       '/Users/tester/Library/Application Support/Code/User/globalStorage/emptyWindowChatSessions',
     );
+    expect(registry.get('copilot')?.locations).toContain('/Users/tester/.copilot/session-state');
+    expect(registry.get('cline')?.locations).toContain('/Users/tester/.cline/data/tasks');
+    expect(registry.get('cline')?.locations).toContain(
+      '/Users/tester/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/tasks',
+    );
+    expect(registry.get('pi')?.locations).toEqual(['/Users/tester/.pi/agent/sessions']);
+    expect(registry.get('amp')?.locations).toEqual([
+      '/Users/tester/.local/share/amp/threads',
+      '/Users/tester/.local/share/amp/history.jsonl',
+    ]);
+    expect(registry.get('grok')?.locations).toEqual(['/Users/tester/.grok/sessions']);
+    expect(registry.get('kimi')?.locations).toEqual(['/Users/tester/.kimi-code/sessions', '/Users/tester/.kimi/sessions']);
+    expect(registry.get('hermes')?.locations).toEqual([
+      '/Users/tester/.hermes/state.db',
+      '/Users/tester/.local/share/hermes/state.db',
+    ]);
     expect(registry.get('openclaw')?.locations).toEqual(['/Users/tester/.openclaw/agents']);
     expect(registry.get('antigravity')?.locations).toEqual(expect.arrayContaining([
-      '/Users/tester/.gemini/antigravity-cli',
-      '/Users/tester/.gemini/antigravity',
-      '/Users/tester/.gemini/antigravity-ide',
+      '/Users/tester/.gemini/antigravity-cli/sessions',
+      '/Users/tester/.gemini/antigravity/conversations',
+      '/Users/tester/.gemini/antigravity-ide/conversations',
     ]));
-    expect(registry.get('prime-agent')?.locations).toContain('/Users/tester/.prime');
+    expect(registry.get('prime-agent')?.locations).toEqual(['/Users/tester/.prime/agent/sessions']);
   });
 });

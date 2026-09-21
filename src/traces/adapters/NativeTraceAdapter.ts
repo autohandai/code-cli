@@ -457,8 +457,17 @@ function messageId(externalId: string, recordPath: string, order: number, source
     .slice(0, 32)}`;
 }
 
+const CREDENTIAL_SOURCE_NAME = /^(?:auth|secrets?|credentials?|configs?|settings?|tokens?|oauth|accounts?|identity|api[-_]?keys?|globalstate)(?:$|[-_.])/u;
+
+function isCredentialSourceName(name: string): boolean {
+  return CREDENTIAL_SOURCE_NAME.test(name.toLowerCase().replace(/^\.+/u, ''));
+}
+
 function formatForFile(filePath: string, formats: readonly TraceSourceFormat[]): TraceSourceFormat | undefined {
   const lower = filePath.toLowerCase();
+  if (isCredentialSourceName(path.basename(filePath))) {
+    return undefined;
+  }
   if (formats.includes('jsonl-zstd') && (lower.endsWith('.jsonl.zst') || lower.endsWith('.jsonl.zstd') || lower.endsWith('.zst'))) {
     return 'jsonl-zstd';
   }
@@ -475,14 +484,46 @@ function formatForFile(filePath: string, formats: readonly TraceSourceFormat[]):
   return undefined;
 }
 
+function isSessionSourcePath(definition: NativeAdapterDefinition, location: string, candidate: string): boolean {
+  const relative = path.relative(location, candidate);
+  if (!relative) return true;
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return false;
+  const segments = relative.split(path.sep);
+  const base = path.basename(candidate);
+  const rootName = path.basename(location);
+
+  if (rootName === 'workspaceStorage') {
+    return segments.length === 3 && segments[1] === 'chatSessions';
+  }
+  if (definition.harness === 'openclaw' && rootName === 'agents') {
+    return segments.length >= 3 && segments[1] === 'sessions';
+  }
+  if (definition.harness === 'copilot' && rootName === 'session-state') {
+    return segments.length === 2 && base === 'events.jsonl';
+  }
+  if (definition.harness === 'cline' && rootName === 'tasks') {
+    return segments.length === 2 && (
+      base === 'api_conversation_history.json'
+      || base === 'ui_messages.json'
+      || base === 'task_metadata.json'
+    );
+  }
+  if (definition.harness === 'kimi' && rootName === 'sessions') {
+    return base === 'wire.jsonl' || base === 'state.json';
+  }
+  return true;
+}
+
 async function discoverFiles(
   definition: NativeAdapterDefinition,
   budget: ScanBudget,
   signal?: AbortSignal,
 ): Promise<SourceFile[]> {
   const files: SourceFile[] = [];
-  const visit = async (candidate: string, depth: number): Promise<void> => {
+  const visit = async (candidate: string, location: string, depth: number): Promise<void> => {
     signal?.throwIfAborted();
+    const relative = path.relative(location, candidate);
+    if (relative && relative.split(path.sep).some(isCredentialSourceName)) return;
     if (files.length >= budget.maxFiles) {
       budget.truncated = true;
       return;
@@ -498,6 +539,7 @@ async function discoverFiles(
     }
     if (stat.isSymbolicLink()) return;
     if (stat.isFile()) {
+      if (!isSessionSourcePath(definition, location, candidate)) return;
       const format = formatForFile(candidate, definition.formats);
       if (format) {
         files.push({
@@ -525,10 +567,10 @@ async function discoverFiles(
         break;
       }
       if (entry.isSymbolicLink()) continue;
-      await visit(path.join(candidate, entry.name), depth + 1);
+      await visit(path.join(candidate, entry.name), location, depth + 1);
     }
   };
-  for (const location of definition.locations) await visit(location, 0);
+  for (const location of definition.locations) await visit(location, location, 0);
   return files;
 }
 

@@ -119,7 +119,6 @@ const DEFINITIONS: readonly SourceDefinition[] = [
     harness: 'cursor', displayName: 'Cursor', formats: ['json', 'jsonl', 'sqlite'],
     locations: (options) => unique([
       options.environment.TRACES_CURSOR_GLOBAL_DB,
-      joinHome(options, '.cursor', 'projects'),
       path.join(applicationSupport(options, 'Cursor'), 'User', 'globalStorage', 'state.vscdb'),
       path.join(applicationSupport(options, 'Cursor'), 'User', 'workspaceStorage'),
     ]),
@@ -147,24 +146,24 @@ const DEFINITIONS: readonly SourceDefinition[] = [
     harness: 'codex', displayName: 'Codex', formats: ['json', 'jsonl'],
     locations: (options) => {
       const codexHome = options.environment.CODEX_HOME ?? joinHome(options, '.codex');
-      return [path.join(codexHome, 'sessions'), path.join(codexHome, 'codex.json')];
+      return [path.join(codexHome, 'sessions')];
     },
   },
   {
     harness: 'pi', displayName: 'Pi', formats: ['json', 'jsonl'],
-    locations: (options) => [joinHome(options, '.pi', 'agent', 'sessions'), joinHome(options, '.pi')],
+    locations: (options) => [joinHome(options, '.pi', 'agent', 'sessions')],
   },
   {
     harness: 'amp', displayName: 'Amp', formats: ['json', 'jsonl'],
-    locations: (options) => unique([
-      joinHome(options, '.amp'),
-      path.join(options.environment.XDG_DATA_HOME ?? joinHome(options, '.local', 'share'), 'amp'),
-    ]),
+    locations: (options) => {
+      const data = path.join(options.environment.XDG_DATA_HOME ?? joinHome(options, '.local', 'share'), 'amp');
+      return [path.join(data, 'threads'), path.join(data, 'history.jsonl')];
+    },
   },
   {
     harness: 'copilot', displayName: 'GitHub Copilot', formats: ['json', 'jsonl'],
     locations: (options) => [
-      joinHome(options, '.copilot'),
+      joinHome(options, '.copilot', 'session-state'),
       path.join(applicationSupport(options, 'Code'), 'User', 'globalStorage', 'emptyWindowChatSessions'),
       path.join(applicationSupport(options, 'Code'), 'User', 'workspaceStorage'),
     ],
@@ -172,12 +171,13 @@ const DEFINITIONS: readonly SourceDefinition[] = [
   {
     harness: 'cline', displayName: 'Cline', formats: ['json'],
     locations: (options) => [
-      joinHome(options, '.cline'),
+      joinHome(options, '.cline', 'data', 'tasks'),
       path.join(
         applicationSupport(options, 'Code'),
         'User',
         'globalStorage',
         'saoudrizwan.claude-dev',
+        'tasks',
       ),
     ],
   },
@@ -187,7 +187,10 @@ const DEFINITIONS: readonly SourceDefinition[] = [
   },
   {
     harness: 'hermes', displayName: 'Hermes', formats: ['sqlite'],
-    locations: (options) => [joinHome(options, '.hermes'), joinHome(options, '.local', 'share', 'hermes')],
+    locations: (options) => [
+      joinHome(options, '.hermes', 'state.db'),
+      joinHome(options, '.local', 'share', 'hermes', 'state.db'),
+    ],
   },
   {
     harness: 'droid', displayName: 'Droid', formats: ['jsonl'],
@@ -195,28 +198,28 @@ const DEFINITIONS: readonly SourceDefinition[] = [
   },
   {
     harness: 'grok', displayName: 'Grok', formats: ['json', 'jsonl'],
-    locations: (options) => [joinHome(options, '.grok', 'sessions'), joinHome(options, '.grok')],
+    locations: (options) => [joinHome(options, '.grok', 'sessions')],
   },
   {
     harness: 'kimi', displayName: 'Kimi Code', formats: ['json', 'jsonl'],
     locations: (options) => unique([
-      options.environment.KIMI_CODE_HOME,
-      joinHome(options, '.kimi-code'),
-      joinHome(options, '.kimi'),
+      options.environment.KIMI_CODE_HOME ? path.join(options.environment.KIMI_CODE_HOME, 'sessions') : undefined,
+      joinHome(options, '.kimi-code', 'sessions'),
+      joinHome(options, '.kimi', 'sessions'),
     ]),
   },
   {
     harness: 'antigravity', displayName: 'Antigravity', formats: ['jsonl'],
     locations: (options) => [
-      joinHome(options, '.gemini', 'antigravity-cli'),
-      joinHome(options, '.gemini', 'antigravity'),
-      joinHome(options, '.gemini', 'antigravity-ide'),
+      joinHome(options, '.gemini', 'antigravity-cli', 'sessions'),
+      joinHome(options, '.gemini', 'antigravity', 'conversations'),
+      joinHome(options, '.gemini', 'antigravity-ide', 'conversations'),
       path.join(applicationSupport(options, 'Antigravity'), 'User', 'workspaceStorage'),
     ],
   },
   {
     harness: 'prime-agent', displayName: 'Prime Agent', formats: ['jsonl'],
-    locations: (options) => [joinHome(options, '.prime')],
+    locations: (options) => [joinHome(options, '.prime', 'agent', 'sessions')],
   },
   {
     harness: 'fx', displayName: 'fx', formats: ['jsonl'],
@@ -225,7 +228,7 @@ const DEFINITIONS: readonly SourceDefinition[] = [
   {
     harness: 'deepseek', displayName: 'DeepSeek Harness', formats: ['jsonl-zstd'],
     locations: (options) => unique([
-      options.environment.DSH_HOME,
+      options.environment.DSH_HOME ? path.join(options.environment.DSH_HOME, 'sessions') : undefined,
       joinHome(options, '.dsh', 'sessions'),
     ]),
   },
