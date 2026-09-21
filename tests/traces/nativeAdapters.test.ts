@@ -676,6 +676,198 @@ describe('native trace Adapters', () => {
     ]));
   });
 
+  it('parses native Pi session records with per-message model usage and paired tools', async () => {
+    const root = await tempRoot();
+    await fs.writeFile(path.join(root, 'pi-session.jsonl'), [
+      JSON.stringify({
+        type: 'session',
+        version: 3,
+        id: 'pi-native-session',
+        timestamp: '2026-09-18T00:00:00.000Z',
+        cwd: '/workspace/pi',
+      }),
+      JSON.stringify({
+        type: 'model_change',
+        id: 'model-change-1',
+        parentId: null,
+        timestamp: '2026-09-18T00:00:00.100Z',
+        provider: 'openrouter',
+        modelId: 'model-first',
+      }),
+      JSON.stringify({
+        type: 'thinking_level_change',
+        id: 'thinking-change-1',
+        parentId: 'model-change-1',
+        timestamp: '2026-09-18T00:00:00.200Z',
+        thinkingLevel: 'high',
+      }),
+      JSON.stringify({
+        type: 'message',
+        id: 'user-1',
+        parentId: 'thinking-change-1',
+        timestamp: '2026-09-18T00:00:01.000Z',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'inspect the project' }],
+          timestamp: 1_789_689_601_000,
+        },
+      }),
+      JSON.stringify({
+        type: 'message',
+        id: 'assistant-1',
+        parentId: 'user-1',
+        timestamp: '2026-09-18T00:00:02.000Z',
+        message: {
+          role: 'assistant',
+          provider: 'openrouter',
+          model: 'model-second',
+          content: [
+            { type: 'thinking', thinking: 'check the tests' },
+            { type: 'text', text: 'I will run the suite.' },
+            {
+              type: 'toolCall',
+              id: 'call-test',
+              name: 'bash',
+              arguments: { command: 'bun test' },
+            },
+          ],
+          usage: {
+            input: 20,
+            output: 5,
+            cacheRead: 4,
+            cacheWrite: 2,
+            reasoning: 3,
+            totalTokens: 31,
+          },
+          timestamp: 1_789_689_602_000,
+        },
+      }),
+      JSON.stringify({
+        type: 'message',
+        id: 'tool-result-1',
+        parentId: 'assistant-1',
+        timestamp: '2026-09-18T00:00:03.000Z',
+        message: {
+          role: 'toolResult',
+          toolCallId: 'call-test',
+          toolName: 'bash',
+          content: [{ type: 'text', text: '12 tests passed' }],
+          isError: false,
+          timestamp: 1_789_689_603_000,
+        },
+      }),
+      JSON.stringify({
+        type: 'message',
+        id: 'assistant-empty',
+        parentId: 'tool-result-1',
+        timestamp: '2026-09-18T00:00:04.000Z',
+        message: {
+          role: 'assistant',
+          provider: 'openrouter',
+          model: 'model-second',
+          content: [
+            { type: 'thinking', thinking: '\n\t' },
+            { type: 'text', text: '   ' },
+          ],
+          timestamp: 1_789_689_604_000,
+        },
+      }),
+    ].join('\n'));
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'pi')).get('pi')!;
+
+    const result = await adapter.scan();
+
+    expect(result).toMatchObject({ truncated: false, warnings: [] });
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0]).toMatchObject({
+      source: { harness: 'pi', externalId: 'pi-native-session' },
+      agent: { name: 'Pi', version: '3' },
+      project: { path: '/workspace/pi' },
+      startedAt: '2026-09-18T00:00:00.000Z',
+      endedAt: '2026-09-18T00:00:03.000Z',
+      status: 'unknown',
+      model: 'model-first',
+      provider: 'openrouter',
+      reasoningEffort: 'high',
+      usage: {
+        input: 20,
+        output: 5,
+        cacheRead: 4,
+        cacheWrite: 2,
+        reasoning: 3,
+        total: 31,
+        provenance: 'actual',
+      },
+    });
+    expect(result.traces[0].messages).toHaveLength(3);
+    expect(result.traces[0].messages[1]).toMatchObject({
+      sourceKey: 'assistant-1',
+      role: 'assistant',
+      model: 'model-second',
+      usage: {
+        input: 20,
+        output: 5,
+        cacheRead: 4,
+        cacheWrite: 2,
+        reasoning: 3,
+        total: 31,
+        provenance: 'actual',
+      },
+      parts: [
+        { type: 'reasoning', text: 'check the tests' },
+        { type: 'text', text: 'I will run the suite.' },
+        {
+          type: 'tool_call',
+          callId: 'call-test',
+          name: 'bash',
+          arguments: { command: 'bun test' },
+        },
+      ],
+    });
+    expect(result.traces[0].messages[2]).toMatchObject({
+      sourceKey: 'tool-result-1',
+      role: 'tool',
+      parts: [{
+        type: 'tool_result',
+        callId: 'call-test',
+        name: 'bash',
+        content: [{ type: 'text', text: '12 tests passed' }],
+      }],
+    });
+  });
+
+  it('marks unsupported Pi session records as partial without dropping known messages', async () => {
+    const root = await tempRoot();
+    await fs.writeFile(path.join(root, 'pi-future.jsonl'), [
+      JSON.stringify({
+        type: 'session', version: 4, id: 'pi-future',
+        timestamp: '2026-09-18T00:00:00.000Z', cwd: '/workspace/pi',
+      }),
+      JSON.stringify({
+        type: 'message', id: 'user-1', timestamp: '2026-09-18T00:00:01.000Z',
+        message: { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+      }),
+      JSON.stringify({
+        type: 'future_record', id: 'future-1', timestamp: '2026-09-18T00:00:02.000Z',
+      }),
+    ].join('\n'));
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'pi')).get('pi')!;
+
+    const result = await adapter.scan();
+
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0].messages).toHaveLength(1);
+    expect(result.traces[0].provenance).toMatchObject({
+      completeness: 'partial',
+      warnings: [
+        'Pi session version 4 is not a verified native contract.',
+        'Pi session contains unsupported record type "future_record".',
+      ],
+    });
+    expect(result.truncated).toBe(true);
+    expect(result.warnings).toEqual(expect.arrayContaining(result.traces[0].provenance.warnings));
+  });
+
   it.each<TraceHarness>([
     'pi', 'amp', 'copilot', 'cline', 'openclaw', 'droid', 'grok', 'kimi',
     'antigravity', 'prime-agent', 'fx',

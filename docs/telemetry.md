@@ -151,8 +151,8 @@ directories, not the data root containing `auth.json`. Token counts are read
 only from explicit usage envelopes, never inferred from tool arguments or
 results. SQLite WAL changes trigger a rescan and WAL size counts toward the
 source budget. Legacy OpenCode JSON joins, authentic native-version fixtures
-for the other harnesses, and OpenCode 2's service-API fallback remain release
-gates.
+for the remaining harnesses, and OpenCode 2's service-API fallback remain
+release gates.
 
 The registry now selects known session stores rather than application roots for
 Pi, Amp, Copilot, Cline, Grok, Kimi, Prime Agent, Hermes, DeepSeek, Codex, and
@@ -172,6 +172,17 @@ the adapter reads the matching `<sessionId>.json` manifest and
 model and token metrics, rejects unknown contract versions as partial coverage,
 and counts nested messages against the scan record budget. Older Cline task
 history still needs a native join.
+
+Pi session-v3 JSONL uses a native normalizer for session identity/version,
+workspace and timestamps, model and thinking-level changes, per-message model
+and token/cache/reasoning usage, text/reasoning blocks, camel-case tool calls,
+paired tool results, errors and compaction events. Whitespace-only blocks are
+discarded. Unknown Pi versions, record types, content types or roles mark the
+source partial instead of silently producing complete-looking usage. A
+counts-only comparison of 26 installed Pi sessions matched the pinned Traces
+reference at 651 normalized events, including the per-event-type split; no
+session content was printed or copied. This validates the observed v3 corpus,
+not every past or future Pi format.
 
 A single harness scan is bounded to 5,000 files, 64 MiB per file, 64 MiB total,
 100,000 records and directory depth 12. Work Map scans at most three harnesses

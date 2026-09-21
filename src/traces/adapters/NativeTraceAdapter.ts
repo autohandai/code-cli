@@ -19,6 +19,7 @@ import {
   type TraceTokenUsage,
 } from '../model.js';
 import { deriveTraceOutcome } from '../outcomes.js';
+import { normalizePiSessionRecords } from './PiTraceNormalizer.js';
 import type {
   TraceAdapterScanOptions,
   TraceAdapterScanResult,
@@ -1196,6 +1197,7 @@ function recordsToTraces(
   parsedAt: string,
   sourceFingerprint: string,
   budget: ScanBudget,
+  provenanceWarnings: readonly string[] = [],
 ): NormalizedTrace[] {
   const traces = new Map<string, MutableTrace>();
   let currentExternalId = path.basename(file.path).replace(/\.(?:jsonl(?:\.zst|\.zstd)?|json|db|sqlite3?|vscdb)$/iu, '');
@@ -1296,8 +1298,10 @@ function recordsToTraces(
         provenance: {
           adapterVersion: 1,
           parsedAt,
-          completeness: trace.messages.length > 0 ? 'complete' : 'metadata_only',
-          warnings: [],
+          completeness: provenanceWarnings.length > 0
+            ? 'partial'
+            : trace.messages.length > 0 ? 'complete' : 'metadata_only',
+          warnings: [...provenanceWarnings],
         },
       });
       normalized.outcome = deriveTraceOutcome(normalized);
@@ -1390,6 +1394,7 @@ class NativeTraceAdapter implements TraceSourceAdapter {
       }
       try {
         let records: UnknownRecord[];
+        let provenanceWarnings: string[] = [];
         if (file.format === 'sqlite') {
           records = await sqliteRecords(file, budget, this.harness);
           budget.bytesRead += sourceBytes;
@@ -1422,6 +1427,16 @@ class NativeTraceAdapter implements TraceSourceAdapter {
             records = parseJsonLines(bytes.toString('utf8'), budget, path.basename(file.path));
           } else {
             records = parseJson(bytes.toString('utf8'), budget, path.basename(file.path));
+          }
+        }
+
+        if (this.harness === 'pi') {
+          const normalized = normalizePiSessionRecords(records, file.path);
+          records = normalized.records;
+          provenanceWarnings = normalized.warnings;
+          if (provenanceWarnings.length > 0) {
+            budget.truncated = true;
+            budget.warnings.push(...provenanceWarnings);
           }
         }
 
@@ -1464,7 +1479,15 @@ class NativeTraceAdapter implements TraceSourceAdapter {
           }
         }
 
-        const parsedTraces = recordsToTraces(this.definition, file, records, parsedAt, sourceFingerprint, budget);
+        const parsedTraces = recordsToTraces(
+          this.definition,
+          file,
+          records,
+          parsedAt,
+          sourceFingerprint,
+          budget,
+          provenanceWarnings,
+        );
         traces.push(...parsedTraces);
         snapshot.traceIds = parsedTraces.map((trace) => trace.id);
         budget.filesScanned += 1;
