@@ -113,11 +113,11 @@ describe('trace source registry', () => {
       '/Users/tester/.local/share/hermes/state.db',
     ]);
     expect(registry.get('openclaw')?.locations).toEqual(['/Users/tester/.openclaw/agents']);
-    expect(registry.get('antigravity')?.locations).toEqual(expect.arrayContaining([
-      '/Users/tester/.gemini/antigravity-cli/sessions',
-      '/Users/tester/.gemini/antigravity/conversations',
-      '/Users/tester/.gemini/antigravity-ide/conversations',
-    ]));
+    expect(registry.get('antigravity')?.locations).toEqual([
+      '/Users/tester/.gemini/antigravity-cli/brain',
+      '/Users/tester/.gemini/antigravity/brain',
+      '/Users/tester/.gemini/antigravity-ide/brain',
+    ]);
     expect(registry.get('prime-agent')?.locations).toEqual(['/Users/tester/.prime/agent/sessions']);
   });
 });

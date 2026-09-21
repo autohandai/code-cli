@@ -174,11 +174,12 @@ for the remaining harnesses, and OpenCode 2's service-API fallback remain
 release gates.
 
 The registry now selects known session stores rather than application roots for
-Pi, Amp, Copilot, Cline, Grok, Kimi, Prime Agent, Hermes, DeepSeek, Codex, and
-Cursor. The walker limits VS Code workspace storage to `chatSessions`, Copilot
-CLI to `events.jsonl`, Cline to task history files and versioned SDK session
-messages, Grok to `summary.json`, `updates.jsonl`, and `chat_history.jsonl`,
-Kimi to session state/wire files, and OpenClaw to agent session directories;
+Pi, Amp, Copilot, Cline, Grok, Kimi, Antigravity, Prime Agent, Hermes, DeepSeek,
+Codex, and Cursor. The walker limits VS Code workspace storage to
+`chatSessions`, Copilot CLI to `events.jsonl`, Cline to task history files and
+versioned SDK session messages, Grok to `summary.json`, `updates.jsonl`, and
+`chat_history.jsonl`, Kimi to session state/wire files, Antigravity to exact
+generated transcript logs, and OpenClaw to agent session directories;
 credential-shaped filenames are rejected before reading.
 Decoy-file tests cover these paths. This reduces accidental configuration
 reads, but it is not proof of complete or future-safe
@@ -308,6 +309,41 @@ the parent also had ten parts, classifying them as five calls, three results, on
 user message and one hook error, while the other three remained metadata-only.
 This validates the observed fixture and the intentional semantic difference,
 not every Grok version or live append/restart behavior.
+
+Antigravity reads only
+`~/.gemini/{antigravity-cli,antigravity,antigravity-ide}/brain/<conversationId>/.system_generated/logs/transcript_full.jsonl`,
+falling back to `transcript.jsonl` when the full transcript is absent. It does
+not scan application configuration, VS Code workspace storage, artifacts,
+screenshots, or the legacy `conversations/*.pb` store. Google's
+[hook contract](https://www.antigravity.google/docs/hooks) identifies the
+per-conversation transcript path and supplies the conversation, workspace, and
+model concepts used by the adapter. Legacy protobuf transcripts remain a
+documented coverage gap; they are not guessed or deserialized.
+
+The native transcript normalizer orders records by `step_index`, extracts only
+the `<USER_REQUEST>` portion of injected user envelopes, and retains readable
+planner text/thinking, paired tool calls/results, errors, compaction summaries,
+timestamps, workspace and model metadata, and subagent relationships. Internal
+system messages, prior-conversation envelopes, knowledge artifacts, and raw
+subagent prompts are excluded. Unknown record types produce partial-coverage
+warnings and their payloads are not relabeled as assistant output. When a
+record carries the official SDK's `UsageMetadata` fields, input, output,
+thinking, cache-read, and authoritative total tokens are retained; the
+[Antigravity SDK types](https://github.com/google-antigravity/antigravity-sdk-python/blob/main/google/antigravity/types.py)
+define those counters.
+
+A counts-only synthetic native-contract comparison against
+`@traces-sh/traces@0.6.30` produced one trace in each implementation. The pinned
+reference emitted ten events: one user message, one thinking part, two tool
+calls, two tool results, one compaction, and three agent-text events. Autohand
+matched the eight known conversation/tool/compaction categories, but excluded
+the raw subagent envelope and deliberately unknown future payload that the
+reference labeled as two additional agent-text events; it reported the future
+record as partial instead. Autohand also retained the synthetic SDK usage
+envelope, while the reference emitted no token fields. The installed local
+Antigravity corpus contains seven legacy protobuf conversations but no generated
+transcript JSONL, so both implementations returned zero installed traces. This
+does not prove protobuf, live append/restart, or all Antigravity versions.
 
 A single harness scan is bounded to 5,000 files, 64 MiB per file, 64 MiB total,
 100,000 records and directory depth 12. Work Map scans at most three harnesses

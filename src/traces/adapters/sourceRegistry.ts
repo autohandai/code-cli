@@ -215,10 +215,9 @@ const DEFINITIONS: readonly SourceDefinition[] = [
   {
     harness: 'antigravity', displayName: 'Antigravity', formats: ['jsonl'],
     locations: (options) => [
-      joinHome(options, '.gemini', 'antigravity-cli', 'sessions'),
-      joinHome(options, '.gemini', 'antigravity', 'conversations'),
-      joinHome(options, '.gemini', 'antigravity-ide', 'conversations'),
-      path.join(applicationSupport(options, 'Antigravity'), 'User', 'workspaceStorage'),
+      joinHome(options, '.gemini', 'antigravity-cli', 'brain'),
+      joinHome(options, '.gemini', 'antigravity', 'brain'),
+      joinHome(options, '.gemini', 'antigravity-ide', 'brain'),
     ],
   },
   {

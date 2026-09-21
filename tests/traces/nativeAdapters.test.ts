@@ -58,7 +58,11 @@ describe('native trace Adapters', () => {
     { harness: 'grok', decoy: '.grok/config.json', session: '.grok/sessions/project/session/summary.json' },
     { harness: 'kimi', decoy: '.kimi-code/migration-report.json', session: '.kimi-code/sessions/wd_project/session/wire.jsonl' },
     { harness: 'openclaw', decoy: '.openclaw/agents/main/auth.jsonl', session: '.openclaw/agents/main/sessions/session.jsonl' },
-    { harness: 'antigravity', decoy: '.gemini/antigravity/brain/secrets.jsonl', session: '.gemini/antigravity/conversations/session.jsonl' },
+    {
+      harness: 'antigravity',
+      decoy: '.gemini/antigravity/conversations/session.jsonl',
+      session: '.gemini/antigravity/brain/native-session/.system_generated/logs/transcript.jsonl',
+    },
     { harness: 'prime-agent', decoy: '.prime/auth.jsonl', session: '.prime/agent/sessions/session.jsonl' },
   ])('opens only $harness session files, not neighboring app configuration', async ({ harness, decoy, session }) => {
     const root = await tempRoot();
@@ -70,10 +74,17 @@ describe('native trace Adapters', () => {
       sessionId: 'credential-decoy',
       messages: [{ role: 'user', content: 'must not be read' }],
     }));
-    await fs.writeFile(sessionPath, JSON.stringify({
-      sessionId: 'native-session',
-      messages: [{ role: 'user', content: 'native session' }],
-    }));
+    await fs.writeFile(sessionPath, JSON.stringify(harness === 'antigravity'
+      ? {
+          step_index: 1,
+          type: 'USER_INPUT',
+          created_at: '2026-09-18T00:00:00.000Z',
+          content: '<USER_REQUEST>native session</USER_REQUEST>',
+        }
+      : {
+          sessionId: 'native-session',
+          messages: [{ role: 'user', content: 'native session' }],
+        }));
     const adapter = createTraceSourceRegistry({
       homeDirectory: root,
       autohandHome: path.join(root, '.autohand'),
@@ -2097,6 +2108,284 @@ describe('native trace Adapters', () => {
       'Kimi wire protocol 2.0 is not a verified native contract.',
       'Kimi wire contains unsupported record type "future.event".',
     ]));
+  });
+
+  it('normalizes Antigravity transcripts with source minimization, tool pairing, and SDK usage', async () => {
+    const root = await tempRoot();
+    const brain = path.join(root, '.gemini', 'antigravity', 'brain');
+    const sessionDirectory = path.join(
+      brain,
+      'antigravity-native',
+      '.system_generated',
+      'logs',
+    );
+    await fs.ensureDir(sessionDirectory);
+    await fs.writeFile(path.join(sessionDirectory, 'transcript_full.jsonl'), [
+      JSON.stringify({
+        step_index: 4,
+        type: 'ERROR_MESSAGE',
+        status: 'FAILED',
+        created_at: '2026-09-18T00:00:04.000Z',
+        error: 'Command failed with exit code 1.',
+      }),
+      JSON.stringify({
+        step_index: 1,
+        type: 'USER_INPUT',
+        created_at: '2026-09-18T00:00:01.000Z',
+        content: [
+          'private system scaffold',
+          'Model Selection` changed to gemini-3.6-flash-medium. No need to mention it.',
+          '<USER_REQUEST>Inspect the Antigravity project.</USER_REQUEST>',
+        ].join('\n'),
+      }),
+      JSON.stringify({
+        step_index: 2,
+        type: 'PLANNER_RESPONSE',
+        created_at: '2026-09-18T00:00:02.000Z',
+        thinking: 'Check the source and tests.',
+        content: 'I will inspect the project.',
+        tool_calls: [
+          { name: 'view_file', args: { AbsolutePath: '/workspace/antigravity/src/index.ts' } },
+          { name: 'run_command', args: { Cwd: '/workspace/antigravity', CommandLine: 'bun test' } },
+        ],
+        usage_metadata: {
+          prompt_token_count: 100,
+          cached_content_token_count: 40,
+          candidates_token_count: 10,
+          thoughts_token_count: 3,
+          total_token_count: 113,
+        },
+      }),
+      JSON.stringify({
+        step_index: 3,
+        type: 'VIEW_FILE',
+        status: 'SUCCESS',
+        created_at: '2026-09-18T00:00:03.000Z',
+        content: 'source contents',
+      }),
+      JSON.stringify({
+        step_index: 5,
+        type: 'CHECKPOINT',
+        created_at: '2026-09-18T00:00:05.000Z',
+        content: '{{ CHECKPOINT 2 }}\nContext compacted.',
+      }),
+      JSON.stringify({
+        step_index: 6,
+        type: 'INVOKE_SUBAGENT',
+        created_at: '2026-09-18T00:00:06.000Z',
+        content: JSON.stringify({
+          conversationId: 'antigravity-child',
+          prompt: 'private subagent prompt',
+        }),
+      }),
+      JSON.stringify({
+        step_index: 7,
+        type: 'SYSTEM_MESSAGE',
+        content: 'private system message',
+      }),
+      JSON.stringify({
+        step_index: 8,
+        type: 'CONVERSATION_HISTORY',
+        content: 'private conversation history',
+      }),
+      JSON.stringify({
+        step_index: 9,
+        type: 'KNOWLEDGE_ARTIFACTS',
+        content: 'private knowledge artifacts',
+      }),
+      JSON.stringify({
+        step_index: 10,
+        type: 'FUTURE_STEP',
+        content: 'private future payload',
+      }),
+    ].join('\n'));
+    await fs.writeFile(path.join(sessionDirectory, 'transcript.jsonl'), JSON.stringify({
+      step_index: 1,
+      type: 'USER_INPUT',
+      content: '<USER_REQUEST>fallback transcript must not be read</USER_REQUEST>',
+    }));
+    await fs.writeFile(path.join(sessionDirectory, 'diagnostics.jsonl'), JSON.stringify({
+      sessionId: 'diagnostic-decoy', messages: [{ role: 'user', content: 'must not be read' }],
+    }));
+    const legacyDirectory = path.join(root, '.gemini', 'antigravity', 'conversations');
+    await fs.ensureDir(legacyDirectory);
+    await fs.writeFile(path.join(legacyDirectory, 'legacy.pb'), 'legacy protobuf must not be read');
+    const adapter = createTraceSourceRegistry({
+      homeDirectory: root,
+      autohandHome: path.join(root, '.autohand'),
+      environment: {},
+      platform: process.platform,
+    }).get('antigravity')!;
+
+    const result = await adapter.scan();
+
+    expect(result.filesScanned).toBe(1);
+    expect(result.sourceFiles).toHaveLength(1);
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0]).toMatchObject({
+      id: createCanonicalTraceId('antigravity', 'antigravity-native', 'native-session-id'),
+      source: { harness: 'antigravity', externalId: 'antigravity-native' },
+      project: { path: '/workspace/antigravity' },
+      startedAt: '2026-09-18T00:00:01.000Z',
+      endedAt: '2026-09-18T00:00:06.000Z',
+      status: 'unknown',
+      model: 'gemini-3.6-flash-medium',
+      usage: {
+        input: 100,
+        output: 10,
+        reasoning: 3,
+        cacheRead: 40,
+        total: 113,
+        provenance: 'actual',
+      },
+      relationships: [{
+        type: 'child',
+        traceId: createCanonicalTraceId('antigravity', 'antigravity-child', 'native-session-id'),
+      }],
+      provenance: {
+        completeness: 'partial',
+        warnings: ['Antigravity transcript contains unsupported record type "FUTURE_STEP".'],
+      },
+    });
+    expect(result.traces[0].messages).toMatchObject([
+      {
+        sourceKey: 'step-1:user',
+        role: 'user',
+        parts: [{ type: 'text', text: 'Inspect the Antigravity project.' }],
+      },
+      {
+        sourceKey: 'step-2:assistant',
+        role: 'assistant',
+        model: 'gemini-3.6-flash-medium',
+        usage: {
+          input: 100,
+          output: 10,
+          reasoning: 3,
+          cacheRead: 40,
+          total: 113,
+          provenance: 'actual',
+        },
+        parts: [
+          { type: 'reasoning', text: 'Check the source and tests.' },
+          {
+            type: 'tool_call',
+            callId: 'call-2-1',
+            name: 'view_file',
+            arguments: { AbsolutePath: '/workspace/antigravity/src/index.ts' },
+          },
+          {
+            type: 'tool_call',
+            callId: 'call-2-2',
+            name: 'run_command',
+            arguments: { Cwd: '/workspace/antigravity', CommandLine: 'bun test' },
+          },
+          { type: 'text', text: 'I will inspect the project.' },
+        ],
+      },
+      {
+        sourceKey: 'step-3:tool-result',
+        role: 'tool',
+        parts: [{
+          type: 'tool_result',
+          callId: 'call-2-1',
+          name: 'view_file',
+          content: 'source contents',
+        }],
+      },
+      {
+        sourceKey: 'step-4:tool-result',
+        role: 'tool',
+        parts: [{
+          type: 'tool_result',
+          callId: 'call-2-2',
+          name: 'run_command',
+          content: 'Command failed with exit code 1.',
+          isError: true,
+        }],
+      },
+      {
+        sourceKey: 'step-5:compaction',
+        role: 'system',
+        parts: [{ type: 'text', text: 'Context compacted.' }],
+      },
+    ]);
+    expect(result.truncated).toBe(true);
+    expect(result.warnings).toContain('Antigravity transcript contains unsupported record type "FUTURE_STEP".');
+    const serialized = JSON.stringify(result.traces);
+    expect(serialized).not.toContain('private system scaffold');
+    expect(serialized).not.toContain('private subagent prompt');
+    expect(serialized).not.toContain('private system message');
+    expect(serialized).not.toContain('private conversation history');
+    expect(serialized).not.toContain('private knowledge artifacts');
+    expect(serialized).not.toContain('private future payload');
+    expect(serialized).not.toContain('fallback transcript must not be read');
+    expect(serialized).not.toContain('diagnostic-decoy');
+  });
+
+  it('uses the Antigravity transcript fallback and deduplicates copied native identities', async () => {
+    const root = await tempRoot();
+    const firstBrain = path.join(root, 'first', 'brain');
+    const secondBrain = path.join(root, 'second', 'brain');
+    const firstLog = path.join(
+      firstBrain,
+      'copied-antigravity',
+      '.system_generated',
+      'logs',
+      'transcript.jsonl',
+    );
+    const secondLog = path.join(
+      secondBrain,
+      'copied-antigravity',
+      '.system_generated',
+      'logs',
+      'transcript_full.jsonl',
+    );
+    await fs.ensureDir(path.dirname(firstLog));
+    await fs.ensureDir(path.dirname(secondLog));
+    await fs.writeFile(firstLog, JSON.stringify({
+      step_index: 1,
+      type: 'USER_INPUT',
+      created_at: '2026-09-18T00:00:01.000Z',
+      content: '<USER_REQUEST>First copy.</USER_REQUEST>',
+    }));
+    await fs.writeFile(secondLog, [
+      JSON.stringify({
+        step_index: 1,
+        type: 'USER_INPUT',
+        created_at: '2026-09-18T00:00:01.000Z',
+        content: '<USER_REQUEST>First copy.</USER_REQUEST>',
+      }),
+      JSON.stringify({
+        step_index: 2,
+        type: 'PLANNER_RESPONSE',
+        created_at: '2026-09-18T00:00:02.000Z',
+        content: 'Longer copy wins.',
+      }),
+    ].join('\n'));
+    const adapter = createTraceSourceRegistry({
+      homeDirectory: root,
+      autohandHome: path.join(root, '.autohand'),
+      environment: {},
+      platform: process.platform,
+      locationOverrides: { antigravity: [firstBrain, secondBrain] },
+    }).get('antigravity')!;
+
+    const result = await adapter.scan();
+
+    expect(result).toMatchObject({ filesScanned: 2, truncated: false, warnings: [] });
+    expect(result.sourceFiles).toHaveLength(2);
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0]).toMatchObject({
+      id: createCanonicalTraceId('antigravity', 'copied-antigravity', 'native-session-id'),
+      source: { externalId: 'copied-antigravity', recordPath: secondLog },
+      messages: [
+        { role: 'user', parts: [{ type: 'text', text: 'First copy.' }] },
+        { role: 'assistant', parts: [{ type: 'text', text: 'Longer copy wins.' }] },
+      ],
+    });
+    expect(new Set(result.sourceFiles.flatMap((source) => source.traceIds))).toEqual(
+      new Set([result.traces[0].id]),
+    );
   });
 
   it.each<TraceHarness>([

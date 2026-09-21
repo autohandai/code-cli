@@ -19,6 +19,7 @@ import {
   type TraceTokenUsage,
 } from '../model.js';
 import { deriveTraceOutcome } from '../outcomes.js';
+import { normalizeAntigravityTranscriptRecords } from './AntigravityTraceNormalizer.js';
 import { normalizeCopilotSessionRecords } from './CopilotTraceNormalizer.js';
 import { normalizeDroidSessionRecords } from './DroidTraceNormalizer.js';
 import { normalizeGrokSessionRecords } from './GrokTraceNormalizer.js';
@@ -559,6 +560,12 @@ function isSessionSourcePath(definition: NativeAdapterDefinition, location: stri
       || base === 'updates.jsonl'
       || base === 'chat_history.jsonl'
     );
+  }
+  if (definition.harness === 'antigravity' && rootName === 'brain') {
+    return segments.length === 4
+      && segments[1] === '.system_generated'
+      && segments[2] === 'logs'
+      && (base === 'transcript_full.jsonl' || base === 'transcript.jsonl');
   }
   return true;
 }
@@ -1218,6 +1225,18 @@ function updateTraceMetadata(
       ))) trace.relationships.push(relationship);
     }
   }
+  if (harness === 'antigravity') {
+    const childSessionId = firstString(record, [['childSessionId']]);
+    if (childSessionId) {
+      const relationship = {
+        type: 'child' as const,
+        traceId: createCanonicalTraceId(harness, childSessionId, 'native-session-id'),
+      };
+      if (!trace.relationships.some((candidate) => (
+        candidate.type === relationship.type && candidate.traceId === relationship.traceId
+      ))) trace.relationships.push(relationship);
+    }
+  }
 }
 
 function messageFromRecord(
@@ -1352,7 +1371,8 @@ function recordsToTraces(
         id: createCanonicalTraceId(
           definition.harness,
           trace.externalId,
-          definition.harness === 'copilot'
+          definition.harness === 'antigravity'
+            || definition.harness === 'copilot'
             || definition.harness === 'droid'
             || definition.harness === 'grok'
             ? 'native-session-id'
@@ -1440,6 +1460,15 @@ class NativeTraceAdapter implements TraceSourceAdapter {
         const rightSummary = path.basename(right.path) === 'summary.json' ? 0 : 1;
         return leftSummary - rightSummary || left.path.localeCompare(right.path);
       });
+    }
+    if (this.harness === 'antigravity') {
+      const fullTranscriptDirectories = new Set(files
+        .filter((file) => path.basename(file.path) === 'transcript_full.jsonl')
+        .map((file) => path.dirname(file.path)));
+      files = files.filter((file) => (
+        path.basename(file.path) !== 'transcript.jsonl'
+        || !fullTranscriptDirectories.has(path.dirname(file.path))
+      ));
     }
     const consumed = new Set<string>();
     const traces: NormalizedTrace[] = [];
@@ -1600,6 +1629,15 @@ class NativeTraceAdapter implements TraceSourceAdapter {
           if (path.basename(sidecar.path) === 'chat_history.jsonl') grokChatHistory = sidecarRecords;
         }
 
+        if (this.harness === 'antigravity') {
+          const normalized = normalizeAntigravityTranscriptRecords(records, file.path);
+          records = normalized.records;
+          provenanceWarnings = normalized.warnings;
+          if (provenanceWarnings.length > 0) {
+            budget.truncated = true;
+            budget.warnings.push(...provenanceWarnings);
+          }
+        }
         if (this.harness === 'pi') {
           const normalized = normalizePiSessionRecords(records, file.path);
           records = normalized.records;
@@ -1723,7 +1761,7 @@ class NativeTraceAdapter implements TraceSourceAdapter {
       const existing = unique.get(trace.id);
       if (!existing || trace.messages.length > existing.messages.length) unique.set(trace.id, trace);
     }
-    if (this.harness === 'grok') {
+    if (this.harness === 'antigravity' || this.harness === 'grok') {
       for (const parent of unique.values()) {
         for (const relationship of parent.relationships) {
           if (relationship.type !== 'child') continue;
