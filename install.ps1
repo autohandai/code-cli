@@ -851,6 +851,14 @@ function Install-Autohand {
     Write-Host "  autohand              # Start interactive mode"
     Write-Host "  autohand --help       # Show all options"
     Write-Host "  autohand login        # Sign in to your account"
+    if ($extractedAhtraces) {
+        Write-Host ""
+        Write-Host "Agent traces stay off until you choose during onboarding."
+        Write-Host "  autohand --traces-on  # Enable monitoring and metadata sync"
+        Write-Host "  autohand --traces-off # Stop monitoring and cloud sync"
+        Write-Host "  ahtraces on|off       # Use the trace companion directly"
+        Write-Host "  ahtraces off          # Stop at any time"
+    }
     Write-Host ""
 
     [void](Start-FirstRun -BinaryPath $binaryPath)

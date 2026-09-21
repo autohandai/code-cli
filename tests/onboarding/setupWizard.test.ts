@@ -723,8 +723,8 @@ describe("SetupWizard", () => {
       expect(output).toContain("does not count against your Autohand API usage");
       expect(output).toContain("autohand --traces-off");
       expect(output).toContain("ahtraces off");
-      expect(output).toContain("Deleting your personal Autohand account also removes its uploaded trace data");
-      expect(output).not.toContain("delete cloud trace data anytime");
+      expect(output).toContain("delete cloud trace data anytime");
+      expect(output).toContain("https://console.autohand.ai/account");
       expect(output).not.toContain("What we never collect:");
       expect(output).not.toContain("What we never report:");
     });

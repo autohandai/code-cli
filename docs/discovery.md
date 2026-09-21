@@ -73,7 +73,8 @@ There is no refresh switch because the command and the agent's
 `inspect_work_map` tool always scan current local data. The companion `ahtraces`
 executable maintains the privacy-safe background aggregate and incremental
 checkpoints. Use `ahtraces status` and `ahtraces stop` for local lifecycle
-diagnostics. See [Data collection, telemetry, and agent
+diagnostics; use `ahtraces on|off` or `autohand --traces-on|--traces-off` for
+the persisted consent controls. See [Data collection, telemetry, and agent
 traces](./telemetry.md) for the normalized source model, scan limits, supported
 harnesses, and optional cloud modes.
 

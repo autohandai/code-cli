@@ -252,11 +252,10 @@ HTTP request, and the server must acknowledge every requested trace exactly once
 Each request also sends schema version 1 and the persistent pseudonymous device
 ID; authentication associates accepted rows with the active account and user.
 Trace ingestion and storage do not consume Autohand model/API usage quota.
-Uploaded traces are visible at `https://console.autohand.ai/traces`. Stopping
-cloud sync does not delete data already uploaded, and Console does not yet have
-a trace-only deletion control. Deleting a personal account from the Account page
-permanently removes its associated trace metadata and referenced full-content
-objects.
+Uploaded traces are visible at `https://console.autohand.ai/traces`. The Console
+Account page can permanently delete trace metadata and full-content objects
+uploaded by the signed-in identity to the selected account. Leaving monitoring
+enabled permits future traces to sync again.
 
 `traces.contentMode: "metadata"` sends:
 

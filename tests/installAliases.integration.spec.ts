@@ -199,7 +199,7 @@ describe('release installer command aliases', () => {
     writeFileSync(join(installDir, 'autohand-code'), 'stale compatibility shim\n');
     writeFileSync(join(installDir, 'ah'), 'stale short alias\n');
 
-    execFileSync('/bin/sh', ['install.sh'], {
+    const installerOutput = execFileSync('/bin/sh', ['install.sh'], {
       cwd: ROOT,
       encoding: 'utf8',
       env: {
@@ -233,6 +233,10 @@ describe('release installer command aliases', () => {
     expect(execFileSync(join(installDir, 'ahtraces'), ['--version'], { encoding: 'utf8' })).toBe(
       'test-version\n',
     );
+    expect(installerOutput).toContain(`Installed trace monitor to ${join(installDir, 'ahtraces')}`);
+    expect(installerOutput).toContain('Agent traces stay off until you choose during onboarding.');
+    expect(installerOutput).toContain('autohand --traces-on');
+    expect(installerOutput).toContain('ahtraces off');
   });
 
   unixIt('claims a competing agent binary elsewhere on PATH', () => {

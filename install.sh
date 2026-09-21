@@ -243,6 +243,7 @@ EOF
     install_file "${_tmp_dir}/autohand" "$_dir/$BINARY_NAME"
     if [ "$_has_traces" = true ]; then
         install_file "${_tmp_dir}/ahtraces" "$_dir/$TRACES_BINARY_NAME"
+        success "Installed trace monitor to $_dir/$TRACES_BINARY_NAME"
     elif [ -e "$_dir/$TRACES_BINARY_NAME" ] || [ -L "$_dir/$TRACES_BINARY_NAME" ]; then
         if [ -w "$_dir" ]; then
             rm -f "$_dir/$TRACES_BINARY_NAME"
@@ -279,6 +280,14 @@ EOF
     echo "  autohand              # Start interactive mode"
     echo "  autohand --help       # Show all options"
     echo "  autohand login        # Sign in to your account"
+    if [ "$_has_traces" = true ]; then
+        echo ""
+        echo "Agent traces stay off until you choose during onboarding."
+        echo "  autohand --traces-on  # Enable monitoring and metadata sync"
+        echo "  autohand --traces-off # Stop monitoring and cloud sync"
+        echo "  ahtraces on|off       # Use the trace companion directly"
+        echo "  ahtraces off          # Stop at any time"
+    fi
 
     install_local_ai_runtime_if_requested
 

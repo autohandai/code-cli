@@ -61,7 +61,15 @@ stops working after installing Autohand, this is why.
 
 The npm package, release archives, Unix/Windows installers, and Homebrew formula
 also install `ahtraces`, the managed local trace-monitor companion. It remains
-idle unless local agent traces are explicitly enabled in `/settings`.
+idle until the user answers the trace-consent step. New users see that step in
+onboarding; existing users see it once after upgrading to the consent-aware
+release. Cloud trace ingestion does not count against Autohand API usage.
+
+Use `autohand --traces-on`, `autohand traces on`, or `ahtraces on` to enable
+local monitoring with metadata sync. Use the matching `--traces-off`,
+`autohand traces off`, or `ahtraces off` control to stop it. Uploaded traces are
+visible at `https://console.autohand.ai/traces` and can be deleted from the
+Console Account page.
 
 ### Manual Installation
 
@@ -652,10 +660,12 @@ content are independent consent levels; all are off by default except Work Map
 availability after local collection has been enabled.
 
 ```bash
-# Enable local trace monitoring in /settings first
+# Choose local-only or cloud collection during onboarding or in /settings
+autohand --traces-on
 autohand discovery map --since 30d
 autohand discovery map --agent autohand,codex --json
 ahtraces status
+ahtraces off
 ```
 
 The map includes session/tool/workflow/outcome and verification aggregates. It
