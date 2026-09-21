@@ -202,6 +202,238 @@ describe('native trace Adapters', () => {
     expect(result.warnings).toEqual([]);
   });
 
+  it('reads Cline SDK v1 session messages with per-message model, timestamp, and actual usage', async () => {
+    const root = await tempRoot();
+    const sessionDirectory = path.join(root, '.cline', 'data', 'sessions', 'session-native');
+    await fs.ensureDir(sessionDirectory);
+    await fs.writeFile(path.join(sessionDirectory, 'session-native.messages.json'), JSON.stringify({
+      version: 1,
+      sessionId: 'session-native',
+      agent: 'lead',
+      updated_at: '2026-09-21T00:00:04.000Z',
+      system_prompt: 'private setup not part of the work map',
+      messages: [
+        { id: 'm1', role: 'user', content: [{ type: 'text', text: 'Summarize the project' }] },
+        {
+          id: 'm2', role: 'assistant', ts: Date.parse('2026-09-21T00:00:01.000Z'),
+          modelInfo: { id: 'claude-sonnet-4-6', provider: 'anthropic' },
+          content: [{ type: 'tool_use', id: 'call-1', name: 'read_file', input: { path: 'README.md' } }],
+        },
+        { id: 'm3', role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call-1', content: 'Project' }] },
+        {
+          id: 'm4', role: 'assistant', ts: Date.parse('2026-09-21T00:00:02.000Z'),
+          modelInfo: { id: 'claude-sonnet-4-6', provider: 'anthropic' },
+          metrics: { inputTokens: 21, outputTokens: 8, cacheReadTokens: 3, cacheWriteTokens: 1, cost: 0.13 },
+          content: [{ type: 'text', text: 'It is a project.' }],
+        },
+        {
+          id: 'm5', role: 'assistant', ts: Date.parse('2026-09-21T00:00:03.000Z'),
+          modelInfo: { id: 'gpt-6', provider: 'openai' },
+          metrics: { inputTokens: 6, outputTokens: 4, cacheReadTokens: 0, cacheWriteTokens: 0, cost: 0.01 },
+          content: [{ type: 'text', text: 'One more detail.' }],
+        },
+      ],
+    }));
+    await fs.writeFile(path.join(sessionDirectory, 'other.messages.json'), JSON.stringify({
+      version: 1, sessionId: 'credential-decoy', messages: [{ role: 'user', content: 'must not be read' }],
+    }));
+    await fs.writeFile(path.join(sessionDirectory, 'hooks.jsonl'), JSON.stringify({
+      sessionId: 'credential-decoy', messages: [{ role: 'user', content: 'must not be read' }],
+    }));
+    const adapter = createTraceSourceRegistry({
+      homeDirectory: root,
+      autohandHome: path.join(root, '.autohand'),
+      environment: {},
+      platform: process.platform,
+    }).get('cline')!;
+
+    const result = await adapter.scan();
+
+    expect(result.sourceFiles).toHaveLength(1);
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0]).toMatchObject({
+      source: { harness: 'cline', externalId: 'session-native' },
+      model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+      usage: { input: 27, output: 12, cacheRead: 3, cacheWrite: 1, provenance: 'actual' },
+      messages: [
+        { role: 'user', parts: [{ type: 'text', text: 'Summarize the project' }] },
+        { role: 'assistant', model: 'claude-sonnet-4-6', parts: [{ type: 'tool_call', callId: 'call-1' }] },
+        { role: 'user', parts: [{ type: 'tool_result', callId: 'call-1' }] },
+        { role: 'assistant', model: 'claude-sonnet-4-6', timestamp: '2026-09-21T00:00:02.000Z',
+          usage: { input: 21, output: 8, cacheRead: 3, cacheWrite: 1, provenance: 'actual' } },
+        { role: 'assistant', model: 'gpt-6', usage: { input: 6, output: 4, provenance: 'actual' } },
+      ],
+    });
+    expect(JSON.stringify(result.traces)).not.toContain('private setup');
+  });
+
+  it('joins Cline SDK session manifests with messages and tracks changes to either file', async () => {
+    const root = await tempRoot();
+    const sessionDirectory = path.join(root, '.cline', 'data', 'sessions', 'session-joined');
+    await fs.ensureDir(sessionDirectory);
+    const manifestPath = path.join(sessionDirectory, 'session-joined.json');
+    const messagesPath = path.join(sessionDirectory, 'session-joined.messages.json');
+    await fs.writeFile(manifestPath, JSON.stringify({
+      version: 1,
+      session_id: 'session-joined',
+      source: 'cli',
+      status: 'completed',
+      started_at: '2026-09-21T00:00:00.000Z',
+      ended_at: '2026-09-21T00:01:00.000Z',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
+      cwd: '/workspace/private-project',
+      metadata: { usage: { inputTokens: 30, outputTokens: 10, cacheReadTokens: 5 } },
+      messages_path: messagesPath,
+    }));
+    await fs.writeFile(messagesPath, JSON.stringify({
+      version: 1,
+      sessionId: 'session-joined',
+      origin: { parentThreadId: 'session-parent' },
+      messages: [{
+        id: 'm1', role: 'assistant', modelInfo: { id: 'claude-sonnet-4-6', provider: 'anthropic' },
+        metrics: { inputTokens: 30, outputTokens: 10, cacheReadTokens: 5, cacheWriteTokens: 0 },
+        content: [{ type: 'text', text: 'Work completed.' }],
+      }],
+    }));
+    const adapter = createTraceSourceRegistry({
+      homeDirectory: root,
+      autohandHome: path.join(root, '.autohand'),
+      environment: {},
+      platform: process.platform,
+    }).get('cline')!;
+
+    const first = await adapter.scan();
+
+    expect(first.sourceFiles).toHaveLength(1);
+    expect(first.filesScanned).toBe(1);
+    expect(first.traces).toHaveLength(1);
+    expect(first.traces[0]).toMatchObject({
+      source: { harness: 'cline', externalId: 'session-joined' },
+      project: { path: '/workspace/private-project' },
+      status: 'completed',
+      startedAt: '2026-09-21T00:00:00.000Z',
+      endedAt: '2026-09-21T00:01:00.000Z',
+      usage: { input: 30, output: 10, cacheRead: 5, provenance: 'actual' },
+      messages: [{ role: 'assistant', model: 'claude-sonnet-4-6' }],
+      relationships: [{ type: 'parent', traceId: createCanonicalTraceId(
+        'cline', 'session-parent', path.join(root, '.cline', 'data', 'sessions', 'session-parent', 'session-parent.json'),
+      ) }],
+    });
+
+    await fs.writeFile(messagesPath, JSON.stringify({
+      version: 1, sessionId: 'session-joined',
+      messages: [{ id: 'm1', role: 'assistant', content: [{ type: 'text', text: 'Work completed with details.' }] }],
+    }));
+    const second = await adapter.scan({ knownFingerprints: {
+      [first.sourceFiles[0].key]: first.sourceFiles[0].fingerprint,
+    } });
+
+    expect(second.sourceFiles).toHaveLength(1);
+    expect(second.sourceFiles[0].changed).toBe(true);
+  });
+
+  it('keeps a Cline manifest without messages as metadata-only coverage', async () => {
+    const root = await tempRoot();
+    const sessionDirectory = path.join(root, '.cline', 'data', 'sessions', 'session-empty');
+    await fs.ensureDir(sessionDirectory);
+    await fs.writeFile(path.join(sessionDirectory, 'session-empty.json'), JSON.stringify({
+      version: 1,
+      session_id: 'session-empty',
+      status: 'completed',
+      model: 'gpt-6',
+      provider: 'openai',
+      metadata: { usage: { inputTokens: 0, outputTokens: 0 } },
+    }));
+    const adapter = createTraceSourceRegistry({
+      homeDirectory: root,
+      autohandHome: path.join(root, '.autohand'),
+      environment: {},
+      platform: process.platform,
+    }).get('cline')!;
+
+    const result = await adapter.scan();
+
+    expect(result.sourceFiles).toHaveLength(1);
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0]).toMatchObject({
+      source: { externalId: 'session-empty' },
+      status: 'completed',
+      usage: { input: 0, output: 0, provenance: 'actual' },
+      messages: [],
+      provenance: { completeness: 'metadata_only' },
+    });
+  });
+
+  it('rejects an unsupported Cline manifest even when its messages file is valid', async () => {
+    const root = await tempRoot();
+    const sessionDirectory = path.join(root, '.cline', 'data', 'sessions', 'session-future');
+    await fs.ensureDir(sessionDirectory);
+    await fs.writeFile(path.join(sessionDirectory, 'session-future.json'), JSON.stringify({
+      version: 2, session_id: 'session-future', status: 'completed',
+    }));
+    await fs.writeFile(path.join(sessionDirectory, 'session-future.messages.json'), JSON.stringify({
+      version: 1, sessionId: 'session-future',
+      messages: [{ id: 'm1', role: 'assistant', content: [{ type: 'text', text: 'do not invent' }] }],
+    }));
+    const adapter = createTraceSourceRegistry({
+      homeDirectory: root,
+      autohandHome: path.join(root, '.autohand'),
+      environment: {},
+      platform: process.platform,
+    }).get('cline')!;
+
+    const result = await adapter.scan();
+
+    expect(result.traces).toEqual([]);
+    expect(result.sourceFiles).toHaveLength(1);
+    expect(result.truncated).toBe(true);
+    expect(result.warnings).toEqual([expect.stringContaining('Unsupported Cline session manifest')]);
+  });
+
+  it('marks an unsupported Cline messages contract as partial instead of inventing usage', async () => {
+    const root = await tempRoot();
+    const sessionDirectory = path.join(root, '.cline', 'data', 'sessions', 'session-future');
+    await fs.ensureDir(sessionDirectory);
+    await fs.writeFile(path.join(sessionDirectory, 'session-future.messages.json'), JSON.stringify({
+      version: 2,
+      sessionId: 'session-future',
+      messages: [{ id: 'm1', role: 'assistant', content: [{ type: 'text', text: 'unknown format' }] }],
+    }));
+    const adapter = createTraceSourceRegistry({
+      homeDirectory: root,
+      autohandHome: path.join(root, '.autohand'),
+      environment: {},
+      platform: process.platform,
+    }).get('cline')!;
+
+    const result = await adapter.scan();
+
+    expect(result.traces).toEqual([]);
+    expect(result.truncated).toBe(true);
+    expect(result.warnings).toEqual([expect.stringContaining('Unsupported Cline messages contract')]);
+  });
+
+  it('counts nested session messages against the bounded scan record budget', async () => {
+    const root = await tempRoot();
+    await fs.writeFile(path.join(root, 'session.json'), JSON.stringify({
+      sessionId: 'bounded-session',
+      messages: Array.from({ length: 10 }, (_, index) => ({
+        id: `message-${index}`,
+        role: 'assistant',
+        content: `reply ${index}`,
+      })),
+    }));
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'amp')).get('amp')!;
+
+    const result = await adapter.scan({ maxRecords: 3 });
+
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0].messages).toHaveLength(2);
+    expect(result.truncated).toBe(true);
+  });
+
   it('treats DSH_HOME as a home directory, not permission to scan its configuration', async () => {
     const root = await tempRoot();
     const dshHome = path.join(root, '.dsh');

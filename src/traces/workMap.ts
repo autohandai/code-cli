@@ -157,6 +157,8 @@ interface MutableWorkflowAggregate {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
+const MAX_MODELS_PER_TRACE = 64;
+const UNATTRIBUTED_MODEL = 'unattributed';
 const SAFE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._:/+ -]{0,79}$/u;
 const SECRETISH = /(?:ahc_|sk-|github_pat_|gh[opsu]_|bearer\s|@|\\|\/Users\/|\/home\/|\/root\/)/iu;
 
@@ -195,6 +197,36 @@ function isWithinWorkspace(trace: NormalizedTrace, workspace: string | undefined
 
 function usageTotal(usage: TraceTokenUsage, harness: TraceHarness): number {
   return deriveTraceTotalTokens(usage, harness) ?? 0;
+}
+
+function modelTokenBreakdown(trace: NormalizedTrace, totalTokens: number): Map<string, number> {
+  const byModel = new Map<string, number>();
+  const observedModels = new Set<string>();
+  let measuredTokens = 0;
+  for (const message of trace.messages) {
+    const model = safeDimensionLabel(message.model);
+    if (model && observedModels.size < 2) observedModels.add(model);
+    if (message.usage.provenance === 'unavailable') continue;
+    const tokens = usageTotal(message.usage, trace.source.harness);
+    if (tokens <= 0) continue;
+    measuredTokens += tokens;
+    if (model && (byModel.has(model) || byModel.size < MAX_MODELS_PER_TRACE)) {
+      byModel.set(model, (byModel.get(model) ?? 0) + tokens);
+    }
+  }
+
+  if (measuredTokens > 0) {
+    if (measuredTokens > totalTokens) return new Map([[UNATTRIBUTED_MODEL, totalTokens]]);
+    const attributed = [...byModel.values()].reduce((sum, value) => sum + value, 0);
+    if (totalTokens > attributed) byModel.set(UNATTRIBUTED_MODEL, totalTokens - attributed);
+    return byModel;
+  }
+  if (observedModels.size > 1) return new Map([[UNATTRIBUTED_MODEL, totalTokens]]);
+  const traceModel = safeDimensionLabel(trace.model);
+  if (traceModel && observedModels.size === 1 && !observedModels.has(traceModel)) {
+    return new Map([[UNATTRIBUTED_MODEL, totalTokens]]);
+  }
+  return new Map([[traceModel ?? [...observedModels][0] ?? UNATTRIBUTED_MODEL, totalTokens]]);
 }
 
 function addDimension(
@@ -315,6 +347,17 @@ export function projectTraceForLocalIndex(trace: NormalizedTrace): NormalizedTra
   const model = safeDimensionLabel(trace.model);
   const provider = safeDimensionLabel(trace.provider);
   const reasoningEffort = safeDimensionLabel(trace.reasoningEffort);
+  const modelSummaries: NormalizedTrace['messages'] = usageTotal(trace.usage, trace.source.harness) > 0
+    ? [...modelTokenBreakdown(trace, usageTotal(trace.usage, trace.source.harness))]
+      .map(([name, tokens], order) => ({
+        id: opaqueLocalId('msg', `${trace.id}\0model\0${name}`),
+        role: 'assistant' as const,
+        order,
+        model: name,
+        usage: { total: tokens, provenance: trace.usage.provenance },
+        parts: [],
+      }))
+    : [];
   return {
     schemaVersion: trace.schemaVersion,
     id: createOpaqueTraceId(trace.id),
@@ -341,10 +384,10 @@ export function projectTraceForLocalIndex(trace: NormalizedTrace): NormalizedTra
       type: relationship.type,
       traceId: createOpaqueTraceId(relationship.traceId),
     })),
-    messages: parts.length === 0 ? [] : [{
+    messages: parts.length === 0 ? modelSummaries : [...modelSummaries, {
       id: opaqueLocalId('msg', trace.id),
       role: 'assistant',
-      order: 0,
+      order: modelSummaries.length,
       usage: { provenance: 'unavailable' },
       parts,
     }],
@@ -405,7 +448,9 @@ export function deriveWorkMap(
     sessionCounts[trace.status] += 1;
     provenance[trace.usage.provenance] += 1;
     addDimension(dimensions.harnesses, trace.source.harness, trace.id, tokens);
-    addDimension(dimensions.models, trace.model, trace.id, tokens);
+    for (const [name, modelTokens] of modelTokenBreakdown(trace, tokens)) {
+      addDimension(dimensions.models, name, trace.id, modelTokens);
+    }
     addDimension(dimensions.providers, trace.provider, trace.id, tokens);
     addDimension(dimensions.reasoningEfforts, trace.reasoningEffort, trace.id, tokens);
     const repository = repositoryKey(trace);

@@ -29,6 +29,7 @@ interface TraceCheckpoints {
 }
 
 interface CachedTraceSource {
+  indexVersion: 1 | 2;
   harness: TraceHarness;
   fingerprint: string;
   traces: NormalizedTrace[];
@@ -92,6 +93,7 @@ function parseCheckpoints(value: unknown): TraceCheckpoints {
         .map((result) => result.data);
       if (traces.some((trace) => trace.source.harness !== harness.data)) continue;
       files[sourceKey] = {
+        indexVersion: entry.indexVersion === 2 ? 2 : 1,
         harness: harness.data,
         fingerprint: entry.fingerprint,
         traces,
@@ -313,6 +315,7 @@ export class PersistentTraceMonitor implements AhTracesMonitor {
     const mode = contentMode(config);
     return Object.fromEntries(Object.entries(checkpoints.files)
       .filter(([, source]) => {
+        if (source.indexVersion !== 2) return false;
         if (config.traces?.cloudSync !== true || mode === 'metadata') return true;
         return source.traces.every((trace) => {
           const uploaded = checkpoints.uploaded[trace.id];
@@ -341,6 +344,7 @@ export class PersistentTraceMonitor implements AhTracesMonitor {
         .filter((trace): trace is NormalizedTrace => trace !== undefined)
         .map(projectTraceForLocalIndex);
       checkpoints.files[source.key] = {
+        indexVersion: 2,
         harness: source.harness,
         fingerprint: source.fingerprint,
         traces,

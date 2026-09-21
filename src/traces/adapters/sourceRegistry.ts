@@ -170,16 +170,20 @@ const DEFINITIONS: readonly SourceDefinition[] = [
   },
   {
     harness: 'cline', displayName: 'Cline', formats: ['json'],
-    locations: (options) => [
-      joinHome(options, '.cline', 'data', 'tasks'),
-      path.join(
-        applicationSupport(options, 'Code'),
-        'User',
-        'globalStorage',
-        'saoudrizwan.claude-dev',
-        'tasks',
-      ),
-    ],
+    locations: (options) => {
+      const data = options.environment.CLINE_DATA_DIR?.trim() || joinHome(options, '.cline', 'data');
+      return unique([
+        path.join(data, 'tasks'),
+        path.join(data, 'sessions'),
+        path.join(
+          applicationSupport(options, 'Code'),
+          'User',
+          'globalStorage',
+          'saoudrizwan.claude-dev',
+          'tasks',
+        ),
+      ]);
+    },
   },
   {
     harness: 'openclaw', displayName: 'OpenClaw', formats: ['jsonl'],

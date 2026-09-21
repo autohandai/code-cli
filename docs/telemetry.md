@@ -157,12 +157,21 @@ gates.
 The registry now selects known session stores rather than application roots for
 Pi, Amp, Copilot, Cline, Grok, Kimi, Prime Agent, Hermes, DeepSeek, Codex, and
 Cursor. The walker limits VS Code workspace storage to `chatSessions`, Copilot
-CLI to `events.jsonl`, Cline to task history files, Kimi to session state/wire
-files, and OpenClaw to agent session directories; credential-shaped filenames
-are rejected before reading. Decoy-file tests cover these paths. This reduces
-accidental configuration reads, but it is not proof of complete or future-safe
+CLI to `events.jsonl`, Cline to task history files and versioned SDK session
+messages, Kimi to session state/wire files, and OpenClaw to agent session
+directories; credential-shaped filenames are rejected before reading.
+Decoy-file tests cover these paths. This reduces accidental configuration
+reads, but it is not proof of complete or future-safe
 native parsing. Each upstream version still needs an authentic session fixture
 and a source-minimization review before a production opt-in rollout.
+
+For Cline's [SDK messages contract v1](https://github.com/cline/cline/blob/main/sdk/packages/core/docs/messages-contract-v1.md),
+the adapter reads the matching `<sessionId>.json` manifest and
+`<sessionId>.messages.json` under each session directory, including a
+`CLINE_DATA_DIR` override. It joins status/workspace metadata with per-message
+model and token metrics, rejects unknown contract versions as partial coverage,
+and counts nested messages against the scan record budget. Older Cline task
+history still needs a native join.
 
 A single harness scan is bounded to 5,000 files, 64 MiB per file, 64 MiB total,
 100,000 records and directory depth 12. Work Map scans at most three harnesses
@@ -171,15 +180,22 @@ warnings instead of being presented as complete data.
 
 The persistent local index does not retain raw message content. It replaces
 native/session/repository identities with opaque hashes, reduces tool calls to
-categories, keeps only error/exit evidence needed for aggregates, and writes an
-aggregate Work Map and checkpoints under `~/.autohand/traces/` (or the configured
-Autohand home). Work Map output
+categories, keeps only error/exit evidence and bounded per-model token summaries
+needed for aggregates, and writes an aggregate Work Map and checkpoints under
+`~/.autohand/traces/` (or the configured Autohand home). Work Map output
 contains counts and dimensions for sessions, duration, token provenance,
 harness/model/provider/reasoning effort, tool categories, workflow motifs,
 outcomes, verification evidence, relationships, repository counts and bounded
 recommendations. It explicitly excludes prompts, responses, reasoning, commands,
 tool arguments/results, code/diffs, paths, repository identities, session IDs,
 credentials, and environment values.
+
+Where message-level usage exists, the local Work Map attributes tokens to each
+message's model. Tokens without reliable model attribution appear as
+`unattributed` rather than being assigned to the first model in the session.
+Existing local checkpoints are rescanned once for this index upgrade. The
+cloud metadata endpoint still receives trace-level model totals; per-model
+cloud billing breakdown for mixed-model sessions remains a release gate.
 
 `autohand discovery map` performs a fresh bounded local scan and makes no network
 request. The agent's `inspect_work_map` tool reads the same aggregate model. Both

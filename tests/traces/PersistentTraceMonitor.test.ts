@@ -6,6 +6,7 @@ import type { LoadedConfig } from '../../src/types.js';
 import type { NormalizedTrace } from '../../src/traces/model.js';
 import type { WorkMapModule } from '../../src/traces/WorkMapModule.js';
 import { PersistentTraceMonitor } from '../../src/traces/daemon/PersistentTraceMonitor.js';
+import { projectTraceForLocalIndex } from '../../src/traces/workMap.js';
 import type { AhTracesRuntimePaths } from '../../src/traces/runtimePaths.js';
 import { TraceCloudError } from '../../src/traces/TraceCloudClient.js';
 
@@ -393,6 +394,45 @@ describe('PersistentTraceMonitor', () => {
     const cleaned = await fs.readJson(runtimePaths.checkpointsFile);
     expect(cleaned.files).toEqual({});
     expect(cleaned.uploaded).toEqual({});
+    await monitor.stop();
+  });
+
+  it('rescans a source cached before model-level usage summaries were introduced', async () => {
+    vi.useFakeTimers();
+    const runtimePaths = await paths();
+    const sample = trace(`sha256:${'d'.repeat(64)}`);
+    await fs.writeJson(runtimePaths.checkpointsFile, {
+      schemaVersion: 1,
+      uploaded: {},
+      files: {
+        src_one: {
+          harness: 'autohand',
+          fingerprint: sample.source.fingerprint,
+          traces: [projectTraceForLocalIndex(sample)],
+          updatedAt: '2026-09-18T00:00:00.000Z',
+        },
+      },
+    });
+    const scan = vi.fn(async () => ({
+      traces: [sample],
+      coverage: [{ harness: 'autohand', filesScanned: 1, bytesRead: 100,
+        warnings: 0, truncated: false, sessions: 1 }],
+      sourceFiles: [{ harness: 'autohand', key: 'src_one', fingerprint: sample.source.fingerprint,
+        changed: true, parsed: true, traceIds: [sample.id] }],
+    }));
+    const monitor = new PersistentTraceMonitor({
+      paths: runtimePaths,
+      loadConfig: async () => config(),
+      workMap: { scan } as unknown as WorkMapModule,
+      clientVersion: '0.9.0',
+      deviceId: 'device-1',
+    });
+
+    await monitor.start();
+
+    expect(scan.mock.calls[0]?.[2]).toEqual({ knownFingerprints: {} });
+    const checkpoint = await fs.readJson(runtimePaths.checkpointsFile);
+    expect(checkpoint.files.src_one.indexVersion).toBe(2);
     await monitor.stop();
   });
 

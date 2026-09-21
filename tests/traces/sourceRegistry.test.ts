@@ -38,6 +38,7 @@ describe('trace source registry', () => {
         DSH_HOME: '/Users/tester/custom-deepseek',
         CLAUDE_CONFIG_DIR: '/Users/tester/custom-claude',
         CODEX_HOME: '/Users/tester/custom-codex',
+        CLINE_DATA_DIR: '/Users/tester/custom-cline',
         TRACES_CURSOR_GLOBAL_DB: '/Users/tester/mounted-cursor/state.vscdb',
       },
       platform: 'darwin',
@@ -66,6 +67,7 @@ describe('trace source registry', () => {
     expect(registry.get('claude-code')?.locations).toEqual(['/Users/tester/custom-claude/projects']);
     expect(registry.get('codex')?.locations).toEqual(['/Users/tester/custom-codex/sessions']);
     expect(registry.get('cursor')?.locations).toContain('/Users/tester/mounted-cursor/state.vscdb');
+    expect(registry.get('cline')?.locations).toContain('/Users/tester/custom-cline/sessions');
   });
 
   it('covers each native store used by multi-agent and desktop harness variants', () => {
@@ -95,6 +97,7 @@ describe('trace source registry', () => {
     );
     expect(registry.get('copilot')?.locations).toContain('/Users/tester/.copilot/session-state');
     expect(registry.get('cline')?.locations).toContain('/Users/tester/.cline/data/tasks');
+    expect(registry.get('cline')?.locations).toContain('/Users/tester/.cline/data/sessions');
     expect(registry.get('cline')?.locations).toContain(
       '/Users/tester/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/tasks',
     );

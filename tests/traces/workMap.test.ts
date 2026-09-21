@@ -120,6 +120,70 @@ describe('deriveWorkMap', () => {
     expect(result.dimensions.harnesses[0]?.tokens).toBe(16);
   });
 
+  it('attributes a multi-model session by message usage in fresh and cached maps', () => {
+    const multiModel = trace('cline', 'mixed-model', {
+      model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+      usage: { input: 27, output: 12, total: 39, provenance: 'actual' },
+      messages: [
+        { id: 'm1', role: 'assistant', order: 0, model: 'claude-sonnet-4-6',
+          usage: { input: 21, output: 8, provenance: 'actual' },
+          parts: [{ type: 'text', text: 'private first response' }] },
+        { id: 'm2', role: 'assistant', order: 1, model: 'gpt-6',
+          usage: { input: 6, output: 4, provenance: 'actual' },
+          parts: [{ type: 'text', text: 'private second response' }] },
+      ],
+    });
+    const options = { now: new Date('2026-09-18T00:00:00.000Z'), since: '30d', coverage: [] };
+
+    const fresh = deriveWorkMap([multiModel], options);
+    const cachedTrace = projectTraceForLocalIndex(multiModel);
+    const cached = deriveWorkMap([cachedTrace], options);
+
+    expect(fresh.sessions.tokens).toBe(39);
+    expect(fresh.dimensions.models).toEqual([
+      { name: 'claude-sonnet-4-6', sessions: 1, tokens: 29 },
+      { name: 'gpt-6', sessions: 1, tokens: 10 },
+    ]);
+    expect(cached.dimensions.models).toEqual(fresh.dimensions.models);
+    expect(JSON.stringify(cachedTrace)).not.toContain('private first response');
+    expect(JSON.stringify(cachedTrace)).not.toContain('private second response');
+  });
+
+  it('leaves unmeasured tokens unattributed in a multi-model session', () => {
+    const partial = trace('cline', 'partial-model-usage', {
+      model: 'claude-sonnet-4-6',
+      usage: { total: 50, provenance: 'actual' },
+      messages: [
+        { id: 'm1', role: 'assistant', order: 0, model: 'claude-sonnet-4-6',
+          usage: { total: 29, provenance: 'actual' }, parts: [{ type: 'text', text: 'first' }] },
+        { id: 'm2', role: 'assistant', order: 1, model: 'gpt-6',
+          usage: { provenance: 'unavailable' }, parts: [{ type: 'text', text: 'second' }] },
+      ],
+    });
+    const result = deriveWorkMap([partial], {
+      now: new Date('2026-09-18T00:00:00.000Z'), since: '30d', coverage: [],
+    });
+
+    expect(result.dimensions.models).toEqual([
+      { name: 'claude-sonnet-4-6', sessions: 1, tokens: 29 },
+      { name: 'unattributed', sessions: 1, tokens: 21 },
+    ]);
+  });
+
+  it('does not assign unmeasured usage to stale session model metadata', () => {
+    const result = deriveWorkMap([trace('cline', 'stale-model', {
+      model: 'old-model',
+      usage: { total: 25, provenance: 'actual' },
+      messages: [{ id: 'm1', role: 'assistant', order: 0, model: 'new-model',
+        usage: { provenance: 'unavailable' }, parts: [{ type: 'text', text: 'reply' }] }],
+    })], {
+      now: new Date('2026-09-18T00:00:00.000Z'), since: '30d', coverage: [],
+    });
+
+    expect(result.dimensions.models).toEqual([{ name: 'unattributed', sessions: 1, tokens: 25 }]);
+  });
+
   it('serializes no raw content, identifiers, paths, remotes, or secrets', () => {
     const result = deriveWorkMap([trace('autohand', 'private-session-id')], {
       now: new Date('2026-09-18T00:00:00.000Z'),

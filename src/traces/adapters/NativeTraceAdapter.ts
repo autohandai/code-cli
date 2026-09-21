@@ -138,7 +138,7 @@ function toIsoTimestamp(value: unknown): string | undefined {
 
 function findTimestamp(record: UnknownRecord): string | undefined {
   const candidates = [
-    ['timestamp'], ['createdAt'], ['created_at'], ['time'], ['time', 'created'],
+    ['timestamp'], ['ts'], ['createdAt'], ['created_at'], ['time'], ['time', 'created'],
     ['payload', 'timestamp'], ['message', 'timestamp'],
   ] as const;
   for (const candidate of candidates) {
@@ -246,9 +246,11 @@ function contentParts(value: unknown): TracePart[] {
 function extractUsage(record: UnknownRecord): TraceTokenUsage {
   const source = [
     record.usage,
+    record.metrics,
     record.tokenUsage,
     record.token_usage,
     record.tokens,
+    valueAt(record, ['metadata', 'usage']),
     valueAt(record, ['info', 'total_token_usage']),
     valueAt(record, ['payload', 'info', 'total_token_usage']),
   ].find(isRecord);
@@ -257,8 +259,8 @@ function extractUsage(record: UnknownRecord): TraceTokenUsage {
     const value = firstNumber(source, paths);
     return value === undefined || value < 0 ? undefined : Math.round(value);
   };
-  const input = nonnegative([['input'], ['input_tokens'], ['prompt_tokens'], ['promptTokens']]);
-  const output = nonnegative([['output'], ['output_tokens'], ['completion_tokens'], ['completionTokens']]);
+  const input = nonnegative([['input'], ['input_tokens'], ['inputTokens'], ['prompt_tokens'], ['promptTokens']]);
+  const output = nonnegative([['output'], ['output_tokens'], ['outputTokens'], ['completion_tokens'], ['completionTokens']]);
   const reasoning = nonnegative([['reasoning'], ['reasoning_tokens'], ['reasoning_output_tokens']]);
   const cacheRead = nonnegative([['cacheRead'], ['cache_read'], ['cache_read_tokens'], ['cacheReadTokens'], ['cache', 'read']]);
   const cacheWrite = nonnegative([['cacheWrite'], ['cache_write'], ['cache_write_tokens'], ['cacheWriteTokens'], ['cache', 'write']]);
@@ -508,10 +510,29 @@ function isSessionSourcePath(definition: NativeAdapterDefinition, location: stri
       || base === 'task_metadata.json'
     );
   }
+  if (definition.harness === 'cline' && rootName === 'sessions') {
+    return segments.length === 2 && (
+      base === `${segments[0]}.json` || base === `${segments[0]}.messages.json`
+    );
+  }
   if (definition.harness === 'kimi' && rootName === 'sessions') {
     return base === 'wire.jsonl' || base === 'state.json';
   }
   return true;
+}
+
+function isClineSessionManifest(filePath: string): boolean {
+  const sessionId = path.basename(path.dirname(filePath));
+  return path.basename(path.dirname(path.dirname(filePath))) === 'sessions'
+    && path.basename(filePath) === `${sessionId}.json`;
+}
+
+function isClineMessagesV1(records: UnknownRecord[], filePath: string): boolean {
+  const document = records[0];
+  return records.length === 1
+    && document?.version === 1
+    && Array.isArray(document.messages)
+    && firstString(document, [['sessionId']]) === path.basename(path.dirname(filePath));
 }
 
 async function discoverFiles(
@@ -1034,10 +1055,10 @@ function updateTraceMetadata(
   harness: TraceHarness,
 ): void {
   trace.model ??= firstString(record, [
-    ['model'], ['message', 'model'], ['payload', 'model'], ['metadata', 'model'], ['lastUsedModel'],
+    ['model'], ['modelInfo', 'id'], ['message', 'model'], ['payload', 'model'], ['metadata', 'model'], ['lastUsedModel'],
   ]);
   trace.provider ??= firstString(record, [
-    ['provider'], ['model_provider'], ['modelProvider'], ['payload', 'model_provider'], ['metadata', 'provider'],
+    ['provider'], ['modelInfo', 'provider'], ['model_provider'], ['modelProvider'], ['payload', 'model_provider'], ['metadata', 'provider'],
   ]);
   trace.reasoningEffort ??= firstString(record, [
     ['reasoningEffort'], ['reasoning_effort'], ['effort'], ['payload', 'effort'], ['metadata', 'reasoningEffort'],
@@ -1057,10 +1078,12 @@ function updateTraceMetadata(
   trace.gitRef ??= firstString(record, [['gitRef'], ['git_ref'], ['ref']]);
   trace.startedAt ??= toIsoTimestamp(valueAt(record, ['createdAt']))
     ?? toIsoTimestamp(valueAt(record, ['created_at']))
+    ?? toIsoTimestamp(valueAt(record, ['started_at']))
     ?? toIsoTimestamp(valueAt(record, ['startTime']))
     ?? toIsoTimestamp(valueAt(record, ['time_created']));
   trace.endedAt ??= toIsoTimestamp(valueAt(record, ['closedAt']))
     ?? toIsoTimestamp(valueAt(record, ['endedAt']))
+    ?? toIsoTimestamp(valueAt(record, ['ended_at']))
     ?? toIsoTimestamp(valueAt(record, ['endTime']))
     ?? toIsoTimestamp(valueAt(record, ['time_updated']));
   trace.status = statusFrom(record) ?? trace.status;
@@ -1090,6 +1113,22 @@ function updateTraceMetadata(
       const relationship = {
         type: 'parent' as const,
         traceId: createCanonicalTraceId(harness, parentSessionId, trace.recordPath),
+      };
+      if (!trace.relationships.some((candidate) => (
+        candidate.type === relationship.type && candidate.traceId === relationship.traceId
+      ))) trace.relationships.push(relationship);
+    }
+  }
+  if (harness === 'cline') {
+    const parentSessionId = firstString(record, [['origin', 'parentThreadId']]);
+    if (parentSessionId) {
+      const parentFile = trace.recordPath.endsWith('.messages.json')
+        ? `${parentSessionId}.messages.json`
+        : `${parentSessionId}.json`;
+      const targetPath = path.join(path.dirname(path.dirname(trace.recordPath)), parentSessionId, parentFile);
+      const relationship = {
+        type: 'parent' as const,
+        traceId: createCanonicalTraceId(harness, parentSessionId, targetPath),
       };
       if (!trace.relationships.some((candidate) => (
         candidate.type === relationship.type && candidate.traceId === relationship.traceId
@@ -1137,13 +1176,14 @@ function messageFromRecord(
   const identityKey = sourceKey && payloadIsPart ? `${payloadType}:${sourceKey}` : sourceKey;
   const timestamp = findTimestamp(record);
   const usage = extractUsage(message);
+  const model = firstString(message, [['model'], ['modelInfo', 'id']]);
   return {
     id: messageId(trace.externalId, trace.recordPath, trace.messages.length, identityKey),
     ...(sourceKey ? { sourceKey } : {}),
     role,
     order: trace.messages.length,
     ...(timestamp ? { timestamp } : {}),
-    ...(firstString(message, [['model']]) ? { model: firstString(message, [['model']]) } : {}),
+    ...(model ? { model } : {}),
     usage,
     parts,
   };
@@ -1155,6 +1195,7 @@ function recordsToTraces(
   records: UnknownRecord[],
   parsedAt: string,
   sourceFingerprint: string,
+  budget: ScanBudget,
 ): NormalizedTrace[] {
   const traces = new Map<string, MutableTrace>();
   let currentExternalId = path.basename(file.path).replace(/\.(?:jsonl(?:\.zst|\.zstd)?|json|db|sqlite3?|vscdb)$/iu, '');
@@ -1189,7 +1230,13 @@ function recordsToTraces(
     if (Array.isArray(record.messages)) {
       trace.usage = mergeUsage(trace.usage, extractUsage(record));
       for (const nested of record.messages) {
-        if (isRecord(nested)) processRecord({ ...nested, sessionId: externalId }, externalId);
+        if (!isRecord(nested)) continue;
+        if (budget.recordsRead >= budget.maxRecords) {
+          budget.truncated = true;
+          break;
+        }
+        budget.recordsRead += 1;
+        processRecord({ ...nested, sessionId: externalId }, externalId);
       }
       return;
     }
@@ -1292,6 +1339,7 @@ class NativeTraceAdapter implements TraceSourceAdapter {
         return leftMetadata - rightMetadata;
       });
     }
+    if (this.harness === 'cline') files = files.sort((left, right) => left.path.localeCompare(right.path));
     const consumed = new Set<string>();
     const traces: NormalizedTrace[] = [];
     const sourceFiles: TraceSourceFileSnapshot[] = [];
@@ -1302,6 +1350,10 @@ class NativeTraceAdapter implements TraceSourceAdapter {
       if (consumed.has(file.path)) continue;
       const conversationFile = this.harness === 'autohand' && path.basename(file.path) === 'metadata.json'
         ? files.find((candidate) => candidate.path === path.join(path.dirname(file.path), 'conversation.jsonl'))
+        : this.harness === 'cline' && isClineSessionManifest(file.path)
+          ? files.find((candidate) => candidate.path === path.join(
+            path.dirname(file.path), `${path.basename(file.path, '.json')}.messages.json`,
+          ))
         : undefined;
       if (conversationFile) consumed.add(conversationFile.path);
       let walFile: SourceFile | undefined;
@@ -1373,6 +1425,20 @@ class NativeTraceAdapter implements TraceSourceAdapter {
           }
         }
 
+        if (this.harness === 'cline' && isClineSessionManifest(file.path)) {
+          const manifest = records[0];
+          if (records.length !== 1 || manifest?.version !== 1
+            || firstString(manifest, [['session_id']]) !== path.basename(path.dirname(file.path))) {
+            throw new Error('Unsupported Cline session manifest.');
+          }
+        }
+        if (this.harness === 'cline' && file.path.endsWith('.messages.json')) {
+          const document = records[0];
+          if (!document || !isClineMessagesV1(records, file.path)) {
+            throw new Error('Unsupported Cline messages contract.');
+          }
+        }
+
         if (conversationFile && records[0]) {
           if (budget.bytesRead + conversationFile.size <= budget.maxTotalBytes) {
             const conversation = await readBoundedTraceFile(
@@ -1381,16 +1447,24 @@ class NativeTraceAdapter implements TraceSourceAdapter {
               Math.min(budget.maxBytesPerFile, budget.maxTotalBytes - budget.bytesRead),
             );
             budget.bytesRead += conversation.byteLength;
-            const messages = parseJsonLines(
-              conversation.toString('utf8'),
-              budget,
-              path.basename(conversationFile.path),
-            );
-            records = [{ ...records[0], messages }];
+            if (this.harness === 'cline') {
+              const document = parseJson(conversation.toString('utf8'), budget, path.basename(conversationFile.path));
+              if (!isClineMessagesV1(document, conversationFile.path)) {
+                throw new Error('Unsupported Cline messages contract.');
+              }
+              records = [{ ...records[0], origin: document[0].origin, messages: document[0].messages }];
+            } else {
+              const messages = parseJsonLines(
+                conversation.toString('utf8'),
+                budget,
+                path.basename(conversationFile.path),
+              );
+              records = [{ ...records[0], messages }];
+            }
           }
         }
 
-        const parsedTraces = recordsToTraces(this.definition, file, records, parsedAt, sourceFingerprint);
+        const parsedTraces = recordsToTraces(this.definition, file, records, parsedAt, sourceFingerprint, budget);
         traces.push(...parsedTraces);
         snapshot.traceIds = parsedTraces.map((trace) => trace.id);
         budget.filesScanned += 1;
