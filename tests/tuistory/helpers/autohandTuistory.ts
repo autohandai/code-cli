@@ -121,10 +121,6 @@ export async function createTempAutohandHome(options: CreateTempAutohandHomeOpti
     },
     traces: {
       consentVersion: 1,
-      enabled: false,
-      cloudSync: false,
-      contentMode: 'metadata',
-      discoveryMap: false,
     },
     ui: {
       checkForUpdates: false,
