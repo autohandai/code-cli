@@ -55,7 +55,7 @@ describe('native trace Adapters', () => {
     { harness: 'amp', decoy: '.local/share/amp/secrets.json', session: '.local/share/amp/threads/session.json' },
     { harness: 'copilot', decoy: '.copilot/config.json', session: '.copilot/session-state/session-1/events.jsonl' },
     { harness: 'cline', decoy: '.cline/data/secrets.json', session: '.cline/data/tasks/session-1/ui_messages.json' },
-    { harness: 'grok', decoy: '.grok/config.json', session: '.grok/sessions/session.jsonl' },
+    { harness: 'grok', decoy: '.grok/config.json', session: '.grok/sessions/project/session/summary.json' },
     { harness: 'kimi', decoy: '.kimi-code/migration-report.json', session: '.kimi-code/sessions/wd_project/session/wire.jsonl' },
     { harness: 'openclaw', decoy: '.openclaw/agents/main/auth.jsonl', session: '.openclaw/agents/main/sessions/session.jsonl' },
     { harness: 'antigravity', decoy: '.gemini/antigravity/brain/secrets.jsonl', session: '.gemini/antigravity/conversations/session.jsonl' },
@@ -1065,6 +1065,418 @@ describe('native trace Adapters', () => {
     expect(result.warnings).toEqual(expect.arrayContaining(result.traces[0].provenance.warnings));
   });
 
+  it('normalizes Grok session directories while reading only the trace allowlist', async () => {
+    const root = await tempRoot();
+    const sessionDirectory = path.join(root, 'workspace', 'grok-native');
+    await fs.ensureDir(sessionDirectory);
+    const summary = JSON.stringify({
+      info: { id: 'grok-native', cwd: '/workspace/grok' },
+      created_at: '2026-09-18T00:00:00.000Z',
+      updated_at: '2026-09-18T00:00:05.000Z',
+      current_model_id: 'grok-4.6',
+      git_remotes: ['git@github.com:autohand-ai/cli.git'],
+      head_branch: 'agent/sdk-agent-discovery',
+      head_commit: 'abc123',
+      session_kind: 'parent',
+    });
+    const history = JSON.stringify({ type: 'user', content: 'inspect the project' });
+    const updates = [
+      {
+        method: 'session/update',
+        _meta: { agentTimestampMs: Date.parse('2026-09-18T00:00:02.000Z') },
+        params: {
+          update: {
+            sessionUpdate: 'tool_call',
+            toolCallId: 'call-read',
+            title: 'read_file',
+            _meta: {
+              'x.ai/tool': {
+                name: 'read_file', kind: 'read', input: { target_file: 'README.md' },
+              },
+            },
+          },
+        },
+      },
+      {
+        method: 'session/update',
+        _meta: { agentTimestampMs: Date.parse('2026-09-18T00:00:03.000Z') },
+        params: {
+          update: {
+            sessionUpdate: 'tool_call_update',
+            toolCallId: 'call-read',
+            status: 'completed',
+            rawOutput: { output: 'read complete' },
+          },
+        },
+      },
+      {
+        method: 'session/update',
+        params: {
+          update: {
+            sessionUpdate: 'hook_execution',
+            event_name: 'PostToolUse',
+            runs: [{ status: { status: 'failed' } }],
+          },
+        },
+      },
+      {
+        method: 'session/update',
+        params: {
+          update: {
+            sessionUpdate: 'subagent_spawned',
+            child_session_id: 'grok-child',
+            parent_session_id: 'grok-native',
+            subagent_type: 'explore',
+          },
+        },
+      },
+      {
+        method: '_x.ai/session/update',
+        params: {
+          update: {
+            sessionUpdate: 'turn_completed',
+            prompt_id: 'prompt-1',
+            stop_reason: 'end_turn',
+            usage: {
+              inputTokens: 100,
+              outputTokens: 20,
+              cachedReadTokens: 60,
+              cacheCreationTokens: 3,
+              reasoningTokens: 5,
+              totalTokens: 120,
+              costUsdTicks: 123_000_000,
+            },
+          },
+        },
+      },
+    ].map((record) => JSON.stringify(record)).join('\n');
+    const allowlisted = new Map([
+      ['summary.json', summary],
+      ['chat_history.jsonl', history],
+      ['updates.jsonl', updates],
+    ]);
+    for (const [name, content] of allowlisted) {
+      await fs.writeFile(path.join(sessionDirectory, name), content);
+    }
+    for (const name of [
+      'announcement_state.json',
+      'events.jsonl',
+      'feedback.jsonl',
+      'hunk_records.jsonl',
+      'plan.json',
+      'prompt_context.json',
+      'resources_state.json',
+      'rewind_points.jsonl',
+      'signals.json',
+    ]) {
+      await fs.writeFile(path.join(sessionDirectory, name), JSON.stringify({
+        info: { id: `decoy-${name}` },
+        messages: [{ role: 'user', content: 'must not be read' }],
+      }));
+    }
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'grok')).get('grok')!;
+
+    const result = await adapter.scan();
+
+    expect(result).toMatchObject({ truncated: false, warnings: [], filesScanned: 1 });
+    expect(result.bytesRead).toBe([...allowlisted.values()]
+      .reduce((total, content) => total + Buffer.byteLength(content), 0));
+    expect(result.sourceFiles).toHaveLength(1);
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0]).toMatchObject({
+      source: { harness: 'grok', externalId: 'grok-native', recordPath: path.join(sessionDirectory, 'summary.json') },
+      agent: { name: 'Grok' },
+      project: {
+        path: '/workspace/grok',
+        gitRemote: 'git@github.com:autohand-ai/cli.git',
+        gitBranch: 'agent/sdk-agent-discovery',
+        gitRef: 'abc123',
+      },
+      startedAt: '2026-09-18T00:00:00.000Z',
+      endedAt: '2026-09-18T00:00:05.000Z',
+      model: 'grok-4.6',
+      usage: {
+        input: 100,
+        output: 20,
+        reasoning: 5,
+        cacheRead: 60,
+        cacheWrite: 3,
+        total: 120,
+        provenance: 'actual',
+      },
+      relationships: [{
+        type: 'child',
+        traceId: createCanonicalTraceId('grok', 'grok-child', 'native-session-id'),
+      }],
+      provenance: { completeness: 'complete', warnings: [] },
+    });
+    expect(result.traces[0].messages).toMatchObject([
+      {
+        role: 'user',
+        parts: [{ type: 'text', text: 'inspect the project' }],
+      },
+      {
+        role: 'assistant',
+        timestamp: '2026-09-18T00:00:02.000Z',
+        parts: [{
+          type: 'tool_call', name: 'read_file', callId: 'call-read',
+          arguments: { target_file: 'README.md' },
+        }],
+      },
+      {
+        role: 'tool',
+        timestamp: '2026-09-18T00:00:03.000Z',
+        parts: [{
+          type: 'tool_result', name: 'read_file', callId: 'call-read',
+          content: 'read complete',
+        }],
+      },
+      {
+        role: 'system',
+        parts: [{
+          type: 'error', code: 'hook_execution_failed', message: 'Grok PostToolUse hook failed.',
+        }],
+      },
+    ]);
+    expect(JSON.stringify(result.traces)).not.toContain('must not be read');
+    expect(JSON.stringify(result.traces)).not.toContain('costUsdTicks');
+  });
+
+  it('coalesces Grok ACP chunks and deduplicates authoritative turn usage', async () => {
+    const root = await tempRoot();
+    const sessionDirectory = path.join(root, 'workspace', 'grok-stream');
+    await fs.ensureDir(sessionDirectory);
+    await fs.writeJson(path.join(sessionDirectory, 'summary.json'), {
+      info: { id: 'grok-stream', cwd: '/workspace/grok' },
+      current_model_id: 'grok-4.6-build',
+    });
+    const update = (
+      sessionUpdate: string,
+      fields: Record<string, unknown>,
+      timestamp: string,
+    ): string => JSON.stringify({
+      method: '_x.ai/session/update',
+      params: {
+        _meta: { agentTimestampMs: Date.parse(timestamp) },
+        update: { sessionUpdate, ...fields },
+      },
+    });
+    await fs.writeFile(path.join(sessionDirectory, 'updates.jsonl'), [
+      update('user_message_chunk', { content: { type: 'text', text: 'inspect ' } }, '2026-09-18T00:00:01.000Z'),
+      update('user_message_chunk', { content: { type: 'text', text: 'the project' } }, '2026-09-18T00:00:01.100Z'),
+      update('agent_thought_chunk', { content: { type: 'text', text: 'check ' } }, '2026-09-18T00:00:02.000Z'),
+      update('agent_thought_chunk', { content: { type: 'text', text: 'tests' } }, '2026-09-18T00:00:02.100Z'),
+      update('tool_call', {
+        toolCallId: 'call-test', title: 'run_tests', rawInput: { command: 'bun test' },
+      }, '2026-09-18T00:00:02.200Z'),
+      update('tool_call_update', {
+        toolCallId: 'call-test', status: 'completed', rawOutput: { output: 'passed' },
+      }, '2026-09-18T00:00:02.300Z'),
+      update('agent_message_chunk', { content: { type: 'text', text: 'done' } }, '2026-09-18T00:00:03.000Z'),
+      update('turn_completed', {
+        prompt_id: 'prompt-1',
+        stop_reason: 'end_turn',
+        usage: {
+          inputTokens: 100,
+          outputTokens: 20,
+          cachedReadTokens: 60,
+          cacheCreationTokens: 3,
+          reasoningTokens: 5,
+          totalTokens: 120,
+          modelUsage: {
+            'grok-4.6-build': { inputTokens: 100, outputTokens: 20 },
+          },
+        },
+      }, '2026-09-18T00:00:04.000Z'),
+      update('turn_completed', {
+        prompt_id: 'prompt-1',
+        stop_reason: 'end_turn',
+        usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+      }, '2026-09-18T00:00:04.100Z'),
+      update('plan', { entries: [] }, '2026-09-18T00:00:04.200Z'),
+      update('user_message_chunk', { content: { type: 'text', text: 'verify' } }, '2026-09-18T00:00:05.000Z'),
+      update('agent_message_chunk', { content: { type: 'text', text: 'verified' } }, '2026-09-18T00:00:06.000Z'),
+      update('turn_completed', {
+        prompt_id: 'prompt-2',
+        stop_reason: 'end_turn',
+        usage: {
+          totalTokens: 90,
+          modelUsage: {
+            'grok-4.6-build': {
+              inputTokens: 80,
+              outputTokens: 10,
+              cachedReadTokens: 50,
+              reasoningTokens: 2,
+              totalTokens: 90,
+            },
+          },
+        },
+      }, '2026-09-18T00:00:07.000Z'),
+    ].join('\n'));
+    await fs.writeFile(path.join(sessionDirectory, 'chat_history.jsonl'), JSON.stringify({
+      type: 'user', content: 'fallback duplicate must not be included',
+    }));
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'grok')).get('grok')!;
+
+    const result = await adapter.scan();
+
+    expect(result).toMatchObject({ truncated: false, warnings: [] });
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0]).toMatchObject({
+      source: { externalId: 'grok-stream' },
+      status: 'completed',
+      model: 'grok-4.6-build',
+      usage: {
+        input: 180,
+        output: 30,
+        reasoning: 7,
+        cacheRead: 110,
+        cacheWrite: 3,
+        total: 210,
+        provenance: 'actual',
+      },
+    });
+    expect(result.traces[0].messages).toHaveLength(7);
+    expect(result.traces[0].messages[0]).toMatchObject({
+      role: 'user',
+      timestamp: '2026-09-18T00:00:01.000Z',
+      parts: [{ type: 'text', text: 'inspect the project' }],
+    });
+    expect(result.traces[0].messages[1]).toMatchObject({
+      role: 'assistant',
+      timestamp: '2026-09-18T00:00:02.000Z',
+      parts: [{ type: 'reasoning', text: 'check tests' }],
+    });
+    expect(result.traces[0].messages[2]).toMatchObject({
+      role: 'assistant',
+      parts: [{
+        type: 'tool_call', name: 'run_tests', callId: 'call-test',
+        arguments: { command: 'bun test' },
+      }],
+    });
+    expect(result.traces[0].messages[3]).toMatchObject({
+      role: 'tool',
+      parts: [{
+        type: 'tool_result', name: 'run_tests', callId: 'call-test', content: 'passed',
+      }],
+    });
+    expect(result.traces[0].messages[4]).toMatchObject({
+      role: 'assistant',
+      usage: {
+        input: 100,
+        output: 20,
+        reasoning: 5,
+        cacheRead: 60,
+        cacheWrite: 3,
+        total: 120,
+        provenance: 'actual',
+      },
+      parts: [{ type: 'text', text: 'done' }],
+    });
+    expect(result.traces[0].messages[5]).toMatchObject({
+      role: 'user',
+      parts: [{ type: 'text', text: 'verify' }],
+    });
+    expect(result.traces[0].messages[6]).toMatchObject({
+      role: 'assistant',
+      parts: [{ type: 'text', text: 'verified' }],
+    });
+    expect(JSON.stringify(result.traces)).not.toContain('fallback duplicate');
+  });
+
+  it('deduplicates Grok copies by native identity and marks unknown updates partial', async () => {
+    const root = await tempRoot();
+    const first = path.join(root, 'workspace-a', 'copy-a');
+    const second = path.join(root, 'workspace-b', 'copy-b');
+    await fs.ensureDir(first);
+    await fs.ensureDir(second);
+    await fs.writeJson(path.join(first, 'summary.json'), {
+      info: { id: 'same-grok-session', cwd: '/workspace/a' },
+      created_at: '2026-09-18T00:00:00.000Z',
+    });
+    await fs.writeFile(path.join(first, 'chat_history.jsonl'), JSON.stringify({
+      type: 'user', content: 'less complete copy',
+    }));
+    await fs.writeJson(path.join(second, 'summary.json'), {
+      info: { id: 'same-grok-session', cwd: '/workspace/b' },
+      created_at: '2026-09-18T00:00:00.000Z',
+      session_kind: 'subagent_fork',
+      parent_session_id: 'grok-parent',
+    });
+    await fs.writeFile(path.join(second, 'chat_history.jsonl'), [
+      JSON.stringify({ type: 'user', content: 'more complete copy' }),
+      JSON.stringify({ type: 'assistant', content: 'known response' }),
+    ].join('\n'));
+    await fs.writeFile(path.join(second, 'updates.jsonl'), JSON.stringify({
+      method: 'session/update',
+      params: { update: { sessionUpdate: 'future_update', opaque: true } },
+    }));
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'grok')).get('grok')!;
+
+    const result = await adapter.scan();
+
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0]).toMatchObject({
+      source: { externalId: 'same-grok-session' },
+      project: { path: '/workspace/b' },
+      relationships: [{
+        type: 'fork',
+        traceId: createCanonicalTraceId('grok', 'grok-parent', 'native-session-id'),
+      }],
+      provenance: {
+        completeness: 'partial',
+        warnings: ['Grok updates contain unsupported sessionUpdate "future_update".'],
+      },
+    });
+    expect(result.traces[0].messages).toHaveLength(2);
+    expect(result.sourceFiles).toHaveLength(2);
+    expect(new Set(result.sourceFiles.flatMap((source) => source.traceIds))).toEqual(
+      new Set([result.traces[0].id]),
+    );
+    expect(result.truncated).toBe(true);
+    expect(result.warnings).toContain('Grok updates contain unsupported sessionUpdate "future_update".');
+  });
+
+  it('links Grok child sessions from the parent update stream', async () => {
+    const root = await tempRoot();
+    const parentDirectory = path.join(root, 'workspace-parent', 'grok-parent');
+    const childDirectory = path.join(root, 'workspace-child', 'grok-child');
+    await fs.ensureDir(parentDirectory);
+    await fs.ensureDir(childDirectory);
+    await fs.writeJson(path.join(parentDirectory, 'summary.json'), {
+      info: { id: 'grok-parent', cwd: '/workspace/parent' },
+    });
+    await fs.writeFile(path.join(parentDirectory, 'updates.jsonl'), JSON.stringify({
+      method: 'session/update',
+      params: {
+        update: {
+          sessionUpdate: 'subagent_spawned',
+          child_session_id: 'grok-child',
+          parent_session_id: 'grok-parent',
+          subagent_type: 'explore',
+        },
+      },
+    }));
+    await fs.writeJson(path.join(childDirectory, 'summary.json'), {
+      info: { id: 'grok-child', cwd: '/workspace/child' },
+      session_kind: 'subagent',
+    });
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'grok')).get('grok')!;
+
+    const result = await adapter.scan();
+
+    const parent = result.traces.find((trace) => trace.source.externalId === 'grok-parent');
+    const child = result.traces.find((trace) => trace.source.externalId === 'grok-child');
+    expect(parent?.relationships).toContainEqual({
+      type: 'child',
+      traceId: createCanonicalTraceId('grok', 'grok-child', 'native-session-id'),
+    });
+    expect(child?.relationships).toContainEqual({
+      type: 'parent',
+      traceId: createCanonicalTraceId('grok', 'grok-parent', 'native-session-id'),
+    });
+  });
+
   it('normalizes Kimi wire protocol events, per-step usage, and state metadata', async () => {
     const root = await tempRoot();
     const sessionDirectory = path.join(root, 'wd_project', 'session-kimi');
@@ -1318,7 +1730,11 @@ describe('native trace Adapters', () => {
     };
     const adapter = createTraceSourceRegistry(registryOptions(root, harness)).get(harness)!;
     const extension = adapter.formats.includes('json') ? 'json' : 'jsonl';
-    await fs.writeFile(path.join(root, `session.${extension}`), JSON.stringify(record));
+    const sessionPath = harness === 'grok'
+      ? path.join(root, 'workspace', 'session', 'summary.json')
+      : path.join(root, `session.${extension}`);
+    await fs.ensureDir(path.dirname(sessionPath));
+    await fs.writeFile(sessionPath, JSON.stringify(record));
 
     const result = await adapter.scan();
 

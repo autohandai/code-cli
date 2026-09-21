@@ -177,8 +177,9 @@ The registry now selects known session stores rather than application roots for
 Pi, Amp, Copilot, Cline, Grok, Kimi, Prime Agent, Hermes, DeepSeek, Codex, and
 Cursor. The walker limits VS Code workspace storage to `chatSessions`, Copilot
 CLI to `events.jsonl`, Cline to task history files and versioned SDK session
-messages, Kimi to session state/wire files, and OpenClaw to agent session
-directories; credential-shaped filenames are rejected before reading.
+messages, Grok to `summary.json`, `updates.jsonl`, and `chat_history.jsonl`,
+Kimi to session state/wire files, and OpenClaw to agent session directories;
+credential-shaped filenames are rejected before reading.
 Decoy-file tests cover these paths. This reduces accidental configuration
 reads, but it is not proof of complete or future-safe
 native parsing. Each upstream version still needs an authentic session fixture
@@ -228,6 +229,31 @@ messages, two agent-text events, one tool call and one tool result. No token
 usage was present in that corpus. Missing or future session schemas remain
 readable but explicitly partial.
 
+Grok sessions follow the [official session directory layout](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/17-sessions.md),
+but the adapter reads only `summary.json`, the authoritative ACP
+`updates.jsonl` stream, and `chat_history.jsonl` as a fallback when the update
+stream has no conversation chunks. It does not open system prompts, plans,
+feedback, hunk or rewind history, resource state, terminal logs, event logs,
+signals, or subagent prompt metadata. Summary metadata supplies native identity,
+workspace, Git state, model and timestamps. Streamed user, assistant and thought
+chunks are coalesced; tool updates are joined by call ID; hook failures become
+errors; and subagent spawns and fork/resume metadata become relationships without
+reading the child prompt.
+
+`turn_completed.usage` is treated as the authoritative per-turn ledger. The
+adapter maps input, output, reasoning, cache-read, cache-creation and total token
+fields, fills missing top-level splits from `modelUsage`, and deduplicates replayed
+prompt IDs before summing. It intentionally does not treat
+`signals.contextTokensUsed` as spend, and schema version 1 has no cost field for
+`costUsdTicks`. A counts-only comparison used the same four-session Grok fixture
+as `@traces-sh/traces@0.6.30`. The reference indexed only the content-bearing
+parent and materialized ten events: five tool calls, three tool results and two
+generic thinking events. Autohand retained all four native session identities;
+the parent also had ten parts, classifying them as five calls, three results, one
+user message and one hook error, while the other three remained metadata-only.
+This validates the observed fixture and the intentional semantic difference,
+not every Grok version or live append/restart behavior.
+
 A single harness scan is bounded to 5,000 files, 64 MiB per file, 64 MiB total,
 100,000 records and directory depth 12. Work Map scans at most three harnesses
 concurrently by default. Truncation and parse failures are surfaced as coverage
@@ -265,10 +291,11 @@ HTTP request, and the server must acknowledge every requested trace exactly once
 Each request also sends schema version 1 and the persistent pseudonymous device
 ID; authentication associates accepted rows with the active account and user.
 Trace ingestion and storage do not consume Autohand model/API usage quota.
-Uploaded traces are visible at `https://console.autohand.ai/traces`. The Console
-Account page can permanently delete trace metadata and full-content objects
-uploaded by the signed-in identity to the selected account. Leaving monitoring
-enabled permits future traces to sync again.
+Uploaded traces are visible at `https://console.autohand.ai/traces`. Stopping
+cloud sync does not delete data already uploaded, and Console does not yet have
+a trace-only deletion control. Deleting a personal account from the Account page
+permanently removes its associated trace metadata and referenced full-content
+objects.
 
 `traces.contentMode: "metadata"` sends:
 

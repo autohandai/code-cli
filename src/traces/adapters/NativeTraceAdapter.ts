@@ -20,6 +20,7 @@ import {
 } from '../model.js';
 import { deriveTraceOutcome } from '../outcomes.js';
 import { normalizeDroidSessionRecords } from './DroidTraceNormalizer.js';
+import { normalizeGrokSessionRecords } from './GrokTraceNormalizer.js';
 import { normalizeKimiWireRecords } from './KimiTraceNormalizer.js';
 import { normalizePiSessionRecords } from './PiTraceNormalizer.js';
 import type {
@@ -539,6 +540,13 @@ function isSessionSourcePath(definition: NativeAdapterDefinition, location: stri
   }
   if (definition.harness === 'kimi' && rootName === 'sessions') {
     return base === 'wire.jsonl' || base === 'state.json';
+  }
+  if (definition.harness === 'grok') {
+    return segments.length === 3 && (
+      base === 'summary.json'
+      || base === 'updates.jsonl'
+      || base === 'chat_history.jsonl'
+    );
   }
   return true;
 }
@@ -1171,6 +1179,33 @@ function updateTraceMetadata(
       ))) trace.relationships.push(relationship);
     }
   }
+  if (harness === 'grok') {
+    const parentSessionId = firstString(record, [['parentSessionId']]);
+    if (parentSessionId) {
+      const sessionKind = firstString(record, [['grokSessionKind']])?.toLowerCase();
+      const relationship = {
+        type: sessionKind === 'subagent_fork'
+          ? 'fork' as const
+          : sessionKind === 'subagent_resume'
+            ? 'resume' as const
+            : 'parent' as const,
+        traceId: createCanonicalTraceId(harness, parentSessionId, 'native-session-id'),
+      };
+      if (!trace.relationships.some((candidate) => (
+        candidate.type === relationship.type && candidate.traceId === relationship.traceId
+      ))) trace.relationships.push(relationship);
+    }
+    const childSessionId = firstString(record, [['childSessionId']]);
+    if (childSessionId) {
+      const relationship = {
+        type: 'child' as const,
+        traceId: createCanonicalTraceId(harness, childSessionId, 'native-session-id'),
+      };
+      if (!trace.relationships.some((candidate) => (
+        candidate.type === relationship.type && candidate.traceId === relationship.traceId
+      ))) trace.relationships.push(relationship);
+    }
+  }
 }
 
 function messageFromRecord(
@@ -1305,7 +1340,9 @@ function recordsToTraces(
         id: createCanonicalTraceId(
           definition.harness,
           trace.externalId,
-          definition.harness === 'droid' ? 'native-session-id' : trace.recordPath,
+          definition.harness === 'droid' || definition.harness === 'grok'
+            ? 'native-session-id'
+            : trace.recordPath,
         ),
         source: {
           harness: definition.harness,
@@ -1383,6 +1420,13 @@ class NativeTraceAdapter implements TraceSourceAdapter {
       });
     }
     if (this.harness === 'cline') files = files.sort((left, right) => left.path.localeCompare(right.path));
+    if (this.harness === 'grok') {
+      files = files.sort((left, right) => {
+        const leftSummary = path.basename(left.path) === 'summary.json' ? 0 : 1;
+        const rightSummary = path.basename(right.path) === 'summary.json' ? 0 : 1;
+        return leftSummary - rightSummary || left.path.localeCompare(right.path);
+      });
+    }
     const consumed = new Set<string>();
     const traces: NormalizedTrace[] = [];
     const sourceFiles: TraceSourceFileSnapshot[] = [];
@@ -1392,6 +1436,7 @@ class NativeTraceAdapter implements TraceSourceAdapter {
       options.signal?.throwIfAborted();
       if (consumed.has(file.path)) continue;
       if (this.harness === 'kimi' && path.basename(file.path) === 'state.json') continue;
+      if (this.harness === 'grok' && path.basename(file.path) !== 'summary.json') continue;
       const conversationFile = this.harness === 'autohand' && path.basename(file.path) === 'metadata.json'
         ? files.find((candidate) => candidate.path === path.join(path.dirname(file.path), 'conversation.jsonl'))
         : this.harness === 'cline' && isClineSessionManifest(file.path)
@@ -1405,7 +1450,15 @@ class NativeTraceAdapter implements TraceSourceAdapter {
             'state.json',
           ))
         : undefined;
+      const grokSidecarFiles = this.harness === 'grok'
+        ? files.filter((candidate) => (
+          path.dirname(candidate.path) === path.dirname(file.path)
+          && (path.basename(candidate.path) === 'updates.jsonl'
+            || path.basename(candidate.path) === 'chat_history.jsonl')
+        ))
+        : [];
       if (conversationFile) consumed.add(conversationFile.path);
+      for (const sidecar of grokSidecarFiles) consumed.add(sidecar.path);
       let walFile: SourceFile | undefined;
       let droidSettingsFile: SourceFile | undefined;
       try {
@@ -1421,7 +1474,9 @@ class NativeTraceAdapter implements TraceSourceAdapter {
         continue;
       }
       const sidecarFile = conversationFile ?? kimiStateFile ?? droidSettingsFile ?? walFile;
-      const relatedFiles = sidecarFile ? [file, sidecarFile] : [file];
+      const relatedFiles = sidecarFile
+        ? [file, sidecarFile, ...grokSidecarFiles]
+        : [file, ...grokSidecarFiles];
       const sourceFingerprint = fingerprint(...relatedFiles);
       const sourceKey = sourceFileKey(this.harness, file.path);
       const snapshot: TraceSourceFileSnapshot = {
@@ -1450,6 +1505,8 @@ class NativeTraceAdapter implements TraceSourceAdapter {
         let provenanceWarnings: string[] = [];
         let kimiState: UnknownRecord | undefined;
         let droidSettings: UnknownRecord | undefined;
+        let grokUpdates: UnknownRecord[] = [];
+        let grokChatHistory: UnknownRecord[] = [];
         if (file.format === 'sqlite') {
           records = await sqliteRecords(file, budget, this.harness);
           budget.bytesRead += sourceBytes;
@@ -1513,6 +1570,22 @@ class NativeTraceAdapter implements TraceSourceAdapter {
           )[0];
         }
 
+        for (const sidecar of grokSidecarFiles) {
+          const sidecarBytes = await readBoundedTraceFile(
+            sidecar.path,
+            sidecar,
+            Math.min(budget.maxBytesPerFile, budget.maxTotalBytes - budget.bytesRead),
+          );
+          budget.bytesRead += sidecarBytes.byteLength;
+          const sidecarRecords = parseJsonLines(
+            sidecarBytes.toString('utf8'),
+            budget,
+            path.basename(sidecar.path),
+          );
+          if (path.basename(sidecar.path) === 'updates.jsonl') grokUpdates = sidecarRecords;
+          if (path.basename(sidecar.path) === 'chat_history.jsonl') grokChatHistory = sidecarRecords;
+        }
+
         if (this.harness === 'pi') {
           const normalized = normalizePiSessionRecords(records, file.path);
           records = normalized.records;
@@ -1538,6 +1611,19 @@ class NativeTraceAdapter implements TraceSourceAdapter {
           if (droidSettingsFile && !droidSettings) {
             provenanceWarnings.push('Droid settings sidecar is not a valid object.');
           }
+          if (provenanceWarnings.length > 0) {
+            budget.truncated = true;
+            budget.warnings.push(...provenanceWarnings);
+          }
+        }
+        if (this.harness === 'grok') {
+          const normalized = normalizeGrokSessionRecords({
+            summary: records[0],
+            updates: grokUpdates,
+            chatHistory: grokChatHistory,
+          }, file.path);
+          records = normalized.records;
+          provenanceWarnings = normalized.warnings;
           if (provenanceWarnings.length > 0) {
             budget.truncated = true;
             budget.warnings.push(...provenanceWarnings);
@@ -1613,6 +1699,19 @@ class NativeTraceAdapter implements TraceSourceAdapter {
     for (const trace of traces) {
       const existing = unique.get(trace.id);
       if (!existing || trace.messages.length > existing.messages.length) unique.set(trace.id, trace);
+    }
+    if (this.harness === 'grok') {
+      for (const parent of unique.values()) {
+        for (const relationship of parent.relationships) {
+          if (relationship.type !== 'child') continue;
+          const child = unique.get(relationship.traceId);
+          if (!child) continue;
+          const reverse = { type: 'parent' as const, traceId: parent.id };
+          if (!child.relationships.some((candidate) => (
+            candidate.type === reverse.type && candidate.traceId === reverse.traceId
+          ))) child.relationships.push(reverse);
+        }
+      }
     }
     return {
       traces: [...unique.values()],
