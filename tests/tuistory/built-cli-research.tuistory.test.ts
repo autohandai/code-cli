@@ -272,7 +272,7 @@ describe('interactive built CLI Tuistory tests: processes, research, usage, sett
 
   it('runs the usage activity dashboard from the interactive TUI', async () => {
     const session = await launchInteractive({
-      rows: 48,
+      rows: 64,
       config: {
         provider: 'openai',
         openai: {
