@@ -102,7 +102,7 @@ describe("AutohandAIProvider", () => {
     expect(timer).toHaveBeenCalledWith(expect.any(Function), timeout ?? 300_000);
   });
 
-  it.each([undefined, false])('recovers a buffered completion after 300 seconds with stream=%s', async (stream) => {
+  it.each([undefined, false])('does not replay a buffered completion after an ambiguous 300-second timeout with stream=%s', async (stream) => {
     vi.useFakeTimers();
     try {
       const fetchMock = vi.fn<typeof fetch>()
@@ -123,9 +123,9 @@ describe("AutohandAIProvider", () => {
 
       await vi.advanceTimersByTimeAsync(300_001);
 
-      expect(await result).toMatchObject({ response: { content: 'Recovered answer' } });
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-      expect(onRetry).toHaveBeenCalledWith(expect.objectContaining({ phase: 'waiting', attempt: 1 }));
+      expect(await result).toMatchObject({ error: { code: 'timeout', retryable: false } });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(onRetry).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

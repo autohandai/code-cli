@@ -29,6 +29,7 @@ export interface AccountEntitlementLimits {
   messagesPer5h: number | null;
   messagesPer24h: number | null;
   messagesPerWeek: number | null;
+  messagesPerMonth: number | null;
   rpm: number;
   inputTokensPerMinute: number | null;
   outputTokensPerMinute: number | null;
@@ -108,6 +109,7 @@ function isSafeText(value: unknown, maxLength = 256): value is string {
 function parseAccountEntitlementLimits(value: unknown): AccountEntitlementLimits | undefined {
   if (!isRecord(value)) return undefined;
   const messagesPer24h = value.messagesPer24h === undefined ? null : value.messagesPer24h;
+  const messagesPerMonth = value.messagesPerMonth === undefined ? null : value.messagesPerMonth;
   const inputTokensPerMinute = value.inputTokensPerMinute === undefined ? null : value.inputTokensPerMinute;
   const outputTokensPerMinute = value.outputTokensPerMinute === undefined ? null : value.outputTokensPerMinute;
   if (
@@ -115,6 +117,7 @@ function parseAccountEntitlementLimits(value: unknown): AccountEntitlementLimits
     || (value.messagesPer5h !== null && typeof value.messagesPer5h !== 'number')
     || (messagesPer24h !== null && typeof messagesPer24h !== 'number')
     || (value.messagesPerWeek !== null && typeof value.messagesPerWeek !== 'number')
+    || (messagesPerMonth !== null && typeof messagesPerMonth !== 'number')
     || typeof value.rpm !== 'number'
     || (inputTokensPerMinute !== null && typeof inputTokensPerMinute !== 'number')
     || (outputTokensPerMinute !== null && typeof outputTokensPerMinute !== 'number')
@@ -130,6 +133,7 @@ function parseAccountEntitlementLimits(value: unknown): AccountEntitlementLimits
     messagesPer5h: value.messagesPer5h,
     messagesPer24h,
     messagesPerWeek: value.messagesPerWeek,
+    messagesPerMonth,
     rpm: value.rpm,
     inputTokensPerMinute,
     outputTokensPerMinute,

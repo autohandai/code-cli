@@ -133,11 +133,16 @@ export function formatAccountPlanName(entitlement: AccountEntitlement): string {
 
 export function formatAccountPlanAllowance(entitlement: AccountEntitlement): string | null {
   if (!entitlement.limits) return null;
-  return [
-    formatRequestQuota(entitlement.limits.messagesPer5h, '5 hours'),
-    formatRequestQuota(entitlement.limits.messagesPer24h, '24 hours'),
-    formatRequestQuota(entitlement.limits.messagesPerWeek, 'week'),
-  ].join(' · ');
+  const windows: Array<[number | null, string]> = [
+    [entitlement.limits.messagesPer5h, '5 hours'],
+    [entitlement.limits.messagesPer24h, '24 hours'],
+    [entitlement.limits.messagesPerWeek, 'week'],
+    [entitlement.limits.messagesPerMonth, 'month'],
+  ];
+  const capped = windows
+    .filter(([limit]) => limit !== null)
+    .map(([limit, window]) => formatRequestQuota(limit, window));
+  return capped.join(' · ') || 'No request quota';
 }
 
 export function formatAccountPlanThroughput(entitlement: AccountEntitlement): string | null {
