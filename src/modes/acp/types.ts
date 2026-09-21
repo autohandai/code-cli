@@ -7,7 +7,7 @@ import type { ToolKind, SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { BuiltInProviderName, LoadedConfig } from "../../types.js";
 import {
   getProviderDefaultModel,
-  getProviderModelIds,
+  getProviderRunnableModelIds,
   mergeModelIds,
 } from "../../providers/modelCatalog.js";
 import { isAutohandInferenceEnabled } from "../../featureFlags.js";
@@ -484,7 +484,7 @@ export function parseAvailableModels(config: LoadedConfig): string[] {
     : isBuiltInProviderName(providerName)
       ? providerName
       : "openrouter";
-  const catalogModels = getProviderModelIds(catalogProvider);
+  const catalogModels = getProviderRunnableModelIds(catalogProvider);
 
   // A configured model is useful for custom providers, but Autohand AI must
   // only expose models its own catalog supports. A stale persisted selection

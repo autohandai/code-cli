@@ -15,7 +15,7 @@ import type {
 } from "../types.js";
 import type { LLMProvider, LLMProviderCapabilities } from "./LLMProvider.js";
 import { AUTOHAND_AI_LOCAL_CODING_MODEL_FALLBACKS } from "./autohandAILocalSetup.js";
-import { getProviderModelOptions } from "./modelCatalog.js";
+import { getProviderModelOptions, getProviderRunnableModelOptions } from "./modelCatalog.js";
 
 export const AUTOHAND_AI_DEFAULT_BASE_URL = "https://inference.autohand.ai/v1";
 // Requested output when the caller does not specify one; mirrors the shared
@@ -41,7 +41,7 @@ function requireCatalogNumber(model: string, field: "contextWindow" | "maxTokens
 }
 
 export const AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS: readonly AutohandAICloudModelDefinition[] =
-  getProviderModelOptions("autohandai").map((model) => ({
+  getProviderRunnableModelOptions("autohandai").map((model) => ({
     id: model.id,
     label: model.displayName ?? model.id,
     description: model.description ?? model.displayName ?? model.id,
