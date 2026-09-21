@@ -1570,6 +1570,8 @@ describe('AgentUI queued instruction panel', () => {
   function renderWorkingQueue(options: {
     queuedInstructions?: string[];
     onInstruction?: (text: string) => void;
+    onSteer?: (text: string) => void;
+    onSteerQueuedInstruction?: (index: number, sequence: number | undefined, originalText: string, text: string) => boolean;
     onEscape?: () => void;
     onReplaceQueuedInstruction?: (index: number, text: string) => void;
     onRemoveQueuedInstruction?: (index: number) => void;
@@ -1596,6 +1598,8 @@ describe('AgentUI queued instruction panel', () => {
           React.createElement(AgentUI, {
             state,
             onInstruction: options.onInstruction ?? (() => {}),
+            onSteer: options.onSteer,
+            onSteerQueuedInstruction: options.onSteerQueuedInstruction,
             onEscape: options.onEscape ?? (() => {}),
             onCtrlC: () => {},
             onInputChange: options.onInputChange,
@@ -1629,7 +1633,164 @@ describe('AgentUI queued instruction panel', () => {
     const output = stripAnsi(instance.lastFrame() ?? '');
     expect(output).toContain('Queue · 3 pending');
     expect(output).toContain('› 1. tell me something you can do here for me');
-    expect(output).toContain('enter edit · delete remove · esc clear selection');
+    expect(output).toContain('enter edit, then steer · shift+enter save · delete remove · esc clear selection');
+  });
+
+  it('queues a new draft with Enter and steers only after a queued message is selected and submitted', async () => {
+    const onInstruction = vi.fn();
+    const onSteer = vi.fn();
+    const onSteerQueuedInstruction = vi.fn(() => true);
+    const onReplaceQueuedInstruction = vi.fn();
+    const instance = renderWorkingQueue({
+      queuedInstructions: ['already queued'],
+      onInstruction,
+      onSteer,
+      onSteerQueuedInstruction,
+      onReplaceQueuedInstruction,
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    instance.stdin.write('new message');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write('\r');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    expect(onInstruction).toHaveBeenCalledWith('new message');
+    expect(onSteer).not.toHaveBeenCalled();
+
+    instance.stdin.write('\x1b[B');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write('\r');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write('\r');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    expect(onSteerQueuedInstruction).toHaveBeenCalledWith(0, undefined, 'already queued', 'already queued');
+    expect(onSteer).not.toHaveBeenCalled();
+    expect(onReplaceQueuedInstruction).not.toHaveBeenCalled();
+  });
+
+  it('saves an edited selected message back to the queue with Shift+Enter', async () => {
+    const onSteerQueuedInstruction = vi.fn(() => true);
+    const onReplaceQueuedInstruction = vi.fn();
+    const instance = renderWorkingQueue({
+      queuedInstructions: ['already queued'],
+      onSteerQueuedInstruction,
+      onReplaceQueuedInstruction,
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    instance.stdin.write('\x1b[B');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write('\r');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write(' revised');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write('\x1b[13;2u');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    expect(onReplaceQueuedInstruction).toHaveBeenCalledWith(0, 'already queued revised');
+    expect(onSteerQueuedInstruction).not.toHaveBeenCalled();
+  });
+
+  it('retains a selected message and its draft when steering is rejected', async () => {
+    const onSteerQueuedInstruction = vi.fn(() => false);
+    const onInputChange = vi.fn();
+    const onReplaceQueuedInstruction = vi.fn();
+    const instance = renderWorkingQueue({
+      queuedInstructions: ['already queued'],
+      onSteerQueuedInstruction,
+      onInputChange,
+      onReplaceQueuedInstruction,
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    instance.stdin.write('\x1b[B');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write('\r');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write('\r');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    expect(onSteerQueuedInstruction).toHaveBeenCalledWith(0, undefined, 'already queued', 'already queued');
+    expect(onReplaceQueuedInstruction).not.toHaveBeenCalled();
+    expect(onInputChange).toHaveBeenLastCalledWith('already queued');
+  });
+
+  it('keeps the selected message identity when an earlier queued item is consumed', async () => {
+    const onSteerQueuedInstruction = vi.fn(() => false);
+    const frame = (queuedInstructions: string[]) => React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(
+        ThemeProvider,
+        null,
+        React.createElement(AgentUI, {
+          state: {
+            ...createInitialUIState(),
+            isWorking: true,
+            queuedInstructions,
+            queuedInstructionSequences: queuedInstructions.length === 2 ? [11, 12] : [12],
+          },
+          onInstruction: () => {},
+          onEscape: () => {},
+          onCtrlC: () => {},
+          onSteerQueuedInstruction,
+        }),
+      ),
+    );
+    const instance = render(frame(['first', 'second']));
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    instance.stdin.write('\x1b[B');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write('\r');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.rerender(frame(['second']));
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write('\r');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    expect(onSteerQueuedInstruction).not.toHaveBeenCalled();
+    expect(stripAnsi(instance.lastFrame() ?? '')).toContain('❯ first');
+  });
+
+  it('does not save a selected edit over the next queued message after the selected one is consumed', async () => {
+    const onReplaceQueuedInstruction = vi.fn();
+    const frame = (queuedInstructions: string[]) => React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(
+        ThemeProvider,
+        null,
+        React.createElement(AgentUI, {
+          state: {
+            ...createInitialUIState(),
+            isWorking: true,
+            queuedInstructions,
+            queuedInstructionSequences: queuedInstructions.length === 2 ? [21, 22] : [22],
+          },
+          onInstruction: () => {},
+          onEscape: () => {},
+          onCtrlC: () => {},
+          onReplaceQueuedInstruction,
+        }),
+      ),
+    );
+    const instance = render(frame(['first', 'second']));
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    instance.stdin.write('\x1b[B');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write('\r');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.rerender(frame(['second']));
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write('\x1b[13;2u');
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    expect(onReplaceQueuedInstruction).not.toHaveBeenCalled();
+    expect(stripAnsi(instance.lastFrame() ?? '')).toContain('❯ first');
   });
 
   it('loads a selected queued item into the composer for editing', async () => {

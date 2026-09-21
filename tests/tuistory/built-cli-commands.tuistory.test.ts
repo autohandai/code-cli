@@ -51,11 +51,11 @@ import {
 registerBuiltCliCleanup();
 
 describe('interactive built CLI Tuistory tests: steering, caret, slash commands, and workspace output', () => {
-  it('steers a running turn with Enter so the model reads the message on its next request, and queues with Shift+Enter', async () => {
+  it('queues running-turn messages with Enter and steers a selected queued message on its next request', async () => {
     const openRouterServer = await createMockOpenRouterSequenceServer([
       JSON.stringify({ toolCalls: [{ tool: 'list_tree', args: { path: '.' } }] }),
       JSON.stringify({ toolCalls: [], finalResponse: 'STEERED_TURN_COMPLETE' }),
-    ], 3_000);
+    ], 5_000);
     mockServers.push(openRouterServer);
     const session = await launchInteractive({
       config: {
@@ -74,9 +74,16 @@ describe('interactive built CLI Tuistory tests: steering, caret, slash commands,
 
     await session.type('STEER_ME: keep the summary to one line');
     await session.press('enter');
-    await session.text({ timeout: 5_000, waitFor: (text) => text.includes('Steering the running turn') });
+    const firstQueueScreen = await session.text({ timeout: 5_000, waitFor: (text) => /Queue · 1 pending/.test(text) });
+    expect(firstQueueScreen).toContain('1. STEER_ME: keep the summary to one line');
+    expect(firstQueueScreen).not.toContain('Steering the running turn; the model reads it on its next request.');
     await session.type('QUEUE_ME for after the turn');
-    await session.press(['shift', 'enter']);
+    await session.press('enter');
+    await session.text({ timeout: 5_000, waitFor: (text) => /Queue · 2 pending/.test(text) });
+    await session.press('down');
+    await session.press('enter');
+    await session.text({ timeout: 5_000, waitFor: (text) => composerLineIncludes(text, 'STEER_ME: keep the summary to one line') });
+    await session.press('enter');
     await session.text({ timeout: 5_000, waitFor: (text) => /Queue · 1 pending/.test(text) });
 
     await session.text({ timeout: 20_000, waitFor: (text) => text.includes('STEERED_TURN_COMPLETE') });
@@ -86,7 +93,7 @@ describe('interactive built CLI Tuistory tests: steering, caret, slash commands,
     expect(steered).toHaveLength(1);
     const firstRequest = openRouterServer.requests[0] as { messages: Array<{ role: string; content: unknown }> };
     expect(JSON.stringify(firstRequest.messages)).not.toContain('STEER_ME');
-    // The steer was consumed by the running turn; only the Shift+Enter text was queued.
+    // The selected steer was consumed by the running turn; the other text remains queued.
     expect(JSON.stringify(secondRequest.messages)).not.toContain('QUEUE_ME');
 
     await exitInteractive(session);

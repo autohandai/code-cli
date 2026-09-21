@@ -255,6 +255,7 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
       const inkUIManager = createInkUIManager({
         onInstruction: (text, metadata) => { void handleAgentInkSubmittedInstruction(host, text, metadata); },
         onSteer: (text: string) => { void steerAgentActiveInstruction(host, text); },
+        onSteerQueuedMessage: (text: string) => trySteerAgentActiveInstruction(host, text),
         onWorkingSpinnerFrame: (frame: number) => host.terminalTitle?.setFrame(frame),
         ...(host.runtime?.config?.sessions?.communication?.enabled === true ? {
           peerScopes: allowedPeerScopes(host.runtime.config.sessions?.communication?.scope ?? 'workspace'),
@@ -276,7 +277,7 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
           void host.announcementManager?.dismiss?.(id);
         },
         enableQueueInput: true,
-        enterWhileWorking: host.runtime?.config?.ui?.enterWhileWorking ?? 'steer',
+        enterWhileWorking: host.runtime?.config?.ui?.enterWhileWorking ?? 'select',
         onImageDetected: (data: Buffer, mimeType: string, filename?: string) =>
           host.imageManager.add(data, mimeType, filename),
         filesProvider: () => host.workspaceFileCollector.getCachedFiles(),
@@ -629,12 +630,17 @@ export async function steerAgentActiveInstruction(host: AgentUIRuntimeHost, text
       await host.handleInkSubmittedInstruction(content);
       return false;
     }
+    return trySteerAgentActiveInstruction(host, content);
+}
+
+function trySteerAgentActiveInstruction(host: AgentUIRuntimeHost, text: string): boolean {
+    const content = text.trim();
+    if (!content || !host.isInstructionActive || !host.steering || !canSteerComposerInput(content)) return false;
     if (!host.steering.push(content)) {
       host.inkRenderer?.addNotification?.('That message is too long to steer the running turn.');
       return false;
     }
     host.inkRenderer?.addUserMessage?.(content);
-    host.inkRenderer?.addNotification?.('Steering the running turn; the model reads it on its next request.');
     return true;
 }
 

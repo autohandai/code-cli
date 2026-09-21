@@ -420,4 +420,21 @@ describe('InkRenderer pause/resume cycle', () => {
     expect(renderer.getState().queuedInstructions).toEqual([]);
   });
 
+  it('preserves queue identities when pausing before the Ink wrapper catches up', () => {
+    renderer.start();
+    renderer.addQueuedInstruction('selected message');
+    const canonicalSequences = renderer.getState().queuedInstructionSequences;
+    (renderer as any).wrapperRef.current = {
+      updateState: vi.fn(),
+      getState: () => ({
+        ...renderer.getState(),
+        queuedInstructionSequences: [999],
+      }),
+    };
+
+    renderer.pause();
+
+    expect(renderer.getState().queuedInstructionSequences).toEqual(canonicalSequences);
+  });
+
 });

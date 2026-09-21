@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { InkRenderer } from '../../../src/ui/ink/InkRenderer.js';
 
 describe('InkRenderer live command blocks', () => {
@@ -101,6 +101,61 @@ describe('InkRenderer live command blocks', () => {
     expect(renderer.getState().queuedInstructions).toEqual(['first', 'third']);
     expect(renderer.dequeueInstruction()).toBe('first');
     expect(renderer.dequeueInstruction()).toBe('third');
+  });
+
+  it('steers a selected queued instruction and removes only that entry after acceptance', () => {
+    const onSteerQueuedMessage = vi.fn(() => true);
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+      onSteerQueuedMessage,
+    });
+    renderer.addQueuedInstruction('first');
+    renderer.addQueuedInstruction('second');
+
+    const selectedSequence = renderer.getState().queuedInstructionSequences?.[1];
+    expect(renderer.steerQueuedInstruction(1, selectedSequence, 'second', 'second revised')).toBe(true);
+    expect(onSteerQueuedMessage).toHaveBeenCalledWith('second revised');
+    expect(renderer.getState().queuedInstructions).toEqual(['first']);
+  });
+
+  it('retains queued instructions when steering is rejected or the selected row changed', () => {
+    const onSteerQueuedMessage = vi.fn(() => false);
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+      onSteerQueuedMessage,
+    });
+    renderer.addQueuedInstruction('original');
+
+    const selectedSequence = renderer.getState().queuedInstructionSequences?.[0];
+    expect(renderer.steerQueuedInstruction(0, selectedSequence, 'original', 'original')).toBe(false);
+    expect(renderer.steerQueuedInstruction(0, selectedSequence, 'stale', 'stale')).toBe(false);
+    expect(renderer.getState().queuedInstructions).toEqual(['original']);
+    expect(onSteerQueuedMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not steer a different queued entry that reused the selected row and text', () => {
+    const onSteerQueuedMessage = vi.fn(() => true);
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+      onSteerQueuedMessage,
+    });
+    renderer.addQueuedInstruction('same text');
+    const selectedSequence = renderer.getState().queuedInstructionSequences?.[0];
+    expect(selectedSequence).toBeTypeOf('number');
+    renderer.dequeueQueuedInstruction();
+    renderer.addQueuedInstruction('different text');
+    renderer.addQueuedInstruction('same text');
+    renderer.dequeueQueuedInstruction();
+
+    expect(renderer.steerQueuedInstruction(0, selectedSequence, 'same text', 'same text')).toBe(false);
+    expect(onSteerQueuedMessage).not.toHaveBeenCalled();
+    expect(renderer.getState().queuedInstructions).toEqual(['same text']);
   });
 
   it('archives a completed final response before the next user turn starts', () => {

@@ -406,7 +406,7 @@ describe('AgentUI autocomplete while a turn is running', () => {
 });
 
 describe('AgentUI steering while working', () => {
-  it('steers the composer text with plain Enter and clears the composer', async () => {
+  it('preserves direct Enter steering when explicitly configured', async () => {
     const onSteer = vi.fn();
     const onInstruction = vi.fn();
     const onInputChange = vi.fn();
@@ -415,6 +415,7 @@ describe('AgentUI steering while working', () => {
       onSteer,
       onInstruction,
       onInputChange,
+      enterWhileWorking: 'steer',
     });
     await new Promise(r => setImmediate(r));
     stdin.write('focus on tests');
@@ -446,13 +447,14 @@ describe('AgentUI steering while working', () => {
     expect(onInstruction.mock.calls.map((call) => call[0])).toEqual([text]);
   });
 
-  it('queues with Shift+Enter while working under the default setting', async () => {
+  it('queues with Shift+Enter under the explicit direct-steering setting', async () => {
     const onSteer = vi.fn();
     const onInstruction = vi.fn();
     const { stdin } = renderAgentUIWithStdin({
       state: { ...createInitialUIState(), isWorking: true, status: 'Working...' },
       onSteer,
       onInstruction,
+      enterWhileWorking: 'steer',
     });
     await new Promise(r => setImmediate(r));
     stdin.write('later please');
@@ -462,6 +464,27 @@ describe('AgentUI steering while working', () => {
 
     expect(onSteer).not.toHaveBeenCalled();
     expect(onInstruction).toHaveBeenCalledWith('later please');
+  });
+
+  it('keeps Shift+Enter as a newline in a fresh draft while working by default', async () => {
+    const onSteer = vi.fn();
+    const onInstruction = vi.fn();
+    const onInputChange = vi.fn();
+    const { stdin } = renderAgentUIWithStdin({
+      state: { ...createInitialUIState(), isWorking: true, status: 'Working...' },
+      onSteer,
+      onInstruction,
+      onInputChange,
+    });
+    await new Promise(r => setImmediate(r));
+    stdin.write('first line');
+    await new Promise(r => setTimeout(r, 50));
+    stdin.write('\x1b[13;2u');
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(onSteer).not.toHaveBeenCalled();
+    expect(onInstruction).not.toHaveBeenCalled();
+    expect(onInputChange).toHaveBeenLastCalledWith('first line\n');
   });
 
   it('keeps Enter queueing and Shift+Enter steering when ui.enterWhileWorking is queue', async () => {
