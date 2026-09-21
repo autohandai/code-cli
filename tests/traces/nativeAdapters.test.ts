@@ -868,6 +868,241 @@ describe('native trace Adapters', () => {
     expect(result.warnings).toEqual(expect.arrayContaining(result.traces[0].provenance.warnings));
   });
 
+  it('normalizes Kimi wire protocol events, per-step usage, and state metadata', async () => {
+    const root = await tempRoot();
+    const sessionDirectory = path.join(root, 'wd_project', 'session-kimi');
+    const wireDirectory = path.join(sessionDirectory, 'agents', 'main');
+    await fs.ensureDir(wireDirectory);
+    await fs.writeJson(path.join(sessionDirectory, 'state.json'), {
+      id: 'session-kimi',
+      version: '0.7.0',
+      createdAt: '2026-09-18T00:00:00.000Z',
+      updatedAt: '2026-09-18T00:00:09.000Z',
+      workDir: '/workspace/kimi',
+      lastPrompt: 'state-only prompt must not be ingested',
+      agents: { main: { type: 'main', homedir: wireDirectory } },
+    });
+    await fs.writeFile(path.join(wireDirectory, 'wire.jsonl'), [
+      JSON.stringify({
+        type: 'metadata', protocol_version: '1.4', created_at: '2026-09-18T00:00:00.000Z',
+      }),
+      JSON.stringify({
+        type: 'turn.prompt', time: 1_789_689_601_000, origin: { kind: 'user' },
+        input: [{ type: 'text', text: 'inspect the project' }],
+      }),
+      JSON.stringify({
+        type: 'llm.request', time: 1_789_689_601_100, model: 'k3', provider: 'kimi',
+        thinkingEffort: 'high', turnStep: 1,
+      }),
+      JSON.stringify({
+        type: 'context.append_loop_event', time: 1_789_689_602_000,
+        event: {
+          type: 'content.part', uuid: 'part-text', turnId: 'turn-1', step: 1,
+          part: { type: 'text', text: 'I will inspect it.' },
+        },
+      }),
+      JSON.stringify({
+        type: 'context.append_loop_event', time: 1_789_689_602_100,
+        event: {
+          type: 'step.end', uuid: 'step-end-1', turnId: 'turn-1', step: 1,
+          usage: { inputOther: 10, output: 2, inputCacheRead: 5, inputCacheCreation: 1 },
+        },
+      }),
+      JSON.stringify({
+        type: 'usage.record', time: 1_789_689_602_200, usageScope: 'turn', model: 'kimi-code/k3',
+        usage: { inputOther: 10, output: 2, inputCacheRead: 5, inputCacheCreation: 1 },
+      }),
+      JSON.stringify({
+        type: 'llm.request', time: 1_789_689_603_000, model: 'kimi-for-coding', provider: 'kimi',
+        thinkingEffort: 'on', turnStep: 2,
+      }),
+      JSON.stringify({
+        type: 'context.append_loop_event', time: 1_789_689_603_100,
+        event: {
+          type: 'content.part', uuid: 'part-thinking', turnId: 'turn-1', step: 2,
+          part: { type: 'think', think: 'check the tests' },
+        },
+      }),
+      JSON.stringify({
+        type: 'context.append_loop_event', time: 1_789_689_603_200,
+        event: {
+          type: 'content.part', uuid: 'part-empty-thinking', turnId: 'turn-1', step: 2,
+          part: { type: 'think', think: '\n\t' },
+        },
+      }),
+      JSON.stringify({
+        type: 'context.append_loop_event', time: 1_789_689_604_000,
+        event: {
+          type: 'tool.call', uuid: 'tool-event', toolCallId: 'call-test', turnId: 'turn-1', step: 2,
+          name: 'Bash', args: { command: 'bun test' },
+        },
+      }),
+      JSON.stringify({
+        type: 'context.append_loop_event', time: 1_789_689_604_100,
+        event: {
+          type: 'step.end', uuid: 'step-end-2', turnId: 'turn-1', step: 2,
+          usage: { inputOther: 20, output: 4, inputCacheRead: 7, inputCacheCreation: 0 },
+        },
+      }),
+      JSON.stringify({
+        type: 'usage.record', time: 1_789_689_604_200, usageScope: 'turn',
+        model: 'kimi-code/kimi-for-coding',
+        usage: { inputOther: 20, output: 4, inputCacheRead: 7, inputCacheCreation: 0 },
+      }),
+      JSON.stringify({
+        type: 'context.append_loop_event', time: 1_789_689_605_000,
+        event: {
+          type: 'tool.result', toolCallId: 'call-test', parentUuid: 'tool-event',
+          result: { output: 'test failed', isError: true },
+        },
+      }),
+      JSON.stringify({ type: 'turn.cancel', time: 1_789_689_606_000, turnId: 'turn-1' }),
+      JSON.stringify({
+        type: 'context.apply_compaction', time: 1_789_689_607_000,
+        summary: 'Earlier context was compacted.', compactedCount: 4,
+      }),
+    ].join('\n'));
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'kimi')).get('kimi')!;
+
+    const result = await adapter.scan();
+
+    expect(result).toMatchObject({ truncated: false, warnings: [], filesScanned: 1 });
+    expect(result.sourceFiles).toHaveLength(1);
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0]).toMatchObject({
+      source: { harness: 'kimi', externalId: 'session-kimi' },
+      agent: { name: 'Kimi Code', version: '0.7.0' },
+      project: { path: '/workspace/kimi' },
+      startedAt: '2026-09-18T00:00:00.000Z',
+      endedAt: '2026-09-18T00:00:09.000Z',
+      model: 'kimi-code/k3',
+      provider: 'kimi',
+      reasoningEffort: 'high',
+      usage: {
+        input: 30,
+        output: 6,
+        cacheRead: 12,
+        cacheWrite: 1,
+        total: 36,
+        provenance: 'actual',
+      },
+      provenance: { completeness: 'complete', warnings: [] },
+    });
+    expect(result.traces[0].messages.map((message) => message.role)).toEqual([
+      'user', 'assistant', 'assistant', 'assistant', 'tool', 'system', 'system',
+    ]);
+    expect(result.traces[0].messages.flatMap((message) => message.parts)).toEqual([
+      { type: 'text', text: 'inspect the project' },
+      { type: 'text', text: 'I will inspect it.' },
+      { type: 'reasoning', text: 'check the tests' },
+      { type: 'tool_call', name: 'Bash', callId: 'call-test', arguments: { command: 'bun test' } },
+      { type: 'tool_result', name: 'Bash', callId: 'call-test', content: 'test failed', isError: true },
+      { type: 'error', code: 'turn_cancelled', message: 'Kimi turn cancelled.' },
+      { type: 'text', text: 'Earlier context was compacted.' },
+    ]);
+    expect(JSON.stringify(result.traces)).not.toContain('state-only prompt must not be ingested');
+    expect(result.traces[0].messages[1]).toMatchObject({
+      model: 'kimi-code/k3',
+      usage: { input: 10, output: 2, cacheRead: 5, cacheWrite: 1, provenance: 'actual' },
+    });
+    expect(result.traces[0].messages[3]).toMatchObject({
+      model: 'kimi-code/kimi-for-coding',
+      usage: { input: 20, output: 4, cacheRead: 7, cacheWrite: 0, provenance: 'actual' },
+    });
+  });
+
+  it('uses Kimi agent identity and links subagents to the main wire trace', async () => {
+    const root = await tempRoot();
+    const sessionDirectory = path.join(root, 'wd_project', 'session-team');
+    const wireDirectory = path.join(sessionDirectory, 'agents', 'agent-0');
+    const wirePath = path.join(wireDirectory, 'wire.jsonl');
+    await fs.ensureDir(wireDirectory);
+    await fs.writeJson(path.join(sessionDirectory, 'state.json'), {
+      createdAt: '2026-09-18T00:00:00.000Z',
+      updatedAt: '2026-09-18T00:00:02.000Z',
+      agents: {
+        main: { type: 'main', homedir: path.join(sessionDirectory, 'agents', 'main') },
+        'agent-0': { type: 'sub', parentAgentId: 'main', homedir: wireDirectory },
+      },
+    });
+    await fs.writeFile(wirePath, [
+      JSON.stringify({ type: 'metadata', protocol_version: '1.4', created_at: '2026-09-18T00:00:00.000Z' }),
+      JSON.stringify({
+        type: 'turn.prompt', time: 1_789_689_601_000, origin: { kind: 'system_trigger' },
+        input: [{ type: 'text', text: 'review the change' }],
+      }),
+    ].join('\n'));
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'kimi')).get('kimi')!;
+
+    const result = await adapter.scan();
+
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0].source.externalId).toBe('session-team:agent-0');
+    expect(result.traces[0].relationships).toEqual([{
+      type: 'parent',
+      traceId: createCanonicalTraceId(
+        'kimi',
+        'session-team',
+        path.join(sessionDirectory, 'agents', 'main', 'wire.jsonl'),
+      ),
+    }]);
+  });
+
+  it('marks Kimi legacy and future wire protocols partial without inventing usage', async () => {
+    const root = await tempRoot();
+    const legacyDirectory = path.join(root, 'wd_project', 'session-legacy', 'agents', 'main');
+    const futureDirectory = path.join(root, 'wd_project', 'session-future', 'agents', 'main');
+    await fs.ensureDir(legacyDirectory);
+    await fs.ensureDir(futureDirectory);
+    await fs.writeFile(path.join(legacyDirectory, 'wire.jsonl'), [
+      JSON.stringify({ type: 'metadata', protocol_version: '1.0', created_at: '2026-09-18T00:00:00.000Z' }),
+      JSON.stringify({
+        type: 'context.append_message', time: 1_789_689_601_000,
+        message: { role: 'assistant', content: [{ type: 'think', think: 'must not be guessed' }] },
+      }),
+    ].join('\n'));
+    await fs.writeFile(path.join(futureDirectory, 'wire.jsonl'), [
+      JSON.stringify({ type: 'metadata', protocol_version: '2.0', created_at: '2026-09-18T00:00:00.000Z' }),
+      JSON.stringify({
+        type: 'turn.prompt', time: 1_789_689_601_000, origin: { kind: 'user' },
+        input: [{ type: 'text', text: 'known prompt' }],
+      }),
+      JSON.stringify({ type: 'future.event', time: 1_789_689_602_000 }),
+    ].join('\n'));
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'kimi')).get('kimi')!;
+
+    const result = await adapter.scan();
+
+    expect(result.traces).toHaveLength(2);
+    const legacy = result.traces.find((trace) => trace.source.externalId === 'session-legacy');
+    const future = result.traces.find((trace) => trace.source.externalId === 'session-future');
+    expect(legacy).toMatchObject({
+      messages: [],
+      usage: { provenance: 'unavailable' },
+      provenance: {
+        completeness: 'partial',
+        warnings: ['Kimi wire protocol 1.0 is metadata-only because its event contract is not verified.'],
+      },
+    });
+    expect(future).toMatchObject({
+      messages: [{ role: 'user', parts: [{ type: 'text', text: 'known prompt' }] }],
+      usage: { provenance: 'unavailable' },
+      provenance: {
+        completeness: 'partial',
+        warnings: [
+          'Kimi wire protocol 2.0 is not a verified native contract.',
+          'Kimi wire contains unsupported record type "future.event".',
+        ],
+      },
+    });
+    expect(result.truncated).toBe(true);
+    expect(result.warnings).toEqual(expect.arrayContaining([
+      'Kimi wire protocol 1.0 is metadata-only because its event contract is not verified.',
+      'Kimi wire protocol 2.0 is not a verified native contract.',
+      'Kimi wire contains unsupported record type "future.event".',
+    ]));
+  });
+
   it.each<TraceHarness>([
     'pi', 'amp', 'copilot', 'cline', 'openclaw', 'droid', 'grok', 'kimi',
     'antigravity', 'prime-agent', 'fx',

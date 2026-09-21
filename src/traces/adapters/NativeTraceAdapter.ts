@@ -19,6 +19,7 @@ import {
   type TraceTokenUsage,
 } from '../model.js';
 import { deriveTraceOutcome } from '../outcomes.js';
+import { normalizeKimiWireRecords } from './KimiTraceNormalizer.js';
 import { normalizePiSessionRecords } from './PiTraceNormalizer.js';
 import type {
   TraceAdapterScanOptions,
@@ -1136,6 +1137,20 @@ function updateTraceMetadata(
       ))) trace.relationships.push(relationship);
     }
   }
+  if (harness === 'kimi') {
+    const parentSessionId = firstString(record, [['parentSessionId']]);
+    if (parentSessionId) {
+      const sessionDirectory = path.dirname(path.dirname(path.dirname(trace.recordPath)));
+      const targetPath = path.join(sessionDirectory, 'agents', 'main', 'wire.jsonl');
+      const relationship = {
+        type: 'parent' as const,
+        traceId: createCanonicalTraceId(harness, parentSessionId, targetPath),
+      };
+      if (!trace.relationships.some((candidate) => (
+        candidate.type === relationship.type && candidate.traceId === relationship.traceId
+      ))) trace.relationships.push(relationship);
+    }
+  }
 }
 
 function messageFromRecord(
@@ -1352,11 +1367,18 @@ class NativeTraceAdapter implements TraceSourceAdapter {
     for (const file of files) {
       options.signal?.throwIfAborted();
       if (consumed.has(file.path)) continue;
+      if (this.harness === 'kimi' && path.basename(file.path) === 'state.json') continue;
       const conversationFile = this.harness === 'autohand' && path.basename(file.path) === 'metadata.json'
         ? files.find((candidate) => candidate.path === path.join(path.dirname(file.path), 'conversation.jsonl'))
         : this.harness === 'cline' && isClineSessionManifest(file.path)
           ? files.find((candidate) => candidate.path === path.join(
             path.dirname(file.path), `${path.basename(file.path, '.json')}.messages.json`,
+          ))
+        : undefined;
+      const kimiStateFile = this.harness === 'kimi' && path.basename(file.path) === 'wire.jsonl'
+        ? files.find((candidate) => candidate.path === path.join(
+            path.dirname(path.dirname(path.dirname(file.path))),
+            'state.json',
           ))
         : undefined;
       if (conversationFile) consumed.add(conversationFile.path);
@@ -1368,7 +1390,11 @@ class NativeTraceAdapter implements TraceSourceAdapter {
         budget.warnings.push(`Skipped unsafe SQLite WAL for ${path.basename(file.path)}.`);
         continue;
       }
-      const relatedFiles = conversationFile ? [file, conversationFile] : walFile ? [file, walFile] : [file];
+      const relatedFiles = conversationFile
+        ? [file, conversationFile]
+        : kimiStateFile
+          ? [file, kimiStateFile]
+          : walFile ? [file, walFile] : [file];
       const sourceFingerprint = fingerprint(...relatedFiles);
       const sourceKey = sourceFileKey(this.harness, file.path);
       const snapshot: TraceSourceFileSnapshot = {
@@ -1395,6 +1421,7 @@ class NativeTraceAdapter implements TraceSourceAdapter {
       try {
         let records: UnknownRecord[];
         let provenanceWarnings: string[] = [];
+        let kimiState: UnknownRecord | undefined;
         if (file.format === 'sqlite') {
           records = await sqliteRecords(file, budget, this.harness);
           budget.bytesRead += sourceBytes;
@@ -1430,8 +1457,31 @@ class NativeTraceAdapter implements TraceSourceAdapter {
           }
         }
 
+        if (kimiStateFile) {
+          const stateBytes = await readBoundedTraceFile(
+            kimiStateFile.path,
+            kimiStateFile,
+            Math.min(budget.maxBytesPerFile, budget.maxTotalBytes - budget.bytesRead),
+          );
+          budget.bytesRead += stateBytes.byteLength;
+          kimiState = parseJson(
+            stateBytes.toString('utf8'),
+            budget,
+            path.basename(kimiStateFile.path),
+          )[0];
+        }
+
         if (this.harness === 'pi') {
           const normalized = normalizePiSessionRecords(records, file.path);
+          records = normalized.records;
+          provenanceWarnings = normalized.warnings;
+          if (provenanceWarnings.length > 0) {
+            budget.truncated = true;
+            budget.warnings.push(...provenanceWarnings);
+          }
+        }
+        if (this.harness === 'kimi') {
+          const normalized = normalizeKimiWireRecords(records, file.path, kimiState);
           records = normalized.records;
           provenanceWarnings = normalized.warnings;
           if (provenanceWarnings.length > 0) {
