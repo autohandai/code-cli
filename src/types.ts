@@ -400,6 +400,8 @@ export interface TelemetrySettings {
 }
 
 export interface TracesSettings {
+  /** Version of the trace consent notice the user has answered. */
+  consentVersion?: number;
   /** Master switch for local agent-session monitoring and Work Map (default: false). */
   enabled?: boolean;
   /** Upload normalized trace data to the authenticated Autohand account (default: false). */

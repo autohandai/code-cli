@@ -143,7 +143,7 @@ describe('built discovery terminal command', () => {
     states.push(state);
     const configPath = path.join(state.workspaceRoot, 'work-map-config.json');
     await writeFile(configPath, JSON.stringify({
-      traces: { enabled: true, cloudSync: false, discoveryMap: true },
+      traces: { consentVersion: 1, enabled: true, cloudSync: false, discoveryMap: true },
       ui: { checkForUpdates: false },
     }));
     const session = await launchBuiltAutohand([

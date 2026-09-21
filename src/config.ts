@@ -1412,6 +1412,16 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
       }
     }
     if (
+      traces.consentVersion !== undefined
+      && (
+        typeof traces.consentVersion !== 'number'
+        || !Number.isSafeInteger(traces.consentVersion)
+        || traces.consentVersion < 1
+      )
+    ) {
+      throw new Error(`traces.consentVersion must be a positive integer in ${configPath}`);
+    }
+    if (
       traces.contentMode !== undefined
       && traces.contentMode !== 'metadata'
       && traces.contentMode !== 'full'

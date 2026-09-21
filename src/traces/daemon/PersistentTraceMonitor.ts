@@ -9,6 +9,7 @@ import type { AhTracesRuntimePaths } from '../runtimePaths.js';
 import type { WorkMapModule } from '../WorkMapModule.js';
 import { deriveWorkMap, projectTraceForLocalIndex } from '../workMap.js';
 import type { AhTracesMonitor } from './AhTracesDaemon.js';
+import { isTraceMonitoringEnabled } from '../consent.js';
 
 const DEFAULT_POLL_INTERVAL_MS = 60_000;
 const INITIAL_RETRY_DELAY_MS = 5_000;
@@ -198,7 +199,7 @@ export class PersistentTraceMonitor implements AhTracesMonitor {
 
   private async runCycle(): Promise<void> {
     const config = await this.options.loadConfig();
-    if (config.traces?.enabled !== true) {
+    if (!isTraceMonitoringEnabled(config)) {
       await Promise.all([
         fs.remove(this.options.paths.workMapFile),
         fs.remove(this.options.paths.checkpointsFile),
@@ -224,7 +225,7 @@ export class PersistentTraceMonitor implements AhTracesMonitor {
     this.evictCheckpoints(checkpoints);
     await atomicWriteJson(this.options.paths.checkpointsFile, checkpoints);
 
-    if (config.traces.discoveryMap !== false) {
+    if (config.traces?.discoveryMap !== false) {
       const map = deriveWorkMap(indexedTraces, {
         now: this.now(),
         since: '30d',
@@ -235,7 +236,7 @@ export class PersistentTraceMonitor implements AhTracesMonitor {
       await fs.remove(this.options.paths.workMapFile);
     }
 
-    if (config.traces.cloudSync !== true || !config.auth?.token) return;
+    if (config.traces?.cloudSync !== true || !config.auth?.token) return;
     const currentById = new Map(snapshot.traces.map((trace) => [trace.id, trace]));
     const uploadTraces = indexedTraces.map((trace) => currentById.get(trace.id) ?? trace);
     await this.uploadChanged(uploadTraces, config, checkpoints, controller.signal);

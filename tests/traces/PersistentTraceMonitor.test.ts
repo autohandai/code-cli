@@ -28,17 +28,20 @@ async function paths(): Promise<AhTracesRuntimePaths> {
 }
 
 function config(overrides: Partial<LoadedConfig> = {}): LoadedConfig {
+  const traceOverrides = overrides.traces;
   return {
     configPath: '/tmp/config.json',
+    auth: { token: 'account-token' },
+    ...overrides,
     traces: {
+      consentVersion: 1,
       enabled: true,
       cloudSync: false,
       contentMode: 'metadata',
       discoveryMap: true,
       pollIntervalMs: 60_000,
+      ...traceOverrides,
     },
-    auth: { token: 'account-token' },
-    ...overrides,
   } as LoadedConfig;
 }
 
@@ -258,6 +261,30 @@ describe('PersistentTraceMonitor', () => {
     expect(createClient).not.toHaveBeenCalled();
     expect(await fs.pathExists(runtimePaths.workMapFile)).toBe(false);
     expect(await fs.pathExists(runtimePaths.checkpointsFile)).toBe(false);
+    await monitor.stop();
+  });
+
+  it('stops monitoring when an upgraded config has not recorded trace consent', async () => {
+    const runtimePaths = await paths();
+    const module = workMapModule();
+    const onDisabled = vi.fn();
+    const legacy = {
+      ...config(),
+      traces: { enabled: true, cloudSync: true, contentMode: 'metadata' as const },
+    };
+    const monitor = new PersistentTraceMonitor({
+      paths: runtimePaths,
+      loadConfig: async () => legacy,
+      workMap: module as WorkMapModule,
+      clientVersion: '0.9.0',
+      deviceId: 'device-1',
+      onDisabled,
+    });
+
+    await monitor.start();
+
+    expect(onDisabled).toHaveBeenCalledOnce();
+    expect(module.scan).not.toHaveBeenCalled();
     await monitor.stop();
   });
 

@@ -719,6 +719,11 @@ describe("SetupWizard", () => {
       expect(output).toContain("persistent pseudonymous device and session IDs");
       expect(output).toContain("Error and status text can contain sensitive information");
       expect(output).toContain("Path sanitization is not a general secret detector");
+      expect(output).toContain("https://console.autohand.ai/traces");
+      expect(output).toContain("does not count against your Autohand API usage");
+      expect(output).toContain("autohand --traces-off");
+      expect(output).toContain("ahtraces off");
+      expect(output).toContain("delete cloud trace data");
       expect(output).not.toContain("What we never collect:");
       expect(output).not.toContain("What we never report:");
     });
@@ -732,6 +737,7 @@ describe("SetupWizard", () => {
       expect(result.config.telemetry?.enabled).toBe(true);
       expect(result.config.telemetry?.enableSessionSync).toBe(false);
       expect(result.config.traces).toEqual({
+        consentVersion: 1,
         enabled: false,
         cloudSync: false,
         contentMode: 'metadata',
@@ -747,6 +753,7 @@ describe("SetupWizard", () => {
       const result = await wizard.run({ skipWelcome: true });
 
       expect(result.config.traces).toEqual({
+        consentVersion: 1,
         enabled: true,
         cloudSync: true,
         contentMode: 'full',

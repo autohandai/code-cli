@@ -184,6 +184,16 @@ describe('SETTINGS_REGISTRY', () => {
     expect(config.ui?.renderMarkdown).toBe(true);
   });
 
+  it('records current consent when a trace setting is changed directly', () => {
+    const config = { configPath: '/tmp/config.json' } as LoadedConfig;
+
+    expect(setConfigSetting(config, 'traces.enabled', 'true')).toEqual({
+      key: 'traces.enabled',
+      value: true,
+    });
+    expect(config.traces).toMatchObject({ enabled: true, consentVersion: 1 });
+  });
+
   it('exposes activity verbs as an on-by-default UI setting', () => {
     const setting = SETTINGS_REGISTRY.find(s => s.key === 'ui.activityVerbsEnabled');
     expect(setting).toMatchObject({
@@ -610,6 +620,23 @@ describe('settings command integration', () => {
     expect(result).toBe('Set traces.enabled = true\nSetting saved, but runtime update failed: ahtraces unavailable');
     expect(config.traces.enabled).toBe(true);
     expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+
+  it('records current consent when traces are changed through the settings menu', async () => {
+    vi.mocked(mockShowModal)
+      .mockResolvedValueOnce({ label: 'Agent traces', value: 'traces' })
+      .mockResolvedValueOnce({ label: 'Enable agent traces', value: 'traces.enabled' })
+      .mockResolvedValueOnce({ label: 'Back', value: '__back__' })
+      .mockResolvedValueOnce(null);
+    vi.mocked(mockShowConfirm).mockResolvedValueOnce(true);
+    const config = createMockConfig();
+
+    await settingsCmd({ config });
+
+    expect(config.traces).toMatchObject({ enabled: true, consentVersion: 1 });
+    expect(mockSaveConfig).toHaveBeenCalledWith(expect.objectContaining({
+      traces: expect.objectContaining({ enabled: true, consentVersion: 1 }),
+    }));
   });
 
   it('documents the canonical thread setting in command help', async () => {

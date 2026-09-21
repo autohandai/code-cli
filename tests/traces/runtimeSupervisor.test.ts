@@ -9,7 +9,7 @@ import { minimalAhTracesDaemonEnvironment } from '../../src/traces/supervisor/No
 function config(enabled: boolean): LoadedConfig {
   return {
     configPath: '/tmp/config.json',
-    traces: { enabled },
+    traces: { consentVersion: 1, enabled },
   } as LoadedConfig;
 }
 
@@ -47,6 +47,20 @@ describe('reconcileAhTraces', () => {
     });
 
     expect(reconcile).toHaveBeenCalledWith({ enabled });
+  });
+
+  it('refuses to start monitoring from an enabled legacy config before consent is recorded', async () => {
+    const reconcile = vi.fn();
+
+    await reconcileAhTraces({
+      ...config(true),
+      traces: { enabled: true },
+    }, {
+      supervisor: { reconcile },
+      hasRuntimeArtifacts: () => true,
+    });
+
+    expect(reconcile).toHaveBeenCalledWith({ enabled: false });
   });
 
   it('does not serialize disabled CLI processes when no trace runtime artifacts exist', async () => {

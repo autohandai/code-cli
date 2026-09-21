@@ -39,6 +39,7 @@ import {
   shouldReconcileAhTracesAtStartup,
 } from './traces/supervisor/runtime.js';
 import { applyTraceSettingChange } from './traces/settingsLifecycle.js';
+import { setTraceMonitoringEnabled } from './traces/preferences.js';
 import { runStartupChecks, printStartupCheckResults, validateWorkspacePath } from './startup/checks.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/workspaceSafety.js';
 import { ensureAuthenticated } from './auth/index.js';
@@ -313,15 +314,21 @@ const collectRepeatable = (value: string, previous: string[] = []): string[] => 
 // --profile and --set apply to every command, including subcommands, and to
 // every config load in this process, before any of them reads the config.
 program.hook('preAction', async (thisCommand, actionCommand) => {
-  const { profile, set, config, bare } = thisCommand.opts<{
+  const { profile, set, config, bare, tracesOn, tracesOff } = thisCommand.opts<{
     profile?: string;
     set?: string[];
     config?: string;
     bare?: boolean;
+    tracesOn?: boolean;
+    tracesOff?: boolean;
   }>();
   configureRunConfigOverlay({ profile, sets: set });
 
-  const traceSupervision = shouldReconcileAhTracesAtStartup(bare === true)
+  const traceControlCommand = actionCommand.name() === 'traces';
+  const traceSupervision = !tracesOn
+    && !tracesOff
+    && !traceControlCommand
+    && shouldReconcileAhTracesAtStartup(bare === true)
     ? loadConfig(config, undefined, {
         createIfMissing: false,
         initializeTheme: false,
@@ -402,6 +409,10 @@ program
   .option('--project', 'Install skill to project level (with --skill-install)', false)
   .option('--permissions', 'Display current permission settings and exit', false)
   .option('--settings', 'Configure Autohand settings (same as /settings in interactive mode)', false)
+  .addOption(new Option('--traces-on', 'Enable local agent monitoring and metadata sync to Autohand Console')
+    .conflicts('tracesOff'))
+  .addOption(new Option('--traces-off', 'Stop agent monitoring and cloud sync, and remove local derived trace data')
+    .conflicts('tracesOn'))
   .option('--login', 'Sign in to your Autohand account', false)
   .option('--logout', 'Sign out of your Autohand account', false)
   .option('--sync-settings [bool]', 'Enable/disable settings sync (default: true for logged users)')
@@ -471,6 +482,16 @@ program
     const normalization = normalizeInitialCliOptions(opts);
     if (normalization.deprecatedBrowserOption) {
       console.warn(chalk.yellow(formatDeprecatedBrowserOptionWarning(normalization.deprecatedBrowserOption)));
+    }
+
+    if (opts.tracesOn || opts.tracesOff) {
+      const enabled = opts.tracesOn === true;
+      const config = await loadConfig(opts.config, process.cwd());
+      await setTraceMonitoringEnabled(config, enabled);
+      console.log(enabled
+        ? 'Agent traces are on. Metadata syncs to https://console.autohand.ai/traces and does not count against API usage.'
+        : 'Agent traces are off. The daemon stopped and local derived trace data was removed.');
+      return;
     }
 
     const commandOutputResolution = resolveCommandOutputFormat(opts);
@@ -1454,8 +1475,24 @@ program
     process.exit(0);
   });
 
+program
+  .command('traces [action]')
+  .description('Control agent trace monitoring (status, on, or off)')
+  .option('--json', 'Emit machine-readable status')
+  .action(async (action: string | undefined, options: { json?: boolean }) => {
+    const rootOptions = program.opts<RootCliOptions>();
+    const { runAhTraces } = await import('./ahtraces.js');
+    const code = await runAhTraces([
+      action ?? 'status',
+      ...(rootOptions.config ? ['--config', rootOptions.config] : []),
+      ...(options.json ? ['--json'] : []),
+    ]);
+    process.exitCode = code;
+  });
+
 interface InternalCLIOptions extends CLIOptions {
   _authConfig?: LoadedConfig;
+  mode?: string;
   reviewExecution?: ReviewCliExecution['review'];
 }
 
@@ -1589,6 +1626,23 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
     }
     if (commandLifecycleController.signal.aborted) {
       return;
+    }
+
+    const canPromptForTraceConsent = !options.bare
+      && (options.mode === undefined || options.mode === 'interactive')
+      && options.prompt === undefined
+      && !structuredOutput
+      && process.stdin.isTTY === true
+      && process.stdout.isTTY === true;
+    if (canPromptForTraceConsent) {
+      const { ensureExistingUserTraceConsent } = await awaitCliLifecycleStep(
+        import('./traces/consentPrompt.js'),
+        commandLifecycleController.signal,
+      );
+      config = await awaitCliLifecycleStep(
+        ensureExistingUserTraceConsent(config),
+        commandLifecycleController.signal,
+      );
     }
 
     // Check for dangerous workspace directories (home, root, system dirs)

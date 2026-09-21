@@ -61,6 +61,8 @@ import {
   getGcloudAccessToken,
   getGcloudAccount,
 } from '../utils/gcloudAuth.js';
+import { TRACE_CONSENT_VERSION } from '../traces/consent.js';
+import { promptTraceConsentChoice } from '../traces/consentPrompt.js';
 
 /**
  * Steps in the onboarding wizard
@@ -957,45 +959,7 @@ export class SetupWizard {
   }
 
   private async promptTraceConsent(): Promise<void> {
-    console.log();
-    console.log(chalk.white.bold('  Agent traces and Work Map'));
-    console.log(chalk.gray('  Autohand can monitor supported coding-agent session files after the CLI exits.'));
-    console.log(chalk.gray('  Local mode stores a pseudonymous aggregate index, never raw prompts or code.'));
-    console.log(chalk.gray('  Cloud modes require authentication and a separate explicit choice below.'));
-    console.log();
-
-    const result = await showModal({
-      title: 'Choose trace monitoring and cloud sharing',
-      initialIndex: 0,
-      options: [
-        {
-          label: 'Disabled (recommended default)',
-          value: 'disabled',
-          description: 'Do not monitor coding-agent session files and do not run ahtraces.',
-        },
-        {
-          label: 'Local Work Map only',
-          value: 'local',
-          description: 'Process sessions locally and retain aggregate usage, outcome, and workflow signals.',
-        },
-        {
-          label: 'Cloud sync — metadata only',
-          value: 'cloud-metadata',
-          description: 'Upload pseudonymous timing, agent, model, provider, reasoning, token, relationship, and outcome metadata.',
-        },
-        {
-          label: 'Cloud sync — redacted full traces',
-          value: 'cloud-full',
-          description: 'Also upload bounded, redacted message and tool parts; this can include prompts, responses, and reasoning.',
-        },
-      ],
-    });
-    const selected = result?.value;
-    this.state.traceConsent = selected === 'local'
-      || selected === 'cloud-metadata'
-      || selected === 'cloud-full'
-      ? selected
-      : 'disabled';
+    this.state.traceConsent = await promptTraceConsentChoice() ?? 'disabled';
   }
 
   /**
@@ -1503,6 +1467,7 @@ export class SetupWizard {
 
     const traceConsent = this.state.traceConsent ?? 'disabled';
     config.traces = {
+      consentVersion: TRACE_CONSENT_VERSION,
       enabled: traceConsent !== 'disabled',
       cloudSync: traceConsent === 'cloud-metadata' || traceConsent === 'cloud-full',
       contentMode: traceConsent === 'cloud-full' ? 'full' : 'metadata',

@@ -18,13 +18,15 @@ import {
   type AhTracesSupervisorHost,
 } from './traces/supervisor/AhTracesSupervisor.js';
 import { WorkMapModule } from './traces/WorkMapModule.js';
+import { setTraceMonitoringEnabled } from './traces/preferences.js';
+import { isTraceMonitoringEnabled } from './traces/consent.js';
 import {
   AHTRACES_PROTOCOL_VERSION,
   getAhTracesDisplayVersion,
   getAhTracesVersion,
 } from './traces/version.js';
 
-type AhTracesCommand = 'daemon' | 'status' | 'stop' | 'version' | 'help';
+type AhTracesCommand = 'daemon' | 'status' | 'on' | 'off' | 'stop' | 'version' | 'help';
 
 export interface AhTracesArguments {
   command: AhTracesCommand;
@@ -54,7 +56,10 @@ export function parseAhTracesArguments(argv: string[]): AhTracesArguments {
       command = 'version';
     } else if (argument === '--help' || argument === '-h') {
       command = 'help';
-    } else if (!argument.startsWith('-') && (argument === 'status' || argument === 'stop')) {
+    } else if (
+      !argument.startsWith('-')
+      && (argument === 'status' || argument === 'on' || argument === 'off' || argument === 'stop')
+    ) {
       command = argument;
     } else {
       throw new Error(`Unknown ahtraces command: ${argument}`);
@@ -96,7 +101,7 @@ async function runDaemon(argumentsValue: AhTracesArguments): Promise<number> {
     initializeTheme: false,
   });
   const initialConfig = await readConfig();
-  if (initialConfig.traces?.enabled !== true) return 0;
+  if (!isTraceMonitoringEnabled(initialConfig)) return 0;
   const paths = runtimePaths();
   const registry = createTraceSourceRegistry({
     homeDirectory: os.homedir(),
@@ -187,6 +192,8 @@ function printHelp(): void {
     'Usage: ahtraces <command>',
     '',
     'Commands:',
+    '  on           Enable local monitoring and metadata sync to Autohand Console',
+    '  off          Stop monitoring and cloud sync, and remove local derived data',
     '  status       Show whether the Autohand trace monitor is running',
     '  stop         Stop the authenticated local trace monitor',
     '',
@@ -202,6 +209,15 @@ function printHelp(): void {
 export async function runAhTraces(argv = process.argv.slice(2)): Promise<number> {
   const argumentsValue = parseAhTracesArguments(argv);
   if (argumentsValue.command === 'daemon') return runDaemon(argumentsValue);
+  if (argumentsValue.command === 'on' || argumentsValue.command === 'off') {
+    const config = await loadConfig(argumentsValue.configPath, undefined, { initializeTheme: false });
+    const enabled = argumentsValue.command === 'on';
+    await setTraceMonitoringEnabled(config, enabled);
+    console.log(enabled
+      ? 'Agent traces are on. Metadata syncs to https://console.autohand.ai/traces and does not count against API usage.'
+      : 'Agent traces are off. The daemon stopped and local derived trace data was removed.');
+    return 0;
+  }
   if (argumentsValue.command === 'status') return runStatus(argumentsValue.json);
   if (argumentsValue.command === 'stop') return runStop(argumentsValue.json);
   if (argumentsValue.command === 'version') {

@@ -32,6 +32,8 @@ export interface RootCliOptions extends CLIOptions {
   learn?: boolean;
   learnUpdate?: boolean;
   offline?: boolean;
+  tracesOn?: boolean;
+  tracesOff?: boolean;
 }
 
 export interface InitialCliOptionsNormalization {

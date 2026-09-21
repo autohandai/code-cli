@@ -61,7 +61,7 @@ describe('native discovery command', () => {
   it('renders a local-only Work Map for explicitly enabled trace monitoring', async () => {
     const configuration = path.join(temporary, 'work-map-config.json');
     await writeFile(configuration, JSON.stringify({
-      traces: { enabled: true, cloudSync: false, discoveryMap: true },
+      traces: { consentVersion: 1, enabled: true, cloudSync: false, discoveryMap: true },
       ui: { checkForUpdates: false },
     }));
 

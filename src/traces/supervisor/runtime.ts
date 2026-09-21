@@ -13,6 +13,7 @@ import {
   type AhTracesSupervisorResult,
 } from './AhTracesSupervisor.js';
 import { NodeAhTracesSupervisorHost } from './NodeAhTracesSupervisorHost.js';
+import { isTraceMonitoringEnabled } from '../consent.js';
 
 export type AhTracesRuntimeResult = AhTracesSupervisorResult | {
   status: 'error';
@@ -77,7 +78,7 @@ export async function reconcileAhTraces(
   options: ReconcileAhTracesOptions = {},
 ): Promise<AhTracesRuntimeResult> {
   try {
-    const enabled = config.traces?.enabled === true;
+    const enabled = isTraceMonitoringEnabled(config);
     if (!enabled && !(options.hasRuntimeArtifacts ?? hasRuntimeArtifacts)()) {
       return { status: 'disabled' };
     }

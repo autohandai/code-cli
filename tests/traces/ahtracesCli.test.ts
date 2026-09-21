@@ -27,6 +27,8 @@ describe('ahtraces command arguments', () => {
     [['--help'], 'help'],
     [['--version'], 'version'],
     [['status'], 'status'],
+    [['on'], 'on'],
+    [['off'], 'off'],
     [['stop', '--json'], 'stop'],
   ] as const)('maps %j to %s', (argv, command) => {
     expect(parseAhTracesArguments([...argv])).toMatchObject({ command });

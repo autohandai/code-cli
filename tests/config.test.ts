@@ -53,6 +53,13 @@ describe('getProviderConfig', () => {
       await fs.writeJson(configPath, {
         provider: 'openrouter',
         openrouter: { apiKey: '', model: 'openrouter/auto' },
+        traces: { consentVersion: 0 },
+      });
+      await expect(loadConfig(configPath)).rejects.toThrow('traces.consentVersion must be a positive integer');
+
+      await fs.writeJson(configPath, {
+        provider: 'openrouter',
+        openrouter: { apiKey: '', model: 'openrouter/auto' },
         traces: { contentMode: 'everything' },
       });
       await expect(loadConfig(configPath)).rejects.toThrow('traces.contentMode must be metadata or full');

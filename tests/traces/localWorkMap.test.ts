@@ -26,6 +26,9 @@ describe('local Work Map surface', () => {
     await expect(buildLocalWorkMap({ traces: { enabled: false } } as LoadedConfig, {}, undefined, {
       module: { map },
     })).rejects.toThrow('Enable local trace monitoring');
+    await expect(buildLocalWorkMap({ traces: { enabled: true } } as LoadedConfig, {}, undefined, {
+      module: { map },
+    })).rejects.toThrow('Enable local trace monitoring');
     expect(map).not.toHaveBeenCalled();
   });
 
@@ -33,7 +36,9 @@ describe('local Work Map surface', () => {
     const expected = deriveWorkMap([], { since: '7d', coverage: [] });
     const map = vi.fn().mockResolvedValue(expected);
     const request = { since: '7d', harnesses: parseWorkMapHarnesses('autohand,codex') };
-    const result = await buildLocalWorkMap({ traces: { enabled: true } } as LoadedConfig, request, undefined, {
+    const result = await buildLocalWorkMap({
+      traces: { consentVersion: 1, enabled: true },
+    } as LoadedConfig, request, undefined, {
       module: { map },
     });
 

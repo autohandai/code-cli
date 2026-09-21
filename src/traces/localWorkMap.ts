@@ -5,6 +5,7 @@ import type { LoadedConfig } from '../types.js';
 import { AUTOHAND_HOME } from '../constants.js';
 import { atomicWriteFile } from '../utils/atomicFile.js';
 import { createTraceSourceRegistry } from './adapters/sourceRegistry.js';
+import { isTraceMonitoringEnabled } from './consent.js';
 import { TRACE_HARNESSES, type TraceHarness } from './model.js';
 import { WorkMapModule, type WorkMapRequest } from './WorkMapModule.js';
 import type { WorkMap } from './workMap.js';
@@ -19,10 +20,10 @@ export interface LocalWorkMapOptions {
 }
 
 export function assertWorkMapEnabled(config: LoadedConfig): void {
-  if (config.traces?.enabled !== true) {
+  if (!isTraceMonitoringEnabled(config)) {
     throw new Error('Enable local trace monitoring in /settings before using the Work Map.');
   }
-  if (config.traces.discoveryMap === false) {
+  if (config.traces?.discoveryMap === false) {
     throw new Error('Enable traces.discoveryMap in /settings before using the Work Map.');
   }
 }

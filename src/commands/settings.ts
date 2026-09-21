@@ -13,6 +13,7 @@ import { showModal, showInput, showConfirm, showPassword, type ModalOption } fro
 import { saveConfig } from '../config.js';
 import type { BuiltInProviderName, LoadedConfig } from '../types.js';
 import { DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION, MAX_CONCURRENT_THREADS_PER_SESSION, isValidSessionThreadLimit } from '../core/agents/SessionThreadBudget.js';
+import { TRACE_CONSENT_VERSION } from '../traces/consent.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -372,7 +373,14 @@ export function setConfigSetting(config: LoadedConfig, keyInput: string, rawValu
 
   const value = parseSettingValue(setting, rawValue);
   setNestedValue(config, setting.key, value);
+  recordTraceConsent(config, setting.key);
   return { key: setting.key, value };
+}
+
+function recordTraceConsent(config: LoadedConfig, settingKey: string): void {
+  if (!settingKey.startsWith('traces.')) return;
+  config.traces ??= {};
+  config.traces.consentVersion = TRACE_CONSENT_VERSION;
 }
 
 export function parseConfigSetArgs(parts: string[]): { key: string; value: string } {
@@ -558,9 +566,11 @@ async function showCategorySettings(category: SettingCategory, ctx: SettingsComm
     const previousValue = getNestedValue(config, setting.key);
     const changed = await editSetting(setting, updated);
     if (changed) {
+      recordTraceConsent(updated, setting.key);
       await saveConfig(updated);
       const value = getNestedValue(updated, setting.key);
       setNestedValue(config, setting.key, value);
+      recordTraceConsent(config, setting.key);
       const runtimeWarning = await applyPersistedSettingChange(ctx, {
         key: setting.key,
         previousValue,
@@ -630,6 +640,7 @@ export async function settings(ctx: SettingsCommandContext, args: string[] = [])
       const result = setConfigSetting(updated, key, value);
       await saveConfig(updated);
       setNestedValue(ctx.config, result.key, result.value);
+      recordTraceConsent(ctx.config, result.key);
       const runtimeWarning = await applyPersistedSettingChange(ctx, {
         key: result.key,
         previousValue,
