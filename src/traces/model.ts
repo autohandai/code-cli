@@ -48,6 +48,23 @@ export const tokenUsageSchema = z.object({
 
 export type TraceTokenUsage = z.infer<typeof tokenUsageSchema>;
 
+export function deriveTraceTotalTokens(
+  usage: TraceTokenUsage,
+  harness: TraceHarness,
+): number | undefined {
+  if (usage.total !== undefined) return usage.total;
+  const hasInputOrOutput = usage.input !== undefined || usage.output !== undefined;
+  if (!hasInputOrOutput && harness !== 'opencode' && harness !== 'opencode2') return undefined;
+  const base = (usage.input ?? 0) + (usage.output ?? 0);
+  if (harness === 'opencode' || harness === 'opencode2') {
+    return base + (usage.reasoning ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
+  }
+  if (harness === 'claude-code') {
+    return base + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
+  }
+  return base;
+}
+
 const tracePartSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), text: z.string() }).strict(),
   z.object({ type: z.literal('reasoning'), text: z.string() }).strict(),

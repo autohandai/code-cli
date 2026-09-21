@@ -126,17 +126,22 @@ const DEFINITIONS: readonly SourceDefinition[] = [
   },
   {
     harness: 'opencode', displayName: 'OpenCode', formats: ['json', 'sqlite'],
-    locations: (options) => unique([
-      path.join(options.environment.XDG_DATA_HOME ?? joinHome(options, '.local', 'share'), 'opencode'),
-      joinHome(options, '.opencode'),
-    ]),
+    locations: (options) => {
+      const data = path.join(options.environment.XDG_DATA_HOME ?? joinHome(options, '.local', 'share'), 'opencode');
+      return [
+        path.join(data, 'opencode.db'),
+        path.join(data, 'storage', 'session'),
+        path.join(data, 'storage', 'message'),
+        path.join(data, 'storage', 'part'),
+      ];
+    },
   },
   {
     harness: 'opencode2', displayName: 'OpenCode 2', formats: ['sqlite'],
-    locations: (options) => unique([
-      path.join(options.environment.XDG_DATA_HOME ?? joinHome(options, '.local', 'share'), 'opencode'),
-      joinHome(options, '.opencode'),
-    ]),
+    locations: (options) => {
+      const data = path.join(options.environment.XDG_DATA_HOME ?? joinHome(options, '.local', 'share'), 'opencode');
+      return [path.join(data, 'opencode.db'), path.join(data, 'opencode-local.db')];
+    },
   },
   {
     harness: 'codex', displayName: 'Codex', formats: ['json', 'jsonl'],

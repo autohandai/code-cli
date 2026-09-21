@@ -107,6 +107,19 @@ describe('deriveWorkMap', () => {
     expect(result.coverage).toMatchObject({ sessions: 2, partial: true, warnings: 1 });
   });
 
+  it('does not double-count Codex cache and reasoning subsets when total is absent', () => {
+    const result = deriveWorkMap([trace('codex', 'inclusive-usage', {
+      usage: { input: 10, output: 6, reasoning: 2, cacheRead: 4, provenance: 'actual' },
+    })], {
+      now: new Date('2026-09-18T00:00:00.000Z'),
+      since: '30d',
+      coverage: [],
+    });
+
+    expect(result.sessions.tokens).toBe(16);
+    expect(result.dimensions.harnesses[0]?.tokens).toBe(16);
+  });
+
   it('serializes no raw content, identifiers, paths, remotes, or secrets', () => {
     const result = deriveWorkMap([trace('autohand', 'private-session-id')], {
       now: new Date('2026-09-18T00:00:00.000Z'),

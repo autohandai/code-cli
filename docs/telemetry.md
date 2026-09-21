@@ -124,8 +124,8 @@ When enabled, the read-only adapters inspect known local session locations for
 `amp`, `copilot`, `cline`, `openclaw`, `hermes`, `droid`, `grok`, `kimi`,
 `antigravity`, `prime-agent`, `fx`, and `deepseek`.
 
-Each adapter normalizes native JSON, JSONL, SQLite, or compressed JSONL records
-into schema version 1:
+The adapters attempt to normalize native JSON, JSONL, SQLite, or compressed
+JSONL records into schema version 1:
 
 - source harness, native ID/path/fingerprint and agent version;
 - project name/path and Git remote/branch/ref when the source exposes them;
@@ -141,6 +141,18 @@ into schema version 1:
 Cursor's global SQLite path can be overridden with `TRACES_CURSOR_GLOBAL_DB`
 for a mounted host database. Copilot scanning includes CLI sessions and VS Code
 workspace and empty-window chat stores.
+
+Registry coverage is not the same as native-version parity. OpenCode SQLite
+`session`/`message`/`part` records and OpenCode 2 `session_message` records use
+separate readers so shared databases do not double-count sessions. Those readers
+select only trace columns; they do not query account, credential, or share-secret
+tables. OpenCode's legacy JSON scan is limited to session/message/part storage
+directories, not the data root containing `auth.json`. Token counts are read
+only from explicit usage envelopes, never inferred from tool arguments or
+results. SQLite WAL changes trigger a rescan and WAL size counts toward the
+source budget. Legacy OpenCode JSON joins, authentic native-version fixtures
+for the other harnesses, and OpenCode 2's service-API fallback remain release
+gates.
 
 A single harness scan is bounded to 5,000 files, 64 MiB per file, 64 MiB total,
 100,000 records and directory depth 12. Work Map scans at most three harnesses

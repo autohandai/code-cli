@@ -53,7 +53,16 @@ describe('trace source registry', () => {
     }
     expect(registry.get('kimi')?.locations).toContain('/Users/tester/custom-kimi');
     expect(registry.get('deepseek')?.locations).toContain('/Users/tester/custom-deepseek');
-    expect(registry.get('opencode')?.locations).toContain('/Users/tester/.xdg/data/opencode');
+    expect(registry.get('opencode')?.locations).toEqual([
+      '/Users/tester/.xdg/data/opencode/opencode.db',
+      '/Users/tester/.xdg/data/opencode/storage/session',
+      '/Users/tester/.xdg/data/opencode/storage/message',
+      '/Users/tester/.xdg/data/opencode/storage/part',
+    ]);
+    expect(registry.get('opencode2')?.locations).toEqual([
+      '/Users/tester/.xdg/data/opencode/opencode.db',
+      '/Users/tester/.xdg/data/opencode/opencode-local.db',
+    ]);
     expect(registry.get('claude-code')?.locations).toEqual(['/Users/tester/custom-claude/projects']);
     expect(registry.get('codex')?.locations).toEqual([
       '/Users/tester/custom-codex/sessions',

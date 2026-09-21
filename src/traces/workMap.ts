@@ -7,7 +7,7 @@ import type {
   TracePart,
   TraceTokenUsage,
 } from './model.js';
-import { createOpaqueTraceId } from './model.js';
+import { createOpaqueTraceId, deriveTraceTotalTokens } from './model.js';
 
 export const WORK_MAP_SCHEMA_VERSION = 1 as const;
 
@@ -193,14 +193,8 @@ function isWithinWorkspace(trace: NormalizedTrace, workspace: string | undefined
   return candidate === root || candidate.startsWith(`${root}${path.sep}`);
 }
 
-function usageTotal(usage: TraceTokenUsage): number {
-  return usage.total ?? (
-    (usage.input ?? 0)
-    + (usage.output ?? 0)
-    + (usage.reasoning ?? 0)
-    + (usage.cacheRead ?? 0)
-    + (usage.cacheWrite ?? 0)
-  );
+function usageTotal(usage: TraceTokenUsage, harness: TraceHarness): number {
+  return deriveTraceTotalTokens(usage, harness) ?? 0;
 }
 
 function addDimension(
@@ -405,7 +399,7 @@ export function deriveWorkMap(
   let totalDurationMs = 0;
 
   for (const trace of selected) {
-    const tokens = usageTotal(trace.usage);
+    const tokens = usageTotal(trace.usage, trace.source.harness);
     totalTokens += tokens;
     totalDurationMs += durationMs(trace);
     sessionCounts[trace.status] += 1;

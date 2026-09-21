@@ -7,9 +7,11 @@
 import { createHash } from 'node:crypto';
 import { constants as fsConstants, promises as nodeFs } from 'node:fs';
 import path from 'node:path';
+import type { DatabaseSync as SqliteDatabaseSync } from 'node:sqlite';
 import {
   TRACE_SCHEMA_VERSION,
   createCanonicalTraceId,
+  deriveTraceTotalTokens,
   normalizedTraceSchema,
   type NormalizedTrace,
   type TraceHarness,
@@ -241,35 +243,26 @@ function contentParts(value: unknown): TracePart[] {
   return text ? [{ type: 'text', text }] : [];
 }
 
-function findNumberByKey(value: unknown, keys: ReadonlySet<string>, depth = 0): number | undefined {
-  if (depth > 5 || value === null || value === undefined) return undefined;
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      const found = findNumberByKey(entry, keys, depth + 1);
-      if (found !== undefined) return found;
-    }
-    return undefined;
-  }
-  if (!isRecord(value)) return undefined;
-  for (const [key, entry] of Object.entries(value)) {
-    if (keys.has(key) && typeof entry === 'number' && Number.isFinite(entry) && entry >= 0) {
-      return Math.round(entry);
-    }
-  }
-  for (const entry of Object.values(value)) {
-    const found = findNumberByKey(entry, keys, depth + 1);
-    if (found !== undefined) return found;
-  }
-  return undefined;
-}
-
 function extractUsage(record: UnknownRecord): TraceTokenUsage {
-  const input = findNumberByKey(record, new Set(['input', 'input_tokens', 'prompt_tokens', 'promptTokens']));
-  const output = findNumberByKey(record, new Set(['output', 'output_tokens', 'completion_tokens', 'completionTokens']));
-  const reasoning = findNumberByKey(record, new Set(['reasoning', 'reasoning_tokens', 'reasoning_output_tokens']));
-  const cacheRead = findNumberByKey(record, new Set(['cache_read', 'cache_read_tokens', 'cacheReadTokens']));
-  const cacheWrite = findNumberByKey(record, new Set(['cache_write', 'cache_write_tokens', 'cacheWriteTokens']));
-  const total = findNumberByKey(record, new Set(['total', 'total_tokens', 'totalTokens']));
+  const source = [
+    record.usage,
+    record.tokenUsage,
+    record.token_usage,
+    record.tokens,
+    valueAt(record, ['info', 'total_token_usage']),
+    valueAt(record, ['payload', 'info', 'total_token_usage']),
+  ].find(isRecord);
+  if (!source) return { provenance: 'unavailable' };
+  const nonnegative = (paths: readonly (readonly string[])[]): number | undefined => {
+    const value = firstNumber(source, paths);
+    return value === undefined || value < 0 ? undefined : Math.round(value);
+  };
+  const input = nonnegative([['input'], ['input_tokens'], ['prompt_tokens'], ['promptTokens']]);
+  const output = nonnegative([['output'], ['output_tokens'], ['completion_tokens'], ['completionTokens']]);
+  const reasoning = nonnegative([['reasoning'], ['reasoning_tokens'], ['reasoning_output_tokens']]);
+  const cacheRead = nonnegative([['cacheRead'], ['cache_read'], ['cache_read_tokens'], ['cacheReadTokens'], ['cache', 'read']]);
+  const cacheWrite = nonnegative([['cacheWrite'], ['cache_write'], ['cache_write_tokens'], ['cacheWriteTokens'], ['cache', 'write']]);
+  const total = nonnegative([['total'], ['total_tokens'], ['totalTokens']]);
   const available = [input, output, reasoning, cacheRead, cacheWrite, total].some((item) => item !== undefined);
   return {
     ...(input === undefined ? {} : { input }),
@@ -383,6 +376,26 @@ function fingerprint(...files: SourceFile[]): string {
       .sort()
       .join('\0'))
     .digest('hex')}`;
+}
+
+async function sqliteWalSnapshot(databasePath: string): Promise<SourceFile | undefined> {
+  const walPath = `${databasePath}-wal`;
+  let stat;
+  try {
+    stat = await nodeFs.lstat(walPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
+  }
+  if (stat.isSymbolicLink() || !stat.isFile()) throw new Error('SQLite WAL is not a regular file.');
+  return {
+    path: walPath,
+    format: 'sqlite',
+    size: stat.size,
+    mtimeMs: stat.mtimeMs,
+    dev: stat.dev,
+    ino: stat.ino,
+  };
 }
 
 function sameTraceFileIdentity(
@@ -612,7 +625,7 @@ function extractJsonObjects(buffer: Buffer): UnknownRecord[] {
   return output;
 }
 
-async function sqliteRecords(file: SourceFile, budget: ScanBudget): Promise<UnknownRecord[]> {
+async function sqliteRecords(file: SourceFile, budget: ScanBudget, harness: TraceHarness): Promise<UnknownRecord[]> {
   let DatabaseSync: typeof import('node:sqlite').DatabaseSync;
   try {
     ({ DatabaseSync } = await import('node:sqlite'));
@@ -637,9 +650,19 @@ async function sqliteRecords(file: SourceFile, budget: ScanBudget): Promise<Unkn
     ]);
     const rank = (name: string): number => tableRanks.get(name) ?? 5;
     tables.sort((left, right) => rank(left.name) - rank(right.name));
+    const tableNames = new Set(tables.map(({ name }) => name));
+    if (harness === 'opencode2' && tableNames.has('session') && tableNames.has('session_message')) {
+      return openCode2SqliteRecords(database, budget);
+    }
+    if (harness === 'opencode' && tableNames.has('session')
+      && tableNames.has('message') && tableNames.has('part')) {
+      return openCodeSqliteRecords(database, budget, tableNames.has('session_message'));
+    }
+    if (harness === 'opencode2' && tableNames.has('session')) return [];
     const records: UnknownRecord[] = [];
     const recordLimit = Math.max(0, budget.maxRecords - budget.recordsRead);
     for (const { name } of tables) {
+      if (!TRACE_SQLITE_TABLES.has(name)) continue;
       const remaining = recordLimit - records.length;
       if (remaining <= 0) {
         budget.truncated = true;
@@ -648,7 +671,10 @@ async function sqliteRecords(file: SourceFile, budget: ScanBudget): Promise<Unkn
       const escapedName = name.replaceAll('"', '""');
       let rows: UnknownRecord[];
       try {
-        rows = database.prepare(`SELECT * FROM "${escapedName}" LIMIT ?`).all(remaining) as UnknownRecord[];
+        const select = name === 'cursorDiskKV' || name === 'ItemTable'
+          ? `SELECT key, value FROM "${escapedName}" WHERE key LIKE 'composerData:%' OR key LIKE 'bubbleId:%' OR key = 'composer.composerData' LIMIT ?`
+          : `SELECT * FROM "${escapedName}" LIMIT ?`;
+        rows = database.prepare(select).all(remaining) as UnknownRecord[];
       } catch {
         continue;
       }
@@ -681,6 +707,264 @@ async function sqliteRecords(file: SourceFile, budget: ScanBudget): Promise<Unkn
   } finally {
     database.close();
   }
+}
+
+const TRACE_SQLITE_TABLES = new Set([
+  'session', 'sessions', 'message', 'messages', 'part', 'parts',
+  'cursorDiskKV', 'ItemTable',
+]);
+
+function openCodeTableRows(
+  database: SqliteDatabaseSync,
+  table: 'session' | 'message' | 'part' | 'session_message',
+  selectedColumns: readonly string[],
+  requiredColumns: readonly string[],
+  budget: ScanBudget,
+): UnknownRecord[] {
+  const available = new Set((database.prepare(`PRAGMA table_info("${table}")`).all() as Array<{ name: string }>)
+    .map(({ name }) => name));
+  if (requiredColumns.some((column) => !available.has(column))) {
+    budget.warnings.push(`OpenCode ${table} schema is missing required trace columns.`);
+    budget.truncated = true;
+    return [];
+  }
+  const remaining = budget.maxRecords - budget.recordsRead;
+  if (remaining <= 0) {
+    budget.truncated = true;
+    return [];
+  }
+  const columns = selectedColumns.filter((column) => available.has(column));
+  const order = table === 'session_message' && available.has('seq')
+    ? ' ORDER BY "seq", "id"'
+    : available.has('time_created') ? ' ORDER BY "time_created", "id"' : ' ORDER BY "id"';
+  const rows = database.prepare(
+    `SELECT ${columns.map((column) => `"${column}"`).join(', ')} FROM "${table}"${order} LIMIT ?`,
+  ).all(remaining + 1) as UnknownRecord[];
+  if (rows.length > remaining) budget.truncated = true;
+  const bounded = rows.slice(0, remaining);
+  budget.recordsRead += bounded.length;
+  return bounded;
+}
+
+function openCodeSessionUsage(session: UnknownRecord): TraceTokenUsage {
+  const read = (key: string): number | undefined => {
+    const value = session[key];
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+  };
+  const input = read('tokens_input');
+  const output = read('tokens_output');
+  const reasoning = read('tokens_reasoning');
+  const cacheRead = read('tokens_cache_read');
+  const cacheWrite = read('tokens_cache_write');
+  if (![input, output, reasoning, cacheRead, cacheWrite].some((value) => value !== undefined && value > 0)) {
+    return { provenance: 'unavailable' };
+  }
+  return {
+    ...(input === undefined ? {} : { input }),
+    ...(output === undefined ? {} : { output }),
+    ...(reasoning === undefined ? {} : { reasoning }),
+    ...(cacheRead === undefined ? {} : { cacheRead }),
+    ...(cacheWrite === undefined ? {} : { cacheWrite }),
+    provenance: 'actual',
+  };
+}
+
+function openCodePartContent(part: UnknownRecord): UnknownRecord[] {
+  const type = firstString(part, [['type']]);
+  if (type === 'text' || type === 'reasoning') {
+    const text = firstString(part, [['text']]);
+    return text ? [{ type, text }] : [];
+  }
+  if (type !== 'tool') return [];
+  const name = firstString(part, [['tool']]) ?? 'unknown';
+  const callId = firstString(part, [['callID']]);
+  const state = isRecord(part.state) ? part.state : undefined;
+  const call: UnknownRecord = {
+    type: 'tool_call', name,
+    ...(callId ? { call_id: callId } : {}),
+    ...(state && isRecord(state.input) ? { input: state.input } : {}),
+  };
+  if (!state || (state.status !== 'completed' && state.status !== 'error')) return [call];
+  const exitCode = firstNumber(state, [['metadata', 'exitCode'], ['metadata', 'exit_code']]);
+  return [call, {
+    type: 'tool_result', name,
+    ...(callId ? { call_id: callId } : {}),
+    ...(state.status === 'error'
+      ? { content: state.error, isError: true }
+      : { content: state.output ?? state.result ?? state.content }),
+    ...(exitCode === undefined ? {} : { exitCode }),
+  }];
+}
+
+function openCode2SessionIds(database: SqliteDatabaseSync, budget: ScanBudget): Set<string> | undefined {
+  const columns = database.prepare('PRAGMA table_info("session_message")').all() as Array<{ name: string }>;
+  if (!columns.some(({ name }) => name === 'session_id')) {
+    budget.truncated = true;
+    budget.warnings.push('OpenCode session_message schema is missing session_id.');
+    return undefined;
+  }
+  const remaining = budget.maxRecords - budget.recordsRead;
+  if (remaining <= 0) {
+    budget.truncated = true;
+    return undefined;
+  }
+  const rows = database.prepare('SELECT DISTINCT "session_id" FROM "session_message" LIMIT ?')
+    .all(remaining + 1) as Array<{ session_id: unknown }>;
+  if (rows.length > remaining) {
+    budget.truncated = true;
+    budget.warnings.push('OpenCode v2 session identities exceeded the scan budget.');
+    return undefined;
+  }
+  budget.recordsRead += rows.length;
+  return new Set(rows.flatMap(({ session_id }) => typeof session_id === 'string' ? [session_id] : []));
+}
+
+function openCodeSqliteRecords(
+  database: SqliteDatabaseSync,
+  budget: ScanBudget,
+  hasSessionMessageTable: boolean,
+): UnknownRecord[] {
+  const v2SessionIds = hasSessionMessageTable ? openCode2SessionIds(database, budget) : new Set<string>();
+  if (!v2SessionIds) return [];
+  const sessions = openCodeTableRows(database, 'session', [
+    'id', 'parent_id', 'directory', 'version', 'time_created', 'time_updated', 'agent', 'model',
+    'tokens_input', 'tokens_output', 'tokens_reasoning', 'tokens_cache_read', 'tokens_cache_write',
+  ], ['id'], budget);
+  const messages = openCodeTableRows(database, 'message', [
+    'id', 'session_id', 'time_created', 'time_updated', 'data',
+  ], ['id', 'session_id', 'data'], budget);
+  const parts = openCodeTableRows(database, 'part', [
+    'id', 'message_id', 'session_id', 'time_created', 'data',
+  ], ['id', 'message_id', 'session_id', 'data'], budget);
+  const partsByMessage = new Map<string, UnknownRecord[]>();
+  for (const row of parts) {
+    const messageId = firstString(row, [['message_id']]);
+    const data = decodeMaybeJson(row.data);
+    if (!messageId || !isRecord(data)) continue;
+    const content = openCodePartContent(data);
+    if (content.length === 0) continue;
+    const existing = partsByMessage.get(messageId) ?? [];
+    existing.push(...content);
+    partsByMessage.set(messageId, existing);
+  }
+  const messagesBySession = new Map<string, UnknownRecord[]>();
+  const usageBySession = new Map<string, TraceTokenUsage>();
+  for (const row of messages) {
+    const sessionId = firstString(row, [['session_id']]);
+    const id = firstString(row, [['id']]);
+    const data = decodeMaybeJson(row.data);
+    if (!sessionId || !id || !isRecord(data)) continue;
+    const usage = extractUsage(data);
+    usageBySession.set(sessionId, sumUsage(usageBySession.get(sessionId) ?? { provenance: 'unavailable' }, usage));
+    const role = normalizeRole(data.role);
+    if (!role) continue;
+    const model = isRecord(data.model) ? data.model : undefined;
+    const content = partsByMessage.get(id) ?? [];
+    if (content.length === 0) continue;
+    const message: UnknownRecord = {
+      id, role, content, usage,
+      timestamp: row.time_created ?? valueAt(data, ['time', 'created']),
+      model: firstString(data, [['modelID']]) ?? (model ? firstString(model, [['modelID'], ['id']]) : undefined),
+      provider: firstString(data, [['providerID']]) ?? (model ? firstString(model, [['providerID']]) : undefined),
+    };
+    const existing = messagesBySession.get(sessionId) ?? [];
+    existing.push(message);
+    messagesBySession.set(sessionId, existing);
+  }
+  return assembleOpenCodeSessions(
+    sessions.filter((session) => !v2SessionIds.has(firstString(session, [['id']]) ?? '')),
+    messagesBySession,
+    usageBySession,
+  );
+}
+
+function openCode2MessageContent(type: string, data: UnknownRecord): UnknownRecord[] {
+  if (type === 'user' || type === 'system' || type === 'synthetic') {
+    const text = firstString(data, [['text']]);
+    return text ? [{ type: 'text', text }] : [];
+  }
+  if (type === 'shell') {
+    return [{ type: 'terminal', command: data.command, output: data.output }];
+  }
+  if (type !== 'assistant' || !Array.isArray(data.content)) return [];
+  return data.content.flatMap((entry: unknown) => {
+    if (!isRecord(entry)) return [];
+    if (entry.type !== 'tool') return openCodePartContent(entry);
+    return openCodePartContent({
+      type: 'tool',
+      tool: entry.name,
+      callID: entry.id,
+      state: entry.state,
+    });
+  });
+}
+
+function openCode2SqliteRecords(database: SqliteDatabaseSync, budget: ScanBudget): UnknownRecord[] {
+  const sessions = openCodeTableRows(database, 'session', [
+    'id', 'parent_id', 'directory', 'version', 'time_created', 'time_updated', 'agent', 'model',
+    'tokens_input', 'tokens_output', 'tokens_reasoning', 'tokens_cache_read', 'tokens_cache_write',
+  ], ['id'], budget);
+  const messages = openCodeTableRows(database, 'session_message', [
+    'id', 'session_id', 'type', 'seq', 'time_created', 'data',
+  ], ['id', 'session_id', 'type', 'data'], budget);
+  const messagesBySession = new Map<string, UnknownRecord[]>();
+  const usageBySession = new Map<string, TraceTokenUsage>();
+  const v2SessionIds = new Set<string>();
+  for (const row of messages) {
+    const sessionId = firstString(row, [['session_id']]);
+    const id = firstString(row, [['id']]);
+    const type = firstString(row, [['type']]);
+    const data = decodeMaybeJson(row.data);
+    if (!sessionId || !id || !type || !isRecord(data)) continue;
+    v2SessionIds.add(sessionId);
+    const usage = extractUsage(data);
+    usageBySession.set(sessionId, sumUsage(usageBySession.get(sessionId) ?? { provenance: 'unavailable' }, usage));
+    const content = openCode2MessageContent(type, data);
+    if (content.length === 0) continue;
+    const role = normalizeRole(type) ?? (type === 'shell' ? 'tool' : undefined);
+    if (!role) continue;
+    const model = isRecord(data.model) ? data.model : undefined;
+    const message: UnknownRecord = {
+      id, role, content, usage,
+      timestamp: row.time_created ?? valueAt(data, ['time', 'created']),
+      model: model ? firstString(model, [['id'], ['modelID']]) : undefined,
+      provider: model ? firstString(model, [['providerID']]) : undefined,
+    };
+    const existing = messagesBySession.get(sessionId) ?? [];
+    existing.push(message);
+    messagesBySession.set(sessionId, existing);
+  }
+  return assembleOpenCodeSessions(
+    sessions.filter((session) => v2SessionIds.has(firstString(session, [['id']]) ?? '')),
+    messagesBySession,
+    usageBySession,
+  );
+}
+
+function assembleOpenCodeSessions(
+  sessions: UnknownRecord[],
+  messagesBySession: ReadonlyMap<string, UnknownRecord[]>,
+  usageBySession: ReadonlyMap<string, TraceTokenUsage>,
+): UnknownRecord[] {
+  return sessions.flatMap((session) => {
+    const id = firstString(session, [['id']]);
+    if (!id) return [];
+    const model = decodeMaybeJson(session.model);
+    const modelObject = isRecord(model) ? model : undefined;
+    const sessionUsage = openCodeSessionUsage(session);
+    return [{
+      sessionId: id,
+      parentSessionId: firstString(session, [['parent_id']]),
+      projectPath: firstString(session, [['directory']]),
+      agentVersion: firstString(session, [['version']]),
+      model: typeof model === 'string' ? model : modelObject ? firstString(modelObject, [['modelID'], ['id']]) : undefined,
+      provider: modelObject ? firstString(modelObject, [['providerID']]) : undefined,
+      createdAt: session.time_created,
+      endedAt: session.time_updated,
+      usage: sessionUsage.provenance === 'actual' ? sessionUsage : usageBySession.get(id),
+      messages: messagesBySession.get(id) ?? [],
+    }];
+  });
 }
 
 function createMutableTrace(
@@ -756,6 +1040,18 @@ function updateTraceMetadata(
       candidate.type === relationship.type && candidate.traceId === relationship.traceId
     ))) {
       trace.relationships.push(relationship);
+    }
+  }
+  if (harness === 'opencode' || harness === 'opencode2') {
+    const parentSessionId = firstString(record, [['parentSessionId']]);
+    if (parentSessionId) {
+      const relationship = {
+        type: 'parent' as const,
+        traceId: createCanonicalTraceId(harness, parentSessionId, trace.recordPath),
+      };
+      if (!trace.relationships.some((candidate) => (
+        candidate.type === relationship.type && candidate.traceId === relationship.traceId
+      ))) trace.relationships.push(relationship);
     }
   }
 }
@@ -876,11 +1172,7 @@ function recordsToTraces(
     .filter((trace) => trace.messages.length > 0 || trace.hasSessionEvidence)
     .map((trace) => {
       const selectedUsage = preferAggregateUsage(trace.usage, trace.messageUsage);
-      const computedTotal = selectedUsage.total ?? (
-        selectedUsage.input !== undefined || selectedUsage.output !== undefined || selectedUsage.reasoning !== undefined
-          ? (selectedUsage.input ?? 0) + (selectedUsage.output ?? 0) + (selectedUsage.reasoning ?? 0)
-          : undefined
-      );
+      const computedTotal = deriveTraceTotalTokens(selectedUsage, definition.harness);
       const usage = computedTotal === undefined ? selectedUsage : { ...selectedUsage, total: computedTotal };
       const normalized = normalizedTraceSchema.parse({
         schemaVersion: TRACE_SCHEMA_VERSION,
@@ -970,7 +1262,15 @@ class NativeTraceAdapter implements TraceSourceAdapter {
         ? files.find((candidate) => candidate.path === path.join(path.dirname(file.path), 'conversation.jsonl'))
         : undefined;
       if (conversationFile) consumed.add(conversationFile.path);
-      const relatedFiles = conversationFile ? [file, conversationFile] : [file];
+      let walFile: SourceFile | undefined;
+      try {
+        walFile = file.format === 'sqlite' ? await sqliteWalSnapshot(file.path) : undefined;
+      } catch {
+        budget.truncated = true;
+        budget.warnings.push(`Skipped unsafe SQLite WAL for ${path.basename(file.path)}.`);
+        continue;
+      }
+      const relatedFiles = conversationFile ? [file, conversationFile] : walFile ? [file, walFile] : [file];
       const sourceFingerprint = fingerprint(...relatedFiles);
       const sourceKey = sourceFileKey(this.harness, file.path);
       const snapshot: TraceSourceFileSnapshot = {
@@ -997,8 +1297,8 @@ class NativeTraceAdapter implements TraceSourceAdapter {
       try {
         let records: UnknownRecord[];
         if (file.format === 'sqlite') {
-          records = await sqliteRecords(file, budget);
-          budget.bytesRead += file.size;
+          records = await sqliteRecords(file, budget, this.harness);
+          budget.bytesRead += sourceBytes;
         } else {
           const bytes = await readBoundedTraceFile(
             file.path,
