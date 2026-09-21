@@ -52,7 +52,9 @@ export function printTraceConsentNotice(): void {
   console.log(chalk.gray('  Trace ingestion and storage does not count against your Autohand API usage.'));
   console.log(chalk.gray('  Cloud modes require authentication and a separate explicit choice below.'));
   console.log(chalk.gray('  Stop anytime with autohand --traces-off or ahtraces off.'));
-  console.log(chalk.gray('  You can delete cloud trace data anytime from https://console.autohand.ai/account.'));
+  console.log(chalk.gray('  Cloud traces do not yet have a separate delete control.'));
+  console.log(chalk.gray('  Deleting your personal Autohand account also removes its uploaded trace data:'));
+  console.log(chalk.gray('  https://console.autohand.ai/account'));
   console.log();
 }
 

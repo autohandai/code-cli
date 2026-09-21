@@ -117,6 +117,25 @@ Agent traces are a separate local-first subsystem controlled by `traces.*`.
 When `traces.enabled` is `false`, `ahtraces` is not kept running and Work Map
 commands refuse to scan.
 
+New users choose a trace mode during onboarding. Existing configurations without
+the current `traces.consentVersion` are asked once during an interactive startup;
+cancelling leaves tracing off and asks again later. The stored choice can be
+changed at any time:
+
+```bash
+autohand --traces-on       # local monitoring plus cloud metadata sync
+autohand --traces-off      # stop monitoring/sync and remove derived local data
+autohand traces status
+autohand traces on         # also available as: ah traces on
+autohand traces off        # also available as: ah traces off
+ahtraces status
+ahtraces on
+ahtraces off
+```
+
+Use `/settings` when choosing local-only monitoring or the separately consented
+full-content cloud mode.
+
 When enabled, the read-only adapters inspect known local session locations for
 19 harnesses:
 
@@ -184,6 +203,18 @@ reference at 651 normalized events, including the per-event-type split; no
 session content was printed or copied. This validates the observed v3 corpus,
 not every past or future Pi format.
 
+Kimi wire protocols 1.4 and 1.5 join each agent's `wire.jsonl` with its
+session `state.json`. The normalizer preserves main/subagent identity and
+parent links, workspace and session timestamps, model/provider/thinking
+configuration, user prompts, streamed text and reasoning, tool calls/results,
+turn cancellation, compaction, and per-step input/output/cache usage. It
+discards whitespace-only reasoning and does not double-count the duplicate
+`step.end` and `usage.record` envelopes. A counts-only comparison of 95 local
+wire traces matched the pinned Traces reference at 4,642 events and matched
+all input/output/cache totals. The 60 observed protocol-1.0 traces remain
+metadata-only and are explicitly partial; unknown future protocols and event
+types also reduce coverage instead of appearing complete.
+
 A single harness scan is bounded to 5,000 files, 64 MiB per file, 64 MiB total,
 100,000 records and directory depth 12. Work Map scans at most three harnesses
 concurrently by default. Truncation and parse failures are surfaced as coverage
@@ -220,6 +251,12 @@ authenticated account. Uploads are incremental, at most 50 traces and 4 MiB per
 HTTP request, and the server must acknowledge every requested trace exactly once.
 Each request also sends schema version 1 and the persistent pseudonymous device
 ID; authentication associates accepted rows with the active account and user.
+Trace ingestion and storage do not consume Autohand model/API usage quota.
+Uploaded traces are visible at `https://console.autohand.ai/traces`. Stopping
+cloud sync does not delete data already uploaded, and Console does not yet have
+a trace-only deletion control. Deleting a personal account from the Account page
+permanently removes its associated trace metadata and referenced full-content
+objects.
 
 `traces.contentMode: "metadata"` sends:
 
@@ -259,7 +296,10 @@ The privacy-preserving defaults are:
 }
 ```
 
-Use `/settings` to review each switch. Disabling product telemetry stops new
+Use `/settings` to review each switch. A completed consent choice writes
+`traces.consentVersion`; the absence of the current marker prevents the daemon
+and Work Map from running even if a legacy file says `traces.enabled: true`.
+Disabling product telemetry stops new
 events and network flushes but does not delete an existing local queue. Disabling
 session sync does not delete its queued snapshots. Disabling trace cloud sync
 leaves local Work Map processing enabled when `traces.enabled` remains true.
@@ -267,6 +307,6 @@ Disabling `traces.enabled` stops the companion and removes its derived local Wor
 Map and checkpoints; it never deletes the source histories owned by other agents.
 
 For development and incident verification, inspect the queue files and use a
-loopback API override or network capture. Do not infer deployed retention or
-deletion behavior from the client implementation; verify those policies against
-the running API and account controls.
+loopback API override or network capture. Deployment checks must still verify
+the running API and Account deletion control rather than inferring production
+state from repository code.
