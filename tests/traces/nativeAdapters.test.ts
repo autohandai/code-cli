@@ -868,6 +868,203 @@ describe('native trace Adapters', () => {
     expect(result.warnings).toEqual(expect.arrayContaining(result.traces[0].provenance.warnings));
   });
 
+  it('normalizes Droid session-v2 messages with allowlisted sibling settings', async () => {
+    const root = await tempRoot();
+    const sessionPath = path.join(root, 'project', 'droid-native.jsonl');
+    await fs.ensureDir(path.dirname(sessionPath));
+    await fs.writeJson(path.join(root, 'project', 'droid-native.settings.json'), {
+      model: 'claude-opus-4-6',
+      providerLock: 'anthropic',
+      reasoningEffort: 'high',
+      assistantActiveTimeMs: 705,
+      apiKey: 'state-only secret must not be ingested',
+    });
+    await fs.writeFile(sessionPath, [
+      JSON.stringify({
+        type: 'session_start', id: 'droid-native', version: 2,
+        cwd: '/workspace/droid', owner: 'local', sessionTitle: 'Native session',
+      }),
+      JSON.stringify({
+        type: 'message', id: 'user-1', timestamp: '2026-09-18T00:00:01.000Z',
+        message: {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'inspect the project' },
+            { type: 'text', text: 'include tests' },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: 'message', id: 'assistant-1', parentId: 'user-1',
+        timestamp: '2026-09-18T00:00:02.000Z',
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'thinking', thinking: 'check the tests' },
+            { type: 'text', text: 'I will inspect it.' },
+            { type: 'tool_use', id: 'call-test', name: 'Bash', input: { command: 'bun test' } },
+          ],
+          usage: { input_tokens: 10, output_tokens: 4, cache_read_tokens: 3 },
+        },
+      }),
+      JSON.stringify({
+        type: 'message', id: 'tool-1', parentId: 'assistant-1',
+        timestamp: '2026-09-18T00:00:03.000Z',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'call-test', content: 'tests passed' }],
+        },
+      }),
+      JSON.stringify({
+        type: 'message', id: 'assistant-2', parentId: 'tool-1',
+        timestamp: '2026-09-18T00:00:04.000Z',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Done.' }],
+          usage: { input_tokens: 20, output_tokens: 2, cache_read_tokens: 5 },
+        },
+      }),
+    ].join('\n'));
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'droid')).get('droid')!;
+
+    const result = await adapter.scan();
+
+    expect(result).toMatchObject({ truncated: false, warnings: [], filesScanned: 1 });
+    expect(result.sourceFiles).toHaveLength(1);
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0]).toMatchObject({
+      source: { harness: 'droid', externalId: 'droid-native' },
+      agent: { name: 'Droid', version: '2' },
+      project: { path: '/workspace/droid' },
+      startedAt: '2026-09-18T00:00:01.000Z',
+      endedAt: '2026-09-18T00:00:04.000Z',
+      model: 'claude-opus-4-6',
+      provider: 'anthropic',
+      reasoningEffort: 'high',
+      usage: {
+        input: 30,
+        output: 6,
+        cacheRead: 8,
+        total: 36,
+        provenance: 'actual',
+      },
+      provenance: { completeness: 'complete', warnings: [] },
+    });
+    expect(result.traces[0].messages.flatMap((message) => message.parts)).toEqual([
+      { type: 'text', text: 'inspect the project\ninclude tests' },
+      { type: 'reasoning', text: 'check the tests' },
+      { type: 'text', text: 'I will inspect it.' },
+      { type: 'tool_call', name: 'Bash', callId: 'call-test', arguments: { command: 'bun test' } },
+      { type: 'tool_result', name: 'Bash', callId: 'call-test', content: 'tests passed' },
+      { type: 'text', text: 'Done.' },
+    ]);
+    expect(result.traces[0].messages[1]).toMatchObject({ model: 'claude-opus-4-6' });
+    expect(result.traces[0].messages[3]).toMatchObject({ model: 'claude-opus-4-6' });
+    expect(JSON.stringify(result.traces)).not.toContain('state-only secret must not be ingested');
+  });
+
+  it('deduplicates copied Droid sessions by their native session id', async () => {
+    const root = await tempRoot();
+    const firstPath = path.join(root, 'project-a', 'same-session.jsonl');
+    const secondPath = path.join(root, 'project-b', 'same-session.jsonl');
+    await fs.ensureDir(path.dirname(firstPath));
+    await fs.ensureDir(path.dirname(secondPath));
+    await fs.writeFile(firstPath, [
+      JSON.stringify({ type: 'session_start', id: 'same-session', version: 2, cwd: '/workspace/a' }),
+      JSON.stringify({
+        type: 'message', id: 'user-1',
+        message: { role: 'user', content: [{ type: 'text', text: 'first copy' }] },
+      }),
+    ].join('\n'));
+    await fs.writeFile(secondPath, [
+      JSON.stringify({ type: 'session_start', id: 'same-session', version: 2, cwd: '/workspace/b' }),
+      JSON.stringify({
+        type: 'message', id: 'user-1',
+        message: { role: 'user', content: [{ type: 'text', text: 'second copy' }] },
+      }),
+      JSON.stringify({
+        type: 'message', id: 'assistant-1',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'more complete copy' }] },
+      }),
+    ].join('\n'));
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'droid')).get('droid')!;
+
+    const result = await adapter.scan();
+
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0]).toMatchObject({
+      source: { externalId: 'same-session' },
+      project: { path: '/workspace/b' },
+    });
+    expect(result.traces[0].messages).toHaveLength(2);
+    expect(result.sourceFiles).toHaveLength(2);
+    expect(new Set(result.sourceFiles.flatMap((source) => source.traceIds))).toEqual(
+      new Set([result.traces[0].id]),
+    );
+  });
+
+  it('tracks Droid settings changes and rejects a symlinked settings sidecar', async () => {
+    const root = await tempRoot();
+    const sessionPath = path.join(root, 'droid-settings.jsonl');
+    const settingsPath = path.join(root, 'droid-settings.settings.json');
+    await fs.writeFile(sessionPath, JSON.stringify({
+      type: 'session_start', id: 'droid-settings', version: 2, cwd: '/workspace/droid',
+    }));
+    await fs.writeJson(settingsPath, { model: 'model-one', reasoningEffort: 'low' });
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'droid')).get('droid')!;
+
+    const first = await adapter.scan();
+    await fs.writeJson(settingsPath, { model: 'model-two-expanded', reasoningEffort: 'high' });
+    const changed = await adapter.scan({
+      knownFingerprints: { [first.sourceFiles[0].key]: first.sourceFiles[0].fingerprint },
+    });
+
+    expect(changed.sourceFiles[0].changed).toBe(true);
+    expect(changed.traces[0]).toMatchObject({
+      model: 'model-two-expanded',
+      reasoningEffort: 'high',
+    });
+
+    const unrelated = path.join(root, 'unrelated.json');
+    await fs.remove(settingsPath);
+    await fs.writeJson(unrelated, { model: 'must-not-be-read', apiKey: 'secret' });
+    await fs.symlink(unrelated, settingsPath);
+    const linked = await adapter.scan();
+
+    expect(linked).toMatchObject({ filesScanned: 0, truncated: true, traces: [] });
+    expect(linked.warnings).toContain('Skipped unsafe trace sidecar for droid-settings.jsonl.');
+  });
+
+  it('marks unsupported Droid session schemas partial without dropping known messages', async () => {
+    const root = await tempRoot();
+    await fs.writeFile(path.join(root, 'future.jsonl'), [
+      JSON.stringify({ type: 'session_start', id: 'future-session', version: 3, cwd: '/workspace/future' }),
+      JSON.stringify({
+        type: 'message', id: 'user-1',
+        message: { role: 'user', content: [{ type: 'text', text: 'known message' }] },
+      }),
+      JSON.stringify({ type: 'future.record', payload: { opaque: true } }),
+    ].join('\n'));
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'droid')).get('droid')!;
+
+    const result = await adapter.scan();
+
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0]).toMatchObject({
+      source: { externalId: 'future-session' },
+      messages: [{ role: 'user', parts: [{ type: 'text', text: 'known message' }] }],
+      provenance: {
+        completeness: 'partial',
+        warnings: [
+          'Droid session schema 3 is not a verified native contract.',
+          'Droid session contains unsupported record type "future.record".',
+        ],
+      },
+    });
+    expect(result.truncated).toBe(true);
+    expect(result.warnings).toEqual(expect.arrayContaining(result.traces[0].provenance.warnings));
+  });
+
   it('normalizes Kimi wire protocol events, per-step usage, and state metadata', async () => {
     const root = await tempRoot();
     const sessionDirectory = path.join(root, 'wd_project', 'session-kimi');

@@ -215,6 +215,19 @@ all input/output/cache totals. The 60 observed protocol-1.0 traces remain
 metadata-only and are explicitly partial; unknown future protocols and event
 types also reduce coverage instead of appearing complete.
 
+Droid session schema 2 joins each session JSONL with the exact sibling
+`<session>.settings.json`. Only model, provider lock, and reasoning effort are
+accepted from that settings file; other fields are never added to the trace.
+The normalizer preserves native session identity, workspace and timestamps,
+text/reasoning parts, tool calls/results, per-message usage and message-level
+model attribution. It collapses adjacent native text blocks into the single
+message event used by the reference and deduplicates copied files by native
+session ID. A counts-only comparison of the installed Factory corpus matched
+the pinned Traces reference at four trace IDs and seven events: three user
+messages, two agent-text events, one tool call and one tool result. No token
+usage was present in that corpus. Missing or future session schemas remain
+readable but explicitly partial.
+
 A single harness scan is bounded to 5,000 files, 64 MiB per file, 64 MiB total,
 100,000 records and directory depth 12. Work Map scans at most three harnesses
 concurrently by default. Truncation and parse failures are surfaced as coverage

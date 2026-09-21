@@ -19,6 +19,7 @@ import {
   type TraceTokenUsage,
 } from '../model.js';
 import { deriveTraceOutcome } from '../outcomes.js';
+import { normalizeDroidSessionRecords } from './DroidTraceNormalizer.js';
 import { normalizeKimiWireRecords } from './KimiTraceNormalizer.js';
 import { normalizePiSessionRecords } from './PiTraceNormalizer.js';
 import type {
@@ -395,6 +396,25 @@ async function sqliteWalSnapshot(databasePath: string): Promise<SourceFile | und
   return {
     path: walPath,
     format: 'sqlite',
+    size: stat.size,
+    mtimeMs: stat.mtimeMs,
+    dev: stat.dev,
+    ino: stat.ino,
+  };
+}
+
+async function sidecarSnapshot(filePath: string, format: TraceSourceFormat): Promise<SourceFile | undefined> {
+  let stat;
+  try {
+    stat = await nodeFs.lstat(filePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
+  }
+  if (stat.isSymbolicLink() || !stat.isFile()) throw new Error('Trace sidecar is not a regular file.');
+  return {
+    path: filePath,
+    format,
     size: stat.size,
     mtimeMs: stat.mtimeMs,
     dev: stat.dev,
@@ -1282,7 +1302,11 @@ function recordsToTraces(
       const usage = computedTotal === undefined ? selectedUsage : { ...selectedUsage, total: computedTotal };
       const normalized = normalizedTraceSchema.parse({
         schemaVersion: TRACE_SCHEMA_VERSION,
-        id: createCanonicalTraceId(definition.harness, trace.externalId, trace.recordPath),
+        id: createCanonicalTraceId(
+          definition.harness,
+          trace.externalId,
+          definition.harness === 'droid' ? 'native-session-id' : trace.recordPath,
+        ),
         source: {
           harness: definition.harness,
           externalId: trace.externalId,
@@ -1383,18 +1407,21 @@ class NativeTraceAdapter implements TraceSourceAdapter {
         : undefined;
       if (conversationFile) consumed.add(conversationFile.path);
       let walFile: SourceFile | undefined;
+      let droidSettingsFile: SourceFile | undefined;
       try {
         walFile = file.format === 'sqlite' ? await sqliteWalSnapshot(file.path) : undefined;
+        droidSettingsFile = this.harness === 'droid' && file.path.endsWith('.jsonl')
+          ? await sidecarSnapshot(`${file.path.slice(0, -'.jsonl'.length)}.settings.json`, 'json')
+          : undefined;
       } catch {
         budget.truncated = true;
-        budget.warnings.push(`Skipped unsafe SQLite WAL for ${path.basename(file.path)}.`);
+        budget.warnings.push(file.format === 'sqlite'
+          ? `Skipped unsafe SQLite WAL for ${path.basename(file.path)}.`
+          : `Skipped unsafe trace sidecar for ${path.basename(file.path)}.`);
         continue;
       }
-      const relatedFiles = conversationFile
-        ? [file, conversationFile]
-        : kimiStateFile
-          ? [file, kimiStateFile]
-          : walFile ? [file, walFile] : [file];
+      const sidecarFile = conversationFile ?? kimiStateFile ?? droidSettingsFile ?? walFile;
+      const relatedFiles = sidecarFile ? [file, sidecarFile] : [file];
       const sourceFingerprint = fingerprint(...relatedFiles);
       const sourceKey = sourceFileKey(this.harness, file.path);
       const snapshot: TraceSourceFileSnapshot = {
@@ -1422,6 +1449,7 @@ class NativeTraceAdapter implements TraceSourceAdapter {
         let records: UnknownRecord[];
         let provenanceWarnings: string[] = [];
         let kimiState: UnknownRecord | undefined;
+        let droidSettings: UnknownRecord | undefined;
         if (file.format === 'sqlite') {
           records = await sqliteRecords(file, budget, this.harness);
           budget.bytesRead += sourceBytes;
@@ -1471,6 +1499,20 @@ class NativeTraceAdapter implements TraceSourceAdapter {
           )[0];
         }
 
+        if (droidSettingsFile) {
+          const settingsBytes = await readBoundedTraceFile(
+            droidSettingsFile.path,
+            droidSettingsFile,
+            Math.min(budget.maxBytesPerFile, budget.maxTotalBytes - budget.bytesRead),
+          );
+          budget.bytesRead += settingsBytes.byteLength;
+          droidSettings = parseJson(
+            settingsBytes.toString('utf8'),
+            budget,
+            path.basename(droidSettingsFile.path),
+          )[0];
+        }
+
         if (this.harness === 'pi') {
           const normalized = normalizePiSessionRecords(records, file.path);
           records = normalized.records;
@@ -1484,6 +1526,18 @@ class NativeTraceAdapter implements TraceSourceAdapter {
           const normalized = normalizeKimiWireRecords(records, file.path, kimiState);
           records = normalized.records;
           provenanceWarnings = normalized.warnings;
+          if (provenanceWarnings.length > 0) {
+            budget.truncated = true;
+            budget.warnings.push(...provenanceWarnings);
+          }
+        }
+        if (this.harness === 'droid') {
+          const normalized = normalizeDroidSessionRecords(records, file.path, droidSettings);
+          records = normalized.records;
+          provenanceWarnings = normalized.warnings;
+          if (droidSettingsFile && !droidSettings) {
+            provenanceWarnings.push('Droid settings sidecar is not a valid object.');
+          }
           if (provenanceWarnings.length > 0) {
             budget.truncated = true;
             budget.warnings.push(...provenanceWarnings);
