@@ -19,6 +19,7 @@ import {
   type TraceTokenUsage,
 } from '../model.js';
 import { deriveTraceOutcome } from '../outcomes.js';
+import { normalizeAmpThreadRecords } from './AmpTraceNormalizer.js';
 import { normalizeAntigravityTranscriptRecords } from './AntigravityTraceNormalizer.js';
 import { normalizeCopilotSessionRecords } from './CopilotTraceNormalizer.js';
 import { normalizeDroidSessionRecords } from './DroidTraceNormalizer.js';
@@ -535,6 +536,9 @@ function isSessionSourcePath(definition: NativeAdapterDefinition, location: stri
   }
   if (definition.harness === 'openclaw' && rootName === 'agents') {
     return segments.length >= 3 && segments[1] === 'sessions';
+  }
+  if (definition.harness === 'amp') {
+    return segments.length === 1 && /^T-[A-Za-z0-9-]+\.json$/u.test(base);
   }
   if (definition.harness === 'copilot' && rootName === 'session-state') {
     return segments.length === 2 && base === 'events.jsonl';
@@ -1237,6 +1241,30 @@ function updateTraceMetadata(
       ))) trace.relationships.push(relationship);
     }
   }
+  if (harness === 'amp') {
+    const parentSessionId = firstString(record, [['parentSessionId']]);
+    if (parentSessionId) {
+      const relationship = {
+        type: 'parent' as const,
+        traceId: createCanonicalTraceId(harness, parentSessionId, 'native-session-id'),
+      };
+      if (!trace.relationships.some((candidate) => (
+        candidate.type === relationship.type && candidate.traceId === relationship.traceId
+      ))) trace.relationships.push(relationship);
+    }
+    if (Array.isArray(record.childSessionIds)) {
+      for (const childSessionId of record.childSessionIds) {
+        if (typeof childSessionId !== 'string' || !childSessionId.trim()) continue;
+        const relationship = {
+          type: 'child' as const,
+          traceId: createCanonicalTraceId(harness, childSessionId, 'native-session-id'),
+        };
+        if (!trace.relationships.some((candidate) => (
+          candidate.type === relationship.type && candidate.traceId === relationship.traceId
+        ))) trace.relationships.push(relationship);
+      }
+    }
+  }
 }
 
 function messageFromRecord(
@@ -1371,7 +1399,8 @@ function recordsToTraces(
         id: createCanonicalTraceId(
           definition.harness,
           trace.externalId,
-          definition.harness === 'antigravity'
+          definition.harness === 'amp'
+            || definition.harness === 'antigravity'
             || definition.harness === 'copilot'
             || definition.harness === 'droid'
             || definition.harness === 'grok'
@@ -1629,6 +1658,19 @@ class NativeTraceAdapter implements TraceSourceAdapter {
           if (path.basename(sidecar.path) === 'chat_history.jsonl') grokChatHistory = sidecarRecords;
         }
 
+        if (this.harness === 'amp') {
+          const normalized = normalizeAmpThreadRecords(
+            records,
+            file.path,
+            Math.max(0, budget.maxRecords - budget.recordsRead),
+          );
+          records = normalized.records;
+          provenanceWarnings = normalized.warnings;
+          if (provenanceWarnings.length > 0) {
+            budget.truncated = true;
+            budget.warnings.push(...provenanceWarnings);
+          }
+        }
         if (this.harness === 'antigravity') {
           const normalized = normalizeAntigravityTranscriptRecords(records, file.path);
           records = normalized.records;
@@ -1761,7 +1803,7 @@ class NativeTraceAdapter implements TraceSourceAdapter {
       const existing = unique.get(trace.id);
       if (!existing || trace.messages.length > existing.messages.length) unique.set(trace.id, trace);
     }
-    if (this.harness === 'antigravity' || this.harness === 'grok') {
+    if (this.harness === 'amp' || this.harness === 'antigravity' || this.harness === 'grok') {
       for (const parent of unique.values()) {
         for (const relationship of parent.relationships) {
           if (relationship.type !== 'child') continue;
@@ -1771,6 +1813,19 @@ class NativeTraceAdapter implements TraceSourceAdapter {
           if (!child.relationships.some((candidate) => (
             candidate.type === reverse.type && candidate.traceId === reverse.traceId
           ))) child.relationships.push(reverse);
+        }
+      }
+    }
+    if (this.harness === 'amp') {
+      for (const child of unique.values()) {
+        for (const relationship of child.relationships) {
+          if (relationship.type !== 'parent') continue;
+          const parent = unique.get(relationship.traceId);
+          if (!parent) continue;
+          const reverse = { type: 'child' as const, traceId: child.id };
+          if (!parent.relationships.some((candidate) => (
+            candidate.type === reverse.type && candidate.traceId === reverse.traceId
+          ))) parent.relationships.push(reverse);
         }
       }
     }

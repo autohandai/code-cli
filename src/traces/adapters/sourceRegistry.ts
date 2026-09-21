@@ -154,10 +154,10 @@ const DEFINITIONS: readonly SourceDefinition[] = [
     locations: (options) => [joinHome(options, '.pi', 'agent', 'sessions')],
   },
   {
-    harness: 'amp', displayName: 'Amp', formats: ['json', 'jsonl'],
+    harness: 'amp', displayName: 'Amp', formats: ['json'],
     locations: (options) => {
       const data = path.join(options.environment.XDG_DATA_HOME ?? joinHome(options, '.local', 'share'), 'amp');
-      return [path.join(data, 'threads'), path.join(data, 'history.jsonl')];
+      return [path.join(data, 'threads')];
     },
   },
   {

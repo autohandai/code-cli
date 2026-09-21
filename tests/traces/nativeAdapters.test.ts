@@ -32,6 +32,23 @@ function registryOptions(root: string, harness: TraceHarness): TraceSourceRegist
   };
 }
 
+function ampThread(
+  id: string,
+  messages: unknown[] = [{
+    role: 'user',
+    messageId: 0,
+    content: [{ type: 'text', text: 'native session' }],
+    meta: { sentAt: 1_789_689_600_000 },
+  }],
+): Record<string, unknown> {
+  return {
+    v: 1,
+    id,
+    created: 1_789_689_600_000,
+    messages,
+  };
+}
+
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => fs.remove(root)));
 });
@@ -52,7 +69,7 @@ describe('native trace Adapters', () => {
     session: string;
   }>([
     { harness: 'pi', decoy: '.pi/auth.json', session: '.pi/agent/sessions/project/session.jsonl' },
-    { harness: 'amp', decoy: '.local/share/amp/secrets.json', session: '.local/share/amp/threads/session.json' },
+    { harness: 'amp', decoy: '.local/share/amp/secrets.json', session: '.local/share/amp/threads/T-native-session.json' },
     { harness: 'copilot', decoy: '.copilot/config.json', session: '.copilot/session-state/session-1/events.jsonl' },
     { harness: 'cline', decoy: '.cline/data/secrets.json', session: '.cline/data/tasks/session-1/ui_messages.json' },
     { harness: 'grok', decoy: '.grok/config.json', session: '.grok/sessions/project/session/summary.json' },
@@ -81,6 +98,8 @@ describe('native trace Adapters', () => {
           created_at: '2026-09-18T00:00:00.000Z',
           content: '<USER_REQUEST>native session</USER_REQUEST>',
         }
+      : harness === 'amp'
+        ? ampThread('T-native-session')
       : {
           sessionId: 'native-session',
           messages: [{ role: 'user', content: 'native session' }],
@@ -94,7 +113,9 @@ describe('native trace Adapters', () => {
 
     const result = await adapter.scan();
 
-    expect(result.traces.map((trace) => trace.source.externalId)).toEqual(['native-session']);
+    expect(result.traces.map((trace) => trace.source.externalId)).toEqual([
+      harness === 'amp' ? 'T-native-session' : 'native-session',
+    ]);
     expect(result.sourceFiles).toHaveLength(1);
     expect(result.filesScanned).toBe(1);
   });
@@ -116,15 +137,12 @@ describe('native trace Adapters', () => {
       sessionId: 'credential-decoy',
       messages: [{ role: 'user', content: 'must not be read' }],
     }));
-    await fs.writeFile(path.join(root, 'session.json'), JSON.stringify({
-      sessionId: 'native-session',
-      messages: [{ role: 'user', content: 'native session' }],
-    }));
+    await fs.writeFile(path.join(root, 'T-native-session.json'), JSON.stringify(ampThread('T-native-session')));
     const adapter = createTraceSourceRegistry(registryOptions(root, 'amp')).get('amp')!;
 
     const result = await adapter.scan();
 
-    expect(result.traces.map((trace) => trace.source.externalId)).toEqual(['native-session']);
+    expect(result.traces.map((trace) => trace.source.externalId)).toEqual(['T-native-session']);
     expect(result.sourceFiles).toHaveLength(1);
   });
 
@@ -136,15 +154,12 @@ describe('native trace Adapters', () => {
       sessionId: 'credential-decoy',
       messages: [{ role: 'user', content: 'must not be read' }],
     }));
-    await fs.writeFile(path.join(root, 'session.jsonl'), JSON.stringify({
-      sessionId: 'native-session',
-      messages: [{ role: 'user', content: 'native session' }],
-    }));
+    await fs.writeFile(path.join(root, 'T-native-session.json'), JSON.stringify(ampThread('T-native-session')));
     const adapter = createTraceSourceRegistry(registryOptions(root, 'amp')).get('amp')!;
 
     const result = await adapter.scan();
 
-    expect(result.traces.map((trace) => trace.source.externalId)).toEqual(['native-session']);
+    expect(result.traces.map((trace) => trace.source.externalId)).toEqual(['T-native-session']);
     expect(result.sourceFiles).toHaveLength(1);
   });
 
@@ -211,6 +226,278 @@ describe('native trace Adapters', () => {
 
     expect(result.sourceFiles).toEqual([]);
     expect(result.warnings).toEqual([]);
+  });
+
+  it('normalizes native Amp thread documents with metadata, tools, status, and cache-aware usage', async () => {
+    const root = await tempRoot();
+    const threadId = 'T-0199aaaa-bbbb-7ccc-8ddd-eeeeffff0001';
+    const threadPath = path.join(root, `${threadId}.json`);
+    await fs.writeFile(threadPath, JSON.stringify({
+      v: 42,
+      id: threadId,
+      created: 1_768_178_184_664,
+      title: 'Fix the off-by-one',
+      agentMode: 'smart',
+      env: {
+        initial: {
+          trees: [{
+            uri: 'file:///Users/dev/proj%20x',
+            displayName: 'proj x',
+            repository: {
+              ref: 'refs/heads/main',
+              sha: 'abc123',
+              url: 'https://example.com/r.git',
+              type: 'git',
+            },
+          }],
+          platform: { client: 'CLI', clientVersion: '0.0.1768178000-gaaaaaa' },
+          tags: ['model:claude-opus-4-5-20251101'],
+        },
+      },
+      messages: [
+        {
+          role: 'user', messageId: 0,
+          content: [{ type: 'text', text: 'fix the loop bound' }],
+          meta: { sentAt: 1_768_178_271_390 },
+        },
+        {
+          role: 'assistant', messageId: 1,
+          content: [
+            { type: 'thinking', thinking: 'the bound is off', signature: 'private-signature' },
+            {
+              type: 'tool_use', complete: true, id: 'toolu_01', name: 'Bash',
+              input: { cmd: "grep -n 'i <= n' src/a.rs", cwd: '/Users/dev/proj x' },
+            },
+          ],
+          state: { type: 'complete', stopReason: 'tool_use' },
+          usage: {
+            model: 'claude-opus-4-5-20251101',
+            inputTokens: 12,
+            outputTokens: 80,
+            cacheCreationInputTokens: 900,
+            cacheReadInputTokens: 3_400,
+            totalInputTokens: 4_312,
+            maxInputTokens: 168_000,
+            timestamp: '2026-01-12T00:37:55.000Z',
+          },
+        },
+        {
+          role: 'user', messageId: 2,
+          content: [{
+            type: 'tool_result', toolUseID: 'toolu_01',
+            run: { status: 'done', result: { output: '7: i <= n\n', exitCode: 0 } },
+          }],
+        },
+        {
+          role: 'assistant', messageId: 3,
+          content: [{ type: 'text', text: 'Fixed the bound.' }],
+          state: { type: 'complete', stopReason: 'end_turn' },
+          usage: {
+            model: 'claude-opus-4-5-20251101',
+            inputTokens: 6,
+            outputTokens: 20,
+            cacheCreationInputTokens: 0,
+            cacheReadInputTokens: 4_310,
+            totalInputTokens: 4_316,
+            maxInputTokens: 168_000,
+            timestamp: '2026-01-12T00:38:12.000Z',
+          },
+        },
+        { role: 'supervisor', note: 'private bookkeeping must not become content' },
+      ],
+    }));
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'amp')).get('amp')!;
+
+    const result = await adapter.scan();
+
+    expect(result).toMatchObject({ filesScanned: 1, truncated: true });
+    expect(result.warnings).toEqual([
+      expect.stringContaining('unsupported message role "supervisor"'),
+    ]);
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0]).toMatchObject({
+      id: createCanonicalTraceId('amp', threadId, 'native-session-id'),
+      source: { harness: 'amp', externalId: threadId, recordPath: threadPath },
+      agent: { name: 'Amp', version: '0.0.1768178000-gaaaaaa' },
+      project: {
+        name: 'proj x',
+        path: '/Users/dev/proj x',
+        gitRemote: 'https://example.com/r.git',
+        gitBranch: 'main',
+        gitRef: 'abc123',
+      },
+      startedAt: '2026-01-12T00:36:24.664Z',
+      endedAt: '2026-01-12T00:38:12.000Z',
+      status: 'completed',
+      model: 'claude-opus-4-5-20251101',
+      contextWindow: 168_000,
+      usage: {
+        input: 18,
+        output: 100,
+        cacheRead: 7_710,
+        cacheWrite: 900,
+        total: 8_728,
+        provenance: 'actual',
+      },
+      provenance: { completeness: 'partial' },
+    });
+    expect(result.traces[0].messages).toMatchObject([
+      {
+        sourceKey: '0', role: 'user', timestamp: '2026-01-12T00:37:51.390Z',
+        parts: [{ type: 'text', text: 'fix the loop bound' }],
+      },
+      {
+        sourceKey: '1', role: 'assistant', timestamp: '2026-01-12T00:37:55.000Z',
+        model: 'claude-opus-4-5-20251101',
+        usage: {
+          input: 12, output: 80, cacheRead: 3_400, cacheWrite: 900,
+          total: 4_392, provenance: 'actual',
+        },
+        parts: [
+          { type: 'reasoning', text: 'the bound is off' },
+          {
+            type: 'tool_call', name: 'Bash', callId: 'toolu_01',
+            arguments: { cmd: "grep -n 'i <= n' src/a.rs", cwd: '/Users/dev/proj x' },
+          },
+        ],
+      },
+      {
+        sourceKey: '2', role: 'tool', timestamp: '2026-01-12T00:37:55.000Z',
+        parts: [{
+          type: 'tool_result', name: 'Bash', callId: 'toolu_01',
+          content: { output: '7: i <= n\n', exitCode: 0 }, exitCode: 0,
+        }],
+      },
+      {
+        sourceKey: '3', role: 'assistant', timestamp: '2026-01-12T00:38:12.000Z',
+        model: 'claude-opus-4-5-20251101',
+        parts: [{ type: 'text', text: 'Fixed the bound.' }],
+      },
+    ]);
+    expect(JSON.stringify(result.traces[0])).not.toContain('private bookkeeping');
+    expect(JSON.stringify(result.traces[0])).not.toContain('private-signature');
+  });
+
+  it('limits Amp discovery to flat thread JSON and deduplicates copied native identities', async () => {
+    const root = await tempRoot();
+    const threads = path.join(root, '.local', 'share', 'amp', 'threads');
+    const nativeId = 'T-0199aaaa-bbbb-7ccc-8ddd-eeeeffff0002';
+    await fs.ensureDir(path.join(threads, 'nested'));
+    await fs.writeFile(path.join(root, '.local', 'share', 'amp', 'history.jsonl'), JSON.stringify({
+      sessionId: 'prompt-history-decoy', role: 'user', content: 'must not be read',
+    }));
+    await fs.writeFile(path.join(threads, 'nested', 'T-nested-decoy.json'), JSON.stringify(
+      ampThread('T-nested-decoy'),
+    ));
+    await fs.writeFile(path.join(threads, 'settings.json'), JSON.stringify(ampThread('T-settings-decoy')));
+    await fs.writeFile(path.join(threads, 'T-copy-a.json'), JSON.stringify(ampThread(nativeId)));
+    const longerCopyPath = path.join(threads, 'T-copy-b.json');
+    await fs.writeFile(longerCopyPath, JSON.stringify(ampThread(nativeId, [
+      {
+        role: 'user', messageId: 0,
+        content: [{ type: 'text', text: 'First copy.' }],
+        meta: { sentAt: 1_789_689_600_000 },
+      },
+      {
+        role: 'assistant', messageId: 1,
+        content: [{ type: 'text', text: 'Longer copy wins.' }],
+        state: { type: 'complete', stopReason: 'end_turn' },
+        usage: { inputTokens: 3, outputTokens: 2, timestamp: '2026-09-18T00:00:01.000Z' },
+      },
+    ])));
+    const adapter = createTraceSourceRegistry({
+      homeDirectory: root,
+      autohandHome: path.join(root, '.autohand'),
+      environment: {},
+      platform: process.platform,
+    }).get('amp')!;
+
+    const result = await adapter.scan();
+
+    expect(result).toMatchObject({ filesScanned: 2, truncated: false, warnings: [] });
+    expect(result.sourceFiles).toHaveLength(2);
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0]).toMatchObject({
+      id: createCanonicalTraceId('amp', nativeId, 'native-session-id'),
+      source: { externalId: nativeId, recordPath: longerCopyPath },
+      messages: [
+        { role: 'user', parts: [{ type: 'text', text: 'First copy.' }] },
+        { role: 'assistant', parts: [{ type: 'text', text: 'Longer copy wins.' }] },
+      ],
+    });
+    expect(new Set(result.sourceFiles.flatMap((source) => source.traceIds))).toEqual(
+      new Set([result.traces[0].id]),
+    );
+  });
+
+  it('links Amp subthreads and preserves cancelled, rejected, and failed tool outcomes', async () => {
+    const root = await tempRoot();
+    const parentId = 'T-0199aaaa-bbbb-7ccc-8ddd-eeeeffff0010';
+    const childId = 'T-0199aaaa-bbbb-7ccc-8ddd-eeeeffff0011';
+    const parent = {
+      ...ampThread(parentId, [
+        {
+          role: 'assistant', messageId: 0,
+          content: [
+            { type: 'tool_use', id: 'tool-error', name: 'painter', input: { prompt: 'draw' } },
+            { type: 'tool_use', id: 'tool-rejected', name: 'shell_command', input: { command: 'deploy' } },
+          ],
+          state: { type: 'complete', stopReason: 'tool_use' },
+          usage: { inputTokens: 1, outputTokens: 2, timestamp: '2026-09-18T00:00:01.000Z' },
+        },
+        {
+          role: 'user', messageId: 1,
+          content: [
+            {
+              type: 'tool_result', toolUseID: 'tool-error',
+              run: { status: 'error', error: { message: 'render failed' } },
+            },
+            {
+              type: 'tool_result', toolUseID: 'tool-rejected',
+              run: { status: 'rejected-by-user', reason: 'not allowed' },
+            },
+          ],
+        },
+        {
+          role: 'assistant', messageId: 2,
+          content: [{ type: 'text', text: 'Waiting.' }],
+          state: { type: 'streaming' },
+          usage: { inputTokens: 3, outputTokens: 1, timestamp: '2026-09-18T00:00:02.000Z' },
+        },
+      ]),
+      subThreads: [{ id: childId }],
+    };
+    const child = {
+      ...ampThread(childId, [{
+        role: 'assistant', messageId: 0,
+        content: [{ type: 'text', text: 'Stopped.' }],
+        state: { type: 'cancelled' },
+        usage: { inputTokens: 2, outputTokens: 1, timestamp: '2026-09-18T00:00:03.000Z' },
+      }]),
+      parentThreadID: parentId,
+    };
+    await fs.writeFile(path.join(root, `${parentId}.json`), JSON.stringify(parent));
+    await fs.writeFile(path.join(root, `${childId}.json`), JSON.stringify(child));
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'amp')).get('amp')!;
+
+    const result = await adapter.scan();
+
+    const parentTrace = result.traces.find((trace) => trace.source.externalId === parentId)!;
+    const childTrace = result.traces.find((trace) => trace.source.externalId === childId)!;
+    expect(parentTrace.status).toBe('active');
+    expect(parentTrace.relationships).toContainEqual({ type: 'child', traceId: childTrace.id });
+    expect(childTrace.status).toBe('cancelled');
+    expect(childTrace.relationships).toContainEqual({ type: 'parent', traceId: parentTrace.id });
+    expect(parentTrace.messages.flatMap((message) => message.parts)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'tool_result', name: 'painter', callId: 'tool-error',
+        content: 'render failed', isError: true,
+      }),
+      expect.objectContaining({
+        type: 'tool_result', name: 'shell_command', callId: 'tool-rejected',
+        content: 'not allowed', isError: true,
+      }),
+    ]));
   });
 
   it('reads Cline SDK v1 session messages with per-message model, timestamp, and actual usage', async () => {
@@ -428,14 +715,16 @@ describe('native trace Adapters', () => {
 
   it('counts nested session messages against the bounded scan record budget', async () => {
     const root = await tempRoot();
-    await fs.writeFile(path.join(root, 'session.json'), JSON.stringify({
-      sessionId: 'bounded-session',
-      messages: Array.from({ length: 10 }, (_, index) => ({
+    await fs.writeFile(path.join(root, 'T-bounded-session.json'), JSON.stringify(ampThread(
+      'T-bounded-session',
+      Array.from({ length: 10 }, (_, index) => ({
         id: `message-${index}`,
+        messageId: index,
         role: 'assistant',
-        content: `reply ${index}`,
+        content: [{ type: 'text', text: `reply ${index}` }],
+        usage: { inputTokens: 1, outputTokens: 1 },
       })),
-    }));
+    )));
     const adapter = createTraceSourceRegistry(registryOptions(root, 'amp')).get('amp')!;
 
     const result = await adapter.scan({ maxRecords: 3 });
@@ -2389,7 +2678,7 @@ describe('native trace Adapters', () => {
   });
 
   it.each<TraceHarness>([
-    'pi', 'amp', 'copilot', 'cline', 'openclaw', 'droid', 'grok', 'kimi',
+    'pi', 'copilot', 'cline', 'openclaw', 'droid', 'grok', 'kimi',
     'antigravity', 'prime-agent', 'fx',
   ])('normalizes JSON-family sessions from %s', async (harness) => {
     const root = await tempRoot();

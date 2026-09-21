@@ -177,7 +177,7 @@ The registry now selects known session stores rather than application roots for
 Pi, Amp, Copilot, Cline, Grok, Kimi, Antigravity, Prime Agent, Hermes, DeepSeek,
 Codex, and Cursor. The walker limits VS Code workspace storage to
 `chatSessions`, Copilot CLI to `events.jsonl`, Cline to task history files and
-versioned SDK session messages, Grok to `summary.json`, `updates.jsonl`, and
+versioned SDK session messages, Amp to flat `T-*.json` thread documents, Grok to `summary.json`, `updates.jsonl`, and
 `chat_history.jsonl`, Kimi to session state/wire files, Antigravity to exact
 generated transcript logs, and OpenClaw to agent session directories;
 credential-shaped filenames are rejected before reading.
@@ -204,6 +204,36 @@ counts-only comparison of 26 installed Pi sessions matched the pinned Traces
 reference at 651 normalized events, including the per-event-type split; no
 session content was printed or copied. This validates the observed v3 corpus,
 not every past or future Pi format.
+
+Amp discovery reads only flat `T-*.json` documents under
+`$XDG_DATA_HOME/amp/threads` or `~/.local/share/amp/threads`. It does not read
+Amp prompt history, settings, credentials, file-change snapshots, or nested
+files. The local layout is not a public Amp storage contract; it is the
+legacy/local thread shape also produced by `amp threads export`, while the
+[current Amp thread documentation](https://ampcode.com/docs/threads) describes
+full JSON export but does not promise this directory or schema. The adapter
+therefore treats `v` as a write revision, retains only known `user` and
+`assistant` blocks, excludes image/signature/bookkeeping payloads, and marks
+unknown roles, blocks, result states, or missing message arrays as partial.
+It preserves thread/workspace/Git/client metadata, per-message model and
+timestamps, completion/streaming/cancellation state, reasoning, paired tool
+calls/results, and parent/child thread relationships. Copied files deduplicate
+by native thread ID rather than path.
+
+Amp reports uncached `inputTokens` separately from
+`cacheReadInputTokens` and `cacheCreationInputTokens`. The adapter keeps those
+as distinct input/cache-read/cache-write buckets and uses
+`totalInputTokens + outputTokens` when the authoritative input total exists.
+This matches the meanings in Amp's
+[official thread-usage API](https://ampcode.com/api/external), avoiding the
+generic-parser undercount that would add only uncached input and output. On the
+same synthetic native thread, the pinned Traces reference and Autohand both
+produced nine semantic events/parts: one user text, one reasoning block, three
+tool calls, three results, and one assistant text. Both retained 22 uncached
+input, 160 output, 12,010 cache-read, 910 cache-write, and 12,942 total-input
+tokens; Autohand reports 13,102 total tokens after adding output. No Amp install
+or authentic current-version local thread exists on this machine, so current
+stub/export versions and live append/restart behavior remain release gates.
 
 Copilot has two separate native contracts. For the CLI, the adapter reads only
 `~/.copilot/session-state/<sessionId>/events.jsonl`; it does not open

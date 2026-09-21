@@ -104,7 +104,6 @@ describe('trace source registry', () => {
     expect(registry.get('pi')?.locations).toEqual(['/Users/tester/.pi/agent/sessions']);
     expect(registry.get('amp')?.locations).toEqual([
       '/Users/tester/.local/share/amp/threads',
-      '/Users/tester/.local/share/amp/history.jsonl',
     ]);
     expect(registry.get('grok')?.locations).toEqual(['/Users/tester/.grok/sessions']);
     expect(registry.get('kimi')?.locations).toEqual(['/Users/tester/.kimi-code/sessions', '/Users/tester/.kimi/sessions']);
