@@ -91,19 +91,27 @@ describe('native trace Adapters', () => {
       sessionId: 'credential-decoy',
       messages: [{ role: 'user', content: 'must not be read' }],
     }));
-    await fs.writeFile(sessionPath, JSON.stringify(harness === 'antigravity'
-      ? {
-          step_index: 1,
-          type: 'USER_INPUT',
-          created_at: '2026-09-18T00:00:00.000Z',
-          content: '<USER_REQUEST>native session</USER_REQUEST>',
-        }
-      : harness === 'amp'
-        ? ampThread('T-native-session')
-      : {
-          sessionId: 'native-session',
-          messages: [{ role: 'user', content: 'native session' }],
-        }));
+    await fs.writeFile(sessionPath, harness === 'openclaw'
+      ? [
+          JSON.stringify({ type: 'session', version: 3, id: 'native-session' }),
+          JSON.stringify({
+            type: 'message', id: 'message-1',
+            message: { role: 'user', content: 'native session' },
+          }),
+        ].join('\n')
+      : JSON.stringify(harness === 'antigravity'
+        ? {
+            step_index: 1,
+            type: 'USER_INPUT',
+            created_at: '2026-09-18T00:00:00.000Z',
+            content: '<USER_REQUEST>native session</USER_REQUEST>',
+          }
+        : harness === 'amp'
+          ? ampThread('T-native-session')
+          : {
+              sessionId: 'native-session',
+              messages: [{ role: 'user', content: 'native session' }],
+            }));
     const adapter = createTraceSourceRegistry({
       homeDirectory: root,
       autohandHome: path.join(root, '.autohand'),
@@ -2677,8 +2685,342 @@ describe('native trace Adapters', () => {
     );
   });
 
+  it('normalizes native OpenClaw JSONL messages, tools, and cache-aware usage', async () => {
+    const root = await tempRoot();
+    const sessionDirectory = path.join(root, '.openclaw', 'agents', 'main', 'sessions');
+    const sessionPath = path.join(sessionDirectory, 'openclaw-native.jsonl');
+    await fs.ensureDir(sessionDirectory);
+    await fs.writeFile(sessionPath, [
+      {
+        type: 'session', version: 3, id: 'openclaw-native',
+        timestamp: '2026-09-21T00:00:00.000Z', cwd: '/workspace/openclaw',
+      },
+      {
+        type: 'model_change', id: 'model-change', parentId: null,
+        timestamp: '2026-09-21T00:00:00.100Z',
+        provider: 'anthropic', modelId: 'claude-sonnet-4-6',
+      },
+      {
+        type: 'message', id: 'message-user', parentId: 'model-change',
+        timestamp: '2026-09-21T00:00:01.000Z',
+        message: {
+          role: 'user', timestamp: 1_789_948_801_000,
+          content: [{ type: 'text', text: 'Inspect the project.' }],
+        },
+      },
+      {
+        type: 'message', id: 'message-tool-call', parentId: 'message-user',
+        timestamp: '2026-09-21T00:00:02.000Z',
+        message: {
+          role: 'assistant', provider: 'anthropic', model: 'claude-sonnet-4-6',
+          timestamp: 1_789_948_802_000,
+          content: [
+            { type: 'thinking', thinking: 'Read the project documentation.' },
+            { type: 'toolCall', id: 'call-1', name: 'read', arguments: { path: 'README.md' } },
+          ],
+          usage: { input: 10, output: 4, cacheRead: 3, cacheWrite: 2, totalTokens: 19 },
+          stopReason: 'toolUse',
+        },
+      },
+      {
+        type: 'message', id: 'message-tool-result', parentId: 'message-tool-call',
+        timestamp: '2026-09-21T00:00:03.000Z',
+        message: {
+          role: 'toolResult', toolCallId: 'call-1', toolName: 'read',
+          content: [{ type: 'text', text: 'Project README' }], isError: false,
+          timestamp: 1_789_948_803_000,
+        },
+      },
+      {
+        type: 'message', id: 'message-final', parentId: 'message-tool-result',
+        timestamp: '2026-09-21T00:00:04.000Z',
+        message: {
+          role: 'assistant', provider: 'anthropic', model: 'claude-sonnet-4-6',
+          timestamp: 1_789_948_804_000,
+          content: [{ type: 'text', text: 'Inspection complete.' }],
+          usage: { input: 12, output: 6, cacheRead: 4, cacheWrite: 1, totalTokens: 23 },
+          stopReason: 'stop',
+        },
+      },
+    ].map((record) => JSON.stringify(record)).join('\n'));
+    const adapter = createTraceSourceRegistry({
+      homeDirectory: root,
+      autohandHome: path.join(root, '.autohand'),
+      environment: {},
+      platform: process.platform,
+    }).get('openclaw')!;
+
+    const result = await adapter.scan();
+
+    expect(result).toMatchObject({ filesScanned: 1, truncated: false, warnings: [] });
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0]).toMatchObject({
+      id: createCanonicalTraceId('openclaw', 'openclaw-native', 'native-session-id'),
+      source: { externalId: 'openclaw-native', recordPath: sessionPath },
+      project: { path: '/workspace/openclaw' },
+      model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+      status: 'unknown',
+      usage: {
+        input: 22, output: 10, cacheRead: 7, cacheWrite: 3, total: 42,
+        provenance: 'actual',
+      },
+      provenance: { completeness: 'complete', warnings: [] },
+      messages: [
+        { role: 'user', sourceKey: 'message-user', parts: [{ type: 'text', text: 'Inspect the project.' }] },
+        { role: 'assistant', sourceKey: 'message-tool-call', parts: [
+          { type: 'reasoning', text: 'Read the project documentation.' },
+          { type: 'tool_call', name: 'read', callId: 'call-1', arguments: { path: 'README.md' } },
+        ] },
+        { role: 'tool', sourceKey: 'message-tool-result', parts: [
+          { type: 'tool_result', name: 'read', callId: 'call-1', content: 'Project README' },
+        ] },
+        { role: 'assistant', sourceKey: 'message-final', parts: [
+          { type: 'text', text: 'Inspection complete.' },
+        ] },
+      ],
+    });
+  });
+
+  it('reads only the canonical OpenClaw SQLite store and prefers it over a legacy copy', async () => {
+    const root = await tempRoot();
+    const agentRoot = path.join(root, '.openclaw', 'agents', 'main');
+    const databasePath = path.join(agentRoot, 'agent', 'openclaw-agent.sqlite');
+    const sessionDirectory = path.join(agentRoot, 'sessions');
+    await fs.ensureDir(path.dirname(databasePath));
+    await fs.ensureDir(sessionDirectory);
+    await fs.writeFile(databasePath, 'sqlite fixture');
+    await fs.writeFile(path.join(agentRoot, 'agent', 'auth-profiles.sqlite'), 'credential decoy');
+    await fs.writeJson(path.join(sessionDirectory, 'sessions.json'), {
+      'agent:main:decoy': { sessionId: 'credential-decoy', updatedAt: 1_789_948_800_000 },
+    });
+    await fs.writeFile(path.join(sessionDirectory, 'openclaw-native.jsonl.deleted.1790006400000'), JSON.stringify({
+      type: 'message', id: 'deleted-decoy', message: { role: 'user', content: 'must not be read' },
+    }));
+    const legacyPath = path.join(sessionDirectory, 'openclaw-native.jsonl');
+    await fs.writeFile(legacyPath, [
+      JSON.stringify({
+        type: 'session', version: 3, id: 'openclaw-native',
+        timestamp: '2026-09-21T00:00:00.000Z', cwd: '/workspace/legacy-copy',
+      }),
+      JSON.stringify({
+        type: 'message', id: 'legacy-user', timestamp: '2026-09-21T00:00:01.000Z',
+        message: { role: 'user', content: 'Legacy copy.' },
+      }),
+    ].join('\n'));
+
+    const nodes = [
+      {
+        session_key: 'agent:main:parent', current_session_id: 'openclaw-parent',
+        updated_at: 1_789_948_799_000, status: 'done', created_at: 1_789_948_790_000,
+        parent_session_key: null, spawned_by: null,
+        entry_session_started_at: null, entry_started_at: null, entry_ended_at: null,
+        entry_spawned_cwd: null, entry_exec_cwd: null,
+        entry_worktree_workspace: null, entry_worktree_repo_root: null,
+        entry_parent_session_id: null, entry_thinking_level: null,
+        entry_reasoning_level: null, entry_context_window: null,
+        entry_model: null, entry_model_provider: null, entry_fork_source_session_id: null,
+      },
+      {
+        session_key: 'agent:main:child', current_session_id: 'openclaw-native',
+        updated_at: 1_789_948_805_000, status: 'done', created_at: 1_789_948_800_000,
+        parent_session_key: 'agent:main:parent', spawned_by: 'agent:main:parent',
+        entry_session_started_at: 1_789_948_800_000,
+        entry_started_at: 1_789_948_800_000, entry_ended_at: 1_789_948_805_000,
+        entry_spawned_cwd: null, entry_exec_cwd: '/workspace/openclaw',
+        entry_worktree_workspace: null, entry_worktree_repo_root: null,
+        entry_parent_session_id: 'openclaw-parent', entry_thinking_level: 'high',
+        entry_reasoning_level: null, entry_context_window: '200000',
+        entry_model: null, entry_model_provider: null, entry_fork_source_session_id: null,
+      },
+    ];
+    const windows = [
+      {
+        session_id: 'openclaw-parent', session_key: 'agent:main:parent', previous_session_id: null,
+        reason: 'initial', created_at: 1_789_948_790_000, updated_at: 1_789_948_799_000,
+        started_at: 1_789_948_790_000, ended_at: 1_789_948_799_000, status: 'done',
+        model_provider: 'openai', model: 'gpt-6', agent_harness_id: null,
+        parent_session_key: null, spawned_by: null, display_name: 'Parent session',
+      },
+      {
+        session_id: 'openclaw-native', session_key: 'agent:main:child', previous_session_id: null,
+        reason: 'initial', created_at: 1_789_948_800_000, updated_at: 1_789_948_805_000,
+        started_at: 1_789_948_800_000, ended_at: 1_789_948_805_000, status: 'done',
+        model_provider: 'anthropic', model: 'claude-sonnet-4-6', agent_harness_id: null,
+        parent_session_key: 'agent:main:parent', spawned_by: 'agent:main:parent',
+        display_name: 'OpenClaw native session',
+      },
+    ];
+    const events = [
+      {
+        session_id: 'openclaw-native', seq: 0, active_position: 0,
+        created_at: 1_789_948_800_000,
+        event_json: JSON.stringify({
+          type: 'session', version: 3, id: 'openclaw-native',
+          timestamp: '2026-09-21T00:00:00.000Z', cwd: '/workspace/openclaw',
+        }),
+      },
+      {
+        session_id: 'openclaw-native', seq: 1, active_position: 1,
+        created_at: 1_789_948_801_000,
+        event_json: JSON.stringify({
+          type: 'message', id: 'message-user', timestamp: '2026-09-21T00:00:01.000Z',
+          message: { role: 'user', content: [{ type: 'text', text: 'Inspect the project.' }] },
+        }),
+      },
+      {
+        session_id: 'openclaw-native', seq: 2, active_position: 2,
+        created_at: 1_789_948_802_000,
+        event_json: JSON.stringify({
+          type: 'message', id: 'message-tool-call', timestamp: '2026-09-21T00:00:02.000Z',
+          message: {
+            role: 'assistant', provider: 'anthropic', model: 'claude-sonnet-4-6',
+            content: [
+              { type: 'thinking', thinking: 'Read the project documentation.' },
+              { type: 'toolCall', id: 'call-1', name: 'read', arguments: { path: 'README.md' } },
+            ],
+            usage: { input: 10, output: 4, cacheRead: 3, cacheWrite: 2, totalTokens: 19 },
+            stopReason: 'toolUse',
+          },
+        }),
+      },
+      {
+        session_id: 'openclaw-native', seq: 3, active_position: 3,
+        created_at: 1_789_948_803_000,
+        event_json: JSON.stringify({
+          type: 'message', id: 'message-tool-result', timestamp: '2026-09-21T00:00:03.000Z',
+          message: {
+            role: 'toolResult', toolCallId: 'call-1', toolName: 'read',
+            content: [{ type: 'text', text: 'Project README' }], isError: false,
+          },
+        }),
+      },
+      {
+        session_id: 'openclaw-native', seq: 4, active_position: 4,
+        created_at: 1_789_948_804_000,
+        event_json: JSON.stringify({
+          type: 'message', id: 'message-final', timestamp: '2026-09-21T00:00:04.000Z',
+          message: {
+            role: 'assistant', provider: 'anthropic', model: 'claude-sonnet-4-6',
+            content: [{ type: 'text', text: 'Inspection complete.' }],
+            usage: { input: 12, output: 6, cacheRead: 4, cacheWrite: 1, totalTokens: 23 },
+            stopReason: 'stop',
+          },
+        }),
+      },
+    ];
+    const take = <T>(rows: T[], limit?: number): T[] => rows.slice(0, limit ?? rows.length);
+    const prepare = vi.fn((sql: string) => ({
+      all: vi.fn((limit?: number) => {
+        if (sql.includes('sqlite_master')) {
+          return [
+            'schema_meta', 'session_nodes', 'session_windows', 'transcript_events',
+            'session_transcript_active_events', 'auth_profile_store',
+          ].map((name) => ({ name }));
+        }
+        if (sql.includes('schema_meta')) {
+          return [{ schema_version: 22, agent_id: 'main', app_version: '2026.9.21' }];
+        }
+        if (sql.includes('session_nodes')) return take(nodes, limit);
+        if (sql.includes('session_windows')) return take(windows, limit);
+        if (sql.includes('transcript_events')) return take(events, limit);
+        return [];
+      }),
+    }));
+    const close = vi.fn();
+    vi.mocked(DatabaseSync).mockImplementation(function MockDatabase() {
+      return { prepare, close } as unknown as DatabaseSync;
+    });
+    const adapter = createTraceSourceRegistry({
+      homeDirectory: root,
+      autohandHome: path.join(root, '.autohand'),
+      environment: {},
+      platform: process.platform,
+    }).get('openclaw')!;
+
+    const result = await adapter.scan();
+
+    expect(DatabaseSync).toHaveBeenCalledTimes(1);
+    expect(DatabaseSync).toHaveBeenCalledWith(databasePath, { readOnly: true });
+    expect(close).toHaveBeenCalledOnce();
+    const queriedSql = prepare.mock.calls.map(([sql]) => sql).join('\n');
+    expect(queriedSql).not.toMatch(
+      /FROM\s+["']?(?:auth_profile_store|sessions_json|config)/iu,
+    );
+    expect(queriedSql).not.toMatch(/SELECT\s+session_key,\s*current_session_id,\s*entry_json/iu);
+    expect(queriedSql).toContain("json_extract(entry_json, '$.execCwd')");
+    expect(result).toMatchObject({ filesScanned: 2, truncated: false, warnings: [] });
+    expect(result.sourceFiles).toHaveLength(2);
+    expect(result.traces).toHaveLength(2);
+    const parent = result.traces.find((trace) => trace.source.externalId === 'openclaw-parent')!;
+    const child = result.traces.find((trace) => trace.source.externalId === 'openclaw-native')!;
+    expect(parent).toMatchObject({
+      id: createCanonicalTraceId('openclaw', 'openclaw-parent', 'native-session-id'),
+      status: 'completed',
+      model: 'gpt-6',
+      provider: 'openai',
+      messages: [],
+      provenance: { completeness: 'metadata_only' },
+      relationships: [{ type: 'child', traceId: child.id }],
+    });
+    expect(child).toMatchObject({
+      id: createCanonicalTraceId('openclaw', 'openclaw-native', 'native-session-id'),
+      source: { recordPath: databasePath },
+      agent: { name: 'OpenClaw', version: '2026.9.21' },
+      project: { path: '/workspace/openclaw' },
+      status: 'completed',
+      startedAt: '2026-09-21T00:00:00.000Z',
+      endedAt: '2026-09-21T00:00:05.000Z',
+      model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+      reasoningEffort: 'high',
+      contextWindow: 200_000,
+      usage: { input: 22, output: 10, cacheRead: 7, cacheWrite: 3, total: 42 },
+      relationships: [{ type: 'parent', traceId: parent.id }],
+    });
+    expect(child.messages).toHaveLength(4);
+    expect(child.messages.flatMap((message) => message.parts)).toEqual(expect.arrayContaining([
+      { type: 'reasoning', text: 'Read the project documentation.' },
+      { type: 'tool_call', name: 'read', callId: 'call-1', arguments: { path: 'README.md' } },
+      { type: 'tool_result', name: 'read', callId: 'call-1', content: 'Project README' },
+      { type: 'text', text: 'Inspection complete.' },
+    ]));
+    expect(new Set(result.sourceFiles.flatMap((source) => source.traceIds))).toEqual(
+      new Set([parent.id, child.id]),
+    );
+  });
+
+  it('marks future OpenClaw transcript records partial without retaining opaque payloads', async () => {
+    const root = await tempRoot();
+    await fs.writeFile(path.join(root, 'future.jsonl'), [
+      JSON.stringify({ type: 'session', version: 4, id: 'openclaw-future', cwd: '/workspace/future' }),
+      JSON.stringify({
+        type: 'message', id: 'safe-message',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Known content.' }] },
+      }),
+      JSON.stringify({ type: 'future_event', secretPayload: 'must not be retained' }),
+    ].join('\n'));
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'openclaw')).get('openclaw')!;
+
+    const result = await adapter.scan();
+
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0]).toMatchObject({
+      id: createCanonicalTraceId('openclaw', 'openclaw-future', 'native-session-id'),
+      messages: [{ parts: [{ type: 'text', text: 'Known content.' }] }],
+      provenance: {
+        completeness: 'partial',
+        warnings: [
+          'OpenClaw transcript version 4 is not a verified native contract.',
+          'OpenClaw transcript contains unsupported record type "future_event".',
+        ],
+      },
+    });
+    expect(JSON.stringify(result.traces)).not.toContain('must not be retained');
+  });
+
   it.each<TraceHarness>([
-    'pi', 'copilot', 'cline', 'openclaw', 'droid', 'grok', 'kimi',
+    'pi', 'copilot', 'cline', 'droid', 'grok', 'kimi',
     'antigravity', 'prime-agent', 'fx',
   ])('normalizes JSON-family sessions from %s', async (harness) => {
     const root = await tempRoot();

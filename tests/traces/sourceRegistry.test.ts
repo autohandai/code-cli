@@ -39,6 +39,7 @@ describe('trace source registry', () => {
         CLAUDE_CONFIG_DIR: '/Users/tester/custom-claude',
         CODEX_HOME: '/Users/tester/custom-codex',
         CLINE_DATA_DIR: '/Users/tester/custom-cline',
+        OPENCLAW_STATE_DIR: '/Users/tester/custom-openclaw',
         TRACES_CURSOR_GLOBAL_DB: '/Users/tester/mounted-cursor/state.vscdb',
       },
       platform: 'darwin',
@@ -68,6 +69,8 @@ describe('trace source registry', () => {
     expect(registry.get('codex')?.locations).toEqual(['/Users/tester/custom-codex/sessions']);
     expect(registry.get('cursor')?.locations).toContain('/Users/tester/mounted-cursor/state.vscdb');
     expect(registry.get('cline')?.locations).toContain('/Users/tester/custom-cline/sessions');
+    expect(registry.get('openclaw')?.locations).toEqual(['/Users/tester/custom-openclaw/agents']);
+    expect(registry.get('openclaw')?.formats).toEqual(['jsonl', 'sqlite']);
   });
 
   it('covers each native store used by multi-agent and desktop harness variants', () => {

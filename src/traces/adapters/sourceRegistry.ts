@@ -186,8 +186,13 @@ const DEFINITIONS: readonly SourceDefinition[] = [
     },
   },
   {
-    harness: 'openclaw', displayName: 'OpenClaw', formats: ['jsonl'],
-    locations: (options) => [joinHome(options, '.openclaw', 'agents')],
+    harness: 'openclaw', displayName: 'OpenClaw', formats: ['jsonl', 'sqlite'],
+    locations: (options) => {
+      const pathApi = options.platform === 'win32' ? path.win32 : path;
+      const stateDirectory = options.environment.OPENCLAW_STATE_DIR?.trim()
+        || joinHome(options, '.openclaw');
+      return [pathApi.join(stateDirectory, 'agents')];
+    },
   },
   {
     harness: 'hermes', displayName: 'Hermes', formats: ['sqlite'],

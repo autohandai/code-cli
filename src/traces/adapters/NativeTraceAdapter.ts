@@ -25,6 +25,10 @@ import { normalizeCopilotSessionRecords } from './CopilotTraceNormalizer.js';
 import { normalizeDroidSessionRecords } from './DroidTraceNormalizer.js';
 import { normalizeGrokSessionRecords } from './GrokTraceNormalizer.js';
 import { normalizeKimiWireRecords } from './KimiTraceNormalizer.js';
+import {
+  OPENCLAW_SQLITE_RECORD_KIND,
+  normalizeOpenClawSessionRecords,
+} from './OpenClawTraceNormalizer.js';
 import { normalizePiSessionRecords } from './PiTraceNormalizer.js';
 import type {
   TraceAdapterScanOptions,
@@ -535,7 +539,10 @@ function isSessionSourcePath(definition: NativeAdapterDefinition, location: stri
     return segments.length === 3 && segments[1] === 'chatSessions';
   }
   if (definition.harness === 'openclaw' && rootName === 'agents') {
-    return segments.length >= 3 && segments[1] === 'sessions';
+    return segments.length === 3 && (
+      (segments[1] === 'sessions' && base.endsWith('.jsonl'))
+      || (segments[1] === 'agent' && base === 'openclaw-agent.sqlite')
+    );
   }
   if (definition.harness === 'amp') {
     return segments.length === 1 && /^T-[A-Za-z0-9-]+\.json$/u.test(base);
@@ -741,6 +748,145 @@ function extractJsonObjects(buffer: Buffer): UnknownRecord[] {
   return output;
 }
 
+function openClawSqliteRows(
+  database: SqliteDatabaseSync,
+  budget: ScanBudget,
+  sql: string,
+): UnknownRecord[] {
+  const remaining = budget.maxRecords - budget.recordsRead;
+  if (remaining <= 0) {
+    budget.truncated = true;
+    return [];
+  }
+  const rows = database.prepare(sql).all(remaining + 1) as UnknownRecord[];
+  if (rows.length > remaining) budget.truncated = true;
+  const bounded = rows.slice(0, remaining);
+  budget.recordsRead += bounded.length;
+  return bounded;
+}
+
+function openClawSqliteRecords(
+  database: SqliteDatabaseSync,
+  budget: ScanBudget,
+  tableNames: ReadonlySet<string>,
+): UnknownRecord[] {
+  const requiredTables = [
+    'session_nodes',
+    'session_windows',
+    'transcript_events',
+    'session_transcript_active_events',
+  ];
+  if (requiredTables.some((table) => !tableNames.has(table))) {
+    budget.truncated = true;
+    budget.warnings.push('OpenClaw SQLite schema is missing required trace tables.');
+    return [];
+  }
+  const schema = tableNames.has('schema_meta')
+    ? openClawSqliteRows(database, budget, `
+      SELECT schema_version, app_version
+      FROM schema_meta
+      WHERE meta_key = 'primary' AND role = 'agent'
+      LIMIT ?
+    `).map((row) => ({
+      [OPENCLAW_SQLITE_RECORD_KIND]: 'schema',
+      schemaVersion: row.schema_version,
+      appVersion: row.app_version,
+    }))
+    : [];
+  const nodes = openClawSqliteRows(database, budget, `
+    SELECT session_key, current_session_id, status, created_at,
+      parent_session_key, spawned_by,
+      json_extract(entry_json, '$.sessionStartedAt') AS entry_session_started_at,
+      json_extract(entry_json, '$.startedAt') AS entry_started_at,
+      json_extract(entry_json, '$.endedAt') AS entry_ended_at,
+      json_extract(entry_json, '$.spawnedCwd') AS entry_spawned_cwd,
+      json_extract(entry_json, '$.execCwd') AS entry_exec_cwd,
+      json_extract(entry_json, '$.worktree.canonicalWorkspaceDir') AS entry_worktree_workspace,
+      json_extract(entry_json, '$.worktree.repoRoot') AS entry_worktree_repo_root,
+      json_extract(entry_json, '$.parentSessionId') AS entry_parent_session_id,
+      json_extract(entry_json, '$.thinkingLevel') AS entry_thinking_level,
+      json_extract(entry_json, '$.reasoningLevel') AS entry_reasoning_level,
+      json_extract(entry_json, '$.contextWindow') AS entry_context_window,
+      json_extract(entry_json, '$.model') AS entry_model,
+      json_extract(entry_json, '$.modelProvider') AS entry_model_provider,
+      json_extract(entry_json, '$.forkSource.sessionId') AS entry_fork_source_session_id
+    FROM session_nodes
+    ORDER BY session_key
+    LIMIT ?
+  `).map((row) => {
+    const worktree = row.entry_worktree_workspace === null
+      && row.entry_worktree_repo_root === null
+      ? undefined
+      : {
+          canonicalWorkspaceDir: row.entry_worktree_workspace,
+          repoRoot: row.entry_worktree_repo_root,
+        };
+    const forkSource = row.entry_fork_source_session_id === null
+      ? undefined
+      : { sessionId: row.entry_fork_source_session_id };
+    return {
+      [OPENCLAW_SQLITE_RECORD_KIND]: 'node',
+      sessionKey: row.session_key,
+      currentSessionId: row.current_session_id,
+      entry: {
+        sessionId: row.current_session_id,
+        status: row.status,
+        createdAt: row.created_at,
+        parentSessionKey: row.parent_session_key,
+        spawnedBy: row.spawned_by,
+        sessionStartedAt: row.entry_session_started_at,
+        startedAt: row.entry_started_at,
+        endedAt: row.entry_ended_at,
+        spawnedCwd: row.entry_spawned_cwd,
+        execCwd: row.entry_exec_cwd,
+        parentSessionId: row.entry_parent_session_id,
+        thinkingLevel: row.entry_thinking_level,
+        reasoningLevel: row.entry_reasoning_level,
+        contextWindow: row.entry_context_window,
+        model: row.entry_model,
+        modelProvider: row.entry_model_provider,
+        ...(worktree ? { worktree } : {}),
+        ...(forkSource ? { forkSource } : {}),
+      },
+    };
+  });
+  const windows = openClawSqliteRows(database, budget, `
+    SELECT session_id, session_key, previous_session_id, created_at,
+      started_at, ended_at, status, model_provider, model,
+      parent_session_key, spawned_by
+    FROM session_windows
+    ORDER BY created_at, session_id
+    LIMIT ?
+  `).map((row) => ({
+    [OPENCLAW_SQLITE_RECORD_KIND]: 'window',
+    sessionId: row.session_id,
+    sessionKey: row.session_key,
+    previousSessionId: row.previous_session_id,
+    createdAt: row.created_at,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    status: row.status,
+    modelProvider: row.model_provider,
+    model: row.model,
+    parentSessionKey: row.parent_session_key,
+    spawnedBy: row.spawned_by,
+  }));
+  const events = openClawSqliteRows(database, budget, `
+    SELECT event.session_id, event.event_json, event.created_at
+    FROM session_transcript_active_events AS active
+    INNER JOIN transcript_events AS event
+      ON event.session_id = active.session_id AND event.seq = active.event_seq
+    ORDER BY event.session_id, active.active_position
+    LIMIT ?
+  `).map((row) => ({
+    [OPENCLAW_SQLITE_RECORD_KIND]: 'event',
+    sessionId: row.session_id,
+    eventJson: row.event_json,
+    createdAt: row.created_at,
+  }));
+  return [...schema, ...nodes, ...windows, ...events];
+}
+
 async function sqliteRecords(file: SourceFile, budget: ScanBudget, harness: TraceHarness): Promise<UnknownRecord[]> {
   let DatabaseSync: typeof import('node:sqlite').DatabaseSync;
   try {
@@ -767,6 +913,9 @@ async function sqliteRecords(file: SourceFile, budget: ScanBudget, harness: Trac
     const rank = (name: string): number => tableRanks.get(name) ?? 5;
     tables.sort((left, right) => rank(left.name) - rank(right.name));
     const tableNames = new Set(tables.map(({ name }) => name));
+    if (harness === 'openclaw') {
+      return openClawSqliteRecords(database, budget, tableNames);
+    }
     if (harness === 'opencode2' && tableNames.has('session') && tableNames.has('session_message')) {
       return openCode2SqliteRecords(database, budget);
     }
@@ -1265,6 +1414,38 @@ function updateTraceMetadata(
       }
     }
   }
+  if (harness === 'openclaw') {
+    const parentSessionId = firstString(record, [['parentSessionId']]);
+    if (parentSessionId) {
+      const relationship = {
+        type: 'parent' as const,
+        traceId: createCanonicalTraceId(harness, parentSessionId, 'native-session-id'),
+      };
+      if (!trace.relationships.some((candidate) => (
+        candidate.type === relationship.type && candidate.traceId === relationship.traceId
+      ))) trace.relationships.push(relationship);
+    }
+    const previousSessionId = firstString(record, [['previousSessionId']]);
+    if (previousSessionId) {
+      const relationship = {
+        type: 'resume' as const,
+        traceId: createCanonicalTraceId(harness, previousSessionId, 'native-session-id'),
+      };
+      if (!trace.relationships.some((candidate) => (
+        candidate.type === relationship.type && candidate.traceId === relationship.traceId
+      ))) trace.relationships.push(relationship);
+    }
+    const forkSourceSessionId = firstString(record, [['forkSourceSessionId']]);
+    if (forkSourceSessionId) {
+      const relationship = {
+        type: 'fork' as const,
+        traceId: createCanonicalTraceId(harness, forkSourceSessionId, 'native-session-id'),
+      };
+      if (!trace.relationships.some((candidate) => (
+        candidate.type === relationship.type && candidate.traceId === relationship.traceId
+      ))) trace.relationships.push(relationship);
+    }
+  }
 }
 
 function messageFromRecord(
@@ -1404,6 +1585,7 @@ function recordsToTraces(
             || definition.harness === 'copilot'
             || definition.harness === 'droid'
             || definition.harness === 'grok'
+            || definition.harness === 'openclaw'
             ? 'native-session-id'
             : trace.recordPath,
         ),
@@ -1680,6 +1862,15 @@ class NativeTraceAdapter implements TraceSourceAdapter {
             budget.warnings.push(...provenanceWarnings);
           }
         }
+        if (this.harness === 'openclaw') {
+          const normalized = normalizeOpenClawSessionRecords(records, file.path);
+          records = normalized.records;
+          provenanceWarnings = normalized.warnings;
+          if (provenanceWarnings.length > 0) {
+            budget.truncated = true;
+            budget.warnings.push(...provenanceWarnings);
+          }
+        }
         if (this.harness === 'pi') {
           const normalized = normalizePiSessionRecords(records, file.path);
           records = normalized.records;
@@ -1816,7 +2007,7 @@ class NativeTraceAdapter implements TraceSourceAdapter {
         }
       }
     }
-    if (this.harness === 'amp') {
+    if (this.harness === 'amp' || this.harness === 'openclaw') {
       for (const child of unique.values()) {
         for (const relationship of child.relationships) {
           if (relationship.type !== 'parent') continue;

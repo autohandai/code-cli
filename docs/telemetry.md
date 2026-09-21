@@ -179,7 +179,8 @@ Codex, and Cursor. The walker limits VS Code workspace storage to
 `chatSessions`, Copilot CLI to `events.jsonl`, Cline to task history files and
 versioned SDK session messages, Amp to flat `T-*.json` thread documents, Grok to `summary.json`, `updates.jsonl`, and
 `chat_history.jsonl`, Kimi to session state/wire files, Antigravity to exact
-generated transcript logs, and OpenClaw to agent session directories;
+generated transcript logs, and OpenClaw to exact per-agent SQLite stores or
+live legacy transcript JSONL;
 credential-shaped filenames are rejected before reading.
 Decoy-file tests cover these paths. This reduces accidental configuration
 reads, but it is not proof of complete or future-safe
@@ -193,6 +194,31 @@ the adapter reads the matching `<sessionId>.json` manifest and
 model and token metrics, rejects unknown contract versions as partial coverage,
 and counts nested messages against the scan record budget. Older Cline task
 history still needs a native join.
+
+OpenClaw discovery honors `OPENCLAW_STATE_DIR` and reads only
+`agents/<agentId>/agent/openclaw-agent.sqlite` plus plain live
+`agents/<agentId>/sessions/*.jsonl` files. It does not open auth-profile
+databases, `sessions.json`, or `.deleted`/`.reset` transcript archives. For the
+current SQLite contract, the reader selects an explicit column allowlist from
+`schema_meta`, `session_nodes`, and `session_windows`, then joins only the
+ordered active projection in `session_transcript_active_events` to
+`transcript_events`; it never enumerates credential tables. Session rows provide
+lifecycle, workspace, model, and lineage metadata. Conversation token totals
+come from assistant-response usage (`input`, `output`, `cacheRead`,
+`cacheWrite`, and exact `totalTokens`) because logical-session counters are
+latest/context snapshots rather than conversation totals. Current SQLite and
+legacy JSONL copies deduplicate by native session ID, with the more complete
+copy retained. Unknown transcript or SQLite schema versions mark coverage
+partial.
+
+On a synthetic version-3 JSONL transcript, Autohand and the pinned
+`@traces-sh/traces@0.6.30` reference retained the same five semantic events:
+one user text, one reasoning block, one tool call, one tool result, and one
+assistant text, with matching per-response input/output/cache buckets. The
+pinned reference found no trace from an equivalent SQLite-only current store;
+Autohand's real read-only Node SQLite probe did. This closes current-store
+coverage but does not prove every OpenClaw release, cold archive, or live
+append/restart behavior.
 
 Pi session-v3 JSONL uses a native normalizer for session identity/version,
 workspace and timestamps, model and thinking-level changes, per-message model
