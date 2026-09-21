@@ -868,6 +868,393 @@ describe('native trace Adapters', () => {
     expect(result.warnings).toEqual(expect.arrayContaining(result.traces[0].provenance.warnings));
   });
 
+  it('normalizes Copilot CLI events with authoritative shutdown usage and paired tools', async () => {
+    const root = await tempRoot();
+    const sessionDirectory = path.join(root, '.copilot', 'session-state', 'copilot-native');
+    await fs.ensureDir(path.join(sessionDirectory, 'checkpoints'));
+    await fs.writeFile(path.join(sessionDirectory, 'events.jsonl'), [
+      JSON.stringify({
+        type: 'session.start', id: 'event-start', timestamp: '2026-09-18T00:00:00.000Z',
+        data: {
+          sessionId: 'copilot-native', version: 1, copilotVersion: '1.0.77',
+          startTime: '2026-09-18T00:00:00.000Z',
+          context: {
+            cwd: '/workspace/copilot', gitRoot: '/workspace/copilot',
+            repository: 'autohand-ai/cli', branch: 'agent/sdk-agent-discovery', headCommit: 'abc123',
+          },
+        },
+      }),
+      JSON.stringify({
+        type: 'session.model_change', id: 'event-model', timestamp: '2026-09-18T00:00:00.100Z',
+        data: { newModel: 'claude-sonnet-4.6', reasoningEffort: 'high' },
+      }),
+      JSON.stringify({
+        type: 'session.usage_info', id: 'event-context', timestamp: '2026-09-18T00:00:00.200Z',
+        data: { tokenLimit: 200_000, currentTokens: 1_200, messagesLength: 2 },
+      }),
+      JSON.stringify({
+        type: 'system.message', id: 'event-system', timestamp: '2026-09-18T00:00:00.500Z',
+        data: { role: 'system', content: 'Follow repository instructions.' },
+      }),
+      JSON.stringify({
+        type: 'user.message', id: 'event-user', timestamp: '2026-09-18T00:00:01.000Z',
+        data: {
+          content: 'Inspect the project.', transformedContent: 'private transformed prompt',
+          interactionId: 'interaction-1', attachments: [],
+        },
+      }),
+      JSON.stringify({
+        type: 'assistant.message', id: 'event-assistant', timestamp: '2026-09-18T00:00:02.000Z',
+        data: {
+          messageId: 'assistant-1', model: 'claude-sonnet-4.6',
+          reasoningText: 'Check the tests.', reasoningOpaque: 'opaque private reasoning',
+          encryptedContent: 'encrypted private reasoning', content: 'I will run the suite.',
+          outputTokens: 11,
+          toolRequests: [{
+            toolCallId: 'call-test', name: 'bash', type: 'function',
+            arguments: { command: 'bun test' },
+          }],
+        },
+      }),
+      JSON.stringify({
+        type: 'tool.execution_start', id: 'event-tool-start', timestamp: '2026-09-18T00:00:02.100Z',
+        data: { toolCallId: 'call-test', toolName: 'bash', arguments: { command: 'bun test' } },
+      }),
+      JSON.stringify({
+        type: 'tool.execution_complete', id: 'event-tool-complete', timestamp: '2026-09-18T00:00:03.000Z',
+        data: {
+          toolCallId: 'call-test', toolName: 'bash', success: true,
+          result: { content: '12 tests passed', detailedContent: '12 tests passed in 4s' },
+          toolTelemetry: { privateMetric: 'must not be copied' },
+        },
+      }),
+      JSON.stringify({
+        type: 'assistant.usage', id: 'event-usage', timestamp: '2026-09-18T00:00:03.100Z',
+        data: {
+          model: 'claude-sonnet-4.6', inputTokens: 80, outputTokens: 11,
+          reasoningTokens: 4, cacheReadTokens: 22, cacheWriteTokens: 2,
+          reasoningEffort: 'high',
+        },
+      }),
+      JSON.stringify({
+        type: 'session.shutdown', id: 'event-shutdown', timestamp: '2026-09-18T00:00:04.000Z',
+        data: {
+          shutdownType: 'routine', currentModel: 'gpt-5.4', sessionStartTime: 1_789_689_600_000,
+          totalPremiumRequests: 2, totalApiDurationMs: 3_000,
+          codeChanges: { linesAdded: 1, linesRemoved: 0, filesModified: 1 },
+          modelMetrics: {
+            'claude-sonnet-4.6': {
+              usage: {
+                inputTokens: 70, outputTokens: 10, reasoningTokens: 4,
+                cacheReadTokens: 20, cacheWriteTokens: 2,
+              },
+            },
+            'gpt-5.4': {
+              usage: {
+                inputTokens: 5, outputTokens: 1, reasoningTokens: 0,
+                cacheReadTokens: 1, cacheWriteTokens: 0,
+              },
+            },
+          },
+        },
+      }),
+    ].join('\n'));
+    await fs.writeFile(path.join(sessionDirectory, 'session.db'), 'must not be read');
+    await fs.writeJson(path.join(sessionDirectory, 'vscode.metadata.json'), {
+      sessionId: 'metadata-decoy', messages: [{ role: 'user', content: 'must not be read' }],
+    });
+    await fs.writeFile(path.join(sessionDirectory, 'workspace.yaml'), 'secret: must not be read');
+    await fs.writeFile(path.join(sessionDirectory, 'checkpoints', 'index.md'), 'must not be read');
+    const adapter = createTraceSourceRegistry({
+      homeDirectory: root,
+      autohandHome: path.join(root, '.autohand'),
+      environment: {},
+      platform: process.platform,
+    }).get('copilot')!;
+
+    const result = await adapter.scan();
+
+    expect(result).toMatchObject({ truncated: false, warnings: [], filesScanned: 1 });
+    expect(result.sourceFiles).toHaveLength(1);
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0]).toMatchObject({
+      source: { harness: 'copilot', externalId: 'copilot-native' },
+      agent: { name: 'GitHub Copilot', version: '1.0.77' },
+      project: {
+        name: 'autohand-ai/cli', path: '/workspace/copilot',
+        gitBranch: 'agent/sdk-agent-discovery', gitRef: 'abc123',
+      },
+      startedAt: '2026-09-18T00:00:00.000Z',
+      endedAt: '2026-09-18T00:00:04.000Z',
+      status: 'completed',
+      model: 'gpt-5.4',
+      reasoningEffort: 'high',
+      contextWindow: 200_000,
+      usage: {
+        input: 75, output: 11, reasoning: 4, cacheRead: 21, cacheWrite: 2,
+        total: 86, provenance: 'actual',
+      },
+      provenance: { completeness: 'complete', warnings: [] },
+    });
+    expect(result.traces[0].messages).toMatchObject([
+      {
+        sourceKey: 'event-system', role: 'system',
+        parts: [{ type: 'text', text: 'Follow repository instructions.' }],
+      },
+      {
+        sourceKey: 'event-user', role: 'user',
+        parts: [{ type: 'text', text: 'Inspect the project.' }],
+      },
+      {
+        sourceKey: 'assistant-1', role: 'assistant', model: 'claude-sonnet-4.6',
+        usage: { output: 11, provenance: 'actual' },
+        parts: [
+          { type: 'reasoning', text: 'Check the tests.' },
+          { type: 'text', text: 'I will run the suite.' },
+          {
+            type: 'tool_call', callId: 'call-test', name: 'bash',
+            arguments: { command: 'bun test' },
+          },
+        ],
+      },
+      {
+        sourceKey: 'event-tool-complete', role: 'tool',
+        parts: [{
+          type: 'tool_result', callId: 'call-test', name: 'bash', content: '12 tests passed in 4s',
+        }],
+      },
+    ]);
+    const serialized = JSON.stringify(result.traces);
+    expect(serialized).not.toContain('private transformed prompt');
+    expect(serialized).not.toContain('opaque private reasoning');
+    expect(serialized).not.toContain('encrypted private reasoning');
+    expect(serialized).not.toContain('privateMetric');
+    expect(serialized).not.toContain('metadata-decoy');
+  });
+
+  it('normalizes VS Code Copilot chat snapshots with whole-turn model usage', async () => {
+    const root = await tempRoot();
+    await fs.writeJson(path.join(root, 'copilot-vscode.json'), {
+      version: 3,
+      sessionId: 'copilot-vscode',
+      creationDate: Date.parse('2026-09-18T00:00:00.000Z'),
+      lastMessageDate: Date.parse('2026-09-18T00:00:05.000Z'),
+      responderUsername: 'GitHub Copilot',
+      requests: [{
+        requestId: 'request-1',
+        message: { text: 'Inspect the VS Code chat store.', parts: [] },
+        responseId: 'response-1',
+        timestamp: Date.parse('2026-09-18T00:00:01.000Z'),
+        responseTimestamp: Date.parse('2026-09-18T00:00:02.000Z'),
+        modelId: 'gpt-5.4',
+        promptTokens: 999,
+        completionTokens: 999,
+        modelTotals: [
+          { model: 'gpt-5.4', inputTokens: 40, cachedTokens: 7, outputTokens: 10 },
+          { model: 'gpt-5.4-mini', inputTokens: 5, cachedTokens: 1, outputTokens: 2 },
+        ],
+        response: [
+          { value: 'I will inspect it.' },
+          { kind: 'thinking', value: ['Check ', 'the schema.'] },
+          {
+            kind: 'toolInvocationSerialized', toolCallId: 'call-read', toolId: 'read_file',
+            isComplete: true, toolSpecificData: { command: 'read README.md' },
+            resultDetails: { output: 'read complete' },
+          },
+          {
+            kind: 'textEditGroup', uri: { fsPath: '/workspace/copilot/README.md' },
+            edits: [], done: true,
+          },
+          { kind: 'warning', content: { value: 'One optional file was skipped.' } },
+        ],
+      }],
+    });
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'copilot')).get('copilot')!;
+
+    const result = await adapter.scan();
+
+    expect(result).toMatchObject({ truncated: false, warnings: [] });
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0]).toMatchObject({
+      source: { harness: 'copilot', externalId: 'copilot-vscode' },
+      startedAt: '2026-09-18T00:00:00.000Z',
+      endedAt: '2026-09-18T00:00:05.000Z',
+      status: 'completed',
+      model: 'gpt-5.4',
+      usage: {
+        input: 45, output: 12, cacheRead: 8, total: 57, provenance: 'actual',
+      },
+    });
+    expect(result.traces[0].messages).toMatchObject([
+      {
+        sourceKey: 'request-1', role: 'user', timestamp: '2026-09-18T00:00:01.000Z',
+        parts: [{ type: 'text', text: 'Inspect the VS Code chat store.' }],
+      },
+      {
+        sourceKey: 'response-1', role: 'assistant', model: 'gpt-5.4',
+        timestamp: '2026-09-18T00:00:02.000Z',
+        usage: { input: 45, output: 12, cacheRead: 8, total: 57, provenance: 'actual' },
+        parts: [
+          { type: 'text', text: 'I will inspect it.' },
+          { type: 'reasoning', text: 'Check the schema.' },
+          {
+            type: 'tool_call', callId: 'call-read', name: 'read_file',
+            arguments: { command: 'read README.md' },
+          },
+          {
+            type: 'tool_result', callId: 'call-read', name: 'read_file',
+            content: { output: 'read complete' },
+          },
+          { type: 'file_change', path: '/workspace/copilot/README.md' },
+          { type: 'error', code: 'copilot_warning', message: 'One optional file was skipped.' },
+        ],
+      },
+    ]);
+  });
+
+  it('does not index empty VS Code Copilot chat snapshots', async () => {
+    const root = await tempRoot();
+    await fs.writeJson(path.join(root, 'empty.json'), {
+      version: 3,
+      sessionId: 'copilot-empty',
+      creationDate: Date.parse('2026-09-18T00:00:00.000Z'),
+      requests: [],
+      inputState: { text: 'unsent draft must not be indexed' },
+    });
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'copilot')).get('copilot')!;
+
+    const result = await adapter.scan();
+
+    expect(result).toMatchObject({ truncated: false, warnings: [], filesScanned: 1 });
+    expect(result.traces).toEqual([]);
+    expect(result.sourceFiles).toHaveLength(1);
+    expect(result.sourceFiles[0].traceIds).toEqual([]);
+  });
+
+  it('replays VS Code Copilot mutation logs and deduplicates copied session identities', async () => {
+    const root = await tempRoot();
+    const firstRequest = {
+      requestId: 'request-1', message: { text: 'First question.' },
+      responseId: 'response-1', response: [{ value: 'First answer.' }],
+      timestamp: Date.parse('2026-09-18T00:00:01.000Z'),
+    };
+    const secondRequest = {
+      requestId: 'request-2', message: { text: 'Second question.' },
+      responseId: 'response-2', response: [{ value: 'Second answer.' }],
+      timestamp: Date.parse('2026-09-18T00:00:03.000Z'),
+    };
+    await fs.writeJson(path.join(root, 'copy.json'), {
+      version: 3, sessionId: 'same-vscode-session',
+      creationDate: Date.parse('2026-09-18T00:00:00.000Z'),
+      requests: [firstRequest],
+    });
+    await fs.writeFile(path.join(root, 'copy.jsonl'), [
+      JSON.stringify({
+        kind: 0,
+        v: {
+          version: 3, sessionId: 'same-vscode-session',
+          creationDate: Date.parse('2026-09-18T00:00:00.000Z'),
+          requests: [firstRequest], inputState: { text: 'draft must not be included' },
+        },
+      }),
+      JSON.stringify({ kind: 2, k: ['requests'], v: [secondRequest] }),
+      JSON.stringify({
+        kind: 1, k: ['lastMessageDate'], v: Date.parse('2026-09-18T00:00:04.000Z'),
+      }),
+      JSON.stringify({ kind: 3, k: ['inputState'] }),
+    ].join('\n'));
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'copilot')).get('copilot')!;
+
+    const result = await adapter.scan();
+
+    expect(result).toMatchObject({ truncated: false, warnings: [] });
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0]).toMatchObject({
+      id: createCanonicalTraceId('copilot', 'same-vscode-session', 'native-session-id'),
+      source: { externalId: 'same-vscode-session', recordPath: path.join(root, 'copy.jsonl') },
+      endedAt: '2026-09-18T00:00:04.000Z',
+      status: 'completed',
+    });
+    expect(result.traces[0].messages).toHaveLength(4);
+    expect(result.traces[0].messages.map((message) => message.sourceKey)).toEqual([
+      'request-1', 'response-1', 'request-2', 'response-2',
+    ]);
+    expect(result.sourceFiles).toHaveLength(2);
+    expect(new Set(result.sourceFiles.flatMap((source) => source.traceIds))).toEqual(
+      new Set([result.traces[0].id]),
+    );
+    expect(JSON.stringify(result.traces)).not.toContain('draft must not be included');
+  });
+
+  it('marks unsupported Copilot contracts partial without dropping known messages', async () => {
+    const root = await tempRoot();
+    await fs.writeFile(path.join(root, 'future.jsonl'), [
+      JSON.stringify({
+        kind: 0,
+        v: {
+          version: 4, sessionId: 'copilot-future',
+          creationDate: Date.parse('2026-09-18T00:00:00.000Z'),
+          requests: [{
+            requestId: 'request-1', message: { text: 'Known question.' },
+            responseId: 'response-1', response: [
+              { value: 'Known answer.' },
+              { kind: 'futureResponse', opaque: true },
+            ],
+          }],
+        },
+      }),
+      JSON.stringify({ kind: 9, k: ['future'], v: true }),
+    ].join('\n'));
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'copilot')).get('copilot')!;
+
+    const result = await adapter.scan();
+
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0].messages).toHaveLength(2);
+    expect(result.traces[0].provenance).toMatchObject({
+      completeness: 'partial',
+      warnings: [
+        'Copilot VS Code chat version 4 is not a verified native contract.',
+        'Copilot VS Code mutation log contains unsupported entry kind "9".',
+        'Copilot VS Code response contains unsupported part kind "futureResponse".',
+      ],
+    });
+    expect(result.truncated).toBe(true);
+    expect(result.warnings).toEqual(expect.arrayContaining(result.traces[0].provenance.warnings));
+  });
+
+  it('marks unsupported Copilot CLI versions and event types partial', async () => {
+    const root = await tempRoot();
+    await fs.writeFile(path.join(root, 'events.jsonl'), [
+      JSON.stringify({
+        type: 'session.start', id: 'event-start', timestamp: '2026-09-18T00:00:00.000Z',
+        data: { sessionId: 'copilot-future-cli', version: 2, copilotVersion: '2.0.0' },
+      }),
+      JSON.stringify({
+        type: 'user.message', id: 'event-user', timestamp: '2026-09-18T00:00:01.000Z',
+        data: { content: 'Known question.' },
+      }),
+      JSON.stringify({
+        type: 'future.event', id: 'event-future', timestamp: '2026-09-18T00:00:02.000Z',
+        data: { opaque: true },
+      }),
+    ].join('\n'));
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'copilot')).get('copilot')!;
+
+    const result = await adapter.scan();
+
+    expect(result.traces).toHaveLength(1);
+    expect(result.traces[0].messages).toHaveLength(1);
+    expect(result.traces[0].provenance).toMatchObject({
+      completeness: 'partial',
+      warnings: [
+        'Copilot CLI session version 2 is not a verified native contract.',
+        'Copilot CLI contains unsupported event type "future.event".',
+      ],
+    });
+    expect(result.truncated).toBe(true);
+  });
+
   it('normalizes Droid session-v2 messages with allowlisted sibling settings', async () => {
     const root = await tempRoot();
     const sessionPath = path.join(root, 'project', 'droid-native.jsonl');

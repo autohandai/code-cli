@@ -19,6 +19,7 @@ import {
   type TraceTokenUsage,
 } from '../model.js';
 import { deriveTraceOutcome } from '../outcomes.js';
+import { normalizeCopilotSessionRecords } from './CopilotTraceNormalizer.js';
 import { normalizeDroidSessionRecords } from './DroidTraceNormalizer.js';
 import { normalizeGrokSessionRecords } from './GrokTraceNormalizer.js';
 import { normalizeKimiWireRecords } from './KimiTraceNormalizer.js';
@@ -217,6 +218,17 @@ function contentParts(value: unknown): TracePart[] {
         ? { isError: true }
         : {}),
       ...(exitCode === undefined ? {} : { exitCode: Math.round(exitCode) }),
+    }];
+  }
+  if (type === 'file_change' || type === 'file_edit') {
+    const filePath = firstString(value, [['path'], ['filePath'], ['file_path']]);
+    const additions = firstNumber(value, [['additions'], ['linesAdded'], ['lines_added']]);
+    const deletions = firstNumber(value, [['deletions'], ['linesRemoved'], ['lines_removed']]);
+    return [{
+      type: 'file_change',
+      ...(filePath ? { path: filePath } : {}),
+      ...(additions === undefined ? {} : { additions: Math.max(0, Math.round(additions)) }),
+      ...(deletions === undefined ? {} : { deletions: Math.max(0, Math.round(deletions)) }),
     }];
   }
   if (type === 'terminal' || type === 'command') {
@@ -1340,7 +1352,9 @@ function recordsToTraces(
         id: createCanonicalTraceId(
           definition.harness,
           trace.externalId,
-          definition.harness === 'droid' || definition.harness === 'grok'
+          definition.harness === 'copilot'
+            || definition.harness === 'droid'
+            || definition.harness === 'grok'
             ? 'native-session-id'
             : trace.recordPath,
         ),
@@ -1588,6 +1602,15 @@ class NativeTraceAdapter implements TraceSourceAdapter {
 
         if (this.harness === 'pi') {
           const normalized = normalizePiSessionRecords(records, file.path);
+          records = normalized.records;
+          provenanceWarnings = normalized.warnings;
+          if (provenanceWarnings.length > 0) {
+            budget.truncated = true;
+            budget.warnings.push(...provenanceWarnings);
+          }
+        }
+        if (this.harness === 'copilot') {
+          const normalized = normalizeCopilotSessionRecords(records, file.path);
           records = normalized.records;
           provenanceWarnings = normalized.warnings;
           if (provenanceWarnings.length > 0) {

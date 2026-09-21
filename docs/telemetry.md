@@ -204,6 +204,61 @@ reference at 651 normalized events, including the per-event-type split; no
 session content was printed or copied. This validates the observed v3 corpus,
 not every past or future Pi format.
 
+Copilot has two separate native contracts. For the CLI, the adapter reads only
+`~/.copilot/session-state/<sessionId>/events.jsonl`; it does not open
+`session.db`, `vscode.metadata.json`, `workspace.yaml`, checkpoints, or other
+files beside the event stream. Version-1 events supply the native session ID,
+CLI version, workspace/repository/branch/ref, timestamps, selected model,
+reasoning effort, context-window limit, system/user/assistant text, readable
+reasoning, paired tool calls/results, session errors and shutdown state. The
+durable `session.shutdown.modelMetrics` ledger is authoritative for accumulated
+per-model input, output, reasoning, cache-read and cache-write counts. Live
+`assistant.usage` and compaction usage are used only when a shutdown ledger is
+not available, so replayed accounting is not double-counted. `inputTokens`
+remains the provider's total input count; cache counts are retained as its
+reported sub-buckets and are not added again when deriving `total`.
+
+The CLI normalizer intentionally excludes transformed prompts, attachments,
+encrypted or opaque reasoning, request-correlation IDs, permission payloads,
+hook payloads, skill contents, progress deltas and tool-specific telemetry.
+Readable prompt, response, reasoning, tool arguments/results and error text are
+still normalized trace content: they remain local in metadata mode and are
+eligible for upload only after the separate full-content consent.
+[GitHub's Copilot SDK event reference](https://docs.github.com/en/copilot/how-tos/copilot-sdk/features/streaming-events)
+documents the event fields, and its
+[usage guide](https://github.com/github/copilot-sdk/blob/main/docs/features/usage-and-billing.md)
+distinguishes ephemeral per-call usage from accumulated session metrics.
+
+For VS Code, the adapter reads only versioned chat snapshots under
+`emptyWindowChatSessions` and `workspaceStorage/<workspace>/chatSessions`.
+Versions 1 through 3 are supported. JSONL files are replayed as the official
+initial/set/push/delete mutation log with safe path validation; unsent input
+state, attachments, variables, citations, repository diffs and unrelated UI
+state are not normalized. Non-empty sessions contribute user and assistant
+text, readable thinking, tool calls/results, warnings, file-change paths,
+timestamps and request model IDs. When available, `modelTotals` is preferred
+over single-call prompt/completion counters because VS Code defines it as the
+whole-turn total including subagents. Empty snapshots are not indexed, and
+copied JSON/JSONL sessions deduplicate by native session ID. The storage paths,
+versioned schema, and mutation format come from VS Code's
+[chat session store](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/chat/common/model/chatSessionStore.ts),
+[serializable chat model](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/chat/common/model/chatModel.ts),
+and [object mutation log](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/chat/common/model/objectMutationLog.ts).
+
+A counts-only comparison against `@traces-sh/traces@0.6.30` used one installed
+CLI session, one content-bearing VS Code snapshot, and one empty VS Code JSONL
+snapshot without printing message content. Both implementations retained the
+same two non-empty native session IDs and skipped the empty session. The pinned
+reference produced four CLI events but left all token columns empty; Autohand
+preserved the same conversation categories and additionally recovered the
+durable model/token ledger. For the VS Code session, the reference produced 449
+events: 175 assistant-text, 108 tool-call, 107 tool-result, 49 workspace-edit,
+nine user-message, and one error event. Autohand matched those content/tool/edit
+counts, while also retaining two serialized response-error records that the
+reference omitted. Unknown CLI versions/events, VS Code versions, mutation
+kinds, or response-part kinds mark coverage partial instead of silently
+appearing complete.
+
 Kimi wire protocols 1.4 and 1.5 join each agent's `wire.jsonl` with its
 session `state.json`. The normalizer preserves main/subagent identity and
 parent links, workspace and session timestamps, model/provider/thinking
