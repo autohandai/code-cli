@@ -40,6 +40,7 @@ describe('trace source registry', () => {
         CODEX_HOME: '/Users/tester/custom-codex',
         CLINE_DATA_DIR: '/Users/tester/custom-cline',
         OPENCLAW_STATE_DIR: '/Users/tester/custom-openclaw',
+        HERMES_HOME: '/Users/tester/custom-hermes',
         TRACES_CURSOR_GLOBAL_DB: '/Users/tester/mounted-cursor/state.vscdb',
       },
       platform: 'darwin',
@@ -70,6 +71,7 @@ describe('trace source registry', () => {
     expect(registry.get('cursor')?.locations).toContain('/Users/tester/mounted-cursor/state.vscdb');
     expect(registry.get('cline')?.locations).toContain('/Users/tester/custom-cline/sessions');
     expect(registry.get('openclaw')?.locations).toEqual(['/Users/tester/custom-openclaw/agents']);
+    expect(registry.get('hermes')?.locations).toEqual(['/Users/tester/custom-hermes']);
     expect(registry.get('openclaw')?.formats).toEqual(['jsonl', 'sqlite']);
   });
 
@@ -110,10 +112,7 @@ describe('trace source registry', () => {
     ]);
     expect(registry.get('grok')?.locations).toEqual(['/Users/tester/.grok/sessions']);
     expect(registry.get('kimi')?.locations).toEqual(['/Users/tester/.kimi-code/sessions', '/Users/tester/.kimi/sessions']);
-    expect(registry.get('hermes')?.locations).toEqual([
-      '/Users/tester/.hermes/state.db',
-      '/Users/tester/.local/share/hermes/state.db',
-    ]);
+    expect(registry.get('hermes')?.locations).toEqual(['/Users/tester/.hermes']);
     expect(registry.get('openclaw')?.locations).toEqual(['/Users/tester/.openclaw/agents']);
     expect(registry.get('antigravity')?.locations).toEqual([
       '/Users/tester/.gemini/antigravity-cli/brain',
@@ -121,5 +120,27 @@ describe('trace source registry', () => {
       '/Users/tester/.gemini/antigravity-ide/brain',
     ]);
     expect(registry.get('prime-agent')?.locations).toEqual(['/Users/tester/.prime/agent/sessions']);
+  });
+
+  it('uses the Windows Hermes application-data root when HERMES_HOME is unset', () => {
+    const registry = createTraceSourceRegistry({
+      homeDirectory: 'C:\\Users\\tester',
+      autohandHome: 'C:\\Users\\tester\\.autohand',
+      environment: { LOCALAPPDATA: 'D:\\LocalData' },
+      platform: 'win32',
+    });
+
+    expect(registry.get('hermes')?.locations).toEqual(['D:\\LocalData\\hermes']);
+  });
+
+  it('expands user-home and environment references in HERMES_HOME', () => {
+    const registry = createTraceSourceRegistry({
+      homeDirectory: '/Users/tester',
+      autohandHome: '/Users/tester/.autohand',
+      environment: { HERMES_HOME: '~/${HERMES_PROFILE_ROOT}/coder', HERMES_PROFILE_ROOT: 'profiles' },
+      platform: 'darwin',
+    });
+
+    expect(registry.get('hermes')?.locations).toEqual(['/Users/tester/profiles/coder']);
   });
 });

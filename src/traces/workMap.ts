@@ -199,7 +199,34 @@ function usageTotal(usage: TraceTokenUsage, harness: TraceHarness): number {
   return deriveTraceTotalTokens(usage, harness) ?? 0;
 }
 
+function explicitUsageBreakdown(
+  trace: NormalizedTrace,
+  totalTokens: number,
+  labelFor: (entry: NonNullable<NormalizedTrace['modelUsage']>[number]) => string | undefined,
+): Map<string, number> | undefined {
+  if (!trace.modelUsage || trace.modelUsage.length === 0) return undefined;
+  const breakdown = new Map<string, number>();
+  let measuredTokens = 0;
+  for (const entry of trace.modelUsage) {
+    if (entry.usage.provenance === 'unavailable') continue;
+    const tokens = usageTotal(entry.usage, trace.source.harness);
+    if (tokens <= 0) continue;
+    measuredTokens += tokens;
+    const label = safeDimensionLabel(labelFor(entry));
+    if (label && (breakdown.has(label) || breakdown.size < MAX_MODELS_PER_TRACE)) {
+      breakdown.set(label, (breakdown.get(label) ?? 0) + tokens);
+    }
+  }
+  if (measuredTokens === 0) return undefined;
+  if (measuredTokens > totalTokens) return new Map([[UNATTRIBUTED_MODEL, totalTokens]]);
+  const attributed = [...breakdown.values()].reduce((sum, value) => sum + value, 0);
+  if (totalTokens > attributed) breakdown.set(UNATTRIBUTED_MODEL, totalTokens - attributed);
+  return breakdown;
+}
+
 function modelTokenBreakdown(trace: NormalizedTrace, totalTokens: number): Map<string, number> {
+  const explicit = explicitUsageBreakdown(trace, totalTokens, (entry) => entry.model);
+  if (explicit) return explicit;
   const byModel = new Map<string, number>();
   const observedModels = new Set<string>();
   let measuredTokens = 0;
@@ -227,6 +254,13 @@ function modelTokenBreakdown(trace: NormalizedTrace, totalTokens: number): Map<s
     return new Map([[UNATTRIBUTED_MODEL, totalTokens]]);
   }
   return new Map([[traceModel ?? [...observedModels][0] ?? UNATTRIBUTED_MODEL, totalTokens]]);
+}
+
+function providerTokenBreakdown(trace: NormalizedTrace, totalTokens: number): Map<string, number> {
+  const explicit = explicitUsageBreakdown(trace, totalTokens, (entry) => entry.provider);
+  if (explicit) return explicit;
+  const provider = safeDimensionLabel(trace.provider);
+  return provider ? new Map([[provider, totalTokens]]) : new Map();
 }
 
 function addDimension(
@@ -347,6 +381,18 @@ export function projectTraceForLocalIndex(trace: NormalizedTrace): NormalizedTra
   const model = safeDimensionLabel(trace.model);
   const provider = safeDimensionLabel(trace.provider);
   const reasoningEffort = safeDimensionLabel(trace.reasoningEffort);
+  const modelUsage = trace.modelUsage?.flatMap((entry) => {
+    const usageModel = safeDimensionLabel(entry.model);
+    if (!usageModel) return [];
+    const usageProvider = safeDimensionLabel(entry.provider);
+    const task = safeDimensionLabel(entry.task);
+    return [{
+      model: usageModel,
+      ...(usageProvider ? { provider: usageProvider } : {}),
+      ...(task ? { task } : {}),
+      usage: entry.usage,
+    }];
+  });
   const modelSummaries: NormalizedTrace['messages'] = usageTotal(trace.usage, trace.source.harness) > 0
     ? [...modelTokenBreakdown(trace, usageTotal(trace.usage, trace.source.harness))]
       .map(([name, tokens], order) => ({
@@ -380,6 +426,7 @@ export function projectTraceForLocalIndex(trace: NormalizedTrace): NormalizedTra
     ...(reasoningEffort ? { reasoningEffort } : {}),
     ...(trace.contextWindow === undefined ? {} : { contextWindow: trace.contextWindow }),
     usage: trace.usage,
+    ...(modelUsage && modelUsage.length > 0 ? { modelUsage } : {}),
     relationships: trace.relationships.map((relationship) => ({
       type: relationship.type,
       traceId: createOpaqueTraceId(relationship.traceId),
@@ -451,7 +498,9 @@ export function deriveWorkMap(
     for (const [name, modelTokens] of modelTokenBreakdown(trace, tokens)) {
       addDimension(dimensions.models, name, trace.id, modelTokens);
     }
-    addDimension(dimensions.providers, trace.provider, trace.id, tokens);
+    for (const [name, providerTokens] of providerTokenBreakdown(trace, tokens)) {
+      addDimension(dimensions.providers, name, trace.id, providerTokens);
+    }
     addDimension(dimensions.reasoningEfforts, trace.reasoningEffort, trace.id, tokens);
     const repository = repositoryKey(trace);
     if (repository) repositories.add(repository);

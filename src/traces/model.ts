@@ -48,6 +48,15 @@ export const tokenUsageSchema = z.object({
 
 export type TraceTokenUsage = z.infer<typeof tokenUsageSchema>;
 
+export const traceModelUsageSchema = z.object({
+  model: z.string().min(1),
+  provider: z.string().min(1).optional(),
+  task: z.string().min(1).optional(),
+  usage: tokenUsageSchema,
+}).strict();
+
+export type TraceModelUsage = z.infer<typeof traceModelUsageSchema>;
+
 export function deriveTraceTotalTokens(
   usage: TraceTokenUsage,
   harness: TraceHarness,
@@ -165,6 +174,7 @@ export const normalizedTraceSchema = z.object({
   reasoningEffort: z.string().optional(),
   contextWindow: nonnegativeInteger.optional(),
   usage: tokenUsageSchema,
+  modelUsage: z.array(traceModelUsageSchema).max(1_000).optional(),
   relationships: z.array(z.object({
     type: z.enum(['parent', 'child', 'subagent', 'resume', 'fork', 'worktree']),
     traceId: z.string().min(1),

@@ -13,6 +13,10 @@ import {
   DEFAULT_TRACE_SCAN_LIMITS,
   readBoundedTraceFile,
 } from '../../src/traces/adapters/NativeTraceAdapter.js';
+import {
+  HERMES_SQLITE_RECORD_KIND,
+  normalizeHermesSessionRecords,
+} from '../../src/traces/adapters/HermesTraceNormalizer.js';
 
 const roots: string[] = [];
 
@@ -3056,7 +3060,340 @@ describe('native trace Adapters', () => {
     expect(result.traces[0].messages).toHaveLength(2);
   });
 
-  it.each<TraceHarness>(['cursor', 'opencode', 'opencode2', 'hermes'])
+  it('normalizes the current Hermes SQLite contract without reading private state tables or fields', async () => {
+    vi.mocked(DatabaseSync).mockClear();
+    const root = await tempRoot();
+    const defaultDatabase = path.join(root, 'state.db');
+    const profileDatabase = path.join(root, 'profiles', 'work', 'state.db');
+    await fs.ensureDir(path.dirname(profileDatabase));
+    await fs.ensureDir(path.join(root, 'backups'));
+    await fs.ensureDir(path.join(root, 'profiles', '.hidden'));
+    await fs.writeFile(defaultDatabase, 'sqlite default fixture');
+    await fs.writeFile(profileDatabase, 'sqlite profile fixture');
+    await fs.writeFile(path.join(root, 'auth.db'), 'credential decoy');
+    await fs.writeFile(path.join(root, 'profiles', 'work', 'auth.db'), 'profile credential decoy');
+    await fs.writeFile(path.join(root, 'backups', 'state.db'), 'backup decoy');
+    await fs.writeFile(path.join(root, 'profiles', '.hidden', 'state.db'), 'hidden profile decoy');
+
+    const sessions = [
+      {
+        id: 'hermes-parent', source: 'cli', model: 'gpt-6', parent_session_id: null,
+        started_at: 1_789_689_590, ended_at: 1_789_689_599, end_reason: 'compression',
+        input_tokens: 4, output_tokens: 2, cache_read_tokens: 1, cache_write_tokens: 0,
+        reasoning_tokens: 1, cwd: '/workspace/hermes', git_branch: 'main',
+        git_repo_root: '/workspace/hermes', billing_provider: 'openai', profile_name: 'default',
+      },
+      {
+        id: 'hermes-native', source: 'cli', model: 'claude-sonnet-4-6',
+        parent_session_id: 'hermes-parent', started_at: 1_789_689_600, ended_at: null,
+        end_reason: null, input_tokens: 25, output_tokens: 9, cache_read_tokens: 5,
+        cache_write_tokens: 1, reasoning_tokens: 4, cwd: '/workspace/hermes',
+        git_branch: 'feature/hermes', git_repo_root: '/workspace/hermes',
+        billing_provider: 'anthropic', profile_name: 'work',
+      },
+      {
+        id: 'hermes-subagent', source: 'delegate', model: 'gpt-6-mini',
+        parent_session_id: 'hermes-native', started_at: 1_789_689_604,
+        ended_at: 1_789_689_605, end_reason: 'agent_close', input_tokens: 3,
+        output_tokens: 1, cache_read_tokens: 0, cache_write_tokens: 0,
+        reasoning_tokens: 0, cwd: '/workspace/hermes', git_branch: 'feature/hermes',
+        git_repo_root: '/workspace/hermes', billing_provider: 'openai', profile_name: 'work',
+      },
+    ];
+    const profileMessages = [
+      {
+        id: 1, session_id: 'hermes-native', role: 'user', content: 'Inspect Hermes.',
+        tool_call_id: null, tool_calls: null, tool_name: null, effect_disposition: null,
+        timestamp: 1_789_689_601, token_count: null, finish_reason: null,
+        reasoning: null, reasoning_content: null, codex_message_items: null,
+        active: 1, compacted: 0, _compressed_summary: 0, display_kind: null,
+      },
+      {
+        id: 2, session_id: 'hermes-native', role: 'assistant', content: 'I will inspect it.',
+        tool_call_id: null,
+        tool_calls: JSON.stringify([{
+          id: 'call-read', type: 'function',
+          function: { name: 'read', arguments: JSON.stringify({ path: 'README.md' }) },
+        }]),
+        tool_name: null, effect_disposition: null, timestamp: 1_789_689_602,
+        token_count: 8, finish_reason: 'tool_calls', reasoning: 'Check the schema.',
+        reasoning_content: 'Check the schema.', codex_message_items: null,
+        active: 1, compacted: 0, _compressed_summary: 0, display_kind: null,
+      },
+      {
+        id: 3, session_id: 'hermes-native', role: 'tool', content: 'Hermes README',
+        tool_call_id: 'call-read', tool_calls: null, tool_name: 'read',
+        effect_disposition: 'success', timestamp: 1_789_689_603, token_count: null,
+        finish_reason: null, reasoning: null, reasoning_content: null,
+        codex_message_items: null, active: 1, compacted: 0,
+        _compressed_summary: 0, display_kind: null,
+      },
+      {
+        id: 4, session_id: 'hermes-native', role: 'user',
+        content: 'inactive-secret-must-never-be-read', timestamp: 1_789_689_603,
+        active: 0, compacted: 0, _compressed_summary: 0,
+      },
+      {
+        id: 5, session_id: 'hermes-native', role: 'assistant', content: null,
+        tool_call_id: null, tool_calls: null, tool_name: null, effect_disposition: null,
+        timestamp: 1_789_689_604, token_count: 2, finish_reason: 'stop',
+        reasoning: null, reasoning_content: null,
+        codex_message_items: JSON.stringify([{
+          type: 'message', role: 'assistant',
+          content: [{ type: 'output_text', text: 'Inspection complete.' }],
+          encrypted_payload: 'opaque-secret-must-not-survive',
+        }]),
+        active: 1, compacted: 0, _compressed_summary: 0, display_kind: null,
+      },
+      {
+        id: 6, session_id: 'hermes-native', role: 'system', content: 'hidden-secret',
+        timestamp: 1_789_689_604, active: 1, compacted: 0,
+        _compressed_summary: 0, display_kind: 'hidden',
+      },
+      {
+        id: 7, session_id: 'hermes-native', role: 'assistant', content: null,
+        tool_call_id: null, tool_calls: null, tool_name: null, effect_disposition: null,
+        timestamp: 1_789_689_604, token_count: 2, finish_reason: 'stop',
+        reasoning: null, reasoning_content: null,
+        codex_message_items: JSON.stringify([{
+          type: 'message', role: 'assistant',
+          content: [{ type: 'output_text', text: 'Inspection complete.' }],
+        }]),
+        active: 1, compacted: 0, _compressed_summary: 0, display_kind: null,
+      },
+      {
+        id: 8, session_id: 'hermes-subagent', role: 'user', content: 'Check one file.',
+        timestamp: 1_789_689_604, active: 1, compacted: 0,
+        _compressed_summary: 0, display_kind: null,
+      },
+    ];
+    const modelUsage = [
+      {
+        session_id: 'hermes-native', model: 'claude-sonnet-4-6',
+        billing_provider: 'anthropic', task: '', api_call_count: 1,
+        input_tokens: 15, output_tokens: 8, cache_read_tokens: 5,
+        cache_write_tokens: 0, reasoning_tokens: 4,
+      },
+      {
+        session_id: 'hermes-native', model: 'gpt-6', billing_provider: 'openai',
+        task: 'vision', api_call_count: 1, input_tokens: 10, output_tokens: 2,
+        cache_read_tokens: 0, cache_write_tokens: 1, reasoning_tokens: 0,
+      },
+    ];
+    const columns = {
+      schema_version: ['version'],
+      sessions: Object.keys(sessions[0]!),
+      messages: Object.keys(profileMessages[0]!),
+      session_model_usage: Object.keys(modelUsage[0]!),
+    } satisfies Record<string, string[]>;
+    const queriedSql: string[] = [];
+    const close = vi.fn();
+    vi.mocked(DatabaseSync).mockImplementation(function MockDatabase(databasePath) {
+      const isProfile = String(databasePath) === profileDatabase;
+      return {
+        prepare: vi.fn((sql: string) => {
+          queriedSql.push(sql);
+          return {
+            all: vi.fn((limit?: number) => {
+              const take = <T>(rows: T[]): T[] => rows.slice(0, limit ?? rows.length);
+              if (sql.includes('sqlite_master')) {
+                return ['schema_version', 'sessions', 'messages', 'session_model_usage',
+                  'system_prompts', 'gateway_routing', 'oauth_tokens'].map((name) => ({ name }));
+              }
+              const pragma = /PRAGMA table_info\("([^"]+)"\)/u.exec(sql);
+              if (pragma) return (columns[pragma[1]] ?? []).map((name) => ({ name }));
+              if (/FROM\s+"schema_version"/u.test(sql)) return [{ version: 30 }];
+              if (/FROM\s+"sessions"/u.test(sql)) return take(sessions);
+              if (/FROM\s+"messages"/u.test(sql)) {
+                const rows = isProfile ? profileMessages : profileMessages.slice(0, 1);
+                return take(sql.includes('"active" = 1') ? rows.filter((row) => row.active === 1) : rows);
+              }
+              if (/FROM\s+"session_model_usage"/u.test(sql)) return take(modelUsage);
+              return [];
+            }),
+          };
+        }),
+        close,
+      } as unknown as DatabaseSync;
+    });
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'hermes')).get('hermes')!;
+
+    const result = await adapter.scan();
+
+    expect(DatabaseSync).toHaveBeenCalledTimes(2);
+    expect(DatabaseSync).toHaveBeenCalledWith(defaultDatabase, { readOnly: true });
+    expect(DatabaseSync).toHaveBeenCalledWith(profileDatabase, { readOnly: true });
+    expect(close).toHaveBeenCalledTimes(2);
+    const sql = queriedSql.join('\n');
+    expect(sql).not.toMatch(/SELECT\s+\*/iu);
+    expect(sql).not.toMatch(/FROM\s+"(?:system_prompts|gateway_routing|oauth_tokens)"/iu);
+    expect(sql).not.toMatch(/\b(?:user_id|session_key|chat_id|thread_id|display_name|origin_json|model_config|system_prompt|api_content|reasoning_details|codex_reasoning_items|display_metadata|display_identity)\b/iu);
+    expect(sql).toContain('"active" = 1');
+    expect(result).toMatchObject({ filesScanned: 2, truncated: false, warnings: [] });
+    expect(result.sourceFiles).toHaveLength(2);
+    expect(result.traces).toHaveLength(3);
+
+    const parent = result.traces.find((trace) => trace.source.externalId === 'hermes-parent')!;
+    const session = result.traces.find((trace) => trace.source.externalId === 'hermes-native')!;
+    const subagent = result.traces.find((trace) => trace.source.externalId === 'hermes-subagent')!;
+    expect(parent).toMatchObject({
+      id: createCanonicalTraceId('hermes', 'hermes-parent', 'native-session-id'),
+      status: 'completed',
+    });
+    expect(session).toMatchObject({
+      id: createCanonicalTraceId('hermes', 'hermes-native', 'native-session-id'),
+      source: { recordPath: profileDatabase },
+      agent: { name: 'Hermes' },
+      project: { path: '/workspace/hermes', gitBranch: 'feature/hermes' },
+      startedAt: '2026-09-18T00:00:00.000Z',
+      status: 'active',
+      model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+      usage: {
+        input: 25, output: 10, cacheRead: 5, cacheWrite: 1,
+        reasoning: 4, total: 41, provenance: 'actual',
+      },
+      modelUsage: [
+        {
+          model: 'claude-sonnet-4-6', provider: 'anthropic', task: 'main',
+          usage: {
+            input: 15, output: 8, reasoning: 4, cacheRead: 5,
+            cacheWrite: 0, total: 28, provenance: 'actual',
+          },
+        },
+        {
+          model: 'gpt-6', provider: 'openai', task: 'vision',
+          usage: {
+            input: 10, output: 2, reasoning: 0, cacheRead: 0,
+            cacheWrite: 1, total: 13, provenance: 'actual',
+          },
+        },
+      ],
+      relationships: expect.arrayContaining([
+        { type: 'resume', traceId: parent.id },
+        { type: 'child', traceId: subagent.id },
+      ]),
+      provenance: { completeness: 'complete', warnings: [] },
+    });
+    expect(session).not.toHaveProperty('endedAt');
+    expect(session.messages).toMatchObject([
+      { role: 'user', parts: [{ type: 'text', text: 'Inspect Hermes.' }] },
+      { role: 'assistant', parts: [
+        { type: 'reasoning', text: 'Check the schema.' },
+        { type: 'text', text: 'I will inspect it.' },
+        { type: 'tool_call', name: 'read', callId: 'call-read', arguments: { path: 'README.md' } },
+      ] },
+      { role: 'tool', parts: [
+        { type: 'tool_result', name: 'read', callId: 'call-read', content: 'Hermes README' },
+      ] },
+      { role: 'assistant', parts: [{ type: 'text', text: 'Inspection complete.' }] },
+    ]);
+    expect(session.messages).toHaveLength(4);
+    expect(subagent).toMatchObject({
+      id: createCanonicalTraceId('hermes', 'hermes-subagent', 'native-session-id'),
+      status: 'completed',
+      relationships: [{ type: 'parent', traceId: session.id }],
+    });
+    const serialized = JSON.stringify(result.traces);
+    expect(serialized).not.toContain('inactive-secret-must-never-be-read');
+    expect(serialized).not.toContain('opaque-secret-must-not-survive');
+    expect(serialized).not.toContain('hidden-secret');
+  });
+
+  it('marks future Hermes SQLite schemas partial while retaining only known fields', async () => {
+    vi.mocked(DatabaseSync).mockClear();
+    const root = await tempRoot();
+    const databasePath = path.join(root, 'state.db');
+    await fs.writeFile(databasePath, 'future sqlite fixture');
+    const session = {
+      id: 'hermes-future', source: 'cli', model: 'future-model', parent_session_id: null,
+      started_at: 1_789_689_600, ended_at: null, end_reason: null, input_tokens: 0,
+      output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0,
+      cwd: '/workspace/future', git_branch: null, git_repo_root: '/workspace/future',
+      billing_provider: 'future-provider', profile_name: 'default',
+      future_private_payload: 'future-secret-must-not-survive',
+    };
+    const columns = {
+      sessions: Object.keys(session),
+      messages: ['id', 'session_id', 'role', 'content', 'timestamp', 'active'],
+    } satisfies Record<string, string[]>;
+    const queriedSql: string[] = [];
+    vi.mocked(DatabaseSync).mockImplementation(function MockDatabase() {
+      return {
+        prepare: vi.fn((sql: string) => {
+          queriedSql.push(sql);
+          return { all: vi.fn(() => {
+            if (sql.includes('sqlite_master')) return ['schema_version', 'sessions', 'messages'].map((name) => ({ name }));
+            const pragma = /PRAGMA table_info\("([^"]+)"\)/u.exec(sql);
+            if (pragma) return (columns[pragma[1]] ?? ['version']).map((name) => ({ name }));
+            if (/FROM\s+"schema_version"/u.test(sql)) return [{ version: 31 }];
+            if (/FROM\s+"sessions"/u.test(sql)) return [session];
+            return [];
+          }) };
+        }),
+        close: vi.fn(),
+      } as unknown as DatabaseSync;
+    });
+    const adapter = createTraceSourceRegistry(registryOptions(root, 'hermes')).get('hermes')!;
+
+    const result = await adapter.scan();
+
+    expect(result).toMatchObject({ truncated: true });
+    expect(result.warnings).toEqual(expect.arrayContaining([
+      expect.stringContaining('schema 31'),
+      expect.stringContaining('session_model_usage'),
+    ]));
+    expect(result.traces[0]).toMatchObject({
+      source: { externalId: 'hermes-future' },
+      provenance: {
+        completeness: 'partial',
+        warnings: expect.arrayContaining([
+          expect.stringContaining('schema 31'),
+          expect.stringContaining('session_model_usage'),
+        ]),
+      },
+    });
+    expect(queriedSql.join('\n')).not.toContain('future_private_payload');
+    expect(JSON.stringify(result.traces)).not.toContain('future-secret-must-not-survive');
+  });
+
+  it('bounds Hermes per-model attribution while preserving the trace total', () => {
+    const usageRows = Array.from({ length: 1_001 }, (_, index) => ({
+      [HERMES_SQLITE_RECORD_KIND]: 'usage',
+      session_id: 'hermes-many-models',
+      model: `model-${index}`,
+      billing_provider: 'provider',
+      task: '',
+      api_call_count: 1,
+      input_tokens: 1,
+      output_tokens: 0,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
+      reasoning_tokens: 0,
+    }));
+
+    const result = normalizeHermesSessionRecords([
+      {
+        [HERMES_SQLITE_RECORD_KIND]: 'schema', schemaVersion: 30,
+        activeProjection: true, modelUsageProjection: true,
+      },
+      {
+        [HERMES_SQLITE_RECORD_KIND]: 'session', id: 'hermes-many-models',
+        model: 'model-0', billing_provider: 'provider', started_at: 1_789_689_600,
+        input_tokens: 1_001, output_tokens: 0, cache_read_tokens: 0,
+        cache_write_tokens: 0, reasoning_tokens: 0,
+      },
+      ...usageRows,
+    ], '/tmp/state.db');
+
+    expect(result.warnings).toEqual([expect.stringContaining('1,000')]);
+    expect(result.records[0]).toMatchObject({
+      usage: { input: 1_001, total: 1_001, provenance: 'actual' },
+    });
+    expect(result.records[0]?.modelUsage).toHaveLength(1_000);
+  });
+
+  it.each<TraceHarness>(['cursor', 'opencode', 'opencode2'])
   ('reads SQLite message stores from %s in read-only mode', async (harness) => {
     const root = await tempRoot();
     const dbPath = path.join(root, 'sessions.db');

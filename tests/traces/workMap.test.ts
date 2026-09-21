@@ -150,6 +150,46 @@ describe('deriveWorkMap', () => {
     expect(JSON.stringify(cachedTrace)).not.toContain('private second response');
   });
 
+  it('prefers authoritative per-model and per-provider usage in fresh and cached maps', () => {
+    const multiModel = trace('hermes', 'authoritative-model-usage', {
+      model: 'stale-session-model',
+      provider: 'stale-session-provider',
+      usage: { input: 30, output: 10, cacheRead: 7, cacheWrite: 3, total: 50, provenance: 'actual' },
+      modelUsage: [
+        {
+          model: 'claude-sonnet-4-6', provider: 'anthropic', task: 'main',
+          usage: { input: 20, output: 8, cacheRead: 7, total: 35, provenance: 'actual' },
+        },
+        {
+          model: 'gpt-6', provider: 'openai', task: 'vision',
+          usage: { input: 10, output: 2, cacheWrite: 3, total: 15, provenance: 'actual' },
+        },
+      ],
+      messages: [{
+        id: 'message-without-usage', role: 'assistant', order: 0, model: 'stale-session-model',
+        usage: { provenance: 'unavailable' }, parts: [{ type: 'text', text: 'private response' }],
+      }],
+    });
+    const options = { now: new Date('2026-09-18T00:00:00.000Z'), since: '30d', coverage: [] };
+
+    const fresh = deriveWorkMap([multiModel], options);
+    const cachedTrace = projectTraceForLocalIndex(multiModel);
+    const cached = deriveWorkMap([cachedTrace], options);
+
+    expect(fresh.dimensions.models).toEqual([
+      { name: 'claude-sonnet-4-6', sessions: 1, tokens: 35 },
+      { name: 'gpt-6', sessions: 1, tokens: 15 },
+    ]);
+    expect(fresh.dimensions.providers).toEqual([
+      { name: 'anthropic', sessions: 1, tokens: 35 },
+      { name: 'openai', sessions: 1, tokens: 15 },
+    ]);
+    expect(cached.dimensions.models).toEqual(fresh.dimensions.models);
+    expect(cached.dimensions.providers).toEqual(fresh.dimensions.providers);
+    expect(cachedTrace.modelUsage).toEqual(multiModel.modelUsage);
+    expect(JSON.stringify(cachedTrace)).not.toContain('private response');
+  });
+
   it('leaves unmeasured tokens unattributed in a multi-model session', () => {
     const partial = trace('cline', 'partial-model-usage', {
       model: 'claude-sonnet-4-6',

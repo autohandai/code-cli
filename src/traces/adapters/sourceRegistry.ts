@@ -84,6 +84,23 @@ function joinHome(options: NormalizedRegistryOptions, ...parts: string[]): strin
   return pathApi.join(options.homeDirectory, ...parts);
 }
 
+function expandConfiguredPath(options: NormalizedRegistryOptions, value: string): string {
+  const pathApi = options.platform === 'win32' ? path.win32 : path;
+  let expanded = value.replace(/^~(?=$|[\\/])/u, options.homeDirectory);
+  expanded = expanded.replace(
+    /\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/gu,
+    (match, braced: string | undefined, bare: string | undefined) => (
+      options.environment[braced ?? bare ?? ''] ?? match
+    ),
+  );
+  if (options.platform === 'win32') {
+    expanded = expanded.replace(/%([A-Za-z_][A-Za-z0-9_]*)%/gu, (match, name: string) => (
+      options.environment[name] ?? match
+    ));
+  }
+  return pathApi.normalize(expanded);
+}
+
 function applicationSupport(options: NormalizedRegistryOptions, app: string): string {
   if (options.platform === 'darwin') {
     return joinHome(options, 'Library', 'Application Support', app);
@@ -196,10 +213,16 @@ const DEFINITIONS: readonly SourceDefinition[] = [
   },
   {
     harness: 'hermes', displayName: 'Hermes', formats: ['sqlite'],
-    locations: (options) => [
-      joinHome(options, '.hermes', 'state.db'),
-      joinHome(options, '.local', 'share', 'hermes', 'state.db'),
-    ],
+    locations: (options) => {
+      const configuredHome = options.environment.HERMES_HOME?.trim();
+      if (configuredHome) return [expandConfiguredPath(options, configuredHome)];
+      if (options.platform === 'win32') {
+        const localAppData = options.environment.LOCALAPPDATA
+          ?? path.win32.join(options.homeDirectory, 'AppData', 'Local');
+        return [path.win32.join(localAppData, 'hermes')];
+      }
+      return [joinHome(options, '.hermes')];
+    },
   },
   {
     harness: 'droid', displayName: 'Droid', formats: ['jsonl'],

@@ -24,6 +24,10 @@ import { normalizeAntigravityTranscriptRecords } from './AntigravityTraceNormali
 import { normalizeCopilotSessionRecords } from './CopilotTraceNormalizer.js';
 import { normalizeDroidSessionRecords } from './DroidTraceNormalizer.js';
 import { normalizeGrokSessionRecords } from './GrokTraceNormalizer.js';
+import {
+  HERMES_SQLITE_RECORD_KIND,
+  normalizeHermesSessionRecords,
+} from './HermesTraceNormalizer.js';
 import { normalizeKimiWireRecords } from './KimiTraceNormalizer.js';
 import {
   OPENCLAW_SQLITE_RECORD_KIND,
@@ -85,6 +89,7 @@ interface MutableTrace {
   reasoningEffort?: string;
   contextWindow?: number;
   usage: TraceTokenUsage;
+  modelUsage?: NormalizedTrace['modelUsage'];
   messageUsage: TraceTokenUsage;
   relationships: NormalizedTrace['relationships'];
   messages: NormalizedTrace['messages'];
@@ -297,6 +302,24 @@ function extractUsage(record: UnknownRecord): TraceTokenUsage {
     ...(total === undefined ? {} : { total }),
     provenance: available ? 'actual' : 'unavailable',
   };
+}
+
+function extractModelUsage(record: UnknownRecord): NonNullable<NormalizedTrace['modelUsage']> | undefined {
+  if (!Array.isArray(record.modelUsage)) return undefined;
+  const entries = record.modelUsage.flatMap((value) => {
+    if (!isRecord(value)) return [];
+    const model = firstString(value, [['model']]);
+    if (!model) return [];
+    const provider = firstString(value, [['provider']]);
+    const task = firstString(value, [['task']]);
+    return [{
+      model,
+      ...(provider ? { provider } : {}),
+      ...(task ? { task } : {}),
+      usage: extractUsage(value),
+    }];
+  });
+  return entries.length > 0 ? entries.slice(0, 1_000) : undefined;
 }
 
 function mergeUsage(current: TraceTokenUsage, incoming: TraceTokenUsage): TraceTokenUsage {
@@ -543,6 +566,14 @@ function isSessionSourcePath(definition: NativeAdapterDefinition, location: stri
       (segments[1] === 'sessions' && base.endsWith('.jsonl'))
       || (segments[1] === 'agent' && base === 'openclaw-agent.sqlite')
     );
+  }
+  if (definition.harness === 'hermes') {
+    if (base !== 'state.db') return false;
+    if (segments.length === 1) return true;
+    return segments.length === 3
+      && segments[0] === 'profiles'
+      && Boolean(segments[1])
+      && !segments[1]!.startsWith('.');
   }
   if (definition.harness === 'amp') {
     return segments.length === 1 && /^T-[A-Za-z0-9-]+\.json$/u.test(base);
@@ -887,6 +918,109 @@ function openClawSqliteRecords(
   return [...schema, ...nodes, ...windows, ...events];
 }
 
+function hermesSqliteTableRows(
+  database: SqliteDatabaseSync,
+  budget: ScanBudget,
+  table: 'schema_version' | 'sessions' | 'messages' | 'session_model_usage',
+  selectedColumns: readonly string[],
+  requiredColumns: readonly string[],
+  options: { where?: string; orderBy?: string } = {},
+): { rows: UnknownRecord[]; available: ReadonlySet<string> } {
+  const available = new Set((database.prepare(`PRAGMA table_info("${table}")`).all() as Array<{ name: string }>)
+    .map(({ name }) => name));
+  if (requiredColumns.some((column) => !available.has(column))) {
+    budget.truncated = true;
+    budget.warnings.push(`Hermes ${table} schema is missing required trace columns.`);
+    return { rows: [], available };
+  }
+  const remaining = budget.maxRecords - budget.recordsRead;
+  if (remaining <= 0) {
+    budget.truncated = true;
+    return { rows: [], available };
+  }
+  const columns = selectedColumns.filter((column) => available.has(column));
+  if (columns.length === 0) return { rows: [], available };
+  const rows = database.prepare(
+    `SELECT ${columns.map((column) => `"${column}"`).join(', ')} FROM "${table}"${options.where ?? ''}${options.orderBy ?? ''} LIMIT ?`,
+  ).all(remaining + 1) as UnknownRecord[];
+  if (rows.length > remaining) budget.truncated = true;
+  const bounded = rows.slice(0, remaining).map((row) => Object.fromEntries(
+    columns.map((column) => [column, row[column]]),
+  ));
+  budget.recordsRead += bounded.length;
+  return { rows: bounded, available };
+}
+
+function hermesSqliteRecords(
+  database: SqliteDatabaseSync,
+  budget: ScanBudget,
+  tableNames: ReadonlySet<string>,
+): UnknownRecord[] {
+  if (!tableNames.has('sessions') || !tableNames.has('messages')) {
+    budget.truncated = true;
+    budget.warnings.push('Hermes SQLite schema is missing required trace tables.');
+    return [];
+  }
+  const schemaRows = tableNames.has('schema_version')
+    ? hermesSqliteTableRows(
+      database,
+      budget,
+      'schema_version',
+      ['version'],
+      ['version'],
+      { orderBy: ' ORDER BY "version" DESC' },
+    ).rows
+    : [];
+  const sessions = hermesSqliteTableRows(database, budget, 'sessions', [
+    'id', 'model', 'parent_session_id', 'started_at', 'ended_at', 'end_reason',
+    'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens',
+    'reasoning_tokens', 'cwd', 'git_branch', 'git_repo_root', 'billing_provider',
+  ], ['id', 'started_at'], { orderBy: ' ORDER BY "started_at", "id"' }).rows;
+  const messageColumns = new Set((database.prepare('PRAGMA table_info("messages")').all() as Array<{ name: string }>)
+    .map(({ name }) => name));
+  const activeProjection = messageColumns.has('active');
+  const messages = hermesSqliteTableRows(database, budget, 'messages', [
+    'id', 'session_id', 'role', 'content', 'tool_call_id', 'tool_calls', 'tool_name',
+    'effect_disposition', 'timestamp', 'token_count', 'finish_reason', 'reasoning',
+    'reasoning_content', 'codex_message_items', 'active', 'compacted',
+    '_compressed_summary', 'display_kind',
+  ], ['id', 'session_id', 'role', 'timestamp'], {
+    ...(activeProjection ? { where: ' WHERE "active" = 1' } : {}),
+    orderBy: ' ORDER BY "session_id", "id"',
+  }).rows;
+  const usageProjection = tableNames.has('session_model_usage')
+    ? hermesSqliteTableRows(database, budget, 'session_model_usage', [
+      'session_id', 'model', 'billing_provider', 'task', 'api_call_count',
+      'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens',
+      'reasoning_tokens',
+    ], [
+      'session_id', 'model', 'billing_provider', 'task', 'api_call_count',
+      'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens',
+      'reasoning_tokens',
+    ], {
+      orderBy: ' ORDER BY "session_id", "model", "billing_provider", "task"',
+    })
+    : undefined;
+  const usage = usageProjection?.rows ?? [];
+  const modelUsageProjection = usageProjection !== undefined
+    && [
+      'session_id', 'model', 'billing_provider', 'task', 'api_call_count',
+      'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens',
+      'reasoning_tokens',
+    ].every((column) => usageProjection.available.has(column));
+  return [
+    {
+      [HERMES_SQLITE_RECORD_KIND]: 'schema',
+      schemaVersion: schemaRows[0]?.version,
+      activeProjection,
+      modelUsageProjection,
+    },
+    ...sessions.map((row) => ({ [HERMES_SQLITE_RECORD_KIND]: 'session', ...row })),
+    ...messages.map((row) => ({ [HERMES_SQLITE_RECORD_KIND]: 'message', ...row })),
+    ...usage.map((row) => ({ [HERMES_SQLITE_RECORD_KIND]: 'usage', ...row })),
+  ];
+}
+
 async function sqliteRecords(file: SourceFile, budget: ScanBudget, harness: TraceHarness): Promise<UnknownRecord[]> {
   let DatabaseSync: typeof import('node:sqlite').DatabaseSync;
   try {
@@ -915,6 +1049,9 @@ async function sqliteRecords(file: SourceFile, budget: ScanBudget, harness: Trac
     const tableNames = new Set(tables.map(({ name }) => name));
     if (harness === 'openclaw') {
       return openClawSqliteRecords(database, budget, tableNames);
+    }
+    if (harness === 'hermes') {
+      return hermesSqliteRecords(database, budget, tableNames);
     }
     if (harness === 'opencode2' && tableNames.has('session') && tableNames.has('session_message')) {
       return openCode2SqliteRecords(database, budget);
@@ -1268,6 +1405,7 @@ function updateTraceMetadata(
   trace.contextWindow ??= firstNumber(record, [
     ['contextWindow'], ['context_window'], ['payload', 'context_window'], ['metadata', 'contextWindow'],
   ]);
+  trace.modelUsage ??= extractModelUsage(record);
   trace.agentVersion ??= firstString(record, [
     ['agentVersion'], ['agent_version'], ['cliVersion'], ['version'], ['metadata', 'clientVersion'],
   ]);
@@ -1315,6 +1453,19 @@ function updateTraceMetadata(
       const relationship = {
         type: 'parent' as const,
         traceId: createCanonicalTraceId(harness, parentSessionId, trace.recordPath),
+      };
+      if (!trace.relationships.some((candidate) => (
+        candidate.type === relationship.type && candidate.traceId === relationship.traceId
+      ))) trace.relationships.push(relationship);
+    }
+  }
+  if (harness === 'hermes') {
+    const parentSessionId = firstString(record, [['parentSessionId']]);
+    if (parentSessionId) {
+      const relationshipType = firstString(record, [['parentRelationshipType']]);
+      const relationship = {
+        type: relationshipType === 'resume' ? 'resume' as const : 'parent' as const,
+        traceId: createCanonicalTraceId(harness, parentSessionId, 'native-session-id'),
       };
       if (!trace.relationships.some((candidate) => (
         candidate.type === relationship.type && candidate.traceId === relationship.traceId
@@ -1550,6 +1701,11 @@ function recordsToTraces(
         budget.recordsRead += 1;
         processRecord({ ...nested, sessionId: externalId }, externalId);
       }
+      if (record.authoritativeLifecycle === true
+        && record.status === 'active'
+        && (record.ended_at === null || record.ended_at === undefined)) {
+        trace.endedAt = undefined;
+      }
       return;
     }
 
@@ -1585,6 +1741,7 @@ function recordsToTraces(
             || definition.harness === 'copilot'
             || definition.harness === 'droid'
             || definition.harness === 'grok'
+            || definition.harness === 'hermes'
             || definition.harness === 'openclaw'
             ? 'native-session-id'
             : trace.recordPath,
@@ -1614,6 +1771,7 @@ function recordsToTraces(
         ...(trace.reasoningEffort ? { reasoningEffort: trace.reasoningEffort } : {}),
         ...(trace.contextWindow === undefined ? {} : { contextWindow: Math.max(0, Math.round(trace.contextWindow)) }),
         usage,
+        ...(trace.modelUsage ? { modelUsage: trace.modelUsage } : {}),
         relationships: trace.relationships,
         messages: trace.messages,
         provenance: {
@@ -1871,6 +2029,15 @@ class NativeTraceAdapter implements TraceSourceAdapter {
             budget.warnings.push(...provenanceWarnings);
           }
         }
+        if (this.harness === 'hermes') {
+          const normalized = normalizeHermesSessionRecords(records, file.path);
+          records = normalized.records;
+          provenanceWarnings = normalized.warnings;
+          if (provenanceWarnings.length > 0) {
+            budget.truncated = true;
+            budget.warnings.push(...provenanceWarnings);
+          }
+        }
         if (this.harness === 'pi') {
           const normalized = normalizePiSessionRecords(records, file.path);
           records = normalized.records;
@@ -2007,7 +2174,7 @@ class NativeTraceAdapter implements TraceSourceAdapter {
         }
       }
     }
-    if (this.harness === 'amp' || this.harness === 'openclaw') {
+    if (this.harness === 'amp' || this.harness === 'openclaw' || this.harness === 'hermes') {
       for (const child of unique.values()) {
         for (const relationship of child.relationships) {
           if (relationship.type !== 'parent') continue;
