@@ -1,6 +1,6 @@
 # Data collection, telemetry, and agent traces
 
-> Last reviewed against the CLI source: 2026-09-18
+> Last reviewed against the CLI source: 2026-09-21
 
 Autohand has several independent data paths. Enabling one does not silently
 enable the others. This document describes the client payloads and controls in
@@ -153,6 +153,13 @@ results. SQLite WAL changes trigger a rescan and WAL size counts toward the
 source budget. Legacy OpenCode JSON joins, authentic native-version fixtures
 for the other harnesses, and OpenCode 2's service-API fallback remain release
 gates.
+
+Several other harness definitions still point at broad application directories.
+The generic walker reads matching JSON/JSONL files beneath those roots, not just
+verified session filenames. That may include unrelated configuration or auth
+files in memory, even though the persistent Work Map excludes their content.
+Source-specific allowlists and decoy credential-file tests are required before
+these adapters can be considered safe for a production opt-in rollout.
 
 A single harness scan is bounded to 5,000 files, 64 MiB per file, 64 MiB total,
 100,000 records and directory depth 12. Work Map scans at most three harnesses
