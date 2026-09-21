@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -65,6 +65,37 @@ describe('native discovery command', () => {
       ui: { checkForUpdates: false },
     }));
 
+    const component = path.join(temporary, 'ahtraces-fixture.mjs');
+    const mapFixture = {
+      schemaVersion: 1,
+      generatedAt: '2026-09-21T00:00:00.000Z',
+      request: { since: '7d', sinceTimestamp: '2026-09-14T00:00:00.000Z', workspaceScope: 'current', harnesses: ['autohand'] },
+      coverage: { sessions: 0, sources: [], filesScanned: 0, bytesRead: 0, warnings: 0, partial: false },
+      sessions: { total: 0, active: 0, completed: 0, failed: 0, cancelled: 0, unknown: 0, durationMs: 0, tokens: 0, usageProvenance: { actual: 0, estimated: 0, unavailable: 0 } },
+      outcomes: { verified: 0, completedUnverified: 0, failed: 0, cancelled: 0, partial: 0, unknown: 0 },
+      dimensions: { harnesses: [], models: [], providers: [], reasoningEfforts: [] },
+      tools: [], workflows: [],
+      verification: { sessionsWithObservedProof: 0, testsPassed: 0, testsFailed: 0, lintPassed: 0, buildPassed: 0, proofPassed: 0 },
+      relationships: { parent: 0, child: 0, subagent: 0, resume: 0, fork: 0, worktree: 0 },
+      repositories: { observed: 0, multiRepositorySessions: 0 },
+      recommendations: [],
+      privacy: { contentProcessedLocally: true, networkRequests: false, persistedRawContent: false, outputContainsAggregatesOnly: true, excluded: [] },
+      limits: [],
+    };
+    await writeFile(component, [
+      '#!/usr/bin/env node',
+      "const command = process.argv[2];",
+      "if (command === 'reconcile') {",
+      "  let input = '';",
+      "  for await (const chunk of process.stdin) input += chunk;",
+      "  const settings = JSON.parse(input);",
+      "  console.log(JSON.stringify(settings.enabled ? { status: 'running', pid: process.pid, restarted: false } : { status: 'disabled' }));",
+      "} else if (command === 'map') {",
+      `  console.log(${JSON.stringify(JSON.stringify(mapFixture))});`,
+      "} else { process.exitCode = 2; }",
+    ].join('\n'));
+    await chmod(component, 0o755);
+
     const result = await run([
       '--config', configuration,
       'discovery', 'map',
@@ -72,7 +103,7 @@ describe('native discovery command', () => {
       '--since', '7d',
       '--agent', 'autohand',
       '--workspace', workspace,
-    ]);
+    ], { AUTOHAND_AHTRACES_EXECUTABLE: component });
     const map = JSON.parse(result.stdout);
 
     expect(map.schemaVersion).toBe(1);

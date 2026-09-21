@@ -13,7 +13,7 @@ import { showModal, showInput, showConfirm, showPassword, type ModalOption } fro
 import { saveConfig } from '../config.js';
 import type { BuiltInProviderName, LoadedConfig } from '../types.js';
 import { DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION, MAX_CONCURRENT_THREADS_PER_SESSION, isValidSessionThreadLimit } from '../core/agents/SessionThreadBudget.js';
-import { TRACE_CONSENT_VERSION } from '../traces/consent.js';
+import { TRACE_CONSENT_VERSION } from '../integrations/ahtraces/consent.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 

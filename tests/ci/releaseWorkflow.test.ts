@@ -98,7 +98,7 @@ describe('release workflow', () => {
       scripts: Record<string, string>;
     };
     const compileStep = loadReleaseWorkflow().jobs.build.steps.find(
-      (step) => step.name === 'Compile binary',
+      (step) => step.name === 'Compile binaries',
     );
 
     expect(compileStep?.run).toContain('--external node-llama-cpp');
@@ -107,8 +107,16 @@ describe('release workflow', () => {
         './src/index.ts --compile --target=',
       );
       expect(packageJson.scripts[`compile:${target}`]).toContain('--external node-llama-cpp');
-      expect(packageJson.scripts[`compile:${target}`]).toContain('./src/ahtraces.ts --compile');
+      expect(packageJson.scripts[`compile:${target}`]).not.toContain('ahtraces');
     }
+  });
+
+  it('pins the private ahtraces source to an immutable commit', () => {
+    const revision = readFileSync(
+      path.join(REPOSITORY_ROOT, '.github/ahtraces-ref'),
+      'utf8',
+    ).trim();
+    expect(revision).toMatch(/^[0-9a-f]{40}$/u);
   });
 
   it('normalizes a v-prefixed manual stable version before publishing', () => {
@@ -174,13 +182,17 @@ describe('release workflow', () => {
     const workflow = loadReleaseWorkflow();
     const buildSteps = workflow.jobs.build.steps;
     const buildTargets = workflow.jobs.build.strategy?.matrix?.include;
-    const compileIndex = buildSteps.findIndex((step) => step.name === 'Compile binary');
+    const componentRefIndex = buildSteps.findIndex((step) => step.name === 'Read pinned ahtraces revision');
+    const componentCheckoutIndex = buildSteps.findIndex((step) => step.name === 'Checkout pinned ahtraces component');
+    const compileIndex = buildSteps.findIndex((step) => step.name === 'Compile binaries');
     const signIndex = buildSteps.findIndex((step) => step.name === 'Sign macOS binary');
     const smokeIndex = buildSteps.findIndex((step) => step.name === 'Smoke test binary');
     const uploadIndex = buildSteps.findIndex((step) => step.name === 'Upload artifact');
     const signStep = buildSteps[signIndex];
 
-    expect(compileIndex).toBeGreaterThanOrEqual(0);
+    expect(componentRefIndex).toBeGreaterThanOrEqual(0);
+    expect(componentCheckoutIndex).toBeGreaterThan(componentRefIndex);
+    expect(compileIndex).toBeGreaterThan(componentCheckoutIndex);
     expect(signIndex).toBeGreaterThan(compileIndex);
     expect(smokeIndex).toBeGreaterThan(signIndex);
     expect(uploadIndex).toBeGreaterThan(smokeIndex);
@@ -188,7 +200,16 @@ describe('release workflow', () => {
     expect(signStep?.run).toContain('codesign --force --sign - --timestamp=none');
     expect(signStep?.run).toContain('codesign --verify --strict --verbose=4');
     expect(signStep?.run).toContain('matrix.tracesArtifact');
-    expect(buildSteps[compileIndex]?.run).toContain('./src/ahtraces.ts');
+    expect(buildSteps[componentCheckoutIndex]?.uses).toBe('actions/checkout@v7');
+    expect(buildSteps[componentCheckoutIndex]?.with).toMatchObject({
+      repository: 'autohandai/ahtraces',
+      ref: '${{ steps.ahtraces-ref.outputs.sha }}',
+      path: 'ahtraces-component',
+      token: '${{ secrets.AHTRACES_REPO_TOKEN }}',
+    });
+    expect(buildSteps[compileIndex]?.run).toContain('./src/index.ts');
+    expect(buildSteps[compileIndex]?.run).toContain('./ahtraces-component/src/index.ts');
+    expect(buildSteps[compileIndex]?.run).not.toContain('./src/ahtraces.ts');
     expect(buildSteps[smokeIndex]?.run).toContain('matrix.tracesArtifact');
     expect(buildSteps[uploadIndex]?.with?.path).toContain('${{ matrix.tracesArtifact }}');
     expect(buildTargets).toEqual(expect.arrayContaining([

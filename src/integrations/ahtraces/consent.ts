@@ -1,5 +1,5 @@
 /** @license Apache-2.0 */
-import type { LoadedConfig } from '../types.js';
+import type { LoadedConfig } from '../../types.js';
 
 export const TRACE_CONSENT_VERSION = 1;
 

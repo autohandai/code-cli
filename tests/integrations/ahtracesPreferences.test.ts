@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LoadedConfig } from '../../src/types.js';
 
-const { loadConfigMock, saveConfigMock, reconcileAhTracesMock } = vi.hoisted(() => ({
+const { loadConfigMock, saveConfigMock, reconcileAhTracesMock, runAhTracesProcessMock } = vi.hoisted(() => ({
   loadConfigMock: vi.fn(),
   saveConfigMock: vi.fn(),
   reconcileAhTracesMock: vi.fn(),
+  runAhTracesProcessMock: vi.fn(),
 }));
 
 vi.mock('../../src/config.js', () => ({
@@ -12,11 +13,12 @@ vi.mock('../../src/config.js', () => ({
   saveConfig: saveConfigMock,
 }));
 
-vi.mock('../../src/traces/supervisor/runtime.js', () => ({
+vi.mock('../../src/integrations/ahtraces/client.js', () => ({
   reconcileAhTraces: reconcileAhTracesMock,
+  runAhTracesProcess: runAhTracesProcessMock,
 }));
 
-const { runAhTraces } = await import('../../src/ahtraces.js');
+const { runAhTracesCommand } = await import('../../src/integrations/ahtraces/commands.js');
 
 function config(overrides: Partial<LoadedConfig> = {}): LoadedConfig {
   return {
@@ -32,11 +34,12 @@ describe('ahtraces monitoring preferences', () => {
     loadConfigMock.mockResolvedValue(config());
     saveConfigMock.mockResolvedValue(undefined);
     reconcileAhTracesMock.mockResolvedValue({ status: 'running', pid: 123, restarted: false });
+    runAhTracesProcessMock.mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' });
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
   it('enables local monitoring and metadata sync before starting the daemon', async () => {
-    await expect(runAhTraces(['on', '--config', '/tmp/autohand-config.json'])).resolves.toBe(0);
+    await expect(runAhTracesCommand(['on', '--config', '/tmp/autohand-config.json'])).resolves.toBe(0);
 
     expect(saveConfigMock).toHaveBeenCalledWith(expect.objectContaining({
       traces: expect.objectContaining({
@@ -60,7 +63,7 @@ describe('ahtraces monitoring preferences', () => {
     }));
     reconcileAhTracesMock.mockResolvedValue({ status: 'disabled' });
 
-    await expect(runAhTraces(['off'])).resolves.toBe(0);
+    await expect(runAhTracesCommand(['off'])).resolves.toBe(0);
 
     expect(saveConfigMock).toHaveBeenCalledWith(expect.objectContaining({
       traces: expect.objectContaining({
@@ -73,5 +76,18 @@ describe('ahtraces monitoring preferences', () => {
       expect.objectContaining({ traces: expect.objectContaining({ enabled: false }) }),
       { strict: true },
     );
+  });
+
+  it('delegates status and stop commands to the installed component', async () => {
+    runAhTracesProcessMock.mockResolvedValue({
+      exitCode: 0,
+      stdout: '{"running":true,"pid":123}\n',
+      stderr: '',
+    });
+
+    await expect(runAhTracesCommand(['status', '--json'])).resolves.toBe(0);
+
+    expect(runAhTracesProcessMock).toHaveBeenCalledWith(['status', '--json'], {});
+    expect(loadConfigMock).not.toHaveBeenCalled();
   });
 });

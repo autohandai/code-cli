@@ -3,16 +3,18 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { readFile } from 'node:fs/promises';
+import { chmod, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
 import {
   createTempAutohandHome,
+  exitInteractive,
   launchBuiltAutohand,
   type TuistoryTempState,
   waitForExit,
 } from './helpers/autohandTuistory.js';
-import { selectModalOptionByLabel } from './helpers/builtCli.js';
+import { selectModalOptionByLabel, waitForComposer } from './helpers/builtCli.js';
 
 const sessions: Session[] = [];
 const states: TuistoryTempState[] = [];
@@ -92,6 +94,34 @@ describe('trace control flags', () => {
     expect(session.exitInfo?.exitCode).toBe(0);
   }, 30_000);
 
+  it('forwards JSON status output through the traces subcommand', async () => {
+    const state = await createTempAutohandHome();
+    states.push(state);
+    const component = path.join(state.workspaceRoot, 'ahtraces-status-fixture.mjs');
+    await writeFile(component, [
+      '#!/usr/bin/env node',
+      "if (process.argv[2] !== 'status' || process.argv[3] !== '--json') process.exit(2);",
+      "console.log(JSON.stringify({ running: true, pid: 123, version: '0.1.0' }));",
+    ].join('\n'));
+    await chmod(component, 0o755);
+
+    const session = await launchBuiltAutohand([
+      '--bare',
+      '--config', state.configPath,
+      'traces', 'status', '--json',
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      env: { AUTOHAND_AHTRACES_EXECUTABLE: component },
+      waitForData: false,
+    });
+    sessions.push(session);
+    await waitForExit(session);
+
+    expect(await session.readAll()).toContain('{"running":true,"pid":123,"version":"0.1.0"}');
+    expect(session.exitInfo?.exitCode).toBe(0);
+  }, 30_000);
+
   it('asks an existing user for versioned consent before entering the agent', async () => {
     const state = await createTempAutohandHome({ config: { traces: {} } });
     states.push(state);
@@ -120,7 +150,8 @@ describe('trace control flags', () => {
     expect(output).toContain('autohand --traces-off');
     expect(output).toContain('ahtraces off');
 
-    session.close();
+    await waitForComposer(session);
+    await exitInteractive(session);
     sessions.splice(sessions.indexOf(session), 1);
   }, 60_000);
 });

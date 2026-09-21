@@ -4,6 +4,9 @@
 
 set -e
 
+REPO_ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+AHTRACES_SOURCE_DIR="${AHTRACES_SOURCE_DIR:-$REPO_ROOT/../ahtraces}"
+
 SKIP_COMPILE=false
 if [ "${1:-}" = "--skip-compile" ]; then
     SKIP_COMPILE=true
@@ -35,6 +38,13 @@ else
     exit 1
 fi
 TRACES_BINARY="${BINARY/autohand-/ahtraces-}"
+TRACE_TARGET="${BINARY#autohand-}"
+case "$TRACE_TARGET" in
+    macos-arm64) TRACE_BUN_TARGET="darwin-arm64" ;;
+    macos-x64) TRACE_BUN_TARGET="darwin-x64" ;;
+    linux-x64) TRACE_BUN_TARGET="linux-x64" ;;
+    linux-arm64) TRACE_BUN_TARGET="linux-arm64" ;;
+esac
 
 # Compile first: a failed build must never leave the machine without autohand.
 if [ "$SKIP_COMPILE" = false ]; then
@@ -43,25 +53,35 @@ if [ "$SKIP_COMPILE" = false ]; then
     case "$BINARY" in
         autohand-macos-arm64)
             env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-darwin-arm64 --outfile ./binaries/autohand-macos-arm64
-            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/ahtraces.ts --compile --target=bun-darwin-arm64 --outfile ./binaries/ahtraces-macos-arm64
             ;;
         autohand-macos-x64)
             env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-darwin-x64 --outfile ./binaries/autohand-macos-x64
-            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/ahtraces.ts --compile --target=bun-darwin-x64 --outfile ./binaries/ahtraces-macos-x64
             ;;
         autohand-linux-x64)
             env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-linux-x64 --outfile ./binaries/autohand-linux-x64
-            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/ahtraces.ts --compile --target=bun-linux-x64 --outfile ./binaries/ahtraces-linux-x64
             ;;
         autohand-linux-arm64)
             env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-linux-arm64 --outfile ./binaries/autohand-linux-arm64
-            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/ahtraces.ts --compile --target=bun-linux-arm64 --outfile ./binaries/ahtraces-linux-arm64
             ;;
         *)
             echo "❌ Unsupported binary target: $BINARY"
             exit 1
             ;;
     esac
+
+    if [ ! -f "$AHTRACES_SOURCE_DIR/package.json" ]; then
+        echo "❌ Missing private ahtraces checkout at $AHTRACES_SOURCE_DIR"
+        echo "   Set AHTRACES_SOURCE_DIR to the independently cloned autohandai/ahtraces repository."
+        exit 1
+    fi
+    echo "📦 Compiling $TRACES_BINARY from $AHTRACES_SOURCE_DIR..."
+    (
+        cd "$AHTRACES_SOURCE_DIR"
+        bun install --frozen-lockfile
+        mkdir -p binaries
+        bun build ./src/index.ts --compile --target="bun-$TRACE_BUN_TARGET" --outfile "./binaries/$TRACES_BINARY"
+    )
+    cp "$AHTRACES_SOURCE_DIR/binaries/$TRACES_BINARY" "binaries/$TRACES_BINARY"
 elif [ ! -f "binaries/$BINARY" ] || [ ! -f "binaries/$TRACES_BINARY" ]; then
     echo "❌ Missing precompiled binaries: binaries/$BINARY and binaries/$TRACES_BINARY"
     exit 1
@@ -165,6 +185,7 @@ echo ""
 echo "Try it out:"
 echo "  autohand --help"
 echo "  autohand"
+echo "  https://console.autohand.ai/traces # View synchronized traces after opt-in"
 
 if [ "$OS" = "Darwin" ] && [ "$ARCH" = "arm64" ]; then
     if [ "${AUTOHAND_INSTALL_LOCAL_AI:-0}" = "1" ]; then

@@ -1,7 +1,7 @@
 /** @license Apache-2.0 */
-import { saveConfig } from '../config.js';
-import type { LoadedConfig } from '../types.js';
-import { reconcileAhTraces } from './supervisor/runtime.js';
+import { saveConfig } from '../../config.js';
+import type { LoadedConfig } from '../../types.js';
+import { reconcileAhTraces } from './client.js';
 import { applyTraceConsentChoice } from './consent.js';
 
 export async function setTraceMonitoringEnabled(

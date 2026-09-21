@@ -858,6 +858,7 @@ function Install-Autohand {
         Write-Host "  autohand --traces-off # Stop monitoring and cloud sync"
         Write-Host "  ahtraces on|off       # Use the trace companion directly"
         Write-Host "  ahtraces off          # Stop at any time"
+        Write-Host "  https://console.autohand.ai/traces # View synchronized traces"
     }
     Write-Host ""
 

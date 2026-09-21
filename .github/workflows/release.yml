@@ -241,6 +241,27 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Read pinned ahtraces revision
+        id: ahtraces-ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision=$(tr -d '[:space:]' < .github/ahtraces-ref)
+          if ! [[ "$revision" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::.github/ahtraces-ref must contain one full commit SHA"
+            exit 1
+          fi
+          echo "sha=$revision" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout pinned ahtraces component
+        uses: actions/checkout@v7
+        with:
+          repository: autohandai/ahtraces
+          ref: ${{ steps.ahtraces-ref.outputs.sha }}
+          path: ahtraces-component
+          token: ${{ secrets.AHTRACES_REPO_TOKEN }}
+          persist-credentials: false
+
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
@@ -255,6 +276,10 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Install ahtraces dependencies
+        working-directory: ahtraces-component
+        run: bun install --frozen-lockfile
+
       - name: Update version before build
         run: |
           echo "Setting version to: ${{ needs.prepare.outputs.version }}"
@@ -263,7 +288,7 @@ jobs:
       - name: Build TypeScript
         run: bun run build
 
-      - name: Compile binary
+      - name: Compile binaries
         run: |
           mkdir -p binaries
           # node-llama-cpp lazily requires one @node-llama-cpp/<platform> prebuilt
@@ -274,7 +299,7 @@ jobs:
           # import for Node/Bun module resolution at runtime, same as `sharp`
           # in tsup.config.ts.
           bun build ./src/index.ts --compile --target=bun-${{ matrix.target }} --external node-llama-cpp --outfile ./binaries/${{ matrix.artifact }}
-          bun build ./src/ahtraces.ts --compile --target=bun-${{ matrix.target }} --outfile ./binaries/${{ matrix.tracesArtifact }}
+          bun build ./ahtraces-component/src/index.ts --compile --target=bun-${{ matrix.target }} --outfile ./binaries/${{ matrix.tracesArtifact }}
 
       - name: Sign macOS binary
         if: runner.os == 'macOS'

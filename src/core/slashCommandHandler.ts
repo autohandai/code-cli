@@ -278,7 +278,7 @@ export class SlashCommandHandler {
         }
         case '/settings': {
           const { settings, normalizeSettingKey } = await import('../commands/settings.js');
-          const { applyTraceSettingChange } = await import('../traces/settingsLifecycle.js');
+          const { applyTraceSettingChange } = await import('../integrations/ahtraces/settingsLifecycle.js');
           if (!this.ctx.config) {
             console.log(chalk.yellow('Config not available.'));
             return null;

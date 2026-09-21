@@ -3,7 +3,7 @@ import type { LoadedConfig } from '../../src/types.js';
 import {
   applyTraceConsentChoice,
   needsTraceConsent,
-} from '../../src/traces/consent.js';
+} from '../../src/integrations/ahtraces/consent.js';
 
 function config(overrides: Partial<LoadedConfig> = {}): LoadedConfig {
   return {

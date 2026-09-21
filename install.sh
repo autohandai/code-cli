@@ -287,6 +287,7 @@ EOF
         echo "  autohand --traces-off # Stop monitoring and cloud sync"
         echo "  ahtraces on|off       # Use the trace companion directly"
         echo "  ahtraces off          # Stop at any time"
+        echo "  https://console.autohand.ai/traces # View synchronized traces"
     fi
 
     install_local_ai_runtime_if_requested

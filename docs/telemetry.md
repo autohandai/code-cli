@@ -117,6 +117,13 @@ Agent traces are a separate local-first subsystem controlled by `traces.*`.
 When `traces.enabled` is `false`, `ahtraces` is not kept running and Work Map
 commands refuse to scan.
 
+`ahtraces` is an Autohand sub agent with its own private repository, build,
+tests, and binary. Code CLI owns consent, onboarding, account configuration,
+and the user-facing commands. Release builds checkout the commit pinned in
+`.github/ahtraces-ref`, build both products separately, and bundle the sibling
+executables in the official archives. Autohand passes versioned settings to the
+component over stdin, so account credentials never appear in process arguments.
+
 New users choose a trace mode during onboarding. Existing configurations without
 the current `traces.consentVersion` are asked once during an interactive startup;
 cancelling leaves tracing off and asks again later. The stored choice can be

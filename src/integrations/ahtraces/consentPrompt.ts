@@ -1,14 +1,14 @@
 /** @license Apache-2.0 */
 import chalk from 'chalk';
-import { saveConfig } from '../config.js';
-import type { LoadedConfig } from '../types.js';
-import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
+import { saveConfig } from '../../config.js';
+import type { LoadedConfig } from '../../types.js';
+import { showModal, type ModalOption } from '../../ui/ink/components/Modal.js';
 import {
   applyTraceConsentChoice,
   needsTraceConsent,
   type TraceConsentChoice,
 } from './consent.js';
-import { reconcileAhTraces } from './supervisor/runtime.js';
+import { reconcileAhTraces } from './client.js';
 
 const TRACE_CONSENT_OPTIONS: readonly ModalOption[] = [
   {

@@ -134,7 +134,7 @@ import {
   resolveStatefulReadMode,
   type ReadStateStore,
 } from './agent/ReadSessionLedger.js';
-import { buildLocalWorkMap, parseWorkMapHarnesses } from '../traces/localWorkMap.js';
+import { buildLocalWorkMap, parseWorkMapHarnesses } from '../integrations/ahtraces/workMap.js';
 
 interface ActivityTodo {
   id?: string;

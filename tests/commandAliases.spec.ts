@@ -24,7 +24,6 @@ describe('CLI command aliases', () => {
       'autohand-code': 'dist/index.js',
       agent: 'dist/index.js',
       ah: 'dist/index.js',
-      ahtraces: 'dist/ahtraces.js',
     });
   });
 
@@ -47,6 +46,7 @@ describe('CLI command aliases', () => {
     expect(installer).toContain(
       'claim_agent_alias_path_wide "$_dir/$BINARY_NAME" "$_dir"',
     );
+    expect(installer).toContain('https://console.autohand.ai/traces');
   });
 
   it('installs the compatibility alias for local development builds', () => {
@@ -70,6 +70,9 @@ describe('CLI command aliases', () => {
     expect(installer).toContain(
       'ln -sfn "$(basename "$INSTALL_PATH")" "$SHORT_ALIAS_PATH"',
     );
+    expect(installer).toContain('AHTRACES_SOURCE_DIR');
+    expect(installer).toContain('bun build ./src/index.ts --compile --target="bun-$TRACE_BUN_TARGET"');
+    expect(installer).not.toContain('./src/ahtraces.ts');
   });
 
   it('installs the compatibility alias on Windows systems', () => {
@@ -96,5 +99,6 @@ describe('CLI command aliases', () => {
     expect(installer).toContain(
       'Claim-PathWideAgentAlias -OwnInstallPath $installPath -CanonicalBinaryPath $binaryPath -AgentCollisionNames $agentCollisionNames',
     );
+    expect(installer).toContain('https://console.autohand.ai/traces');
   });
 });

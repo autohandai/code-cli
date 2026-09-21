@@ -1,7 +1,7 @@
 /** @license Apache-2.0 */
-import type { SettingsChange } from '../commands/settings.js';
-import type { LoadedConfig } from '../types.js';
-import { reconcileAhTraces } from './supervisor/runtime.js';
+import type { SettingsChange } from '../../commands/settings.js';
+import type { LoadedConfig } from '../../types.js';
+import { reconcileAhTraces } from './client.js';
 
 export async function applyTraceSettingChange(
   config: LoadedConfig,

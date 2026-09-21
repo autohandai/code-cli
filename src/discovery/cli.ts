@@ -21,7 +21,7 @@ import {
   parseWorkMapHarnesses,
   renderWorkMap,
   writeWorkMapOutput,
-} from '../traces/localWorkMap.js';
+} from '../integrations/ahtraces/workMap.js';
 
 type DiscoveryOptions = {
   workspace?: string;

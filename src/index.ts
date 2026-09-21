@@ -37,9 +37,9 @@ import { reportCliCommand } from './telemetry/commandUsage.js';
 import {
   reconcileAhTraces,
   shouldReconcileAhTracesAtStartup,
-} from './traces/supervisor/runtime.js';
-import { applyTraceSettingChange } from './traces/settingsLifecycle.js';
-import { setTraceMonitoringEnabled } from './traces/preferences.js';
+} from './integrations/ahtraces/client.js';
+import { applyTraceSettingChange } from './integrations/ahtraces/settingsLifecycle.js';
+import { setTraceMonitoringEnabled } from './integrations/ahtraces/preferences.js';
 import { runStartupChecks, printStartupCheckResults, validateWorkspacePath } from './startup/checks.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/workspaceSafety.js';
 import { ensureAuthenticated } from './auth/index.js';
@@ -1481,11 +1481,12 @@ program
   .option('--json', 'Emit machine-readable status')
   .action(async (action: string | undefined, options: { json?: boolean }) => {
     const rootOptions = program.opts<RootCliOptions>();
-    const { runAhTraces } = await import('./ahtraces.js');
-    const code = await runAhTraces([
+    const emitJson = options.json === true || rootOptions.json !== undefined;
+    const { runAhTracesCommand } = await import('./integrations/ahtraces/commands.js');
+    const code = await runAhTracesCommand([
       action ?? 'status',
       ...(rootOptions.config ? ['--config', rootOptions.config] : []),
-      ...(options.json ? ['--json'] : []),
+      ...(emitJson ? ['--json'] : []),
     ]);
     process.exitCode = code;
   });
@@ -1636,7 +1637,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       && process.stdout.isTTY === true;
     if (canPromptForTraceConsent) {
       const { ensureExistingUserTraceConsent } = await awaitCliLifecycleStep(
-        import('./traces/consentPrompt.js'),
+        import('./integrations/ahtraces/consentPrompt.js'),
         commandLifecycleController.signal,
       );
       config = await awaitCliLifecycleStep(

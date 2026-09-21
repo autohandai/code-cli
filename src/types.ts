@@ -1590,7 +1590,7 @@ export type AgentAction =
   | {
       type: 'inspect_work_map';
       since?: string;
-      agents?: import('./traces/model.js').TraceHarness[];
+      agents?: import('./integrations/ahtraces/workMap.js').TraceHarness[];
     }
   | { type: 'create_hook'; prompt: string; event?: HookEvent; level?: string }
   | {

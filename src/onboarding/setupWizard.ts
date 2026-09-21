@@ -61,8 +61,8 @@ import {
   getGcloudAccessToken,
   getGcloudAccount,
 } from '../utils/gcloudAuth.js';
-import { TRACE_CONSENT_VERSION } from '../traces/consent.js';
-import { promptTraceConsentChoice } from '../traces/consentPrompt.js';
+import { TRACE_CONSENT_VERSION } from '../integrations/ahtraces/consent.js';
+import { promptTraceConsentChoice } from '../integrations/ahtraces/consentPrompt.js';
 
 /**
  * Steps in the onboarding wizard

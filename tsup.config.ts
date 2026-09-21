@@ -14,7 +14,6 @@ function getGitCommit(): string {
 export default defineConfig({
   entry: [
     'src/index.ts',
-    'src/ahtraces.ts',
     // Include questionModal as a separate entry point for dynamic import in agent.ts
     'src/ui/questionModal.tsx',
   ],
