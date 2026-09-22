@@ -62,6 +62,38 @@ function lastRenderedTaskListPositionProvider(): (() => unknown) | undefined {
 }
 
 describe('InkRenderer keyboard protocol lifecycle', () => {
+  it('waits for Ink to finish unmounting before stop resolves', async () => {
+    let finishExit: (() => void) | undefined;
+    const exitFinished = new Promise<void>((resolve) => {
+      finishExit = resolve;
+    });
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    renderer.start();
+    const instance = vi.mocked(renderInk).mock.results.at(-1)?.value;
+    expect(instance).toBeDefined();
+    vi.mocked(instance!.waitUntilExit).mockReturnValue(exitFinished);
+
+    let stopped = false;
+    const stopping = Promise.resolve(renderer.stop()).then(() => {
+      stopped = true;
+    });
+    await Promise.resolve();
+
+    expect(instance!.clear).toHaveBeenCalledOnce();
+    expect(instance!.unmount).toHaveBeenCalledOnce();
+    expect(instance!.waitUntilExit).toHaveBeenCalledOnce();
+    expect(stopped).toBe(false);
+
+    finishExit?.();
+    await stopping;
+    expect(stopped).toBe(true);
+  });
+
   it('pushes the kitty disambiguate flag when the UI starts and pops it when it stops', () => {
     const originalIsTTY = process.stdout.isTTY;
     (process.stdout as any).isTTY = true;

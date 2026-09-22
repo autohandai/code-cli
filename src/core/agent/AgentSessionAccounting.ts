@@ -83,7 +83,7 @@ export interface AgentSessionAccountingHost {
   sessionActualTokensUsed: number;
   sessionTokenUsageUnavailable: boolean;
   cleanupModelResponse(raw: string): string;
-  cleanupUI?(keepInkAlive?: boolean): void;
+  cleanupUI?(keepInkAlive?: boolean): void | Promise<void>;
   closeSession(): Promise<void>;
   emitOutput(event: AgentOutputEvent): void;
   emitStatus(): void;
@@ -109,6 +109,13 @@ async function settleCleanupTasks(tasks: Promise<unknown>[]): Promise<void> {
   });
   await Promise.race([Promise.allSettled(tasks), timeoutPromise]);
   if (timeout) clearTimeout(timeout);
+}
+
+function writeSessionSummaryLine(line: string): void {
+  if (process.stdout.isTTY) {
+    process.stdout.write('\x1b[2K\r');
+  }
+  console.log(line);
 }
 
 type IdleLogoutEnv = {
@@ -328,9 +335,9 @@ export async function forceAgentIdleLogout(host: AgentSessionAccountingHost): Pr
   // teardown below can no longer report it. Print where the work went and how
   // to pick it back up before handing off.
   if (sessionId) {
-    console.log();
-    console.log(formatSessionSaved(sessionId));
-    console.log(formatResumeHint(sessionId));
+    writeSessionSummaryLine('');
+    writeSessionSummaryLine(formatSessionSaved(sessionId));
+    writeSessionSummaryLine(formatResumeHint(sessionId));
   }
 
   await host.closeSession();
@@ -341,7 +348,7 @@ export async function closeAgentSession(
   options: AgentShutdownOptions = {},
 ): Promise<void> {
   await host.stopActiveAgentHeartbeat?.().catch(() => {});
-  try { host.cleanupUI?.(false); } catch {}
+  try { await host.cleanupUI?.(false); } catch {}
   try { host.persistentInput.dispose(); } catch {}
   try { host.repeatManager?.shutdown(); } catch {}
 
@@ -355,7 +362,7 @@ export async function closeAgentSession(
   const session = host.sessionManager.getCurrentSession();
 
   if (!session) {
-    if (options.showSessionSummary !== false) console.log(formatSessionEnding());
+    if (options.showSessionSummary !== false) writeSessionSummaryLine(formatSessionEnding());
     await settleCleanupTasks([
       host.mcpManager.disconnectAll(),
       teamShutdown,
@@ -375,9 +382,12 @@ export async function closeAgentSession(
   }
 
   if (options.showSessionSummary !== false) {
-    console.log(`\n${formatSessionEnding()}\n`);
-    console.log(formatSessionSaved(session.metadata.sessionId));
-    console.log(`${formatResumeHint(session.metadata.sessionId)}\n`);
+    writeSessionSummaryLine('');
+    writeSessionSummaryLine(formatSessionEnding());
+    writeSessionSummaryLine('');
+    writeSessionSummaryLine(formatSessionSaved(session.metadata.sessionId));
+    writeSessionSummaryLine(formatResumeHint(session.metadata.sessionId));
+    writeSessionSummaryLine('');
   }
 
   const sessionEndedAt = Date.now();

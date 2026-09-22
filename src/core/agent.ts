@@ -1724,9 +1724,9 @@ export class AutohandAgent {
    * instead of being destroyed, preventing the composer disappear/reappear
    * flicker between back-to-back turns.
    */
-  private cleanupUI(keepInkAlive = false): void {
+  private async cleanupUI(keepInkAlive = false): Promise<void> {
     this.stopAccountPlanRefresh();
-    return cleanupAgentUI(this, keepInkAlive);
+    await cleanupAgentUI(this, keepInkAlive);
   }
 
   /**

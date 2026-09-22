@@ -588,7 +588,8 @@ export class InkRenderer {
   /**
    * Stop the Ink renderer and cleanup
    */
-  stop(): void {
+  async stop(): Promise<void> {
+    let waitForExit: Promise<void> | undefined;
     if (this.instance && process.stdout.isTTY) {
       disableKittyProtocol(process.stdout);
     }
@@ -600,6 +601,11 @@ export class InkRenderer {
         instance.unmount();
       }
       this.instance = null;
+      try {
+        waitForExit = Promise.resolve(instance.waitUntilExit()).then(() => undefined);
+      } catch {
+        waitForExit = Promise.resolve();
+      }
     }
 
     if (
@@ -629,6 +635,8 @@ export class InkRenderer {
 
     // Clear any pending instruction waiter to prevent dangling promises
     this._instructionWaiter = null;
+
+    await waitForExit?.catch(() => undefined);
   }
 
   /**

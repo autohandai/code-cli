@@ -96,8 +96,9 @@ export class InkUIManager extends BaseUIManager implements UIManager {
 
   async stop(): Promise<void> {
     if (this.inkRenderer) {
-      this.inkRenderer.stop();
+      const renderer = this.inkRenderer;
       this.inkRenderer = null;
+      await renderer.stop();
     }
     this.inputWaiter = null;
   }

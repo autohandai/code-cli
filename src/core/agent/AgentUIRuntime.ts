@@ -483,7 +483,8 @@ export function stopAgentUI(host: AgentUIRuntimeHost, failed = false, message?: 
     }
   }
 
-export function cleanupAgentUI(host: AgentUIRuntimeHost, keepInkAlive = false): void {
+export async function cleanupAgentUI(host: AgentUIRuntimeHost, keepInkAlive = false): Promise<void> {
+    let inkStop: Promise<void> | undefined;
     writeAutohandDebugLine(
       `[DEBUG] cleanupUI called: keepInkAlive=${keepInkAlive}, inkRenderer exists=${!!host.inkRenderer}`,
       host.writeDebugLine?.bind(host)
@@ -510,9 +511,10 @@ export function cleanupAgentUI(host: AgentUIRuntimeHost, keepInkAlive = false): 
         }
         writeAutohandDebugLine('[DEBUG] cleanupUI: stopping inkRenderer', host.writeDebugLine?.bind(host));
         host.terminalTitle?.restore();
-        host.inkRenderer.stop();
+        const renderer = host.inkRenderer;
         host.inkRenderer = null;
         host.runtime.inkRenderer = undefined;
+        inkStop = renderer.stop();
         // Clear any pending resolver so the idle-wait promise doesn't hang
         host.inkInstructionResolver = null;
       }
@@ -521,6 +523,7 @@ export function cleanupAgentUI(host: AgentUIRuntimeHost, keepInkAlive = false): 
       host.runtime.spinner.stop();
       host.runtime.spinner = undefined;
     }
+    await inkStop;
   }
 
 export function printAgentCompletionSummary(host: AgentUIRuntimeHost, regionsStillActive: boolean, succeeded = true): void {
