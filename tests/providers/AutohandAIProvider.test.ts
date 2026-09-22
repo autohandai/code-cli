@@ -40,6 +40,39 @@ describe("AutohandAIProvider", () => {
     expect(AUTOHAND_AI_MOA_CONTEXT_WINDOW).toBe(1_000_000);
   });
 
+  it.each(["weka", "autohand/weka", "autohandai/weka"])(
+    "rejects the non-chat %s model instead of silently running Fantail",
+    (model) => {
+      expect(() => new AutohandAIProvider({
+        plan: "cloud",
+        authMode: "api-key",
+        apiKey: "test-autohand-key",
+        model,
+      })).toThrow(
+        "Weka is available through the Autohand API and Console Playground. CLI execution is not supported yet.",
+      );
+    },
+  );
+
+  it("rejects a Weka request override before sending a chat completion", async () => {
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as typeof globalThis.fetch;
+    const provider = new AutohandAIProvider({
+      plan: "cloud",
+      authMode: "api-key",
+      apiKey: "test-autohand-key",
+      model: "fantail",
+    });
+
+    await expect(provider.complete({
+      model: "weka",
+      messages: [{ role: "user", content: "Decide" }],
+    })).rejects.toThrow(
+      "Weka is available through the Autohand API and Console Playground. CLI execution is not supported yet.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it.each(['auto', 'autohand/auto'])("sends the singular %s model to the Autohand gateway", async (model) => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

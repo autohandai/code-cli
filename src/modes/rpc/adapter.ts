@@ -25,7 +25,7 @@ import {
 import { buildAutomodeIterationPrompt } from '../../core/automodePrompt.js';
 import { McpClientManager } from '../../mcp/McpClientManager.js';
 import { classifyApiError, type ApiErrorCode } from '../../providers/errors.js';
-import { getAllCatalogModelOptions, getProviderModelOptions } from '../../providers/modelCatalog.js';
+import { getAllRunnableCatalogModelOptions, getProviderModelOptions } from '../../providers/modelCatalog.js';
 import type { ConversationManager } from '../../core/conversationManager.js';
 import type {
   AutohandConfig,
@@ -4282,7 +4282,7 @@ export class RPCAdapter {
         getProviderModelOptions('autohandai').map((model) => model.id),
       );
       const includeAutohand = isAutohandInferenceEnabled(config);
-      const models = getAllCatalogModelOptions()
+      const models = getAllRunnableCatalogModelOptions()
         .filter((model) => includeAutohand || !autohandModelIds.has(model.id))
         .map((model) => ({
           id: model.id,
