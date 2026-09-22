@@ -1249,6 +1249,7 @@ describe('RPC Adapter - Browser handoff', () => {
 
     expect(result.models.map((model) => model.id)).toContain('fantail');
     expect(result.models.map((model) => model.id)).toContain('moa');
+    expect(result.models.map((model) => model.id)).not.toContain('weka');
   });
 
   it('creates a browser handoff from the active session', async () => {

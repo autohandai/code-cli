@@ -30,6 +30,7 @@ describe("modelCatalog", () => {
       getProviderDefaultModel,
       getProviderModelIds,
       getProviderModelOptions,
+      getProviderRunnableModelIds,
     } = await importCatalog();
 
     expect(getBundledModelCatalogPath()).toMatch(/src\/providers\/models\.json$/);
@@ -72,7 +73,15 @@ describe("modelCatalog", () => {
       expect.objectContaining({ id: "fantail", contextWindow: 262_144, maxTokens: 16_000 }),
       expect.objectContaining({ id: "moa", contextWindow: 1_000_000, maxTokens: 262_144 }),
       expect.objectContaining({ id: "auto", contextWindow: 262_144, maxTokens: 16_000 }),
+      expect.objectContaining({
+        id: "weka",
+        contextWindow: 32_000,
+        maxTokens: 1_024,
+        cliSupported: false,
+        description: expect.stringContaining("not runnable in the CLI"),
+      }),
     ]);
+    expect(getProviderRunnableModelIds("autohandai")).toEqual(["fantail", "moa", "auto"]);
     rmSync(dir, { recursive: true, force: true });
   });
 

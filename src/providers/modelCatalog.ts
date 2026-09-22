@@ -20,6 +20,8 @@ export interface ModelCatalogEntry {
   id: string;
   displayName?: string;
   description?: string;
+  /** False when the entry may be shown for discovery but must never reach a CLI chat request. */
+  cliSupported?: boolean;
   contextWindow?: number;
   maxTokens?: number;
   toolCalls?: boolean;
@@ -109,6 +111,9 @@ function normalizeModelEntry(value: unknown): ModelCatalogEntry | undefined {
   }
   if (typeof value.toolCalls === "boolean") {
     entry.toolCalls = value.toolCalls;
+  }
+  if (typeof value.cliSupported === "boolean") {
+    entry.cliSupported = value.cliSupported;
   }
   const reasoningEffort = normalizeReasoningEffort(value.reasoningEffort);
   if (reasoningEffort) {
@@ -339,6 +344,14 @@ export function getProviderModelIds(provider: BuiltInProviderName): string[] {
   return getProviderModelOptions(provider).map((entry) => entry.id);
 }
 
+export function getProviderRunnableModelOptions(provider: BuiltInProviderName): ModelCatalogEntry[] {
+  return getProviderModelOptions(provider).filter((entry) => entry.cliSupported !== false);
+}
+
+export function getProviderRunnableModelIds(provider: BuiltInProviderName): string[] {
+  return getProviderRunnableModelOptions(provider).map((entry) => entry.id);
+}
+
 export function getProviderDefaultModel(
   provider: BuiltInProviderName,
   fallback?: string,
@@ -364,4 +377,8 @@ export function getAllCatalogModelOptions(): ModelCatalogEntry[] {
     PROVIDERS.flatMap((provider) => getProviderModelOptions(provider)),
     [],
   );
+}
+
+export function getAllRunnableCatalogModelOptions(): ModelCatalogEntry[] {
+  return getAllCatalogModelOptions().filter((entry) => entry.cliSupported !== false);
 }

@@ -549,7 +549,7 @@ Create `~/.autohand/config.json` or use `config.toml`, `config.yaml`, or `config
 
 | Provider    | Config Key    | Notes                                                |
 | ----------- | ------------- | ---------------------------------------------------- |
-| Autohand AI | `autohandai`  | Cloud Fantail/Moa or guided local Apple Silicon MLX  |
+| Autohand AI | `autohandai`  | Cloud Fantail/Moa or guided local Apple Silicon MLX. Weka is API/Console only. |
 | OpenRouter  | `openrouter`  | Access to Claude, GPT-4, Grok, etc.                  |
 | LLMGateway  | `llmgateway`  | Direct Claude API access                             |
 | OpenAI      | `openai`      | GPT-4 and other models                               |

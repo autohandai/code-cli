@@ -94,6 +94,13 @@ function buildModel(providerId, value) {
     cost: validCost(source.cost),
     contextWindow: finitePositive(source.contextWindow, defaults.contextWindow),
     maxTokens: finitePositive(source.maxTokens, 32768),
+    ...(source.cliSupported === false ? { cliSupported: false } : {}),
+    ...(typeof source.description === "string" && source.description.trim()
+      ? { description: source.description.trim() }
+      : {}),
+    ...(typeof source.endpoint === "string" && source.endpoint.trim()
+      ? { endpoint: source.endpoint.trim() }
+      : {}),
   };
 }
 
