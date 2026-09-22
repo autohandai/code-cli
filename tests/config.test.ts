@@ -20,6 +20,68 @@ afterEach(() => {
 });
 
 describe('getProviderConfig', () => {
+  it('creates new configs with local and cloud trace collection disabled', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
+    const configPath = path.join(tempDir, 'config.json');
+
+    try {
+      const config = await loadConfig(configPath);
+
+      expect(config.traces).toEqual({
+        enabled: false,
+        cloudSync: false,
+        contentMode: 'metadata',
+        discoveryMap: true,
+      });
+    } finally {
+      await fs.remove(tempDir);
+    }
+  });
+
+  it('rejects invalid trace consent and content settings', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
+    const configPath = path.join(tempDir, 'config.json');
+
+    try {
+      await fs.writeJson(configPath, {
+        provider: 'openrouter',
+        openrouter: { apiKey: '', model: 'openrouter/auto' },
+        traces: { enabled: 'yes' },
+      });
+      await expect(loadConfig(configPath)).rejects.toThrow('traces.enabled must be boolean');
+
+      await fs.writeJson(configPath, {
+        provider: 'openrouter',
+        openrouter: { apiKey: '', model: 'openrouter/auto' },
+        traces: { consentVersion: 0 },
+      });
+      await expect(loadConfig(configPath)).rejects.toThrow('traces.consentVersion must be a positive integer');
+
+      await fs.writeJson(configPath, {
+        provider: 'openrouter',
+        openrouter: { apiKey: '', model: 'openrouter/auto' },
+        traces: { contentMode: 'everything' },
+      });
+      await expect(loadConfig(configPath)).rejects.toThrow('traces.contentMode must be metadata or full');
+
+      await fs.writeJson(configPath, {
+        provider: 'openrouter',
+        openrouter: { apiKey: '', model: 'openrouter/auto' },
+        traces: { apiBaseUrl: 'ftp://localhost/traces' },
+      });
+      await expect(loadConfig(configPath)).rejects.toThrow('traces.apiBaseUrl must be an HTTPS URL or localhost');
+
+      await fs.writeJson(configPath, {
+        provider: 'openrouter',
+        openrouter: { apiKey: '', model: 'openrouter/auto' },
+        traces: { apiBaseUrl: 'https://user:password@api.autohand.ai' },
+      });
+      await expect(loadConfig(configPath)).rejects.toThrow('traces.apiBaseUrl must be an HTTPS URL or localhost');
+    } finally {
+      await fs.remove(tempDir);
+    }
+  });
+
   it('creates new configs with completion reports enabled by default', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
     const configPath = path.join(tempDir, 'config.json');

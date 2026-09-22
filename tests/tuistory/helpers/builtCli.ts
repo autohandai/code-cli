@@ -276,6 +276,8 @@ export function registerBuiltCliCleanup(): void {
 export async function launchInteractive(options: {
   config?: CreateTempAutohandHomeOptions['config'];
   env?: Record<string, string | undefined>;
+  cols?: number;
+  rows?: number;
 } = {}): Promise<Session> {
   const state = await createTempAutohandHome({ config: options.config });
   tempStates.push(state);
@@ -284,6 +286,8 @@ export async function launchInteractive(options: {
       autohandHome: state.autohandHome,
       cwd: state.workspaceRoot,
       env: options.env,
+      cols: options.cols,
+      rows: options.rows,
       waitForDataTimeout: 15_000,
     })
   );

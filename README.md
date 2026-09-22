@@ -59,6 +59,19 @@ Autohand's own install directory — so `agent` reliably resolves to Autohand.
 This happens automatically with no prompt; if another tool's `agent` command
 stops working after installing Autohand, this is why.
 
+The release archives, Unix/Windows installers, and Homebrew formula also install
+`ahtraces`, the managed local trace-monitor companion. Its private source is
+built independently from a pinned revision during the Autohand release. It remains
+idle until the user answers the trace-consent step. New users see that step in
+onboarding; existing users see it once after upgrading to the consent-aware
+release. Cloud trace ingestion does not count against Autohand API usage.
+
+Use `autohand --traces-on`, `autohand traces on`, or `ahtraces on` to enable
+local monitoring with metadata sync. Use the matching `--traces-off`,
+`autohand traces off`, or `ahtraces off` control to stop it. Uploaded traces are
+visible at `https://console.autohand.ai/traces` and can be deleted from the
+Console Account page.
+
 ### Manual Installation
 
 ```bash
@@ -622,17 +635,44 @@ Configure granular permissions in `~/.autohand/config.toml/yaml/json`:
 
 ## Telemetry & Feedback
 
-Telemetry is disabled by default. Opt in to help improve Autohand Code CLI:
+Product telemetry and full session sync are disabled by default. They are
+separate choices: session sync includes conversation content and requires both
+an authenticated account and its own explicit switch.
 
 ```json
 {
   "telemetry": {
-    "enabled": true
+    "enabled": false,
+    "enableSessionSync": false
   }
 }
 ```
 
-When enabled, Autohand Code CLI collects anonymous usage data (no PII, no code content). See [Telemetry Documentation](docs/telemetry.md) for details.
+The ordinary version check and automatic diagnostic reports are separate data
+paths with separate controls. Error strings can contain sensitive text even
+after path sanitization. See [Data collection, telemetry, and agent
+traces](docs/telemetry.md) for exact fields, defaults, endpoints, and limits.
+
+### Local agent Work Map
+
+Autohand can normalize local session records from 19 coding-agent harnesses into
+an aggregate-only Work Map. Local collection, cloud metadata sync, and cloud full
+content are independent consent levels; all are off by default except Work Map
+availability after local collection has been enabled.
+
+```bash
+# Choose local-only or cloud collection during onboarding or in /settings
+autohand --traces-on
+autohand discovery map --since 30d
+autohand discovery map --agent autohand,codex --json
+ahtraces status
+ahtraces off
+```
+
+The map includes session/tool/workflow/outcome and verification aggregates. It
+excludes prompts, responses, reasoning, commands, source code, paths, repository
+identities, session IDs, and credentials. See [Repository
+discovery](docs/discovery.md#work-map) for command options.
 
 The backend API is available at: https://github.com/autohandai/api
 

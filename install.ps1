@@ -37,6 +37,7 @@ $ErrorActionPreference = "Stop"
 
 $REPO = "autohandai/code-cli"
 $BINARY_NAME = "autohand.exe"
+$TRACES_BINARY_NAME = "ahtraces.exe"
 $COMPAT_BINARY_NAME = "autohand-code.cmd"
 $AGENT_ALIAS_NAME = "agent.cmd"
 $SHORT_ALIAS_NAME = "ah.cmd"
@@ -235,18 +236,22 @@ function Remove-ExistingInstallation {
     # Common installation locations
     $locations = @(
         "$env:LOCALAPPDATA\autohand\autohand.exe",
+        "$env:LOCALAPPDATA\autohand\ahtraces.exe",
         "$env:LOCALAPPDATA\autohand\autohand-code.cmd",
         "$env:LOCALAPPDATA\autohand\agent.cmd",
         "$env:LOCALAPPDATA\autohand\ah.cmd",
         "$env:LOCALAPPDATA\Programs\autohand\autohand.exe",
+        "$env:LOCALAPPDATA\Programs\autohand\ahtraces.exe",
         "$env:LOCALAPPDATA\Programs\autohand\autohand-code.cmd",
         "$env:LOCALAPPDATA\Programs\autohand\agent.cmd",
         "$env:LOCALAPPDATA\Programs\autohand\ah.cmd",
         "$env:ProgramFiles\autohand\autohand.exe",
+        "$env:ProgramFiles\autohand\ahtraces.exe",
         "$env:ProgramFiles\autohand\autohand-code.cmd",
         "$env:ProgramFiles\autohand\agent.cmd",
         "$env:ProgramFiles\autohand\ah.cmd",
         "$env:USERPROFILE\.local\bin\autohand.exe",
+        "$env:USERPROFILE\.local\bin\ahtraces.exe",
         "$env:USERPROFILE\.local\bin\autohand-code.cmd",
         "$env:USERPROFILE\.local\bin\agent.cmd",
         "$env:USERPROFILE\.local\bin\ah.cmd"
@@ -716,6 +721,7 @@ function Install-Autohand {
     # Resolve before anything records it so a relative -InstallDir never reaches PATH.
     $installPath = (Resolve-Path -LiteralPath $installPath).Path
     $binaryPath = Join-Path $installPath $BINARY_NAME
+    $tracesBinaryPath = Join-Path $installPath $TRACES_BINARY_NAME
     $compatBinaryPath = Join-Path $installPath $COMPAT_BINARY_NAME
     $agentAliasPath = Join-Path $installPath $AGENT_ALIAS_NAME
     $shortAliasPath = Join-Path $installPath $SHORT_ALIAS_NAME
@@ -772,11 +778,20 @@ function Install-Autohand {
         Expand-Archive -Path $archivePath -DestinationPath $extractPath -Force
 
         $extractedAutohand = Get-ChildItem -Path $extractPath -Filter "autohand.exe" -Recurse | Select-Object -First 1 -ExpandProperty FullName
+        $extractedAhtraces = Get-ChildItem -Path $extractPath -Filter "ahtraces.exe" -Recurse | Select-Object -First 1 -ExpandProperty FullName
         if (-not $extractedAutohand) {
             throw "Bundle does not contain autohand.exe"
         }
-
+        if (Test-Path -LiteralPath $tracesBinaryPath) {
+            try { & $tracesBinaryPath stop *> $null } catch { }
+        }
         Install-BinaryFile -Source $extractedAutohand -Destination $binaryPath
+        if ($extractedAhtraces) {
+            Install-BinaryFile -Source $extractedAhtraces -Destination $tracesBinaryPath
+        }
+        elseif (Test-Path -LiteralPath $tracesBinaryPath) {
+            Remove-Item -LiteralPath $tracesBinaryPath -Force
+        }
         foreach ($agentCollisionName in $agentCollisionNames) {
             $agentCollisionPath = Join-Path $installPath $agentCollisionName
             if (Test-Path -LiteralPath $agentCollisionPath) {
@@ -792,6 +807,9 @@ function Install-Autohand {
         [System.IO.File]::WriteAllLines($agentAliasPath, $compatShim, [System.Text.Encoding]::ASCII)
         [System.IO.File]::WriteAllLines($shortAliasPath, $compatShim, [System.Text.Encoding]::ASCII)
         Write-Success "Installed to $binaryPath"
+        if ($extractedAhtraces) {
+            Write-Success "Installed trace monitor to $tracesBinaryPath"
+        }
         Write-Success "Installed compatibility alias to $compatBinaryPath"
         Write-Success "Installed agent alias to $agentAliasPath"
         Write-Success "Installed short alias to $shortAliasPath"
@@ -833,6 +851,15 @@ function Install-Autohand {
     Write-Host "  autohand              # Start interactive mode"
     Write-Host "  autohand --help       # Show all options"
     Write-Host "  autohand login        # Sign in to your account"
+    if ($extractedAhtraces) {
+        Write-Host ""
+        Write-Host "Agent traces stay off until you choose during onboarding."
+        Write-Host "  autohand --traces-on  # Enable monitoring and metadata sync"
+        Write-Host "  autohand --traces-off # Stop monitoring and cloud sync"
+        Write-Host "  ahtraces on|off       # Use the trace companion directly"
+        Write-Host "  ahtraces off          # Stop at any time"
+        Write-Host "  https://console.autohand.ai/traces # View synchronized traces"
+    }
     Write-Host ""
 
     [void](Start-FirstRun -BinaryPath $binaryPath)

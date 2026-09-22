@@ -104,10 +104,12 @@ describe('Homebrew formula', () => {
 
     it('installs the canonical command and keeps the previous command as an alias', () => {
       expect(formula).toContain('bin.install "autohand"');
+      expect(formula).toContain('bin.install "ahtraces"');
       expect(formula).toContain('bin.install_symlink "autohand" => "autohand-code"');
       expect(formula).toContain('bin.install_symlink "autohand" => "agent"');
       expect(formula).toContain('bin.install_symlink "autohand" => "ah"');
       expect(formula).toContain('shell_output("#{bin}/autohand --version")');
+      expect(formula).toContain('shell_output("#{bin}/ahtraces --version")');
     });
 
     it('claims the agent name across other writable PATH directories at install time', () => {
@@ -146,6 +148,9 @@ describe('Homebrew formula', () => {
     expect(workflow).toContain('node .github/render-homebrew-formula.mjs');
     expect(workflow).toContain('release-binaries/autohand-macos-arm64.tar.gz');
     expect(workflow).toContain('release-binaries/autohand-linux-x64.tar.gz');
+    expect(workflow).toContain('ahtraces-macos-arm64');
+    expect(workflow).toContain('ahtraces-linux-x64');
+    expect(workflow).toContain('ahtraces-windows-x64.exe');
     expect(workflow).not.toMatch(/curl -sL .*\| shasum/);
   });
 

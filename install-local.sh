@@ -4,6 +4,9 @@
 
 set -e
 
+REPO_ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+AHTRACES_SOURCE_DIR="${AHTRACES_SOURCE_DIR:-$REPO_ROOT/../ahtraces}"
+
 SKIP_COMPILE=false
 if [ "${1:-}" = "--skip-compile" ]; then
     SKIP_COMPILE=true
@@ -34,6 +37,14 @@ else
     echo "❌ Unsupported OS: $OS (use Windows installer for Windows)"
     exit 1
 fi
+TRACES_BINARY="${BINARY/autohand-/ahtraces-}"
+TRACE_TARGET="${BINARY#autohand-}"
+case "$TRACE_TARGET" in
+    macos-arm64) TRACE_BUN_TARGET="darwin-arm64" ;;
+    macos-x64) TRACE_BUN_TARGET="darwin-x64" ;;
+    linux-x64) TRACE_BUN_TARGET="linux-x64" ;;
+    linux-arm64) TRACE_BUN_TARGET="linux-arm64" ;;
+esac
 
 # Compile first: a failed build must never leave the machine without autohand.
 if [ "$SKIP_COMPILE" = false ]; then
@@ -57,8 +68,22 @@ if [ "$SKIP_COMPILE" = false ]; then
             exit 1
             ;;
     esac
-elif [ ! -f "binaries/$BINARY" ]; then
-    echo "❌ Missing precompiled binary: binaries/$BINARY"
+
+    if [ ! -f "$AHTRACES_SOURCE_DIR/package.json" ]; then
+        echo "❌ Missing private ahtraces checkout at $AHTRACES_SOURCE_DIR"
+        echo "   Set AHTRACES_SOURCE_DIR to the independently cloned autohandai/ahtraces repository."
+        exit 1
+    fi
+    echo "📦 Compiling $TRACES_BINARY from $AHTRACES_SOURCE_DIR..."
+    (
+        cd "$AHTRACES_SOURCE_DIR"
+        bun install --frozen-lockfile
+        mkdir -p binaries
+        bun build ./src/index.ts --compile --target="bun-$TRACE_BUN_TARGET" --outfile "./binaries/$TRACES_BINARY"
+    )
+    cp "$AHTRACES_SOURCE_DIR/binaries/$TRACES_BINARY" "binaries/$TRACES_BINARY"
+elif [ ! -f "binaries/$BINARY" ] || [ ! -f "binaries/$TRACES_BINARY" ]; then
+    echo "❌ Missing precompiled binaries: binaries/$BINARY and binaries/$TRACES_BINARY"
     exit 1
 fi
 
@@ -81,7 +106,18 @@ POSSIBLE_PATHS=(
     "$HOME/.bun/bin/autohand-code"
     "$HOME/.autohand/bin/autohand"
     "$HOME/.autohand/bin/autohand-code"
+    "/usr/local/bin/ahtraces"
+    "/usr/bin/ahtraces"
+    "/opt/homebrew/bin/ahtraces"
+    "$HOME/.local/bin/ahtraces"
+    "$HOME/bin/ahtraces"
+    "$HOME/.bun/bin/ahtraces"
+    "$HOME/.autohand/bin/ahtraces"
 )
+
+if command -v ahtraces >/dev/null 2>&1; then
+    ahtraces stop >/dev/null 2>&1 || true
+fi
 
 for path in "${POSSIBLE_PATHS[@]}"; do
     if [ -f "$path" ]; then
@@ -118,17 +154,22 @@ fi
 ALIAS_PATH="$(dirname "$INSTALL_PATH")/autohand-code"
 AGENT_ALIAS_PATH="$(dirname "$INSTALL_PATH")/agent"
 SHORT_ALIAS_PATH="$(dirname "$INSTALL_PATH")/ah"
+TRACES_INSTALL_PATH="$(dirname "$INSTALL_PATH")/ahtraces"
 
 echo "📥 Installing to $INSTALL_PATH..."
 if [ -w "$(dirname "$INSTALL_PATH")" ]; then
     cp "binaries/$BINARY" "$INSTALL_PATH"
+    cp "binaries/$TRACES_BINARY" "$TRACES_INSTALL_PATH"
     chmod +x "$INSTALL_PATH"
+    chmod +x "$TRACES_INSTALL_PATH"
     ln -sfn "$(basename "$INSTALL_PATH")" "$ALIAS_PATH"
     ln -sfn "$(basename "$INSTALL_PATH")" "$AGENT_ALIAS_PATH"
     ln -sfn "$(basename "$INSTALL_PATH")" "$SHORT_ALIAS_PATH"
 else
     sudo cp "binaries/$BINARY" "$INSTALL_PATH"
+    sudo cp "binaries/$TRACES_BINARY" "$TRACES_INSTALL_PATH"
     sudo chmod +x "$INSTALL_PATH"
+    sudo chmod +x "$TRACES_INSTALL_PATH"
     sudo ln -sfn "$(basename "$INSTALL_PATH")" "$ALIAS_PATH"
     sudo ln -sfn "$(basename "$INSTALL_PATH")" "$AGENT_ALIAS_PATH"
     sudo ln -sfn "$(basename "$INSTALL_PATH")" "$SHORT_ALIAS_PATH"
@@ -144,6 +185,7 @@ echo ""
 echo "Try it out:"
 echo "  autohand --help"
 echo "  autohand"
+echo "  https://console.autohand.ai/traces # View synchronized traces after opt-in"
 
 if [ "$OS" = "Darwin" ] && [ "$ARCH" = "arm64" ]; then
     if [ "${AUTOHAND_INSTALL_LOCAL_AI:-0}" = "1" ]; then

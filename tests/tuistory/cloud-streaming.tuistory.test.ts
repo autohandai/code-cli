@@ -7,7 +7,7 @@ const cleanupTasks: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const cleanup of cleanupTasks.splice(0).reverse()) await cleanup(); });
 
 describe('built cloud token streaming', () => {
-  it('retries a Moa response timeout visibly and keeps the previous turn', async () => {
+  it('stops an ambiguous Moa timeout without replaying the previous turn', async () => {
     const auth = await createMockAuthServer();
     cleanupTasks.push(auth.close);
     const attempts: unknown[] = [];
@@ -24,7 +24,7 @@ describe('built cloud token streaming', () => {
       }
       attempts.push(body.messages);
       if (attempts.length === 2) { stalledResponse = response; return; }
-      const content = attempts.length === 1 ? 'Previous work is preserved.' : 'Recovered the Moa request.';
+      const content = 'Previous work is preserved.';
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       response.end(`data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 7, total_tokens: 12 } })}\n\ndata: [DONE]\n\n`);
     });
@@ -53,14 +53,12 @@ describe('built cloud token streaming', () => {
     await session.text({ timeout: 20_000, waitFor: (text) => text.includes('Previous work is preserved.') });
     await session.type('Continue with another short answer');
     await session.press('enter');
-    const waiting = await session.text({ timeout: 20_000, waitFor: (text) => /retry.*1\/1/i.test(text) });
-    expect(waiting).not.toContain('Session failed');
-    const completed = await session.text({ timeout: 20_000, waitFor: (text) => text.includes('Recovered the Moa request.') });
-    expect(completed).not.toContain('Session failed');
-    expect(completed.match(/Recovered the Moa request\./g)).toHaveLength(1);
-    expect(attempts).toHaveLength(3);
-    expect(attempts[2]).toEqual(attempts[1]);
-    expect(JSON.stringify(attempts[2])).toContain('Previous work is preserved.');
+    const failed = await session.text({ timeout: 20_000, waitFor: (text) => text.includes('Session failed') });
+    expect(failed).toContain('Request timed out waiting for Autohand AI to start a response');
+    expect(failed).toMatch(/Request ID: [0-9a-f-]{36}/i);
+    expect(failed).not.toContain('Attempting recovery');
+    expect(failed).toContain('Previous work is preserved.');
+    expect(attempts).toHaveLength(2);
   }, 60_000);
 
   it('shows the first provider token in the terminal before the server completes', async () => {

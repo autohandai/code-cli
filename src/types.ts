@@ -335,11 +335,11 @@ export interface UISettings {
   /** Rotate tips about slash commands, composer triggers and shortcuts beside the idle composer (default: true) */
   showTips?: boolean;
   /**
-   * What Enter does while a turn is running: `steer` sends the text into the
-   * running turn on its next model request (Shift+Enter queues it for after
-   * the turn); `queue` keeps Enter queueing (Shift+Enter steers). Default: steer.
+   * While a turn runs, `select` queues drafts with Enter and steers only a
+   * selected queued message. `steer` and `queue` retain the direct Enter and
+   * Shift+Enter steering shortcuts for existing configurations. Default: select.
    */
-  enterWhileWorking?: 'steer' | 'queue';
+  enterWhileWorking?: 'select' | 'steer' | 'queue';
   /** Enable mouse click-to-position editing in the Ink composer (default: true). */
   mouseComposerCursor?: boolean;
   /** Shortcut profile for the Ink composer: Autohand defaults or another agent's conventions (default: autohand). */
@@ -393,10 +393,27 @@ export interface TelemetrySettings {
   enabled?: boolean;
   /** API endpoint (default: https://api.autohand.ai) */
   apiBaseUrl?: string;
-  /** Enable session sync to cloud (default: true when telemetry is enabled) */
+  /** Upload full session content to cloud (default: false, explicit opt-in) */
   enableSessionSync?: boolean;
   /** Company secret for API authentication */
   companySecret?: string;
+}
+
+export interface TracesSettings {
+  /** Version of the trace consent notice the user has answered. */
+  consentVersion?: number;
+  /** Master switch for local agent-session monitoring and Work Map (default: false). */
+  enabled?: boolean;
+  /** Upload normalized trace data to the authenticated Autohand account (default: false). */
+  cloudSync?: boolean;
+  /** Metadata omits message/part content; full requires a separate explicit choice. */
+  contentMode?: 'metadata' | 'full';
+  /** Make locally derived aggregate data available to discovery and the agent (default: true when enabled). */
+  discoveryMap?: boolean;
+  /** Override the control-plane API endpoint. */
+  apiBaseUrl?: string;
+  /** Daemon scan interval in milliseconds. */
+  pollIntervalMs?: number;
 }
 
 export interface AutoReportSettings {
@@ -976,6 +993,7 @@ export interface AutohandConfig {
   agent?: AgentSettings;
   sessions?: SessionsSettings;
   telemetry?: TelemetrySettings;
+  traces?: TracesSettings;
   permissions?: PermissionSettings;
   network?: NetworkSettings;
   /** Child-process controls for shell tools and `!` commands. */
@@ -1569,6 +1587,11 @@ export type BrowserFormAssignment =
 
 export type AgentAction =
   | { type: 'list_hooks' }
+  | {
+      type: 'inspect_work_map';
+      since?: string;
+      agents?: import('./integrations/ahtraces/workMap.js').TraceHarness[];
+    }
   | { type: 'create_hook'; prompt: string; event?: HookEvent; level?: string }
   | {
       type: 'set_lifecycle_hook';

@@ -108,7 +108,10 @@ describe('SlashCommandHandler', () => {
     const result = await handler.handle('/settings', ['task_list', 'position', 'up']);
 
     expect(result).toBe('Task list position: up');
-    expect(mockSettings).toHaveBeenCalledWith({ config: ctx.config }, ['task_list', 'position', 'up']);
+    expect(mockSettings).toHaveBeenCalledWith({
+      config: ctx.config,
+      onSettingChanged: expect.any(Function),
+    }, ['task_list', 'position', 'up']);
     expect(ctx.onBeforeModal).not.toHaveBeenCalled();
     expect(ctx.onAfterModal).not.toHaveBeenCalled();
   });

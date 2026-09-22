@@ -170,6 +170,7 @@ export interface AgentUIState {
   liveCommands: LiveCommandEntry[];
   thinking: string | null;
   queuedInstructions: string[];
+  queuedInstructionSequences?: number[];
   queuedInstructionMetadata?: Array<PeerInstructionMetadata | undefined>;
   /** User messages displayed in the conversation */
   userMessages: string[];
@@ -248,12 +249,14 @@ export interface AgentUILineExtensions {
 export interface AgentUIProps {
   state: AgentUIState;
   typedMessageHistory?: TypedMessageHistory;
-  /** Sends the composer text into the running turn (Shift+Enter while working). */
+  /** Optional direct steering shortcut for explicit legacy configurations. */
   onSteer?: (text: string) => void;
+  /** Steer a selected queued message, removing it only when accepted. */
+  onSteerQueuedInstruction?: (index: number, sequence: number | undefined, originalText: string, text: string) => boolean;
   /** Each status-row spinner frame, so the terminal tab can animate in step. */
   onWorkingSpinnerFrame?: (frame: number) => void;
-  /** Enter while working steers (default) or queues; Shift+Enter does the other. */
-  enterWhileWorking?: 'steer' | 'queue';
+  /** Select from the queue to steer by default; legacy shortcut mappings remain configurable. */
+  enterWhileWorking?: 'select' | 'steer' | 'queue';
   onInstruction: (text: string, metadata?: PeerInstructionMetadata) => void;
   peerScopes?: PeerScope[];
   peersProvider?: (scope?: PeerScope) => PeerDescriptor[];
@@ -590,6 +593,7 @@ export function getTextBufferCursorOffset(buffer: TextBuffer): number {
 const COMPOSER_TRIGGER_CHARS = new Set(['/', '@', '$', '!', '#', ':']);
 /** How often a `$` typed before skills loaded is re-checked while they stay absent. */
 const SKILL_RECHECK_INTERVAL_MS = 250;
+const SKILL_RECHECK_MAX_MS = 30_000;
 const INVISIBLE_OR_WHITESPACE_RE = /[\s\u200B-\u200D\uFEFF]/u;
 
 function compactComposerTriggerText(text: string): string {
@@ -825,6 +829,7 @@ export function AgentUI({
   typedMessageHistory,
   onInstruction,
   onSteer,
+  onSteerQueuedInstruction,
   onWorkingSpinnerFrame,
   onEscape,
   onCtrlC,
@@ -838,7 +843,7 @@ export function AgentUI({
   onEditGoalObjective,
   onInputChange,
   enableQueueInput = true,
-  enterWhileWorking = 'steer',
+  enterWhileWorking = 'select',
   onImageDetected,
   filesProvider,
   slashCommands: slashCommandProps,
@@ -1004,6 +1009,8 @@ export function AgentUI({
   const onInstructionRef = useRef(onInstruction);
   const onSteerRef = useRef(onSteer);
   onSteerRef.current = onSteer;
+  const onSteerQueuedInstructionRef = useRef(onSteerQueuedInstruction);
+  onSteerQueuedInstructionRef.current = onSteerQueuedInstruction;
   onInstructionRef.current = onInstruction;
   const onInputChangeRef = useRef(onInputChange);
   onInputChangeRef.current = onInputChange;
@@ -1017,12 +1024,15 @@ export function AgentUI({
   onCycleInteractionModeRef.current = onCycleInteractionMode;
   const queuedInstructionsRef = useRef(state.queuedInstructions);
   queuedInstructionsRef.current = state.queuedInstructions;
+  const queuedInstructionSequencesRef = useRef(state.queuedInstructionSequences);
+  queuedInstructionSequencesRef.current = state.queuedInstructionSequences;
   const queuedInstructionMetadataRef = useRef(state.queuedInstructionMetadata);
   queuedInstructionMetadataRef.current = state.queuedInstructionMetadata;
   const queueSelectionIndexRef = useRef(queueSelectionIndex);
   queueSelectionIndexRef.current = queueSelectionIndex;
   const editingQueueIndexRef = useRef(editingQueueIndex);
   editingQueueIndexRef.current = editingQueueIndex;
+  const editingQueueIdentityRef = useRef<{ sequence: number | undefined; text: string } | null>(null);
   const goalSelectionIndexRef = useRef(goalSelectionIndex);
   goalSelectionIndexRef.current = goalSelectionIndex;
   const editingGoalRef = useRef(editingGoal);
@@ -1325,6 +1335,7 @@ export function AgentUI({
         return null;
       }
       if (queueLength === 0) {
+        editingQueueIdentityRef.current = null;
         return null;
       }
       return Math.min(current, queueLength - 1);
@@ -1538,7 +1549,11 @@ export function AgentUI({
   // A `$` typed before the skills registry has loaded finds nothing; re-check
   // the pending mention for a while so the dropdown appears once skills arrive.
   const [skillRecheckTick, setSkillRecheckTick] = useState(0);
-  const skillRecheckRef = useRef<{ timer?: ReturnType<typeof setTimeout> }>({});
+  const skillRecheckRef = useRef<{
+    timer?: ReturnType<typeof setTimeout>;
+    mentionKey?: string;
+    startedAt?: number;
+  }>({});
   const clearSkillRecheck = useCallback(() => {
     if (skillRecheckRef.current.timer) clearTimeout(skillRecheckRef.current.timer);
     skillRecheckRef.current = {};
@@ -1581,9 +1596,18 @@ export function AgentUI({
         setSkillSuggestions([]);
         skillStartIndexRef.current = null;
       }
-      // Keep polling while the registry is still empty; the timer is cleared as
-      // soon as the mention goes away or suggestions appear.
-      if (provider().length === 0 && !skillRecheckRef.current.timer) {
+      // Built-in skills load one by one. A nonempty registry can still be
+      // missing the matching skill, so retry this mention for a bounded period.
+      const mentionKey = `${mention.startIndex}:${mention.seed}`;
+      if (skillRecheckRef.current.mentionKey !== mentionKey) {
+        clearSkillRecheck();
+        skillRecheckRef.current.mentionKey = mentionKey;
+        skillRecheckRef.current.startedAt = Date.now();
+      }
+      if (
+        !skillRecheckRef.current.timer
+        && Date.now() - (skillRecheckRef.current.startedAt ?? 0) < SKILL_RECHECK_MAX_MS
+      ) {
         skillRecheckRef.current.timer = setTimeout(() => {
           skillRecheckRef.current.timer = undefined;
           setSkillRecheckTick((tick) => tick + 1);
@@ -1802,6 +1826,7 @@ export function AgentUI({
         const wasEditingQueue = editingQueueIndexRef.current !== null;
         queueSelectionIndexRef.current = null;
         editingQueueIndexRef.current = null;
+        editingQueueIdentityRef.current = null;
         setQueueSelectionIndex(null);
         setEditingQueueIndex(null);
         if (wasEditingQueue) {
@@ -1960,6 +1985,7 @@ export function AgentUI({
       onRemoveQueuedInstructionRef.current?.(selectedQueueIndex);
       queueSelectionIndexRef.current = null;
       editingQueueIndexRef.current = null;
+      editingQueueIdentityRef.current = null;
       setQueueSelectionIndex(null);
       setEditingQueueIndex(null);
       setCtrlCCount(0);
@@ -1970,6 +1996,10 @@ export function AgentUI({
       const selectedInstruction = queuedInstructionsRef.current[selectedQueueIndex];
       if (selectedInstruction !== undefined) {
         textBufferRef.current.setText(selectedInstruction);
+        editingQueueIdentityRef.current = {
+          sequence: queuedInstructionSequencesRef.current?.[selectedQueueIndex],
+          text: selectedInstruction,
+        };
         peerComposerRef.current.restoreMetadata(queuedInstructionMetadataRef.current?.[selectedQueueIndex]);
         editingQueueIndexRef.current = selectedQueueIndex;
         setEditingQueueIndex(selectedQueueIndex);
@@ -2169,16 +2199,18 @@ export function AgentUI({
 
     const buffer = textBufferRef.current;
     const textBeforeKey = buffer.getText();
-    // While a turn runs, Enter and Shift+Enter split between steering the
-    // turn and queueing for after it; ui.enterWhileWorking decides which is
-    // which. When idle Shift+Enter still inserts a newline.
+    // A fresh draft queues during a turn. Explicit legacy mappings may steer
+    // directly; a selected queue edit always has its own submit behavior.
     let submitChar = char;
     let submitKey = key;
+    const saveSelectedQueueEdit = editingQueueIndexRef.current !== null && isShiftEnterKey(char, key);
     // Shell, slash, and :alias inputs skip this split and run at once.
-    if (isWorkingRef.current && enableQueueInputRef.current && onSteerRef.current && textBeforeKey.trim().length > 0 && canSteerComposerInput(textBeforeKey)) {
+    if (isWorkingRef.current && enableQueueInputRef.current && editingQueueIndexRef.current === null && onSteerRef.current && textBeforeKey.trim().length > 0 && canSteerComposerInput(textBeforeKey)) {
       const shiftEnter = isShiftEnterKey(char, key);
       const plainEnter = !shiftEnter && key.return === true && !key.meta && !key.ctrl;
-      const steerKey = enterWhileWorkingRef.current === 'queue' ? shiftEnter : plainEnter;
+      const steerKey = enterWhileWorkingRef.current === 'steer'
+        ? plainEnter
+        : enterWhileWorkingRef.current === 'queue' && shiftEnter;
       if (steerKey) {
         const steered = textBeforeKey;
         buffer.setText('');
@@ -2189,11 +2221,15 @@ export function AgentUI({
         onSteerRef.current(steered);
         return;
       }
-      if (enterWhileWorkingRef.current !== 'queue' && shiftEnter) {
+      if (enterWhileWorkingRef.current === 'steer' && shiftEnter) {
         // Shift+Enter queues: hand the buffer a plain Enter so the submit path runs.
         submitChar = '\r';
         submitKey = { ...key, return: true, shift: false, meta: false };
       }
+    }
+    if (saveSelectedQueueEdit) {
+      submitChar = '\r';
+      submitKey = { ...key, return: true, shift: false, meta: false };
     }
     const result = handleInkTextBufferInput(buffer, submitChar, submitKey, activeKeybindings);
     if (buffer.getText() !== textBeforeKey) historyNavigationRef.current = null;
@@ -2237,18 +2273,43 @@ export function AgentUI({
       const editingIndex = editingQueueIndexRef.current;
 
       if (editingIndex !== null) {
+        const selectedIdentity = editingQueueIdentityRef.current;
+        const currentIndex = selectedIdentity?.sequence === undefined
+          ? editingIndex
+          : queuedInstructionSequencesRef.current?.indexOf(selectedIdentity.sequence) ?? -1;
+        if (currentIndex < 0) {
+          queueSelectionIndexRef.current = null;
+          editingQueueIndexRef.current = null;
+          editingQueueIdentityRef.current = null;
+          setQueueSelectionIndex(null);
+          setEditingQueueIndex(null);
+          return;
+        }
         if (text && peerComposerRef.current.submit(text, {
-          onInstruction: (value, metadata) => onReplaceQueuedInstructionRef.current?.(editingIndex, value, metadata),
+          onInstruction: (value, metadata) => onReplaceQueuedInstructionRef.current?.(currentIndex, value, metadata),
           onAccepted: kind => {
-            if (kind === 'direct') onRemoveQueuedInstructionRef.current?.(editingIndex);
+            if (kind === 'direct') onRemoveQueuedInstructionRef.current?.(currentIndex);
             if (editingQueueIndexRef.current !== editingIndex) return;
             dismissAutocompleteState();
             queueSelectionIndexRef.current = null;
             editingQueueIndexRef.current = null;
+            editingQueueIdentityRef.current = null;
             setQueueSelectionIndex(null);
             setEditingQueueIndex(null);
           },
         })) return;
+        const steerSelectedQueueMessage = Boolean(
+          !saveSelectedQueueEdit
+          && text
+          && isWorkingRef.current
+          && canSteerComposerInput(text)
+          && onSteerQueuedInstructionRef.current,
+        );
+        if (steerSelectedQueueMessage) {
+          if (!selectedIdentity || !onSteerQueuedInstructionRef.current?.(currentIndex, selectedIdentity.sequence, selectedIdentity.text, text)) {
+            return;
+          }
+        }
         clearInkComposerInputForSubmit(buffer, pasteState, {
           setInput,
           setCursorOffset,
@@ -2264,13 +2325,15 @@ export function AgentUI({
         dismissAutocompleteState();
         queueSelectionIndexRef.current = null;
         editingQueueIndexRef.current = null;
+        editingQueueIdentityRef.current = null;
         setQueueSelectionIndex(null);
         setEditingQueueIndex(null);
 
+        if (steerSelectedQueueMessage) return;
         if (text.length > 0) {
-          onReplaceQueuedInstructionRef.current?.(editingIndex, text);
+          onReplaceQueuedInstructionRef.current?.(currentIndex, text);
         } else {
-          onRemoveQueuedInstructionRef.current?.(editingIndex);
+          onRemoveQueuedInstructionRef.current?.(currentIndex);
         }
         return;
       }
@@ -3080,7 +3143,7 @@ const QueuedInstructionsPanel = memo(function QueuedInstructionsPanel({
       })}
       {focused && (
         <Text color={colors.muted}>
-          enter edit · delete remove · esc clear selection
+          enter edit, then steer · shift+enter save · delete remove · esc clear selection
         </Text>
       )}
     </Box>
@@ -3753,6 +3816,7 @@ export function createInitialUIState(): AgentUIState {
     liveCommands: [],
     thinking: null,
     queuedInstructions: [],
+    queuedInstructionSequences: [],
     userMessages: [],
     chatMessages: [],
     notifications: [],

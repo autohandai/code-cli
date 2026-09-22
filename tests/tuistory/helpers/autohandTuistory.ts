@@ -119,6 +119,9 @@ export async function createTempAutohandHome(options: CreateTempAutohandHomeOpti
     sync: {
       enabled: false,
     },
+    traces: {
+      consentVersion: 1,
+    },
     ui: {
       checkForUpdates: false,
       // Rotating tips put random command text on idle screens; the tip scenario turns them on.

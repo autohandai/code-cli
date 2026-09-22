@@ -34,6 +34,12 @@ import { pathToFileURL } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { applyCliProviderOverride, getProviderConfig, loadConfig, resolveRequestedWorkspaceRoot, resolveWorkspaceRoot, saveConfig } from './config.js';
 import { reportCliCommand } from './telemetry/commandUsage.js';
+import {
+  reconcileAhTraces,
+  shouldReconcileAhTracesAtStartup,
+} from './integrations/ahtraces/client.js';
+import { applyTraceSettingChange } from './integrations/ahtraces/settingsLifecycle.js';
+import { setTraceMonitoringEnabled } from './integrations/ahtraces/preferences.js';
 import { runStartupChecks, printStartupCheckResults, validateWorkspacePath } from './startup/checks.js';
 import { checkWorkspaceSafety, printDangerousWorkspaceWarning } from './startup/workspaceSafety.js';
 import { ensureAuthenticated } from './auth/index.js';
@@ -307,9 +313,31 @@ const collectRepeatable = (value: string, previous: string[] = []): string[] => 
 
 // --profile and --set apply to every command, including subcommands, and to
 // every config load in this process, before any of them reads the config.
-program.hook('preAction', (thisCommand, actionCommand) => {
-  const { profile, set } = thisCommand.opts<{ profile?: string; set?: string[] }>();
+program.hook('preAction', async (thisCommand, actionCommand) => {
+  const { profile, set, config, bare, tracesOn, tracesOff } = thisCommand.opts<{
+    profile?: string;
+    set?: string[];
+    config?: string;
+    bare?: boolean;
+    tracesOn?: boolean;
+    tracesOff?: boolean;
+  }>();
   configureRunConfigOverlay({ profile, sets: set });
+
+  const traceControlCommand = actionCommand.name() === 'traces';
+  const traceSupervision = !tracesOn
+    && !tracesOff
+    && !traceControlCommand
+    && shouldReconcileAhTracesAtStartup(bare === true)
+    ? loadConfig(config, undefined, {
+        createIfMissing: false,
+        initializeTheme: false,
+        applyRunConfigOverlay: false,
+      }).then((loaded) => reconcileAhTraces(loaded)).catch(() => ({
+        status: 'error' as const,
+        code: 'unavailable' as const,
+      }))
+    : Promise.resolve({ status: 'disabled' as const });
 
   // Every top-level command reports itself from here rather than from its own
   // action. Interactive slash commands are already covered by a single call
@@ -321,6 +349,7 @@ program.hook('preAction', (thisCommand, actionCommand) => {
     loadConfig: () => loadConfig(undefined, undefined, { createIfMissing: false, initializeTheme: false }),
     clientVersion: getVersionString(),
   });
+  await traceSupervision;
 });
 
 /**
@@ -380,6 +409,10 @@ program
   .option('--project', 'Install skill to project level (with --skill-install)', false)
   .option('--permissions', 'Display current permission settings and exit', false)
   .option('--settings', 'Configure Autohand settings (same as /settings in interactive mode)', false)
+  .addOption(new Option('--traces-on', 'Enable local agent monitoring and metadata sync to Autohand Console')
+    .conflicts('tracesOff'))
+  .addOption(new Option('--traces-off', 'Stop agent monitoring and cloud sync, and remove local derived trace data')
+    .conflicts('tracesOn'))
   .option('--login', 'Sign in to your Autohand account', false)
   .option('--logout', 'Sign out of your Autohand account', false)
   .option('--sync-settings [bool]', 'Enable/disable settings sync (default: true for logged users)')
@@ -449,6 +482,16 @@ program
     const normalization = normalizeInitialCliOptions(opts);
     if (normalization.deprecatedBrowserOption) {
       console.warn(chalk.yellow(formatDeprecatedBrowserOptionWarning(normalization.deprecatedBrowserOption)));
+    }
+
+    if (opts.tracesOn || opts.tracesOff) {
+      const enabled = opts.tracesOn === true;
+      const config = await loadConfig(opts.config, process.cwd());
+      await setTraceMonitoringEnabled(config, enabled);
+      console.log(enabled
+        ? 'Agent traces are on. Metadata syncs to https://console.autohand.ai/traces and does not count against API usage.'
+        : 'Agent traces are off. The daemon stopped and local derived trace data was removed.');
+      return;
     }
 
     const commandOutputResolution = resolveCommandOutputFormat(opts);
@@ -560,7 +603,10 @@ program
     if ((opts as any).settings) {
       const config = await loadConfig(opts.config, process.cwd());
       const { settings } = await import('./commands/settings.js');
-      await settings({ config });
+      await settings({
+        config,
+        onSettingChanged: (change) => applyTraceSettingChange(config, change),
+      });
       process.exit(0);
     }
 
@@ -890,7 +936,10 @@ const configCmd = program
   .action(async () => {
     const config = await loadConfig(program.opts<{ config?: string }>().config);
     const { settings } = await import('./commands/settings.js');
-    await settings({ config });
+    await settings({
+      config,
+      onSettingChanged: (change) => applyTraceSettingChange(config, change),
+    });
     process.exit(0);
   });
 
@@ -904,6 +953,7 @@ configCmd
       const { key, value } = parseConfigSetArgs(parts);
       const result = setConfigSetting(config, key, value);
       await saveConfig(config);
+      await applyTraceSettingChange(config, result);
       console.log(chalk.green(formatConfigSetResult(result)));
       process.exit(0);
     } catch (error) {
@@ -1425,8 +1475,25 @@ program
     process.exit(0);
   });
 
+program
+  .command('traces [action]')
+  .description('Control agent trace monitoring (status, on, or off)')
+  .option('--json', 'Emit machine-readable status')
+  .action(async (action: string | undefined, options: { json?: boolean }) => {
+    const rootOptions = program.opts<RootCliOptions>();
+    const emitJson = options.json === true || rootOptions.json !== undefined;
+    const { runAhTracesCommand } = await import('./integrations/ahtraces/commands.js');
+    const code = await runAhTracesCommand([
+      action ?? 'status',
+      ...(rootOptions.config ? ['--config', rootOptions.config] : []),
+      ...(emitJson ? ['--json'] : []),
+    ]);
+    process.exitCode = code;
+  });
+
 interface InternalCLIOptions extends CLIOptions {
   _authConfig?: LoadedConfig;
+  mode?: string;
   reviewExecution?: ReviewCliExecution['review'];
 }
 
@@ -1560,6 +1627,23 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
     }
     if (commandLifecycleController.signal.aborted) {
       return;
+    }
+
+    const canPromptForTraceConsent = !options.bare
+      && (options.mode === undefined || options.mode === 'interactive')
+      && options.prompt === undefined
+      && !structuredOutput
+      && process.stdin.isTTY === true
+      && process.stdout.isTTY === true;
+    if (canPromptForTraceConsent) {
+      const { ensureExistingUserTraceConsent } = await awaitCliLifecycleStep(
+        import('./integrations/ahtraces/consentPrompt.js'),
+        commandLifecycleController.signal,
+      );
+      config = await awaitCliLifecycleStep(
+        ensureExistingUserTraceConsent(config),
+        commandLifecycleController.signal,
+      );
     }
 
     // Check for dangerous workspace directories (home, root, system dirs)

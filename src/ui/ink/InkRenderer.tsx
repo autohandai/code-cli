@@ -63,6 +63,7 @@ import {
 
 export interface InkRendererOptions {
   onSteer?: (text: string) => void;
+  onSteerQueuedMessage?: (text: string) => boolean;
   onWorkingSpinnerFrame?: (frame: number) => void;
   onInstruction: (text: string, metadata?: PeerInstructionMetadata) => void;
   peerScopes?: PeerScope[];
@@ -207,6 +208,7 @@ export interface AgentUIWrapperHandle {
 interface AgentUIWrapperProps {
   initialState: AgentUIState;
   onSteer?: (text: string) => void;
+  onSteerQueuedInstruction: (index: number, sequence: number | undefined, originalText: string, text: string) => boolean;
   onWorkingSpinnerFrame?: (frame: number) => void;
   onInstruction: InkRendererOptions['onInstruction'];
   peerScopes?: InkRendererOptions['peerScopes'];
@@ -254,6 +256,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       initialState,
       onInstruction,
       onSteer,
+      onSteerQueuedInstruction,
       onWorkingSpinnerFrame,
       onEscape,
       onCtrlC,
@@ -316,6 +319,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         typedMessageHistory={getTypedMessageHistory()}
         onInstruction={onInstruction}
         onSteer={onSteer}
+        onSteerQueuedInstruction={onSteerQueuedInstruction}
         onWorkingSpinnerFrame={onWorkingSpinnerFrame}
         onEscape={onEscape}
         onCtrlC={onCtrlC}
@@ -532,6 +536,7 @@ export class InkRenderer {
             initialState={this.state}
             onInstruction={this.options.onInstruction}
             onSteer={this.options.onSteer}
+            onSteerQueuedInstruction={(index, sequence, originalText, text) => this.steerQueuedInstruction(index, sequence, originalText, text)}
             onWorkingSpinnerFrame={this.options.onWorkingSpinnerFrame}
             onEscape={this.options.onEscape}
             onCtrlC={this.options.onCtrlC}
@@ -583,7 +588,8 @@ export class InkRenderer {
   /**
    * Stop the Ink renderer and cleanup
    */
-  stop(): void {
+  async stop(): Promise<void> {
+    let waitForExit: Promise<void> | undefined;
     if (this.instance && process.stdout.isTTY) {
       disableKittyProtocol(process.stdout);
     }
@@ -595,6 +601,11 @@ export class InkRenderer {
         instance.unmount();
       }
       this.instance = null;
+      try {
+        waitForExit = Promise.resolve(instance.waitUntilExit()).then(() => undefined);
+      } catch {
+        waitForExit = Promise.resolve();
+      }
     }
 
     if (
@@ -624,6 +635,8 @@ export class InkRenderer {
 
     // Clear any pending instruction waiter to prevent dangling promises
     this._instructionWaiter = null;
+
+    await waitForExit?.catch(() => undefined);
   }
 
   /**
@@ -1429,10 +1442,14 @@ export class InkRenderer {
       if (this.wrapperRef.current) {
         const currentInput = this.state.currentInput;
         const queuedInstructions = this.state.queuedInstructions;
+        const queuedInstructionSequences = this.state.queuedInstructionSequences;
+        const queuedInstructionMetadata = this.state.queuedInstructionMetadata;
         this.state = {
           ...this.wrapperRef.current.getState(),
           currentInput,
           queuedInstructions,
+          queuedInstructionSequences,
+          queuedInstructionMetadata,
         };
       }
       // Ink 7 schedules useInput cleanup through React's passive-effect queue.
@@ -1529,6 +1546,7 @@ export class InkRenderer {
     this.queuedInstructionEntries.push({ ...createSequencedQueuedWork(instruction), ...(metadata?.peerReferences.length ? structuredClone(metadata) : {}) });
     this.updateState({
       queuedInstructions: [...this.state.queuedInstructions, instruction],
+      queuedInstructionSequences: this.queueSequences(),
       queuedInstructionMetadata: this.queueMetadata()
     });
     // Resolve any pending waiter so the main loop can continue
@@ -1557,7 +1575,7 @@ export class InkRenderer {
         ...(metadata?.peerReferences.length ? structuredClone(metadata) : {}),
       };
     }
-    this.updateState({ queuedInstructions, queuedInstructionMetadata: this.queueMetadata() });
+    this.updateState({ queuedInstructions, queuedInstructionSequences: this.queueSequences(), queuedInstructionMetadata: this.queueMetadata() });
     return true;
   }
 
@@ -1571,8 +1589,21 @@ export class InkRenderer {
 
     const queuedInstructions = this.state.queuedInstructions.filter((_, idx) => idx !== index);
     this.queuedInstructionEntries = this.queuedInstructionEntries.filter((_, idx) => idx !== index);
-    this.updateState({ queuedInstructions, queuedInstructionMetadata: this.queueMetadata() });
+    this.updateState({ queuedInstructions, queuedInstructionSequences: this.queueSequences(), queuedInstructionMetadata: this.queueMetadata() });
     return true;
+  }
+
+  /** Send an unchanged queue entry into the active turn, then remove that entry. */
+  steerQueuedInstruction(index: number, sequence: number | undefined, originalText: string, text: string): boolean {
+    const queued = this.queuedInstructionEntries[index];
+    if (!queued || sequence === undefined || queued.sequence !== sequence || queued.text !== originalText || !this.options.onSteerQueuedMessage?.(text)) {
+      return false;
+    }
+    return this.removeQueuedInstruction(index);
+  }
+
+  private queueSequences(): number[] {
+    return this.queuedInstructionEntries.map(entry => entry.sequence);
   }
 
   /**
@@ -1595,7 +1626,7 @@ export class InkRenderer {
   dequeueQueuedInstruction(): (SequencedQueuedWork & Partial<PeerInstructionMetadata>) | undefined {
     const next = this.queuedInstructionEntries.shift();
     if (!next) return undefined;
-    this.updateState({ queuedInstructions: this.state.queuedInstructions.slice(1), queuedInstructionMetadata: this.queueMetadata() });
+    this.updateState({ queuedInstructions: this.state.queuedInstructions.slice(1), queuedInstructionSequences: this.queueSequences(), queuedInstructionMetadata: this.queueMetadata() });
     return next;
   }
 
@@ -1618,7 +1649,7 @@ export class InkRenderer {
    */
   clearQueue(): void {
     this.queuedInstructionEntries = [];
-    this.updateState({ queuedInstructions: [], queuedInstructionMetadata: [] });
+    this.updateState({ queuedInstructions: [], queuedInstructionSequences: [], queuedInstructionMetadata: [] });
   }
 
   /**

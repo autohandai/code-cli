@@ -898,7 +898,7 @@ export function initializeAgentDependencies(
     host.telemetryManager = new TelemetryManager({
       enabled: runtime.config.telemetry?.enabled === true,
       apiBaseUrl: runtime.config.telemetry?.apiBaseUrl || 'https://api.autohand.ai',
-      enableSessionSync: runtime.config.telemetry?.enableSessionSync !== false,
+      enableSessionSync: runtime.config.telemetry?.enabled === true && runtime.config.telemetry?.enableSessionSync === true,
       companySecret: runtime.config.telemetry?.companySecret || runtime.config.api?.companySecret || '',
       authToken: runtime.config.auth?.token,
       clientVersion: packageJson.version,

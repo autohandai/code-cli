@@ -42,7 +42,7 @@ function createInkKey(overrides: Partial<InkKey> = {}): InkKey {
 }
 
 function renderAgentUIWithStdin(props: Partial<React.ComponentProps<typeof AgentUI>> = {}) {
-  const { lastFrame, stdin } = render(
+  const { lastFrame, stdin, unmount } = render(
     React.createElement(
       I18nProvider,
       null,
@@ -60,7 +60,7 @@ function renderAgentUIWithStdin(props: Partial<React.ComponentProps<typeof Agent
     )
   );
 
-  return { stdin, lastFrame };
+  return { stdin, lastFrame, unmount };
 }
 
 afterEach(() => {
@@ -287,6 +287,43 @@ describe('AgentUI $ skill mention mid-sentence', () => {
     expect(lastFrame() ?? '').toContain('$extension-builder');
   });
 
+  it('rechecks an unmatched skill mention while other skills have already loaded', async () => {
+    let skills = [
+      { name: 'code-reviewer', description: 'Review code', isActive: false, source: 'builtin' },
+    ];
+    const { stdin, lastFrame } = renderAgentUIWithStdin({ skillsProvider: () => skills });
+    await new Promise(r => setImmediate(r));
+    stdin.write('hep me here $ex');
+    await new Promise(r => setTimeout(r, 80));
+    expect(lastFrame() ?? '').not.toContain('$extension-builder');
+    skills = [
+      ...skills,
+      { name: 'extension-builder', description: 'Build an extension', isActive: false, source: 'builtin' },
+    ];
+    await new Promise(r => setTimeout(r, 600));
+    expect(lastFrame() ?? '').toContain('$extension-builder');
+  });
+
+  it('releases a pending skill recheck when the composer unmounts', async () => {
+    const { stdin, unmount } = renderAgentUIWithStdin({
+      skillsProvider: () => [
+        { name: 'code-reviewer', description: 'Review code', isActive: false, source: 'builtin' },
+      ],
+    });
+    await new Promise(r => setImmediate(r));
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const baseline = vi.getTimerCount();
+      stdin.write('hep me here $ex');
+      await new Promise(r => setImmediate(r));
+      expect(vi.getTimerCount()).toBeGreaterThan(baseline);
+      unmount();
+      expect(vi.getTimerCount()).toBe(baseline);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('suggests skills when the whole sentence arrives in one input chunk', async () => {
     const { stdin, lastFrame } = renderAgentUIWithStdin({
       skillsProvider: () => [
@@ -369,7 +406,7 @@ describe('AgentUI autocomplete while a turn is running', () => {
 });
 
 describe('AgentUI steering while working', () => {
-  it('steers the composer text with plain Enter and clears the composer', async () => {
+  it('preserves direct Enter steering when explicitly configured', async () => {
     const onSteer = vi.fn();
     const onInstruction = vi.fn();
     const onInputChange = vi.fn();
@@ -378,6 +415,7 @@ describe('AgentUI steering while working', () => {
       onSteer,
       onInstruction,
       onInputChange,
+      enterWhileWorking: 'steer',
     });
     await new Promise(r => setImmediate(r));
     stdin.write('focus on tests');
@@ -409,13 +447,14 @@ describe('AgentUI steering while working', () => {
     expect(onInstruction.mock.calls.map((call) => call[0])).toEqual([text]);
   });
 
-  it('queues with Shift+Enter while working under the default setting', async () => {
+  it('queues with Shift+Enter under the explicit direct-steering setting', async () => {
     const onSteer = vi.fn();
     const onInstruction = vi.fn();
     const { stdin } = renderAgentUIWithStdin({
       state: { ...createInitialUIState(), isWorking: true, status: 'Working...' },
       onSteer,
       onInstruction,
+      enterWhileWorking: 'steer',
     });
     await new Promise(r => setImmediate(r));
     stdin.write('later please');
@@ -425,6 +464,27 @@ describe('AgentUI steering while working', () => {
 
     expect(onSteer).not.toHaveBeenCalled();
     expect(onInstruction).toHaveBeenCalledWith('later please');
+  });
+
+  it('keeps Shift+Enter as a newline in a fresh draft while working by default', async () => {
+    const onSteer = vi.fn();
+    const onInstruction = vi.fn();
+    const onInputChange = vi.fn();
+    const { stdin } = renderAgentUIWithStdin({
+      state: { ...createInitialUIState(), isWorking: true, status: 'Working...' },
+      onSteer,
+      onInstruction,
+      onInputChange,
+    });
+    await new Promise(r => setImmediate(r));
+    stdin.write('first line');
+    await new Promise(r => setTimeout(r, 50));
+    stdin.write('\x1b[13;2u');
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(onSteer).not.toHaveBeenCalled();
+    expect(onInstruction).not.toHaveBeenCalled();
+    expect(onInputChange).toHaveBeenLastCalledWith('first line\n');
   });
 
   it('keeps Enter queueing and Shift+Enter steering when ui.enterWhileWorking is queue', async () => {

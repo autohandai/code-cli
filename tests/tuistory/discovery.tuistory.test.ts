@@ -1,4 +1,4 @@
-import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -137,6 +137,118 @@ describe('built discovery terminal command', () => {
         (repository: { path: string }) => repository.path
       )
     ).toContain('team/cli');
+  });
+  it('renders the aggregate-only Work Map from the built terminal without network access', async () => {
+    const state = await createTempAutohandHome({ config: { auth: undefined } });
+    states.push(state);
+    const configPath = path.join(state.workspaceRoot, 'work-map-config.json');
+    await writeFile(configPath, JSON.stringify({
+      traces: { consentVersion: 1, enabled: true, cloudSync: false, discoveryMap: true },
+      ui: { checkForUpdates: false },
+    }));
+    const component = path.join(state.workspaceRoot, 'ahtraces-fixture.mjs');
+    const map = {
+      schemaVersion: 1,
+      generatedAt: '2026-09-21T00:00:00.000Z',
+      request: {
+        since: '7d',
+        sinceTimestamp: '2026-09-14T00:00:00.000Z',
+        workspaceScope: 'current',
+        harnesses: ['autohand'],
+      },
+      coverage: {
+        sessions: 0,
+        sources: [],
+        filesScanned: 0,
+        bytesRead: 0,
+        warnings: 0,
+        partial: false,
+      },
+      sessions: {
+        total: 0,
+        active: 0,
+        completed: 0,
+        failed: 0,
+        cancelled: 0,
+        unknown: 0,
+        durationMs: 0,
+        tokens: 0,
+        usageProvenance: { actual: 0, estimated: 0, unavailable: 0 },
+      },
+      outcomes: {
+        verified: 0,
+        completedUnverified: 0,
+        failed: 0,
+        cancelled: 0,
+        partial: 0,
+        unknown: 0,
+      },
+      dimensions: { harnesses: [], models: [], providers: [], reasoningEfforts: [] },
+      tools: [],
+      workflows: [],
+      verification: {
+        sessionsWithObservedProof: 0,
+        testsPassed: 0,
+        testsFailed: 0,
+        lintPassed: 0,
+        buildPassed: 0,
+        proofPassed: 0,
+      },
+      relationships: { parent: 0, child: 0, subagent: 0, resume: 0, fork: 0, worktree: 0 },
+      repositories: { observed: 0, multiRepositorySessions: 0 },
+      recommendations: [],
+      privacy: {
+        contentProcessedLocally: true,
+        networkRequests: false,
+        persistedRawContent: false,
+        outputContainsAggregatesOnly: true,
+        excluded: [],
+      },
+      limits: [],
+    };
+    await writeFile(component, [
+      '#!/usr/bin/env node',
+      "const command = process.argv[2];",
+      "if (command === 'reconcile') {",
+      "  for await (const _chunk of process.stdin) {}",
+      "  console.log(JSON.stringify({ status: 'running', pid: process.pid, restarted: false }));",
+      "} else if (command === 'map') {",
+      `  console.log(${JSON.stringify(JSON.stringify(map))});`,
+      "} else { process.exitCode = 2; }",
+    ].join('\n'));
+    await chmod(component, 0o755);
+    const session = await launchBuiltAutohand([
+      '--config',
+      configPath,
+      '--path',
+      state.workspaceRoot,
+      'discovery',
+      'map',
+      '--since',
+      '7d',
+      '--agent',
+      'autohand',
+    ], {
+      cwd: state.workspaceRoot,
+      autohandHome: state.autohandHome,
+      env: {
+        HOME: state.workspaceRoot,
+        CODEX_HOME: path.join(state.workspaceRoot, '.codex'),
+        CLAUDE_CONFIG_DIR: path.join(state.workspaceRoot, '.claude'),
+        AUTOHAND_API_KEY: '',
+        AUTOHAND_AHTRACES_EXECUTABLE: component,
+      },
+      waitForDataTimeout: 15_000,
+    });
+    sessions.push(session);
+
+    await waitForExit(session, 20_000);
+    const output = session.readAll();
+    expect(session.exitInfo?.exitCode, output).toBe(0);
+    expect(output).toContain('WORK MAP');
+    expect(output).toContain('Window     7d');
+    expect(output).toContain('Sessions   0');
+    expect(output).toContain('aggregate-only · local processing · no network requests');
   });
   it('cancels an active upload from the progress view and exits with 130', async () => {
     const state = await createTempAutohandHome({ config: { auth: undefined } });

@@ -81,7 +81,7 @@ describe('handleAgentInkSubmittedInstruction while an instruction is active', ()
 });
 
 describe('steerAgentActiveInstruction', () => {
-  it('steers into the running turn without queueing and echoes a receipt', async () => {
+  it('steers into the running turn without queueing or adding a separate receipt', async () => {
     const { steerAgentActiveInstruction } = await import('../../../src/core/agent/AgentUIRuntime.js');
     const { SteeringQueue } = await import('../../../src/core/agent/SteeringQueue.js');
     const host = createHost();
@@ -94,7 +94,7 @@ describe('steerAgentActiveInstruction', () => {
     expect(host.steering.drain()).toEqual(['focus on tests']);
     expect(host.inkRenderer.addQueuedInstruction).not.toHaveBeenCalled();
     expect(host.inkRenderer.addUserMessage).toHaveBeenCalledWith('focus on tests');
-    expect(host.inkRenderer.addNotification).toHaveBeenCalledWith(expect.stringContaining('Steering the running turn'));
+    expect(host.inkRenderer.addNotification).not.toHaveBeenCalled();
   });
 
   it.each(['/ps', '!ls', ':reviewer ship it'])('runs %s through the submit path even while a turn is active', async (text) => {

@@ -73,6 +73,29 @@ describe('applyRunConfigOverlay', () => {
   });
 });
 
+describe('loadConfig run overlay control', () => {
+  it('can read persisted settings without process-only profile or --set overrides', async () => {
+    const root = await fse.mkdtemp(path.join(os.tmpdir(), 'autohand-run-overlay-persisted-'));
+    try {
+      const configPath = path.join(root, 'config.json');
+      await fse.writeJson(configPath, {
+        provider: 'openrouter',
+        openrouter: { apiKey: 'k', model: 'm' },
+        traces: { enabled: false },
+      });
+      configureRunConfigOverlay({ sets: ['traces.enabled=true'] });
+      const { loadConfig } = await import('../../src/config.js');
+
+      const loaded = await loadConfig(configPath, undefined, { applyRunConfigOverlay: false });
+
+      expect(loaded.traces?.enabled).toBe(false);
+      expect(loaded.runOverlay).toBeUndefined();
+    } finally {
+      await fse.remove(root);
+    }
+  });
+});
+
 describe('restoreRunConfigOverlay', () => {
   it('restores the file values for untouched paths and keeps values the user changed during the run', () => {
     const { config, snapshot } = applyRunConfigOverlay(base(), { profile: 'review', sets: ['ui.theme=aurora'] });

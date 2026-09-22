@@ -1218,7 +1218,7 @@ describe('agent startup and active input UI', () => {
     }
   });
 
-  it('setupEscListener queues line submissions from stdin data fallback when Enter is configured to queue', () => {
+  it('setupEscListener queues line submissions from stdin data fallback by default', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const originalStdin = process.stdin;
     const mockInput = new EventEmitter() as NodeJS.ReadStream;
@@ -1236,9 +1236,6 @@ describe('agent startup and active input UI', () => {
       config: {
         agent: {
           enableRequestQueue: true,
-        },
-        ui: {
-          enterWhileWorking: 'queue',
         },
       },
     };
@@ -1271,7 +1268,7 @@ describe('agent startup and active input UI', () => {
     }
   });
 
-  it('setupEscListener steers the running turn from a stdin data line submission by default', () => {
+  it('setupEscListener preserves direct steering when explicitly configured', () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     const originalStdin = process.stdin;
     const mockInput = new EventEmitter() as NodeJS.ReadStream;
@@ -1289,6 +1286,9 @@ describe('agent startup and active input UI', () => {
       config: {
         agent: {
           enableRequestQueue: true,
+        },
+        ui: {
+          enterWhileWorking: 'steer',
         },
       },
     };

@@ -137,6 +137,27 @@ describe('SETTINGS_REGISTRY', () => {
       .toMatchObject({ category: 'teams', type: 'number', defaultValue: 9 });
   });
 
+  it('exposes separate local tracing, cloud sync, content, and Work Map controls', () => {
+    expect(SETTINGS_REGISTRY.filter((setting) => setting.key.startsWith('traces.'))).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'traces.enabled', type: 'boolean', defaultValue: false }),
+        expect.objectContaining({ key: 'traces.cloudSync', type: 'boolean', defaultValue: false }),
+        expect.objectContaining({
+          key: 'traces.contentMode',
+          type: 'enum',
+          enumValues: ['metadata', 'full'],
+          defaultValue: 'metadata',
+        }),
+        expect.objectContaining({ key: 'traces.discoveryMap', type: 'boolean', defaultValue: true }),
+      ]),
+    );
+  });
+
+  it('surfaces legacy full-session history sync as a separate off-by-default consent', () => {
+    expect(SETTINGS_REGISTRY.find((setting) => setting.key === 'telemetry.enableSessionSync'))
+      .toMatchObject({ category: 'telemetry', type: 'boolean', defaultValue: false });
+  });
+
   it('exposes silent tool output as an off-by-default UI setting', () => {
     const setting = SETTINGS_REGISTRY.find(s => s.key === 'ui.silentToolOutput');
     expect(setting).toMatchObject({
@@ -161,6 +182,16 @@ describe('SETTINGS_REGISTRY', () => {
     expect(config.ui?.renderMarkdown).toBe(false);
     expect(setConfigSetting(config, 'render_markdown', 'on')).toEqual({ key: 'ui.renderMarkdown', value: true });
     expect(config.ui?.renderMarkdown).toBe(true);
+  });
+
+  it('records current consent when a trace setting is changed directly', () => {
+    const config = { configPath: '/tmp/config.json' } as LoadedConfig;
+
+    expect(setConfigSetting(config, 'traces.enabled', 'true')).toEqual({
+      key: 'traces.enabled',
+      value: true,
+    });
+    expect(config.traces).toMatchObject({ enabled: true, consentVersion: 1 });
   });
 
   it('exposes activity verbs as an on-by-default UI setting', () => {
@@ -552,12 +583,60 @@ describe('settings command integration', () => {
 
   it('keeps the live configuration unchanged when saving a direct setting fails', async () => {
     const config = createMockConfig();
+    const onSettingChanged = vi.fn();
     vi.mocked(mockSaveConfig).mockRejectedValueOnce(new Error('disk unavailable'));
 
-    const result = await settingsCmd({ config }, ['max_agents', '4']);
+    const result = await settingsCmd({ config, onSettingChanged }, ['max_agents', '4']);
 
     expect(result).toContain('Settings not saved: disk unavailable');
     expect(config.features).toBeUndefined();
+    expect(onSettingChanged).not.toHaveBeenCalled();
+  });
+
+  it('notifies runtime owners only after a direct setting is persisted', async () => {
+    const config = createMockConfig();
+    const onSettingChanged = vi.fn();
+    vi.mocked(mockSaveConfig).mockImplementationOnce(async () => {
+      expect(onSettingChanged).not.toHaveBeenCalled();
+    });
+
+    const result = await settingsCmd({ config, onSettingChanged }, ['telemetry.enabled', 'true']);
+
+    expect(result).toBe('Set telemetry.enabled = true');
+    expect(config.telemetry.enabled).toBe(true);
+    expect(onSettingChanged).toHaveBeenCalledWith({
+      key: 'telemetry.enabled',
+      previousValue: false,
+      value: true,
+    });
+  });
+
+  it('reports a post-save runtime failure without claiming the setting was not persisted', async () => {
+    const config = createMockConfig();
+    const onSettingChanged = vi.fn(async () => { throw new Error('ahtraces unavailable'); });
+
+    const result = await settingsCmd({ config, onSettingChanged }, ['traces.enabled', 'true']);
+
+    expect(result).toBe('Set traces.enabled = true\nSetting saved, but runtime update failed: ahtraces unavailable');
+    expect(config.traces.enabled).toBe(true);
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+
+  it('records current consent when traces are changed through the settings menu', async () => {
+    vi.mocked(mockShowModal)
+      .mockResolvedValueOnce({ label: 'Agent traces', value: 'traces' })
+      .mockResolvedValueOnce({ label: 'Enable agent traces', value: 'traces.enabled' })
+      .mockResolvedValueOnce({ label: 'Back', value: '__back__' })
+      .mockResolvedValueOnce(null);
+    vi.mocked(mockShowConfirm).mockResolvedValueOnce(true);
+    const config = createMockConfig();
+
+    await settingsCmd({ config });
+
+    expect(config.traces).toMatchObject({ enabled: true, consentVersion: 1 });
+    expect(mockSaveConfig).toHaveBeenCalledWith(expect.objectContaining({
+      traces: expect.objectContaining({ enabled: true, consentVersion: 1 }),
+    }));
   });
 
   it('documents the canonical thread setting in command help', async () => {
@@ -830,13 +909,13 @@ describe('settings command integration', () => {
     expect(mockInitTheme).toHaveBeenCalledWith('dracula');
   });
 
-  it('sets ui.theme non-interactively and rejects an unknown theme', () => {
+  it('parses ui.theme non-interactively without applying it before persistence', () => {
     const config = createMockConfig();
     expect(setConfigSetting(config, 'ui.theme', 'dracula')).toEqual({ key: 'ui.theme', value: 'dracula' });
     expect(config.ui?.theme).toBe('dracula');
-    expect(mockInitTheme).toHaveBeenCalledWith('dracula');
+    expect(mockInitTheme).not.toHaveBeenCalled();
     expect(() => setConfigSetting(createMockConfig(), 'ui.theme', 'not-a-theme')).toThrow(/Expected one of .*aurora/);
-    expect(mockInitTheme).toHaveBeenCalledTimes(1);
+    expect(mockInitTheme).not.toHaveBeenCalled();
   });
 
   it('does not save when user cancels edit', async () => {

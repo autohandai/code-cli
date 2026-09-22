@@ -138,6 +138,7 @@ const AUTOHAND_QUOTA_SCOPE_LABELS = {
   window_5h: "5-hour request quota",
   window_24h: "24-hour request quota",
   window_week: "weekly request quota",
+  window_month: "monthly request quota",
 } as const;
 
 const AUTOHAND_TOKEN_THROUGHPUT_SCOPE_LABELS = {
@@ -166,7 +167,7 @@ class AutohandRateLimitError extends ApiError {
 }
 
 function isAutohandQuotaScope(value: string | undefined): value is AutohandQuotaScope {
-  return value === "window_5h" || value === "window_24h" || value === "window_week";
+  return value === "window_5h" || value === "window_24h" || value === "window_week" || value === "window_month";
 }
 
 function isAutohandTokenThroughputScope(value: string | undefined): value is AutohandTokenThroughputScope {
@@ -329,6 +330,9 @@ export class LLMGatewayClient {
     if (this.apiKey) {
       headers.Authorization = `Bearer ${this.apiKey}`;
     }
+    if (this.errorLabels.serviceName === "Autohand AI") {
+      headers["x-autohand-client-request-id"] = crypto.randomUUID();
+    }
 
     // Validate payload size before sending
     const payloadJson = JSON.stringify(payload);
@@ -445,15 +449,18 @@ export class LLMGatewayClient {
     } catch (error) {
       const err = error as Error;
 
-      // No response was accepted. Buffered requests can also hit transient stalls;
-      // let the configured retry policy recover them. Body/partial-stream failures
-      // are handled separately and must not replay an accepted response.
+      // A missing response does not prove the server never admitted the request.
+      // Autohand AI stops here to avoid replaying a potentially metered call;
+      // other gateways retain their configured transport retry policy.
       if (err.name === "AbortError") {
+        const isAutohandAI = this.errorLabels.serviceName === "Autohand AI";
+        const requestId = headers["x-autohand-client-request-id"];
         throw new ApiError(
-          `Request timed out waiting for ${this.errorLabels.serviceName} to start a response (${Math.round((isStreaming ? this.timeout : Math.max(this.timeout, COMPLETION_TIMEOUT)) / 1000)}s).`,
+          `Request timed out waiting for ${this.errorLabels.serviceName} to start a response (${Math.round((isStreaming ? this.timeout : Math.max(this.timeout, COMPLETION_TIMEOUT)) / 1000)}s).`
+            + (isAutohandAI ? `\nThe request may have reached the server. Check /usage before retrying. Request ID: ${requestId}.` : ""),
           "timeout",
           0,
-          true,
+          !isAutohandAI,
         );
       }
 

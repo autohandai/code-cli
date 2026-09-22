@@ -15,7 +15,8 @@ export async function configureSessionThreadLimit(session: Session): Promise<str
   await waitForScreen(session, '/settings');
   await session.press('enter');
   await waitForScreen(session, 'Select a category:');
-  await session.press('8');
+  await waitForScreen(session, '9. Teams');
+  await session.press('9');
   await waitForScreen(session, 'Session thread limit (main agent included)');
   await session.press('1');
   await waitForScreen(session, 'Enter to submit');

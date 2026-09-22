@@ -13,12 +13,13 @@ import { showModal, showInput, showConfirm, showPassword, type ModalOption } fro
 import { saveConfig } from '../config.js';
 import type { BuiltInProviderName, LoadedConfig } from '../types.js';
 import { DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION, MAX_CONCURRENT_THREADS_PER_SESSION, isValidSessionThreadLimit } from '../core/agents/SessionThreadBudget.js';
+import { TRACE_CONSENT_VERSION } from '../integrations/ahtraces/consent.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
 export type SettingType = 'boolean' | 'string' | 'number' | 'enum' | 'password';
 
-export type SettingCategory = 'ui' | 'agent' | 'sessions' | 'permissions' | 'network' | 'telemetry' | 'automode' | 'teams' | 'search';
+export type SettingCategory = 'ui' | 'agent' | 'sessions' | 'permissions' | 'network' | 'telemetry' | 'traces' | 'automode' | 'teams' | 'search';
 
 export interface SettingDef {
   key: string;
@@ -54,6 +55,13 @@ export interface CategoryDef {
 
 export interface SettingsCommandContext {
   config: LoadedConfig;
+  onSettingChanged?: (change: SettingsChange) => void | Promise<void>;
+}
+
+export interface SettingsChange {
+  key: string;
+  previousValue: unknown;
+  value: unknown;
 }
 
 const SETTING_KEY_ALIASES: Record<string, string> = {
@@ -121,6 +129,7 @@ export const SETTING_CATEGORIES: CategoryDef[] = [
   { id: 'permissions', labelKey: 'commands.settings.categories.permissions' },
   { id: 'network', labelKey: 'commands.settings.categories.network' },
   { id: 'telemetry', labelKey: 'commands.settings.categories.telemetry' },
+  { id: 'traces', labelKey: 'commands.settings.categories.traces' },
   { id: 'automode', labelKey: 'commands.settings.categories.automode' },
   { id: 'teams', labelKey: 'commands.settings.categories.teams' },
   { id: 'search', labelKey: 'commands.settings.categories.search' },
@@ -181,7 +190,14 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
 
   // Telemetry & Reporting
   { key: 'telemetry.enabled', labelKey: 'commands.settings.telemetry.enabled', descriptionKey: 'commands.settings.telemetry.enabledDesc', category: 'telemetry', type: 'boolean', defaultValue: false },
+  { key: 'telemetry.enableSessionSync', labelKey: 'commands.settings.telemetry.enableSessionSync', descriptionKey: 'commands.settings.telemetry.enableSessionSyncDesc', category: 'telemetry', type: 'boolean', defaultValue: false },
   { key: 'autoReport.enabled', labelKey: 'commands.settings.telemetry.autoReportEnabled', descriptionKey: 'commands.settings.telemetry.autoReportEnabledDesc', category: 'telemetry', type: 'boolean', defaultValue: true },
+
+  // Agent traces and local Work Map
+  { key: 'traces.enabled', labelKey: 'commands.settings.traces.enabled', descriptionKey: 'commands.settings.traces.enabledDesc', category: 'traces', type: 'boolean', defaultValue: false },
+  { key: 'traces.cloudSync', labelKey: 'commands.settings.traces.cloudSync', descriptionKey: 'commands.settings.traces.cloudSyncDesc', category: 'traces', type: 'boolean', defaultValue: false },
+  { key: 'traces.contentMode', labelKey: 'commands.settings.traces.contentMode', descriptionKey: 'commands.settings.traces.contentModeDesc', category: 'traces', type: 'enum', enumValues: ['metadata', 'full'], defaultValue: 'metadata' },
+  { key: 'traces.discoveryMap', labelKey: 'commands.settings.traces.discoveryMap', descriptionKey: 'commands.settings.traces.discoveryMapDesc', category: 'traces', type: 'boolean', defaultValue: true },
 
   // Auto-mode
   { key: 'automode.maxIterations', labelKey: 'commands.settings.automode.maxIterations', descriptionKey: 'commands.settings.automode.maxIterationsDesc', category: 'automode', type: 'number', defaultValue: 50 },
@@ -357,8 +373,14 @@ export function setConfigSetting(config: LoadedConfig, keyInput: string, rawValu
 
   const value = parseSettingValue(setting, rawValue);
   setNestedValue(config, setting.key, value);
-  setting.apply?.(value);
+  recordTraceConsent(config, setting.key);
   return { key: setting.key, value };
+}
+
+function recordTraceConsent(config: LoadedConfig, settingKey: string): void {
+  if (!settingKey.startsWith('traces.')) return;
+  config.traces ??= {};
+  config.traces.consentVersion = TRACE_CONSENT_VERSION;
 }
 
 export function parseConfigSetArgs(parts: string[]): { key: string; value: string } {
@@ -491,7 +513,21 @@ export async function editSetting(setting: SettingDef, config: LoadedConfig): Pr
   }
 }
 
-async function showCategorySettings(category: SettingCategory, config: LoadedConfig): Promise<void> {
+async function applyPersistedSettingChange(
+  ctx: SettingsCommandContext,
+  change: SettingsChange,
+): Promise<string | undefined> {
+  try {
+    SETTINGS_REGISTRY.find((setting) => setting.key === change.key)?.apply?.(change.value);
+    await ctx.onSettingChanged?.(change);
+    return undefined;
+  } catch (error) {
+    return `Setting saved, but runtime update failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+async function showCategorySettings(category: SettingCategory, ctx: SettingsCommandContext): Promise<void> {
+  const { config } = ctx;
   while (true) {
     const settings = getSettingsForCategory(category);
 
@@ -527,18 +563,27 @@ async function showCategorySettings(category: SettingCategory, config: LoadedCon
     }
 
     const updated = structuredClone(config);
+    const previousValue = getNestedValue(config, setting.key);
     const changed = await editSetting(setting, updated);
     if (changed) {
+      recordTraceConsent(updated, setting.key);
       await saveConfig(updated);
       const value = getNestedValue(updated, setting.key);
       setNestedValue(config, setting.key, value);
-      setting.apply?.(value);
+      recordTraceConsent(config, setting.key);
+      const runtimeWarning = await applyPersistedSettingChange(ctx, {
+        key: setting.key,
+        previousValue,
+        value,
+      });
       console.log(chalk.green(`\n${t('commands.settings.saved')}\n`));
+      if (runtimeWarning) console.log(chalk.yellow(`${runtimeWarning}\n`));
     }
   }
 }
 
-async function configureTaskListPosition(config: LoadedConfig, args: string[]): Promise<string | null> {
+async function configureTaskListPosition(ctx: SettingsCommandContext, args: string[]): Promise<string | null> {
+  const { config } = ctx;
   const setting = SETTINGS_REGISTRY.find(s => s.key === 'ui.taskListPosition');
   const keyLength = args.findIndex((_, index) =>
     normalizeSettingKey(args.slice(0, index + 1).join(' ')) === 'ui.taskListPosition',
@@ -547,6 +592,7 @@ async function configureTaskListPosition(config: LoadedConfig, args: string[]): 
     return 'Usage: /settings task_list position [up|above-composer]';
   }
 
+  const previousValue = config.ui?.taskListPosition;
   const candidate = { ...config, ui: { ...config.ui } };
   const rawValue = args.slice(keyLength).join(' ');
   if (rawValue) {
@@ -558,7 +604,15 @@ async function configureTaskListPosition(config: LoadedConfig, args: string[]): 
   await saveConfig(candidate);
   config.ui ??= {};
   config.ui.taskListPosition = candidate.ui.taskListPosition;
-  return `${t(setting.labelKey)}: ${config.ui.taskListPosition}`;
+  const runtimeWarning = await applyPersistedSettingChange(ctx, {
+    key: setting.key,
+    previousValue,
+    value: config.ui.taskListPosition,
+  });
+  return [
+    `${t(setting.labelKey)}: ${config.ui.taskListPosition}`,
+    runtimeWarning,
+  ].filter(Boolean).join('\n');
 }
 
 export async function settings(ctx: SettingsCommandContext, args: string[] = []): Promise<string | null> {
@@ -566,7 +620,7 @@ export async function settings(ctx: SettingsCommandContext, args: string[] = [])
     if (args[0] === 'task_list' || args.some((_, index) =>
       normalizeSettingKey(args.slice(0, index + 1).join(' ')) === 'ui.taskListPosition',
     )) {
-      return configureTaskListPosition(ctx.config, args);
+      return configureTaskListPosition(ctx, args);
     }
     if (args[0] === 'help' || args[0] === '--help') {
       return [
@@ -580,11 +634,19 @@ export async function settings(ctx: SettingsCommandContext, args: string[] = [])
     try {
       if (args.length < 2) return 'Usage: /settings <key> <value>. Use /settings help for examples.';
       const { key, value } = parseConfigSetArgs(args);
+      const normalizedKey = normalizeSettingKey(key);
+      const previousValue = getNestedValue(ctx.config, normalizedKey);
       const updated = structuredClone(ctx.config);
       const result = setConfigSetting(updated, key, value);
       await saveConfig(updated);
       setNestedValue(ctx.config, result.key, result.value);
-      return formatConfigSetResult(result);
+      recordTraceConsent(ctx.config, result.key);
+      const runtimeWarning = await applyPersistedSettingChange(ctx, {
+        key: result.key,
+        previousValue,
+        value: result.value,
+      });
+      return [formatConfigSetResult(result), runtimeWarning].filter(Boolean).join('\n');
     } catch (error) {
       return `Settings not saved: ${error instanceof Error ? error.message : String(error)}`;
     }
@@ -605,7 +667,7 @@ export async function settings(ctx: SettingsCommandContext, args: string[] = [])
 
     if (!result) return null;
 
-    await showCategorySettings(result.value as SettingCategory, ctx.config);
+    await showCategorySettings(result.value as SettingCategory, ctx);
   }
 }
 

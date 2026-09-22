@@ -120,6 +120,26 @@ function makeContext(overrides: Partial<SlashCommandContext> = {}): SlashCommand
 }
 
 describe('/usage command', () => {
+  it('shows the Free 200-request monthly hard stop in the plan allowance', async () => {
+    const { formatAccountPlanAllowance } = await import('../../src/commands/usage.js');
+    expect(formatAccountPlanAllowance({
+      tier: 'free',
+      freeRemaining: 20,
+      limits: {
+        displayName: 'Autohand Code (Free)',
+        messagesPer5h: 20,
+        messagesPer24h: null,
+        messagesPerWeek: null,
+        messagesPerMonth: 200,
+        rpm: 10,
+        inputTokensPerMinute: null,
+        outputTokensPerMinute: null,
+        requiresEligibility: true,
+        perSeat: false,
+        models: ['fantail'],
+      },
+    })).toBe('20 requests / 5 hours · 200 requests / month');
+  });
   it('formats Max throughput as exactly four times Pro', async () => {
     const { formatAccountPlanThroughput } = await import('../../src/commands/usage.js');
     expect(formatAccountPlanThroughput({

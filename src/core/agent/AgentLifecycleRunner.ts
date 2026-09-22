@@ -749,7 +749,7 @@ export async function shutdownAgentRuntimeResources(host: AgentLifecycleHost): P
         if (host.runtime) host.runtime.inkRenderer = undefined;
         cleanupTasks.push(callResourceCleanup(() => ui.stop()));
       } else {
-        callResourceCleanupSync(() => host.cleanupUI?.(false));
+        cleanupTasks.push(callResourceCleanup(() => host.cleanupUI?.(false)));
       }
       callResourceCleanupSync(() => host.runtime?.spinner?.stop?.());
       if (host.runtime) host.runtime.spinner = undefined;
@@ -1689,7 +1689,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
                 }
               }
               writeAutohandDebugLine('[DEBUG] Stopping inkRenderer in fallback path', host.writeDebugLine?.bind(host));
-              host.inkRenderer.stop();
+              await host.inkRenderer.stop();
               host.inkRenderer = null;
               host.runtime.inkRenderer = undefined;
               host.inkInstructionResolver = null;

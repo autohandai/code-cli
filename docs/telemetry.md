@@ -1,484 +1,505 @@
-# Telemetry Architecture & Key Decisions
+# Data collection, telemetry, and agent traces
 
-> **Document Status**: Living Document
-> **Last Updated**: December 2024
-> **Owner**: Autohand Core Team
+> Last reviewed against the CLI source: 2026-09-21
 
----
+Autohand has several independent data paths. Enabling one does not silently
+enable the others. This document describes the client payloads and controls in
+this repository; it does not make claims about a deployed service's retention,
+logging, residency, or compliance policy.
 
-## Overview
+## At a glance
 
-Autohand CLI includes an optional telemetry system designed to help improve the product while respecting user privacy. This document outlines what data is collected, how it's handled, and how users can control their data.
+| Data path | Default | Destination | Content |
+| --- | --- | --- | --- |
+| Version/usage check | On for ordinary non-bare startup | `POST /v1/version/check` | Stable device ID, CLI version, OS/architecture, client type |
+| Product telemetry | Off | `POST /v1/telemetry` | Pseudonymous event envelope plus the event fields below |
+| Cloud session sync | Off | `POST /v1/history` | Full saved session messages and session metadata |
+| Automatic error reports | On unless declined | `POST /v1/reports` | Error message, path-sanitized stack, diagnostic context, device/runtime metadata |
+| Local agent traces and Work Map | Off | Local files only | Agent session files parsed into a normalized trace, then an aggregate map |
+| Cloud agent traces | Off | `POST /v1/traces/batch` | Metadata-only or separately consented bounded full trace content |
 
-**Guiding Principles:**
+The HTTP service can observe normal connection metadata such as an IP address.
+Nothing in this client repository proves how that transport metadata is logged
+or retained by a deployed service.
 
-1. **Privacy First** - No personally identifiable information (PII) is ever collected
-2. **Transparency** - Users know exactly what's collected
-3. **User Control** - Easy opt-out, data deletion on request
-4. **Offline Resilient** - Works without internet, syncs when available
+## Product telemetry
 
----
+Product telemetry is enabled only when `telemetry.enabled` is `true`. Every
+event has this envelope:
 
-## Data Collection Summary
+- random event ID;
+- persistent pseudonymous device ID from `~/.autohand/device-id`;
+- current session ID;
+- event timestamp and type;
+- client type and client/CLI version;
+- OS platform and release, Node version, CPU architecture and core count;
+- total and free memory in MiB;
+- running interaction count, distinct tool names, and error count.
 
-### What We Collect
+The event-specific fields currently instrumented by the CLI are:
 
-| Category        | Data Points                                 | Purpose                        |
-| --------------- | ------------------------------------------- | ------------------------------ |
-| **Session**     | Start/end time, duration, status            | Understand usage patterns      |
-| **Session sync** | Authenticated session snapshots and usage metadata | Resume sessions and power account-scoped session views |
-| **Tools**       | Which tools used, success/failure, duration | Improve tool reliability       |
-| **Errors**      | Error type, sanitized message               | Fix bugs faster                |
-| **Commands**    | Slash commands used                         | Prioritize feature development |
-| **Environment** | OS, Node version, CLI version               | Ensure compatibility           |
+| Event | Fields |
+| --- | --- |
+| `session_start` | model, provider, provider display name/API format when present, reasoning effort, context window |
+| `session_end` | status, duration, model/provider metadata |
+| `tool_use` | tool name, success, duration, failure text, estimated result tokens, whether the result was truncated |
+| `error` | error type, message, path-sanitized stack, context string |
+| `session_failure_bug` | error name/message/stack, retry counters, conversation length, recent tool names, iteration/context usage, model/provider |
+| `model_switch` | previous/new model, provider, provider metadata, reasoning effort, context window |
+| `command_use` | command, known subcommand, surface (`interactive`, `cli`, `acp`, `json_rpc`, or `mobile`) |
+| `heartbeat` | session uptime; emitted every 60 seconds while a telemetry-enabled session is active |
+| `skill_use` | skill name/source, activation mode/action, span ID, token/byte size, version and file timestamps, release reason |
+| `goal_event` | goal ID, lifecycle action, status/reason, source |
+| `context_compaction` | token counts before/after, surviving skill span IDs, reason, cropped count |
 
-### What We Do NOT Collect
+The event schema also reserves `outcome` and `session_sync`. The current CLI has
+no production call site emitting those as product-telemetry events; cloud
+session sync uses the separate `/v1/history` request described below.
 
-- File contents or names
-- User prompts or conversations through anonymous telemetry. Authenticated session sync is a separate opt-in path described below.
-- API keys or credentials
-- IP addresses (hashed on server)
-- Usernames, emails, or any PII
-- Code, diffs, or patches
-- Workspace paths (sanitized)
+Command telemetry intentionally excludes free-form arguments, which can contain
+prompts, paths, and server names. Product telemetry does not intentionally send
+conversation messages, file contents, diffs, or tool arguments/results. It can,
+however, contain free-form error/status strings. The current sanitizer removes
+common user-home path prefixes from stacks; it is not a general PII or secret
+detector. Treat error fields as potentially sensitive when deciding whether to
+opt in.
 
----
+Events are queued in `~/.autohand/telemetry/queue.json`, bounded to 500 entries,
+and sent in batches of 20. The client checks `/health`, flushes every 60 seconds,
+and retries failed sends up to three times. Unsent events remain in the local
+queue. A graceful shutdown has a bounded best-effort flush.
 
-## Event Types
+## Cloud session sync
 
-### 1. `session_start`
+Cloud session sync is a second, content-bearing consent. It runs only when all
+of these are true:
 
-Triggered when a user starts or resumes a session.
+1. `telemetry.enabled` is `true`;
+2. `telemetry.enableSessionSync` is `true`;
+3. the user has an authenticated Autohand account token.
 
-```typescript
-{
-  eventType: 'session_start',
-  sessionId: 'uuid',
-  deviceId: 'uuid',
-  eventData: {
-    model: 'claude-3.5-sonnet',
-    provider: 'openrouter'
-  },
-  platform: 'darwin',
-  cliVersion: '0.1.0',
-  timestamp: 'ISO-8601'
-}
+The payload contains the persistent device ID, session ID, every saved message's
+role, full text content and timestamp, plus available metadata:
+
+- model, provider, reasoning effort and context window;
+- absolute workspace root, project name, session status, summary and title;
+- client and client version;
+- start/end timestamps and duration;
+- additions and deletions;
+- prompt, completion, cache and total token usage, turn count, usage provenance,
+  longest-turn duration and usage timestamp.
+
+Offline snapshots are stored in
+`~/.autohand/telemetry/session-sync-queue.json`, bounded to the newest ten
+sessions. An ephemeral run does not create or upload a session snapshot.
+
+## Version check and automatic reports
+
+These are separate from `telemetry.enabled`.
+
+The version/usage check starts during ordinary CLI startup, sends immediately
+when its 45-minute cache allows, and then checks on the same interval. Its body
+contains `deviceId`, `currentVersion`, `platform` (OS and architecture), and
+`clientType`; the version and device ID are also request headers. Bare mode does
+not start it. `AUTOHAND_SKIP_PING=1` disables it for the process.
+
+Automatic error reporting is enabled unless `autoReport.enabled` is `false`.
+It sends the stable device ID, CLI version, platform, OS release, timestamp,
+error type/message, a path-sanitized stack, and call-site diagnostic fields such
+as model, provider, session ID, conversation length, recent tool names, retry
+counters, context usage, or structured failure context. Reports are deduplicated
+within a session and retried once. Path sanitization is not comprehensive secret
+redaction, so this control should be reviewed separately from telemetry consent.
+
+## Agent traces and Work Map
+
+Agent traces are a separate local-first subsystem controlled by `traces.*`.
+When `traces.enabled` is `false`, `ahtraces` is not kept running and Work Map
+commands refuse to scan.
+
+`ahtraces` is an Autohand sub agent with its own private repository, build,
+tests, and binary. Code CLI owns consent, onboarding, account configuration,
+and the user-facing commands. Release builds checkout the commit pinned in
+`.github/ahtraces-ref`, build both products separately, and bundle the sibling
+executables in the official archives. Autohand passes versioned settings to the
+component over stdin, so account credentials never appear in process arguments.
+
+New users choose a trace mode during onboarding. Existing configurations without
+the current `traces.consentVersion` are asked once during an interactive startup;
+cancelling leaves tracing off and asks again later. The stored choice can be
+changed at any time:
+
+```bash
+autohand --traces-on       # local monitoring plus cloud metadata sync
+autohand --traces-off      # stop monitoring/sync and remove derived local data
+autohand traces status
+autohand traces on         # also available as: ah traces on
+autohand traces off        # also available as: ah traces off
+ahtraces status
+ahtraces on
+ahtraces off
 ```
 
-**Frequency**: Once per session start
+Use `/settings` when choosing local-only monitoring or the separately consented
+full-content cloud mode.
 
-### 2. `session_end`
+When enabled, the read-only adapters inspect known local session locations for
+19 harnesses:
 
-Triggered when a session ends (quit, crash, or abandoned).
+`autohand`, `claude-code`, `cursor`, `opencode`, `opencode2`, `codex`, `pi`,
+`amp`, `copilot`, `cline`, `openclaw`, `hermes`, `droid`, `grok`, `kimi`,
+`antigravity`, `prime-agent`, `fx`, and `deepseek`.
 
-```typescript
-{
-  eventType: 'session_end',
-  eventData: {
-    status: 'completed' | 'crashed' | 'abandoned',
-    duration: 1234, // seconds
-    model: 'claude-3.5-sonnet',
-    provider: 'openrouter'
-  },
-  interactionCount: 15,
-  toolsUsed: ['read_file', 'write_file', 'run_command'],
-  errorsCount: 0
-}
-```
+The adapters attempt to normalize native JSON, JSONL, SQLite, or compressed
+JSONL records into schema version 1:
 
-**Frequency**: Once per session end
+- source harness, native ID/path/fingerprint and agent version;
+- project name/path and Git remote/branch/ref when the source exposes them;
+- start/end time and status;
+- model, provider, reasoning effort and context window;
+- input/output/reasoning/cache/total token counts with provenance;
+- parent, child, subagent, resume, fork and worktree relationships;
+- ordered user/assistant/system/tool messages;
+- text, reasoning, tool call/result, error, file-change and terminal parts;
+- derived outcome state, evidence facts and confidence;
+- parser version, completeness and warnings.
 
-### 3. `tool_use`
+Cursor's global SQLite path can be overridden with `TRACES_CURSOR_GLOBAL_DB`
+for a mounted host database. Copilot scanning includes CLI sessions and VS Code
+workspace and empty-window chat stores.
 
-Triggered when any tool is executed.
+Registry coverage is not the same as native-version parity. OpenCode SQLite
+`session`/`message`/`part` records and OpenCode 2 `session_message` records use
+separate readers so shared databases do not double-count sessions. Those readers
+select only trace columns; they do not query account, credential, or share-secret
+tables. OpenCode's legacy JSON scan is limited to session/message/part storage
+directories, not the data root containing `auth.json`. Token counts are read
+only from explicit usage envelopes, never inferred from tool arguments or
+results. SQLite WAL changes trigger a rescan and WAL size counts toward the
+source budget. Legacy OpenCode JSON joins, authentic native-version fixtures
+for the remaining harnesses, and OpenCode 2's service-API fallback remain
+release gates.
 
-```typescript
-{
-  eventType: 'tool_use',
-  eventData: {
-    tool: 'write_file',
-    success: true,
-    duration: 45 // milliseconds
-  }
-}
-```
+The registry now selects known session stores rather than application roots for
+Pi, Amp, Copilot, Cline, Grok, Kimi, Antigravity, Prime Agent, Hermes, DeepSeek,
+Codex, and Cursor. The walker limits VS Code workspace storage to
+`chatSessions`, Copilot CLI to `events.jsonl`, Cline to task history files and
+versioned SDK session messages, Amp to flat `T-*.json` thread documents, Grok to `summary.json`, `updates.jsonl`, and
+`chat_history.jsonl`, Kimi to session state/wire files, Antigravity to exact
+generated transcript logs, and OpenClaw to exact per-agent SQLite stores or
+live legacy transcript JSONL;
+credential-shaped filenames are rejected before reading.
+Decoy-file tests cover these paths. This reduces accidental configuration
+reads, but it is not proof of complete or future-safe
+native parsing. Each upstream version still needs an authentic session fixture
+and a source-minimization review before a production opt-in rollout.
 
-**Frequency**: Per tool execution (batched)
+For Cline's [SDK messages contract v1](https://github.com/cline/cline/blob/main/sdk/packages/core/docs/messages-contract-v1.md),
+the adapter reads the matching `<sessionId>.json` manifest and
+`<sessionId>.messages.json` under each session directory, including a
+`CLINE_DATA_DIR` override. It joins status/workspace metadata with per-message
+model and token metrics, rejects unknown contract versions as partial coverage,
+and counts nested messages against the scan record budget. Older Cline task
+history still needs a native join.
 
-### 4. `error`
+OpenClaw discovery honors `OPENCLAW_STATE_DIR` and reads only
+`agents/<agentId>/agent/openclaw-agent.sqlite` plus plain live
+`agents/<agentId>/sessions/*.jsonl` files. It does not open auth-profile
+databases, `sessions.json`, or `.deleted`/`.reset` transcript archives. For the
+current SQLite contract, the reader selects an explicit column allowlist from
+`schema_meta`, `session_nodes`, and `session_windows`, then joins only the
+ordered active projection in `session_transcript_active_events` to
+`transcript_events`; it never enumerates credential tables. Session rows provide
+lifecycle, workspace, model, and lineage metadata. Conversation token totals
+come from assistant-response usage (`input`, `output`, `cacheRead`,
+`cacheWrite`, and exact `totalTokens`) because logical-session counters are
+latest/context snapshots rather than conversation totals. Current SQLite and
+legacy JSONL copies deduplicate by native session ID, with the more complete
+copy retained. Unknown transcript or SQLite schema versions mark coverage
+partial.
 
-Triggered on unexpected errors.
+On a synthetic version-3 JSONL transcript, Autohand and the pinned
+`@traces-sh/traces@0.6.30` reference retained the same five semantic events:
+one user text, one reasoning block, one tool call, one tool result, and one
+assistant text, with matching per-response input/output/cache buckets. The
+pinned reference found no trace from an equivalent SQLite-only current store;
+Autohand's real read-only Node SQLite probe did. This closes current-store
+coverage but does not prove every OpenClaw release, cold archive, or live
+append/restart behavior.
 
-```typescript
-{
-  eventType: 'error',
-  eventData: {
-    type: 'interactive_loop_error',
-    message: 'Connection timeout',
-    stack: '...sanitized...',
-    context: 'Interactive loop'
-  }
-}
-```
+Pi session-v3 JSONL uses a native normalizer for session identity/version,
+workspace and timestamps, model and thinking-level changes, per-message model
+and token/cache/reasoning usage, text/reasoning blocks, camel-case tool calls,
+paired tool results, errors and compaction events. Whitespace-only blocks are
+discarded. Unknown Pi versions, record types, content types or roles mark the
+source partial instead of silently producing complete-looking usage. A
+counts-only comparison of 26 installed Pi sessions matched the pinned Traces
+reference at 651 normalized events, including the per-event-type split; no
+session content was printed or copied. This validates the observed v3 corpus,
+not every past or future Pi format.
 
-**Stack Trace Sanitization**:
+Amp discovery reads only flat `T-*.json` documents under
+`$XDG_DATA_HOME/amp/threads` or `~/.local/share/amp/threads`. It does not read
+Amp prompt history, settings, credentials, file-change snapshots, or nested
+files. The local layout is not a public Amp storage contract; it is the
+legacy/local thread shape also produced by `amp threads export`, while the
+[current Amp thread documentation](https://ampcode.com/docs/threads) describes
+full JSON export but does not promise this directory or schema. The adapter
+therefore treats `v` as a write revision, retains only known `user` and
+`assistant` blocks, excludes image/signature/bookkeeping payloads, and marks
+unknown roles, blocks, result states, or missing message arrays as partial.
+It preserves thread/workspace/Git/client metadata, per-message model and
+timestamps, completion/streaming/cancellation state, reasoning, paired tool
+calls/results, and parent/child thread relationships. Copied files deduplicate
+by native thread ID rather than path.
 
-- `/Users/<username>/` → `/Users/***/`
-- `/home/<username>/` → `/home/***/`
-- `C:\Users\<username>\` → `C:\Users\***\`
+Amp reports uncached `inputTokens` separately from
+`cacheReadInputTokens` and `cacheCreationInputTokens`. The adapter keeps those
+as distinct input/cache-read/cache-write buckets and uses
+`totalInputTokens + outputTokens` when the authoritative input total exists.
+This matches the meanings in Amp's
+[official thread-usage API](https://ampcode.com/api/external), avoiding the
+generic-parser undercount that would add only uncached input and output. On the
+same synthetic native thread, the pinned Traces reference and Autohand both
+produced nine semantic events/parts: one user text, one reasoning block, three
+tool calls, three results, and one assistant text. Both retained 22 uncached
+input, 160 output, 12,010 cache-read, 910 cache-write, and 12,942 total-input
+tokens; Autohand reports 13,102 total tokens after adding output. No Amp install
+or authentic current-version local thread exists on this machine, so current
+stub/export versions and live append/restart behavior remain release gates.
 
-**Frequency**: Per error occurrence
+Copilot has two separate native contracts. For the CLI, the adapter reads only
+`~/.copilot/session-state/<sessionId>/events.jsonl`; it does not open
+`session.db`, `vscode.metadata.json`, `workspace.yaml`, checkpoints, or other
+files beside the event stream. Version-1 events supply the native session ID,
+CLI version, workspace/repository/branch/ref, timestamps, selected model,
+reasoning effort, context-window limit, system/user/assistant text, readable
+reasoning, paired tool calls/results, session errors and shutdown state. The
+durable `session.shutdown.modelMetrics` ledger is authoritative for accumulated
+per-model input, output, reasoning, cache-read and cache-write counts. Live
+`assistant.usage` and compaction usage are used only when a shutdown ledger is
+not available, so replayed accounting is not double-counted. `inputTokens`
+remains the provider's total input count; cache counts are retained as its
+reported sub-buckets and are not added again when deriving `total`.
 
-### 5. `model_switch`
+The CLI normalizer intentionally excludes transformed prompts, attachments,
+encrypted or opaque reasoning, request-correlation IDs, permission payloads,
+hook payloads, skill contents, progress deltas and tool-specific telemetry.
+Readable prompt, response, reasoning, tool arguments/results and error text are
+still normalized trace content: they remain local in metadata mode and are
+eligible for upload only after the separate full-content consent.
+[GitHub's Copilot SDK event reference](https://docs.github.com/en/copilot/how-tos/copilot-sdk/features/streaming-events)
+documents the event fields, and its
+[usage guide](https://github.com/github/copilot-sdk/blob/main/docs/features/usage-and-billing.md)
+distinguishes ephemeral per-call usage from accumulated session metrics.
 
-Triggered when user changes the AI model.
+For VS Code, the adapter reads only versioned chat snapshots under
+`emptyWindowChatSessions` and `workspaceStorage/<workspace>/chatSessions`.
+Versions 1 through 3 are supported. JSONL files are replayed as the official
+initial/set/push/delete mutation log with safe path validation; unsent input
+state, attachments, variables, citations, repository diffs and unrelated UI
+state are not normalized. Non-empty sessions contribute user and assistant
+text, readable thinking, tool calls/results, warnings, file-change paths,
+timestamps and request model IDs. When available, `modelTotals` is preferred
+over single-call prompt/completion counters because VS Code defines it as the
+whole-turn total including subagents. Empty snapshots are not indexed, and
+copied JSON/JSONL sessions deduplicate by native session ID. The storage paths,
+versioned schema, and mutation format come from VS Code's
+[chat session store](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/chat/common/model/chatSessionStore.ts),
+[serializable chat model](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/chat/common/model/chatModel.ts),
+and [object mutation log](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/chat/common/model/objectMutationLog.ts).
 
-```typescript
-{
-  eventType: 'model_switch',
-  eventData: {
-    fromModel: 'gpt-4',
-    toModel: 'claude-3.5-sonnet',
-    provider: 'openrouter',
-    providerDisplayName: 'OpenRouter',
-    providerApiFormat: 'openai-compatible', // custom providers only
-    reasoningEffort: 'high',
-    contextWindow: 262144
-  }
-}
-```
+A counts-only comparison against `@traces-sh/traces@0.6.30` used one installed
+CLI session, one content-bearing VS Code snapshot, and one empty VS Code JSONL
+snapshot without printing message content. Both implementations retained the
+same two non-empty native session IDs and skipped the empty session. The pinned
+reference produced four CLI events but left all token columns empty; Autohand
+preserved the same conversation categories and additionally recovered the
+durable model/token ledger. For the VS Code session, the reference produced 449
+events: 175 assistant-text, 108 tool-call, 107 tool-result, 49 workspace-edit,
+nine user-message, and one error event. Autohand matched those content/tool/edit
+counts, while also retaining two serialized response-error records that the
+reference omitted. Unknown CLI versions/events, VS Code versions, mutation
+kinds, or response-part kinds mark coverage partial instead of silently
+appearing complete.
 
-Provider metadata is non-secret. API keys, bearer tokens, and OAuth tokens are not included.
+Kimi wire protocols 1.4 and 1.5 join each agent's `wire.jsonl` with its
+session `state.json`. The normalizer preserves main/subagent identity and
+parent links, workspace and session timestamps, model/provider/thinking
+configuration, user prompts, streamed text and reasoning, tool calls/results,
+turn cancellation, compaction, and per-step input/output/cache usage. It
+discards whitespace-only reasoning and does not double-count the duplicate
+`step.end` and `usage.record` envelopes. A counts-only comparison of 95 local
+wire traces matched the pinned Traces reference at 4,642 events and matched
+all input/output/cache totals. The 60 observed protocol-1.0 traces remain
+metadata-only and are explicitly partial; unknown future protocols and event
+types also reduce coverage instead of appearing complete.
 
-**Frequency**: Per model change
+Droid session schema 2 joins each session JSONL with the exact sibling
+`<session>.settings.json`. Only model, provider lock, and reasoning effort are
+accepted from that settings file; other fields are never added to the trace.
+The normalizer preserves native session identity, workspace and timestamps,
+text/reasoning parts, tool calls/results, per-message usage and message-level
+model attribution. It collapses adjacent native text blocks into the single
+message event used by the reference and deduplicates copied files by native
+session ID. A counts-only comparison of the installed Factory corpus matched
+the pinned Traces reference at four trace IDs and seven events: three user
+messages, two agent-text events, one tool call and one tool result. No token
+usage was present in that corpus. Missing or future session schemas remain
+readable but explicitly partial.
 
-### 6. `command_use`
+Grok sessions follow the [official session directory layout](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/17-sessions.md),
+but the adapter reads only `summary.json`, the authoritative ACP
+`updates.jsonl` stream, and `chat_history.jsonl` as a fallback when the update
+stream has no conversation chunks. It does not open system prompts, plans,
+feedback, hunk or rewind history, resource state, terminal logs, event logs,
+signals, or subagent prompt metadata. Summary metadata supplies native identity,
+workspace, Git state, model and timestamps. Streamed user, assistant and thought
+chunks are coalesced; tool updates are joined by call ID; hook failures become
+errors; and subagent spawns and fork/resume metadata become relationships without
+reading the child prompt.
 
-Triggered when slash commands are used.
+`turn_completed.usage` is treated as the authoritative per-turn ledger. The
+adapter maps input, output, reasoning, cache-read, cache-creation and total token
+fields, fills missing top-level splits from `modelUsage`, and deduplicates replayed
+prompt IDs before summing. It intentionally does not treat
+`signals.contextTokensUsed` as spend, and schema version 1 has no cost field for
+`costUsdTicks`. A counts-only comparison used the same four-session Grok fixture
+as `@traces-sh/traces@0.6.30`. The reference indexed only the content-bearing
+parent and materialized ten events: five tool calls, three tool results and two
+generic thinking events. Autohand retained all four native session identities;
+the parent also had ten parts, classifying them as five calls, three results, one
+user message and one hook error, while the other three remained metadata-only.
+This validates the observed fixture and the intentional semantic difference,
+not every Grok version or live append/restart behavior.
 
-```typescript
-{
-  eventType: 'command_use',
-  eventData: {
-    command: '/model'
-  }
-}
-```
+Antigravity reads only
+`~/.gemini/{antigravity-cli,antigravity,antigravity-ide}/brain/<conversationId>/.system_generated/logs/transcript_full.jsonl`,
+falling back to `transcript.jsonl` when the full transcript is absent. It does
+not scan application configuration, VS Code workspace storage, artifacts,
+screenshots, or the legacy `conversations/*.pb` store. Google's
+[hook contract](https://www.antigravity.google/docs/hooks) identifies the
+per-conversation transcript path and supplies the conversation, workspace, and
+model concepts used by the adapter. Legacy protobuf transcripts remain a
+documented coverage gap; they are not guessed or deserialized.
 
-**Frequency**: Per slash command
+The native transcript normalizer orders records by `step_index`, extracts only
+the `<USER_REQUEST>` portion of injected user envelopes, and retains readable
+planner text/thinking, paired tool calls/results, errors, compaction summaries,
+timestamps, workspace and model metadata, and subagent relationships. Internal
+system messages, prior-conversation envelopes, knowledge artifacts, and raw
+subagent prompts are excluded. Unknown record types produce partial-coverage
+warnings and their payloads are not relabeled as assistant output. When a
+record carries the official SDK's `UsageMetadata` fields, input, output,
+thinking, cache-read, and authoritative total tokens are retained; the
+[Antigravity SDK types](https://github.com/google-antigravity/antigravity-sdk-python/blob/main/google/antigravity/types.py)
+define those counters.
 
-### 7. `heartbeat`
+A counts-only synthetic native-contract comparison against
+`@traces-sh/traces@0.6.30` produced one trace in each implementation. The pinned
+reference emitted ten events: one user message, one thinking part, two tool
+calls, two tool results, one compaction, and three agent-text events. Autohand
+matched the eight known conversation/tool/compaction categories, but excluded
+the raw subagent envelope and deliberately unknown future payload that the
+reference labeled as two additional agent-text events; it reported the future
+record as partial instead. Autohand also retained the synthetic SDK usage
+envelope, while the reference emitted no token fields. The installed local
+Antigravity corpus contains seven legacy protobuf conversations but no generated
+transcript JSONL, so both implementations returned zero installed traces. This
+does not prove protobuf, live append/restart, or all Antigravity versions.
 
-Periodic check-in for long sessions.
+A single harness scan is bounded to 5,000 files, 64 MiB per file, 64 MiB total,
+100,000 records and directory depth 12. Work Map scans at most three harnesses
+concurrently by default. Truncation and parse failures are surfaced as coverage
+warnings instead of being presented as complete data.
 
-```typescript
-{
-  eventType: 'heartbeat',
-  eventData: {
-    uptime: 3600 // seconds
-  }
-}
-```
+The persistent local index does not retain raw message content. It replaces
+native/session/repository identities with opaque hashes, reduces tool calls to
+categories, keeps only error/exit evidence and bounded per-model token summaries
+needed for aggregates, and writes an aggregate Work Map and checkpoints under
+`~/.autohand/traces/` (or the configured Autohand home). Work Map output
+contains counts and dimensions for sessions, duration, token provenance,
+harness/model/provider/reasoning effort, tool categories, workflow motifs,
+outcomes, verification evidence, relationships, repository counts and bounded
+recommendations. It explicitly excludes prompts, responses, reasoning, commands,
+tool arguments/results, code/diffs, paths, repository identities, session IDs,
+credentials, and environment values.
 
-**Frequency**: Every 5 minutes during active sessions
+Where message-level usage exists, the local Work Map attributes tokens to each
+message's model. Tokens without reliable model attribution appear as
+`unattributed` rather than being assigned to the first model in the session.
+Existing local checkpoints are rescanned once for this index upgrade. The
+cloud metadata endpoint still receives trace-level model totals; per-model
+cloud billing breakdown for mixed-model sessions remains a release gate.
 
-### 8. `session_sync`
+`autohand discovery map` performs a fresh bounded local scan and makes no network
+request. The agent's `inspect_work_map` tool reads the same aggregate model. Both
+require `traces.enabled: true`; set `traces.discoveryMap: false` to prevent map
+access while leaving monitoring available for an explicitly chosen cloud mode.
 
-Session data uploaded for cloud sync feature.
+### Optional cloud traces
 
-```typescript
-{
-  eventType: 'session_sync',
-  eventData: {
-    messageCount: 45,
-    totalTokens: 12500
-  }
-}
-```
+Cloud trace upload additionally requires `traces.cloudSync: true` and an
+authenticated account. Uploads are incremental, at most 50 traces and 4 MiB per
+HTTP request, and the server must acknowledge every requested trace exactly once.
+Each request also sends schema version 1 and the persistent pseudonymous device
+ID; authentication associates accepted rows with the active account and user.
+Trace ingestion and storage do not consume Autohand model/API usage quota.
+Uploaded traces are visible at `https://console.autohand.ai/traces`. Stopping
+cloud sync does not delete data already uploaded, and Console does not yet have
+a trace-only deletion control. Deleting a personal account from the Account page
+permanently removes its associated trace metadata and referenced full-content
+objects.
 
-**Frequency**: Debounced during active sessions and once on session end (if enabled)
+`traces.contentMode: "metadata"` sends:
 
-Session sync is separate from anonymous telemetry and requires both an authenticated
-account and `telemetry.enableSessionSync`. It uploads the existing session snapshot
-through `/v1/history`, including model/provider, project metadata, timing, status, and
-aggregated token usage (`promptTokens`, `completionTokens`, `totalTokens`, `turnCount`,
-usage availability, and the longest turn duration). Snapshots are queued locally when
-offline and retried later. The API must treat these fields as additive so older CLI
-versions and older servers continue to work.
+- canonical trace ID, hashed native ID and source fingerprint;
+- harness and agent version;
+- timestamps, status, model/provider/reasoning/context window;
+- token usage, relationships and derived outcome facts.
 
----
+It does not send project metadata or messages. `"full"` adds normalized messages
+and parts. Before upload, IDs are made opaque, common credential patterns and
+secret-named object fields are redacted, home paths are replaced, strings and
+object depth are bounded, message content has a 1 MiB budget, and each serialized
+trace is capped at 3 MiB before it can enter a 4 MiB request. This is defense in
+depth, not a guarantee that arbitrary source code, personal data, or an unknown
+secret pattern cannot remain. Full mode therefore requires a distinct explicit
+choice.
 
-## Data Flow Architecture
+## Configuration
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Autohand CLI                            │
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │              TelemetryManager                        │    │
-│  │  • Captures events                                   │    │
-│  │  • Sanitizes data                                    │    │
-│  │  • Manages session state                             │    │
-│  └────────────────────┬────────────────────────────────┘    │
-│                       │                                      │
-│  ┌────────────────────▼────────────────────────────────┐    │
-│  │              TelemetryClient                         │    │
-│  │  • Batches events (max 20)                          │    │
-│  │  • Persists queue to disk                           │    │
-│  │  • Retries on failure (3 attempts)                  │    │
-│  │  • Flushes every 60 seconds                         │    │
-│  └────────────────────┬────────────────────────────────┘    │
-│                       │                                      │
-│  ┌────────────────────▼────────────────────────────────┐    │
-│  │           ~/.autohand/telemetry/                 │    │
-│  │  • queue.json (pending events)                      │    │
-│  │  • session-sync-queue.json (pending sessions)       │    │
-│  └────────────────────┬────────────────────────────────┘    │
-└───────────────────────┼─────────────────────────────────────┘
-                        │ HTTPS (when online)
-                        ▼
-┌─────────────────────────────────────────────────────────────┐
-│              api.autohand.ai (Cloudflare Workers)            │
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │  POST /v1/telemetry/batch                           │    │
-│  │  POST /v1/history/keeping                           │    │
-│  └────────────────────┬────────────────────────────────┘    │
-│                       │                                      │
-│  ┌────────────────────▼────────────────────────────────┐    │
-│  │              Data Storage                            │    │
-│  │  • D1 (SQLite) - Structured metrics                 │    │
-│  │  • R2 (Object) - Raw event data                     │    │
-│  └─────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Frequency & Batching
-
-### Event Batching
-
-| Setting        | Value      | Configurable |
-| -------------- | ---------- | ------------ |
-| Batch size     | 20 events  | No           |
-| Flush interval | 60 seconds | No           |
-| Max queue size | 500 events | No           |
-| Retry attempts | 3          | No           |
-| Retry backoff  | 1s, 2s, 3s | No           |
-
-### Network Behavior
-
-- **Online**: Events sent in batches every 60 seconds or when batch size reached
-- **Offline**: Events queued to disk, synced when connection restored
-- **Startup**: Attempts to flush any queued events from previous sessions
-
----
-
-## Opt-In / Opt-Out
-
-### Default Behavior
-
-Telemetry is **disabled by default**. Users must explicitly opt-in to enable telemetry.
-
-### How to Opt-In
-
-**Option 1: Config File**
-
-Edit `~/.autohand/config.json`:
+The privacy-preserving defaults are:
 
 ```json
 {
   "telemetry": {
+    "enabled": false,
+    "enableSessionSync": false
+  },
+  "traces": {
+    "enabled": false,
+    "cloudSync": false,
+    "contentMode": "metadata",
+    "discoveryMap": true
+  },
+  "autoReport": {
     "enabled": true
   }
 }
 ```
 
-**Option 2: Environment Variable**
+Use `/settings` to review each switch. A completed consent choice writes
+`traces.consentVersion`; the absence of the current marker prevents the daemon
+and Work Map from running even if a legacy file says `traces.enabled: true`.
+Disabling product telemetry stops new
+events and network flushes but does not delete an existing local queue. Disabling
+session sync does not delete its queued snapshots. Disabling trace cloud sync
+leaves local Work Map processing enabled when `traces.enabled` remains true.
+Disabling `traces.enabled` stops the companion and removes its derived local Work
+Map and checkpoints; it never deletes the source histories owned by other agents.
 
-```bash
-AUTOHAND_TELEMETRY=true autohand
-```
-
-### What Happens When Disabled (Default)
-
-- No events are captured or sent
-- No network requests to telemetry endpoints
-- Session sync is disabled
-- Local session files still created
-
-### Enabling Session Sync
-
-Enable both telemetry and cloud session sync:
-
-```json
-{
-  "telemetry": {
-    "enabled": true,
-    "enableSessionSync": true
-  }
-}
-```
-
----
-
-## Device Identification
-
-### Anonymous Device ID
-
-- Generated on first run: `crypto.randomUUID()`
-- Stored in `~/.autohand/device-id`
-- Never changes unless manually deleted
-- Not linked to any user account
-
-### Session ID
-
-- Generated per session: `crypto.randomUUID()`
-- Links events within a single session
-- Enables session resume from cloud
-
----
-
-## Data Retention
-
-### On-Device
-
-| Data               | Location                                        | Retention             |
-| ------------------ | ----------------------------------------------- | --------------------- |
-| Event queue        | `~/.autohand/telemetry/queue.json`              | Until synced          |
-| Session sync queue | `~/.autohand/telemetry/session-sync-queue.json` | Until synced (max 10) |
-| Device ID          | `~/.autohand/device-id`                         | Permanent             |
-
-### Server-Side
-
-| Data               | Storage | Retention  |
-| ------------------ | ------- | ---------- |
-| Telemetry events   | D1 + R2 | 90 days    |
-| Session data       | R2      | 90 days    |
-| Aggregated metrics | D1      | Indefinite |
-
----
-
-## Enterprise Features
-
-### Standard (Free)
-
-- All telemetry collection
-- Opt-out capability
-- Local session storage
-- Cloud session sync
-
-### Enterprise (Planned)
-
-| Feature                        | Description                                   |
-| ------------------------------ | --------------------------------------------- |
-| **Private Telemetry Endpoint** | Self-hosted API for complete data control     |
-| **Data Residency**             | Choose region for data storage (EU, US, APAC) |
-| **Extended Retention**         | Custom retention periods up to 2 years        |
-| **Audit Logs**                 | Detailed logs of all data access              |
-| **SSO Integration**            | Link telemetry to enterprise identity         |
-| **Team Analytics**             | Aggregated usage across team members          |
-| **Custom Dashboards**          | Build custom analytics views                  |
-| **Export API**                 | Programmatic access to raw telemetry          |
-| **Compliance Reports**         | SOC2, GDPR, HIPAA compliance documentation    |
-| **Data Deletion API**          | Programmatic GDPR deletion requests           |
-
-### Enterprise Configuration
-
-```json
-{
-  "telemetry": {
-    "enabled": true,
-    "apiBaseUrl": "https://telemetry.your-company.com",
-    "enableSessionSync": true,
-    "enterprise": {
-      "organizationId": "org_xxx",
-      "apiKey": "ent_xxx",
-      "dataResidency": "eu-west-1"
-    }
-  }
-}
-```
-
----
-
-## Privacy & Compliance
-
-### GDPR Compliance
-
-- **Lawful Basis**: Legitimate interest (product improvement)
-- **Data Minimization**: Only essential data collected
-- **Right to Access**: Request data export via support
-- **Right to Erasure**: Request deletion via support
-- **Data Portability**: JSON export available
-
-### Data Processing
-
-| Role            | Entity               |
-| --------------- | -------------------- |
-| Data Controller | Autohand AI LLC      |
-| Data Processor  | Cloudflare (hosting) |
-| Sub-processors  | None                 |
-
-### Security Measures
-
-- TLS 1.3 for all transmissions
-- Data encrypted at rest (Cloudflare D1/R2)
-- No logs contain PII
-- Regular security audits
-- IP addresses hashed with rotating salt
-
----
-
-## Debugging & Transparency
-
-### View Queued Events
-
-```bash
-cat ~/.autohand/telemetry/queue.json | jq
-```
-
-### View Device ID
-
-```bash
-cat ~/.autohand/device-id
-```
-
-### Clear All Telemetry Data
-
-```bash
-rm -rf ~/.autohand/telemetry/
-rm ~/.autohand/device-id
-```
-
-### Verify Opt-Out
-
-When telemetry is disabled, no network requests are made to `api.autohand.ai`. Verify with:
-
-```bash
-# macOS/Linux
-sudo tcpdump -i any host api.autohand.ai
-```
-
----
-
-## Changelog
-
-| Date    | Change                                  |
-| ------- | --------------------------------------- |
-| 2024-12 | Initial telemetry system implementation |
-| 2024-12 | Added offline batching and sync         |
-| 2024-12 | Added session cloud sync                |
-| 2024-12 | Added enterprise feature planning       |
-
----
-
-## Questions & Contact
-
-For telemetry-related questions or data requests:
-
-- **Email**: privacy@autohand.ai
-- **GitHub**: https://github.com/autohandai/code-cli/issues
-
----
-
-_This document is part of the Autohand CLI open-source project and is subject to the Apache-2.0 license._
+For development and incident verification, inspect the queue files and use a
+loopback API override or network capture. Deployment checks must still verify
+the running API and Account deletion control rather than inferring production
+state from repository code.

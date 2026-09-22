@@ -146,6 +146,34 @@ describe('LLMGatewayClient', () => {
     it('still retries a streaming timeout, where nothing arrived at all', async () => {
       expect(await attemptsUntilTimeout(true)).toBe(3);
     });
+
+    it('does not replay an ambiguous Autohand AI timeout and gives support a request ID', async () => {
+      const fetchMock = vi.fn().mockRejectedValue(
+        Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
+      );
+      global.fetch = fetchMock;
+      const client = new LLMGatewayClient(settings, {
+        maxRetries: 3,
+        retryDelay: 1,
+        timeout: 60000
+      }, {
+        serviceName: 'Autohand AI',
+        credentialName: 'Autohand AI API key',
+        accountName: 'Autohand AI account',
+      });
+
+      const failure = await client.complete({
+        messages: [{ role: 'user', content: 'Hello' }],
+        stream: true,
+      }).then(() => undefined, (error: unknown) => error as Error & { retryable?: boolean });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const requestId = fetchMock.mock.calls[0]?.[1]?.headers?.['x-autohand-client-request-id'];
+      expect(requestId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+      expect(failure).toMatchObject({ retryable: false });
+      expect(failure?.message).toContain(`Request ID: ${requestId}`);
+      expect(failure?.message).toContain('Check /usage before retrying');
+    });
   });
 
   describe('setDefaultModel', () => {
@@ -593,6 +621,43 @@ describe('LLMGatewayClient', () => {
           process.env.TZ = originalTimeZone;
         }
       }
+    });
+
+    it('reports the Free monthly hard stop with its reset time and never retries', async () => {
+      const resetAt = Math.floor(Date.now() / 1000) + 86400;
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        headers: new Headers(),
+        json: () => Promise.resolve({
+          error: {
+            type: 'rate_limited',
+            message: "You've used all 200 requests in this monthly window.",
+            scope: 'window_month',
+            resetAt,
+            upgradeUrl: 'https://console.autohand.ai/upgrade/?from=cli&tier=pro',
+          },
+        }),
+      });
+      global.fetch = fetchMock;
+      const client = new LLMGatewayClient(
+        { apiKey: 'test-key', model: 'fantail' },
+        { maxRetries: 3, retryDelay: 0 },
+        {
+          serviceName: 'Autohand AI',
+          credentialName: 'Autohand AI API key',
+          accountName: 'Autohand AI account',
+        },
+      );
+
+      await expect(client.complete({
+        messages: [{ role: 'user', content: 'Hello' }],
+      })).rejects.toMatchObject({
+        code: 'rate_limited',
+        retryable: false,
+        message: expect.stringMatching(/Autohand AI monthly request quota reached\.[\s\S]*200 requests[\s\S]*Resets [^\n]+[\s\S]*Upgrade your Autohand Code plan/),
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
     it('falls back to the runtime time zone when TZ is not a usable zone', async () => {

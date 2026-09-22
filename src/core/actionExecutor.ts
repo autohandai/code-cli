@@ -134,6 +134,7 @@ import {
   resolveStatefulReadMode,
   type ReadStateStore,
 } from './agent/ReadSessionLedger.js';
+import { buildLocalWorkMap, parseWorkMapHarnesses } from '../integrations/ahtraces/workMap.js';
 
 interface ActivityTodo {
   id?: string;
@@ -1073,7 +1074,7 @@ export class ActionExecutor {
       );
     }
 
-    if (this.runtime.options.dryRun && !['find_grep', 'fff_find', 'find', 'search', 'search_with_context', 'semantic_search', 'glob', 'plan'].includes(action.type)) {
+    if (this.runtime.options.dryRun && !['find_grep', 'fff_find', 'find', 'search', 'search_with_context', 'semantic_search', 'glob', 'plan', 'inspect_work_map'].includes(action.type)) {
       return this.recordToolFailure(
         capture,
         'authorization',
@@ -1108,6 +1109,14 @@ export class ActionExecutor {
     }
 
     switch (action.type) {
+      case 'inspect_work_map': {
+        const map = await buildLocalWorkMap(this.runtime.config, {
+          since: action.since ?? '30d',
+          workspace: this.runtime.workspaceRoot,
+          harnesses: parseWorkMapHarnesses(action.agents),
+        }, context?.signal);
+        return JSON.stringify(map, null, 2);
+      }
       case 'plan': {
         const notes = action.notes ?? '';
         if (!notes) {

@@ -30,6 +30,9 @@ const TELEMETRY_EVENT_TYPES = new Set<TelemetryEvent['eventType']>([
   'session_sync',
   'skill_use',
   'session_failure_bug',
+  'goal_event',
+  'outcome',
+  'context_compaction',
 ]);
 const TELEMETRY_CLIENT_TYPES = new Set<TelemetryEvent['clientType']>([
   'cli',
@@ -205,7 +208,7 @@ export class TelemetryClient {
       flushIntervalMs: 60000, // 1 minute
       maxQueueSize: DEFAULT_MAX_QUEUE_SIZE,
       maxRetries: 3,
-      enableSessionSync: true,
+      enableSessionSync: false,
       companySecret: '',
       clientType: 'cli',
       clientVersion: undefined,
@@ -623,6 +626,10 @@ export class TelemetryClient {
   async uploadSession(
     sessionData: SessionSyncQueueEntry
   ): Promise<{ success: boolean; id?: string; error?: string }> {
+    if (!this.config.enabled) {
+      return { success: false, error: 'Telemetry disabled' };
+    }
+
     if (!this.config.enableSessionSync) {
       return { success: false, error: 'Session sync disabled' };
     }
@@ -660,13 +667,15 @@ export class TelemetryClient {
           sessionId: sessionData.sessionId,
           messages: sessionData.messages,
           metadata: sessionData.metadata
-        })
+        }),
+        signal: AbortSignal.timeout(TELEMETRY_REQUEST_TIMEOUT_MS),
       });
 
       if (response.ok) {
         const data = await response.json() as { id?: string };
         return { success: true, id: data.id };
       } else {
+        discardResponseBody(response);
         return { success: false, error: `HTTP ${response.status}` };
       }
     } catch (err) {
@@ -678,7 +687,7 @@ export class TelemetryClient {
    * Sync queued sessions (call when back online)
    */
   async syncQueuedSessions(): Promise<{ synced: number; failed: number }> {
-    if (!this.config.enableSessionSync || !this.config.authToken) {
+    if (!this.config.enabled || !this.config.enableSessionSync || !this.config.authToken) {
       return { synced: 0, failed: 0 };
     }
 

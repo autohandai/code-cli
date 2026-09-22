@@ -229,8 +229,10 @@ export function setupAgentEscListener(host: AgentInputTurnHost, controller: Abor
         }
 
         if (key?.name === 'return' || key?.name === 'enter') {
-          const steerOnPlainEnter = (host.runtime.config.ui?.enterWhileWorking ?? 'steer') === 'steer';
-          const wantsSteer = steerOnPlainEnter ? !key?.shift : key?.shift === true;
+          const enterWhileWorking = host.runtime.config.ui?.enterWhileWorking ?? 'select';
+          const wantsSteer = enterWhileWorking === 'steer'
+            ? !key?.shift
+            : enterWhileWorking === 'queue' && key?.shift === true;
           if (wantsSteer && host.queueInput.trim() && canSteerComposerInput(host.queueInput) && typeof host.steerActiveInstruction === 'function') {
             const steered = host.queueInput;
             host.queueInput = '';

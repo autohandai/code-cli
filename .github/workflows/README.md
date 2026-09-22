@@ -22,24 +22,28 @@ resolutions. Weekly Dependabot updates keep the GitHub Actions versions current.
 
 2. **Runs fast tests and built terminal tests in separate parallel jobs**
 
-3. **Builds binaries** for all platforms:
+3. **Checks out the private `ahtraces` component** at the immutable commit in
+   `.github/ahtraces-ref`, using the read-only `AHTRACES_REPO_TOKEN` secret
+
+4. **Builds Autohand and ahtraces separately** for all platforms, then places
+   both sibling executables in each release archive:
    - macOS Apple Silicon (`autohand-macos-arm64`)
    - macOS Intel (`autohand-macos-x64`)
    - Linux x64 (`autohand-linux-x64`)
    - Linux ARM64 (`autohand-linux-arm64`)
    - Windows x64 (`autohand-windows-x64.exe`)
 
-4. **Signs macOS binaries after Bun compilation** and verifies each transported
+5. **Signs macOS binaries after Bun compilation** and verifies each transported
    Actions artifact on a native Apple Silicon or Intel runner before release
    publication
 
-5. **Generates release notes** from the correct previous release tag
+6. **Generates release notes** from the correct previous release tag
 
-6. **Creates GitHub Release** with binaries attached
+7. **Creates GitHub Release** with binaries attached
 
-7. **Updates the public Homebrew tap** from the verified release archives (stable releases only)
+8. **Updates the public Homebrew tap** from the verified release archives (stable releases only)
 
-8. **Publishes to npm**
+9. **Publishes to npm**
    - Alpha releases use the `alpha` dist-tag
    - Stable releases use the `latest` dist-tag
 

@@ -154,7 +154,7 @@ export interface AgentInstructionHost {
     control?: ReactLoopControl,
   ): Promise<ReactLoopResult>;
   runQualityPipeline(): Promise<boolean>;
-  cleanupUI(keepInkAlive?: boolean): void;
+  cleanupUI(keepInkAlive?: boolean): void | Promise<void>;
   runInstruction(instruction: string, options?: RunInstructionOptions): Promise<boolean>;
   isRetryableSessionError(error: Error): boolean;
   submitSessionFailureBugReport(
@@ -577,7 +577,7 @@ export class InstructionRunner {
 
       // Handle unconfigured provider by prompting for configuration
       if (error instanceof ProviderNotConfiguredError) {
-        host.cleanupUI();
+        await host.cleanupUI();
         console.log(chalk.yellow(`\nNo provider is configured yet. Let's set one up!\n`));
         const providerConfigured = await host.providerConfigManager.promptModelSelection();
         if (!providerConfigured) {
@@ -729,7 +729,7 @@ export class InstructionRunner {
         `[DEBUG] runInstruction finally: useInkRenderer=${host.useInkRenderer}, inkRenderer exists=${!!host.inkRenderer}`,
         host.writeDebugLine?.bind(host)
       );
-      host.cleanupUI(host.useInkRenderer);
+      await host.cleanupUI(host.useInkRenderer);
 
       if (host.persistentInputActiveTurn && !keepPersistentInputForNextTurn) {
         host.persistentInput.stop();

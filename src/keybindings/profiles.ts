@@ -271,7 +271,7 @@ function buildHelpRows(bindings: Record<KeybindingAction, Chord[]>): KeybindingH
     ...describe('cycleMode', bindings.cycleMode),
     ...describe('newline', bindings.newline),
     'enter submits prompt',
-    'enter steers the running turn, shift + enter queues it (ui.enterWhileWorking)',
+    'while working: enter queues; select a queued message, then enter steers it',
     'ctrl + c clears input / exits',
     ...describe('exit', bindings.exit),
     '↑ / ↓ recalls typed messages',
