@@ -115,7 +115,9 @@ redaction, so this control should be reviewed separately from telemetry consent.
 
 Agent traces are a separate local-first subsystem controlled by `traces.*`.
 When `traces.enabled` is `false`, `ahtraces` is not kept running and Work Map
-commands refuse to scan.
+commands refuse to scan. For installation, plan availability, consent modes,
+supported agents, Console verification, and deletion steps, see the
+[Agent traces setup guide](traces.md).
 
 `ahtraces` is an Autohand sub agent with its own private repository, build,
 tests, and binary. Code CLI owns consent, onboarding, account configuration,
@@ -440,16 +442,18 @@ access while leaving monitoring available for an explicitly chosen cloud mode.
 ### Optional cloud traces
 
 Cloud trace upload additionally requires `traces.cloudSync: true` and an
-authenticated account. Uploads are incremental, at most 50 traces and 4 MiB per
+authenticated account. Cloud sync and Console trace visibility are available on
+paid Autohand Code plans, including Team. Uploads are incremental, at most 50 traces and 4 MiB per
 HTTP request, and the server must acknowledge every requested trace exactly once.
 Each request also sends schema version 1 and the persistent pseudonymous device
 ID; authentication associates accepted rows with the active account and user.
 Trace ingestion and storage do not consume Autohand model/API usage quota.
 Uploaded traces are visible at `https://console.autohand.ai/traces`. Stopping
-cloud sync does not delete data already uploaded, and Console does not yet have
-a trace-only deletion control. Deleting a personal account from the Account page
-permanently removes its associated trace metadata and referenced full-content
-objects.
+cloud sync does not delete data already uploaded. In Console, open the Account
+page, select **Delete agent trace data**, type `DELETE TRACES`, and confirm. This
+removes trace metadata and referenced full-content objects uploaded by your
+identity to the selected account. It does not remove another Team member’s data
+or the source session files on your device.
 
 `traces.contentMode: "metadata"` sends:
 

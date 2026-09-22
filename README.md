@@ -70,7 +70,7 @@ Use `autohand --traces-on`, `autohand traces on`, or `ahtraces on` to enable
 local monitoring with metadata sync. Use the matching `--traces-off`,
 `autohand traces off`, or `ahtraces off` control to stop it. Uploaded traces are
 visible at `https://console.autohand.ai/traces` and can be deleted from the
-Console Account page.
+Console Account page. See the [agent traces setup guide](docs/traces.md) for consent modes, supported agents, Team use, and deletion controls.
 
 ### Manual Installation
 
