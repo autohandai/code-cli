@@ -125,6 +125,24 @@ if (process.argv.includes('--answer-only') || process.argv.includes('--setup-onl
  * banner, the status line and the first request all agree on the served model.
  */
 async function applyServedAutohandModel(config: LoadedConfig, opts: { model?: string }): Promise<void> {
+  const {
+    getAutohandAICloudModelCliUnsupportedReason,
+    getAutohandAICloudModelContextWindow,
+  } = await import('./providers/AutohandAIProvider.js');
+  const configuredModel =
+    config.provider === 'autohandai' && config.autohandai?.plan === 'cloud'
+      ? config.autohandai.model
+      : undefined;
+  const unsupportedReason = getAutohandAICloudModelCliUnsupportedReason(configuredModel);
+  if (unsupportedReason && config.autohandai) {
+    console.error(chalk.yellow(unsupportedReason));
+    config.autohandai.model = 'fantail';
+    config.autohandai.contextWindow = getAutohandAICloudModelContextWindow('fantail');
+    delete config.autohandai.reasoningEffort;
+    if (opts.model) opts.model = 'fantail';
+    return;
+  }
+
   const { normalizeAutohandAIStartupModel } = await import('./core/agent/AutohandAIModelTierPolicy.js');
   const served = normalizeAutohandAIStartupModel(config);
   if (served && opts.model) {

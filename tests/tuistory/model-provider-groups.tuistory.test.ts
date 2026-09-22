@@ -15,6 +15,7 @@ import stripAnsi from 'strip-ansi';
 import type { Session } from 'tuistory';
 import {
   createTempAutohandHome,
+  dismissAutocompleteMenu,
   exitInteractive,
   launchBuiltAutohand,
   type TuistoryTempState,
@@ -270,11 +271,88 @@ describe('/model provider and Autohand plan journeys Tuistory', () => {
     });
     expect(models).toContain('Fantail');
     expect(models).toContain('Moa');
+    expect(models).toContain('Weka (API + Console only)');
     expect(models).toContain('↑↓ Navigate');
 
     await session.press('escape');
     const composer = await returnToComposer(session);
     expect(composer).toContain('Autohand AI, fantail');
+
+    await closeInteractive(session);
+  });
+
+  it('explains the supported Weka surfaces without changing the active CLI model', async () => {
+    const { session, state } = await launchInteractive(configuredAutohandCloud);
+    await openConfiguredAutohandSettings(session);
+    await session.type('2');
+    await session.text({
+      timeout: 30_000,
+      waitFor: (text) => text.includes('Hosted') && text.includes('Local'),
+    });
+    await session.type('1');
+
+    const models = await session.text({
+      timeout: 30_000,
+      waitFor: (text) => text.includes('Weka (API + Console only)'),
+    });
+    expect(models).toContain('Typed decision model for noul, choice, and score questions');
+
+    await session.press('down');
+    await session.text({
+      timeout: 30_000,
+      waitFor: (text) => /▸\s+2\.\s+Moa/u.test(text),
+    });
+    await session.press('down');
+    await session.text({
+      timeout: 30_000,
+      waitFor: (text) => /▸\s+3\.\s+Auto/u.test(text),
+    });
+    await session.press('down');
+    await session.text({
+      timeout: 30_000,
+      waitFor: (text) => /▸\s+4\.\s+Weka/u.test(text),
+    });
+    await session.press('enter');
+    const composer = await session.text({
+      timeout: 30_000,
+      waitFor: (text) => text.includes(
+        'Weka is available through the Autohand API and Console Playground. CLI execution is not supported yet.',
+      ) && text.includes('❯'),
+    });
+    expect(composer).toContain('Autohand AI, fantail');
+
+    const savedConfig = JSON.parse(await readFile(state.configPath, 'utf8')) as {
+      autohandai?: { model?: string };
+    };
+    expect(savedConfig.autohandai?.model).toBe('fantail');
+
+    await closeInteractive(session);
+  });
+
+  it('keeps Weka out of the executable teammate model picker', async () => {
+    const { session } = await launchInteractive(configuredAutohandCloud);
+    await session.type('/agents provider');
+    await dismissAutocompleteMenu(session);
+    await session.press('enter');
+
+    const providers = await session.text({
+      timeout: 30_000,
+      waitFor: (text) => text.includes('Choose the provider for your agent team'),
+    });
+    expect(providers).toContain('Autohand AI · fantail');
+    await session.press('enter');
+
+    const models = await session.text({
+      timeout: 30_000,
+      waitFor: (text) => text.includes('Choose a model for Autohand AI'),
+    });
+    expect(models).toContain('fantail');
+    expect(models).toContain('moa');
+    expect(models.toLowerCase()).not.toContain('weka');
+
+    await session.press('escape');
+    const composer = await returnToComposer(session);
+    expect(composer).toContain('Team model selection cancelled');
 
     await closeInteractive(session);
   });
@@ -407,6 +485,7 @@ describe('/model provider and Autohand plan journeys Tuistory', () => {
     expect(rendered).not.toContain('What would you like to change?');
     expect(rendered).toContain('Fantail');
     expect(rendered).toContain('Moa');
+    expect(rendered).toContain('Weka (API + Console only)');
 
     await session.press('escape');
     await closeInteractive(session);

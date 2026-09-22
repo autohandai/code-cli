@@ -151,6 +151,15 @@ describe('resolveTeamModelAssignment', () => {
     })).toEqual({ provider: 'autohandai', model: 'moa', source: 'member-override' });
   });
 
+  it('does not run the informational Weka entry as a CLI teammate model', () => {
+    expect(resolveTeamModelAssignment({
+      config,
+      active: { provider: 'autohandai', model: 'fantail' },
+      override: { model: 'weka' },
+      environment: {},
+    })).toEqual({ provider: 'autohandai', model: 'fantail', source: 'agent-nature' });
+  });
+
   it('keeps user-level defaults ahead of the fast-tier rule', () => {
     expect(resolveTeamModelAssignment({
       config: { ...config, teams: { defaultProvider: 'autohandai', defaultModel: 'moa' } },
