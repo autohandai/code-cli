@@ -59,6 +59,8 @@ jobs:
 
       - name: Compile and smoke test component
         working-directory: ahtraces-component
+        env:
+          BUILD_GIT_COMMIT: ${{ steps.ahtraces-ref.outputs.sha }}
         run: |
           bun run compile:linux-x64
           ./binaries/ahtraces-linux-x64 --version
