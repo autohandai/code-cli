@@ -39,6 +39,7 @@ docs/plans/
 !docs/plans/2026-07-30-cross-provider-prompt-cache-implementation-plan.md
 .worktrees/
 docs/superpowers/
+docs/traces/
 .superpowers/
 .vitest/vitest/*.*
 .vitest/vitest/results.json
