@@ -78,6 +78,21 @@ describe('ahtraces component client', () => {
     });
   });
 
+  it('prefers the trace-specific API endpoint over shared API and environment defaults', () => {
+    expect(createAhTracesSettings({
+      ...config(true),
+      api: { baseUrl: 'https://shared-api.autohand.ai/' },
+      traces: {
+        ...config(true).traces,
+        apiBaseUrl: 'http://localhost:8787/traces/',
+      },
+    }, 'device-123', {
+      AUTOHAND_API_URL: 'https://environment-api.autohand.ai/',
+    })).toMatchObject({
+      apiBaseUrl: 'http://localhost:8787/traces',
+    });
+  });
+
   it('executes the component without a shell and bounds the settings channel', async () => {
     vi.stubEnv('AUTOHAND_AHTRACES_EXECUTABLE', process.execPath);
     const result = await runAhTracesProcess([

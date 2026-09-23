@@ -249,7 +249,8 @@ export function createAhTracesSettings(
 ): AhTracesSettings {
   const enabled = isTraceMonitoringEnabled(config);
   const cloudSync = enabled && config.traces?.cloudSync === true;
-  const configuredApi = config.api?.baseUrl?.trim()
+  const configuredApi = config.traces?.apiBaseUrl?.trim()
+    || config.api?.baseUrl?.trim()
     || environment.AUTOHAND_API_URL?.trim()
     || DEFAULT_API_BASE_URL;
   const apiBaseUrl = configuredApi.replace(/\/+$/u, '');
