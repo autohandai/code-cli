@@ -17,7 +17,7 @@ const temporaryDirectories: string[] = [];
 
 function emptyMap(since = '30d'): WorkMap {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: '2026-09-21T00:00:00.000Z',
     request: { since, sinceTimestamp: '2026-08-22T00:00:00.000Z', workspaceScope: 'all', harnesses: [] },
     coverage: { sessions: 0, sources: [], filesScanned: 0, bytesRead: 0, warnings: 0, partial: false },
@@ -27,7 +27,7 @@ function emptyMap(since = '30d'): WorkMap {
       usageProvenance: { actual: 0, estimated: 0, unavailable: 0 },
     },
     outcomes: { verified: 0, completedUnverified: 0, failed: 0, cancelled: 0, partial: 0, unknown: 0 },
-    dimensions: { harnesses: [], models: [], providers: [], reasoningEfforts: [] },
+    dimensions: { harnesses: [], models: [], providers: [], reasoningEfforts: [], tasks: [] },
     tools: [],
     workflows: [],
     verification: {
@@ -105,6 +105,7 @@ describe('ahtraces Work Map integration', () => {
     const output = path.join(directory, 'map.json');
 
     expect(renderWorkMap(map)).toContain('no network requests');
+    expect(renderWorkMap(map)).toContain('Tasks');
     await writeWorkMapOutput(output, map);
     expect(JSON.parse(await readFile(output, 'utf8'))).toEqual(map);
   });
