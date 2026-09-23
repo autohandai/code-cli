@@ -31,7 +31,7 @@ const coverageSourceSchema = z.object({
 }).strict();
 
 const workMapSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(2),
   generatedAt: z.string(),
   request: z.object({
     since: z.string(),
@@ -75,6 +75,7 @@ const workMapSchema = z.object({
     models: z.array(dimensionSchema),
     providers: z.array(dimensionSchema),
     reasoningEfforts: z.array(dimensionSchema),
+    tasks: z.array(dimensionSchema),
   }).strict(),
   tools: z.array(z.object({
     category: z.enum(['read', 'search', 'edit', 'test', 'lint', 'build', 'proof', 'git', 'web', 'delegate', 'other']),
@@ -205,6 +206,7 @@ export function renderWorkMap(map: WorkMap): string {
     dimensionLine('Models', map.dimensions.models),
     dimensionLine('Providers', map.dimensions.providers),
     dimensionLine('Reasoning', map.dimensions.reasoningEfforts),
+    dimensionLine('Tasks', map.dimensions.tasks),
     '',
     `  Outcomes   ${map.outcomes.verified} verified · ${map.outcomes.completedUnverified} unverified · ${map.outcomes.failed} failed · ${map.outcomes.partial} partial`,
     `  Proof      tests ${map.verification.testsPassed}/${map.verification.testsFailed} · lint ${map.verification.lintPassed} · build ${map.verification.buildPassed} · proof ${map.verification.proofPassed}`,

@@ -67,13 +67,13 @@ describe('native discovery command', () => {
 
     const component = path.join(temporary, 'ahtraces-fixture.mjs');
     const mapFixture = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       generatedAt: '2026-09-21T00:00:00.000Z',
       request: { since: '7d', sinceTimestamp: '2026-09-14T00:00:00.000Z', workspaceScope: 'current', harnesses: ['autohand'] },
       coverage: { sessions: 0, sources: [], filesScanned: 0, bytesRead: 0, warnings: 0, partial: false },
       sessions: { total: 0, active: 0, completed: 0, failed: 0, cancelled: 0, unknown: 0, durationMs: 0, tokens: 0, usageProvenance: { actual: 0, estimated: 0, unavailable: 0 } },
       outcomes: { verified: 0, completedUnverified: 0, failed: 0, cancelled: 0, partial: 0, unknown: 0 },
-      dimensions: { harnesses: [], models: [], providers: [], reasoningEfforts: [] },
+      dimensions: { harnesses: [], models: [], providers: [], reasoningEfforts: [], tasks: [] },
       tools: [], workflows: [],
       verification: { sessionsWithObservedProof: 0, testsPassed: 0, testsFailed: 0, lintPassed: 0, buildPassed: 0, proofPassed: 0 },
       relationships: { parent: 0, child: 0, subagent: 0, resume: 0, fork: 0, worktree: 0 },
@@ -106,7 +106,7 @@ describe('native discovery command', () => {
     ], { AUTOHAND_AHTRACES_EXECUTABLE: component });
     const map = JSON.parse(result.stdout);
 
-    expect(map.schemaVersion).toBe(1);
+    expect(map.schemaVersion).toBe(2);
     expect(map.request.since).toBe('7d');
     expect(map.request.harnesses).toEqual(['autohand']);
     expect(map.privacy).toEqual(expect.objectContaining({
