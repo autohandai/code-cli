@@ -271,7 +271,7 @@ describe('/model provider and Autohand plan journeys Tuistory', () => {
     });
     expect(models).toContain('Fantail');
     expect(models).toContain('Moa');
-    expect(models).toContain('Weka (API + Console only)');
+    expect(models).not.toContain('Weka');
     expect(models).toContain('↑↓ Navigate');
 
     await session.press('escape');
@@ -281,7 +281,7 @@ describe('/model provider and Autohand plan journeys Tuistory', () => {
     await closeInteractive(session);
   });
 
-  it('explains the supported Weka surfaces without changing the active CLI model', async () => {
+  it('keeps API-only Weka out of the hosted model picker', async () => {
     const { session, state } = await launchInteractive(configuredAutohandCloud);
     await openConfiguredAutohandSettings(session);
     await session.type('2');
@@ -293,32 +293,12 @@ describe('/model provider and Autohand plan journeys Tuistory', () => {
 
     const models = await session.text({
       timeout: 30_000,
-      waitFor: (text) => text.includes('Weka (API + Console only)'),
+      waitFor: (text) => text.includes('Fantail') && text.includes('Moa'),
     });
-    expect(models).toContain('Typed decision model for noul, choice, and score questions');
+    expect(models).not.toContain('Weka');
 
-    await session.press('down');
-    await session.text({
-      timeout: 30_000,
-      waitFor: (text) => /▸\s+2\.\s+Moa/u.test(text),
-    });
-    await session.press('down');
-    await session.text({
-      timeout: 30_000,
-      waitFor: (text) => /▸\s+3\.\s+Auto/u.test(text),
-    });
-    await session.press('down');
-    await session.text({
-      timeout: 30_000,
-      waitFor: (text) => /▸\s+4\.\s+Weka/u.test(text),
-    });
-    await session.press('enter');
-    const composer = await session.text({
-      timeout: 30_000,
-      waitFor: (text) => text.includes(
-        'Weka is available through the Autohand API and Console Playground. CLI execution is not supported yet.',
-      ) && text.includes('❯'),
-    });
+    await session.press('escape');
+    const composer = await returnToComposer(session);
     expect(composer).toContain('Autohand AI, fantail');
 
     const savedConfig = JSON.parse(await readFile(state.configPath, 'utf8')) as {
@@ -485,7 +465,7 @@ describe('/model provider and Autohand plan journeys Tuistory', () => {
     expect(rendered).not.toContain('What would you like to change?');
     expect(rendered).toContain('Fantail');
     expect(rendered).toContain('Moa');
-    expect(rendered).toContain('Weka (API + Console only)');
+    expect(rendered).not.toContain('Weka');
 
     await session.press('escape');
     await closeInteractive(session);
