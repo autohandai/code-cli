@@ -19,6 +19,7 @@ vi.mock('../../src/integrations/ahtraces/client.js', () => ({
 }));
 
 const { runAhTracesCommand } = await import('../../src/integrations/ahtraces/commands.js');
+const { applyTraceAuthenticationChange } = await import('../../src/integrations/ahtraces/settingsLifecycle.js');
 
 function config(overrides: Partial<LoadedConfig> = {}): LoadedConfig {
   return {
@@ -89,5 +90,13 @@ describe('ahtraces monitoring preferences', () => {
 
     expect(runAhTracesProcessMock).toHaveBeenCalledWith(['status', '--json'], {});
     expect(loadConfigMock).not.toHaveBeenCalled();
+  });
+
+  it('refreshes the companion strictly after account credentials change', async () => {
+    const updated = config({ auth: { token: 'ahc_current-account' } });
+
+    await expect(applyTraceAuthenticationChange(updated)).resolves.toBeUndefined();
+
+    expect(reconcileAhTracesMock).toHaveBeenCalledWith(updated, { strict: true });
   });
 });

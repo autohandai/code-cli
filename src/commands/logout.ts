@@ -10,6 +10,7 @@ import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import { getAuthClient } from '../auth/index.js';
 import { saveConfig } from '../config.js';
 import type { LoadedConfig } from '../types.js';
+import { applyTraceAuthenticationChange } from '../integrations/ahtraces/settingsLifecycle.js';
 
 export const metadata = {
   command: '/logout',
@@ -65,6 +66,11 @@ export async function logout(ctx: LogoutContext): Promise<string | null> {
   };
 
   await saveConfig(updatedConfig, { writeAuth: true });
+  try {
+    await applyTraceAuthenticationChange(updatedConfig);
+  } catch {
+    console.log(chalk.yellow('Signed out, but the trace companion could not clear its account locally. Stop it with `autohand traces stop` if it is still running.'));
+  }
 
   console.log();
   console.log(chalk.green(t('commands.logout.success')));
