@@ -20,7 +20,7 @@ export interface ModelCatalogEntry {
   id: string;
   displayName?: string;
   description?: string;
-  /** False when the entry may be shown for discovery but must never reach a CLI chat request. */
+  /** False when the entry is informational and must never reach a CLI model picker or chat request. */
   cliSupported?: boolean;
   contextWindow?: number;
   maxTokens?: number;

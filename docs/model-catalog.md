@@ -18,7 +18,7 @@ The CLI resolves model definitions in this order:
 
 Entries are merged by provider and model ID. This keeps local overrides authoritative, makes the downloaded catalog available offline after its first successful refresh, and preserves a working fallback when the public endpoint is unavailable or returns invalid data.
 
-An entry may set `cliSupported` to `false` when the product has a non-chat contract that the CLI cannot execute. The entry remains visible in the catalogue, documentation, and first-party model picker with an API-only explanation. Team assignments, ACP, RPC discovery, and chat execution exclude it.
+An entry may set `cliSupported` to `false` when the product has a non-chat contract that the CLI cannot execute. The entry remains visible in the catalogue and documentation, while CLI model pickers, team assignments, ACP, and RPC discovery exclude it.
 
 Refresh the catalog immediately with either CLI alias:
 

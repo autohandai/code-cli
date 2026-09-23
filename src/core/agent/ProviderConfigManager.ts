@@ -51,6 +51,7 @@ import {
   getProviderDefaultModel,
   getProviderModelIds,
   getProviderModelOptions,
+  getProviderRunnableModelOptions,
   getProviderRuntimeDefaultModel,
   mergeModelIds,
 } from "../../providers/modelCatalog.js";
@@ -742,7 +743,7 @@ export class ProviderConfigManager {
       return;
     }
 
-    const modelChoices: ModalOption[] = getProviderModelOptions("autohandai").map((model) => ({
+    const modelChoices: ModalOption[] = getProviderRunnableModelOptions("autohandai").map((model) => ({
       label: model.displayName ?? model.id,
       value: model.id,
       description: model.description,
@@ -3280,7 +3281,7 @@ export class ProviderConfigManager {
 
         newModel = (result.value as string).trim();
       } else if (provider === "autohandai") {
-        const autohandModels = getProviderModelOptions("autohandai");
+        const autohandModels = getProviderRunnableModelOptions("autohandai");
         const modelOptions: ModalOption[] = autohandModels.map((model) => ({
           label: model.displayName ?? model.id,
           value: model.id,
