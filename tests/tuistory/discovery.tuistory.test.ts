@@ -267,6 +267,7 @@ describe('built discovery terminal command', () => {
       cwd: state.workspaceRoot,
       autohandHome: state.autohandHome,
       env: environment,
+      waitForDataTimeout: 15_000,
     });
     sessions.push(scan);
     await waitForExit(scan, 20_000);
@@ -286,6 +287,7 @@ describe('built discovery terminal command', () => {
         ...environment,
         BUILDMYAGENT_URL: `http://127.0.0.1:${address.port}`,
       },
+      waitForDataTimeout: 15_000,
     });
     sessions.push(upload);
     await cancelDiscoveryUpload(upload);
