@@ -90,6 +90,60 @@ describe('ahtraces component client', () => {
       .rejects.toThrow('input exceeded');
   });
 
+  it('forwards harness locations without exposing unrelated process secrets', async () => {
+    const configuredEnvironment = {
+      CLAUDE_CONFIG_DIR: '/private/claude',
+      CODEX_HOME: '/private/codex',
+      TRACES_CURSOR_GLOBAL_DB: '/private/cursor/state.vscdb',
+      TRACES_OPENCODE2_DB: '/private/opencode/current.db',
+      TRACES_OPENCODE_DB: '/private/opencode/legacy.db',
+      OPENCODE_DB: '/private/opencode/fallback.db',
+      AUTOHAND_OPENCODE2_BIN: '/private/bin/opencode',
+      TRACES_OPENCODE2_BIN: '/private/bin/opencode-fallback',
+      CLINE_DATA_DIR: '/private/cline',
+      CLINE_DIR: '/private/cline-home',
+      OPENCLAW_STATE_DIR: '/private/openclaw',
+      HERMES_HOME: '~/${HERMES_PROFILE_ROOT}/coder',
+      KIMI_CODE_HOME: '/private/kimi',
+      PRIME_AGENT_SESSION_DIR: '~/${PRIME_PROFILE_ROOT}/sessions',
+      PRIME_AGENT_CODING_AGENT_SESSION_DIR: '/private/prime/legacy-sessions',
+      PRIME_AGENT_CODING_AGENT_DIR: '/private/prime/agent',
+      DSH_HOME: '/private/deepseek',
+    } as const;
+    const forwardedEnvironment = {
+      ...configuredEnvironment,
+      HERMES_HOME: '~/hermes-profiles/coder',
+      PRIME_AGENT_SESSION_DIR: '~/.prime/custom/sessions',
+    };
+    vi.stubEnv('AUTOHAND_AHTRACES_EXECUTABLE', process.execPath);
+    for (const [key, value] of Object.entries(configuredEnvironment)) {
+      vi.stubEnv(key, value);
+    }
+    vi.stubEnv('HERMES_PROFILE_ROOT', 'hermes-profiles');
+    vi.stubEnv('PRIME_PROFILE_ROOT', '.prime/custom');
+    vi.stubEnv('OPENAI_API_KEY', 'must-not-reach-ahtraces');
+    vi.stubEnv('ANTHROPIC_API_KEY', 'must-not-reach-ahtraces');
+    vi.stubEnv('AUTOHAND_API_KEY', 'must-travel-only-through-stdin');
+
+    const keys = Object.keys(forwardedEnvironment);
+    const result = await runAhTracesProcess([
+      '-e',
+      `process.stdout.write(JSON.stringify({ forwarded: Object.fromEntries(${JSON.stringify(keys)}.map(key => [key, process.env[key]])), blocked: { openai: process.env.OPENAI_API_KEY ?? null, anthropic: process.env.ANTHROPIC_API_KEY ?? null, autohand: process.env.AUTOHAND_API_KEY ?? null, hermesReference: process.env.HERMES_PROFILE_ROOT ?? null, primeReference: process.env.PRIME_PROFILE_ROOT ?? null } }))`,
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      forwarded: forwardedEnvironment,
+      blocked: {
+        openai: null,
+        anthropic: null,
+        autohand: null,
+        hermesReference: null,
+        primeReference: null,
+      },
+    });
+  });
+
   it('forces legacy unconsented settings off before handing them to the component', () => {
     expect(createAhTracesSettings({
       ...config(true),

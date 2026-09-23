@@ -14,6 +14,83 @@ const MAX_INPUT_BYTES = 64 * 1024;
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 const COMMAND_TIMEOUT_MS = 15_000;
 
+const AHTRACES_RUNTIME_ENVIRONMENT_KEYS = [
+  'PATH',
+  'HOME',
+  'USERPROFILE',
+  'HOMEDRIVE',
+  'HOMEPATH',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'TMPDIR',
+  'TEMP',
+  'TMP',
+  'SystemRoot',
+  'WINDIR',
+  'PATHEXT',
+  'COMSPEC',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+  'TZ',
+  'NODE_ENV',
+  'NODE_EXTRA_CA_CERTS',
+  'SSL_CERT_FILE',
+  'SSL_CERT_DIR',
+  'AUTOHAND_VERSION_SOURCE',
+] as const;
+
+const AHTRACES_PATH_ENVIRONMENT_KEYS = [
+  'XDG_CONFIG_HOME',
+  'XDG_DATA_HOME',
+  'AUTOHAND_HOME',
+  'AUTOHAND_AHTRACES_EXECUTABLE',
+  'AUTOHAND_TRACES_PATH',
+  'CLAUDE_CONFIG_DIR',
+  'CODEX_HOME',
+  'TRACES_CURSOR_GLOBAL_DB',
+  'TRACES_OPENCODE2_DB',
+  'TRACES_OPENCODE_DB',
+  'OPENCODE_DB',
+  'AUTOHAND_OPENCODE2_BIN',
+  'TRACES_OPENCODE2_BIN',
+  'CLINE_DATA_DIR',
+  'CLINE_DIR',
+  'OPENCLAW_STATE_DIR',
+  'HERMES_HOME',
+  'KIMI_CODE_HOME',
+  'PRIME_AGENT_SESSION_DIR',
+  'PRIME_AGENT_CODING_AGENT_SESSION_DIR',
+  'PRIME_AGENT_CODING_AGENT_DIR',
+  'DSH_HOME',
+] as const;
+
+function expandEnvironmentReferences(
+  value: string,
+  environment: NodeJS.ProcessEnv,
+): string {
+  return value.replace(
+    /\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)|%([A-Za-z_][A-Za-z0-9_]*)%/gu,
+    (match, braced: string | undefined, bare: string | undefined, windows: string | undefined) => (
+      environment[braced ?? bare ?? windows ?? ''] ?? match
+    ),
+  );
+}
+
+function createAhTracesProcessEnvironment(
+  source: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {};
+  for (const key of AHTRACES_RUNTIME_ENVIRONMENT_KEYS) {
+    if (source[key] !== undefined) environment[key] = source[key];
+  }
+  for (const key of AHTRACES_PATH_ENVIRONMENT_KEYS) {
+    const value = source[key];
+    if (value !== undefined) environment[key] = expandEnvironmentReferences(value, source);
+  }
+  return environment;
+}
+
 export interface AhTracesSettings {
   schemaVersion: typeof SETTINGS_SCHEMA_VERSION;
   consentVersion: number;
@@ -96,7 +173,7 @@ export async function runAhTracesProcess(
   }
 
   const child = spawn(resolveAhTracesExecutable(), [...args], {
-    env: process.env,
+    env: createAhTracesProcessEnvironment(),
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
