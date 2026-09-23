@@ -14,6 +14,28 @@ const MAX_INPUT_BYTES = 64 * 1024;
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 const COMMAND_TIMEOUT_MS = 15_000;
 
+function normalizeTraceApiBaseUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    const loopback = url.hostname === 'localhost'
+      || url.hostname === '127.0.0.1'
+      || url.hostname === '[::1]'
+      || url.hostname === '::1';
+    if (
+      (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback))
+      || url.username !== ''
+      || url.password !== ''
+      || url.search !== ''
+      || url.hash !== ''
+    ) {
+      throw new Error('unsafe trace endpoint');
+    }
+    return url.toString().replace(/\/+$/u, '');
+  } catch {
+    throw new Error('Trace API base URL must be an HTTPS URL or localhost.');
+  }
+}
+
 const AHTRACES_RUNTIME_ENVIRONMENT_KEYS = [
   'PATH',
   'HOME',
@@ -253,8 +275,7 @@ export function createAhTracesSettings(
     || config.api?.baseUrl?.trim()
     || environment.AUTOHAND_API_URL?.trim()
     || DEFAULT_API_BASE_URL;
-  const apiBaseUrl = configuredApi.replace(/\/+$/u, '');
-  new URL(apiBaseUrl);
+  const apiBaseUrl = normalizeTraceApiBaseUrl(configuredApi);
   const authToken = cloudSync
     ? config.auth?.token?.trim() || environment.AUTOHAND_API_KEY?.trim()
     : undefined;

@@ -93,6 +93,39 @@ describe('ahtraces component client', () => {
     });
   });
 
+  it.each([
+    'http://collector.example.test',
+    'ftp://localhost/traces',
+    'https://user:password@api.autohand.ai',
+    'https://api.autohand.ai/traces?token=secret',
+    'https://api.autohand.ai/traces#fragment',
+  ])('rejects an unsafe inherited trace API endpoint: %s', (apiBaseUrl) => {
+    expect(() => createAhTracesSettings({
+      ...config(true),
+      api: { baseUrl: apiBaseUrl },
+    }, 'device-123', {})).toThrow('Trace API base URL must be an HTTPS URL or localhost');
+  });
+
+  it('rejects an unsafe trace API endpoint inherited from the environment', () => {
+    expect(() => createAhTracesSettings({
+      ...config(true),
+      api: undefined,
+    }, 'device-123', {
+      AUTOHAND_API_URL: 'http://collector.example.test',
+    })).toThrow('Trace API base URL must be an HTTPS URL or localhost');
+  });
+
+  it('accepts a loopback trace API endpoint inherited from the environment', () => {
+    expect(createAhTracesSettings({
+      ...config(true),
+      api: undefined,
+    }, 'device-123', {
+      AUTOHAND_API_URL: 'http://127.0.0.1:8787/traces/',
+    })).toMatchObject({
+      apiBaseUrl: 'http://127.0.0.1:8787/traces',
+    });
+  });
+
   it('executes the component without a shell and bounds the settings channel', async () => {
     vi.stubEnv('AUTOHAND_AHTRACES_EXECUTABLE', process.execPath);
     const result = await runAhTracesProcess([
