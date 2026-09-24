@@ -443,6 +443,9 @@ jobs:
         run: |
           mkdir -p release-binaries
           find artifacts -type f -exec cp {} release-binaries/ \;
+          for traces_binary in release-binaries/ahtraces-*; do
+            sha256sum "$traces_binary" > "${traces_binary}.sha256"
+          done
           ls -lh release-binaries/
 
       - name: Create bundled archives for installers and ACP registry

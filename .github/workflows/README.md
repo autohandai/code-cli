@@ -25,8 +25,9 @@ resolutions. Weekly Dependabot updates keep the GitHub Actions versions current.
 3. **Checks out the private `ahtraces` component** at the immutable commit in
    `.github/ahtraces-ref`, using the read-only `AHTRACES_REPO_TOKEN` secret
 
-4. **Builds Autohand and ahtraces separately** for all platforms, then places
-   both sibling executables in each release archive:
+4. **Builds Autohand and ahtraces separately** for all platforms, publishes
+   checksums for the raw companions used by npm postinstall, then places both
+   sibling executables in each release archive:
    - macOS Apple Silicon (`autohand-macos-arm64`)
    - macOS Intel (`autohand-macos-x64`)
    - Linux x64 (`autohand-linux-x64`)

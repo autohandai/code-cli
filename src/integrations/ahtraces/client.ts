@@ -1,6 +1,6 @@
 /** @license Apache-2.0 */
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import type { LoadedConfig } from '../../types.js';
 import { AUTOHAND_HOME } from '../../constants.js';
@@ -174,15 +174,30 @@ export function resolveAhTracesExecutable(
   environment: NodeJS.ProcessEnv = process.env,
   currentExecutable = process.execPath,
   platform: NodeJS.Platform = process.platform,
+  cliEntrypoint = process.argv[1],
 ): string {
   const explicit = environment.AUTOHAND_AHTRACES_EXECUTABLE?.trim()
     || environment.AUTOHAND_TRACES_PATH?.trim();
   if (explicit) return explicit;
   const pathApi = platform === 'win32' ? path.win32 : path;
-  return pathApi.join(
+  const executableName = platform === 'win32' ? 'ahtraces.exe' : 'ahtraces';
+  const sibling = pathApi.join(
     pathApi.dirname(currentExecutable),
-    platform === 'win32' ? 'ahtraces.exe' : 'ahtraces',
+    executableName,
   );
+
+  if (cliEntrypoint) {
+    let resolvedEntrypoint = cliEntrypoint;
+    try {
+      resolvedEntrypoint = realpathSync(cliEntrypoint);
+    } catch {
+      // A missing development entrypoint can still describe the intended package layout.
+    }
+    const packageRoot = pathApi.resolve(pathApi.dirname(resolvedEntrypoint), '..');
+    const packaged = pathApi.join(packageRoot, 'vendor', executableName);
+    if (existsSync(packaged)) return packaged;
+  }
+  return sibling;
 }
 
 export async function runAhTracesProcess(
