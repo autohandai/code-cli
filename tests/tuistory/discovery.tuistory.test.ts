@@ -148,7 +148,7 @@ describe('built discovery terminal command', () => {
     }));
     const component = path.join(state.workspaceRoot, 'ahtraces-fixture.mjs');
     const map = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       generatedAt: '2026-09-21T00:00:00.000Z',
       request: {
         since: '7d',
@@ -183,7 +183,7 @@ describe('built discovery terminal command', () => {
         partial: 0,
         unknown: 0,
       },
-      dimensions: { harnesses: [], models: [], providers: [], reasoningEfforts: [] },
+      dimensions: { harnesses: [], models: [], providers: [], reasoningEfforts: [], tasks: [] },
       tools: [],
       workflows: [],
       verification: {
@@ -248,6 +248,7 @@ describe('built discovery terminal command', () => {
     expect(output).toContain('WORK MAP');
     expect(output).toContain('Window     7d');
     expect(output).toContain('Sessions   0');
+    expect(output).toContain('Tasks      none observed');
     expect(output).toContain('aggregate-only · local processing · no network requests');
   });
   it('cancels an active upload from the progress view and exits with 130', async () => {
@@ -266,6 +267,7 @@ describe('built discovery terminal command', () => {
       cwd: state.workspaceRoot,
       autohandHome: state.autohandHome,
       env: environment,
+      waitForDataTimeout: 15_000,
     });
     sessions.push(scan);
     await waitForExit(scan, 20_000);
@@ -285,6 +287,7 @@ describe('built discovery terminal command', () => {
         ...environment,
         BUILDMYAGENT_URL: `http://127.0.0.1:${address.port}`,
       },
+      waitForDataTimeout: 15_000,
     });
     sessions.push(upload);
     await cancelDiscoveryUpload(upload);

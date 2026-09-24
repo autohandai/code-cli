@@ -10,3 +10,7 @@ export async function applyTraceSettingChange(
   if (!change.key.startsWith('traces.')) return;
   await reconcileAhTraces(config, { strict: true });
 }
+
+export async function applyTraceAuthenticationChange(config: LoadedConfig): Promise<void> {
+  await reconcileAhTraces(config, { strict: true });
+}
