@@ -59,12 +59,15 @@ Autohand's own install directory — so `agent` reliably resolves to Autohand.
 This happens automatically with no prompt; if another tool's `agent` command
 stops working after installing Autohand, this is why.
 
-The release archives, Unix/Windows installers, and Homebrew formula also install
-`ahtraces`, the managed local trace-monitor companion. Its private source is
-built independently from a pinned revision during the Autohand release. It remains
-idle until the user answers the trace-consent step. New users see that step in
-onboarding; existing users see it once after upgrading to the consent-aware
-release. Cloud trace ingestion does not count against Autohand API usage.
+The npm package, release archives, Unix/Windows installers, and Homebrew formula
+also install `ahtraces`, the managed local trace-monitor companion. npm downloads
+the matching release binary during postinstall and verifies its SHA-256 checksum;
+`--ignore-scripts` or `AUTOHAND_SKIP_AHTRACES_INSTALL=1` intentionally omits it.
+Its private source is built independently from a pinned revision during the
+Autohand release. It remains idle until the user answers the trace-consent step.
+New users see that step in onboarding; existing users see it once after upgrading
+to the consent-aware release. Cloud trace ingestion does not count against
+Autohand API usage.
 
 Use `autohand --traces-on`, `autohand traces on`, or `ahtraces on` to enable
 local monitoring with metadata sync. Use the matching `--traces-off`,

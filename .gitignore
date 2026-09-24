@@ -30,6 +30,8 @@ bin/
 scripts/*
 # The build runs this generator; keep it tracked despite the scripts rule.
 !scripts/embed-builtin-assets.ts
+!scripts/install-ahtraces.mjs
+!scripts/ahtraces-launcher.mjs
 autohand
 docs/reports/
 docs/plans/
