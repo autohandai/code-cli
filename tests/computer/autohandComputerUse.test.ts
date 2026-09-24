@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import path from 'node:path';
+import { writeFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import {
   AUTOHAND_COMPUTER_USE_APP_NAME,
@@ -11,6 +12,7 @@ import {
   buildComputerUsePermissionPlan,
   buildComputerUsePermissionStatusPlan,
   buildComputerUseRegistrationPlan,
+  requestComputerUsePermissions,
   resolveAutohandComputerUseHostPath,
 } from '../../src/computer/autohandComputerUse.js';
 
@@ -62,6 +64,28 @@ describe('Autohand Computer Use macOS host', () => {
       command: '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister',
       args: ['-f', '/Users/test/Applications/Autohand Computer Use.app'],
     });
+  });
+
+  it('uses a fresh status process to verify that requested permissions persisted', async () => {
+    const operations: string[] = [];
+    const permissions = await requestComputerUsePermissions(
+      '/Users/test/Applications/Autohand Computer Use.app',
+      '/Users/test/.local/bin/cua-driver',
+      async (plan) => {
+        const operation = plan.args[1];
+        const resultFlag = plan.args.indexOf('--result-path');
+        const resultPath = plan.args[resultFlag + 1];
+        operations.push(operation);
+        await writeFile(resultPath, JSON.stringify({
+          accessibility: operation === 'grant',
+          screenRecording: operation === 'grant',
+          bundleIdentifier: AUTOHAND_COMPUTER_USE_BUNDLE_ID,
+        }));
+      },
+    );
+
+    expect(operations).toEqual(['grant', 'status']);
+    expect(permissions).toBe('requested');
   });
 
   it('finds the installed host executable inside the branded app bundle', () => {

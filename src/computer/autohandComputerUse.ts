@@ -245,15 +245,36 @@ function resolveSourceApplication(env: NodeJS.ProcessEnv): string | null {
   return null;
 }
 
-async function requestPermissions(appPath: string, driverPath: string): Promise<'granted' | 'requested'> {
+async function readPermissionStatus(resultPath: string): Promise<ComputerUsePermissionStatus> {
+  const result = JSON.parse(await readFile(resultPath, 'utf8')) as Partial<ComputerUsePermissionStatus>;
+  if (
+    typeof result.accessibility !== 'boolean'
+    || typeof result.screenRecording !== 'boolean'
+    || result.bundleIdentifier !== AUTOHAND_COMPUTER_USE_BUNDLE_ID
+  ) {
+    throw new Error(`${AUTOHAND_COMPUTER_USE_APP_NAME} returned an invalid permission result.`);
+  }
+  return result as ComputerUsePermissionStatus;
+}
+
+export async function requestComputerUsePermissions(
+  appPath: string,
+  driverPath: string,
+  executePlan: (plan: ComputerUsePermissionPlan) => Promise<void> = (plan) => (
+    runCommand(plan, PERMISSION_TIMEOUT_MS)
+  ),
+): Promise<'granted' | 'requested'> {
   if (process.env.AUTOHAND_SKIP_COMPUTER_USE_PERMISSIONS === '1') return 'requested';
 
   const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'autohand-computer-use-'));
-  const resultPath = path.join(temporaryDirectory, 'permissions.json');
+  const grantResultPath = path.join(temporaryDirectory, 'grant.json');
+  const statusResultPath = path.join(temporaryDirectory, 'status.json');
   try {
-    await runCommand(buildComputerUsePermissionPlan({ appPath, driverPath, resultPath }), PERMISSION_TIMEOUT_MS);
-    const result = JSON.parse(await readFile(resultPath, 'utf8')) as ComputerUsePermissionStatus;
-    return result.accessibility === true && result.screenRecording === true
+    await executePlan(buildComputerUsePermissionPlan({ appPath, driverPath, resultPath: grantResultPath }));
+    await readPermissionStatus(grantResultPath);
+    await executePlan(buildComputerUsePermissionStatusPlan({ appPath, resultPath: statusResultPath }));
+    const status = await readPermissionStatus(statusResultPath);
+    return status.accessibility && status.screenRecording
       ? 'granted'
       : 'requested';
   } finally {
@@ -271,15 +292,7 @@ export async function inspectAutohandComputerUsePermissions(
       buildComputerUsePermissionStatusPlan({ appPath, resultPath }),
       PERMISSION_TIMEOUT_MS,
     );
-    const result = JSON.parse(await readFile(resultPath, 'utf8')) as Partial<ComputerUsePermissionStatus>;
-    if (
-      typeof result.accessibility !== 'boolean'
-      || typeof result.screenRecording !== 'boolean'
-      || result.bundleIdentifier !== AUTOHAND_COMPUTER_USE_BUNDLE_ID
-    ) {
-      throw new Error(`${AUTOHAND_COMPUTER_USE_APP_NAME} returned an invalid permission result.`);
-    }
-    return result as ComputerUsePermissionStatus;
+    return await readPermissionStatus(resultPath);
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });
   }
@@ -307,6 +320,6 @@ export async function prepareAutohandComputerUse(
 
   await runCommand(buildComputerUseRegistrationPlan(destination), PERMISSION_TIMEOUT_MS);
   const launcherPath = await installLauncher(executable, options.binDirectory);
-  const permissions = await requestPermissions(destination, options.driverPath);
+  const permissions = await requestComputerUsePermissions(destination, options.driverPath);
   return { status: 'ready', appPath: destination, launcherPath, permissions };
 }
