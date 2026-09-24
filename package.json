@@ -110,7 +110,7 @@
     "unified": "^11.0.5",
     "unist-util-visit": "^5.1.0",
     "yaml": "^2.9.0",
-    "zod": "^4.4.3"
+    "zod": "^4.6.1"
   },
   "trustedDependencies": [
     "node-pty",
