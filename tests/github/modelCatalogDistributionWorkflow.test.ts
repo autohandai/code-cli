@@ -52,6 +52,14 @@ describe("model catalog distribution automation", () => {
           maxTokens: 16_000,
           provider: "autohandai",
         }),
+        weka: expect.objectContaining({
+          api: "autohand-decisions",
+          baseUrl: "https://api.autohand.ai/v1",
+          cliSupported: false,
+          contextWindow: 32_000,
+          endpoint: "/decisions",
+          provider: "autohandai",
+        }),
       });
       expect(catalog.anthropic["claude-sonnet-5"]).toEqual(expect.objectContaining({
         api: "anthropic-messages",

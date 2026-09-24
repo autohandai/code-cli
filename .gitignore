@@ -30,6 +30,8 @@ bin/
 scripts/*
 # The build runs this generator; keep it tracked despite the scripts rule.
 !scripts/embed-builtin-assets.ts
+!scripts/install-ahtraces.mjs
+!scripts/ahtraces-launcher.mjs
 autohand
 docs/reports/
 docs/plans/
@@ -39,6 +41,7 @@ docs/plans/
 !docs/plans/2026-07-30-cross-provider-prompt-cache-implementation-plan.md
 .worktrees/
 docs/superpowers/
+docs/traces/
 .superpowers/
 .vitest/vitest/*.*
 .vitest/vitest/results.json

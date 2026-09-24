@@ -47,6 +47,7 @@ interface ReleaseWorkflow {
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dirname, '../..');
 const WORKFLOW_PATH = path.resolve(import.meta.dirname, '../../.github/workflows/release.yml');
+const CI_WORKFLOW_PATH = path.resolve(import.meta.dirname, '../../.github/workflows/ci.yml');
 
 function loadReleaseWorkflow(): ReleaseWorkflow {
   return parseYaml(readFileSync(WORKFLOW_PATH, 'utf8')) as ReleaseWorkflow;
@@ -117,6 +118,22 @@ describe('release workflow', () => {
       'utf8',
     ).trim();
     expect(revision).toMatch(/^[0-9a-f]{40}$/u);
+  });
+
+  it('embeds the pinned ahtraces revision into every standalone companion build', () => {
+    const releaseCompile = loadReleaseWorkflow().jobs.build.steps.find(
+      (step) => step.name === 'Compile binaries',
+    );
+    const ciWorkflow = parseYaml(readFileSync(CI_WORKFLOW_PATH, 'utf8')) as {
+      jobs: { 'ahtraces-component': WorkflowJob };
+    };
+    const ciCompile = ciWorkflow.jobs['ahtraces-component'].steps.find(
+      (step) => step.name === 'Compile and smoke test component',
+    );
+
+    expect(releaseCompile?.env?.BUILD_GIT_COMMIT).toBe('${{ steps.ahtraces-ref.outputs.sha }}');
+    expect(releaseCompile?.run).toContain("'--env=BUILD_GIT_*'");
+    expect(ciCompile?.env?.BUILD_GIT_COMMIT).toBe('${{ steps.ahtraces-ref.outputs.sha }}');
   });
 
   it('normalizes a v-prefixed manual stable version before publishing', () => {

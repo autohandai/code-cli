@@ -14,8 +14,13 @@ vi.mock('../../src/config.js', () => ({
   saveConfig: vi.fn(),
 }));
 
+vi.mock('../../src/integrations/ahtraces/settingsLifecycle.js', () => ({
+  applyTraceAuthenticationChange: vi.fn(),
+}));
+
 import { getAuthClient } from '../../src/auth/index.js';
 import { saveConfig } from '../../src/config.js';
+import { applyTraceAuthenticationChange } from '../../src/integrations/ahtraces/settingsLifecycle.js';
 import { validateAuthOnStartup } from '../../src/auth/startupAuth.js';
 
 describe('validateAuthOnStartup', () => {
@@ -40,6 +45,28 @@ describe('validateAuthOnStartup', () => {
     // Clearing a server-rejected credential is an intentional auth write, so it
     // must opt out of the shared-config preservation that protects other tabs.
     expect(saveConfig).toHaveBeenCalledWith(config, { writeAuth: true });
+    expect(applyTraceAuthenticationChange).toHaveBeenCalledWith(config);
+  });
+
+  it('removes an expired legacy token from the trace companion without a server check', async () => {
+    const config: LoadedConfig = {
+      configPath: '/tmp/config.json',
+      auth: {
+        token: 'legacy-session-token',
+        expiresAt: new Date(Date.now() - 60_000).toISOString(),
+      },
+    };
+    const validateSession = vi.fn();
+    (getAuthClient as ReturnType<typeof vi.fn>).mockReturnValue({ validateSession });
+    (applyTraceAuthenticationChange as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error('companion unavailable'));
+
+    await expect(validateAuthOnStartup(config)).resolves.toBeUndefined();
+
+    expect(validateSession).not.toHaveBeenCalled();
+    expect(config.auth).toBeUndefined();
+    expect(saveConfig).toHaveBeenCalledWith(config, { writeAuth: true });
+    expect(applyTraceAuthenticationChange).toHaveBeenCalledWith(config);
   });
 
   it('keeps locally cached auth on network validation errors', async () => {

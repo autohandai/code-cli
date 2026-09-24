@@ -31,6 +31,17 @@
           "toolCalls": true,
           "reasoningEffort": "high",
           "reasoningEfforts": ["medium", "high", "xhigh"]
+        },
+        {
+          "id": "weka",
+          "displayName": "Weka (API + Console only)",
+          "description": "Typed decision model for noul, choice, and score questions; not runnable in the CLI",
+          "api": "autohand-decisions",
+          "endpoint": "/decisions",
+          "contextWindow": 32000,
+          "maxTokens": 1024,
+          "toolCalls": false,
+          "cliSupported": false
         }
       ]
     },

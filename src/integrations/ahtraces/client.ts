@@ -1,6 +1,6 @@
 /** @license Apache-2.0 */
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import type { LoadedConfig } from '../../types.js';
 import { AUTOHAND_HOME } from '../../constants.js';
@@ -13,6 +13,105 @@ const DEFAULT_API_BASE_URL = 'https://api.autohand.ai';
 const MAX_INPUT_BYTES = 64 * 1024;
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 const COMMAND_TIMEOUT_MS = 15_000;
+
+function normalizeTraceApiBaseUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    const loopback = url.hostname === 'localhost'
+      || url.hostname === '127.0.0.1'
+      || url.hostname === '[::1]'
+      || url.hostname === '::1';
+    if (
+      (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback))
+      || url.username !== ''
+      || url.password !== ''
+      || url.search !== ''
+      || url.hash !== ''
+    ) {
+      throw new Error('unsafe trace endpoint');
+    }
+    return url.toString().replace(/\/+$/u, '');
+  } catch {
+    throw new Error('Trace API base URL must be an HTTPS URL or localhost.');
+  }
+}
+
+const AHTRACES_RUNTIME_ENVIRONMENT_KEYS = [
+  'PATH',
+  'HOME',
+  'USERPROFILE',
+  'HOMEDRIVE',
+  'HOMEPATH',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'TMPDIR',
+  'TEMP',
+  'TMP',
+  'SystemRoot',
+  'WINDIR',
+  'PATHEXT',
+  'COMSPEC',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+  'TZ',
+  'NODE_ENV',
+  'NODE_EXTRA_CA_CERTS',
+  'SSL_CERT_FILE',
+  'SSL_CERT_DIR',
+  'AUTOHAND_VERSION_SOURCE',
+] as const;
+
+const AHTRACES_PATH_ENVIRONMENT_KEYS = [
+  'XDG_CONFIG_HOME',
+  'XDG_DATA_HOME',
+  'AUTOHAND_HOME',
+  'AUTOHAND_AHTRACES_EXECUTABLE',
+  'AUTOHAND_TRACES_PATH',
+  'CLAUDE_CONFIG_DIR',
+  'CODEX_HOME',
+  'TRACES_CURSOR_GLOBAL_DB',
+  'TRACES_OPENCODE2_DB',
+  'TRACES_OPENCODE_DB',
+  'OPENCODE_DB',
+  'AUTOHAND_OPENCODE2_BIN',
+  'TRACES_OPENCODE2_BIN',
+  'CLINE_DATA_DIR',
+  'CLINE_DIR',
+  'OPENCLAW_STATE_DIR',
+  'HERMES_HOME',
+  'KIMI_CODE_HOME',
+  'PRIME_AGENT_SESSION_DIR',
+  'PRIME_AGENT_CODING_AGENT_SESSION_DIR',
+  'PRIME_AGENT_CODING_AGENT_DIR',
+  'DSH_HOME',
+] as const;
+
+function expandEnvironmentReferences(
+  value: string,
+  environment: NodeJS.ProcessEnv,
+): string {
+  return value.replace(
+    /\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)|%([A-Za-z_][A-Za-z0-9_]*)%/gu,
+    (match, braced: string | undefined, bare: string | undefined, windows: string | undefined) => (
+      environment[braced ?? bare ?? windows ?? ''] ?? match
+    ),
+  );
+}
+
+function createAhTracesProcessEnvironment(
+  source: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {};
+  for (const key of AHTRACES_RUNTIME_ENVIRONMENT_KEYS) {
+    if (source[key] !== undefined) environment[key] = source[key];
+  }
+  for (const key of AHTRACES_PATH_ENVIRONMENT_KEYS) {
+    const value = source[key];
+    if (value !== undefined) environment[key] = expandEnvironmentReferences(value, source);
+  }
+  return environment;
+}
 
 export interface AhTracesSettings {
   schemaVersion: typeof SETTINGS_SCHEMA_VERSION;
@@ -75,15 +174,30 @@ export function resolveAhTracesExecutable(
   environment: NodeJS.ProcessEnv = process.env,
   currentExecutable = process.execPath,
   platform: NodeJS.Platform = process.platform,
+  cliEntrypoint = process.argv[1],
 ): string {
   const explicit = environment.AUTOHAND_AHTRACES_EXECUTABLE?.trim()
     || environment.AUTOHAND_TRACES_PATH?.trim();
   if (explicit) return explicit;
   const pathApi = platform === 'win32' ? path.win32 : path;
-  return pathApi.join(
+  const executableName = platform === 'win32' ? 'ahtraces.exe' : 'ahtraces';
+  const sibling = pathApi.join(
     pathApi.dirname(currentExecutable),
-    platform === 'win32' ? 'ahtraces.exe' : 'ahtraces',
+    executableName,
   );
+
+  if (cliEntrypoint) {
+    let resolvedEntrypoint = cliEntrypoint;
+    try {
+      resolvedEntrypoint = realpathSync(cliEntrypoint);
+    } catch {
+      // A missing development entrypoint can still describe the intended package layout.
+    }
+    const packageRoot = pathApi.resolve(pathApi.dirname(resolvedEntrypoint), '..');
+    const packaged = pathApi.join(packageRoot, 'vendor', executableName);
+    if (existsSync(packaged)) return packaged;
+  }
+  return sibling;
 }
 
 export async function runAhTracesProcess(
@@ -96,7 +210,7 @@ export async function runAhTracesProcess(
   }
 
   const child = spawn(resolveAhTracesExecutable(), [...args], {
-    env: process.env,
+    env: createAhTracesProcessEnvironment(),
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
@@ -172,11 +286,11 @@ export function createAhTracesSettings(
 ): AhTracesSettings {
   const enabled = isTraceMonitoringEnabled(config);
   const cloudSync = enabled && config.traces?.cloudSync === true;
-  const configuredApi = config.api?.baseUrl?.trim()
+  const configuredApi = config.traces?.apiBaseUrl?.trim()
+    || config.api?.baseUrl?.trim()
     || environment.AUTOHAND_API_URL?.trim()
     || DEFAULT_API_BASE_URL;
-  const apiBaseUrl = configuredApi.replace(/\/+$/u, '');
-  new URL(apiBaseUrl);
+  const apiBaseUrl = normalizeTraceApiBaseUrl(configuredApi);
   const authToken = cloudSync
     ? config.auth?.token?.trim() || environment.AUTOHAND_API_KEY?.trim()
     : undefined;

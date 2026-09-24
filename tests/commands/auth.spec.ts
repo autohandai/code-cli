@@ -28,6 +28,10 @@ vi.mock('../../src/config.js', () => ({
   saveConfig: vi.fn(),
 }));
 
+vi.mock('../../src/integrations/ahtraces/settingsLifecycle.js', () => ({
+  applyTraceAuthenticationChange: vi.fn(),
+}));
+
 // Mock auth client
 vi.mock('../../src/auth/index.js', () => ({
   getAuthClient: vi.fn(),
@@ -53,6 +57,7 @@ import { saveConfig } from '../../src/config.js';
 import { getAuthClient } from '../../src/auth/index.js';
 import { safePrompt } from '../../src/utils/prompt.js';
 import { exec, execFile } from 'node:child_process';
+import { applyTraceAuthenticationChange } from '../../src/integrations/ahtraces/settingsLifecycle.js';
 import type { LoadedConfig } from '../../src/types.js';
 
 describe('login command', () => {
@@ -141,6 +146,7 @@ describe('login command', () => {
       },
     }));
     expect(savedConfig.auth).not.toHaveProperty('expiresAt');
+    expect(applyTraceAuthenticationChange).toHaveBeenCalledWith(savedConfig);
   }, 10000); // Extended timeout
 
   it('handles device auth failure', async () => {
@@ -162,6 +168,40 @@ describe('login command', () => {
 
     expect(result).toBeNull();
     expect(consoleOutput.some((line) => line.toLowerCase().includes('failed'))).toBe(true);
+  });
+
+  it('keeps a successful login when the trace companion cannot refresh', async () => {
+    const mockConfig: LoadedConfig = {
+      configPath: '/home/user/.autohand/config.json',
+    };
+    const mockAuthClient = {
+      initiateDeviceAuth: vi.fn().mockResolvedValue({
+        success: true,
+        deviceCode: 'device-123',
+        userCode: 'ABC-123',
+        verificationUriComplete: 'https://auth.autohand.ai/device?code=ABC-123',
+        interval: 0.01,
+      }),
+      pollDeviceAuth: vi.fn().mockResolvedValue({
+        status: 'authorized',
+        token: 'ahc_new-account',
+        user: { id: 'user-1', email: 'new@example.com', name: 'New User' },
+      }),
+    };
+
+    (getAuthClient as ReturnType<typeof vi.fn>).mockReturnValue(mockAuthClient);
+    (saveConfig as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    (applyTraceAuthenticationChange as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error('companion unavailable'));
+
+    const { login } = await import('../../src/commands/login.js');
+    await login({ config: mockConfig });
+
+    expect(saveConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ auth: expect.objectContaining({ token: 'ahc_new-account' }) }),
+      { writeAuth: true },
+    );
+    expect(consoleOutput.some((line) => line.includes('retry on the next Autohand command'))).toBe(true);
   });
 
   it('stops polling when browser authorization is cancelled', async () => {
@@ -315,6 +355,9 @@ describe('logout command', () => {
       }),
       { writeAuth: true }
     );
+    expect(applyTraceAuthenticationChange).toHaveBeenCalledWith(
+      expect.objectContaining({ auth: undefined }),
+    );
     expect(consoleOutput.some((line) => line.includes('Successfully logged out'))).toBe(true);
     expect(exitSpy).toHaveBeenCalledWith(0);
 
@@ -382,6 +425,37 @@ describe('logout command', () => {
       { writeAuth: true }
     );
     expect(consoleOutput.some((line) => line.includes('Successfully logged out'))).toBe(true);
+    expect(exitSpy).toHaveBeenCalledWith(0);
+
+    exitSpy.mockRestore();
+  });
+
+  it('finishes logout when the trace companion cannot clear its account', async () => {
+    const mockConfig: LoadedConfig = {
+      configPath: '/home/user/.autohand/config.json',
+      auth: {
+        token: 'existing-token',
+        user: { id: 'user-1', email: 'test@example.com', name: 'Test User' },
+      },
+    };
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+
+    mockShowModal.mockResolvedValue({ value: 'yes' });
+    (getAuthClient as ReturnType<typeof vi.fn>).mockReturnValue({
+      logout: vi.fn().mockResolvedValue(undefined),
+    });
+    (saveConfig as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    (applyTraceAuthenticationChange as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error('companion unavailable'));
+
+    const { logout } = await import('../../src/commands/logout.js');
+    await logout({ config: mockConfig });
+
+    expect(saveConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ auth: undefined }),
+      { writeAuth: true },
+    );
+    expect(consoleOutput.some((line) => line.includes('autohand traces stop'))).toBe(true);
     expect(exitSpy).toHaveBeenCalledWith(0);
 
     exitSpy.mockRestore();

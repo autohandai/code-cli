@@ -20,6 +20,7 @@ import {
   AUTOHAND_AI_DEFAULT_BASE_URL,
   getAutohandAICloudModelContextWindow,
 } from '../providers/AutohandAIProvider.js';
+import { applyTraceAuthenticationChange } from '../integrations/ahtraces/settingsLifecycle.js';
 
 export const metadata = {
   command: '/login',
@@ -285,6 +286,11 @@ export async function login(ctx: LoginContext): Promise<string | null> {
       }, pollResult.token);
 
       await saveConfig(updatedConfig, { writeAuth: true });
+      try {
+        await applyTraceAuthenticationChange(updatedConfig);
+      } catch {
+        console.log(chalk.yellow('Signed in, but the trace companion could not refresh its account. It will retry on the next Autohand command.'));
+      }
 
       // Profiles are independent from generic file sync. A user who chooses a
       // default profile in Console receives it on the next successful sign-in,

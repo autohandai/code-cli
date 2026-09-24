@@ -53,7 +53,7 @@ Bundled provider model choices live in `src/providers/models.json` and packaged 
 
 | Provider        | Type  | Cost        | Latency | Best For                                        |
 | --------------- | ----- | ----------- | ------- | ----------------------------------------------- |
-| **Autohand AI** | Cloud/Local | Account, API key, or local | Low | Fantail ultra-fast coding, Moa thinking, or local MLX coding models |
+| **Autohand AI** | Cloud/Local | Account, API key, or local | Low | Fantail ultra-fast coding, Moa thinking, or local MLX coding models. Weka is API/Console only. |
 | **OpenRouter**  | Cloud | Pay-per-use | Low     | Access to 100+ models, recommended default      |
 | **Anthropic**   | Cloud | Pay-per-use | Low     | Native Claude Messages API and tool use         |
 | **OpenAI**      | Cloud | Pay-per-use | Low     | Direct OpenAI access, GPT-5, o3 models          |
@@ -74,6 +74,8 @@ Bundled provider model choices live in `src/providers/models.json` and packaged 
 ### Autohand AI
 
 Autohand AI is the preferred first-party provider. Use `autohandai` with `plan: "cloud"` for Autohand-hosted Fantail and Moa models at `https://api.autohand.ai/v1`, or `plan: "local"` for Apple Silicon MLX local inference.
+
+The catalogue also carries Weka with `cliSupported: false`. This lets the CLI describe the model without putting it in setup, `/model`, team-model, ACP, or RPC selection. Weka accepts structured `state` and `questions` at `POST https://api.autohand.ai/v1/decisions`; use it from the API or Console Playground.
 
 Fantail uses a 256k input context window and a 16k maximum output. Moa retains its 1M input context and 262,144-token output contract. These limits and the available cloud model list are read from `src/providers/models.json` (or a validated catalog override), not duplicated in provider code. If a selected model requires a higher account tier or an Autohand AI request quota is exhausted, the CLI identifies the exhausted window, shows its exact reset in the computer's local timezone with a relative duration, and includes the trusted upgrade link returned by the inference service. With Autohand AI active, `/usage` and the `/status` Usage tab show the same 5-hour, 24-hour, weekly, and monthly quota windows before they are exhausted, alongside request, uncached-input-token, and output-token throughput. Pro provides 1K requests, 500K uncached input tokens, and 80K output tokens per minute; Max provides exactly four times each limit.
 

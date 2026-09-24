@@ -9,7 +9,7 @@ import readline from 'node:readline';
 import { t } from '../i18n/index.js';
 import { AgentRegistry } from '../core/agents/AgentRegistry.js';
 import { getProviderConfig, loadConfig, saveConfig } from '../config.js';
-import { getProviderModelOptions } from '../providers/modelCatalog.js';
+import { getProviderRunnableModelOptions } from '../providers/modelCatalog.js';
 import { ProviderFactory } from '../providers/ProviderFactory.js';
 import { ActiveAgentRegistry, type ActiveAgentRecord } from '../session/ActiveAgentRegistry.js';
 import { sanitizeAnnouncementText } from '../announcements/AnnouncementContent.js';
@@ -144,7 +144,7 @@ async function promptForConfiguredTeamProvider(config: LoadedConfig): Promise<Pr
 
 async function promptForTeamModel(config: LoadedConfig, provider: ProviderName): Promise<string | null> {
     const currentModel = getProviderConfig(config, provider)?.model;
-    const catalogModels = getProviderModelOptions(provider as BuiltInProviderName).map((entry) => entry.id);
+    const catalogModels = getProviderRunnableModelOptions(provider as BuiltInProviderName).map((entry) => entry.id);
     const models = [...new Set([currentModel, ...catalogModels].filter((model): model is string => Boolean(model)))];
     if (models.length === 0) return null;
 

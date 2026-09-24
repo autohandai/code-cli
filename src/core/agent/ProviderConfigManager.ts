@@ -31,9 +31,9 @@ import {
   resolveBedrockAuthMode,
 } from "../../providers/BedrockProvider.js";
 import {
-  AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS,
   AUTOHAND_AI_DEFAULT_BASE_URL,
   AUTOHAND_AI_MOA_CONTEXT_WINDOW,
+  getAutohandAICloudModelCliUnsupportedReason,
   getAutohandAICloudModelContextWindow,
 } from "../../providers/AutohandAIProvider.js";
 import {
@@ -51,6 +51,7 @@ import {
   getProviderDefaultModel,
   getProviderModelIds,
   getProviderModelOptions,
+  getProviderRunnableModelOptions,
   getProviderRuntimeDefaultModel,
   mergeModelIds,
 } from "../../providers/modelCatalog.js";
@@ -742,8 +743,8 @@ export class ProviderConfigManager {
       return;
     }
 
-    const modelChoices: ModalOption[] = AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS.map((model) => ({
-      label: model.label,
+    const modelChoices: ModalOption[] = getProviderRunnableModelOptions("autohandai").map((model) => ({
+      label: model.displayName ?? model.id,
       value: model.id,
       description: model.description,
     }));
@@ -758,6 +759,11 @@ export class ProviderConfigManager {
     }
 
     const model = modelResult.value as string;
+    const unsupportedReason = getAutohandAICloudModelCliUnsupportedReason(model);
+    if (unsupportedReason) {
+      console.log(chalk.yellow("\n" + unsupportedReason));
+      return;
+    }
     const reasoningEffort = model === "moa" ? await this.promptAutohandAIMoaReasoningEffort() : undefined;
     const contextWindow = getAutohandAICloudModelContextWindow(model);
     const accountToken = this.runtime.config.auth?.token;
@@ -3275,14 +3281,15 @@ export class ProviderConfigManager {
 
         newModel = (result.value as string).trim();
       } else if (provider === "autohandai") {
-        const modelOptions: ModalOption[] = AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS.map((model) => ({
-          label: model.label,
+        const autohandModels = getProviderRunnableModelOptions("autohandai");
+        const modelOptions: ModalOption[] = autohandModels.map((model) => ({
+          label: model.displayName ?? model.id,
           value: model.id,
           description: model.description,
         }));
         const currentIndex = Math.max(
           0,
-          AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS.findIndex((model) => model.id === currentModel),
+          autohandModels.findIndex((model) => model.id === currentModel),
         );
         const result = await showModal({
           title: t("providers.config.selectModel"),
@@ -3298,6 +3305,11 @@ export class ProviderConfigManager {
         }
 
         newModel = result.value as string;
+        const unsupportedReason = getAutohandAICloudModelCliUnsupportedReason(newModel);
+        if (unsupportedReason) {
+          console.log(chalk.yellow("\n" + unsupportedReason));
+          return;
+        }
       } else if (provider === "llmgateway") {
         // LLM Gateway - offer popular models
         const models = [

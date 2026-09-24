@@ -7,6 +7,21 @@ import { saveConfig } from '../config.js';
 import type { AuthUser, LoadedConfig } from '../types.js';
 import { getAuthClient } from './index.js';
 import { isDurableAuthCredential } from './credentialType.js';
+import { applyTraceAuthenticationChange } from '../integrations/ahtraces/settingsLifecycle.js';
+
+async function clearInvalidAuthentication(config: LoadedConfig): Promise<void> {
+  config.auth = undefined;
+  try {
+    await saveConfig(config, { writeAuth: true });
+  } catch {
+    // Ignore save errors during startup.
+  }
+  try {
+    await applyTraceAuthenticationChange(config);
+  } catch {
+    // Startup validation is best effort; the next command reconciles again.
+  }
+}
 
 /**
  * Validate auth token on startup.
@@ -20,12 +35,7 @@ export async function validateAuthOnStartup(config: LoadedConfig): Promise<AuthU
   if (config.auth.expiresAt && !isDurableAuthCredential(config.auth.token)) {
     const expiresAt = new Date(config.auth.expiresAt);
     if (expiresAt < new Date()) {
-      config.auth = undefined;
-      try {
-        await saveConfig(config, { writeAuth: true });
-      } catch {
-        // Ignore save errors during startup.
-      }
+      await clearInvalidAuthentication(config);
       return undefined;
     }
   }
@@ -51,12 +61,7 @@ export async function validateAuthOnStartup(config: LoadedConfig): Promise<AuthU
       return config.auth?.user;
     }
 
-    config.auth = undefined;
-    try {
-      await saveConfig(config, { writeAuth: true });
-    } catch {
-      // Ignore save errors during startup.
-    }
+    await clearInvalidAuthentication(config);
     return undefined;
   } catch {
     return config.auth?.user;

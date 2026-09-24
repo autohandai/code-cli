@@ -1,8 +1,9 @@
 # Agent traces and Work Map
 
 Autohand Code installs `ahtraces` alongside the main `autohand` binary when
-you use the official macOS/Linux installer, Windows installer, Homebrew formula,
-or release archive. The trace monitor is a separately built Autohand sub agent.
+you use npm, the official macOS/Linux installer, Windows installer, Homebrew
+formula, or a release archive. The trace monitor is a separately built Autohand
+sub agent.
 It is disabled by default and does not run until you make an explicit consent
 choice.
 
@@ -32,6 +33,18 @@ Homebrew users can install or upgrade with:
 brew install autohandai/code/autohand-code
 brew upgrade autohandai/code/autohand-code
 ```
+
+npm users can install or upgrade with:
+
+```bash
+npm install -g autohand-cli
+```
+
+The npm postinstall downloads the matching `ahtraces` binary from the same
+Autohand GitHub Release and verifies its SHA-256 checksum before exposing the
+`ahtraces` command. Set `AUTOHAND_SKIP_AHTRACES_INSTALL=1` only when you
+intentionally need an Autohand installation without the trace companion. npm's
+`--ignore-scripts` option also skips the download.
 
 Confirm that both commands are available:
 
@@ -174,7 +187,8 @@ Future traces continue to sync if monitoring remains on.
 - Run `autohand traces on` again after signing in if local monitoring works
   but Console data is missing.
 - Confirm the correct personal or Team account is selected in Console.
-- Reinstall with `install.sh` or `install.ps1` if `autohand` exists but
-  `ahtraces` is missing.
+- Reinstall with npm, `install.sh`, or `install.ps1` if `autohand` exists but
+  `ahtraces` is missing. For npm, omit `--ignore-scripts` and do not set
+  `AUTOHAND_SKIP_AHTRACES_INSTALL=1`.
 - Use `autohand traces stop` for a temporary daemon restart without changing
   consent. Use `off` when you want monitoring and sync disabled.
