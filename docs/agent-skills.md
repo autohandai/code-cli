@@ -67,7 +67,7 @@ when a request clearly targets a native application or desktop UI, including
 $computer-control open Slack, select Settings, and tell me which workspace is active
 ```
 
-The skill uses the automatically detected Cua Driver MCP tools, observes before
+The skill uses the automatically detected Autohand Computer Use tools, observes before
 input, and verifies fresh state after actions. Installation and platform
 permission setup are documented in [Native computer control](computer-control.md).
 

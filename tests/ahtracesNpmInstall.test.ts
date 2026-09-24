@@ -52,6 +52,7 @@ describe('npm ahtraces distribution', () => {
     ['darwin', 'x64', 'ahtraces-macos-x64', 'ahtraces'],
     ['linux', 'arm64', 'ahtraces-linux-arm64', 'ahtraces'],
     ['linux', 'x64', 'ahtraces-linux-x64', 'ahtraces'],
+    ['win32', 'arm64', 'ahtraces-windows-arm64.exe', 'ahtraces.exe'],
     ['win32', 'x64', 'ahtraces-windows-x64.exe', 'ahtraces.exe'],
   ] as const)('maps %s/%s to its release asset', (platform, architecture, assetName, binaryName) => {
     expect(resolveAhTracesArtifact(platform, architecture)).toEqual({ assetName, binaryName });

@@ -44,17 +44,57 @@ async function writeFakeCuaDriver(state: TuistoryTempState): Promise<string> {
   return executable;
 }
 
+async function writeFakeComputerUseHost(state: TuistoryTempState): Promise<string> {
+  const executable = path.join(state.workspaceRoot, 'autohand-computer-use');
+  await writeFile(executable, [
+    '#!/bin/sh',
+    'if [ "${1:-}" = "mcp" ] && [ "${2:-}" = "--driver-path" ] && [ -n "${3:-}" ]; then',
+    '  exec "$3" mcp',
+    'fi',
+    'exit 2',
+  ].join('\n'));
+  await chmod(executable, 0o755);
+  return executable;
+}
+
 describe('built native computer control', () => {
+  it('uses the Autohand Computer Use product name in user-facing status', async () => {
+    const state = await createTempAutohandHome();
+    states.push(state);
+    const driver = await writeFakeCuaDriver(state);
+    const computerUseHost = await writeFakeComputerUseHost(state);
+    const session = await launchBuiltAutohand(
+      ['computer', 'status'],
+      {
+        autohandHome: state.autohandHome,
+        cwd: state.workspaceRoot,
+        env: {
+          AUTOHAND_CUA_DRIVER_PATH: driver,
+          AUTOHAND_COMPUTER_USE_APP_PATH: computerUseHost,
+        },
+      },
+    );
+    sessions.push(session);
+    await waitForExit(session, 15_000);
+    expectCleanExit(session);
+    expect(session.readAll()).toContain('Autohand Computer Use');
+    expect(session.readAll()).not.toContain('Ready · Cua Driver');
+  });
+
   it('reports the detected driver through the built command', async () => {
     const state = await createTempAutohandHome();
     states.push(state);
     const driver = await writeFakeCuaDriver(state);
+    const computerUseHost = await writeFakeComputerUseHost(state);
     const session = await launchBuiltAutohand(
       ['computer', 'status', '--json'],
       {
         autohandHome: state.autohandHome,
         cwd: state.workspaceRoot,
-        env: { AUTOHAND_CUA_DRIVER_PATH: driver },
+        env: {
+          AUTOHAND_CUA_DRIVER_PATH: driver,
+          AUTOHAND_COMPUTER_USE_APP_PATH: computerUseHost,
+        },
       },
     );
     sessions.push(session);
@@ -100,6 +140,7 @@ describe('built native computer control', () => {
     });
     states.push(state);
     const driver = await writeFakeCuaDriver(state);
+    const computerUseHost = await writeFakeComputerUseHost(state);
     const session = await launchBuiltAutohand([
       '--path',
       state.workspaceRoot,
@@ -111,7 +152,10 @@ describe('built native computer control', () => {
     ], {
       autohandHome: state.autohandHome,
       cwd: state.workspaceRoot,
-      env: { AUTOHAND_CUA_DRIVER_PATH: driver },
+      env: {
+        AUTOHAND_CUA_DRIVER_PATH: driver,
+        AUTOHAND_COMPUTER_USE_APP_PATH: computerUseHost,
+      },
       waitForDataTimeout: 15_000,
     });
     sessions.push(session);

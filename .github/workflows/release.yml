@@ -221,10 +221,12 @@ jobs:
             target: darwin-arm64
             artifact: autohand-macos-arm64
             tracesArtifact: ahtraces-macos-arm64
+            computerUseArtifact: autohand-computer-use-darwin-arm64.tar.gz
           - os: macos-15-intel
             target: darwin-x64
             artifact: autohand-macos-x64
             tracesArtifact: ahtraces-macos-x64
+            computerUseArtifact: autohand-computer-use-darwin-x64.tar.gz
           - os: ubuntu-latest
             target: linux-x64
             artifact: autohand-linux-x64
@@ -237,6 +239,10 @@ jobs:
             target: windows-x64
             artifact: autohand-windows-x64.exe
             tracesArtifact: ahtraces-windows-x64.exe
+          - os: windows-latest
+            target: windows-arm64
+            artifact: autohand-windows-arm64.exe
+            tracesArtifact: ahtraces-windows-arm64.exe
 
     steps:
       - uses: actions/checkout@v7
@@ -260,6 +266,26 @@ jobs:
           ref: ${{ steps.ahtraces-ref.outputs.sha }}
           path: ahtraces-component
           token: ${{ secrets.AHTRACES_REPO_TOKEN }}
+          persist-credentials: false
+
+      - name: Read pinned computer-use revision
+        id: computer-use-ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision=$(tr -d '[:space:]' < .github/computer-use-ref)
+          if ! [[ "$revision" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::.github/computer-use-ref must contain one full commit SHA"
+            exit 1
+          fi
+          echo "sha=$revision" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout pinned computer-use component
+        uses: actions/checkout@v7
+        with:
+          repository: autohandai/computer-use
+          ref: ${{ steps.computer-use-ref.outputs.sha }}
+          path: computer-use-component
           persist-credentials: false
 
       - name: Setup Node.js
@@ -300,8 +326,16 @@ jobs:
           # platform's import() and fail. Externalizing leaves the dynamic
           # import for Node/Bun module resolution at runtime, same as `sharp`
           # in tsup.config.ts.
-          bun build ./src/index.ts --compile --target=bun-${{ matrix.target }} --external node-llama-cpp --outfile ./binaries/${{ matrix.artifact }}
+          AUTOHAND_BUILD_VERSION="${{ needs.prepare.outputs.version }}" AUTOHAND_BUILD_GIT_COMMIT="${GITHUB_SHA}" bun build ./src/index.ts --compile --target=bun-${{ matrix.target }} --external node-llama-cpp '--env=AUTOHAND_BUILD_*' --outfile ./binaries/${{ matrix.artifact }}
           bun build ./ahtraces-component/src/index.ts --compile --target=bun-${{ matrix.target }} '--env=BUILD_GIT_*' --outfile ./binaries/${{ matrix.tracesArtifact }}
+
+      - name: Build Autohand Computer Use host
+        if: runner.os == 'macOS'
+        env:
+          AUTOHAND_BUILD_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          ./computer-use-component/autohand/scripts/build-macos-host.sh --output "./binaries/Autohand Computer Use.app" --version "$AUTOHAND_BUILD_VERSION"
+          tar -czf "./binaries/autohand-computer-use-${{ matrix.target }}.tar.gz" -C ./binaries "Autohand Computer Use.app"
 
       - name: Sign macOS binary
         if: runner.os == 'macOS'
@@ -310,6 +344,7 @@ jobs:
           codesign --verify --strict --verbose=4 ./binaries/${{ matrix.artifact }}
           codesign --force --sign - --timestamp=none ./binaries/${{ matrix.tracesArtifact }}
           codesign --verify --strict --verbose=4 ./binaries/${{ matrix.tracesArtifact }}
+          codesign --verify --deep --strict --verbose=4 "./binaries/Autohand Computer Use.app"
 
       - name: Verify binary
         if: runner.os != 'Windows' && !contains(matrix.target, 'arm64') || matrix.os == 'macos-latest' && contains(matrix.target, 'arm64')
@@ -347,7 +382,7 @@ jobs:
           echo "Smoke test passed!"
 
       - name: Smoke test Windows binary
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && !contains(matrix.target, 'arm64')
         shell: pwsh
         timeout-minutes: 1
         run: |
@@ -376,6 +411,7 @@ jobs:
           path: |
             ./binaries/${{ matrix.artifact }}
             ./binaries/${{ matrix.tracesArtifact }}
+            ./binaries/autohand-computer-use-*.tar.gz
           retention-days: 1
 
   verify-macos-artifacts:
@@ -388,9 +424,11 @@ jobs:
           - os: macos-latest
             artifact: autohand-macos-arm64
             tracesArtifact: ahtraces-macos-arm64
+            computerUseArtifact: autohand-computer-use-darwin-arm64.tar.gz
           - os: macos-15-intel
             artifact: autohand-macos-x64
             tracesArtifact: ahtraces-macos-x64
+            computerUseArtifact: autohand-computer-use-darwin-x64.tar.gz
 
     steps:
       - name: Download macOS artifact
@@ -404,6 +442,7 @@ jobs:
         run: |
           binary="./binaries/${{ matrix.artifact }}"
           ahtraces="./binaries/${{ matrix.tracesArtifact }}"
+          computer_use_archive="./binaries/${{ matrix.computerUseArtifact }}"
           chmod +x "$binary"
           file "$binary"
           codesign --verify --strict --verbose=4 "$binary"
@@ -412,6 +451,9 @@ jobs:
           file "$ahtraces"
           codesign --verify --strict --verbose=4 "$ahtraces"
           "$ahtraces" --version < /dev/null
+          mkdir -p computer-use-verification
+          tar -xzf "$computer_use_archive" -C computer-use-verification
+          codesign --verify --deep --strict --verbose=4 "computer-use-verification/Autohand Computer Use.app"
 
   release:
     needs: [prepare, build, verify-macos-artifacts]
@@ -456,6 +498,7 @@ jobs:
           bundle_unix() {
             local binary="$1"
             local traces_binary="$2"
+            local computer_use_archive="${3:-}"
             local temp_dir
             temp_dir=$(mktemp -d)
 
@@ -465,7 +508,15 @@ jobs:
             cp "$traces_binary" "${temp_dir}/bundle/ahtraces"
             chmod +x "${temp_dir}/bundle/ahtraces"
 
-            tar -czf "${binary}.tar.gz" -C "${temp_dir}/bundle" autohand ahtraces
+            if [ -n "$computer_use_archive" ]; then
+              tar -xzf "$computer_use_archive" -C "${temp_dir}/bundle"
+            fi
+
+            if [ -d "${temp_dir}/bundle/Autohand Computer Use.app" ]; then
+              tar -czf "${binary}.tar.gz" -C "${temp_dir}/bundle" autohand ahtraces "Autohand Computer Use.app"
+            else
+              tar -czf "${binary}.tar.gz" -C "${temp_dir}/bundle" autohand ahtraces
+            fi
             sha256sum "${binary}.tar.gz" > "${binary}.tar.gz.sha256"
             rm -rf "$temp_dir"
             echo "✅ Created ${binary}.tar.gz"
@@ -495,11 +546,11 @@ jobs:
           # Create tar.gz bundles for Unix platforms
           if [ -f "autohand-macos-arm64" ]; then
             chmod +x autohand-macos-arm64
-            bundle_unix "autohand-macos-arm64" "ahtraces-macos-arm64"
+            bundle_unix "autohand-macos-arm64" "ahtraces-macos-arm64" "autohand-computer-use-darwin-arm64.tar.gz"
           fi
           if [ -f "autohand-macos-x64" ]; then
             chmod +x autohand-macos-x64
-            bundle_unix "autohand-macos-x64" "ahtraces-macos-x64"
+            bundle_unix "autohand-macos-x64" "ahtraces-macos-x64" "autohand-computer-use-darwin-x64.tar.gz"
           fi
           if [ -f "autohand-linux-x64" ]; then
             chmod +x autohand-linux-x64
@@ -513,6 +564,9 @@ jobs:
           # Create bundled zip for Windows
           if [ -f "autohand-windows-x64.exe" ]; then
             bundle_windows "autohand-windows-x64.exe" "ahtraces-windows-x64.exe" "autohand-windows-x64.zip"
+          fi
+          if [ -f "autohand-windows-arm64.exe" ]; then
+            bundle_windows "autohand-windows-arm64.exe" "ahtraces-windows-arm64.exe" "autohand-windows-arm64.zip"
           fi
 
           ls -lh *.tar.gz *.tar.gz.sha256 *.zip *.zip.sha256 2>/dev/null || true
@@ -566,6 +620,9 @@ jobs:
 
       - name: Build and verify npm package
         run: |
+          mkdir -p native/macos/prebuilt/arm64 native/macos/prebuilt/x64
+          tar -xzf release-binaries/autohand-computer-use-darwin-arm64.tar.gz -C native/macos/prebuilt/arm64
+          tar -xzf release-binaries/autohand-computer-use-darwin-x64.tar.gz -C native/macos/prebuilt/x64
           bun install --frozen-lockfile
           npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version --allow-same-version
           bun run build

@@ -22,6 +22,7 @@ const RELEASE_ARTIFACTS = new Map([
   ['darwin/x64', { assetName: 'ahtraces-macos-x64', binaryName: 'ahtraces' }],
   ['linux/arm64', { assetName: 'ahtraces-linux-arm64', binaryName: 'ahtraces' }],
   ['linux/x64', { assetName: 'ahtraces-linux-x64', binaryName: 'ahtraces' }],
+  ['win32/arm64', { assetName: 'ahtraces-windows-arm64.exe', binaryName: 'ahtraces.exe' }],
   ['win32/x64', { assetName: 'ahtraces-windows-x64.exe', binaryName: 'ahtraces.exe' }],
 ]);
 

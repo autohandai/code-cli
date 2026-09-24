@@ -141,6 +141,7 @@ function Get-Architecture {
         }
 
         switch (([string]$candidate).Trim().ToUpperInvariant()) {
+            "ARM64" { return "windows-arm64" }
             "X64" { return "windows-x64" }
             "AMD64" { return "windows-x64" }
         }
@@ -150,7 +151,7 @@ function Get-Architecture {
     $wow64Display = if ([string]::IsNullOrWhiteSpace($ProcessorArchitectureW6432)) { "<empty>" } else { $ProcessorArchitectureW6432 }
     $processDisplay = if ([string]::IsNullOrWhiteSpace($ProcessorArchitecture)) { "<empty>" } else { $ProcessorArchitecture }
 
-    throw "Unsupported CPU architecture. RuntimeInformation.OSArchitecture=$runtimeDisplay; PROCESSOR_ARCHITEW6432=$wow64Display; PROCESSOR_ARCHITECTURE=$processDisplay. Autohand currently supports 64-bit Intel/AMD Windows (x64). Please include this message when contacting support at https://autohand.ai/support."
+    throw "Unsupported CPU architecture. RuntimeInformation.OSArchitecture=$runtimeDisplay; PROCESSOR_ARCHITEW6432=$wow64Display; PROCESSOR_ARCHITECTURE=$processDisplay. Autohand currently supports 64-bit Windows on x64 and ARM64. Please include this message when contacting support at https://autohand.ai/support."
 }
 
 function Get-LatestVersion {
@@ -225,6 +226,7 @@ function Get-ArchiveAssetName {
     param([string]$Architecture)
 
     switch ($Architecture) {
+        "windows-arm64" { return "autohand-windows-arm64.zip" }
         "windows-x64" { return "autohand-windows-x64.zip" }
         default { throw "Unsupported installer architecture: $Architecture" }
     }
@@ -666,12 +668,12 @@ function Install-ComputerControl {
 
     Write-Step "Installing Computer control..."
     try {
-        # Cua owns its visible bin directory as a junction; keep it separate from Autohand's files.
+        # The computer-use engine lives in its own Autohand-managed directory.
         & $BinaryPath computer install --non-interactive
         if ($LASTEXITCODE -ne 0) {
             throw "autohand computer install exited with code $LASTEXITCODE"
         }
-        Write-Success "Computer control is ready through Cua Driver."
+        Write-Success "Autohand Computer Use is ready."
     }
     catch {
         Write-Host "Computer control could not be installed. Autohand Code is still ready." -ForegroundColor Yellow

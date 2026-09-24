@@ -27,6 +27,7 @@
     "scripts/ensure-ink-cursor-intent.mjs",
     "scripts/install-ahtraces.mjs",
     "scripts/ahtraces-launcher.mjs",
+    "native/macos/prebuilt",
     "assets",
     "schema",
     "examples/extensions",
@@ -62,7 +63,8 @@
     "compile:linux-x64": "bun run embed:builtin && bun build ./src/index.ts --compile --target=bun-linux-x64 --external node-llama-cpp --outfile ./binaries/autohand-linux-x64",
     "compile:linux-arm64": "bun run embed:builtin && bun build ./src/index.ts --compile --target=bun-linux-arm64 --external node-llama-cpp --outfile ./binaries/autohand-linux-arm64",
     "compile:windows-x64": "bun run embed:builtin && bun build ./src/index.ts --compile --target=bun-windows-x64 --external node-llama-cpp --outfile ./binaries/autohand-windows-x64.exe",
-    "compile:all": "bun run compile:macos-arm64 && bun run compile:macos-x64 && bun run compile:linux-x64 && bun run compile:linux-arm64 && bun run compile:windows-x64",
+    "compile:windows-arm64": "bun run embed:builtin && bun build ./src/index.ts --compile --target=bun-windows-arm64 --external node-llama-cpp --outfile ./binaries/autohand-windows-arm64.exe",
+    "compile:all": "bun run compile:macos-arm64 && bun run compile:macos-x64 && bun run compile:linux-x64 && bun run compile:linux-arm64 && bun run compile:windows-x64 && bun run compile:windows-arm64",
     "link": "bun link",
     "translate": "tsx scripts/generate-translations.ts"
   },

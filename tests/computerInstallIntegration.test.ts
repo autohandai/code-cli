@@ -7,15 +7,18 @@ import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
 describe('computer control installation integration', () => {
-  it('installs Cua Driver from the Unix release installer after Autohand', async () => {
+  it('installs native computer control and the branded macOS permission host after Autohand', async () => {
     const script = await readFile('install.sh', 'utf8');
     expect(script).toContain('install_computer_control');
     expect(script).toContain('computer install --non-interactive');
     expect(script).not.toContain('computer install --non-interactive --bin-dir');
     expect(script).toContain('Computer control');
+    expect(script).toContain('Autohand Computer Use.app');
+    expect(script).toContain('AUTOHAND_COMPUTER_USE_APP_SOURCE');
+    expect(script).toContain('Autohand Computer Use is ready');
   });
 
-  it('keeps Cua Driver in its owned Windows directory instead of replacing the Autohand directory', async () => {
+  it('installs computer use into its Autohand-owned Windows directory', async () => {
     const script = await readFile('install.ps1', 'utf8');
     expect(script).toContain('Install-ComputerControl');
     expect(script).toContain('computer install --non-interactive');
@@ -30,5 +33,6 @@ describe('computer control installation integration', () => {
     };
     expect(manifest.scripts.postinstall).toContain('computer install --non-interactive');
     expect(manifest.files).toContain('docs/computer-control.md');
+    expect(manifest.files).toContain('native/macos/prebuilt');
   });
 });

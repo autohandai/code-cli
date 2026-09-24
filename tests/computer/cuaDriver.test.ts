@@ -62,12 +62,25 @@ describe('resolveCuaDriverPath', () => {
       isExecutable: () => false,
     })).toBeNull();
   });
+
+  it('finds the engine in the Autohand-owned Windows installation directory', () => {
+    const expected = 'C:\\Local\\Programs\\Autohand\\Computer Use\\bin\\cua-driver.exe';
+    expect(resolveCuaDriverPath({
+      platform: 'win32',
+      homeDir: 'C:\\Users\\test',
+      env: { LOCALAPPDATA: 'C:\\Local', PATH: '' },
+      moduleDirectory: 'C:\\Autohand\\dist',
+      executablePath: 'C:\\Autohand\\autohand.exe',
+      entryPath: 'C:\\Autohand\\dist\\index.js',
+      isExecutable: (candidate) => candidate === expected,
+    })).toBe(expected);
+  });
 });
 
 describe('ensureCuaMcpServer', () => {
   it('adds the detected driver as a standard, promptless stdio MCP server', () => {
     const loaded = config();
-    const result = ensureCuaMcpServer(loaded, { driverPath: '/opt/cua-driver' });
+    const result = ensureCuaMcpServer(loaded, { platform: 'linux', driverPath: '/opt/cua-driver' });
 
     expect(result.status).toBe('added');
     expect(loaded.mcp?.servers).toEqual([{
@@ -115,6 +128,40 @@ describe('ensureCuaMcpServer', () => {
     expect(ensureCuaMcpServer(loaded, { driverPath: '/opt/cua-driver' }).status).toBe('disabled');
     expect(loaded.mcp.servers).toEqual([]);
   });
+
+  it('routes macOS MCP through the Autohand Computer Use permission host', () => {
+    const loaded = config();
+    const result = ensureCuaMcpServer(loaded, {
+      platform: 'darwin',
+      driverPath: '/Users/test/.local/bin/cua-driver',
+      computerUseHostPath: '/Users/test/Applications/Autohand Computer Use.app/Contents/MacOS/AutohandComputerUse',
+    });
+
+    expect(result).toEqual({
+      status: 'added',
+      path: '/Users/test/Applications/Autohand Computer Use.app/Contents/MacOS/AutohandComputerUse',
+    });
+    expect(loaded.mcp?.servers).toEqual([expect.objectContaining({
+      name: 'cua-driver',
+      command: '/Users/test/Applications/Autohand Computer Use.app/Contents/MacOS/AutohandComputerUse',
+      args: ['mcp', '--driver-path', '/Users/test/.local/bin/cua-driver'],
+      env: expect.objectContaining({
+        CUA_DRIVER_EMBEDDED: '1',
+        CUA_DRIVER_HOST_BUNDLE_ID: 'ai.autohand.computer-use',
+      }),
+    })]);
+  });
+
+  it('does not fall back to the unbranded macOS engine when the permission host is missing', () => {
+    const loaded = config();
+
+    expect(ensureCuaMcpServer(loaded, {
+      platform: 'darwin',
+      driverPath: '/Users/test/.local/bin/cua-driver',
+      computerUseHostPath: null,
+    })).toEqual({ status: 'missing' });
+    expect(loaded.mcp?.servers ?? []).toEqual([]);
+  });
 });
 
 describe('Cua Driver inspection', () => {
@@ -146,6 +193,14 @@ describe('Cua Driver inspection', () => {
       status: 'broken',
       path: '/opt/broken',
       error: 'permission denied',
+    });
+
+    await expect(inspectCuaDriver('/opt/unrecognized', {
+      execute: async () => ({ stdout: 'unexpected output', stderr: '' }),
+    })).resolves.toEqual({
+      status: 'broken',
+      path: '/opt/unrecognized',
+      error: 'Autohand Computer Use engine returned an unrecognized version.',
     });
   });
 });

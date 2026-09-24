@@ -41,7 +41,7 @@ export const MODAL_NUMERIC_SHORTCUTS = new Set<string>([
 
 export type ModalNumericShortcut = '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9';
 
-export function latestStableRepositoryVersion(): string {
+export function currentDevelopmentRepositoryVersion(): string {
   const tags = execFileSync('git', ['tag', '--merged', 'HEAD', '--list', '--sort=-version:refname'], {
     cwd: path.resolve(import.meta.dirname, '../..'),
     encoding: 'utf8',
@@ -51,7 +51,12 @@ export function latestStableRepositoryVersion(): string {
   if (!tag) {
     throw new Error('Expected the test checkout to have a stable semantic-version tag');
   }
-  return tag.slice(1);
+  const [major, minor, patch] = tag.slice(1).split('.').map(Number);
+  const commit = execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], {
+    cwd: path.resolve(import.meta.dirname, '../..'),
+    encoding: 'utf8',
+  }).trim().toLowerCase();
+  return `${major}.${minor}.${patch + 1}-alpha.${commit}`;
 }
 
 /**

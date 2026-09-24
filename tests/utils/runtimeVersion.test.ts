@@ -5,6 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import {
+  deriveNextAlphaVersion,
   resolveRuntimeVersion,
   selectLatestStableRepositoryVersion,
 } from '../../src/utils/runtimeVersion.js';
@@ -23,17 +24,36 @@ describe('runtimeVersion', () => {
     expect(version).toBe('0.10.0');
   });
 
-  it('uses repository tags when the development version source is enabled', () => {
+  it('derives the next alpha version from the latest stable tag and current commit', () => {
     const readRepositoryTags = vi.fn(() => ['v0.9.1', 'v0.9.2']);
+    const readRepositoryCommit = vi.fn(() => 'abcdef0123456789');
 
     const version = resolveRuntimeVersion({
       manifestVersion: '0.8.3',
       versionSource: 'git',
       readRepositoryTags,
+      readRepositoryCommit,
     });
 
-    expect(version).toBe('0.9.2');
+    expect(version).toBe('0.9.3-alpha.abcdef0');
     expect(readRepositoryTags).toHaveBeenCalledOnce();
+    expect(readRepositoryCommit).toHaveBeenCalledOnce();
+  });
+
+  it('uses an embedded build version before the package manifest or repository', () => {
+    const readRepositoryTags = vi.fn(() => ['v0.9.8']);
+
+    expect(resolveRuntimeVersion({
+      manifestVersion: '0.8.2',
+      buildVersion: '0.9.9-alpha.1234abc',
+      versionSource: 'git',
+      readRepositoryTags,
+    })).toBe('0.9.9-alpha.1234abc');
+    expect(readRepositoryTags).not.toHaveBeenCalled();
+  });
+
+  it('increments only the patch component for alpha builds', () => {
+    expect(deriveNextAlphaVersion('0.9.8', 'ABCDEF012345')).toBe('0.9.9-alpha.abcdef0');
   });
 
   it('keeps the packaged manifest version unless repository lookup is explicitly enabled', () => {

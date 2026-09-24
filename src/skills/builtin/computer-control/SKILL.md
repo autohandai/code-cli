@@ -1,6 +1,6 @@
 ---
 name: computer-control
-description: Operate native desktop applications through the built-in Cua Driver MCP connection. Use when the user asks Autohand to open, drive, click, type, scroll, or verify something in a real app, browser window, or desktop UI on this computer.
+description: Operate native desktop applications through Autohand Computer Use. Use when the user asks Autohand to open, drive, click, type, scroll, or verify something in a real app, browser window, or desktop UI on this computer.
 ---
 
 # Native computer control

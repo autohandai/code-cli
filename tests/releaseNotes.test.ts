@@ -49,6 +49,7 @@ describe('generate release notes', () => {
     expect(result.markdown).toContain('- Add active Autohand agents dashboard');
     expect(result.markdown).toContain('https://github.com/autohandai/code-cli/compare/v0.9.1...v0.9.2');
     expect(result.markdown).toContain('brew install autohandai/code/autohand-code');
+    expect(result.markdown).toContain('| Windows | ARM64 | `autohand-windows-arm64.exe` |');
     expect(result.markdown).not.toContain('No code changes were found');
   });
 

@@ -236,8 +236,9 @@ function getCommitFromAlphaVersion(version: string): string | null {
 
 function getGitCommit(): string {
   // Use build-time embedded commit if available
-  if (process.env.BUILD_GIT_COMMIT && process.env.BUILD_GIT_COMMIT !== 'undefined') {
-    return process.env.BUILD_GIT_COMMIT;
+  const buildCommit = process.env.AUTOHAND_BUILD_GIT_COMMIT ?? process.env.BUILD_GIT_COMMIT;
+  if (buildCommit && buildCommit !== 'undefined') {
+    return buildCommit;
   }
   // For alpha builds, version suffix encodes the source commit
   const alphaCommit = getCommitFromAlphaVersion(runtimeVersion);

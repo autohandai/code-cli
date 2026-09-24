@@ -30,6 +30,7 @@ interface WorkflowJob {
         target?: string;
         artifact: string;
         tracesArtifact?: string;
+        computerUseArtifact?: string;
       }>;
     };
   };
@@ -103,7 +104,14 @@ describe('release workflow', () => {
     );
 
     expect(compileStep?.run).toContain('--external node-llama-cpp');
-    for (const target of ['macos-arm64', 'macos-x64', 'linux-x64', 'linux-arm64', 'windows-x64']) {
+    for (const target of [
+      'macos-arm64',
+      'macos-x64',
+      'linux-x64',
+      'linux-arm64',
+      'windows-x64',
+      'windows-arm64',
+    ]) {
       expect(packageJson.scripts[`compile:${target}`]).toContain(
         './src/index.ts --compile --target=',
       );
@@ -120,6 +128,28 @@ describe('release workflow', () => {
     expect(revision).toMatch(/^[0-9a-f]{40}$/u);
   });
 
+  it('pins the separate computer-use source to an immutable commit', () => {
+    const revision = readFileSync(
+      path.join(REPOSITORY_ROOT, '.github/computer-use-ref'),
+      'utf8',
+    ).trim();
+    const buildSteps = loadReleaseWorkflow().jobs.build.steps;
+    const refStep = buildSteps.find((step) => step.name === 'Read pinned computer-use revision');
+    const checkoutStep = buildSteps.find(
+      (step) => step.name === 'Checkout pinned computer-use component',
+    );
+
+    expect(revision).toMatch(/^[0-9a-f]{40}$/u);
+    expect(refStep?.run).toContain('.github/computer-use-ref');
+    expect(checkoutStep?.uses).toBe('actions/checkout@v7');
+    expect(checkoutStep?.with).toMatchObject({
+      repository: 'autohandai/computer-use',
+      ref: '${{ steps.computer-use-ref.outputs.sha }}',
+      path: 'computer-use-component',
+      'persist-credentials': false,
+    });
+  });
+
   it('embeds the pinned ahtraces revision into every standalone companion build', () => {
     const releaseCompile = loadReleaseWorkflow().jobs.build.steps.find(
       (step) => step.name === 'Compile binaries',
@@ -134,6 +164,40 @@ describe('release workflow', () => {
     expect(releaseCompile?.env?.BUILD_GIT_COMMIT).toBe('${{ steps.ahtraces-ref.outputs.sha }}');
     expect(releaseCompile?.run).toContain("'--env=BUILD_GIT_*'");
     expect(ciCompile?.env?.BUILD_GIT_COMMIT).toBe('${{ steps.ahtraces-ref.outputs.sha }}');
+  });
+
+  it('embeds Autohand version and commit metadata in standalone CLI binaries', () => {
+    const compile = loadReleaseWorkflow().jobs.build.steps.find(
+      (step) => step.name === 'Compile binaries',
+    );
+
+    expect(compile?.run).toContain('AUTOHAND_BUILD_VERSION="${{ needs.prepare.outputs.version }}"');
+    expect(compile?.run).toContain('AUTOHAND_BUILD_GIT_COMMIT="${GITHUB_SHA}"');
+    expect(compile?.run).toContain("'--env=AUTOHAND_BUILD_*'");
+  });
+
+  it('builds and bundles the branded macOS computer use host', () => {
+    const workflow = loadReleaseWorkflow();
+    const buildSteps = workflow.jobs.build.steps;
+    const hostBuild = buildSteps.find((step) => step.name === 'Build Autohand Computer Use host');
+    const upload = buildSteps.find((step) => step.name === 'Upload artifact');
+    const bundle = workflow.jobs.release.steps.find(
+      (step) => step.name === 'Create bundled archives for installers and ACP registry',
+    );
+    const npmPackage = workflow.jobs.release.steps.find(
+      (step) => step.name === 'Build and verify npm package',
+    );
+
+    expect(hostBuild?.if).toBe("runner.os == 'macOS'");
+    expect(hostBuild?.run).toContain(
+      './computer-use-component/autohand/scripts/build-macos-host.sh',
+    );
+    expect(hostBuild?.run).toContain('autohand-computer-use-${{ matrix.target }}.tar.gz');
+    expect(upload?.with?.path).toContain('./binaries/autohand-computer-use-*.tar.gz');
+    expect(upload?.with?.path).not.toContain('${{ matrix.computerUseArtifact }}');
+    expect(bundle?.run).toContain('Autohand Computer Use.app');
+    expect(npmPackage?.run).toContain('native/macos/prebuilt/arm64');
+    expect(npmPackage?.run).toContain('native/macos/prebuilt/x64');
   });
 
   it('normalizes a v-prefixed manual stable version before publishing', () => {
@@ -235,14 +299,25 @@ describe('release workflow', () => {
         target: 'darwin-arm64',
         artifact: 'autohand-macos-arm64',
         tracesArtifact: 'ahtraces-macos-arm64',
+        computerUseArtifact: 'autohand-computer-use-darwin-arm64.tar.gz',
       },
       {
         os: 'macos-15-intel',
         target: 'darwin-x64',
         artifact: 'autohand-macos-x64',
         tracesArtifact: 'ahtraces-macos-x64',
+        computerUseArtifact: 'autohand-computer-use-darwin-x64.tar.gz',
+      },
+      {
+        os: 'windows-latest',
+        target: 'windows-arm64',
+        artifact: 'autohand-windows-arm64.exe',
+        tracesArtifact: 'ahtraces-windows-arm64.exe',
       },
     ]));
+
+    const windowsSmoke = buildSteps.find((step) => step.name === 'Smoke test Windows binary');
+    expect(windowsSmoke?.if).toContain("!contains(matrix.target, 'arm64')");
 
     const transportJob = workflow.jobs['verify-macos-artifacts'];
     const downloadStep = transportJob?.steps.find(
@@ -259,11 +334,13 @@ describe('release workflow', () => {
         os: 'macos-latest',
         artifact: 'autohand-macos-arm64',
         tracesArtifact: 'ahtraces-macos-arm64',
+        computerUseArtifact: 'autohand-computer-use-darwin-arm64.tar.gz',
       },
       {
         os: 'macos-15-intel',
         artifact: 'autohand-macos-x64',
         tracesArtifact: 'ahtraces-macos-x64',
+        computerUseArtifact: 'autohand-computer-use-darwin-x64.tar.gz',
       },
     ]);
     expect(downloadStep?.uses).toBe('actions/download-artifact@v8');
@@ -274,6 +351,7 @@ describe('release workflow', () => {
     expect(verifyStep?.run).toContain('codesign --verify --strict --verbose=4');
     expect(verifyStep?.run).toContain('"$binary" --version < /dev/null');
     expect(verifyStep?.run).toContain('ahtraces');
+    expect(verifyStep?.run).toContain('Autohand Computer Use.app');
     expect(workflow.jobs.release.needs).toEqual([
       'prepare',
       'build',

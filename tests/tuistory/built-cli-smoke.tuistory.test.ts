@@ -30,7 +30,7 @@ import {
   type TuistoryTempState,
 } from './helpers/autohandTuistory.js';
 import {
-  latestStableRepositoryVersion,
+  currentDevelopmentRepositoryVersion,
   mockOpenRouterFetchPreloads,
   mockServers,
   registerBuiltCliCleanup,
@@ -513,8 +513,8 @@ describe('built CLI Tuistory smoke tests', () => {
     expectCleanExit(session);
   });
 
-  it('renders the latest stable repository tag when development versioning is enabled', async () => {
-    const expectedVersion = latestStableRepositoryVersion();
+  it('renders the next alpha version and current commit when development versioning is enabled', async () => {
+    const expectedVersion = currentDevelopmentRepositoryVersion();
     const session = await trackSession(launchBuiltAutohand(['--version'], {
       env: { AUTOHAND_VERSION_SOURCE: 'git' },
       waitForDataTimeout: 15_000,
@@ -524,7 +524,7 @@ describe('built CLI Tuistory smoke tests', () => {
     const output = session.readAll();
 
     expect(output).toContain(`${expectedVersion} (`);
-    expect(output).toMatch(/\d+\.\d+\.\d+ \((?:[0-9a-f]{7,40}|unknown)\)/);
+    expect(output).toMatch(/\d+\.\d+\.\d+-alpha\.[0-9a-f]{7} \([0-9a-f]{7,40}\)/);
 
     await waitForExit(session);
     expectCleanExit(session);

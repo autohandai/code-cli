@@ -10,6 +10,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import type { LoadedConfig, McpServerConfigEntry } from '../types.js';
+import {
+  AUTOHAND_COMPUTER_USE_BUNDLE_ID,
+  resolveAutohandComputerUseHostPath,
+} from './autohandComputerUse.js';
 
 export const CUA_DRIVER_VERSION = '0.28.2';
 export const CUA_DRIVER_MCP_SERVER_NAME = 'cua-driver';
@@ -80,12 +84,15 @@ function platformExecutableName(platform: NodeJS.Platform): string {
   return platform === 'win32' ? 'cua-driver.exe' : 'cua-driver';
 }
 
-function uniqueCandidates(candidates: Array<string | undefined>): string[] {
+function uniqueCandidates(
+  candidates: Array<string | undefined>,
+  pathApi: typeof path.posix | typeof path.win32 = path,
+): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
   for (const candidate of candidates) {
     if (!candidate) continue;
-    const normalized = path.resolve(candidate);
+    const normalized = pathApi.resolve(candidate);
     if (seen.has(normalized)) continue;
     seen.add(normalized);
     result.push(normalized);
@@ -99,6 +106,7 @@ export function resolveCuaDriverPath(options: CuaDriverPathOptions = {}): string
   const env = options.env ?? process.env;
   const homeDir = options.homeDir ?? os.homedir();
   const executableName = platformExecutableName(platform);
+  const pathApi = platform === 'win32' ? path.win32 : path;
   const moduleDirectory = options.moduleDirectory ?? path.dirname(fileURLToPath(import.meta.url));
   const executablePath = options.executablePath ?? process.execPath;
   const entryPath = options.entryPath ?? process.argv[1];
@@ -110,13 +118,23 @@ export function resolveCuaDriverPath(options: CuaDriverPathOptions = {}): string
     ? expandHome(env.AUTOHAND_CUA_DRIVER_PATH, homeDir)
     : undefined;
   const pathCandidates = (env.PATH ?? '')
-    .split(path.delimiter)
+    .split(pathApi.delimiter)
     .filter(Boolean)
-    .map((directory) => path.join(directory, executableName));
-  const entryDirectory = entryPath ? path.dirname(path.resolve(entryPath)) : undefined;
+    .map((directory) => pathApi.join(directory, executableName));
+  const entryDirectory = entryPath ? pathApi.dirname(pathApi.resolve(entryPath)) : undefined;
   const appBinary = path.join('CuaDriver.app', 'Contents', 'MacOS', 'cua-driver');
   const platformDefaults = platform === 'win32'
     ? [
+        env.LOCALAPPDATA
+          ? path.win32.join(
+              env.LOCALAPPDATA,
+              'Programs',
+              'Autohand',
+              'Computer Use',
+              'bin',
+              executableName,
+            )
+          : undefined,
         env.LOCALAPPDATA
           ? path.win32.join(env.LOCALAPPDATA, 'Programs', 'Cua', 'cua-driver', 'bin', executableName)
           : undefined,
@@ -136,13 +154,13 @@ export function resolveCuaDriverPath(options: CuaDriverPathOptions = {}): string
     configuredPath,
     environmentPath,
     ...pathCandidates,
-    entryDirectory ? path.join(entryDirectory, executableName) : undefined,
-    entryDirectory ? path.join(entryDirectory, '..', 'vendor', executableName) : undefined,
-    path.join(path.dirname(executablePath), executableName),
-    path.join(moduleDirectory, '..', 'vendor', executableName),
-    path.join(moduleDirectory, '..', '..', 'vendor', executableName),
+    entryDirectory ? pathApi.join(entryDirectory, executableName) : undefined,
+    entryDirectory ? pathApi.join(entryDirectory, '..', 'vendor', executableName) : undefined,
+    pathApi.join(pathApi.dirname(executablePath), executableName),
+    pathApi.join(moduleDirectory, '..', 'vendor', executableName),
+    pathApi.join(moduleDirectory, '..', '..', 'vendor', executableName),
     ...platformDefaults,
-  ]);
+  ], pathApi);
   return candidates.find(isExecutable) ?? null;
 }
 
@@ -167,6 +185,8 @@ export function ensureCuaMcpServer(
     bare?: boolean;
     driverPath?: string | null;
     env?: NodeJS.ProcessEnv;
+    platform?: NodeJS.Platform;
+    computerUseHostPath?: string | null;
   } = {},
 ): CuaMcpIntegrationResult {
   const env = options.env ?? process.env;
@@ -188,6 +208,18 @@ export function ensureCuaMcpServer(
     : options.driverPath;
   if (!driverPath) return { status: 'missing' };
 
+  const platform = options.platform ?? process.platform;
+  const computerUseHostPath = platform === 'darwin'
+    ? (options.computerUseHostPath === undefined
+        ? resolveAutohandComputerUseHostPath({ platform, env })
+        : options.computerUseHostPath)
+    : null;
+  if (platform === 'darwin' && !computerUseHostPath) return { status: 'missing' };
+  const command = computerUseHostPath ?? driverPath;
+  const args = computerUseHostPath
+    ? ['mcp', '--driver-path', driverPath]
+    : ['mcp'];
+
   config.mcp = {
     ...config.mcp,
     servers: [
@@ -195,17 +227,23 @@ export function ensureCuaMcpServer(
       {
         name: CUA_DRIVER_MCP_SERVER_NAME,
         transport: 'stdio',
-        command: driverPath,
-        args: ['mcp'],
+        command,
+        args,
         autoConnect: true,
         env: {
           CUA_DRIVER_PERMISSION_MODE: 'standard',
           CUA_DRIVER_RS_TELEMETRY_ENABLED: '0',
+          ...(computerUseHostPath
+            ? {
+                CUA_DRIVER_EMBEDDED: '1',
+                CUA_DRIVER_HOST_BUNDLE_ID: AUTOHAND_COMPUTER_USE_BUNDLE_ID,
+              }
+            : {}),
         },
       },
     ],
   };
-  return { status: 'added', path: driverPath };
+  return { status: 'added', path: command };
 }
 
 /** Build the effective MCP list without persisting Autohand's built-in entry. */
@@ -254,7 +292,11 @@ export async function inspectCuaDriver(
     const result = await execute(driverPath, ['--version']);
     const version = parseCuaDriverVersion(`${result.stdout}\n${result.stderr}`);
     if (!version) {
-      return { status: 'broken', path: driverPath, error: 'Cua Driver returned an unrecognized version.' };
+      return {
+        status: 'broken',
+        path: driverPath,
+        error: 'Autohand Computer Use engine returned an unrecognized version.',
+      };
     }
     return {
       status: 'ready',

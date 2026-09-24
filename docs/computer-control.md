@@ -1,6 +1,6 @@
-# Native computer control
+# Autohand Computer Use
 
-Autohand Code can operate native applications on macOS, Windows, and Linux through [Cua Driver](https://github.com/trycua/cua/tree/main/libs/cua-driver). Ask in normal language:
+Autohand Code can operate native applications on macOS, Windows, and Linux through **Autohand Computer Use**. Its independently built [computer-use component](https://github.com/autohandai/computer-use) is based on the MIT-licensed Cua engine. Ask in normal language:
 
 ```text
 open my browser
@@ -9,11 +9,11 @@ switch to Slack and open Settings
 scroll down in Chrome and tell me what is visible
 ```
 
-The built-in `computer-control` skill activates for native GUI requests. Autohand discovers the requested application and window, observes current state, performs the requested input through Cua Driver's local MCP server, and verifies the visible result.
+The built-in `computer-control` skill activates for native GUI requests. Autohand discovers the requested application and window, observes current state, performs the requested input through its local computer use server, and verifies the visible result.
 
 ## Install and check
 
-The Unix and Windows Autohand installers install Cua Driver automatically. The npm package does the same during `postinstall`. An existing compatible `cua-driver` is reused.
+The Unix and Windows Autohand installers install Autohand Computer Use automatically. The npm package does the same during `postinstall`. An existing compatible engine is reused.
 
 ```sh
 autohand computer status
@@ -21,26 +21,26 @@ autohand computer install
 autohand computer doctor
 ```
 
-`autohand computer install` downloads the pinned Cua Driver `0.28.2` installer chain from the immutable GitHub release, verifies every installer script against hashes held by Autohand, and lets the upstream installer verify and install the platform release. Use `--force` to repair a broken installation or replace a compatible version deliberately.
+`autohand computer install` downloads the pinned `0.28.2` engine archive from an immutable `autohandai/computer-use` component release, verifies the archive against a SHA-256 digest held by Autohand, and extracts only the expected runtime files. On macOS it also installs **Autohand Computer Use.app**. Use `--force` to repair a broken installation or replace a compatible version deliberately.
 
 Autohand searches in this order:
 
 1. an explicit `AUTOHAND_CUA_DRIVER_PATH`
 2. the current `PATH`
 3. a driver installed beside Autohand or in the npm package's `vendor` directory
-4. Cua Driver's platform defaults, including `~/.local/bin`, `~/.cua-driver/packages/current`, the signed macOS application, and the Windows local application directory
+4. the engine's platform defaults, including `~/.local/bin`, `~/.cua-driver/packages/current`, compatibility locations from older installations, and the Autohand Windows application directory
 
-The detected driver is added to the running agent as the `cua-driver` stdio MCP server. This runtime entry is not written into `~/.autohand/config.json`, and an existing user-configured Cua MCP server takes precedence.
+The detected engine is added to the running agent as the internal `cua-driver` stdio MCP server. On macOS, the MCP proxy starts an embedded daemon from Autohand Computer Use so macOS attributes Accessibility and Screen Recording to Autohand. This runtime entry is not written into `~/.autohand/config.json`, and an existing user-configured Cua MCP server takes precedence.
 
 ## Platform permissions
 
 Run `autohand computer doctor` after installation and follow the platform guidance it prints.
 
-- **macOS:** the upstream installer places the signed `CuaDriver.app` in `/Applications`. Grant Accessibility and Screen Recording to that stable app identity when macOS asks.
-- **Windows:** the upstream installer installs the native executable and registers its interactive desktop service using its default autostart behavior.
-- **Linux:** run Autohand inside the graphical desktop session. Cua Driver reports any X11, Wayland, portal, or helper requirement through `doctor`.
+- **macOS:** installation opens the Accessibility and Screen Recording requests for **Autohand Computer Use**. Approve the macOS prompts; System Settings then lists that exact product name. Existing `CuaDriver` rows from an older installation are no longer used by Autohand.
+- **Windows:** Autohand installs the native x64 or ARM64 engine and its UI Automation helper under the Autohand application directory. The MCP process owns the interactive runtime for each session.
+- **Linux:** Autohand installs the native x64 or ARM64 engine and its Wayland helpers. Run it inside the graphical desktop session; `doctor` reports any X11, Wayland, portal, or compositor requirement.
 
-System permission prompts require the user. Autohand does not change OS privacy or security settings in the background.
+macOS requires the user to approve its protected permission prompts. Autohand opens the correct prompts during installation and does not require a separate driver setup command.
 
 ## How a request runs
 
@@ -58,11 +58,11 @@ The agent asks before purchases, sending messages or posts, deleting data, chang
 
 Native computer control uses the browser and profile already visible on the desktop. This is useful when the result depends on a signed-in local session or visible UI. Autohand's `/browser` extension bridge remains available for browser development, DOM inspection, console logs, and network diagnostics.
 
-If you explicitly request one route, the agent follows that route. Otherwise, native application requests use Cua Driver and web development diagnostics continue to use the browser tooling suited to that work.
+If you explicitly request one route, the agent follows that route. Otherwise, native application requests use Autohand Computer Use and web development diagnostics continue to use the browser tooling suited to that work.
 
 ## Disable or customize
 
-Set `AUTOHAND_DISABLE_COMPUTER_USE=1` to stop automatic detection for a run. Setting `mcp.enabled` to `false` disables all MCP servers, including Cua Driver.
+Set `AUTOHAND_DISABLE_COMPUTER_USE=1` to stop automatic detection for a run. Setting `mcp.enabled` to `false` disables all MCP servers, including Autohand Computer Use.
 
 Installers can skip the companion installation with:
 
@@ -70,9 +70,9 @@ Installers can skip the companion installation with:
 AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL=1
 ```
 
-For npm, `--ignore-scripts` skips all package postinstall helpers, including Cua Driver and `ahtraces`. Run `autohand computer install` later to finish setup.
+For npm, `--ignore-scripts` skips all package postinstall helpers, including Autohand Computer Use and `ahtraces`. Run `autohand computer install` later to finish setup.
 
-Autohand starts its managed Cua MCP process in Cua's `standard` permission mode and disables Cua telemetry for that process. A manually configured Cua MCP server keeps the user's own arguments and environment unchanged.
+Autohand starts its managed engine in embedded `standard` permission mode and disables engine telemetry for that process. A manually configured Cua MCP server keeps the user's own arguments and environment unchanged.
 
 ## Troubleshooting
 

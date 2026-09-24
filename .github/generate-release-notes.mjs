@@ -187,6 +187,7 @@ function appendInstallSection(lines, channel) {
     '| Linux | x64 | `autohand-linux-x64` |',
     '| Linux | ARM64 | `autohand-linux-arm64` |',
     '| Windows | x64 | `autohand-windows-x64.exe` |',
+    '| Windows | ARM64 | `autohand-windows-arm64.exe` |',
     '',
   );
 }

@@ -33,6 +33,7 @@ resolutions. Weekly Dependabot updates keep the GitHub Actions versions current.
    - Linux x64 (`autohand-linux-x64`)
    - Linux ARM64 (`autohand-linux-arm64`)
    - Windows x64 (`autohand-windows-x64.exe`)
+   - Windows ARM64 (`autohand-windows-arm64.exe`)
 
 5. **Signs macOS binaries after Bun compilation** and verifies each transported
    Actions artifact on a native Apple Silicon or Intel runner before release
