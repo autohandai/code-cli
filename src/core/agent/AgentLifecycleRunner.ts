@@ -841,7 +841,7 @@ export async function performAgentBackgroundInit(
       if (host.runtime.config.mcp?.enabled !== false) {
         host.mcpStartupCoordinator.markConnectStarted();
         host.mcpReady = host.mcpManager
-          .connectAll(host.runtime.config.mcp?.servers ?? [])
+          .connectAll(host.runtimeMcpServers ?? host.runtime.config.mcp?.servers ?? [])
           .then(() => {
             if (!isRuntimeResourceShutdownStarted(host)) host.syncMcpTools();
           })
@@ -1061,7 +1061,7 @@ export async function initializeAgentForRPC(
     // Start MCP connections concurrently with the remaining initialization.
     if (host.runtime.config.mcp?.enabled !== false) {
       host.mcpReady = host.mcpManager
-        .connectAll(host.runtime.config.mcp?.servers ?? [])
+        .connectAll(host.runtimeMcpServers ?? host.runtime.config.mcp?.servers ?? [])
         .then(() => { host.syncMcpTools(); })
         .catch(() => {})
         .finally(() => {

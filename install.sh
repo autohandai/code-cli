@@ -101,6 +101,23 @@ install_local_ai_runtime_if_requested() {
     success "Autohand AI Local runtime installed."
 }
 
+install_computer_control() {
+    local _binary="$1"
+
+    if [ "${AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL:-0}" = "1" ]; then
+        warn "Skipping Computer control because AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL=1."
+        return 0
+    fi
+
+    info "Installing Computer control..."
+    if "$_binary" computer install --non-interactive; then
+        success "Computer control is ready through Cua Driver."
+    else
+        warn "Computer control could not be installed. Autohand Code is still ready."
+        warn "Retry with: autohand computer install"
+    fi
+}
+
 main() {
     printf "${BLUE}"
     cat << 'EOF'
@@ -258,6 +275,8 @@ EOF
 
     rm -rf "$_tmp_dir"
 
+    install_computer_control "$_dir/$BINARY_NAME"
+
     if ! echo "$PATH" | tr ':' '\n' | grep -qx "$_dir"; then
         echo ""
         printf "${YELLOW}Note: Add $_dir to your PATH:${NC}\n"
@@ -280,6 +299,7 @@ EOF
     echo "  autohand              # Start interactive mode"
     echo "  autohand --help       # Show all options"
     echo "  autohand login        # Sign in to your account"
+    echo "  autohand computer doctor # Verify native app control permissions"
     if [ "$_has_traces" = true ]; then
         echo ""
         echo "Agent traces stay off until you choose during onboarding."

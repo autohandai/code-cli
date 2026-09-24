@@ -181,10 +181,22 @@ echo "✅ Autohand installed successfully!"
 INSTALLED_VERSION=$("$INSTALL_PATH" --version 2>/dev/null || echo "unknown")
 echo "   Version: $INSTALLED_VERSION"
 echo "   Path: $INSTALL_PATH"
+
+if [ "${AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL:-0}" != "1" ]; then
+    echo ""
+    echo "🖥️  Installing Computer control..."
+    if "$INSTALL_PATH" computer install --non-interactive; then
+        echo "✅ Computer control is ready through Cua Driver"
+    else
+        echo "⚠️  Computer control could not be installed; retry with: autohand computer install"
+    fi
+fi
+
 echo ""
 echo "Try it out:"
 echo "  autohand --help"
 echo "  autohand"
+echo "  autohand computer doctor # Verify native app control permissions"
 echo "  https://console.autohand.ai/traces # View synchronized traces after opt-in"
 
 if [ "$OS" = "Darwin" ] && [ "$ARCH" = "arm64" ]; then

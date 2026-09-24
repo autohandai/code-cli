@@ -75,6 +75,14 @@ local monitoring with metadata sync. Use the matching `--traces-off`,
 visible at `https://console.autohand.ai/traces` and can be deleted from the
 Console Account page. See the [agent traces setup guide](docs/traces.md) for consent modes, supported agents, Team use, and deletion controls.
 
+The Unix and Windows installers and npm postinstall also install the verified
+native [Cua Driver](https://github.com/trycua/cua/tree/main/libs/cua-driver)
+companion. Autohand reuses an existing compatible driver and connects it as a
+runtime-only MCP server. Ask “open my browser” or “go to Spotify and play X” to
+activate the built-in `computer-control` skill. Run `autohand computer status`,
+`autohand computer install`, or `autohand computer doctor` to inspect, repair,
+or verify desktop permissions. See the [native computer control guide](docs/computer-control.md).
+
 ### Manual Installation
 
 ```bash
@@ -274,6 +282,14 @@ events and writes exactly one final `result` or `error` object to stdout.
 | `--feedback`                    |       | Submit feedback                                                                  |
 | `--browser`                     |       | Enable browser integration (same as /browser)                                    |
 | `--no-browser`                  |       | Disable browser integration                                                      |
+
+Native computer control commands:
+
+| Command | Description |
+| --- | --- |
+| `autohand computer status [--json]` | Show the detected Cua Driver version and MCP readiness |
+| `autohand computer install [--force]` | Install or repair the pinned, verified native driver |
+| `autohand computer doctor` | Check platform support and desktop permissions |
 
 ## Agent Skills
 
@@ -718,6 +734,7 @@ docker run -it autohand
 - [Playbook](AUTOHAND_PLAYBOOK.md) - 20 use cases for the software development lifecycle
 - [Features](docs/features.md) - Complete feature and experiment list
 - [Agent Skills](docs/agent-skills.md) - Skills system guide
+- [Native computer control](docs/computer-control.md) - Install Cua Driver and operate local apps conversationally
 - [ACP integration guide](docs/guides/ACP.md) - Use the native ACP agent in compatible editors, IDEs, and ADEs
 - [Extending Autohand Code CLI](docs/extending.md) - Build tools, skills, hooks, MCP servers, and integrations
 - [Autohand Code extensions](docs/extensions.md) - Validate, install, inspect, and manage declarative extension packages

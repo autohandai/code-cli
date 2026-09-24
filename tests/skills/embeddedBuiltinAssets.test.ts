@@ -39,6 +39,7 @@ describe('generated built-in assets module', () => {
 
   it('embeds every built-in skill, including extension-builder with its references', () => {
     const keys = Object.keys(BUILTIN_ASSETS);
+    expect(keys).toContain('skills/builtin/computer-control/SKILL.md');
     expect(keys).toContain('skills/builtin/extension-builder/SKILL.md');
     expect(keys.some((key) => key.startsWith('skills/builtin/extension-builder/references/'))).toBe(true);
     expect(keys.some((key) => key.startsWith('agents/builtin/'))).toBe(true);

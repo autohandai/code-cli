@@ -372,6 +372,7 @@ describe('release installer first run', () => {
       join(payloadDir, 'autohand'),
       `#!/bin/sh
 if [ "\${1:-}" = "--version" ]; then printf "test-version\\n"; exit 0; fi
+if [ "\${1:-}" = "computer" ] && [ "\${2:-}" = "install" ]; then exit 0; fi
 { printf "args=%s\\n" "$*"; printf "stdin="; cat; } > "$AUTOHAND_TEST_LAUNCH_LOG"
 `,
     );

@@ -654,6 +654,31 @@ function Install-BinaryFile {
     }
 }
 
+function Install-ComputerControl {
+    param(
+        [Parameter(Mandatory = $true)][string]$BinaryPath
+    )
+
+    if ($env:AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL -eq "1") {
+        Write-Host "Skipping Computer control because AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL=1." -ForegroundColor Yellow
+        return
+    }
+
+    Write-Step "Installing Computer control..."
+    try {
+        # Cua owns its visible bin directory as a junction; keep it separate from Autohand's files.
+        & $BinaryPath computer install --non-interactive
+        if ($LASTEXITCODE -ne 0) {
+            throw "autohand computer install exited with code $LASTEXITCODE"
+        }
+        Write-Success "Computer control is ready through Cua Driver."
+    }
+    catch {
+        Write-Host "Computer control could not be installed. Autohand Code is still ready." -ForegroundColor Yellow
+        Write-Host "Retry with: autohand computer install" -ForegroundColor Yellow
+    }
+}
+
 function Install-Autohand {
     Write-Logo
 
@@ -825,6 +850,8 @@ function Install-Autohand {
 
     Add-AutohandToUserPath -InstallPath $installPath
 
+    Install-ComputerControl -BinaryPath $binaryPath
+
     Write-Host ""
     Write-Success "Autohand CLI installed successfully!"
     Write-Host ""
@@ -851,6 +878,7 @@ function Install-Autohand {
     Write-Host "  autohand              # Start interactive mode"
     Write-Host "  autohand --help       # Show all options"
     Write-Host "  autohand login        # Sign in to your account"
+    Write-Host "  autohand computer doctor # Verify native app control permissions"
     if ($extractedAhtraces) {
         Write-Host ""
         Write-Host "Agent traces stay off until you choose during onboarding."

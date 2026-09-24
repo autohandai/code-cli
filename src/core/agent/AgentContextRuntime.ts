@@ -6,6 +6,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { getPlanModeManager } from '../../commands/plan.js';
 import { resolveBrainstormAutoInjection } from '../../skills/brainstormIntent.js';
+import { resolveComputerControlAutoInjection } from '../../skills/computerControlIntent.js';
 import { resolveDebugAutoInjection } from '../../skills/debugIntent.js';
 import { getProviderConfig } from '../../config.js';
 import { t } from '../../i18n/index.js';
@@ -216,6 +217,23 @@ export async function buildAgentUserMessage(
       '',
       skill.body,
     ].join('\n'));
+  }
+
+  if (
+    resolveComputerControlAutoInjection({
+      instruction,
+      alreadyInjected: mentionedSkills.some((skill) => skill.name === 'computer-control'),
+    })
+  ) {
+    const computerControl = host.skillsRegistry?.getSkill?.('computer-control');
+    if (computerControl) {
+      userPromptParts.push([
+        'Computer control mode (this request targets a native app or desktop UI):',
+        computerControl.description,
+        '',
+        computerControl.body,
+      ].join('\n'));
+    }
   }
 
   const planModeManager = getPlanModeManager();
