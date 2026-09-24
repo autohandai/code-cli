@@ -10,6 +10,7 @@ import {
   AUTOHAND_COMPUTER_USE_BUNDLE_ID,
   buildComputerUsePermissionPlan,
   buildComputerUsePermissionStatusPlan,
+  buildComputerUseRegistrationPlan,
   resolveAutohandComputerUseHostPath,
 } from '../../src/computer/autohandComputerUse.js';
 
@@ -19,7 +20,7 @@ describe('Autohand Computer Use macOS host', () => {
     expect(AUTOHAND_COMPUTER_USE_BUNDLE_ID).toBe('ai.autohand.computer-use');
   });
 
-  it('launches the host app through LaunchServices to request permissions', () => {
+  it('launches the bundled executable directly to request permissions', () => {
     const plan = buildComputerUsePermissionPlan({
       appPath: '/Users/test/Applications/Autohand Computer Use.app',
       driverPath: '/Users/test/.local/bin/cua-driver',
@@ -27,12 +28,8 @@ describe('Autohand Computer Use macOS host', () => {
     });
 
     expect(plan).toEqual({
-      command: '/usr/bin/open',
+      command: '/Users/test/Applications/Autohand Computer Use.app/Contents/MacOS/AutohandComputerUse',
       args: [
-        '-W',
-        '-n',
-        '/Users/test/Applications/Autohand Computer Use.app',
-        '--args',
         'permissions',
         'grant',
         '--driver-path',
@@ -43,22 +40,27 @@ describe('Autohand Computer Use macOS host', () => {
     });
   });
 
-  it('checks permissions through the same branded LaunchServices identity', () => {
+  it('checks permissions through the same bundled executable identity', () => {
     expect(buildComputerUsePermissionStatusPlan({
       appPath: '/Users/test/Applications/Autohand Computer Use.app',
       resultPath: '/tmp/autohand-computer-use-status.json',
     })).toEqual({
-      command: '/usr/bin/open',
+      command: '/Users/test/Applications/Autohand Computer Use.app/Contents/MacOS/AutohandComputerUse',
       args: [
-        '-W',
-        '-n',
-        '/Users/test/Applications/Autohand Computer Use.app',
-        '--args',
         'permissions',
         'status',
         '--result-path',
         '/tmp/autohand-computer-use-status.json',
       ],
+    });
+  });
+
+  it('force-registers the installed app before launching its executable', () => {
+    expect(buildComputerUseRegistrationPlan(
+      '/Users/test/Applications/Autohand Computer Use.app',
+    )).toEqual({
+      command: '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister',
+      args: ['-f', '/Users/test/Applications/Autohand Computer Use.app'],
     });
   });
 

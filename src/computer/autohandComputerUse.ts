@@ -17,6 +17,8 @@ export const AUTOHAND_COMPUTER_USE_EXECUTABLE_NAME = 'AutohandComputerUse';
 export const AUTOHAND_COMPUTER_USE_LAUNCHER_NAME = 'autohand-computer-use';
 
 const PERMISSION_TIMEOUT_MS = 10 * 60_000;
+const LAUNCH_SERVICES_REGISTER =
+  '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister';
 
 export interface ComputerUsePermissionPlan {
   command: string;
@@ -113,12 +115,8 @@ export function buildComputerUsePermissionPlan(options: {
   resultPath: string;
 }): ComputerUsePermissionPlan {
   return {
-    command: '/usr/bin/open',
+    command: appExecutable(options.appPath),
     args: [
-      '-W',
-      '-n',
-      options.appPath,
-      '--args',
       'permissions',
       'grant',
       '--driver-path',
@@ -134,17 +132,20 @@ export function buildComputerUsePermissionStatusPlan(options: {
   resultPath: string;
 }): ComputerUsePermissionPlan {
   return {
-    command: '/usr/bin/open',
+    command: appExecutable(options.appPath),
     args: [
-      '-W',
-      '-n',
-      options.appPath,
-      '--args',
       'permissions',
       'status',
       '--result-path',
       options.resultPath,
     ],
+  };
+}
+
+export function buildComputerUseRegistrationPlan(appPath: string): ComputerUsePermissionPlan {
+  return {
+    command: LAUNCH_SERVICES_REGISTER,
+    args: ['-f', appPath],
   };
 }
 
@@ -304,6 +305,7 @@ export async function prepareAutohandComputerUse(
     );
   }
 
+  await runCommand(buildComputerUseRegistrationPlan(destination), PERMISSION_TIMEOUT_MS);
   const launcherPath = await installLauncher(executable, options.binDirectory);
   const permissions = await requestPermissions(destination, options.driverPath);
   return { status: 'ready', appPath: destination, launcherPath, permissions };
