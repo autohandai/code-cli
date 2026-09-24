@@ -124,6 +124,19 @@ describe('local install scripts', () => {
     expect(installScript).not.toContain('bun run build');
     expect(installScript).not.toContain('bun run "compile:');
   });
+
+  localInstallScriptTest('keeps node-llama-cpp external for every Autohand binary target', () => {
+    const installScript = readFileSync('install-local.sh', 'utf8');
+    const autohandCompileCommands = installScript
+      .split(/\r?\n/)
+      .filter(line => line.includes('bun build ./src/index.ts --compile'))
+      .filter(line => line.includes('--outfile ./binaries/autohand-'));
+
+    expect(autohandCompileCommands).toHaveLength(4);
+    for (const command of autohandCompileCommands) {
+      expect(command).toContain('--external node-llama-cpp');
+    }
+  });
 });
 
 describe('dependency install guardrails', () => {

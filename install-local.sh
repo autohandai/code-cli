@@ -52,16 +52,16 @@ if [ "$SKIP_COMPILE" = false ]; then
     echo "📦 Compiling latest $BINARY..."
     case "$BINARY" in
         autohand-macos-arm64)
-            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-darwin-arm64 --outfile ./binaries/autohand-macos-arm64
+            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-darwin-arm64 --external node-llama-cpp --outfile ./binaries/autohand-macos-arm64
             ;;
         autohand-macos-x64)
-            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-darwin-x64 --outfile ./binaries/autohand-macos-x64
+            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-darwin-x64 --external node-llama-cpp --outfile ./binaries/autohand-macos-x64
             ;;
         autohand-linux-x64)
-            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-linux-x64 --outfile ./binaries/autohand-linux-x64
+            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-linux-x64 --external node-llama-cpp --outfile ./binaries/autohand-linux-x64
             ;;
         autohand-linux-arm64)
-            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-linux-arm64 --outfile ./binaries/autohand-linux-arm64
+            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-linux-arm64 --external node-llama-cpp --outfile ./binaries/autohand-linux-arm64
             ;;
         *)
             echo "❌ Unsupported binary target: $BINARY"
