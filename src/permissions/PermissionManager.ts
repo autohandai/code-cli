@@ -263,6 +263,12 @@ export class PermissionManager {
     return this.runToolScope;
   }
 
+  /** Run scope decision for one concrete call, matched on its command line or path. */
+  checkRunToolScope(context: PermissionContext): ReturnType<typeof checkRunToolScope> {
+    const call = this.contextToCall(context);
+    return checkRunToolScope(this.runToolScope, { kind: context.requestedTool ?? context.tool, target: call.target });
+  }
+
   /** Tool schemas worth offering the model under the run scope and effective settings. */
   filterAdvertisedTools<T extends { name: string }>(definitions: readonly T[]): T[] {
     const inScope = definitions.filter((definition) => isToolAdvertisedByScope(this.runToolScope, definition.name));
