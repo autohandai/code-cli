@@ -460,12 +460,12 @@ Kontrol granular atas izin tool.
 {
   "permissions": {
     "mode": "interactive",
-    "whitelist": [
+    "allowList": [
       "run_command:npm *",
       "run_command:bun *",
       "run_command:git status"
     ],
-    "blacklist": ["run_command:rm -rf *", "run_command:sudo *"],
+    "denyList": ["run_command:rm -rf *", "run_command:sudo *"],
     "rules": [
       {
         "tool": "run_command",
@@ -486,7 +486,7 @@ Kontrol granular atas izin tool.
 | `"unrestricted"` | Tanpa prompt, izinkan semua                         |
 | `"restricted"`   | Tolak semua operasi berbahaya                       |
 
-### `whitelist`
+### `allowList`
 
 Array pola tool yang tidak pernah memerlukan persetujuan.
 
@@ -494,7 +494,7 @@ Array pola tool yang tidak pernah memerlukan persetujuan.
 ["run_command:npm *", "run_command:bun test"]
 ```
 
-### `blacklist`
+### `denyList`
 
 Array pola tool yang selalu diblokir.
 
@@ -528,7 +528,7 @@ Ketika Anda menyetujui operasi file (edit, tulis, hapus), secara otomatis disimp
 {
   "version": 1,
   "permissions": {
-    "whitelist": [
+    "allowList": [
       "apply_patch:src/components/Button.tsx",
       "write_file:package.json",
       "run_command:bun test"
@@ -1155,8 +1155,8 @@ Untuk pengalaman interaktif yang lebih tepat, gunakan `/learn` dalam sesi.
   },
   "permissions": {
     "mode": "interactive",
-    "whitelist": ["run_command:npm *", "run_command:bun *"],
-    "blacklist": ["run_command:rm -rf /"],
+    "allowList": ["run_command:npm *", "run_command:bun *"],
+    "denyList": ["run_command:rm -rf /"],
     "rememberSession": true
   },
   "network": {
@@ -1256,10 +1256,10 @@ agent:
 
 permissions:
   mode: interactive
-  whitelist:
+  allowList:
     - "run_command:npm *"
     - "run_command:bun *"
-  blacklist:
+  denyList:
     - "run_command:rm -rf /"
   rememberSession: true
 

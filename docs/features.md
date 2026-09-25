@@ -317,7 +317,7 @@ effect immediately — no restart required.
 ## Advanced Controls
 - [x] **Extended Thinking**: `--thinking [level]` (extended/normal/none)
 - [x] **Yolo Mode**: `--yolo [pattern]` for granular auto-approve
-- [x] **Auto-Approve Timeout**: `--timeout <seconds>`
+- [x] **Auto-Approve Timeout**: `--timeout <seconds>` ends `--yolo` auto-approval after the given time
 - [x] **Custom System Prompt**: Override or append system prompt
 
 ## MCP Support

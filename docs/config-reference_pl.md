@@ -807,12 +807,12 @@ Szczegółowa kontrola nad uprawnieniami narzędzi.
 {
   "permissions": {
     "mode": "interactive",
-    "whitelist": [
+    "allowList": [
       "run_command:npm *",
       "run_command:bun *",
       "run_command:git status"
     ],
-    "blacklist": ["run_command:rm -rf *", "run_command:sudo *"],
+    "denyList": ["run_command:rm -rf *", "run_command:sudo *"],
     "rules": [
       {
         "tool": "run_command",
@@ -838,7 +838,7 @@ Szereg wzorów narzędzi, które nigdy nie wymagają zatwierdzenia.
 ```json
 ["run_command:npm *", "run_command:bun test"]
 ```
-### `blacklist`
+### `denyList`
 
 Tablica wzorów narzędzi, które są zawsze zablokowane.
 ```json
@@ -869,7 +869,7 @@ Kiedy zatwierdzisz operację na pliku (edycję, zapis, usunięcie), zostanie ona
 {
   "version": 1,
   "permissions": {
-    "whitelist": [
+    "allowList": [
       "apply_patch:src/components/Button.tsx",
       "write_file:package.json",
       "run_command:bun test"
@@ -1659,8 +1659,8 @@ autohand --no-browser       # Start with browser bridge disabled
   },
   "permissions": {
     "mode": "interactive",
-    "whitelist": ["run_command:npm *", "run_command:bun *"],
-    "blacklist": ["run_command:rm -rf /"],
+    "allowList": ["run_command:npm *", "run_command:bun *"],
+    "denyList": ["run_command:rm -rf /"],
     "rememberSession": true
   },
   "network": {
@@ -1744,10 +1744,10 @@ agent:
 
 permissions:
   mode: interactive
-  whitelist:
+  allowList:
     - "run_command:npm *"
     - "run_command:bun *"
-  blacklist:
+  denyList:
     - "run_command:rm -rf /"
   rememberSession: true
 
@@ -1838,8 +1838,8 @@ debug = false
 
 [permissions]
 mode = "interactive"
-whitelist = ["run_command:npm *", "run_command:bun *"]
-blacklist = ["run_command:rm -rf /"]
+allowList = ["run_command:npm *", "run_command:bun *"]
+denyList = ["run_command:rm -rf /"]
 rememberSession = true
 ```
 ---
