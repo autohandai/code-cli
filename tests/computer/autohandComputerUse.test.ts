@@ -121,6 +121,31 @@ describe('Autohand Computer Use macOS host', () => {
     expect(permissions).toMatchObject({ accessibility: false, screenRecording: false });
   });
 
+  it('continues permission inspection when LaunchServices registration fails', async () => {
+    const plans: Array<{ command: string; args: string[] }> = [];
+    const permissions = await inspectAutohandComputerUsePermissions(
+      '/Users/test/Applications/Autohand Computer Use.app',
+      async (plan) => {
+        plans.push(plan);
+        if (plan.command.endsWith('/lsregister')) {
+          throw new Error('failed to scan app: -10822');
+        }
+        const resultFlag = plan.args.indexOf('--result-path');
+        await writeFile(plan.args[resultFlag + 1], JSON.stringify({
+          accessibility: true,
+          screenRecording: false,
+          bundleIdentifier: AUTOHAND_COMPUTER_USE_BUNDLE_ID,
+        }));
+      },
+    );
+
+    expect(plans.map((plan) => plan.command)).toEqual([
+      '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister',
+      '/usr/bin/open',
+    ]);
+    expect(permissions).toMatchObject({ accessibility: true, screenRecording: false });
+  });
+
   it('finds the installed host executable inside the branded app bundle', () => {
     const expected = path.join(
       '/Users/test/Applications',

@@ -319,7 +319,11 @@ export async function inspectAutohandComputerUsePermissions(
   const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'autohand-computer-use-status-'));
   const resultPath = path.join(temporaryDirectory, 'permissions.json');
   try {
-    await executePlan(buildComputerUseRegistrationPlan(appPath));
+    try {
+      await executePlan(buildComputerUseRegistrationPlan(appPath));
+    } catch {
+      // LaunchServices can reject a redundant Spotlight scan even when the installed app launches.
+    }
     await executePlan(buildComputerUsePermissionStatusPlan({ appPath, resultPath }));
     return await waitForPermissionStatus(resultPath);
   } finally {
