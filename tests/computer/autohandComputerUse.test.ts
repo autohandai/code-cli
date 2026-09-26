@@ -12,6 +12,7 @@ import {
   buildComputerUsePermissionPlan,
   buildComputerUsePermissionStatusPlan,
   buildComputerUseRegistrationPlan,
+  inspectAutohandComputerUsePermissions,
   requestComputerUsePermissions,
   resolveAutohandComputerUseHostPath,
 } from '../../src/computer/autohandComputerUse.js';
@@ -22,7 +23,7 @@ describe('Autohand Computer Use macOS host', () => {
     expect(AUTOHAND_COMPUTER_USE_BUNDLE_ID).toBe('ai.autohand.computer-use');
   });
 
-  it('launches the bundled executable directly to request permissions', () => {
+  it('launches the app through LaunchServices without waiting on its short-lived process', () => {
     const plan = buildComputerUsePermissionPlan({
       appPath: '/Users/test/Applications/Autohand Computer Use.app',
       driverPath: '/Users/test/.local/bin/cua-driver',
@@ -30,8 +31,12 @@ describe('Autohand Computer Use macOS host', () => {
     });
 
     expect(plan).toEqual({
-      command: '/Users/test/Applications/Autohand Computer Use.app/Contents/MacOS/AutohandComputerUse',
+      command: '/usr/bin/open',
       args: [
+        '-n',
+        '-g',
+        '/Users/test/Applications/Autohand Computer Use.app',
+        '--args',
         'permissions',
         'grant',
         '--driver-path',
@@ -42,13 +47,17 @@ describe('Autohand Computer Use macOS host', () => {
     });
   });
 
-  it('checks permissions through the same bundled executable identity', () => {
+  it('checks permissions through the same LaunchServices app identity', () => {
     expect(buildComputerUsePermissionStatusPlan({
       appPath: '/Users/test/Applications/Autohand Computer Use.app',
       resultPath: '/tmp/autohand-computer-use-status.json',
     })).toEqual({
-      command: '/Users/test/Applications/Autohand Computer Use.app/Contents/MacOS/AutohandComputerUse',
+      command: '/usr/bin/open',
       args: [
+        '-n',
+        '-g',
+        '/Users/test/Applications/Autohand Computer Use.app',
+        '--args',
         'permissions',
         'status',
         '--result-path',
@@ -72,7 +81,7 @@ describe('Autohand Computer Use macOS host', () => {
       '/Users/test/Applications/Autohand Computer Use.app',
       '/Users/test/.local/bin/cua-driver',
       async (plan) => {
-        const operation = plan.args[1];
+        const operation = plan.args[plan.args.indexOf('permissions') + 1];
         const resultFlag = plan.args.indexOf('--result-path');
         const resultPath = plan.args[resultFlag + 1];
         operations.push(operation);
@@ -86,6 +95,30 @@ describe('Autohand Computer Use macOS host', () => {
 
     expect(operations).toEqual(['grant', 'status']);
     expect(permissions).toBe('requested');
+  });
+
+  it('registers the app immediately before inspecting its permissions', async () => {
+    const plans: Array<{ command: string; args: string[] }> = [];
+    const permissions = await inspectAutohandComputerUsePermissions(
+      '/Users/test/Applications/Autohand Computer Use.app',
+      async (plan) => {
+        plans.push(plan);
+        const resultFlag = plan.args.indexOf('--result-path');
+        if (resultFlag !== -1) {
+          await writeFile(plan.args[resultFlag + 1], JSON.stringify({
+            accessibility: false,
+            screenRecording: false,
+            bundleIdentifier: AUTOHAND_COMPUTER_USE_BUNDLE_ID,
+          }));
+        }
+      },
+    );
+
+    expect(plans.map((plan) => plan.command)).toEqual([
+      '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister',
+      '/usr/bin/open',
+    ]);
+    expect(permissions).toMatchObject({ accessibility: false, screenRecording: false });
   });
 
   it('finds the installed host executable inside the branded app bundle', () => {

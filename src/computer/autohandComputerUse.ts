@@ -8,6 +8,7 @@ import { accessSync, constants as fsConstants, realpathSync, statSync } from 'no
 import { mkdir, mkdtemp, readFile, rename, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { killAfter } from '../utils/processTimeout.js';
 
@@ -115,8 +116,12 @@ export function buildComputerUsePermissionPlan(options: {
   resultPath: string;
 }): ComputerUsePermissionPlan {
   return {
-    command: appExecutable(options.appPath),
+    command: '/usr/bin/open',
     args: [
+      '-n',
+      '-g',
+      options.appPath,
+      '--args',
       'permissions',
       'grant',
       '--driver-path',
@@ -132,8 +137,12 @@ export function buildComputerUsePermissionStatusPlan(options: {
   resultPath: string;
 }): ComputerUsePermissionPlan {
   return {
-    command: appExecutable(options.appPath),
+    command: '/usr/bin/open',
     args: [
+      '-n',
+      '-g',
+      options.appPath,
+      '--args',
       'permissions',
       'status',
       '--result-path',
@@ -257,6 +266,25 @@ async function readPermissionStatus(resultPath: string): Promise<ComputerUsePerm
   return result as ComputerUsePermissionStatus;
 }
 
+async function waitForPermissionStatus(
+  resultPath: string,
+  timeoutMs = PERMISSION_TIMEOUT_MS,
+): Promise<ComputerUsePermissionStatus> {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    try {
+      return await readPermissionStatus(resultPath);
+    } catch (error) {
+      const missing = error instanceof Error && 'code' in error && error.code === 'ENOENT';
+      if (!missing) throw error;
+      if (Date.now() >= deadline) {
+        throw new Error(`${AUTOHAND_COMPUTER_USE_APP_NAME} permission setup timed out.`);
+      }
+      await delay(50);
+    }
+  }
+}
+
 export async function requestComputerUsePermissions(
   appPath: string,
   driverPath: string,
@@ -271,9 +299,9 @@ export async function requestComputerUsePermissions(
   const statusResultPath = path.join(temporaryDirectory, 'status.json');
   try {
     await executePlan(buildComputerUsePermissionPlan({ appPath, driverPath, resultPath: grantResultPath }));
-    await readPermissionStatus(grantResultPath);
+    await waitForPermissionStatus(grantResultPath);
     await executePlan(buildComputerUsePermissionStatusPlan({ appPath, resultPath: statusResultPath }));
-    const status = await readPermissionStatus(statusResultPath);
+    const status = await waitForPermissionStatus(statusResultPath);
     return status.accessibility && status.screenRecording
       ? 'granted'
       : 'requested';
@@ -284,15 +312,16 @@ export async function requestComputerUsePermissions(
 
 export async function inspectAutohandComputerUsePermissions(
   appPath: string,
+  executePlan: (plan: ComputerUsePermissionPlan) => Promise<void> = (plan) => (
+    runCommand(plan, PERMISSION_TIMEOUT_MS)
+  ),
 ): Promise<ComputerUsePermissionStatus> {
   const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'autohand-computer-use-status-'));
   const resultPath = path.join(temporaryDirectory, 'permissions.json');
   try {
-    await runCommand(
-      buildComputerUsePermissionStatusPlan({ appPath, resultPath }),
-      PERMISSION_TIMEOUT_MS,
-    );
-    return await readPermissionStatus(resultPath);
+    await executePlan(buildComputerUseRegistrationPlan(appPath));
+    await executePlan(buildComputerUsePermissionStatusPlan({ appPath, resultPath }));
+    return await waitForPermissionStatus(resultPath);
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });
   }
