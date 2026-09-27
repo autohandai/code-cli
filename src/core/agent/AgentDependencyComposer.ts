@@ -58,6 +58,7 @@ import { CommunitySkillsCache } from '../../skills/CommunitySkillsCache.js';
 import { GitHubRegistryFetcher } from '../../skills/GitHubRegistryFetcher.js';
 import { fetchRegistryWithFallback, installSkillWithSecurity } from '../../skills/communityInstaller.js';
 import { McpClientManager } from '../../mcp/McpClientManager.js';
+import { resolveRuntimeMcpServers } from '../../computer/cuaDriver.js';
 import {
   findCommunityMcpServers,
   installCommunityMcpServer,
@@ -360,6 +361,9 @@ export function initializeAgentDependencies(
   files: FileActionManager,
   runtime: AgentRuntime
 ): void {
+    host.runtimeMcpServers = resolveRuntimeMcpServers(runtime.config, {
+      bare: runtime.options.bare,
+    });
     const initialProvider = runtime.config.provider ?? 'openrouter';
     const providerSettings = getProviderConfig(runtime.config, initialProvider);
     const model = runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
@@ -928,7 +932,7 @@ export function initializeAgentDependencies(
     host.mcpManager = new McpClientManager();
     host.mcpStartupCoordinator = new McpStartupCoordinator({
       isEnabled: () => host.runtime.config.mcp?.enabled !== false,
-      getConfiguredServers: () => host.runtime.config.mcp?.servers,
+      getConfiguredServers: () => host.runtimeMcpServers,
       getRuntimeServers: () => host.mcpManager.listServers(),
     });
 

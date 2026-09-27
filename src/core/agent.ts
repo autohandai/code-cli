@@ -98,6 +98,7 @@ import { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import { CommunitySkillsClient } from '../skills/CommunitySkillsClient.js';
 import { McpClientManager } from '../mcp/McpClientManager.js';
 import type { McpServerConfig } from '../mcp/types.js';
+import { resolveRuntimeMcpServers } from '../computer/cuaDriver.js';
 import { PersistentInput } from '../ui/persistentInput.js';
 // InkRenderer type - using 'any' to avoid bun bundling ink at compile time
 // The actual type comes from dynamic import at runtime
@@ -406,6 +407,7 @@ export class AutohandAgent {
   private skillsRegistry!: SkillsRegistry;
   private communityClient!: CommunitySkillsClient;
   private mcpManager!: McpClientManager;
+  private runtimeMcpServers: McpServerConfig[] = [];
   private mcpStartupCoordinator!: McpStartupCoordinator;
   /** Background MCP connection promise - resolves when all servers finish connecting */
   private mcpReady: Promise<void> | null = null;
@@ -2362,9 +2364,12 @@ export class AutohandAgent {
    */
   async applyManagedMcpSettings(mcp: McpSettings | undefined): Promise<void> {
     this.runtime.config.mcp = mcp;
+    this.runtimeMcpServers = resolveRuntimeMcpServers(this.runtime.config, {
+      bare: this.runtime.options.bare,
+    });
     await this.mcpManager.disconnectAll();
     if (mcp?.enabled !== false) {
-      await this.mcpManager.connectAll(mcp?.servers ?? []);
+      await this.mcpManager.connectAll(this.runtimeMcpServers);
     }
     this.syncMcpTools();
   }

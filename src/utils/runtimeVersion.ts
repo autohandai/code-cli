@@ -7,12 +7,16 @@ import { execFileSync } from 'node:child_process';
 import packageJson from '../../package.json' with { type: 'json' };
 
 const STABLE_VERSION_TAG = /^v(\d+)\.(\d+)\.(\d+)$/;
+const BUILD_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?(?:\+[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/u;
+const GIT_COMMIT = /^[0-9a-f]{7,40}$/iu;
 export const GIT_VERSION_LOOKUP_TIMEOUT_MS = 1_000;
 
 interface RuntimeVersionOptions {
   manifestVersion?: string;
+  buildVersion?: string;
   versionSource?: string;
   readRepositoryTags?: () => readonly string[];
+  readRepositoryCommit?: () => string;
 }
 
 interface ParsedStableVersion {
@@ -64,6 +68,17 @@ export function selectLatestStableRepositoryVersion(tags: readonly string[]): st
   return latest?.version ?? null;
 }
 
+export function deriveNextAlphaVersion(stableVersion: string, commit: string): string | null {
+  const parsed = parseStableVersionTag(`v${stableVersion}`);
+  const normalizedCommit = commit.trim().toLowerCase();
+  if (!parsed || !GIT_COMMIT.test(normalizedCommit)) {
+    return null;
+  }
+
+  const [major, minor, patch] = parsed.parts;
+  return `${major}.${minor}.${patch + 1}-alpha.${normalizedCommit.slice(0, 7)}`;
+}
+
 function readReachableRepositoryTags(): string[] {
   const output = execFileSync(
     'git',
@@ -80,16 +95,42 @@ function readReachableRepositoryTags(): string[] {
   return output.split(/\r?\n/u).filter(Boolean);
 }
 
+function readRepositoryCommit(): string {
+  return execFileSync(
+    'git',
+    ['rev-parse', '--short=7', 'HEAD'],
+    {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: GIT_VERSION_LOOKUP_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
+    },
+  ).trim();
+}
+
 export function resolveRuntimeVersion(options: RuntimeVersionOptions = {}): string {
   const manifestVersion = options.manifestVersion ?? packageJson.version;
+  const buildVersion = options.buildVersion ?? process.env.AUTOHAND_BUILD_VERSION;
+  if (buildVersion && BUILD_VERSION.test(buildVersion.trim())) {
+    return buildVersion.trim();
+  }
+
   const versionSource = options.versionSource ?? process.env.AUTOHAND_VERSION_SOURCE;
   if (versionSource !== 'git') {
     return manifestVersion;
   }
 
   try {
-    return selectLatestStableRepositoryVersion(
+    const stableVersion = selectLatestStableRepositoryVersion(
       (options.readRepositoryTags ?? readReachableRepositoryTags)(),
+    );
+    if (!stableVersion) {
+      return manifestVersion;
+    }
+    return deriveNextAlphaVersion(
+      stableVersion,
+      (options.readRepositoryCommit ?? readRepositoryCommit)(),
     ) ?? manifestVersion;
   } catch {
     return manifestVersion;

@@ -57,6 +57,20 @@ autohand --skill-install extension-builder --yes
 npx skills add https://github.com/autohandai/community-skills --skill extension-builder -a autohand-code -y
 ```
 
+### Built-in native computer control
+
+The `computer-control` skill also ships with Autohand. It activates automatically
+when a request clearly targets a native application or desktop UI, including
+“open my browser” and “go to Spotify and play X.” You can request it explicitly:
+
+```text
+$computer-control open Slack, select Settings, and tell me which workspace is active
+```
+
+The skill uses the automatically detected Autohand Computer Use tools, observes before
+input, and verifies fresh state after actions. Installation and platform
+permission setup are documented in [Native computer control](computer-control.md).
+
 ### Create a New Skill
 
 ```bash

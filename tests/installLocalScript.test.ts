@@ -114,7 +114,8 @@ describe('local install scripts', () => {
     const installScript = readFileSync('install-local.sh', 'utf8');
 
     expect(installScript).toContain('--skip-compile');
-    expect(installScript).toContain('env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile');
+    expect(installScript).toContain('env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME"');
+    expect(installScript).toContain('bun build ./src/index.ts --compile');
     expect(installScript).toContain('INSTALL_PATH="$HOME/.local/bin/autohand"');
     expect(installScript).toContain('AUTOHAND_INSTALL_LOCAL_AI');
     expect(installScript).toContain('MLX_LM_SPEC="mlx-lm==0.31.3"');
@@ -123,6 +124,39 @@ describe('local install scripts', () => {
     expect(installScript).not.toContain('node ./node_modules/tsup/dist/cli-default.js');
     expect(installScript).not.toContain('bun run build');
     expect(installScript).not.toContain('bun run "compile:');
+  });
+
+  localInstallScriptTest('keeps node-llama-cpp external for every Autohand binary target', () => {
+    const installScript = readFileSync('install-local.sh', 'utf8');
+    const autohandCompileCommands = installScript
+      .split(/\r?\n/)
+      .filter(line => line.includes('bun build ./src/index.ts --compile'))
+      .filter(line => line.includes('--outfile ./binaries/autohand-'));
+
+    expect(autohandCompileCommands).toHaveLength(4);
+    for (const command of autohandCompileCommands) {
+      expect(command).toContain('--external node-llama-cpp');
+    }
+  });
+
+  localInstallScriptTest('embeds the derived alpha version and commit in local binaries', () => {
+    const installScript = readFileSync('install-local.sh', 'utf8');
+
+    expect(installScript).toContain('AUTOHAND_BUILD_VERSION');
+    expect(installScript).toContain('AUTOHAND_BUILD_GIT_COMMIT');
+    expect(installScript).toContain("'--env=AUTOHAND_BUILD_*'");
+  });
+
+  localInstallScriptTest('builds the macOS permission host from the separate computer-use checkout', () => {
+    const installScript = readFileSync('install-local.sh', 'utf8');
+
+    expect(installScript).toContain(
+      'COMPUTER_USE_SOURCE_DIR="${COMPUTER_USE_SOURCE_DIR:-$REPO_ROOT/../computer-use}"',
+    );
+    expect(installScript).toContain(
+      '$COMPUTER_USE_SOURCE_DIR/autohand/scripts/build-macos-host.sh',
+    );
+    expect(installScript).not.toContain('./scripts/build-computer-use-host.sh');
   });
 });
 

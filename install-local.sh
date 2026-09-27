@@ -6,6 +6,7 @@ set -e
 
 REPO_ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 AHTRACES_SOURCE_DIR="${AHTRACES_SOURCE_DIR:-$REPO_ROOT/../ahtraces}"
+COMPUTER_USE_SOURCE_DIR="${COMPUTER_USE_SOURCE_DIR:-$REPO_ROOT/../computer-use}"
 
 SKIP_COMPILE=false
 if [ "${1:-}" = "--skip-compile" ]; then
@@ -46,22 +47,25 @@ case "$TRACE_TARGET" in
     linux-arm64) TRACE_BUN_TARGET="linux-arm64" ;;
 esac
 
+AUTOHAND_BUILD_VERSION=$(AUTOHAND_VERSION_SOURCE=git bun -e 'import { runtimeVersion } from "./src/utils/runtimeVersion.ts"; process.stdout.write(runtimeVersion)')
+AUTOHAND_BUILD_GIT_COMMIT=$(git rev-parse --short=7 HEAD 2>/dev/null || printf 'unknown')
+
 # Compile first: a failed build must never leave the machine without autohand.
 if [ "$SKIP_COMPILE" = false ]; then
     # Always compile fresh to ensure latest code
     echo "📦 Compiling latest $BINARY..."
     case "$BINARY" in
         autohand-macos-arm64)
-            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-darwin-arm64 --outfile ./binaries/autohand-macos-arm64
+            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" AUTOHAND_BUILD_VERSION="$AUTOHAND_BUILD_VERSION" AUTOHAND_BUILD_GIT_COMMIT="$AUTOHAND_BUILD_GIT_COMMIT" bun build ./src/index.ts --compile --target=bun-darwin-arm64 --external node-llama-cpp '--env=AUTOHAND_BUILD_*' --outfile ./binaries/autohand-macos-arm64
             ;;
         autohand-macos-x64)
-            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-darwin-x64 --outfile ./binaries/autohand-macos-x64
+            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" AUTOHAND_BUILD_VERSION="$AUTOHAND_BUILD_VERSION" AUTOHAND_BUILD_GIT_COMMIT="$AUTOHAND_BUILD_GIT_COMMIT" bun build ./src/index.ts --compile --target=bun-darwin-x64 --external node-llama-cpp '--env=AUTOHAND_BUILD_*' --outfile ./binaries/autohand-macos-x64
             ;;
         autohand-linux-x64)
-            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-linux-x64 --outfile ./binaries/autohand-linux-x64
+            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" AUTOHAND_BUILD_VERSION="$AUTOHAND_BUILD_VERSION" AUTOHAND_BUILD_GIT_COMMIT="$AUTOHAND_BUILD_GIT_COMMIT" bun build ./src/index.ts --compile --target=bun-linux-x64 --external node-llama-cpp '--env=AUTOHAND_BUILD_*' --outfile ./binaries/autohand-linux-x64
             ;;
         autohand-linux-arm64)
-            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" bun build ./src/index.ts --compile --target=bun-linux-arm64 --outfile ./binaries/autohand-linux-arm64
+            env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" AUTOHAND_BUILD_VERSION="$AUTOHAND_BUILD_VERSION" AUTOHAND_BUILD_GIT_COMMIT="$AUTOHAND_BUILD_GIT_COMMIT" bun build ./src/index.ts --compile --target=bun-linux-arm64 --external node-llama-cpp '--env=AUTOHAND_BUILD_*' --outfile ./binaries/autohand-linux-arm64
             ;;
         *)
             echo "❌ Unsupported binary target: $BINARY"
@@ -82,6 +86,19 @@ if [ "$SKIP_COMPILE" = false ]; then
         bun build ./src/index.ts --compile --target="bun-$TRACE_BUN_TARGET" --outfile "./binaries/$TRACES_BINARY"
     )
     cp "$AHTRACES_SOURCE_DIR/binaries/$TRACES_BINARY" "binaries/$TRACES_BINARY"
+
+    if [ "$OS" = "Darwin" ]; then
+        COMPUTER_USE_BUILD_SCRIPT="$COMPUTER_USE_SOURCE_DIR/autohand/scripts/build-macos-host.sh"
+        if [ ! -x "$COMPUTER_USE_BUILD_SCRIPT" ]; then
+            echo "❌ Missing computer-use checkout at $COMPUTER_USE_SOURCE_DIR"
+            echo "   Set COMPUTER_USE_SOURCE_DIR to the independently cloned autohandai/computer-use repository."
+            exit 1
+        fi
+        echo "📦 Building Autohand Computer Use..."
+        AUTOHAND_BUILD_VERSION="$AUTOHAND_BUILD_VERSION" \
+            "$COMPUTER_USE_SOURCE_DIR/autohand/scripts/build-macos-host.sh" \
+            --output "$REPO_ROOT/binaries/Autohand Computer Use.app"
+    fi
 elif [ ! -f "binaries/$BINARY" ] || [ ! -f "binaries/$TRACES_BINARY" ]; then
     echo "❌ Missing precompiled binaries: binaries/$BINARY and binaries/$TRACES_BINARY"
     exit 1
@@ -181,10 +198,35 @@ echo "✅ Autohand installed successfully!"
 INSTALLED_VERSION=$("$INSTALL_PATH" --version 2>/dev/null || echo "unknown")
 echo "   Version: $INSTALLED_VERSION"
 echo "   Path: $INSTALL_PATH"
+
+if [ "${AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL:-0}" != "1" ]; then
+    echo ""
+    echo "🖥️  Installing Computer control..."
+    if [ "$OS" = "Darwin" ]; then
+        if AUTOHAND_COMPUTER_USE_APP_SOURCE="$REPO_ROOT/binaries/Autohand Computer Use.app" "$INSTALL_PATH" computer install --non-interactive; then
+            COMPUTER_CONTROL_STATUS=0
+        else
+            COMPUTER_CONTROL_STATUS=$?
+        fi
+    else
+        if "$INSTALL_PATH" computer install --non-interactive; then
+            COMPUTER_CONTROL_STATUS=0
+        else
+            COMPUTER_CONTROL_STATUS=$?
+        fi
+    fi
+    if [ "$COMPUTER_CONTROL_STATUS" -eq 0 ]; then
+        echo "✅ Autohand Computer Use is ready"
+    else
+        echo "⚠️  Computer control could not be installed; retry with: autohand computer install"
+    fi
+fi
+
 echo ""
 echo "Try it out:"
 echo "  autohand --help"
 echo "  autohand"
+echo "  autohand computer doctor # Verify native app control permissions"
 echo "  https://console.autohand.ai/traces # View synchronized traces after opt-in"
 
 if [ "$OS" = "Darwin" ] && [ "$ARCH" = "arm64" ]; then

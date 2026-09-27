@@ -101,6 +101,36 @@ install_local_ai_runtime_if_requested() {
     success "Autohand AI Local runtime installed."
 }
 
+install_computer_control() {
+    local _binary="$1"
+    local _computer_use_app="${2:-}"
+    local _computer_status
+
+    if [ "${AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL:-0}" = "1" ]; then
+        warn "Skipping Computer control because AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL=1."
+        return 0
+    fi
+
+    info "Installing Computer control..."
+    if [ -d "$_computer_use_app" ]; then
+        if AUTOHAND_COMPUTER_USE_APP_SOURCE="$_computer_use_app" "$_binary" computer install --non-interactive; then
+            _computer_status=0
+        else
+            _computer_status=$?
+        fi
+    elif "$_binary" computer install --non-interactive; then
+        _computer_status=0
+    else
+        _computer_status=$?
+    fi
+    if [ "$_computer_status" -eq 0 ]; then
+        success "Autohand Computer Use is ready."
+    else
+        warn "Computer control could not be installed. Autohand Code is still ready."
+        warn "Retry with: autohand computer install"
+    fi
+}
+
 main() {
     printf "${BLUE}"
     cat << 'EOF'
@@ -256,6 +286,8 @@ EOF
     install_symlink "$BINARY_NAME" "$_dir/$SHORT_ALIAS_NAME"
     claim_agent_alias_path_wide "$_dir/$BINARY_NAME" "$_dir"
 
+    install_computer_control "$_dir/$BINARY_NAME" "${_tmp_dir}/Autohand Computer Use.app"
+
     rm -rf "$_tmp_dir"
 
     if ! echo "$PATH" | tr ':' '\n' | grep -qx "$_dir"; then
@@ -280,6 +312,7 @@ EOF
     echo "  autohand              # Start interactive mode"
     echo "  autohand --help       # Show all options"
     echo "  autohand login        # Sign in to your account"
+    echo "  autohand computer doctor # Verify native app control permissions"
     if [ "$_has_traces" = true ]; then
         echo ""
         echo "Agent traces stay off until you choose during onboarding."

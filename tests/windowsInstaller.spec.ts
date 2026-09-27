@@ -61,11 +61,13 @@ describe('Windows installer architecture detection', () => {
     expect(installer).toContain('$env:PROCESSOR_ARCHITEW6432');
     expect(installer).toContain('$env:PROCESSOR_ARCHITECTURE');
     expect(installer).toContain('"AMD64" { return "windows-x64" }');
+    expect(installer).toContain('"ARM64" { return "windows-arm64" }');
+    expect(installer).toContain('"windows-arm64" { return "autohand-windows-arm64.zip" }');
   });
 
   it('makes an undetectable architecture actionable', () => {
     expect(installer).toContain(
-      'Autohand currently supports 64-bit Intel/AMD Windows (x64).',
+      'Autohand currently supports 64-bit Windows on x64 and ARM64.',
     );
     expect(installer).toContain('RuntimeInformation.OSArchitecture=');
     expect(installer).toContain('PROCESSOR_ARCHITEW6432=');
@@ -85,6 +87,8 @@ $results = @(
     Get-Architecture -RuntimeArchitecture $null -ProcessorArchitectureW6432 "AMD64" -ProcessorArchitecture "x86"
     Get-Architecture -RuntimeArchitecture $null -ProcessorArchitectureW6432 $null -ProcessorArchitecture "AMD64"
     Get-Architecture -RuntimeArchitecture "X64" -ProcessorArchitectureW6432 $null -ProcessorArchitecture $null
+    Get-Architecture -RuntimeArchitecture "Arm64" -ProcessorArchitectureW6432 $null -ProcessorArchitecture $null
+    Get-Architecture -RuntimeArchitecture $null -ProcessorArchitectureW6432 "ARM64" -ProcessorArchitecture "x86"
 )
 $results | Write-Output
 try {
@@ -109,7 +113,9 @@ catch {
           'windows-x64',
           'windows-x64',
           'windows-x64',
-          'ERROR:Unsupported CPU architecture. RuntimeInformation.OSArchitecture=<empty>; PROCESSOR_ARCHITEW6432=<empty>; PROCESSOR_ARCHITECTURE=x86. Autohand currently supports 64-bit Intel/AMD Windows (x64). Please include this message when contacting support at https://autohand.ai/support.',
+          'windows-arm64',
+          'windows-arm64',
+          'ERROR:Unsupported CPU architecture. RuntimeInformation.OSArchitecture=<empty>; PROCESSOR_ARCHITEW6432=<empty>; PROCESSOR_ARCHITECTURE=x86. Autohand currently supports 64-bit Windows on x64 and ARM64. Please include this message when contacting support at https://autohand.ai/support.',
         ]);
       } finally {
         rmSync(probeDirectory, { recursive: true, force: true });

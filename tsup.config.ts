@@ -30,6 +30,7 @@ export default defineConfig({
   // Embed git commit at build time
   define: {
     'process.env.BUILD_GIT_COMMIT': JSON.stringify(getGitCommit()),
+    'process.env.AUTOHAND_BUILD_GIT_COMMIT': JSON.stringify(getGitCommit()),
   },
   // Copy static assets into dist after build
   onSuccess: async () => {
