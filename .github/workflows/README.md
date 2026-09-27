@@ -35,9 +35,9 @@ resolutions. Weekly Dependabot updates keep the GitHub Actions versions current.
    - Windows x64 (`autohand-windows-x64.exe`)
    - Windows ARM64 (`autohand-windows-arm64.exe`)
 
-5. **Signs macOS binaries after Bun compilation** and verifies each transported
-   Actions artifact on a native Apple Silicon or Intel runner before release
-   publication
+5. **Signs macOS binaries and Autohand Computer Use with Developer ID**, submits
+   them to Apple notarization, staples the app ticket, and verifies each transported
+   Actions artifact on a native Apple Silicon or Intel runner before publication
 
 6. **Generates release notes** from the correct previous release tag
 
@@ -119,19 +119,32 @@ Add these secrets in GitHub Settings → Secrets → Actions:
    # Type: Automation token
    ```
 
-2. **`MODEL_CATALOG_PR_TOKEN`** (optional for model catalog pull requests)
+2. **`AHTRACES_REPO_TOKEN`** (required for release and CI builds)
+   - Fine-grained read-only token for the private `autohandai/ahtraces` repository
+
+3. **macOS signing and notarization secrets** (required for every alpha and stable release)
+   - `APPLICATION_CERT_BASE64`: base64-encoded Developer ID Application `.p12`
+   - `CERT_PASSWORD`: password for the signing certificate archive
+   - `DEVELOPER_NAME`: organization name in the Developer ID certificate
+   - `TEAM_ID`: Apple Developer team identifier
+   - `APPLE_ID`: Apple account used by `notarytool`
+   - `APP_SPECIFIC_PASSWORD`: app-specific password for that Apple account
+   - The release fails before upload when signing credentials are missing. This prevents
+     ad hoc app updates from changing the macOS permission identity.
+
+4. **`MODEL_CATALOG_PR_TOKEN`** (optional for model catalog pull requests)
    - Fine-grained token with repository Contents, Issues, and Pull requests read/write access
    - When omitted, the workflow uses the repository `GITHUB_TOKEN`
    - Configure this token when automated pull requests must trigger other GitHub Actions workflows
 
-3. **Model catalog R2 credentials** (required for publication and admin drafts)
+5. **Model catalog R2 credentials** (required for publication and admin drafts)
    - `R2_ACCOUNT_ID`
    - `R2_MODELS_BUCKET`
    - `R2_MODELS_ACCESS_KEY_ID`
    - `R2_MODELS_SECRET_ACCESS_KEY`
    - Scope the access key to the model-catalog bucket with object read/write access
 
-4. **`TAP_GITHUB_TOKEN`** (required for stable releases)
+6. **`TAP_GITHUB_TOKEN`** (required for stable releases)
    - Fine-grained token with Contents read/write access to `autohandai/homebrew-code`
    - The tap repository must remain public so Homebrew users can install without GitHub credentials
 

@@ -329,22 +329,105 @@ jobs:
           AUTOHAND_BUILD_VERSION="${{ needs.prepare.outputs.version }}" AUTOHAND_BUILD_GIT_COMMIT="${GITHUB_SHA}" bun build ./src/index.ts --compile --target=bun-${{ matrix.target }} --external node-llama-cpp '--env=AUTOHAND_BUILD_*' --outfile ./binaries/${{ matrix.artifact }}
           bun build ./ahtraces-component/src/index.ts --compile --target=bun-${{ matrix.target }} '--env=BUILD_GIT_*' --outfile ./binaries/${{ matrix.tracesArtifact }}
 
+      - name: Import macOS signing certificate
+        if: runner.os == 'macOS'
+        env:
+          APPLICATION_CERT_BASE64: ${{ secrets.APPLICATION_CERT_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$APPLICATION_CERT_BASE64" || {
+            echo "::error::APPLICATION_CERT_BASE64 is required for macOS releases"
+            exit 1
+          }
+          test -n "$CERT_PASSWORD" || {
+            echo "::error::CERT_PASSWORD is required for macOS releases"
+            exit 1
+          }
+
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -l build.keychain
+
+          printf '%s' "$APPLICATION_CERT_BASE64" | base64 --decode > application.p12
+          security import application.p12 -k build.keychain -P "$CERT_PASSWORD" \
+            -T /usr/bin/codesign > /dev/null 2>&1
+          rm application.p12
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" build.keychain > /dev/null 2>&1
+
+          CERT_COUNT=$(security find-identity -v -p codesigning build.keychain \
+            | grep -c "Developer ID Application" || true)
+          if [ "$CERT_COUNT" -eq 0 ]; then
+            echo "::error::No Developer ID Application certificate was imported"
+            exit 1
+          fi
+
       - name: Build Autohand Computer Use host
         if: runner.os == 'macOS'
         env:
           AUTOHAND_BUILD_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           ./computer-use-component/autohand/scripts/build-macos-host.sh --output "./binaries/Autohand Computer Use.app" --version "$AUTOHAND_BUILD_VERSION"
-          tar -czf "./binaries/autohand-computer-use-${{ matrix.target }}.tar.gz" -C ./binaries "Autohand Computer Use.app"
 
-      - name: Sign macOS binary
+      - name: Sign and notarize macOS artifacts
         if: runner.os == 'macOS'
+        env:
+          DEVELOPER_NAME: ${{ secrets.DEVELOPER_NAME }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APP_SPECIFIC_PASSWORD: ${{ secrets.APP_SPECIFIC_PASSWORD }}
         run: |
-          codesign --force --sign - --timestamp=none ./binaries/${{ matrix.artifact }}
+          set -euo pipefail
+          test -n "$DEVELOPER_NAME" || {
+            echo "::error::DEVELOPER_NAME is required for macOS releases"
+            exit 1
+          }
+          test -n "$TEAM_ID" || {
+            echo "::error::TEAM_ID is required for macOS releases"
+            exit 1
+          }
+          test -n "$APPLE_ID" || {
+            echo "::error::APPLE_ID is required for macOS notarization"
+            exit 1
+          }
+          test -n "$APP_SPECIFIC_PASSWORD" || {
+            echo "::error::APP_SPECIFIC_PASSWORD is required for macOS notarization"
+            exit 1
+          }
+
+          IDENTITY="Developer ID Application: ${DEVELOPER_NAME} (${TEAM_ID})"
+          codesign --force --timestamp --options runtime --sign "$IDENTITY" \
+            ./binaries/${{ matrix.artifact }}
           codesign --verify --strict --verbose=4 ./binaries/${{ matrix.artifact }}
-          codesign --force --sign - --timestamp=none ./binaries/${{ matrix.tracesArtifact }}
+          codesign --force --timestamp --options runtime --sign "$IDENTITY" \
+            ./binaries/${{ matrix.tracesArtifact }}
           codesign --verify --strict --verbose=4 ./binaries/${{ matrix.tracesArtifact }}
+          codesign --force --timestamp --options runtime --sign "$IDENTITY" \
+            "./binaries/Autohand Computer Use.app"
           codesign --verify --deep --strict --verbose=4 "./binaries/Autohand Computer Use.app"
+
+          mkdir -p ./binaries/notarization
+          cp ./binaries/${{ matrix.artifact }} ./binaries/notarization/
+          cp ./binaries/${{ matrix.tracesArtifact }} ./binaries/notarization/
+          ditto "./binaries/Autohand Computer Use.app" \
+            "./binaries/notarization/Autohand Computer Use.app"
+          ditto -c -k --keepParent ./binaries/notarization \
+            ./binaries/autohand-macos-notarization.zip
+          xcrun notarytool submit ./binaries/autohand-macos-notarization.zip \
+            --apple-id "$APPLE_ID" \
+            --team-id "$TEAM_ID" \
+            --password "$APP_SPECIFIC_PASSWORD" \
+            --wait --timeout 20m
+          xcrun stapler staple "./binaries/Autohand Computer Use.app"
+          spctl -a -vv -t exec "./binaries/Autohand Computer Use.app"
+          rm -rf ./binaries/notarization ./binaries/autohand-macos-notarization.zip
+
+          tar -czf "./binaries/autohand-computer-use-${{ matrix.target }}.tar.gz" \
+            -C ./binaries "Autohand Computer Use.app"
 
       - name: Verify binary
         if: runner.os != 'Windows' && !contains(matrix.target, 'arm64') || matrix.os == 'macos-latest' && contains(matrix.target, 'arm64')

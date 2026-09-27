@@ -180,6 +180,7 @@ describe('release workflow', () => {
     const workflow = loadReleaseWorkflow();
     const buildSteps = workflow.jobs.build.steps;
     const hostBuild = buildSteps.find((step) => step.name === 'Build Autohand Computer Use host');
+    const sign = buildSteps.find((step) => step.name === 'Sign and notarize macOS artifacts');
     const upload = buildSteps.find((step) => step.name === 'Upload artifact');
     const bundle = workflow.jobs.release.steps.find(
       (step) => step.name === 'Create bundled archives for installers and ACP registry',
@@ -192,7 +193,8 @@ describe('release workflow', () => {
     expect(hostBuild?.run).toContain(
       './computer-use-component/autohand/scripts/build-macos-host.sh',
     );
-    expect(hostBuild?.run).toContain('autohand-computer-use-${{ matrix.target }}.tar.gz');
+    expect(hostBuild?.run).not.toContain('autohand-computer-use-${{ matrix.target }}.tar.gz');
+    expect(sign?.run).toContain('autohand-computer-use-${{ matrix.target }}.tar.gz');
     expect(upload?.with?.path).toContain('./binaries/autohand-computer-use-*.tar.gz');
     expect(upload?.with?.path).not.toContain('${{ matrix.computerUseArtifact }}');
     expect(bundle?.run).toContain('Autohand Computer Use.app');
@@ -266,21 +268,48 @@ describe('release workflow', () => {
     const componentRefIndex = buildSteps.findIndex((step) => step.name === 'Read pinned ahtraces revision');
     const componentCheckoutIndex = buildSteps.findIndex((step) => step.name === 'Checkout pinned ahtraces component');
     const compileIndex = buildSteps.findIndex((step) => step.name === 'Compile binaries');
-    const signIndex = buildSteps.findIndex((step) => step.name === 'Sign macOS binary');
+    const certificateIndex = buildSteps.findIndex(
+      (step) => step.name === 'Import macOS signing certificate',
+    );
+    const signIndex = buildSteps.findIndex(
+      (step) => step.name === 'Sign and notarize macOS artifacts',
+    );
     const smokeIndex = buildSteps.findIndex((step) => step.name === 'Smoke test binary');
     const uploadIndex = buildSteps.findIndex((step) => step.name === 'Upload artifact');
+    const certificateStep = buildSteps[certificateIndex];
     const signStep = buildSteps[signIndex];
 
     expect(componentRefIndex).toBeGreaterThanOrEqual(0);
     expect(componentCheckoutIndex).toBeGreaterThan(componentRefIndex);
     expect(compileIndex).toBeGreaterThan(componentCheckoutIndex);
+    expect(certificateIndex).toBeGreaterThan(compileIndex);
     expect(signIndex).toBeGreaterThan(compileIndex);
+    expect(signIndex).toBeGreaterThan(certificateIndex);
     expect(smokeIndex).toBeGreaterThan(signIndex);
     expect(uploadIndex).toBeGreaterThan(smokeIndex);
+    expect(certificateStep?.if).toBe("runner.os == 'macOS'");
+    expect(certificateStep?.env).toMatchObject({
+      APPLICATION_CERT_BASE64: '${{ secrets.APPLICATION_CERT_BASE64 }}',
+      CERT_PASSWORD: '${{ secrets.CERT_PASSWORD }}',
+    });
+    expect(certificateStep?.run).toContain('security import application.p12');
+    expect(certificateStep?.run).toContain('Developer ID Application');
     expect(signStep?.if).toBe("runner.os == 'macOS'");
-    expect(signStep?.run).toContain('codesign --force --sign - --timestamp=none');
+    expect(signStep?.env).toMatchObject({
+      DEVELOPER_NAME: '${{ secrets.DEVELOPER_NAME }}',
+      TEAM_ID: '${{ secrets.TEAM_ID }}',
+      APPLE_ID: '${{ secrets.APPLE_ID }}',
+      APP_SPECIFIC_PASSWORD: '${{ secrets.APP_SPECIFIC_PASSWORD }}',
+    });
+    expect(signStep?.run).toContain('codesign --force --timestamp --options runtime');
     expect(signStep?.run).toContain('codesign --verify --strict --verbose=4');
     expect(signStep?.run).toContain('matrix.tracesArtifact');
+    expect(signStep?.run).toContain('Autohand Computer Use.app');
+    expect(signStep?.run).toContain('xcrun notarytool submit');
+    expect(signStep?.run).toContain('xcrun stapler staple');
+    expect(signStep?.run).toContain('spctl -a -vv -t exec');
+    expect(signStep?.run).toContain('autohand-computer-use-${{ matrix.target }}.tar.gz');
+    expect(signStep?.run).not.toContain('codesign --force --sign -');
     expect(buildSteps[componentCheckoutIndex]?.uses).toBe('actions/checkout@v7');
     expect(buildSteps[componentCheckoutIndex]?.with).toMatchObject({
       repository: 'autohandai/ahtraces',
