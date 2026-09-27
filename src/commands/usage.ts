@@ -616,6 +616,7 @@ function formatActivitySummary(data: UsageActivityData): string {
 function renderDailyMonthHeader(weekStarts: readonly Date[]): string {
   const calendarWidth = Math.max(0, weekStarts.length * 2 - 1);
   const header = Array<string>(calendarWidth).fill(' ');
+  let placed: { start: number; end: number; isFirst: boolean } | undefined;
 
   for (let index = 0; index < weekStarts.length; index += 1) {
     const week = weekStarts[index];
@@ -626,9 +627,18 @@ function renderDailyMonthHeader(weekStarts: readonly Date[]): string {
 
     const label = MONTH_LABELS[week.getUTCMonth()];
     const labelStart = Math.min(index * 2, Math.max(0, calendarWidth - label.length));
+    // Labels need a gap between them. When two would touch, the partial month
+    // loses: the leading month at the start of the grid, otherwise the later one.
+    if (placed && labelStart <= placed.end) {
+      if (!placed.isFirst) {
+        continue;
+      }
+      header.fill(' ', placed.start, placed.end);
+    }
     for (let offset = 0; offset < label.length; offset += 1) {
       header[labelStart + offset] = label[offset];
     }
+    placed = { start: labelStart, end: labelStart + label.length, isFirst: placed === undefined };
   }
 
   return `    ${header.join('')}`;
