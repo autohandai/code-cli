@@ -1604,6 +1604,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       try {
         const yoloPattern = parseYoloPattern(normalizedYolo);
         options.yolo = normalizedYolo;
+        options.yoloBasePermissions = config.permissions;
         config.permissions = {
           ...config.permissions,
           ...buildPermissionSettingsFromYolo(yoloPattern),

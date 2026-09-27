@@ -807,12 +807,12 @@ A szerszámengedélyek finom vezérlése.
 {
   "permissions": {
     "mode": "interactive",
-    "whitelist": [
+    "allowList": [
       "run_command:npm *",
       "run_command:bun *",
       "run_command:git status"
     ],
-    "blacklist": ["run_command:rm -rf *", "run_command:sudo *"],
+    "denyList": ["run_command:rm -rf *", "run_command:sudo *"],
     "rules": [
       {
         "tool": "run_command",
@@ -832,13 +832,13 @@ A szerszámengedélyek finom vezérlése.
 | `"unrestricted"` | Nincsenek felszólítások, engedélyezzen mindent |
 | `"restricted"` | Minden veszélyes művelet megtagadása |
 
-### `whitelist`
+### `allowList`
 
 Szerszámminták sora, amelyek soha nem igényelnek jóváhagyást.
 ```json
 ["run_command:npm *", "run_command:bun test"]
 ```
-### `blacklist`
+### `denyList`
 
 Mindig blokkolt szerszámminták tömbje.
 ```json
@@ -869,7 +869,7 @@ Amikor jóváhagy egy fájlműveletet (szerkesztés, írás, törlés), a rendsz
 {
   "version": 1,
   "permissions": {
-    "whitelist": [
+    "allowList": [
       "apply_patch:src/components/Button.tsx",
       "write_file:package.json",
       "run_command:bun test"
@@ -1660,8 +1660,8 @@ autohand --no-browser       # Start with browser bridge disabled
   },
   "permissions": {
     "mode": "interactive",
-    "whitelist": ["run_command:npm *", "run_command:bun *"],
-    "blacklist": ["run_command:rm -rf /"],
+    "allowList": ["run_command:npm *", "run_command:bun *"],
+    "denyList": ["run_command:rm -rf /"],
     "rememberSession": true
   },
   "network": {
@@ -1745,10 +1745,10 @@ agent:
 
 permissions:
   mode: interactive
-  whitelist:
+  allowList:
     - "run_command:npm *"
     - "run_command:bun *"
-  blacklist:
+  denyList:
     - "run_command:rm -rf /"
   rememberSession: true
 
@@ -1839,8 +1839,8 @@ debug = false
 
 [permissions]
 mode = "interactive"
-whitelist = ["run_command:npm *", "run_command:bun *"]
-blacklist = ["run_command:rm -rf /"]
+allowList = ["run_command:npm *", "run_command:bun *"]
+denyList = ["run_command:rm -rf /"]
 rememberSession = true
 ```
 ---

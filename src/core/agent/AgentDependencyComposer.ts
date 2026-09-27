@@ -520,6 +520,14 @@ export function initializeAgentDependencies(
     // --allowed-tools / --disallowed-tools: a run-only restriction layer,
     // applied here so every launch mode that builds an agent honours it.
     host.permissionManager.setRunToolScope(resolveRunToolScope(runtime.options));
+    if (runtime.options.yolo) {
+      // --timeout ends auto-approval; confirmations also consult options.yolo.
+      host.permissionManager.expireAutoApprovalAfter(runtime.options.timeout, runtime.options.yoloBasePermissions, () => {
+        runtime.options.yolo = undefined;
+        host.basePermissionMode = host.permissionManager.getMode();
+        host.syncInteractiveAutomodePermissions();
+      });
+    }
     host.basePermissionMode = host.permissionManager.getMode();
     host.syncInteractiveAutomodePermissions();
 

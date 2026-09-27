@@ -501,12 +501,12 @@ Ctrl+D はコンポーザーが空のときだけ終了します。`?` パネル
 {
   "permissions": {
     "mode": "interactive",
-    "whitelist": [
+    "allowList": [
       "run_command:npm *",
       "run_command:bun *",
       "run_command:git status"
     ],
-    "blacklist": ["run_command:rm -rf *", "run_command:sudo *"],
+    "denyList": ["run_command:rm -rf *", "run_command:sudo *"],
     "rules": [
       {
         "tool": "run_command",
@@ -527,7 +527,7 @@ Ctrl+D はコンポーザーが空のときだけ終了します。`?` パネル
 | `"unrestricted"` | プロンプトなし、すべて許可                   |
 | `"restricted"`   | すべての危険な操作を拒否                     |
 
-### `whitelist`
+### `allowList`
 
 承認を必要としないツールパターンの配列。
 
@@ -535,7 +535,7 @@ Ctrl+D はコンポーザーが空のときだけ終了します。`?` パネル
 ["run_command:npm *", "run_command:bun test"]
 ```
 
-### `blacklist`
+### `denyList`
 
 常にブロックされるツールパターンの配列。
 
@@ -569,7 +569,7 @@ Ctrl+D はコンポーザーが空のときだけ終了します。`?` パネル
 {
   "version": 1,
   "permissions": {
-    "whitelist": [
+    "allowList": [
       "apply_patch:src/components/Button.tsx",
       "write_file:package.json",
       "run_command:bun test"
@@ -1174,8 +1174,8 @@ share:
   },
   "permissions": {
     "mode": "interactive",
-    "whitelist": ["run_command:npm *", "run_command:bun *"],
-    "blacklist": ["run_command:rm -rf /"],
+    "allowList": ["run_command:npm *", "run_command:bun *"],
+    "denyList": ["run_command:rm -rf /"],
     "rememberSession": true
   },
   "network": {
@@ -1254,10 +1254,10 @@ agent:
 
 permissions:
   mode: interactive
-  whitelist:
+  allowList:
     - "run_command:npm *"
     - "run_command:bun *"
-  blacklist:
+  denyList:
     - "run_command:rm -rf /"
   rememberSession: true
 

@@ -488,12 +488,12 @@ Ctrl+D केवल खाली कंपोज़र पर बाहर न�
 {
   "permissions": {
     "mode": "interactive",
-    "whitelist": [
+    "allowList": [
       "run_command:npm *",
       "run_command:bun *",
       "run_command:git status"
     ],
-    "blacklist": ["run_command:rm -rf *", "run_command:sudo *"],
+    "denyList": ["run_command:rm -rf *", "run_command:sudo *"],
     "rules": [
       {
         "tool": "run_command",
@@ -514,7 +514,7 @@ Ctrl+D केवल खाली कंपोज़र पर बाहर न�
 | `"unrestricted"` | कोई प्रॉम्प्ट नहीं, सब कुछ अनुमति दें                     |
 | `"restricted"`   | सभी खतरनाक ऑपरेशन अस्वीकार करें                           |
 
-### `whitelist`
+### `allowList`
 
 टूल पैटर्न का एरे जिन्हें कभी अप्रूवल की आवश्यकता नहीं।
 
@@ -522,7 +522,7 @@ Ctrl+D केवल खाली कंपोज़र पर बाहर न�
 ["run_command:npm *", "run_command:bun test"]
 ```
 
-### `blacklist`
+### `denyList`
 
 टूल पैटर्न का एरे जो हमेशा ब्लॉक होते हैं।
 
@@ -556,7 +556,7 @@ Ctrl+D केवल खाली कंपोज़र पर बाहर न�
 {
   "version": 1,
   "permissions": {
-    "whitelist": [
+    "allowList": [
       "apply_patch:src/components/Button.tsx",
       "write_file:package.json",
       "run_command:bun test"
@@ -1182,8 +1182,8 @@ autohand --auto-skill
   },
   "permissions": {
     "mode": "interactive",
-    "whitelist": ["run_command:npm *", "run_command:bun *"],
-    "blacklist": ["run_command:rm -rf /"],
+    "allowList": ["run_command:npm *", "run_command:bun *"],
+    "denyList": ["run_command:rm -rf /"],
     "rememberSession": true
   },
   "network": {
@@ -1240,10 +1240,10 @@ agent:
 
 permissions:
   mode: interactive
-  whitelist:
+  allowList:
     - "run_command:npm *"
     - "run_command:bun *"
-  blacklist:
+  denyList:
     - "run_command:rm -rf /"
   rememberSession: true
 

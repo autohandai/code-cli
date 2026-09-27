@@ -807,12 +807,12 @@ Autohand 不會在每個 LLM 請求上傳送每個完整的工具架構。系統
 {
   "permissions": {
     "mode": "interactive",
-    "whitelist": [
+    "allowList": [
       "run_command:npm *",
       "run_command:bun *",
       "run_command:git status"
     ],
-    "blacklist": ["run_command:rm -rf *", "run_command:sudo *"],
+    "denyList": ["run_command:rm -rf *", "run_command:sudo *"],
     "rules": [
       {
         "tool": "run_command",
@@ -832,13 +832,13 @@ Autohand 不會在每個 LLM 請求上傳送每個完整的工具架構。系統
 | `"unrestricted"` |沒有提示，允許一切 |
 | `"restricted"` |拒絕一切危險操作|
 
-### `whitelist`
+### `allowList`
 
 無需批准的一系列工具模式。
 ```json
 ["run_command:npm *", "run_command:bun test"]
 ```
-### `blacklist`
+### `denyList`
 
 始終被阻止的一系列工具圖案。
 ```json
@@ -869,7 +869,7 @@ Autohand 不會在每個 LLM 請求上傳送每個完整的工具架構。系統
 {
   "version": 1,
   "permissions": {
-    "whitelist": [
+    "allowList": [
       "apply_patch:src/components/Button.tsx",
       "write_file:package.json",
       "run_command:bun test"
@@ -1660,8 +1660,8 @@ autohand --no-browser       # Start with browser bridge disabled
   },
   "permissions": {
     "mode": "interactive",
-    "whitelist": ["run_command:npm *", "run_command:bun *"],
-    "blacklist": ["run_command:rm -rf /"],
+    "allowList": ["run_command:npm *", "run_command:bun *"],
+    "denyList": ["run_command:rm -rf /"],
     "rememberSession": true
   },
   "network": {
@@ -1745,10 +1745,10 @@ agent:
 
 permissions:
   mode: interactive
-  whitelist:
+  allowList:
     - "run_command:npm *"
     - "run_command:bun *"
-  blacklist:
+  denyList:
     - "run_command:rm -rf /"
   rememberSession: true
 
@@ -1839,8 +1839,8 @@ debug = false
 
 [permissions]
 mode = "interactive"
-whitelist = ["run_command:npm *", "run_command:bun *"]
-blacklist = ["run_command:rm -rf /"]
+allowList = ["run_command:npm *", "run_command:bun *"]
+denyList = ["run_command:rm -rf /"]
 rememberSession = true
 ```
 ---
