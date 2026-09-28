@@ -1648,6 +1648,14 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
           );
         }
         if (
+          server.stdioFraming !== undefined
+          && !["content-length", "newline"].includes(server.stdioFraming)
+        ) {
+          throw new Error(
+            `mcp.servers[].stdioFraming must be 'content-length' or 'newline' in ${configPath}`,
+          );
+        }
+        if (
           (server.transport === "sse" || server.transport === "http") &&
           (!server.url || typeof server.url !== "string")
         ) {

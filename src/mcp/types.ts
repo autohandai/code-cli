@@ -31,6 +31,8 @@ export interface McpServerConfig {
   headers?: Record<string, string>;
   /** Whether to auto-connect on startup (default: true) */
   autoConnect?: boolean;
+  /** JSON-RPC framing for stdio servers (default: Content-Length with compatibility fallback) */
+  stdioFraming?: 'content-length' | 'newline';
 }
 
 // ============================================================================
@@ -94,6 +96,7 @@ export interface McpServerState {
 // ============================================================================
 
 const VALID_TRANSPORTS = ['stdio', 'sse', 'http'] as const;
+const VALID_STDIO_FRAMINGS = ['content-length', 'newline'] as const;
 
 /**
  * Validates an MCP server configuration object.
@@ -119,6 +122,15 @@ export function validateMcpServerConfig(config: McpServerConfig): void {
         `MCP stdio server "${config.name}" requires a "command" field`
       );
     }
+  }
+
+  if (
+    config.stdioFraming !== undefined
+    && !VALID_STDIO_FRAMINGS.includes(config.stdioFraming)
+  ) {
+    throw new Error(
+      `MCP server "${config.name}" has invalid "stdioFraming": "${config.stdioFraming}". Must be one of: ${VALID_STDIO_FRAMINGS.join(', ')}`
+    );
   }
 
   if (config.transport === 'sse' || config.transport === 'http') {

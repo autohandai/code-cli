@@ -373,6 +373,30 @@ describe('McpClientManager', () => {
       expect(failure?.message).toBe('MCP request "tools/list" timed out after 30000ms');
     });
 
+    it('rejects an in-flight request when the server explicitly rejects its wire framing', async () => {
+      vi.useFakeTimers();
+      const { connection } = createFakeStdioConnection();
+      const baselineTimers = vi.getTimerCount();
+
+      const initializing = connection.request('initialize', {});
+      expect(vi.getTimerCount()).toBe(baselineTimers + 1);
+
+      (connection as unknown as {
+        handleMessage: (message: {
+          jsonrpc: '2.0';
+          id: null;
+          error: { code: number; message: string };
+        }) => void;
+      }).handleMessage({
+        jsonrpc: '2.0',
+        id: null,
+        error: { code: -32700, message: 'Parse error' },
+      });
+
+      await expect(initializing).rejects.toThrow('MCP protocol error (-32700): Parse error');
+      expect(vi.getTimerCount()).toBe(baselineTimers);
+    });
+
     it('does not retry with newline framing after the handshake timed out', async () => {
       const connectWithFraming = vi
         .spyOn(manager as unknown as { connectStdioWithFraming: () => Promise<unknown> }, 'connectStdioWithFraming')
@@ -400,6 +424,38 @@ describe('McpClientManager', () => {
 
       expect(connectWithFraming).toHaveBeenCalledTimes(2);
       expect(connectWithFraming).toHaveBeenLastCalledWith(stdioConfig, 'newline', 0);
+    });
+
+    it('retries with newline framing when the server rejects Content-Length framing', async () => {
+      const connectWithFraming = vi
+        .spyOn(manager as unknown as { connectStdioWithFraming: () => Promise<unknown> }, 'connectStdioWithFraming')
+        .mockRejectedValueOnce(new Error('MCP protocol error (-32700): Parse error'))
+        .mockResolvedValueOnce({ connection: {}, tools: [] });
+
+      await (manager as unknown as {
+        connectStdioWithFallbackFraming: (config: McpServerConfig, generation: number) => Promise<unknown>;
+      }).connectStdioWithFallbackFraming(stdioConfig, 0);
+
+      expect(connectWithFraming).toHaveBeenCalledTimes(2);
+      expect(connectWithFraming).toHaveBeenNthCalledWith(1, stdioConfig, 'content-length', 0);
+      expect(connectWithFraming).toHaveBeenNthCalledWith(2, stdioConfig, 'newline', 0);
+    });
+
+    it('uses an explicitly configured newline framing without a failed first launch', async () => {
+      const newlineConfig: McpServerConfig = {
+        ...stdioConfig,
+        stdioFraming: 'newline',
+      };
+      const connectWithFraming = vi
+        .spyOn(manager as unknown as { connectStdioWithFraming: () => Promise<unknown> }, 'connectStdioWithFraming')
+        .mockResolvedValueOnce({ connection: {}, tools: [] });
+
+      await (manager as unknown as {
+        connectStdioWithFallbackFraming: (config: McpServerConfig, generation: number) => Promise<unknown>;
+      }).connectStdioWithFallbackFraming(newlineConfig, 0);
+
+      expect(connectWithFraming).toHaveBeenCalledOnce();
+      expect(connectWithFraming).toHaveBeenCalledWith(newlineConfig, 'newline', 0);
     });
   });
 

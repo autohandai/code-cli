@@ -66,6 +66,32 @@ describe('McpStartupCoordinator', () => {
     expect(coordinator.describePendingConnections()).toBe('Connecting MCP servers (a, b, c, +2)...');
   });
 
+  it('uses the Autohand Computer Use product name for the internal native server', () => {
+    const pending = createCoordinator({
+      configured: [{ name: 'cua-driver' }],
+    });
+    pending.coordinator.prepareForInteractiveStartup();
+    expect(pending.coordinator.describePendingConnections())
+      .toBe('Connecting MCP servers (Autohand Computer Use)...');
+
+    const failed = createCoordinator({
+      configured: [{ name: 'cua-driver' }],
+      runtime: [{
+        name: 'cua-driver',
+        status: 'error',
+        toolCount: 0,
+        error: 'MCP request "initialize" timed out',
+      }],
+    });
+    failed.coordinator.prepareForInteractiveStartup();
+    failed.coordinator.markSummaryPending();
+    failed.coordinator.flushSummaryIfPending();
+
+    const output = failed.lines.join('\n');
+    expect(output).toContain('Autohand Computer Use failed');
+    expect(output).not.toContain('cua-driver failed');
+  });
+
   it('reports nothing pending once every auto-connect server settled or MCP is disabled', () => {
     const settled = createCoordinator({
       configured: [{ name: 'github' }],

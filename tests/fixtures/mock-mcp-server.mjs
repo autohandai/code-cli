@@ -8,6 +8,7 @@
 import { createInterface } from 'node:readline';
 
 const rl = createInterface({ input: process.stdin });
+const initializeDelayMs = Number(process.env.MCP_TEST_INITIALIZE_DELAY_MS ?? 0);
 
 function send(obj) {
   process.stdout.write(JSON.stringify(obj) + '\n');
@@ -18,7 +19,14 @@ rl.on('line', (line) => {
   try {
     msg = JSON.parse(line);
   } catch {
-    return; // ignore non-JSON
+    if (line.trim()) {
+      send({
+        jsonrpc: '2.0',
+        id: null,
+        error: { code: -32700, message: 'Parse error' },
+      });
+    }
+    return;
   }
 
   // Handle JSON-RPC notifications (no id)
@@ -28,15 +36,17 @@ rl.on('line', (line) => {
 
   switch (msg.method) {
     case 'initialize':
-      send({
-        jsonrpc: '2.0',
-        id: msg.id,
-        result: {
-          protocolVersion: '2024-11-05',
-          capabilities: { tools: {} },
-          serverInfo: { name: 'mock-mcp-server', version: '1.0.0' },
-        },
-      });
+      setTimeout(() => {
+        send({
+          jsonrpc: '2.0',
+          id: msg.id,
+          result: {
+            protocolVersion: '2024-11-05',
+            capabilities: { tools: {} },
+            serverInfo: { name: 'mock-mcp-server', version: '1.0.0' },
+          },
+        });
+      }, initializeDelayMs);
       break;
 
     case 'tools/list':

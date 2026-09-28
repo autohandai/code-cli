@@ -86,6 +86,7 @@ describe('ensureCuaMcpServer', () => {
     expect(loaded.mcp?.servers).toEqual([{
       name: 'cua-driver',
       transport: 'stdio',
+      stdioFraming: 'newline',
       command: '/opt/cua-driver',
       args: ['mcp'],
       autoConnect: true,
@@ -143,6 +144,7 @@ describe('ensureCuaMcpServer', () => {
     });
     expect(loaded.mcp?.servers).toEqual([expect.objectContaining({
       name: 'cua-driver',
+      stdioFraming: 'newline',
       command: '/Users/test/Applications/Autohand Computer Use.app/Contents/MacOS/AutohandComputerUse',
       args: ['mcp', '--driver-path', '/Users/test/.local/bin/cua-driver'],
       env: expect.objectContaining({

@@ -227,6 +227,7 @@ export function ensureCuaMcpServer(
       {
         name: CUA_DRIVER_MCP_SERVER_NAME,
         transport: 'stdio',
+        stdioFraming: 'newline',
         command,
         args,
         autoConnect: true,

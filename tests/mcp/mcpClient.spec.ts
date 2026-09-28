@@ -108,7 +108,7 @@ describe('validateMcpServerConfig', () => {
     expect(() => validateMcpServerConfig(config)).toThrow(/transport/i);
   });
 
-  it('accepts stdio config with env and autoConnect', () => {
+  it('accepts stdio config with env, autoConnect, and an explicit framing', () => {
     const config: McpServerConfig = {
       name: 'test-server',
       transport: 'stdio',
@@ -116,8 +116,20 @@ describe('validateMcpServerConfig', () => {
       args: ['-y', '@some/mcp-server'],
       env: { API_KEY: 'test-key' },
       autoConnect: false,
+      stdioFraming: 'newline',
     };
     expect(() => validateMcpServerConfig(config)).not.toThrow();
+  });
+
+  it('rejects an unsupported stdio framing', () => {
+    const config = {
+      name: 'test-server',
+      transport: 'stdio',
+      command: 'node',
+      stdioFraming: 'netstring',
+    } as unknown as McpServerConfig;
+
+    expect(() => validateMcpServerConfig(config)).toThrow(/stdioFraming/u);
   });
 });
 

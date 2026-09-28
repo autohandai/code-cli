@@ -580,6 +580,8 @@ export interface McpServerConfigEntry {
   headers?: Record<string, string>;
   /** Whether to auto-connect on startup (default: true) */
   autoConnect?: boolean;
+  /** JSON-RPC framing for stdio servers (default: Content-Length with compatibility fallback) */
+  stdioFraming?: 'content-length' | 'newline';
   /** Account-scoped connector ID assigned by the Autohand Console control plane. */
   managedConnectorId?: string;
   /** Last connector revision applied from the Autohand Console control plane. */

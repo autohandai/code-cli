@@ -2302,16 +2302,17 @@ Configure MCP (Model Context Protocol) servers to extend Autohand with external 
 
 ### Server Entry Fields
 
-| Field         | Type                             | Required       | Default | Description                                                   |
-| ------------- | -------------------------------- | -------------- | ------- | ------------------------------------------------------------- |
-| `name`        | `string`                         | Yes            | -       | Unique server identifier                                      |
-| `transport`   | `"stdio"` \| `"sse"` \| `"http"` | Yes            | -       | Transport type                                                |
-| `command`     | `string`                         | Yes (stdio)    | -       | Command to start the server process                           |
-| `args`        | `string[]`                       | No             | `[]`    | Arguments for the command                                     |
-| `url`         | `string`                         | Yes (sse/http) | -       | Server endpoint URL                                           |
-| `headers`     | `Record<string, string>`         | No             | `{}`    | Custom HTTP headers for http/sse transport (e.g. auth tokens) |
-| `env`         | `Record<string, string>`         | No             | `{}`    | Environment variables passed to the server                    |
-| `autoConnect` | `boolean`                        | No             | `true`  | Whether to auto-connect on startup                            |
+| Field          | Type                                | Required       | Default            | Description                                                   |
+| -------------- | ----------------------------------- | -------------- | ------------------ | ------------------------------------------------------------- |
+| `name`         | `string`                            | Yes            | -                  | Unique server identifier                                      |
+| `transport`    | `"stdio"` \| `"sse"` \| `"http"`    | Yes            | -                  | Transport type                                                |
+| `command`      | `string`                            | Yes (stdio)    | -                  | Command to start the server process                           |
+| `args`         | `string[]`                          | No             | `[]`               | Arguments for the command                                     |
+| `stdioFraming` | `"content-length"` \| `"newline"`      | No             | Auto-detect         | JSON-RPC framing for stdio servers                            |
+| `url`          | `string`                            | Yes (sse/http) | -                  | Server endpoint URL                                           |
+| `headers`      | `Record<string, string>`            | No             | `{}`               | Custom HTTP headers for http/sse transport (e.g. auth tokens) |
+| `env`          | `Record<string, string>`            | No             | `{}`               | Environment variables passed to the server                    |
+| `autoConnect`  | `boolean`                           | No             | `true`             | Whether to auto-connect on startup                            |
 
 > Servers connect asynchronously in the background during startup without blocking the prompt. Use `/mcp` to manage servers interactively, or `/mcp add` to browse the community registry or add custom servers.
 

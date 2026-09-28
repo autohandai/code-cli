@@ -82,6 +82,43 @@ describe('getProviderConfig', () => {
     }
   });
 
+  it('accepts supported MCP stdio framing and rejects unknown framing', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
+    const configPath = path.join(tempDir, 'config.json');
+
+    try {
+      await fs.writeJson(configPath, {
+        mcp: {
+          servers: [{
+            name: 'newline-server',
+            transport: 'stdio',
+            command: 'node',
+            stdioFraming: 'newline',
+          }],
+        },
+      });
+      await expect(loadConfig(configPath)).resolves.toMatchObject({
+        mcp: { servers: [{ stdioFraming: 'newline' }] },
+      });
+
+      await fs.writeJson(configPath, {
+        mcp: {
+          servers: [{
+            name: 'invalid-server',
+            transport: 'stdio',
+            command: 'node',
+            stdioFraming: 'netstring',
+          }],
+        },
+      });
+      await expect(loadConfig(configPath)).rejects.toThrow(
+        "mcp.servers[].stdioFraming must be 'content-length' or 'newline'",
+      );
+    } finally {
+      await fs.remove(tempDir);
+    }
+  });
+
   it('creates new configs with completion reports enabled by default', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
     const configPath = path.join(tempDir, 'config.json');

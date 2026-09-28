@@ -31,7 +31,7 @@ afterEach(async () => {
 
 async function writeFakeCuaDriver(state: TuistoryTempState, initializeDelayMs = 0): Promise<string> {
   const executable = path.join(state.workspaceRoot, 'cua-driver');
-  const mcpFixture = path.join(repoRoot(), 'tests/fixtures/mock-mcp-server-framed.mjs');
+  const mcpFixture = path.join(repoRoot(), 'tests/fixtures/mock-mcp-server.mjs');
   await writeFile(executable, [
     '#!/bin/sh',
     'case "${1:-}" in',

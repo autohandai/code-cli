@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { AUTOHAND_COMPUTER_USE_APP_NAME } from '../../computer/autohandComputerUse.js';
+import { CUA_DRIVER_MCP_SERVER_NAME } from '../../computer/cuaDriver.js';
 import {
   buildMcpStartupSummaryRows,
   getAutoConnectMcpServerNames,
@@ -21,6 +23,12 @@ export interface McpStartupCoordinatorOptions {
 }
 
 const MAX_PENDING_SERVERS_IN_STATUS = 3;
+
+function displayMcpServerName(name: string): string {
+  return name === CUA_DRIVER_MCP_SERVER_NAME
+    ? AUTOHAND_COMPUTER_USE_APP_NAME
+    : name;
+}
 
 export class McpStartupCoordinator {
   private autoConnectServers: string[] = [];
@@ -58,7 +66,9 @@ export class McpStartupCoordinator {
     if (pending.length === 0) {
       return null;
     }
-    const shown = pending.slice(0, MAX_PENDING_SERVERS_IN_STATUS);
+    const shown = pending
+      .slice(0, MAX_PENDING_SERVERS_IN_STATUS)
+      .map(displayMcpServerName);
     const overflow = pending.length - shown.length;
     const names = overflow > 0 ? `${shown.join(', ')}, +${overflow}` : shown.join(', ');
     return `Connecting MCP servers (${names})...`;
@@ -121,7 +131,7 @@ export class McpStartupCoordinator {
     for (const row of rows) {
       if (row.status === 'connected') {
         const toolLabel = row.toolCount === 1 ? 'tool' : 'tools';
-        this.write(`  ${chalk.green('✓')} ${row.name} connected (${row.toolCount} ${toolLabel})`);
+        this.write(`  ${chalk.green('✓')} ${displayMcpServerName(row.name)} connected (${row.toolCount} ${toolLabel})`);
         continue;
       }
 
@@ -129,11 +139,11 @@ export class McpStartupCoordinator {
         const errorSuffix = row.error
           ? `: ${truncateMcpStartupError(row.error)}`
           : '';
-        this.write(`  ${chalk.red('✖')} ${row.name} failed${errorSuffix}`);
+        this.write(`  ${chalk.red('✖')} ${displayMcpServerName(row.name)} failed${errorSuffix}`);
         continue;
       }
 
-      this.write(`  ${chalk.yellow('○')} ${row.name} not connected`);
+      this.write(`  ${chalk.yellow('○')} ${displayMcpServerName(row.name)} not connected`);
     }
 
     this.write('');

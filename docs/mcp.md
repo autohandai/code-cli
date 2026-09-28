@@ -99,6 +99,7 @@ Restart Autohand and the server connects automatically in the background.
 | `transport` | `"stdio"` \| `"http"` | Yes | Transport type |
 | `command` | string | Yes (stdio) | Command to start the server process |
 | `args` | string[] | No | Arguments for the command |
+| `stdioFraming` | `"content-length"` \| `"newline"` | No | JSON-RPC framing for stdio servers; defaults to Content-Length with automatic compatibility fallback |
 | `url` | string | Yes (http) | Streamable HTTP endpoint URL |
 | `env` | object | No | Environment variables passed to the server |
 | `autoConnect` | boolean | No | Auto-connect on startup (default: `true`) |
