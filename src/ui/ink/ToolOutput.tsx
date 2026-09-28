@@ -54,6 +54,8 @@ export interface ToolOutputEntry {
   timestamp: number;
   /** Internal model reasoning captured with the tool call; not rendered in completed history. */
   thought?: string;
+  /** Bounded detail hidden from the transcript until the user expands it. */
+  expandedOutput?: string;
 }
 
 export interface LiveCommandEntry {
@@ -490,6 +492,21 @@ function ToolOutputComponent({ entry }: ToolOutputProps) {
           </Box>
         )
       )}
+      {entry.expandedOutput ? (
+        <Text color={colors.muted}>Ctrl+O expand</Text>
+      ) : null}
+    </Box>
+  );
+}
+
+export function ExpandedToolOutput({ entry }: ToolOutputProps) {
+  const { colors } = useTheme();
+  if (!entry.expandedOutput) return null;
+
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      <Text color={colors.muted}>{entry.tool} details · Ctrl+O collapse</Text>
+      <Text color={colors.toolOutput}>{entry.expandedOutput}</Text>
     </Box>
   );
 }
@@ -503,6 +520,7 @@ function ToolOutputComponent({ entry }: ToolOutputProps) {
 export const ToolOutputStatic = memo(ToolOutputComponent, (prev, next) =>
   prev.entry.id === next.entry.id &&
   prev.entry.output === next.entry.output &&
+  prev.entry.expandedOutput === next.entry.expandedOutput &&
   prev.entry.thought === next.entry.thought
 );
 

@@ -11,6 +11,8 @@ Operate one exact local app or window, observe before input, perform the request
 
 Use the tools advertised by the `cua-driver` MCP server. Their Autohand names start with `mcp__cua-driver__`, including app and window discovery, launch, state capture, click, text, key, scroll, and verification tools. Follow each tool's current schema instead of guessing fields.
 
+When this instruction is present in the request context, the skill is already active. Do not call `skill activate`, `skill info`, or read this file again. If `mcp__cua-driver__*` tools are advertised, call the relevant app-discovery tool immediately. Do not call `tool_search` or `tools_registry` to rediscover them.
+
 If those tools are absent, tell the user that native computer control is unavailable and give the exact repair command:
 
 ```sh
@@ -19,6 +21,7 @@ autohand computer doctor
 ```
 
 Do not silently install, upgrade, change OS permissions, or switch to a different automation route during an app-control request.
+Do not inspect shell paths, home-directory configuration, running processes, or the web as a substitute for the missing native tools.
 
 ## Workflow
 

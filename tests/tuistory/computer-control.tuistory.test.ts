@@ -10,6 +10,7 @@ import type { Session } from 'tuistory';
 import {
   createMockAutohandAINativeSequenceServer,
   createTempAutohandHome,
+  exitInteractive,
   expectCleanExit,
   launchBuiltAutohand,
   repoRoot,
@@ -28,14 +29,14 @@ afterEach(async () => {
   await Promise.all(states.splice(0).map((state) => state.cleanup()));
 });
 
-async function writeFakeCuaDriver(state: TuistoryTempState): Promise<string> {
+async function writeFakeCuaDriver(state: TuistoryTempState, initializeDelayMs = 0): Promise<string> {
   const executable = path.join(state.workspaceRoot, 'cua-driver');
   const mcpFixture = path.join(repoRoot(), 'tests/fixtures/mock-mcp-server-framed.mjs');
   await writeFile(executable, [
     '#!/bin/sh',
     'case "${1:-}" in',
     '  --version) printf "cua-driver 0.28.2\\n" ;;',
-    `  mcp) exec "${process.execPath}" "${mcpFixture}" ;;`,
+    `  mcp) MCP_TEST_INITIALIZE_DELAY_MS="${initializeDelayMs}" exec "${process.execPath}" "${mcpFixture}" ;;`,
     '  doctor) printf "Cua Driver doctor: ready\\n" ;;',
     '  *) exit 2 ;;',
     'esac',
@@ -109,7 +110,7 @@ describe('built native computer control', () => {
     });
   });
 
-  it('auto-connects the detected MCP server and injects the native control skill on the first turn', async () => {
+  it('waits for native control and exposes its tools on the first direct app turn', async () => {
     const provider = await createMockAutohandAINativeSequenceServer([
       {
         content: 'Checking the native app connection.',
@@ -139,15 +140,13 @@ describe('built native computer control', () => {
       },
     });
     states.push(state);
-    const driver = await writeFakeCuaDriver(state);
+    const driver = await writeFakeCuaDriver(state, 5_000);
     const computerUseHost = await writeFakeComputerUseHost(state);
     const session = await launchBuiltAutohand([
       '--path',
       state.workspaceRoot,
       '--config',
       state.configPath,
-      '--prompt',
-      'open my browser',
       '--yes',
     ], {
       autohandHome: state.autohandHome,
@@ -159,9 +158,13 @@ describe('built native computer control', () => {
       waitForDataTimeout: 15_000,
     });
     sessions.push(session);
-    await waitForExit(session, 30_000);
-    expectCleanExit(session);
-    expect(session.readAll()).toContain('COMPUTER_CONTROL_TURN_COMPLETE');
+    await session.text({ timeout: 20_000, waitFor: (text) => text.includes('❯') });
+    await session.type('use my spotify and play Felix Rosch');
+    await session.press('enter');
+    await session.text({
+      timeout: 30_000,
+      waitFor: (text) => text.includes('COMPUTER_CONTROL_TURN_COMPLETE'),
+    });
 
     const firstRequest = provider.requests[0] as {
       messages?: Array<{ role?: string; content?: string }>;
@@ -178,5 +181,63 @@ describe('built native computer control', () => {
     };
     expect(JSON.stringify(secondRequest.messages)).toContain('Echo: computer-control-mcp-ok');
     expect(await readFile(state.configPath, 'utf8')).not.toContain('cua-driver');
+    await exitInteractive(session);
+  }, 45_000);
+
+  it('keeps tool discovery compact until the user expands it', async () => {
+    const provider = await createMockAutohandAINativeSequenceServer([
+      {
+        content: 'Looking up the exact tool.',
+        toolCall: {
+          id: 'call_tool_search',
+          name: 'tool_search',
+          args: { query: 'read_file', limit: 1 },
+        },
+      },
+      { content: 'REGISTRY_DISCOVERY_COMPLETE' },
+    ]);
+    servers.push(provider);
+    const state = await createTempAutohandHome({
+      config: {
+        provider: 'autohandai',
+        autohandai: {
+          plan: 'cloud',
+          authMode: 'api-key',
+          apiKey: 'tuistory-key',
+          model: 'moa',
+          baseUrl: provider.baseUrl,
+        },
+        features: { autohand_inference: true },
+        agent: { autoMemory: false, sessionRetryLimit: 0, maxIterations: 3 },
+        network: { maxRetries: 0 },
+        ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+      },
+    });
+    states.push(state);
+    const session = await launchBuiltAutohand([
+      '--path',
+      state.workspaceRoot,
+      '--config',
+      state.configPath,
+      '--yes',
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      waitForDataTimeout: 15_000,
+    });
+    sessions.push(session);
+    await session.text({ timeout: 20_000, waitFor: (text) => text.includes('❯') });
+    await session.type('find the exact file reading tool');
+    await session.press('enter');
+    await session.waitForText('REGISTRY_DISCOVERY_COMPLETE', { timeout: 30_000 });
+    await session.waitForText('1 matching tool', { timeout: 10_000 });
+    await session.waitForText('Ctrl+O expand', { timeout: 10_000 });
+    expect(session.readAll()).not.toContain('"name": "read_file"');
+
+    await session.press(['ctrl', 'o']);
+    await session.waitForText('Ctrl+O collapse', { timeout: 5_000 });
+    await session.waitForText('"name": "read_file"', { timeout: 5_000 });
+
+    await exitInteractive(session);
   }, 45_000);
 });

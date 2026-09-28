@@ -17,10 +17,13 @@ const TRUNCATED_TOOLS = new Set<AgentAction['type']>([
   'glob'
 ]);
 
-/** Tools that should show a summary count instead of raw content */
-const SUMMARY_TOOLS = new Set<AgentAction['type']>([
-  'tools_registry'
-]);
+const MAX_EXPANDED_TOOL_OUTPUT_CHARS = 64 * 1024;
+
+function boundExpandedOutput(content: string): string {
+  if (content.length <= MAX_EXPANDED_TOOL_OUTPUT_CHARS) return content;
+  const marker = `\n... (details truncated, ${content.length} total characters)`;
+  return `${content.slice(0, MAX_EXPANDED_TOOL_OUTPUT_CHARS - marker.length)}${marker}`;
+}
 
 function formatAskFollowupAnswer(content: string): string {
   const trimmed = content.trim();
@@ -33,6 +36,8 @@ export interface ToolOutputDisplay {
   output: string;
   truncated: boolean;
   totalChars: number;
+  /** Bounded detail retained for an explicit user expansion gesture. */
+  expandedOutput?: string;
 }
 
 export interface FileToolOutputOptions {
@@ -117,17 +122,31 @@ export function formatToolOutputForDisplay(options: FileToolOutputOptions): Tool
     };
   }
 
-  // For tools_registry, show a human-readable summary instead of raw JSON
-  if (SUMMARY_TOOLS.has(tool)) {
+  // Discovery payloads are useful on demand, but overwhelm the transcript by default.
+  if (tool === 'tools_registry' || tool === 'tool_search') {
     try {
       const parsed = JSON.parse(content) as Array<{ source?: string }>;
+      if (!Array.isArray(parsed)) throw new TypeError('Expected a tool array');
       const total = parsed.length;
+      if (tool === 'tool_search') {
+        return {
+          output: `${total} matching ${total === 1 ? 'tool' : 'tools'}`,
+          truncated: false,
+          totalChars,
+          expandedOutput: boundExpandedOutput(content),
+        };
+      }
       const builtin = parsed.filter(t => t.source === 'builtin').length;
       const meta = total - builtin;
       const parts = [`${total} tools`];
       if (builtin > 0) parts.push(`${builtin} builtin`);
       if (meta > 0) parts.push(`${meta} meta`);
-      return { output: parts.join(', '), truncated: false, totalChars };
+      return {
+        output: parts.join(', '),
+        truncated: false,
+        totalChars,
+        expandedOutput: boundExpandedOutput(content),
+      };
     } catch {
       // Malformed JSON — fall through to default
     }

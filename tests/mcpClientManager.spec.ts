@@ -251,6 +251,95 @@ describe('McpClientManager', () => {
     });
   });
 
+  describe('waitForServerSettlement', () => {
+    afterEach(() => {
+      const internals = manager as unknown as {
+        connectionAttempts: Map<string, Promise<void>>;
+      };
+      internals.connectionAttempts.delete('cua-driver');
+      vi.useRealTimers();
+    });
+
+    it('waits for one in-flight server and releases its deadline timer', async () => {
+      vi.useFakeTimers();
+      let settle!: () => void;
+      const attempt = new Promise<void>((resolve) => {
+        settle = resolve;
+      });
+      const internals = manager as unknown as {
+        connectionAttempts: Map<string, Promise<void>>;
+        servers: Map<string, {
+          config: McpServerConfig;
+          status: 'connected';
+          tools: [];
+        }>;
+      };
+      internals.connectionAttempts.set('cua-driver', attempt);
+      const baselineTimers = vi.getTimerCount();
+
+      const waiting = manager.waitForServerSettlement('cua-driver', { timeoutMs: 8_000 });
+      internals.servers.set('cua-driver', {
+        config: { name: 'cua-driver', transport: 'stdio', command: '/tmp/cua-driver' },
+        status: 'connected',
+        tools: [],
+      });
+      settle();
+
+      await expect(waiting).resolves.toBe('connected');
+      expect(vi.getTimerCount()).toBe(baselineTimers);
+      internals.connectionAttempts.delete('cua-driver');
+    });
+
+    it('returns missing immediately when that server has no connection attempt', async () => {
+      vi.useFakeTimers();
+      const baselineTimers = vi.getTimerCount();
+
+      const result = await manager.waitForServerSettlement('cua-driver', { timeoutMs: 8_000 });
+
+      expect(result).toBe('missing');
+      expect(vi.getTimerCount()).toBe(baselineTimers);
+    });
+
+    it('bounds an in-flight wait and releases its deadline timer on timeout', async () => {
+      vi.useFakeTimers();
+      const neverSettles = new Promise<void>(() => {});
+      const internals = manager as unknown as {
+        connectionAttempts: Map<string, Promise<void>>;
+      };
+      internals.connectionAttempts.set('cua-driver', neverSettles);
+      const baselineTimers = vi.getTimerCount();
+
+      const waiting = manager.waitForServerSettlement('cua-driver', { timeoutMs: 8_000 });
+      expect(vi.getTimerCount()).toBe(baselineTimers + 1);
+
+      await vi.advanceTimersByTimeAsync(8_000);
+      await expect(waiting).resolves.toBe('timeout');
+      expect(vi.getTimerCount()).toBe(baselineTimers);
+      internals.connectionAttempts.delete('cua-driver');
+    });
+
+    it('releases its deadline timer when startup is aborted', async () => {
+      vi.useFakeTimers();
+      const neverSettles = new Promise<void>(() => {});
+      const internals = manager as unknown as {
+        connectionAttempts: Map<string, Promise<void>>;
+      };
+      internals.connectionAttempts.set('cua-driver', neverSettles);
+      const controller = new AbortController();
+      const baselineTimers = vi.getTimerCount();
+
+      const waiting = manager.waitForServerSettlement('cua-driver', {
+        timeoutMs: 8_000,
+        signal: controller.signal,
+      });
+      controller.abort();
+
+      await expect(waiting).resolves.toBe('aborted');
+      expect(vi.getTimerCount()).toBe(baselineTimers);
+      internals.connectionAttempts.delete('cua-driver');
+    });
+  });
+
   // ========================================================================
   // startup timeouts (first-turn latency)
   // ========================================================================

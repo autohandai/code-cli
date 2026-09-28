@@ -31,6 +31,8 @@ import {
   buildNpxIsolatedCacheEnv,
 } from './commandNormalization.js';
 
+export type McpServerSettlementResult = McpServerStatus | 'missing' | 'timeout' | 'aborted';
+
 // ============================================================================
 // JSON-RPC 2.0 Types (MCP protocol wire format)
 // ============================================================================
@@ -874,6 +876,52 @@ export class McpClientManager {
     });
     this.connectionAttempts.set(config.name, tracked);
     return tracked;
+  }
+
+  /**
+   * Wait for one server's current connection attempt without coupling the
+   * caller to every MCP server that may be starting in parallel.
+   */
+  async waitForServerSettlement(
+    serverName: string,
+    options: { timeoutMs: number; signal?: AbortSignal },
+  ): Promise<McpServerSettlementResult> {
+    const currentState = this.servers.get(serverName);
+    const attempt = this.connectionAttempts.get(serverName);
+    if (!attempt) {
+      return currentState?.status ?? 'missing';
+    }
+    if (options.signal?.aborted) {
+      return 'aborted';
+    }
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: (() => void) | undefined;
+    const deadline = new Promise<'timeout' | 'aborted'>((resolve) => {
+      timer = setTimeout(() => resolve('timeout'), Math.max(0, options.timeoutMs));
+      timer.unref?.();
+      if (options.signal) {
+        onAbort = () => resolve('aborted');
+        options.signal.addEventListener('abort', onAbort, { once: true });
+      }
+    });
+    const settled = attempt.then(
+      () => 'settled' as const,
+      () => 'settled' as const,
+    );
+
+    try {
+      const outcome = await Promise.race([settled, deadline]);
+      if (outcome !== 'settled') {
+        return outcome;
+      }
+      return this.servers.get(serverName)?.status ?? 'missing';
+    } finally {
+      if (timer) clearTimeout(timer);
+      if (onAbort && options.signal) {
+        options.signal.removeEventListener('abort', onAbort);
+      }
+    }
   }
 
   private async performConnect(config: McpServerConfig, generation: number): Promise<void> {

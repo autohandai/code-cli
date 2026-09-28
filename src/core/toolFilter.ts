@@ -8,6 +8,7 @@
 import type { ToolDefinition } from './toolManager.js';
 import type { ClientContext } from '../types.js';
 import { BROWSER_V2_TOOL_NAMES } from '../browser/browserCapabilities.js';
+import { matchesComputerControlIntent } from '../skills/computerControlIntent.js';
 
 // Re-export for convenience
 export type { ClientContext } from '../types.js';
@@ -787,8 +788,16 @@ export function filterToolsByRelevance(
     relevantCategories.add(category);
   }
   const recentText = getRecentSelectionText(messages);
+  const needsNativeComputerControl = matchesComputerControlIntent(recentText);
 
   const selected = tools.filter(tool => {
+    if (
+      needsNativeComputerControl
+      && /^(?:mcp__cua-driver__|mcp__cua__)/i.test(tool.name)
+    ) {
+      return true;
+    }
+
     const category = RELEVANCE_CATEGORIES[tool.name];
     if (category && relevantCategories.has(category)) {
       return true;

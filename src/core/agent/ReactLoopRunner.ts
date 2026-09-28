@@ -7,7 +7,7 @@ import chalk from 'chalk';
 import type { PermissionManager } from '../../permissions/PermissionManager.js';
 import { getProviderConfig } from '../../config.js';
 import { isSearchConfigured } from '../../actions/web.js';
-import { formatToolOutputForDisplay } from '../../ui/toolOutput.js';
+import { formatToolOutputForDisplay, type ToolOutputDisplay } from '../../ui/toolOutput.js';
 import { getPlanModeManager } from '../../commands/plan.js';
 import type {
   AgentAction,
@@ -153,6 +153,7 @@ export interface ReactLoopInkRenderer {
     success: boolean,
     output: string,
     thought?: string,
+    expandedOutput?: string,
   ): void;
   addWorkspaceChanges?(changeSet: WorkspaceChangeSet): void;
   setThinking(thought: string | null): void;
@@ -1167,13 +1168,22 @@ export async function runAgentReactLoop(
           const formatResultForDisplay = (
             result: ToolExecutionResult,
             call: ToolCallRequest | undefined,
-          ): string => {
+          ): ToolOutputDisplay => {
             const filePath = call?.args?.path as string | undefined;
             const command = call?.args?.command as string | undefined;
             const commandArgs = call?.args?.args as string[] | undefined;
-            return result.success
-              ? formatToolOutputForDisplay({ tool: result.tool, content: result.output ?? '', charLimit, filePath, command, commandArgs }).output
-              : result.error ?? result.output ?? 'Tool failed';
+            if (result.success) {
+              return formatToolOutputForDisplay({
+                tool: result.tool,
+                content: result.output ?? '',
+                charLimit,
+                filePath,
+                command,
+                commandArgs,
+              });
+            }
+            const output = result.error ?? result.output ?? 'Tool failed';
+            return { output, truncated: false, totalChars: output.length };
           };
 
           // Execute all tools with progress callback
@@ -1193,12 +1203,23 @@ export async function runAgentReactLoop(
               deferredDiffResults.push({ result, call, thought: resultThought });
               return;
             }
-            host.inkRenderer.addToolOutput(
-              result.tool,
-              result.success,
-              formatResultForDisplay(result, call),
-              resultThought,
-            );
+            const display = formatResultForDisplay(result, call);
+            if (display.expandedOutput !== undefined) {
+              host.inkRenderer.addToolOutput(
+                result.tool,
+                result.success,
+                display.output,
+                resultThought,
+                display.expandedOutput,
+              );
+            } else {
+              host.inkRenderer.addToolOutput(
+                result.tool,
+                result.success,
+                display.output,
+                resultThought,
+              );
+            }
           };
 
           // Parallel calls to the same tool are collected and flushed as one
@@ -1207,6 +1228,7 @@ export async function runAgentReactLoop(
             item: { tool: AgentAction['type']; label: string; detail?: string; success: boolean };
             output: string;
             thought?: string;
+            expandedOutput?: string;
           }
           interface PendingToolGroup {
             expected: number;
@@ -1240,7 +1262,22 @@ export async function runAgentReactLoop(
             }
             if (group.items.length === 1) {
               const single = group.items[0]!;
-              host.inkRenderer.addToolOutput(single.item.tool, single.item.success, single.output, single.thought);
+              if (single.expandedOutput !== undefined) {
+                host.inkRenderer.addToolOutput(
+                  single.item.tool,
+                  single.item.success,
+                  single.output,
+                  single.thought,
+                  single.expandedOutput,
+                );
+              } else {
+                host.inkRenderer.addToolOutput(
+                  single.item.tool,
+                  single.item.success,
+                  single.output,
+                  single.thought,
+                );
+              }
             } else {
               host.inkRenderer.addToolOutputBatch(
                 group.items.map(({ item }) => item),
@@ -1277,8 +1314,13 @@ export async function runAgentReactLoop(
                 deferredDiffResults.push({ result, call, thought: resultThought });
                 return;
               }
-              const displayOutput = formatResultForDisplay(result, call);
-              group.items.push({ item: toBatchItem(result, displayOutput), output: displayOutput, thought: resultThought });
+              const display = formatResultForDisplay(result, call);
+              group.items.push({
+                item: toBatchItem(result, display.output),
+                output: display.output,
+                thought: resultThought,
+                expandedOutput: display.expandedOutput,
+              });
               if (group.items.length >= group.expected) {
                 flushToolGroup(group);
               }

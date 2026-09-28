@@ -12,7 +12,7 @@ import {
   type LineExtension,
   type LineSegment,
 } from './StatusLine.js';
-import { LiveCommandBlock, ToolOutputStatic, ToolOutputBatchStatic, ThemedDiffOutput, type LiveCommandEntry, type ToolOutputEntry, type ToolOutputBatchEntry, type ToolOutputItem } from './ToolOutput.js';
+import { ExpandedToolOutput, LiveCommandBlock, ToolOutputStatic, ToolOutputBatchStatic, ThemedDiffOutput, type LiveCommandEntry, type ToolOutputEntry, type ToolOutputBatchEntry, type ToolOutputItem } from './ToolOutput.js';
 import { InputLine } from './InputLine.js';
 import { ThinkingOutput } from './ThinkingOutput.js';
 import { FileMentionDropdown, parseFileSuggestions, matchFileMention, type FileMentionSuggestion } from './FileMentionDropdown.js';
@@ -167,6 +167,7 @@ export interface AgentUIState {
   elapsed: string;
   tokens: string;
   toolOutputs: ToolOutputItem[];
+  expandedToolOutputId?: string;
   liveCommands: LiveCommandEntry[];
   thinking: string | null;
   queuedInstructions: string[];
@@ -267,6 +268,7 @@ export interface AgentUIProps {
   /** Dismiss the currently rendered announcement without changing composer input. */
   onDismissAnnouncement?: (id: string) => void;
   onToggleLiveCommandExpanded?: (id?: string) => void;
+  onToggleToolOutputExpanded?: () => void;
   /** Toggle the expanded live team view. */
   onToggleTeamPanel?: () => void;
   onCloseAgentRunsPanel?: () => void;
@@ -835,6 +837,7 @@ export function AgentUI({
   onCtrlC,
   onDismissAnnouncement,
   onToggleLiveCommandExpanded,
+  onToggleToolOutputExpanded,
   onToggleTeamPanel,
   onCloseAgentRunsPanel,
   onCancelAgentRun,
@@ -1000,6 +1003,8 @@ export function AgentUI({
   announcementRef.current = state.announcement;
   const onToggleLiveCommandExpandedRef = useRef(onToggleLiveCommandExpanded);
   onToggleLiveCommandExpandedRef.current = onToggleLiveCommandExpanded;
+  const onToggleToolOutputExpandedRef = useRef(onToggleToolOutputExpanded);
+  onToggleToolOutputExpandedRef.current = onToggleToolOutputExpanded;
   const onToggleTeamPanelRef = useRef(onToggleTeamPanel);
   onToggleTeamPanelRef.current = onToggleTeamPanel;
   const onToggleGoalPanelRef = useRef(onToggleGoalPanel);
@@ -1898,8 +1903,12 @@ export function AgentUI({
       return;
     }
 
-    if (activeKeybindings.matches('toggleLiveOutput', keyEvent) && liveCommandsRef.current.length > 0) {
-      onToggleLiveCommandExpandedRef.current?.();
+    if (activeKeybindings.matches('toggleLiveOutput', keyEvent)) {
+      if (liveCommandsRef.current.length > 0) {
+        onToggleLiveCommandExpandedRef.current?.();
+      } else {
+        onToggleToolOutputExpandedRef.current?.();
+      }
       return;
     }
 
@@ -2562,6 +2571,13 @@ export function AgentUI({
     state.liveCommands.slice(-3),
     [state.liveCommands]
   );
+  const expandedToolOutput = useMemo(() => {
+    if (!state.expandedToolOutputId) return undefined;
+    const entry = toolOutputItems.find((item) => (
+      item.type !== 'batch' && item.id === state.expandedToolOutputId
+    ));
+    return entry?.type === 'batch' ? undefined : entry;
+  }, [state.expandedToolOutputId, toolOutputItems]);
 
   // Calculate input width from a resize-aware hook.
   // With synchronized-output patching (InkRenderer), rapid resize re-renders
@@ -2699,6 +2715,8 @@ export function AgentUI({
           ? <ToolOutputBatchStatic key={item.id} entry={item as ToolOutputBatchEntry} />
           : <ToolOutputStatic key={item.id} entry={item as ToolOutputEntry} />
       ))}
+
+      {expandedToolOutput ? <ExpandedToolOutput entry={expandedToolOutput} /> : null}
 
       {/* Dynamic content section */}
       <DynamicContent
@@ -2917,6 +2935,7 @@ const ChatHistoryMessage = memo(function ChatHistoryMessage({
           tool: message.tool ?? 'tool',
           success: message.success ?? true,
           output: message.content,
+          expandedOutput: message.expandedOutput,
           timestamp: index,
         }}
       />
@@ -3813,6 +3832,7 @@ export function createInitialUIState(): AgentUIState {
     elapsed: '',
     tokens: '',
     toolOutputs: [],
+    expandedToolOutputId: undefined,
     liveCommands: [],
     thinking: null,
     queuedInstructions: [],

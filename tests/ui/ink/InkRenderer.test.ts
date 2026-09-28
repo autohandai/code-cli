@@ -242,6 +242,63 @@ describe('InkRenderer live command blocks', () => {
     expect(state.toolOutputs[0]).toMatchObject({ type: 'batch', allSuccess: false });
   });
 
+  it('opens and closes the latest compact tool result without replacing transcript history', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+    const expandableRenderer = renderer as unknown as {
+      addToolOutput(
+        tool: string,
+        success: boolean,
+        output: string,
+        thought?: string,
+        expandedOutput?: string,
+      ): void;
+      toggleLatestToolOutputExpanded(): void;
+    };
+
+    expandableRenderer.addToolOutput(
+      'tools_registry',
+      true,
+      '128 tools, 128 builtin',
+      undefined,
+      '[{"name":"read_file"}]',
+    );
+    const entryId = renderer.getState().toolOutputs[0]?.id;
+
+    expandableRenderer.toggleLatestToolOutputExpanded();
+    expect(renderer.getState()).toMatchObject({ expandedToolOutputId: entryId });
+    expect(renderer.getState().chatMessages).toHaveLength(1);
+
+    expandableRenderer.toggleLatestToolOutputExpanded();
+    expect(renderer.getState()).toMatchObject({ expandedToolOutputId: undefined });
+    expect(renderer.getState().chatMessages).toHaveLength(1);
+  });
+
+  it('collapses completed tool details when live command output starts', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+
+    renderer.addToolOutput(
+      'tool_search',
+      true,
+      '1 matching tool',
+      undefined,
+      '[{"name":"read_file"}]',
+    );
+    renderer.toggleLatestToolOutputExpanded();
+    expect(renderer.getState().expandedToolOutputId).toBeDefined();
+
+    renderer.startLiveCommand('pwd');
+
+    expect(renderer.getState().expandedToolOutputId).toBeUndefined();
+  });
+
   it('keeps completed turns in chronological transcript order', () => {
     const renderer = new InkRenderer({
       onInstruction: () => {},

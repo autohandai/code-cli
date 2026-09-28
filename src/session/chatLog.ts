@@ -23,6 +23,8 @@ export interface ChatLogMessage {
   tool?: string;
   success?: boolean;
   groups?: ChatToolBatchGroup[];
+  /** Bounded tool detail shown only after an explicit expand gesture. */
+  expandedOutput?: string;
 }
 
 function decodeJsonStringLiteral(value: string): string {

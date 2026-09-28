@@ -145,6 +145,7 @@ describe('formatToolOutputForDisplay', () => {
       expect(result.output).toContain('3 tools');
       expect(result.output).toContain('2 builtin');
       expect(result.output).toContain('1 meta');
+      expect(result.expandedOutput).toBe(JSON.stringify(tools, null, 2));
     });
 
     it('handles empty tools array gracefully', () => {
@@ -196,6 +197,44 @@ describe('formatToolOutputForDisplay', () => {
 
       // Descriptions are internal — should not leak to TUI
       expect(result.output).not.toContain('Read contents of a file from disk');
+    });
+  });
+
+  describe('tool_search', () => {
+    it('shows a compact result summary and preserves the full result for expansion', () => {
+      const tools = [
+        { name: 'mcp__cua-driver__list_apps', description: 'List native applications', source: 'builtin' },
+        { name: 'mcp__cua-driver__list_windows', description: 'List native windows', source: 'builtin' },
+      ];
+      const raw = JSON.stringify(tools, null, 2);
+
+      const result = formatToolOutputForDisplay({
+        tool: 'tool_search',
+        content: raw,
+        charLimit: 300,
+      });
+
+      expect(result.output).toBe('2 matching tools');
+      expect(result.output).not.toContain('description');
+      expect(result.expandedOutput).toBe(raw);
+    });
+
+    it('bounds retained expansion details for long-running sessions', () => {
+      const raw = JSON.stringify([{
+        name: 'large_tool',
+        description: 'x'.repeat(70 * 1024),
+        source: 'builtin',
+      }]);
+
+      const result = formatToolOutputForDisplay({
+        tool: 'tool_search',
+        content: raw,
+        charLimit: 300,
+      });
+
+      expect(result.expandedOutput?.length).toBeLessThanOrEqual(64 * 1024);
+      expect(result.expandedOutput).toContain('details truncated');
+      expect(result.expandedOutput).toContain(`${raw.length} total characters`);
     });
   });
 });

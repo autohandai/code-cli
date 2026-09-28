@@ -13,6 +13,7 @@ const KNOWN_APP = '(?:browser|chrome|chromium|safari|firefox|edge|spotify|slack|
 
 const COMPUTER_CONTROL_PATTERNS: readonly RegExp[] = [
   /\b(?:use|control|drive|operate)\s+(?:my|the)\s+(?:computer|desktop|laptop|machine)\b/i,
+  new RegExp(`\\buse\\s+(?:my|the)\\s+${KNOWN_APP}\\b(?!\\s+(?:api|sdk|integration|webhook)\\b)`, 'i'),
   new RegExp(`\\b(?:open|launch|start|switch to|bring up|go to)\\s+(?:my\\s+|the\\s+)?${KNOWN_APP}\\b`, 'i'),
   new RegExp(`\\b(?:click|double[- ]?click|right[- ]?click|scroll|type|press|select|drag|focus|close)\\b.{0,80}\\b(?:in|inside|on)\\s+(?:the\\s+)?${KNOWN_APP}(?:\\s+(?:app|window))?\\b`, 'i'),
   /\b(?:click|double[- ]?click|right[- ]?click|scroll|type|press|select|drag|focus|close|dismiss)\b.{0,80}\b(?:app|window|dialog|desktop|screen)\b/i,

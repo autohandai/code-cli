@@ -10,7 +10,7 @@ import { render } from 'ink-testing-library';
 import { PassThrough } from 'node:stream';
 import chalk from 'chalk';
 import { AgentUI, createInitialUIState } from '../../../src/ui/ink/AgentUI.js';
-import { LiveCommandBlock, ToolOutputBatchStatic, ToolOutputStatic, WorkspaceChangesOutput } from '../../../src/ui/ink/ToolOutput.js';
+import { ExpandedToolOutput, LiveCommandBlock, ToolOutputBatchStatic, ToolOutputStatic, WorkspaceChangesOutput } from '../../../src/ui/ink/ToolOutput.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import { I18nProvider } from '../../../src/ui/i18n/index.js';
 
@@ -46,6 +46,54 @@ function renderAgentUI(state: ReturnType<typeof createInitialUIState>) {
 }
 
 describe('AgentUI live command block', () => {
+  it('keeps discovery details hidden behind an expansion hint', () => {
+    const { lastFrame } = render(
+      <I18nProvider>
+        <ThemeProvider>
+          <ToolOutputStatic
+            entry={{
+              id: 'tool-search-1',
+              tool: 'tool_search',
+              success: true,
+              output: '1 matching tool',
+              expandedOutput: '[{"name":"read_file"}]',
+              timestamp: Date.now(),
+            }}
+          />
+        </ThemeProvider>
+      </I18nProvider>
+    );
+
+    const output = stripAnsi(lastFrame());
+    expect(output).toContain('1 matching tool');
+    expect(output).toContain('Ctrl+O expand');
+    expect(output).not.toContain('read_file');
+  });
+
+  it('renders expanded discovery details with a collapse hint', () => {
+    const { lastFrame } = render(
+      <I18nProvider>
+        <ThemeProvider>
+          <ExpandedToolOutput
+            entry={{
+              id: 'tool-search-1',
+              tool: 'tool_search',
+              success: true,
+              output: '1 matching tool',
+              expandedOutput: '[{"name":"read_file"}]',
+              timestamp: Date.now(),
+            }}
+          />
+        </ThemeProvider>
+      </I18nProvider>
+    );
+
+    const output = stripAnsi(lastFrame());
+    expect(output).toContain('tool_search details');
+    expect(output).toContain('Ctrl+O collapse');
+    expect(output).toContain('read_file');
+  });
+
   it('renders normalized workspace changes with file status and themed diffs', () => {
     const { lastFrame } = render(
       <I18nProvider>

@@ -645,6 +645,42 @@ describe('AgentUI live command shortcut', () => {
     expect(onToggleLiveCommandExpanded).toHaveBeenCalledOnce();
     expect(stripAnsi(lastFrame() ?? '')).toContain('next instruction');
   });
+
+  it('forwards Ctrl+O to the latest expandable completed tool result', async () => {
+    const onToggleToolOutputExpanded = vi.fn();
+    const state = createInitialUIState();
+    state.toolOutputs = [{
+      id: 'tool-search-1',
+      tool: 'tool_search',
+      success: true,
+      output: '1 matching tool',
+      expandedOutput: '[{"name":"read_file"}]',
+      timestamp: Date.now(),
+    }];
+    const { stdin } = render(
+      React.createElement(
+        I18nProvider,
+        null,
+        React.createElement(
+          ThemeProvider,
+          null,
+          React.createElement(AgentUI, {
+            state,
+            onInstruction: () => {},
+            onEscape: () => {},
+            onCtrlC: () => {},
+            onToggleToolOutputExpanded,
+          })
+        )
+      )
+    );
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    stdin.write('\x0f');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(onToggleToolOutputExpanded).toHaveBeenCalledOnce();
+  });
 });
 
 describe('AgentUI team activity view', () => {

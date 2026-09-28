@@ -255,6 +255,42 @@ describe('ToolFilter', () => {
       ]));
     });
 
+    it('hydrates every connected native computer-control tool for direct app requests', () => {
+      const computerTools = [
+        ...functionTools,
+        {
+          name: 'mcp__cua-driver__list_apps',
+          description: 'Enumerate native processes',
+        },
+        {
+          name: 'mcp__cua-driver__get_window_state',
+          description: 'Observe one native target',
+        },
+        {
+          name: 'mcp__cua__click',
+          description: 'Click a native target through the legacy server alias',
+        },
+        {
+          name: 'mcp__unrelated__list_apps',
+          description: 'Enumerate remote processes',
+        },
+      ];
+      const messages: LLMMessage[] = [{
+        role: 'user',
+        content: 'use my spotify and play Felix Rosch',
+      }];
+
+      const filtered = filterToolsByRelevance(computerTools, messages, { cache: false });
+      const names = filtered.map((tool) => tool.name);
+
+      expect(names).toEqual(expect.arrayContaining([
+        'mcp__cua-driver__list_apps',
+        'mcp__cua-driver__get_window_state',
+        'mcp__cua__click',
+      ]));
+      expect(names).not.toContain('mcp__unrelated__list_apps');
+    });
+
     it('uses recent tool_search arguments to hydrate matching schemas on the next turn', () => {
       const messages: LLMMessage[] = [
         { role: 'user', content: 'which tool should I use to patch a file?' },

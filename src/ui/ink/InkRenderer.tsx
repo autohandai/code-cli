@@ -219,6 +219,7 @@ interface AgentUIWrapperProps {
   onCtrlC: () => void;
   onDismissAnnouncement?: (id: string) => void;
   onToggleLiveCommandExpanded: (id?: string) => void;
+  onToggleToolOutputExpanded: () => void;
   onToggleTeamPanel: () => void;
   onCloseAgentRunsPanel: () => void;
   onCancelAgentRun?: (id: string) => void | Promise<unknown>;
@@ -262,6 +263,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       onCtrlC,
       onDismissAnnouncement,
       onToggleLiveCommandExpanded,
+      onToggleToolOutputExpanded,
       onToggleTeamPanel,
       onCloseAgentRunsPanel,
       onCancelAgentRun,
@@ -325,6 +327,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         onCtrlC={onCtrlC}
         onDismissAnnouncement={onDismissAnnouncement}
         onToggleLiveCommandExpanded={onToggleLiveCommandExpanded}
+        onToggleToolOutputExpanded={onToggleToolOutputExpanded}
         onToggleTeamPanel={onToggleTeamPanel}
         onCloseAgentRunsPanel={onCloseAgentRunsPanel}
         onCancelAgentRun={onCancelAgentRun}
@@ -542,6 +545,7 @@ export class InkRenderer {
             onCtrlC={this.options.onCtrlC}
             onDismissAnnouncement={this.options.onDismissAnnouncement}
             onToggleLiveCommandExpanded={(id) => this.toggleActiveLiveCommandExpanded(id)}
+            onToggleToolOutputExpanded={() => this.toggleLatestToolOutputExpanded()}
             onToggleTeamPanel={() => this.toggleTeamPanel()}
             onCloseAgentRunsPanel={() => this.setAgentRunsPanelVisible(false)}
             onCancelAgentRun={this.options.onCancelAgentRun}
@@ -896,20 +900,28 @@ export class InkRenderer {
   /**
    * Add a tool output entry
    */
-  addToolOutput(tool: string, success: boolean, output: string, thought?: string): void {
+  addToolOutput(
+    tool: string,
+    success: boolean,
+    output: string,
+    thought?: string,
+    expandedOutput?: string,
+  ): void {
     const entry: ToolOutputEntry = {
       id: `tool-${++this.toolIdCounter}`,
       tool,
       success,
       output,
       timestamp: Date.now(),
-      thought
+      thought,
+      expandedOutput,
     };
     this.updateState({
       toolOutputs: this.appendToolOutputs(entry),
+      expandedToolOutputId: undefined,
       chatMessages: [
         ...this.state.chatMessages,
-        { role: 'tool', tool, success, content: output },
+        { role: 'tool', tool, success, content: output, expandedOutput },
       ],
     });
   }
@@ -921,18 +933,26 @@ export class InkRenderer {
   /**
    * Add multiple tool outputs at once (batched)
    */
-  addToolOutputs(outputs: Array<{ tool: string; success: boolean; output: string; thought?: string }>): void {
+  addToolOutputs(outputs: Array<{
+    tool: string;
+    success: boolean;
+    output: string;
+    thought?: string;
+    expandedOutput?: string;
+  }>): void {
     const entries: ToolOutputEntry[] = outputs.map((o, i) => ({
       id: `tool-${++this.toolIdCounter}`,
       tool: o.tool,
       success: o.success,
       output: o.output,
+      expandedOutput: o.expandedOutput,
       timestamp: Date.now(),
       // Only show thought on first tool (to avoid repetition)
       thought: i === 0 ? o.thought : undefined
     }));
     this.updateState({
       toolOutputs: this.appendToolOutputs(...entries),
+      expandedToolOutputId: undefined,
       chatMessages: [
         ...this.state.chatMessages,
         ...entries.map((entry) => ({
@@ -940,6 +960,7 @@ export class InkRenderer {
           tool: entry.tool,
           success: entry.success,
           content: entry.output,
+          expandedOutput: entry.expandedOutput,
         })),
       ],
     });
@@ -976,6 +997,7 @@ export class InkRenderer {
 
     this.updateState({
       toolOutputs: this.appendToolOutputs(entry),
+      expandedToolOutputId: undefined,
       chatMessages: [
         ...this.state.chatMessages,
         {
@@ -993,7 +1015,7 @@ export class InkRenderer {
    * Clear tool outputs
    */
   clearToolOutputs(): void {
-    this.updateState({ toolOutputs: [] });
+    this.updateState({ toolOutputs: [], expandedToolOutputId: undefined });
   }
 
   /**
@@ -1040,7 +1062,8 @@ export class InkRenderer {
       isExpanded: false,
     };
     this.updateState({
-      liveCommands: [...this.state.liveCommands, entry]
+      liveCommands: [...this.state.liveCommands, entry],
+      expandedToolOutputId: undefined,
     });
     return id;
   }
@@ -1155,6 +1178,7 @@ export class InkRenderer {
     this.updateState({
       liveCommands: this.state.liveCommands.filter((item) => item.id !== id),
       toolOutputs: this.appendToolOutputs(finalizedEntry),
+      expandedToolOutputId: undefined,
       chatMessages: [
         ...this.state.chatMessages,
         {
@@ -1191,6 +1215,21 @@ export class InkRenderer {
           ? { ...entry, isExpanded: !entry.isExpanded }
           : entry
       )
+    });
+  }
+
+  toggleLatestToolOutputExpanded(): void {
+    const expandable = [...this.state.toolOutputs]
+      .reverse()
+      .find((entry): entry is ToolOutputEntry => (
+        entry.type !== 'batch' && Boolean(entry.expandedOutput)
+      ));
+    if (!expandable) return;
+
+    this.updateState({
+      expandedToolOutputId: this.state.expandedToolOutputId === expandable.id
+        ? undefined
+        : expandable.id,
     });
   }
 
