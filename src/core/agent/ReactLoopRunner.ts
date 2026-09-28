@@ -23,6 +23,8 @@ import type {
   TurnUsage,
   ToolCallRequest,
   ToolExecutionResult,
+  ToolImageInput,
+  ToolImageRegistrationResult,
   LLMRetryEvent,
 } from '../../types.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
@@ -220,7 +222,9 @@ export interface AgentReactLoopHost {
   ensureSpinnerRunning(): void;
   forceRenderSpinner(): void;
   getMessagesWithImages(): Promise<MultimodalMessage[]>;
+  registerToolImages?(images: readonly ToolImageInput[], signal?: AbortSignal): Promise<ToolImageRegistrationResult>;
   attachToolImages?(message: LLMMessage, imagePaths: readonly string[], signal: AbortSignal): Promise<{ attached: number; error?: string }>;
+  attachRegisteredToolImages?(message: LLMMessage, imageRefs: readonly string[], signal: AbortSignal): Promise<{ attached: number; error?: string }>;
   getReactionParser(): { parseAssistantResponse(completion: LLMResponse): AssistantReactPayload };
   handleSmartContextCrop(call: ToolCallRequest): Promise<string>;
   hasIncompleteTodoActivity?(): boolean;
@@ -1324,7 +1328,11 @@ export async function runAgentReactLoop(
               if (group.items.length >= group.expected) {
                 flushToolGroup(group);
               }
-            }, { signal: abortController.signal, ...(host.peerRuntime?.automatic ? { peerAutomatic: true } : {}) });
+            }, {
+              signal: abortController.signal,
+              registerToolImages: host.registerToolImages,
+              ...(host.peerRuntime?.automatic ? { peerAutomatic: true } : {}),
+            });
           } finally {
             if (workspaceChangeCapture && checkpoint) {
               workspaceChanges = await workspaceChangeCapture.finish(checkpoint).catch((error: unknown) => {
@@ -1382,11 +1390,19 @@ export async function runAgentReactLoop(
               content,
               tool_call_id: otherCalls[i]?.id
             };
+            const imageErrors: string[] = [];
             if (result.imagePaths?.length) {
               const attachment = await host.attachToolImages?.(toolMessage, result.imagePaths, abortController.signal);
-              if (!attachment || attachment.error) {
-                toolMessage.content += `\n[Visual inspection unavailable] ${attachment?.error ?? 'Screenshot attachment is unavailable in this runtime.'}`;
-              }
+              if (!attachment) imageErrors.push('Screenshot attachment is unavailable in this runtime.');
+              else if (attachment.error) imageErrors.push(attachment.error);
+            }
+            if (result.imageRefs?.length) {
+              const attachment = await host.attachRegisteredToolImages?.(toolMessage, result.imageRefs, abortController.signal);
+              if (!attachment) imageErrors.push('Tool image attachment is unavailable in this runtime.');
+              else if (attachment.error) imageErrors.push(attachment.error);
+            }
+            if (imageErrors.length > 0) {
+              toolMessage.content += `\n[Visual inspection unavailable] ${imageErrors.join(' ').slice(0, 1_000)}`;
             }
             host.conversation.addMessage(toolMessage);
             await host.saveToolMessage(result.tool, toolMessage.content, otherCalls[i]?.id);

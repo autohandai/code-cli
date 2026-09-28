@@ -3,7 +3,7 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { chmod, readFile, writeFile } from 'node:fs/promises';
+import { chmod, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
@@ -70,6 +70,7 @@ describe('built native computer control', () => {
         autohandHome: state.autohandHome,
         cwd: state.workspaceRoot,
         env: {
+          AUTOHAND_DISABLE_COMPUTER_USE: '0',
           AUTOHAND_CUA_DRIVER_PATH: driver,
           AUTOHAND_COMPUTER_USE_APP_PATH: computerUseHost,
         },
@@ -93,6 +94,7 @@ describe('built native computer control', () => {
         autohandHome: state.autohandHome,
         cwd: state.workspaceRoot,
         env: {
+          AUTOHAND_DISABLE_COMPUTER_USE: '0',
           AUTOHAND_CUA_DRIVER_PATH: driver,
           AUTOHAND_COMPUTER_USE_APP_PATH: computerUseHost,
         },
@@ -152,6 +154,7 @@ describe('built native computer control', () => {
       autohandHome: state.autohandHome,
       cwd: state.workspaceRoot,
       env: {
+        AUTOHAND_DISABLE_COMPUTER_USE: '0',
         AUTOHAND_CUA_DRIVER_PATH: driver,
         AUTOHAND_COMPUTER_USE_APP_PATH: computerUseHost,
       },
@@ -182,6 +185,87 @@ describe('built native computer control', () => {
     expect(JSON.stringify(secondRequest.messages)).toContain('Echo: computer-control-mcp-ok');
     expect(await readFile(state.configPath, 'utf8')).not.toContain('cua-driver');
     await exitInteractive(session);
+  }, 45_000);
+
+  it('hands a computer-control screenshot to the model without rendering or persisting its bytes', async () => {
+    const provider = await createMockAutohandAINativeSequenceServer([
+      {
+        content: 'Inspecting the desktop.',
+        toolCall: {
+          id: 'call_cua_screenshot',
+          name: 'mcp__cua-driver__screenshot_test',
+          args: {},
+        },
+      },
+      { content: 'COMPUTER_CONTROL_SCREENSHOT_COMPLETE' },
+    ]);
+    servers.push(provider);
+    const state = await createTempAutohandHome({
+      config: {
+        provider: 'autohandai',
+        autohandai: {
+          plan: 'cloud',
+          authMode: 'api-key',
+          apiKey: 'tuistory-key',
+          model: 'moa',
+          baseUrl: provider.baseUrl,
+        },
+        features: { autohand_inference: true },
+        agent: { autoMemory: false, sessionRetryLimit: 0, maxIterations: 3 },
+        network: { maxRetries: 0 },
+        ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+      },
+    });
+    states.push(state);
+    const driver = await writeFakeCuaDriver(state);
+    const computerUseHost = await writeFakeComputerUseHost(state);
+    const session = await launchBuiltAutohand([
+      '--path',
+      state.workspaceRoot,
+      '--config',
+      state.configPath,
+      '--yes',
+    ], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      env: {
+        AUTOHAND_DISABLE_COMPUTER_USE: '0',
+        AUTOHAND_CUA_DRIVER_PATH: driver,
+        AUTOHAND_COMPUTER_USE_APP_PATH: computerUseHost,
+      },
+      waitForDataTimeout: 15_000,
+    });
+    sessions.push(session);
+    await session.text({ timeout: 20_000, waitFor: (text) => text.includes('❯') });
+    await session.type('look at my desktop and describe the current screen');
+    await session.press('enter');
+    await session.waitForText('COMPUTER_CONTROL_SCREENSHOT_COMPLETE', { timeout: 30_000 });
+
+    const screen = session.readAll();
+    expect(screen).toContain('desktop screenshot 1x1 px');
+    expect(screen).toContain('[1 image available for visual inspection.]');
+    expect(screen).not.toContain('iVBORw0KGgo');
+    const secondRequest = provider.requests[1] as {
+      messages?: Array<{ role?: string; content?: unknown }>;
+    };
+    const requestText = JSON.stringify(secondRequest.messages);
+    expect(requestText).toContain('data:image/png;base64,');
+    const toolMessage = secondRequest.messages?.find((message) => message.role === 'tool');
+    const toolText = JSON.stringify(toolMessage?.content);
+    expect(toolText).toContain('desktop screenshot 1x1 px');
+    expect(toolText).toContain('[1 image available for visual inspection.]');
+    expect(toolText).not.toContain('iVBORw0KGgo');
+    expect(toolText).not.toContain('structuredContent');
+    expect(requestText.length).toBeLessThan(100_000);
+
+    await exitInteractive(session);
+    const storedSessions = path.join(state.autohandHome, 'sessions');
+    for (const relative of await readdir(storedSessions, { recursive: true })) {
+      if (!relative.endsWith('.json') && !relative.endsWith('.jsonl')) continue;
+      const persisted = await readFile(path.join(storedSessions, relative), 'utf8');
+      expect(persisted).not.toContain('data:image/');
+      expect(persisted).not.toContain('iVBORw0KGgo');
+    }
   }, 45_000);
 
   it('keeps tool discovery compact until the user expands it', async () => {

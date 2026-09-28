@@ -1994,12 +1994,27 @@ export type ToolFailureKind =
   | 'aborted'
   | 'operational';
 
+export type ToolImageMimeType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+
+export interface ToolImageInput {
+  data: string;
+  mimeType: ToolImageMimeType;
+  label?: string;
+}
+
+export interface ToolImageRegistrationResult {
+  refs: string[];
+  error?: string;
+}
+
 export type ToolActionOutcome =
   | {
       success: true;
       output?: string;
       /** Local artifact paths for runtime-only multimodal handoff; never image bytes or URLs. */
       imagePaths?: string[];
+      /** Opaque runtime-only image handles; never image bytes or URLs. */
+      imageRefs?: string[];
     }
   | {
       success: false;
@@ -2008,6 +2023,7 @@ export type ToolActionOutcome =
       output?: string;
       exitCode?: number | null;
       imagePaths?: string[];
+      imageRefs?: string[];
     };
 
 export type ToolExecutionResult = {
@@ -2024,6 +2040,11 @@ export interface ToolExecutionContext {
   approvalHandled?: boolean;
   /** Active instruction cancellation signal for foreground work. */
   signal?: AbortSignal;
+  /** Privately retain tool-returned images without placing image bytes in tool output or history. */
+  registerToolImages?: (
+    images: readonly ToolImageInput[],
+    signal?: AbortSignal,
+  ) => Promise<ToolImageRegistrationResult>;
 }
 
 export interface ToolOutputChunk {

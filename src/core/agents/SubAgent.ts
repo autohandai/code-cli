@@ -555,7 +555,10 @@ export class SubAgent {
                     status: 'tool', tool: toolCalls.map(call => call.tool).join(', '), usage: this.getUsage(),
                 });
                 options.signal?.throwIfAborted();
-                const results = await this.toolManager.execute(toolCalls, undefined, { signal: options.signal });
+                const results = await this.toolManager.execute(toolCalls, undefined, {
+                    signal: options.signal,
+                    registerToolImages: (images, signal) => this.toolImages.register(images, signal),
+                });
                 options.signal?.throwIfAborted();
 
                 for (let j = 0; j < results.length; j++) {
@@ -572,10 +575,19 @@ export class SubAgent {
                         content,
                         tool_call_id: toolCall?.id
                     };
+                    const imageErrors: string[] = [];
                     if (result.imagePaths?.length) {
                         const attachment = await this.toolImages.attach(message, result.imagePaths, options.signal);
                         options.signal?.throwIfAborted();
-                        if (attachment.error) message.content += `\n[Image evidence unavailable] ${attachment.error.slice(0, 500)}`;
+                        if (attachment.error) imageErrors.push(attachment.error);
+                    }
+                    if (result.imageRefs?.length) {
+                        const attachment = await this.toolImages.attachRegistered(message, result.imageRefs, options.signal);
+                        options.signal?.throwIfAborted();
+                        if (attachment.error) imageErrors.push(attachment.error);
+                    }
+                    if (imageErrors.length > 0) {
+                        message.content += `\n[Visual inspection unavailable] ${imageErrors.join(' ').slice(0, 1_000)}`;
                     }
                     this.conversation.addMessage(message);
 

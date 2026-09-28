@@ -2,13 +2,14 @@
 /**
  * Minimal MCP server for testing.
  * Implements the MCP protocol over stdio (JSON-RPC 2.0).
- * Provides a single "echo_test" tool.
+ * Provides text and screenshot tools.
  */
 
 import { createInterface } from 'node:readline';
 
 const rl = createInterface({ input: process.stdin });
 const initializeDelayMs = Number(process.env.MCP_TEST_INITIALIZE_DELAY_MS ?? 0);
+const screenshotData = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
 function send(obj) {
   process.stdout.write(JSON.stringify(obj) + '\n');
@@ -66,6 +67,14 @@ rl.on('line', (line) => {
                 required: ['message'],
               },
             },
+            {
+              name: 'screenshot_test',
+              description: 'Returns a tiny desktop screenshot fixture',
+              inputSchema: {
+                type: 'object',
+                properties: {},
+              },
+            },
           ],
         },
       });
@@ -83,6 +92,34 @@ rl.on('line', (line) => {
                 text: `Echo: ${msg.params?.arguments?.message ?? ''}`,
               },
             ],
+          },
+        });
+      } else if (msg.params?.name === 'screenshot_test') {
+        send({
+          jsonrpc: '2.0',
+          id: msg.id,
+          result: {
+            content: [
+              {
+                type: 'image',
+                data: screenshotData,
+                mimeType: 'image/png',
+              },
+              {
+                type: 'text',
+                text: 'desktop screenshot 1x1 px (screen 1x1 pts @ 1x)',
+              },
+            ],
+            structuredContent: {
+              display: 'primary',
+              platform: 'macos',
+              scale_factor: 1,
+              screen_height: 1,
+              screen_width: 1,
+              screenshot_height: 1,
+              screenshot_mime_type: 'image/png',
+              screenshot_width: 1,
+            },
           },
         });
       } else {

@@ -448,11 +448,53 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
       success: false,
       kind: 'operational',
       error: 'MCP read failed',
-      output: JSON.stringify({
-        isError: true,
-        content: [{ type: 'text', text: 'MCP read failed' }],
-      }),
+      output: 'MCP read failed',
     });
+  });
+
+  it('keeps MCP image bytes out of textual tool output while registering a runtime observation', async () => {
+    const { internals } = createAgent();
+    const screenshotData = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB';
+    const imageRef = 'tool-image:00000000-0000-4000-8000-000000000000';
+    const registerToolImages = vi.fn().mockResolvedValue({ refs: [imageRef] });
+    internals.toolManager.register({
+      name: 'mcp__cua-driver__get_state' as AgentAction['type'],
+      description: 'Capture the desktop',
+      parameters: { type: 'object', properties: {} },
+    });
+    internals.mcpManager.callTool = vi.fn().mockResolvedValue({
+      content: [
+        { type: 'image', data: screenshotData, mimeType: 'image/png' },
+        { type: 'text', text: 'desktop screenshot 3456x2234 px (screen 1728x1117 pts @ 2x)' },
+      ],
+      structuredContent: {
+        display: 'primary',
+        platform: 'macos',
+        screenshot_width: 3456,
+        screenshot_height: 2234,
+      },
+    });
+    internals.hookManager.executeHooks = vi.fn().mockResolvedValue([]);
+    internals.telemetryManager.trackToolUse = vi.fn().mockResolvedValue(undefined);
+
+    const [result] = await internals.toolManager.execute(
+      [{ id: 'mcp-screenshot', tool: 'mcp__cua-driver__get_state' as AgentAction['type'], args: {} }],
+      undefined,
+      { registerToolImages },
+    );
+
+    expect(registerToolImages).toHaveBeenCalledExactlyOnceWith([
+      { data: screenshotData, mimeType: 'image/png', label: 'MCP image 1' },
+    ], undefined);
+    expect(result).toEqual({
+      tool: 'mcp__cua-driver__get_state',
+      success: true,
+      output: 'desktop screenshot 3456x2234 px (screen 1728x1117 pts @ 2x)\n[1 image available for visual inspection.]',
+      imageRefs: [imageRef],
+    });
+    expect(JSON.stringify(result)).not.toContain(screenshotData);
+    expect(JSON.stringify(internals.hookManager.executeHooks.mock.calls)).not.toContain(screenshotData);
+    expect(JSON.stringify(internals.telemetryManager.trackToolUse.mock.calls)).not.toContain(screenshotData);
   });
 
   it('forwards the active signal through pre-tool and post-tool hooks', async () => {

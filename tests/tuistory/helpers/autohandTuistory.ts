@@ -1185,6 +1185,7 @@ export async function launchBuiltAutohand(
     AUTOHAND_SKIP_UPDATE_CHECK: '1',
     AUTOHAND_OFFLINE: '1',
     AUTOHAND_NO_BROWSER: '1',
+    AUTOHAND_DISABLE_COMPUTER_USE: '1',
     // Hermetic version resolution: an ambient AUTOHAND_VERSION_SOURCE (e.g.
     // when the suite runs inside an Autohand session) would otherwise make
     // the built CLI report a git-derived version instead of the manifest one.

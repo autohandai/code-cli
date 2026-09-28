@@ -40,7 +40,14 @@ import { parseYoloPattern, buildPermissionSettingsFromYolo } from '../../permiss
 import { SessionManager, type Session } from '../../session/SessionManager.js';
 import { ProjectManager } from '../../session/ProjectManager.js';
 import { createToolsRegistry } from '../toolsRegistry.js';
-import type { AgentRuntime, HookEvent, ToolActionOutcome } from '../../types.js';
+import type {
+  AgentRuntime,
+  HookEvent,
+  ToolActionOutcome,
+  ToolExecutionContext,
+  ToolImageInput,
+  ToolImageMimeType,
+} from '../../types.js';
 import { AgentDelegator } from '../agents/AgentDelegator.js';
 import { AgentRunStore, type AgentRunsSnapshot, type AgentRunSource } from '../agents/AgentRunStore.js';
 import { createAgentRunLifecycleHandler } from '../agents/AgentRunLifecycle.js';
@@ -325,30 +332,123 @@ export function applyMobilePermissionMode(
   };
 }
 
-function normalizeMcpToolOutcome(result: unknown): ToolActionOutcome {
+const MCP_BINARY_FIELD = /^(?:blob|data)$/i;
+const MCP_LARGE_STRING_LENGTH = 64 * 1024;
+
+function isToolImageMimeType(value: unknown): value is ToolImageMimeType {
+  return value === 'image/png'
+    || value === 'image/jpeg'
+    || value === 'image/gif'
+    || value === 'image/webp';
+}
+
+function stringifyMcpValue(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  const seen = new WeakSet<object>();
+  try {
+    return JSON.stringify(value, (key, entry: unknown) => {
+      if (typeof entry === 'string') {
+        if (MCP_BINARY_FIELD.test(key) && entry.length > 1_024) {
+          return `[binary content omitted: ${entry.length} characters]`;
+        }
+        if (entry.length > MCP_LARGE_STRING_LENGTH) {
+          return `${entry.slice(0, MCP_LARGE_STRING_LENGTH)}\n[truncated ${entry.length - MCP_LARGE_STRING_LENGTH} characters]`;
+        }
+        return entry;
+      }
+      if (entry !== null && typeof entry === 'object') {
+        if (seen.has(entry)) return '[circular reference omitted]';
+        seen.add(entry);
+      }
+      return entry;
+    });
+  } catch {
+    return '[MCP result could not be serialized.]';
+  }
+}
+
+function extractMcpContent(result: Record<string, unknown>): {
+  images: ToolImageInput[];
+  text: string[];
+  unsupportedImages: number;
+} {
+  const images: ToolImageInput[] = [];
+  const text: string[] = [];
+  let unsupportedImages = 0;
+  const content = Array.isArray(result.content) ? result.content : [];
+  for (const item of content) {
+    if (!isPlainRecord(item)) continue;
+    if (item.type === 'text' && typeof item.text === 'string' && item.text.trim()) {
+      text.push(item.text);
+      continue;
+    }
+    if (item.type === 'image') {
+      if (typeof item.data === 'string' && isToolImageMimeType(item.mimeType)) {
+        images.push({ data: item.data, mimeType: item.mimeType, label: `MCP image ${images.length + 1}` });
+      } else {
+        unsupportedImages++;
+      }
+      continue;
+    }
+    if (item.type === 'resource' && isPlainRecord(item.resource) && typeof item.resource.text === 'string') {
+      text.push(item.resource.text);
+    }
+  }
+  return { images, text, unsupportedImages };
+}
+
+async function normalizeMcpToolOutcome(
+  result: unknown,
+  context?: ToolExecutionContext,
+): Promise<ToolActionOutcome> {
   if (typeof result === 'string') {
     return { success: true, output: result };
   }
 
-  const output = result === undefined ? undefined : JSON.stringify(result);
-  if (isPlainRecord(result) && result.isError === true) {
-    const content = Array.isArray(result.content) ? result.content : [];
-    const contentErrors = content.flatMap((item) =>
-      isPlainRecord(item) && item.type === 'text' && typeof item.text === 'string'
-        ? [item.text]
-        : []
-    );
+  if (!isPlainRecord(result)) {
+    const output = stringifyMcpValue(result);
+    return output === undefined ? { success: true } : { success: true, output };
+  }
+
+  const { images, text, unsupportedImages } = extractMcpContent(result);
+  let imageRefs: string[] = [];
+  const notes: string[] = [];
+  if (images.length > 0) {
+    if (context?.registerToolImages) {
+      const registration = await context.registerToolImages(images, context.signal);
+      imageRefs = registration.refs;
+      if (imageRefs.length > 0) {
+        notes.push(`[${imageRefs.length} image${imageRefs.length === 1 ? '' : 's'} available for visual inspection.]`);
+      }
+      if (registration.error) notes.push(`[Visual inspection unavailable] ${registration.error}`);
+    } else {
+      notes.push(`[Visual inspection unavailable] ${images.length} image${images.length === 1 ? ' was' : 's were'} not retained by this runtime.`);
+    }
+  }
+  if (unsupportedImages > 0) {
+    notes.push(`[Visual inspection unavailable] ${unsupportedImages} unsupported image${unsupportedImages === 1 ? ' was' : 's were'} omitted.`);
+  }
+  const structured = text.length === 0 ? stringifyMcpValue(result.structuredContent) : undefined;
+  const outputParts = [...text, ...(structured ? [structured] : []), ...notes];
+  const output = outputParts.length > 0 ? outputParts.join('\n') : undefined;
+
+  if (result.isError === true) {
     const error = typeof result.error === 'string' && result.error.trim().length > 0
       ? result.error
-      : contentErrors.join('\n').trim() || 'MCP tool reported a failure.';
+      : text.join('\n').trim() || 'MCP tool reported a failure.';
     return {
       success: false,
       kind: 'operational',
       error,
       ...(output === undefined ? {} : { output }),
+      ...(imageRefs.length === 0 ? {} : { imageRefs }),
     };
   }
-  return output === undefined ? { success: true } : { success: true, output };
+  return {
+    success: true,
+    ...(output === undefined ? {} : { output }),
+    ...(imageRefs.length === 0 ? {} : { imageRefs }),
+  };
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -1679,7 +1779,7 @@ export function initializeAgentDependencies(
                 mcpArgs,
                 { signal: context?.signal },
               );
-              outcome = normalizeMcpToolOutcome(mcpResult);
+              outcome = await normalizeMcpToolOutcome(mcpResult, context);
             } else {
               const error = `Invalid MCP tool name: ${action.type}`;
               outcome = { success: false, kind: 'validation', error, output: error };

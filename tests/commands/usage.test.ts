@@ -281,6 +281,24 @@ describe('/usage command', () => {
     expect(weekdayRows.every((line) => stringWidth(line) === stringWidth(monthHeader))).toBe(true);
   });
 
+  it('keeps month labels readable when the daily range starts one week before a rollover', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-09-29T12:00:00.000Z'));
+      const { usage } = await import('../../src/commands/usage.js');
+      const output = stripAnsi(await usage(makeContext()));
+      const lines = output.split('\n');
+      const sundayIndex = lines.findIndex((line) => line.startsWith('Su  '));
+      const monthHeader = lines[sundayIndex - 1] ?? '';
+      const visibleMonthLabels = monthHeader.match(/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/gu) ?? [];
+
+      expect(monthHeader).not.toContain('SeOct');
+      expect(visibleMonthLabels).toHaveLength(12);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('renders weekly when /usage weekly is requested', async () => {
     const { usage } = await import('../../src/commands/usage.js');
 

@@ -35,6 +35,8 @@ import { HOOK_TOOL_NAMES } from './hookTools.js';
 import { PEER_TOOL_DEFINITIONS } from './peerTools.js';
 import { GOAL_STATUSES } from '../goals/types.js';
 
+const TOOL_IMAGE_REF = /^tool-image:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 type ReadyToolExecutionTask = {
   call: ToolCallRequest;
   index: number;
@@ -3483,7 +3485,14 @@ export class ToolManager {
         || (/^[a-z][a-z\d+.-]*:/i.test(value) && !/^[a-z]:[\\/]/i.test(value))))) {
       throw new Error('Tool executor returned malformed image file references.');
     }
-    const images = outcome.imagePaths === undefined ? {} : { imagePaths: [...outcome.imagePaths] };
+    if (outcome.imageRefs !== undefined && (!Array.isArray(outcome.imageRefs)
+      || outcome.imageRefs.some(value => typeof value !== 'string' || !TOOL_IMAGE_REF.test(value)))) {
+      throw new Error('Tool executor returned malformed runtime image references.');
+    }
+    const images = {
+      ...(outcome.imagePaths === undefined ? {} : { imagePaths: [...outcome.imagePaths] }),
+      ...(outcome.imageRefs === undefined ? {} : { imageRefs: [...outcome.imageRefs] }),
+    };
     if (outcome.success) {
       if (outcome.output !== undefined && typeof outcome.output !== 'string') {
         throw new Error('Tool executor returned malformed success output.');

@@ -33,7 +33,12 @@ import {
   runAgentReactLoop,
   shouldDisplayToolOutput,
 } from '../../../src/core/agent/ReactLoopRunner.js';
-import type { LLMRetryEvent, ToolCallRequest } from '../../../src/types.js';
+import type {
+  AgentAction,
+  LLMRetryEvent,
+  ToolCallRequest,
+  ToolExecutionContext,
+} from '../../../src/types.js';
 import { ReactionParser } from '../../../src/core/agent/ReactionParser.js';
 
 describe('ReactLoopRunner composer status', () => {
@@ -111,6 +116,60 @@ describe('ReactLoopRunner composer status', () => {
       expect(toolMessage?.content).not.toContain('base64');
       if (attachment.error) expect(toolMessage?.content).toContain(attachment.error);
       expect(host.saveToolMessage).toHaveBeenCalledWith('capture_test_evidence', toolMessage?.content, toolMessage?.tool_call_id);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('keeps registered MCP images private while attaching them before saving the tool observation', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const llmComplete = vi.fn()
+      .mockResolvedValueOnce({
+        id: 'capture', created: 1, raw: {},
+        content: JSON.stringify({ toolCalls: [{ tool: 'mcp__cua-driver__get_state', args: {} }] }),
+      })
+      .mockResolvedValueOnce({ id: 'answer', created: 2, raw: {}, content: '{"finalResponse":"Screen inspected."}' });
+    const host = createReactLoopTestHost(llmComplete, new ReactionParser());
+    const imageRef = 'tool-image:11111111-1111-4111-8111-111111111111';
+    const registerToolImages = vi.fn(async () => ({ refs: [imageRef] }));
+    const attachRegisteredToolImages = vi.fn(async () => ({ attached: 1 }));
+    Object.assign(host, { registerToolImages, attachRegisteredToolImages });
+    host.toolManager.execute = vi.fn(async (
+      _calls,
+      _onProgress,
+      context?: ToolExecutionContext,
+    ) => {
+      expect(context?.registerToolImages).toBe(registerToolImages);
+      return [{
+        tool: 'mcp__cua-driver__get_state' as AgentAction['type'],
+        success: true,
+        output: 'desktop screenshot 1x1 px\n[1 image available for visual inspection.]',
+        imageRefs: [imageRef],
+      }];
+    });
+    const controller = new AbortController();
+
+    try {
+      await runAgentReactLoop(host, controller);
+
+      const toolMessage = vi.mocked(host.conversation.addMessage).mock.calls
+        .map(([message]) => message).find((message) => message.role === 'tool');
+      expect(toolMessage).toBeDefined();
+      expect(attachRegisteredToolImages).toHaveBeenCalledExactlyOnceWith(
+        toolMessage,
+        [imageRef],
+        controller.signal,
+      );
+      expect(attachRegisteredToolImages.mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(host.saveToolMessage).mock.invocationCallOrder[0],
+      );
+      expect(toolMessage?.content).toBe('desktop screenshot 1x1 px\n[1 image available for visual inspection.]');
+      expect(JSON.stringify(toolMessage)).not.toContain('base64');
+      expect(host.saveToolMessage).toHaveBeenCalledWith(
+        'mcp__cua-driver__get_state',
+        toolMessage?.content,
+        toolMessage?.tool_call_id,
+      );
     } finally {
       logSpy.mockRestore();
     }

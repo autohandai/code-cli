@@ -78,6 +78,50 @@ describe('ToolImageStore', () => {
     expect(JSON.stringify(conversation.history())).not.toContain('base64');
   });
 
+  it('registers an inline MCP image by opaque reference without putting bytes in tool history', async () => {
+    const input = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#00ff00' } }).png().toBuffer();
+    const registration = await store.register([{
+      data: input.toString('base64'),
+      mimeType: 'image/png',
+      label: 'MCP image 1',
+    }]);
+    const result = toolResult('mcp-screenshot');
+
+    expect(registration).toMatchObject({ refs: [expect.stringMatching(/^tool-image:[0-9a-f-]{36}$/)] });
+    expect(await store.attachRegistered(result, registration.refs)).toEqual({ attached: 1 });
+    const prepared = store.prepare([result]);
+
+    expect(images(prepared)).toHaveLength(1);
+    expect(images(prepared)[0]).toMatch(/^data:image\/png;base64,/);
+    expect(JSON.stringify(prepared)).toContain('MCP image 1');
+    expect(result.content).not.toContain(input.toString('base64'));
+    expect(JSON.stringify([result])).not.toContain('base64');
+  });
+
+  it('rejects malformed inline images without echoing their payloads', async () => {
+    const malformed = 'not-valid-base64***';
+    const malformedResult = await store.register([{ data: malformed, mimeType: 'image/png' }]);
+    expect(malformedResult).toMatchObject({ refs: [], error: expect.stringContaining('valid base64') });
+    expect(JSON.stringify(malformedResult)).not.toContain(malformed);
+
+    const jpeg = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#00ff00' } }).jpeg().toBuffer();
+    const mismatchedResult = await store.register([{ data: jpeg.toString('base64'), mimeType: 'image/png' }]);
+    expect(mismatchedResult).toMatchObject({ refs: [], error: expect.stringContaining('do not match image/png') });
+    expect(JSON.stringify(mismatchedResult)).not.toContain(jpeg.toString('base64'));
+  });
+
+  it('rejects malformed image references, non-tool messages, and cancelled registration', async () => {
+    expect(await store.attachRegistered(toolResult(), ['tool-image:not-a-uuid']))
+      .toMatchObject({ attached: 0, error: expect.stringContaining('malformed') });
+    expect(await store.attachRegistered({ role: 'user', content: 'Not a tool observation.' }, []))
+      .toMatchObject({ attached: 0, error: expect.stringContaining('Only tool observations') });
+    expect(await store.register([{
+      data: Buffer.from('not-an-image').toString('base64'),
+      mimeType: 'image/png',
+    }], AbortSignal.abort()))
+      .toEqual({ refs: [], error: 'Tool image registration was cancelled.' });
+  });
+
   it.each([
     'arbitrary.png',
     '.autohand/test-evidence/frame-001.png',
