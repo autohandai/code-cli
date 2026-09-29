@@ -227,8 +227,18 @@ describe('SystemPromptBuilder', () => {
     expect(prompt).toContain('canonical memory event history');
   });
 
-  it('lists available skills by name only and points to the skill tool for details', async () => {
+  it('keeps the full skill catalog for terminal (non-ACP) sessions', async () => {
     const prompt = await createBuilder({
+      compactSkillIndex: false,
+      listSkills: vi.fn(() => [{ name: 'alpha-docs', description: 'Documentation helper' }]),
+    }).build();
+
+    expect(prompt).toContain('- **alpha-docs**: Documentation helper');
+  });
+
+  it('lists available skills by name only for ACP clients and points to the skill tool for details', async () => {
+    const prompt = await createBuilder({
+      compactSkillIndex: true,
       listSkills: vi.fn(() => [
         { name: 'zeta-review', description: 'A very long description that should not be inlined '.repeat(20) },
         { name: 'alpha-docs', description: 'Documentation helper', isActive: true },
