@@ -8,10 +8,12 @@ import { LLMGatewayClient } from "./LLMGatewayClient.js";
 import { MLXProvider } from "./MLXProvider.js";
 import type {
   AutohandAISettings,
+  AutohandConfig,
   LLMGatewaySettings,
   LLMRequest,
   LLMResponse,
   NetworkSettings,
+  ProviderName,
 } from "../types.js";
 import type { LLMProvider, LLMProviderCapabilities } from "./LLMProvider.js";
 import { AUTOHAND_AI_LOCAL_CODING_MODEL_FALLBACKS } from "./autohandAILocalSetup.js";
@@ -94,6 +96,11 @@ export function resolveAutohandAICloudModel(model: string | undefined): string {
   return normalized && AUTOHAND_AI_CLOUD_MODELS.includes(normalized) ? normalized : "fantail";
 }
 
+/** True when requests for `provider` go to the hosted Autohand AI gateway rather than a local model. */
+export function usesAutohandAICloud(config: AutohandConfig, provider: ProviderName | undefined): boolean {
+  return provider === "autohandai" && config.autohandai?.plan !== "local";
+}
+
 /** Migrate only the old first-party endpoint; private gateways are left alone. */
 export function resolveAutohandAICloudBaseUrl(baseUrl: string | undefined): string {
   return !baseUrl || /^https:\/\/api\.autohand\.ai\/v1\/?$/.test(baseUrl)
@@ -161,6 +168,7 @@ export class AutohandAIProvider implements LLMProvider {
       model: this.model,
       contextWindow: config.contextWindow ?? getAutohandAICloudModelContextWindow(this.model),
       supportsImageInput: true,
+      supportsPromptCacheKey: true,
     };
     // Streamed completions only need the budget to cover time to headers, but
     // reasoning and gateway inspection can hold headers back; keep the old

@@ -114,6 +114,7 @@ import { getAuthClient } from '../../auth/index.js';
 import { syncAgentAnnouncementLine } from './AgentUIRuntime.js';
 import { activityItemsFromTodos, formatSubAgentActivityLabel } from '../../ui/ink/TaskActivityPanel.js';
 import { getFeatureState } from '../../features/featureRegistry.js';
+import { isPromptCachingEnabled } from './PromptCache.js';
 import { SpecialistOrchestrator } from '../agents/SpecialistOrchestrator.js';
 import { isGoalFeatureEnabled, resolveGoalFeatureEnabled } from '../../goals/feature.js';
 import { GoalManager } from '../../goals/GoalManager.js';
@@ -909,6 +910,7 @@ export function initializeAgentDependencies(
       clientContext: delegatorContext,
       maxDepth: 3,
       featureConfig: runtime.config,
+      isPromptCachingEnabled: (provider) => isPromptCachingEnabled(runtime.config, host.featureFlagManager, provider),
       authorization: toolAuthorization,
       confirmApproval: (message, context) => host.confirmDangerousAction(message, context),
       getToolDefinitions: () => host.toolManager?.listDefinitions() ?? [],

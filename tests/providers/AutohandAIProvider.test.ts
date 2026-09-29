@@ -277,6 +277,54 @@ describe("AutohandAIProvider", () => {
     expect(body.max_tokens).toBe(32);
   });
 
+  describe("prompt cache affinity", () => {
+    function mockCompletionFetch() {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          id: "autohand-response",
+          created: 1,
+          choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
+        }),
+      });
+      globalThis.fetch = fetchMock as typeof globalThis.fetch;
+      return fetchMock;
+    }
+
+    it("forwards the session cache key as prompt_cache_key to the cloud gateway", async () => {
+      const fetchMock = mockCompletionFetch();
+      const provider = new AutohandAIProvider({
+        plan: "cloud",
+        authMode: "api-key",
+        apiKey: "test-autohand-key",
+        model: "fantail",
+      });
+
+      await provider.complete({
+        messages: [{ role: "user", content: "hi" }],
+        promptCache: { key: "ahpc_session-key" },
+      });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as Record<string, unknown>;
+      expect(body.prompt_cache_key).toBe("ahpc_session-key");
+    });
+
+    it("omits prompt_cache_key when the request carries no cache directive", async () => {
+      const fetchMock = mockCompletionFetch();
+      const provider = new AutohandAIProvider({
+        plan: "cloud",
+        authMode: "api-key",
+        apiKey: "test-autohand-key",
+        model: "fantail",
+      });
+
+      await provider.complete({ messages: [{ role: "user", content: "hi" }] });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as Record<string, unknown>;
+      expect(body).not.toHaveProperty("prompt_cache_key");
+    });
+  });
+
   it("preserves screenshot content parts for the Autohand cloud gateway", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

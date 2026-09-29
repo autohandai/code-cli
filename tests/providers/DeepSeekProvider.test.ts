@@ -84,4 +84,25 @@ describe("DeepSeekProvider", () => {
     expect(body.model).toBe("deepseek-v4-flash");
     expect(body.max_tokens).toBe(32);
   });
+
+  it("does not forward prompt cache affinity to DeepSeek", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        id: "deepseek-response",
+        created: 1,
+        choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
+      }),
+    });
+    globalThis.fetch = fetchMock as typeof globalThis.fetch;
+    const provider = new DeepSeekProvider({ apiKey: "test-deepseek-key", model: "deepseek-v4-flash" });
+
+    await provider.complete({
+      messages: [{ role: "user", content: "hi" }],
+      promptCache: { key: "ahpc_session-key" },
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as Record<string, unknown>;
+    expect(body).not.toHaveProperty("prompt_cache_key");
+  });
 });

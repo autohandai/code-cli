@@ -5,6 +5,7 @@
  */
 
 import chalk from 'chalk';
+import { randomUUID } from 'node:crypto';
 import { SUBAGENT_SKILLS_PROMPT_KEY, SubAgentSkills, type SubAgentSkillsRegistry } from './subAgentSkills.js';
 import type { RunBudgetGate } from '../agent/RunBudget.js';
 import { AgentRegistry, type AgentDefinition } from './AgentRegistry.js';
@@ -30,7 +31,7 @@ import {
     type DelegatorOptions,
 } from './AgentDelegator.js';
 import type { ThreadBudget } from './SessionThreadBudget.js';
-import type { ClientContext, LLMMessage, LLMUsage, LoadedConfig, ToolCallRequest } from '../../types.js';
+import type { ClientContext, LLMMessage, LLMUsage, LoadedConfig, PromptCacheDirective, ProviderName, ToolCallRequest } from '../../types.js';
 import { isGoalFeatureEnabled } from '../../goals/feature.js';
 import { ReactionParser } from '../agent/ReactionParser.js';
 import type { PeerClient, PeerEvent } from '../../session/peers/PeerMessaging.js';
@@ -45,6 +46,8 @@ import {
 import { evaluateAssistantTurn } from '../agent/TurnOutcomeEvaluator.js';
 import { TruncationRecoveryTracker } from '../agent/TruncationRecovery.js';
 import { DEFAULT_RESPONSE_COMPLETION_HOOKS } from '../agent/ResponseCompletionClassifier.js';
+import { getSessionPromptCacheDirective, isPromptCachingEnabled } from '../agent/PromptCache.js';
+import { usesAutohandAICloud } from '../../providers/AutohandAIProvider.js';
 
 /**
  * Options for creating a SubAgent with context inheritance
@@ -77,6 +80,8 @@ export interface SubAgentOptions {
     maxConcurrency?: number;
     /** Active CLI config for feature-gated tools inherited by sub-agents. */
     featureConfig?: LoadedConfig;
+    /** The lead session's prompt caching gate, including its remote kill switch; config alone otherwise. */
+    isPromptCachingEnabled?: (provider: ProviderName | undefined) => boolean;
     /** Parent authorization policy and hooks for nested tool calls. */
     authorization?: ToolAuthorizationOptions;
     /** Parent confirmation seam for nested permission prompts. */
@@ -146,6 +151,7 @@ export class SubAgent {
     private readonly reactionParser = new ReactionParser();
     private readonly usage: LLMUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
     private readonly skills: SubAgentSkills | null;
+    private readonly promptCache: PromptCacheDirective | undefined;
 
     constructor(
         private readonly config: AgentDefinition,
@@ -157,6 +163,7 @@ export class SubAgent {
         this.options = options;
         this.toolImages = new ToolImageStore(options.workspaceRoot ?? process.cwd());
         this.supportsNativeToolCalling = this.llm.getCapabilities?.().nativeToolCalling === true;
+        this.promptCache = this.resolvePromptCache();
 
         // Determine if this sub-agent can delegate further
         const canDelegate = options.depth < options.maxDepth;
@@ -210,6 +217,7 @@ export class SubAgent {
                 allowedToolNames: new Set(definitions.map(definition => definition.name)),
                 maxDepth: options.maxDepth,
                 featureConfig: options.featureConfig,
+                isPromptCachingEnabled: options.isPromptCachingEnabled,
                 authorization: options.authorization,
                 confirmApproval: options.confirmApproval,
                 getToolDefinitions: options.getToolDefinitions,
@@ -267,6 +275,19 @@ export class SubAgent {
         this.conversation = new ConversationManager();
         this.conversation.reset(enhancedSystemPrompt);
         this.refreshSkillsPrompt();
+    }
+
+    /**
+     * Each sub-agent is its own conversation, so it gets its own key: sharing the
+     * lead's would route unrelated prefixes to one backend and evict each other.
+     */
+    private resolvePromptCache(): PromptCacheDirective | undefined {
+        const config = this.options.featureConfig;
+        const provider = this.llm.getName?.() as ProviderName | undefined;
+        if (!config || !usesAutohandAICloud(config, provider)) return undefined;
+        const enabled = this.options.isPromptCachingEnabled?.(provider)
+            ?? isPromptCachingEnabled(config, undefined, provider);
+        return enabled ? getSessionPromptCacheDirective(`subagent:${randomUUID()}`) : undefined;
     }
 
     /** Keeps the skills section in step with this agent's activation state. */
@@ -414,7 +435,8 @@ export class SubAgent {
                 temperature: 0.2,
                 signal: options.signal,
                 tools: requestTools,
-                toolChoice: requestTools ? 'auto' : undefined
+                toolChoice: requestTools ? 'auto' : undefined,
+                ...(this.promptCache ? { promptCache: this.promptCache } : {}),
             });
             this.options.runBudget?.recordUsage(completion.usage);
             if (completion.usage) {

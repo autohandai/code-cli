@@ -40,6 +40,7 @@ import type {
   ToolExecutionContext,
 } from '../../../src/types.js';
 import { ReactionParser } from '../../../src/core/agent/ReactionParser.js';
+import { PromptCacheToolSet } from '../../../src/core/agent/PromptCache.js';
 
 describe('ReactLoopRunner composer status', () => {
   it('stops before the model request that would exceed the run budget and records usage', async () => {
@@ -1353,6 +1354,98 @@ describe('ReactLoopRunner composer status', () => {
     } finally {
       logSpy.mockRestore();
     }
+  });
+});
+
+describe('ReactLoopRunner prompt-cache tool stability', () => {
+  const definitions = [
+    { name: 'read_file', description: 'Read a file', parameters: { type: 'object' as const, properties: {} } },
+    { name: 'write_file', description: 'Write a file', parameters: { type: 'object' as const, properties: {} } },
+  ];
+
+  // The first request follows a request to fix something, so the editing tools
+  // are relevant; by the second request the recent messages no longer mention
+  // editing, which is exactly when relevance filtering would shrink the list.
+  async function advertisedToolsPerIteration(configure: (host: AgentReactLoopHost) => void): Promise<string[][]> {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const llmComplete = vi.fn()
+        .mockResolvedValueOnce({ id: 'tool', created: 1, raw: {},
+          content: JSON.stringify({ toolCalls: [{ tool: 'read_file', args: { path: 'a.ts' } }] }) })
+        .mockResolvedValueOnce({ id: 'answer', created: 2, raw: {}, content: '{"finalResponse":"Done."}' });
+      const host = createReactLoopTestHost(llmComplete, new ReactionParser());
+      host.toolManager.toFunctionDefinitions = vi.fn(() => definitions);
+      host.toolManager.execute = vi.fn().mockResolvedValue([{ tool: 'read_file', success: true, output: 'code' }]);
+      host.sessionManager.getCurrentSession = vi.fn(() => ({ metadata: { sessionId: 'session-123' } }));
+      host.conversation.history = vi.fn()
+        .mockReturnValueOnce([{ role: 'user', content: 'fix the parser' }])
+        .mockReturnValue([{ role: 'user', content: 'thanks' }]);
+      configure(host);
+
+      await runAgentReactLoop(host, new AbortController());
+
+      const prepareRequest = host.contextOrchestrator.prepareRequest as ReturnType<typeof vi.fn>;
+      return prepareRequest.mock.calls.map(([tools]) => (tools as Array<{ name: string }>).map((tool) => tool.name));
+    } finally {
+      logSpy.mockRestore();
+    }
+  }
+
+  it('keeps the advertised tool list identical across iterations for Autohand AI cloud', async () => {
+    const perIteration = await advertisedToolsPerIteration((host) => {
+      host.activeProvider = 'autohandai';
+      host.runtime.config.autohandai = { plan: 'cloud' };
+      host.isPromptCachingEnabled = () => true;
+    });
+
+    expect(perIteration).toEqual([['read_file', 'write_file'], ['read_file', 'write_file']]);
+  });
+
+  it('keeps the tool list stable for a session across turns', async () => {
+    const promptCacheToolSet = new PromptCacheToolSet();
+    const configure = (host: AgentReactLoopHost) => {
+      host.activeProvider = 'autohandai';
+      host.runtime.config.autohandai = { plan: 'cloud' };
+      host.isPromptCachingEnabled = () => true;
+      host.promptCacheToolSet = promptCacheToolSet;
+    };
+    await advertisedToolsPerIteration(configure);
+
+    const nextTurn = await advertisedToolsPerIteration((host) => {
+      configure(host);
+      host.conversation.history = vi.fn(() => [{ role: 'user' as const, content: 'thanks' }]);
+    });
+
+    expect(nextTurn[0]).toEqual(['read_file', 'write_file']);
+  });
+
+  it('still filters tools by relevance for other providers', async () => {
+    const perIteration = await advertisedToolsPerIteration((host) => {
+      host.activeProvider = 'openai';
+      host.isPromptCachingEnabled = () => true;
+    });
+
+    expect(perIteration).toEqual([['read_file', 'write_file'], ['read_file']]);
+  });
+
+  it('still filters tools by relevance when prompt caching is switched off for Autohand AI cloud', async () => {
+    const perIteration = await advertisedToolsPerIteration((host) => {
+      host.activeProvider = 'autohandai';
+      host.runtime.config.autohandai = { plan: 'cloud' };
+      host.isPromptCachingEnabled = () => false;
+    });
+
+    expect(perIteration).toEqual([['read_file', 'write_file'], ['read_file']]);
+  });
+
+  it('still filters tools by relevance for the Autohand AI local plan', async () => {
+    const perIteration = await advertisedToolsPerIteration((host) => {
+      host.activeProvider = 'autohandai';
+      host.runtime.config.autohandai = { plan: 'local' };
+      host.isPromptCachingEnabled = () => true;
+    });
+
+    expect(perIteration).toEqual([['read_file', 'write_file'], ['read_file']]);
   });
 });
 

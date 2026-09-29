@@ -10,6 +10,7 @@ import type { LLMProvider } from '../../../src/providers/LLMProvider.js';
 import type { ActionExecutor } from '../../../src/core/actionExecutor.js';
 import { PermissionManager } from '../../../src/permissions/PermissionManager.js';
 import type { ToolAuthorizationOptions } from '../../../src/core/toolManager.js';
+import type { LoadedConfig } from '../../../src/types.js';
 
 function nativeToolCall(name: string, args: Record<string, unknown>, id = `call-${name}`) {
   return {
@@ -654,6 +655,90 @@ describe('SubAgent', () => {
     } finally {
       logSpy.mockRestore();
     }
+  });
+
+  describe('prompt cache affinity', () => {
+    const cloudConfig = { autohandai: { plan: 'cloud' } } as LoadedConfig;
+
+    async function cacheKeysForRun(options: { provider: string; featureConfig?: LoadedConfig; agents?: number }) {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const keys: Array<Array<string | undefined>> = [];
+      try {
+        for (let index = 0; index < (options.agents ?? 1); index += 1) {
+          const perAgent: Array<string | undefined> = [];
+          let turn = 0;
+          const agent = new SubAgent({
+            name: 'reader', description: 'Read', systemPrompt: 'Read files.', tools: ['read_file'], path: '/tmp/reader.md',
+          }, {
+            getName: () => options.provider,
+            complete: async request => {
+              perAgent.push(request.promptCache?.key);
+              turn += 1;
+              return turn === 1
+                ? { id: 'r1', created: 0, raw: null, content: '', toolCalls: [nativeToolCall('read_file', { path: 'a.ts' })] }
+                : { id: 'r2', created: 0, raw: null, content: 'Read it.' };
+            },
+            getCapabilities: () => ({ nativeToolCalling: true }),
+            listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+          }, {
+            executeForTool: vi.fn(async () => ({ success: true, output: 'code' })),
+          } as unknown as ActionExecutor, {
+            clientContext: 'cli', depth: 1, maxDepth: 1, featureConfig: options.featureConfig,
+          });
+          await expect(agent.run('Read a.ts')).resolves.toBe('Read it.');
+          keys.push(perAgent);
+        }
+        return keys;
+      } finally {
+        logSpy.mockRestore();
+      }
+    }
+
+    it('sends one key for every request of an Autohand AI cloud sub-agent and a different key per sub-agent', async () => {
+      const [first, second] = await cacheKeysForRun({ provider: 'autohandai', featureConfig: cloudConfig, agents: 2 });
+
+      expect(first).toHaveLength(2);
+      expect(first[0]).toMatch(/^ahpc_[A-Za-z0-9_-]{43}$/);
+      expect(first[1]).toBe(first[0]);
+      expect(second[0]).toMatch(/^ahpc_/);
+      expect(second[1]).toBe(second[0]);
+      expect(second[0]).not.toBe(first[0]);
+    });
+
+    it('sends no key for other providers, the local plan, or when caching is switched off', async () => {
+      const cases: Array<{ provider: string; featureConfig?: LoadedConfig }> = [
+        { provider: 'openai', featureConfig: { ...cloudConfig, features: { promptCaching: true } } as LoadedConfig },
+        { provider: 'autohandai', featureConfig: { autohandai: { plan: 'local' } } as LoadedConfig },
+        { provider: 'autohandai', featureConfig: { ...cloudConfig, features: { promptCaching: false } } as LoadedConfig },
+        { provider: 'autohandai' },
+      ];
+      for (const testCase of cases) {
+        const [keys] = await cacheKeysForRun(testCase);
+        expect(keys).toEqual([undefined, undefined]);
+      }
+    });
+
+    it('honours the lead session prompt caching resolver, including its remote kill switch', async () => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const requests: Array<Parameters<LLMProvider['complete']>[0]> = [];
+      const agent = new SubAgent({
+        name: 'reader', description: 'Read', systemPrompt: 'Read files.', tools: ['read_file'], path: '/tmp/reader.md',
+      }, {
+        getName: () => 'autohandai',
+        complete: async request => { requests.push(request); return { id: 'r', created: 0, raw: null, content: 'Done.' }; },
+        getCapabilities: () => ({ nativeToolCalling: true }),
+        listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+      }, {} as ActionExecutor, {
+        clientContext: 'cli', depth: 1, maxDepth: 1, featureConfig: cloudConfig,
+        isPromptCachingEnabled: () => false,
+      });
+      try {
+        await agent.run('Read a.ts');
+        expect(requests[0]?.promptCache).toBeUndefined();
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
   });
 
   it('treats wildcard tool access as all default tools for Markdown agents without explicit tools', () => {

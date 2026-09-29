@@ -71,7 +71,11 @@ import {
   type WorkspaceChangeSet,
 } from './WorkspaceChangeCapture.js';
 import { stripAnsiCodes } from '../../ui/displayUtils.js';
-import { getSessionPromptCacheDirective as deriveSessionPromptCacheDirective } from './PromptCache.js';
+import {
+  getSessionPromptCacheDirective as deriveSessionPromptCacheDirective,
+  PromptCacheToolSet,
+} from './PromptCache.js';
+import { usesAutohandAICloud } from '../../providers/AutohandAIProvider.js';
 import { StreamingResponsePreview } from './StreamingResponsePreview.js';
 import type { RunBudgetGate } from './RunBudget.js';
 
@@ -230,6 +234,8 @@ export interface AgentReactLoopHost {
   hasIncompleteTodoActivity?(): boolean;
   isContextOverflowError(errorOrMessage: Error | string): boolean;
   isPromptCachingEnabled?(): boolean;
+  /** Keeps Autohand AI cloud tool lists stable for the session; see PromptCacheToolSet. */
+  promptCacheToolSet?: PromptCacheToolSet;
   saveAssistantMessage(content: string, toolCalls?: ToolCallRequest[]): Promise<void>;
   saveToolMessage(name: AgentAction['type'], content: string, toolCallId?: string): Promise<void>;
   setComposerFinalResponse(response: string): void;
@@ -262,6 +268,23 @@ function getSessionPromptCacheDirective(host: AgentReactLoopHost) {
   if (host.isPromptCachingEnabled?.() !== true) return undefined;
   const sessionId = host.sessionManager.getCurrentSession()?.metadata.sessionId;
   return deriveSessionPromptCacheDirective(sessionId);
+}
+
+/**
+ * Relevance filtering still decides which tools join the list; on Autohand AI
+ * cloud the list then only grows, so the cached prefix survives the next iteration.
+ */
+function selectCacheStableTools(
+  host: AgentReactLoopHost,
+  allTools: FunctionDefinition[],
+  relevant: FunctionDefinition[],
+  toolSet: PromptCacheToolSet,
+): FunctionDefinition[] {
+  if (!usesAutohandAICloud(host.runtime.config, host.activeProvider) || host.isPromptCachingEnabled?.() !== true) {
+    return relevant;
+  }
+  const sessionId = host.sessionManager.getCurrentSession()?.metadata.sessionId;
+  return toolSet.select(sessionId, allTools, relevant);
 }
 
 /**
@@ -530,6 +553,7 @@ export async function runAgentReactLoop(
     };
 
     const supportsNativeToolCalling = host.llm.getCapabilities?.().nativeToolCalling === true;
+    const promptCacheToolSet = host.promptCacheToolSet ?? new PromptCacheToolSet();
 
     // Get all function definitions for tool awareness and native tool calling.
     // Providers without native support keep using Autohand's text protocol and
@@ -648,12 +672,12 @@ export async function runAgentReactLoop(
       await host.peerCommunicationRuntime?.safeBoundary();
       if (abortController.signal.aborted) break;
       const messages = host.conversation.history();
-      let tools = filterToolsByRelevance(allTools, messages, {
+      let tools = selectCacheStableTools(host, allTools, filterToolsByRelevance(allTools, messages, {
         cache: host.runtime.config.agent?.toolSelectionCache !== false,
         // The browser side panel is browser-first by definition, so browser_*
         // tools stay available even before the user mentions a page.
         baselineCategories: host.runtime.options.clientContext === 'browser' ? ['browser'] : [],
-      });
+      }), promptCacheToolSet);
 
       // Filter tools for plan mode (read-only tools only during planning phase)
       const planModeManager = getPlanModeManager();

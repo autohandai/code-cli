@@ -107,5 +107,26 @@ describe('LLMGatewayProvider', () => {
       expect(response.content).toBe('Hello from LLM Gateway!');
       expect(response.finishReason).toBe('stop');
     });
+
+    it('does not forward prompt cache affinity the upstream gateway was never verified to accept', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          id: 'test-id',
+          created: 1,
+          choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        }),
+      });
+      global.fetch = fetchMock;
+      const provider = new LLMGatewayProvider({ apiKey: 'test-key', model: 'gpt-4o' });
+
+      await provider.complete({
+        messages: [{ role: 'user', content: 'Hello' }],
+        promptCache: { key: 'ahpc_session-key' },
+      });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as Record<string, unknown>;
+      expect(body).not.toHaveProperty('prompt_cache_key');
+    });
   });
 });

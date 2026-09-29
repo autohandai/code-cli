@@ -135,6 +135,11 @@ export interface LLMGatewaySettings extends ProviderSettings {
    * text. This is a transport capability, not a user-configurable setting.
    */
   supportsImageInput?: boolean;
+  /**
+   * Forward `LLMRequest.promptCache` as `prompt_cache_key`. Only set for gateways
+   * verified to accept it; this is a transport capability, not a user setting.
+   */
+  supportsPromptCacheKey?: boolean;
 }
 
 export interface OpenAIChatGPTAuth {
