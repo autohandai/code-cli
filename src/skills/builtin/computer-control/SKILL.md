@@ -9,11 +9,11 @@ Operate one exact local app or window, observe before input, perform the request
 
 ## Tool boundary
 
-Use the tools advertised by the `cua-driver` MCP server. Their Autohand names start with `mcp__cua-driver__`, including app and window discovery, launch, state capture, click, text, key, scroll, and verification tools. Follow each tool's current schema instead of guessing fields.
+Use the tools advertised by the `autohand-computer-use` MCP server. Their names start with `mcp__autohand-computer-use__`, including app and window discovery, launch, state capture, click, text, key, scroll, and verification tools. Follow each tool's current schema instead of guessing fields.
 
-`cua-driver` is an internal compatibility name. In user-facing responses, call the capability **Autohand Computer Use** and do not present the internal MCP server or tool prefix as a separate product the user must install.
+Older manually configured integrations may advertise the legacy `mcp__cua-driver__*` or `mcp__cua__*` prefixes. Use those only when the canonical Autohand tools are absent. In user-facing responses, call the capability **Autohand Computer Use** and do not present the underlying engine or an MCP tool prefix as a separate product the user must install.
 
-When this instruction is present in the request context, the skill is already active. Do not call `skill activate`, `skill info`, or read this file again. If `mcp__cua-driver__*` tools are advertised, call the relevant app-discovery tool immediately. Do not call `tool_search` or `tools_registry` to rediscover them.
+When this instruction is present in the request context, the skill is already active. Do not call `skill activate`, `skill info`, or read this file again. If canonical or legacy computer-control tools are advertised, call the relevant app-discovery tool immediately. Do not call `tool_search` or `tools_registry` to rediscover them.
 
 If those tools are absent, tell the user that native computer control is unavailable and give the exact repair command:
 

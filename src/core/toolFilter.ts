@@ -793,7 +793,7 @@ export function filterToolsByRelevance(
   const selected = tools.filter(tool => {
     if (
       needsNativeComputerControl
-      && /^(?:mcp__cua-driver__|mcp__cua__)/i.test(tool.name)
+      && /^(?:mcp__autohand-computer-use__|mcp__cua-driver__|mcp__cua__)/i.test(tool.name)
     ) {
       return true;
     }

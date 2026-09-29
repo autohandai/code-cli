@@ -259,16 +259,20 @@ describe('ToolFilter', () => {
       const computerTools = [
         ...functionTools,
         {
-          name: 'mcp__cua-driver__list_apps',
+          name: 'mcp__autohand-computer-use__list_apps',
           description: 'Enumerate native processes',
         },
         {
-          name: 'mcp__cua-driver__get_window_state',
+          name: 'mcp__autohand-computer-use__get_window_state',
           description: 'Observe one native target',
         },
         {
-          name: 'mcp__cua__click',
-          description: 'Click a native target through the legacy server alias',
+          name: 'mcp__cua-driver__click',
+          description: 'Click a native target through the legacy driver alias',
+        },
+        {
+          name: 'mcp__cua__type_text',
+          description: 'Type through the oldest legacy server alias',
         },
         {
           name: 'mcp__unrelated__list_apps',
@@ -284,9 +288,10 @@ describe('ToolFilter', () => {
       const names = filtered.map((tool) => tool.name);
 
       expect(names).toEqual(expect.arrayContaining([
-        'mcp__cua-driver__list_apps',
-        'mcp__cua-driver__get_window_state',
-        'mcp__cua__click',
+        'mcp__autohand-computer-use__list_apps',
+        'mcp__autohand-computer-use__get_window_state',
+        'mcp__cua-driver__click',
+        'mcp__cua__type_text',
       ]));
       expect(names).not.toContain('mcp__unrelated__list_apps');
     });

@@ -59,7 +59,7 @@ import { executeReviewWithLifecycle } from '../../review/reviewLifecycle.js';
 import type { ReviewExecutionSurface } from '../../review/reviewLifecycle.js';
 import type { ReviewRequest } from '../../review/reviewRequest.js';
 import { matchesComputerControlIntent } from '../../skills/computerControlIntent.js';
-import { CUA_DRIVER_MCP_SERVER_NAME } from '../../computer/cuaDriver.js';
+import { resolveComputerUseMcpServerName } from '../../computer/cuaDriver.js';
 
 const execFileAsync = promisify(execFile);
 const RUNTIME_RESOURCE_SHUTDOWN_TIMEOUT_MS = 2_500;
@@ -1010,8 +1010,11 @@ async function waitForComputerControlTools(
   if (!matchesComputerControlIntent(instruction)) return;
   if (!host.mcpManager?.waitForServerSettlement) return;
 
+  const serverName = resolveComputerUseMcpServerName(
+    host.runtimeMcpServers ?? host.runtime.config.mcp?.servers,
+  );
   const status = await host.mcpManager.waitForServerSettlement(
-    CUA_DRIVER_MCP_SERVER_NAME,
+    serverName,
     {
       timeoutMs: COMPUTER_CONTROL_FIRST_TURN_DEADLINE_MS,
       signal: host.runtimeResourceShutdownController?.signal,

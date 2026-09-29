@@ -118,7 +118,7 @@ describe('built native computer control', () => {
         content: 'Checking the native app connection.',
         toolCall: {
           id: 'call_cua_echo',
-          name: 'mcp__cua-driver__echo_test',
+          name: 'mcp__autohand-computer-use__echo_test',
           args: { message: 'computer-control-mcp-ok' },
         },
       },
@@ -174,10 +174,12 @@ describe('built native computer control', () => {
       tools?: Array<{ function?: { name?: string } }>;
     };
     expect(firstRequest.tools?.map((tool) => tool.function?.name))
-      .toContain('mcp__cua-driver__echo_test');
+      .toContain('mcp__autohand-computer-use__echo_test');
     const userMessage = firstRequest.messages?.find((message) => message.role === 'user')?.content ?? '';
     expect(userMessage).toContain('Computer control mode');
     expect(userMessage).toContain('Operate one exact local app or window');
+    expect(userMessage).toContain('mcp__autohand-computer-use__');
+    expect(userMessage).not.toContain('Use the tools advertised by the `cua-driver` MCP server');
 
     const secondRequest = provider.requests[1] as {
       messages?: Array<{ role?: string; content?: string }>;
@@ -193,7 +195,7 @@ describe('built native computer control', () => {
         content: 'Inspecting the desktop.',
         toolCall: {
           id: 'call_cua_screenshot',
-          name: 'mcp__cua-driver__screenshot_test',
+          name: 'mcp__autohand-computer-use__screenshot_test',
           args: {},
         },
       },

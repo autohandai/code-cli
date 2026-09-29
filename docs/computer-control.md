@@ -30,7 +30,7 @@ Autohand searches in this order:
 3. a driver installed beside Autohand or in the npm package's `vendor` directory
 4. the engine's platform defaults, including `~/.local/bin`, `~/.cua-driver/packages/current`, compatibility locations from older installations, and the Autohand Windows application directory
 
-The detected engine is added to the running agent as the internal `cua-driver` stdio MCP server. On macOS, the MCP proxy starts an embedded daemon from Autohand Computer Use so macOS attributes Accessibility and Screen Recording to Autohand. This runtime entry is not written into `~/.autohand/config.json`, and an existing user-configured Cua MCP server takes precedence.
+The detected engine is added to the running agent as the managed `autohand-computer-use` stdio MCP server, so its tools use the `mcp__autohand-computer-use__*` namespace. On macOS, the MCP proxy starts an embedded low-level driver from Autohand Computer Use so macOS attributes Accessibility and Screen Recording to Autohand. This runtime entry is not written into `~/.autohand/config.json`. Existing user-configured servers named `cua-driver` or `cua`, and custom servers that directly launch the compatible driver, continue to take precedence for backward compatibility.
 
 ## Platform permissions
 

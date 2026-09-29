@@ -5,7 +5,7 @@
  */
 import chalk from 'chalk';
 import { AUTOHAND_COMPUTER_USE_APP_NAME } from '../../computer/autohandComputerUse.js';
-import { CUA_DRIVER_MCP_SERVER_NAME } from '../../computer/cuaDriver.js';
+import { isComputerUseMcpServerName } from '../../computer/cuaDriver.js';
 import {
   buildMcpStartupSummaryRows,
   getAutoConnectMcpServerNames,
@@ -25,7 +25,7 @@ export interface McpStartupCoordinatorOptions {
 const MAX_PENDING_SERVERS_IN_STATUS = 3;
 
 function displayMcpServerName(name: string): string {
-  return name === CUA_DRIVER_MCP_SERVER_NAME
+  return isComputerUseMcpServerName(name)
     ? AUTOHAND_COMPUTER_USE_APP_NAME
     : name;
 }
