@@ -7,6 +7,7 @@ import {
   reconcileAhTraces,
   resolveAhTracesExecutable,
   runAhTracesProcess,
+  shouldAwaitAhTracesReconcile,
   shouldReconcileAhTracesAtStartup,
   type AhTracesRunner,
 } from '../../src/integrations/ahtraces/client.js';
@@ -36,6 +37,14 @@ describe('ahtraces component client', () => {
     expect(shouldReconcileAhTracesAtStartup(true, {})).toBe(false);
     expect(shouldReconcileAhTracesAtStartup(false, { AUTOHAND_CODE_SIMPLE: '1' })).toBe(false);
     expect(shouldReconcileAhTracesAtStartup(false, {})).toBe(true);
+  });
+
+  it('lets long-lived protocol hosts start before reconciliation finishes', () => {
+    expect(shouldAwaitAhTracesReconcile({ mode: 'acp' })).toBe(false);
+    expect(shouldAwaitAhTracesReconcile({ mode: 'rpc' })).toBe(false);
+    expect(shouldAwaitAhTracesReconcile({ mode: 'interactive', acp: true })).toBe(false);
+    expect(shouldAwaitAhTracesReconcile({ mode: 'interactive' })).toBe(true);
+    expect(shouldAwaitAhTracesReconcile({})).toBe(true);
   });
 
   it('locates the independently installed sibling binary', () => {

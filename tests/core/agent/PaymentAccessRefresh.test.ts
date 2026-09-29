@@ -49,3 +49,59 @@ describe('live payment access refresh', () => {
     expect(host.accountPlan.tier).toBe('free');
   });
 });
+
+describe('prompt admission with a slow or failing entitlement check', () => {
+  function admittedAgent() {
+    return Object.assign(agent(), {
+      shouldExit: false,
+      peerRuntime: undefined,
+      runInstructionWithPeerActivity: vi.fn().mockResolvedValue(true),
+    });
+  }
+
+  it('runs the instruction on the cached plan while /auth/me is still pending, then adopts the fresh plan', async () => {
+    let resolveEntitlement!: (value: { tier: string; freeRemaining: number | null }) => void;
+    const fetch = vi.spyOn(getAuthClient(), 'fetchEntitlement')
+      .mockReturnValue(new Promise((resolve) => { resolveEntitlement = resolve; }));
+    const host = admittedAgent();
+
+    await expect(host.executeAdmittedInstruction('hello')).resolves.toBe(true);
+    expect(host.runInstructionWithPeerActivity).toHaveBeenCalledWith('hello', undefined);
+    expect(host.accountPlan.tier).toBe('pro');
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    const refresh = host.accountPlanRefresh;
+    expect(refresh).toBeDefined();
+    resolveEntitlement({ tier: 'free', freeRemaining: 20 });
+    await refresh;
+    expect(host.accountPlan.tier).toBe('free');
+  });
+
+  it('keeps the prompt on the last known plan when /auth/me fails', async () => {
+    vi.spyOn(getAuthClient(), 'fetchEntitlement').mockRejectedValue(new Error('timeout'));
+    const host = admittedAgent();
+    await expect(host.executeAdmittedInstruction('hello')).resolves.toBe(true);
+    await host.accountPlanRefresh;
+    expect(host.accountPlan.tier).toBe('pro');
+    expect(host.runInstructionWithPeerActivity).toHaveBeenCalledTimes(1);
+  });
+
+  it('shares one in-flight refresh between back-to-back prompts', async () => {
+    const fetch = vi.spyOn(getAuthClient(), 'fetchEntitlement').mockReturnValue(new Promise(() => {}));
+    const host = admittedAgent();
+    await host.executeAdmittedInstruction('first');
+    await host.executeAdmittedInstruction('second');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(host.runInstructionWithPeerActivity).toHaveBeenCalledTimes(2);
+  });
+
+  it('aligns the cloud model with the last known free tier before the turn starts', async () => {
+    vi.spyOn(getAuthClient(), 'fetchEntitlement').mockReturnValue(new Promise(() => {}));
+    const host = admittedAgent();
+    host.accountPlan = { tier: 'free', label: 'Free', interval: null };
+    await host.executeAdmittedInstruction('hello');
+    expect(host.providerConfigManager.applyModelChangeRemote).toHaveBeenCalledWith('autohandai', 'fantail');
+    expect(host.providerConfigManager.applyModelChangeRemote.mock.invocationCallOrder[0])
+      .toBeLessThan(host.runInstructionWithPeerActivity.mock.invocationCallOrder[0]);
+  });
+});

@@ -36,6 +36,7 @@ import { applyCliProviderOverride, getProviderConfig, loadConfig, resolveRequest
 import { reportCliCommand } from './telemetry/commandUsage.js';
 import {
   reconcileAhTraces,
+  shouldAwaitAhTracesReconcile,
   shouldReconcileAhTracesAtStartup,
 } from './integrations/ahtraces/client.js';
 import { applyTraceSettingChange } from './integrations/ahtraces/settingsLifecycle.js';
@@ -334,13 +335,15 @@ const collectRepeatable = (value: string, previous: string[] = []): string[] => 
 // --profile and --set apply to every command, including subcommands, and to
 // every config load in this process, before any of them reads the config.
 program.hook('preAction', async (thisCommand, actionCommand) => {
-  const { profile, set, config, bare, tracesOn, tracesOff } = thisCommand.opts<{
+  const { profile, set, config, bare, tracesOn, tracesOff, mode, acp } = thisCommand.opts<{
     profile?: string;
     set?: string[];
     config?: string;
     bare?: boolean;
     tracesOn?: boolean;
     tracesOff?: boolean;
+    mode?: string;
+    acp?: boolean;
   }>();
   configureRunConfigOverlay({ profile, sets: set });
 
@@ -370,7 +373,10 @@ program.hook('preAction', async (thisCommand, actionCommand) => {
     loadConfig: () => loadConfig(undefined, undefined, { createIfMissing: false, initializeTheme: false }),
     clientVersion: getVersionString(),
   });
-  await traceSupervision;
+  // ACP and RPC hosts answer their client's handshake first; reconciliation
+  // never rejects and nothing after this hook reads its result, so those
+  // modes let it finish in the background instead of stalling on the daemon.
+  if (shouldAwaitAhTracesReconcile({ mode, acp })) await traceSupervision;
 });
 
 /**

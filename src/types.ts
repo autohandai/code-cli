@@ -2088,10 +2088,20 @@ export interface AgentStatusSnapshot {
 }
 
 export interface AgentOutputEvent {
-  type: 'message' | 'thinking' | 'tool_start' | 'tool_end' | 'error' | 'schedule_triggered' | 'file_modified' | 'team_update' | 'peer_update' | 'resource_update';
+  /**
+   * `message_delta` and `thought_delta` carry one streamed fragment of the
+   * model's reply in `content` / `thought` while the completion is still in
+   * flight; the whole reply still follows as `message` / `thinking`.
+   */
+  type: 'message' | 'message_delta' | 'thinking' | 'thought_delta' | 'tool_start' | 'tool_end' | 'error' | 'schedule_triggered' | 'file_modified' | 'team_update' | 'peer_update' | 'resource_update';
   peerEvent?: import('./session/peers/PeerProtocol.js').PeerEvent;
   resourceEvent?: import('./session/peers/PeerProtocol.js').PeerEvent;
   content?: string;
+  /**
+   * True on a `message` / `thinking` event whose text already reached listeners
+   * in full through delta events, so incremental consumers must not repeat it.
+   */
+  streamed?: boolean;
   thought?: string;
   toolName?: string;
   toolId?: string;

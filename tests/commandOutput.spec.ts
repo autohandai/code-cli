@@ -98,6 +98,19 @@ describe('CommandOutputWriter', () => {
     expect(stdoutWrite).toHaveBeenCalledTimes(4);
   });
 
+  it('keeps streamed model deltas out of stream-json output', () => {
+    const writer = new CommandOutputWriter('stream-json');
+    writer.handleEvent({ type: 'thought_delta', thought: 'Inspecting' });
+    writer.handleEvent({ type: 'message_delta', content: 'Implemented' });
+    writer.handleEvent({ type: 'message', content: 'Implemented the change.', streamed: true });
+    writer.finish(true);
+
+    expect(stdoutWrite).toHaveBeenCalledExactlyOnceWith(`${JSON.stringify({
+      type: 'result',
+      content: 'Implemented the change.',
+    })}\n`);
+  });
+
   it('writes exactly one final JSON result in local mode', () => {
     const writer = new CommandOutputWriter('json');
 

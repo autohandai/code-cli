@@ -63,7 +63,7 @@ describe('root peer lifecycle and recorded context', () => {
     finally { await runtime.coordinator.close(); await runtime.messaging.stop(); }
   });
 
-  it('honors cancellation during account preparation before the provider loop becomes active', async () => {
+  it('admits the automatic turn while account preparation is still pending', async () => {
     let release = () => {};
     const held = new Promise<void>(resolve => { release = resolve; });
     const refreshAccountPlan = vi.fn(() => held);
@@ -72,12 +72,11 @@ describe('root peer lifecycle and recorded context', () => {
       refreshAccountPlan, runInstructionWithPeerActivity,
       runtimeResourceShutdownController: new AbortController(),
     }) as AutohandAgent;
-    const running = agent.runInstruction('automatic preparation', { peerAutomatic: true });
-    await vi.waitFor(() => expect(refreshAccountPlan).toHaveBeenCalledOnce());
-    agent.cancelCurrentInstruction();
-    release();
-    expect(await running).toBe(false);
-    expect(runInstructionWithPeerActivity).not.toHaveBeenCalled();
+    try {
+      expect(await agent.runInstruction('automatic preparation', { peerAutomatic: true })).toBe(true);
+      expect(refreshAccountPlan).toHaveBeenCalledOnce();
+      expect(runInstructionWithPeerActivity).toHaveBeenCalledOnce();
+    } finally { release(); }
   });
 
   it('serializes automatic and user turn admission before asynchronous account preparation', async () => {

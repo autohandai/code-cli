@@ -76,7 +76,7 @@ import {
   PromptCacheToolSet,
 } from './PromptCache.js';
 import { usesAutohandAICloud } from '../../providers/AutohandAIProvider.js';
-import { StreamingResponsePreview } from './StreamingResponsePreview.js';
+import { combineDeltaHandlers, StreamedOutputRelay, StreamingResponsePreview } from './StreamingResponsePreview.js';
 import type { RunBudgetGate } from './RunBudget.js';
 
 const COMPLETION_REMINDER_TOOL_BATCH_THRESHOLD = 3;
@@ -593,6 +593,9 @@ export async function runAgentReactLoop(
     let toolFreeRecoveryCount = 0;
     let invalidLoopGuardFinalCount = 0;
     let pendingTodoReminderSent = false;
+    // The relay of the most recent model request; the final events it already
+    // streamed to output listeners are flagged so protocol hosts do not repeat them.
+    let streamedOutput: StreamedOutputRelay | undefined;
 
     const renderFinalResponse = (
       response: string,
@@ -603,9 +606,17 @@ export async function runAgentReactLoop(
       host.lastAssistantResponseForNotification = response;
 
       if (options.thought) {
-        host.emitOutput({ type: 'thinking', thought: options.thought });
+        host.emitOutput({
+          type: 'thinking',
+          thought: options.thought,
+          ...(streamedOutput?.hasStreamedThought(options.thought) ? { streamed: true } : {}),
+        });
       }
-      host.emitOutput({ type: 'message', content: response });
+      host.emitOutput({
+        type: 'message',
+        content: response,
+        ...(streamedOutput?.hasStreamedContent(response) ? { streamed: true } : {}),
+      });
 
       if (host.inkRenderer) {
         if (showThinking && options.thought) {
@@ -803,6 +814,13 @@ export async function runAgentReactLoop(
         const preview = supportsStreaming && host.inkRenderer?.setStreamingResponse
           ? new StreamingResponsePreview((text) => host.inkRenderer?.setStreamingResponse?.(text))
           : undefined;
+        // Output listeners (ACP, RPC, command output) receive the same deltas
+        // as the terminal preview, so protocol hosts show the reply as it arrives.
+        streamedOutput = supportsStreaming ? new StreamedOutputRelay((event) => host.emitOutput(event)) : undefined;
+        const relay = streamedOutput;
+        const onRetry = relay
+          ? (event: LLMRetryEvent) => { retryWait.handle(event); relay.onRetry(event); }
+          : retryWait.handle;
         try {
           completion = await host.llm.complete({
             messages: messagesWithImages,
@@ -814,8 +832,8 @@ export async function runAgentReactLoop(
             maxTokens: 16000,  // Allow large outputs for file generation
             thinkingLevel,
             promptCache: getSessionPromptCacheDirective(host),
-            onRetry: retryWait.handle,
-            ...(supportsStreaming ? { stream: true, onDelta: preview?.onDelta } : {}),
+            onRetry,
+            ...(supportsStreaming ? { stream: true, onDelta: combineDeltaHandlers(preview?.onDelta, relay?.onDelta) } : {}),
           });
         } finally {
           retryWait.dispose();

@@ -338,6 +338,16 @@ export function shouldReconcileAhTracesAtStartup(
   return !bare && environment.AUTOHAND_CODE_SIMPLE !== '1';
 }
 
+/**
+ * Whether startup should wait for reconciliation to finish. Long-lived
+ * protocol hosts (ACP, RPC) must answer their client's handshake right away;
+ * an unhealthy daemon can hold `ahtraces reconcile` for seconds, and nothing
+ * those hosts do depends on its outcome, so it completes in the background.
+ */
+export function shouldAwaitAhTracesReconcile(options: { mode?: string; acp?: boolean }): boolean {
+  return options.acp !== true && options.mode !== 'acp' && options.mode !== 'rpc';
+}
+
 export async function reconcileAhTraces(
   config: LoadedConfig,
   options: ReconcileAhTracesOptions = {},

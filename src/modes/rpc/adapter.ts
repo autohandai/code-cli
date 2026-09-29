@@ -3299,6 +3299,11 @@ export class RPCAdapter {
         });
         break;
       }
+      case 'message_delta':
+      case 'thought_delta':
+        // RPC clients receive the whole reply in one message update; the
+        // streamed fragments are intentionally not forwarded here.
+        break;
       case 'thinking':
         if (event.thought
           && prompt

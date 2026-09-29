@@ -1723,6 +1723,44 @@ describe("AutohandAcpAdapter", () => {
       });
     });
 
+    it("streams model deltas as ACP chunks and does not repeat text the final events already delivered", async () => {
+      const outputListener = mockAgent.setOutputListener.mock.calls[0][0];
+      connection.sessionUpdate.mockClear();
+
+      await outputListener({ type: "thought_delta", thought: "Considering " });
+      await outputListener({ type: "thought_delta", thought: "the request." });
+      await outputListener({ type: "message_delta", content: "hello " });
+      await outputListener({ type: "message_delta", content: "world" });
+      await outputListener({ type: "thinking", thought: "Considering the request.", streamed: true });
+      await outputListener({ type: "message", content: "hello world", streamed: true });
+
+      const updates = connection.sessionUpdate.mock.calls.map((call) => call[0]);
+      expect(updates).toEqual([
+        { sessionId, update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Considering " } } },
+        { sessionId, update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "the request." } } },
+        { sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hello " } } },
+        { sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "world" } } },
+      ]);
+      const streamedText = updates
+        .filter((call) => call.update.sessionUpdate === "agent_message_chunk")
+        .map((call) => call.update.content.text)
+        .join("");
+      expect(streamedText).toBe("hello world");
+    });
+
+    it("still delivers a final message that never reached the client as deltas", async () => {
+      const outputListener = mockAgent.setOutputListener.mock.calls[0][0];
+      connection.sessionUpdate.mockClear();
+
+      await outputListener({ type: "message_delta", content: "" });
+      await outputListener({ type: "message", content: "Full answer." });
+
+      expect(connection.sessionUpdate).toHaveBeenCalledExactlyOnceWith({
+        sessionId,
+        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Full answer." } },
+      });
+    });
+
     it("maps live team tasks to ACP plan updates", async () => {
       const outputListener = mockAgent.setOutputListener.mock.calls[0][0];
       connection.sessionUpdate.mockClear();

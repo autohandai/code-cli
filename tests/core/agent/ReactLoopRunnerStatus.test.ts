@@ -83,6 +83,61 @@ describe('ReactLoopRunner composer status', () => {
     expect(host.inkRenderer.setFinalResponse).toHaveBeenCalledWith('The answer is ready.');
   });
 
+  it('streams content and reasoning to output listeners without a renderer and marks the final events as streamed', async () => {
+    const complete = vi.fn(async (request) => {
+      expect(request.stream).toBe(true);
+      request.onDelta({ type: 'reasoning', text: 'think ' });
+      request.onDelta({ type: 'reasoning', text: 'hard' });
+      request.onDelta({ type: 'content', text: 'The answer' });
+      request.onDelta({ type: 'content', text: ' is ready.' });
+      return { id: 'streamed', created: 1, content: 'The answer is ready.', reasoning: 'think hard', raw: {} };
+    });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    host.llm.getCapabilities = () => ({ nativeToolCalling: true, streaming: true });
+    await runAgentReactLoop(host, new AbortController());
+    const events = vi.mocked(host.emitOutput).mock.calls.map(([event]) => event);
+    expect(events).toEqual([
+      { type: 'thought_delta', thought: 'think ' },
+      { type: 'thought_delta', thought: 'hard' },
+      { type: 'message_delta', content: 'The answer' },
+      { type: 'message_delta', content: ' is ready.' },
+      { type: 'thinking', thought: 'think hard', streamed: true },
+      { type: 'message', content: 'The answer is ready.', streamed: true },
+    ]);
+    const streamed = events.filter((event) => event.type === 'message_delta').map((event) => event.content).join('');
+    expect(streamed).toBe('The answer is ready.');
+    expect(host.saveAssistantMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not stream a structured protocol response as message text', async () => {
+    const complete = vi.fn(async (request) => {
+      request.onDelta({ type: 'content', text: '{"finalResponse":' });
+      request.onDelta({ type: 'content', text: '"Done."}' });
+      return { id: 'json', created: 1, content: '{"finalResponse":"Done."}', raw: {} };
+    });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    host.llm.getCapabilities = () => ({ nativeToolCalling: true, streaming: true });
+    await runAgentReactLoop(host, new AbortController());
+    expect(vi.mocked(host.emitOutput).mock.calls.map(([event]) => event)).toEqual([
+      { type: 'message', content: 'Done.' },
+    ]);
+  });
+
+  it('sends the whole final message when the streamed text was rewritten before delivery', async () => {
+    const complete = vi.fn(async (request) => {
+      request.onDelta({ type: 'content', text: 'Done.<|eot_id|>' });
+      return { id: 'artifact', created: 1, content: 'Done.<|eot_id|>', raw: {} };
+    });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    host.cleanupModelResponse = (content: string) => content.replace(/<\|.*?\|>/g, '').trim();
+    host.llm.getCapabilities = () => ({ nativeToolCalling: true, streaming: true });
+    await runAgentReactLoop(host, new AbortController());
+    expect(vi.mocked(host.emitOutput).mock.calls.map(([event]) => event)).toEqual([
+      { type: 'message_delta', content: 'Done.<|eot_id|>' },
+      { type: 'message', content: 'Done.' },
+    ]);
+  });
+
   it.each([
     { attached: 1, error: undefined },
     { attached: 0, error: 'Screenshot was removed before visual inspection.' },

@@ -1403,8 +1403,12 @@ export class AutohandAcpAdapter implements Agent {
           }
           break;
         }
+        // ACP chunks are incremental: streamed deltas go out as they arrive,
+        // and the whole reply only follows when it did not stream (structured
+        // protocol responses, retries that rewrote the text, non-streaming providers).
+        case 'thought_delta':
         case 'thinking':
-          if (event.thought) {
+          if (event.thought && !event.streamed) {
             await this.connection.sessionUpdate({
               sessionId,
               update: {
@@ -1418,8 +1422,9 @@ export class AutohandAcpAdapter implements Agent {
           }
           break;
 
+        case 'message_delta':
         case 'message':
-          if (event.content) {
+          if (event.content && !event.streamed) {
             await this.connection.sessionUpdate({
               sessionId,
               update: {

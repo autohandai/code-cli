@@ -79,6 +79,8 @@ export class CommandOutputWriter {
   constructor(private readonly format: CommandOutputFormat) {}
 
   handleEvent(event: AgentOutputEvent): void {
+    // Command output publishes whole replies; streamed fragments stay internal.
+    if (event.type === 'message_delta' || event.type === 'thought_delta') return;
     if (event.type === 'message') {
       this.finalContent = event.content ?? '';
       if (this.format === 'stream-json') {
