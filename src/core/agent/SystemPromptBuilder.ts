@@ -67,6 +67,14 @@ function shouldAddAutohandSkillCompatibilityOverride(skill: PromptSkillSummary):
     || hasCodexSkillInstallerMarkers(skill);
 }
 
+/** Compact, stable skill index for the system prompt: sorted names, active ones marked. */
+export function formatSkillNameIndex(skills: readonly PromptSkillSummary[]): string {
+  return skills
+    .map((skill) => (skill.isActive ? `${skill.name} [ACTIVE]` : skill.name))
+    .sort((a, b) => a.localeCompare(b))
+    .join(', ');
+}
+
 function formatActiveSkillBody(skill: PromptSkillSummary): string {
   const body = skill.body ?? '';
   if (!shouldAddAutohandSkillCompatibilityOverride(skill)) {
@@ -432,12 +440,14 @@ export class SystemPromptBuilder {
 
     const allSkills = this.options.listSkills();
     if (allSkills.length > 0) {
+      // Names only: the full name + description catalog was ~60 KB (~15k tokens)
+      // on every request, which dominated time-to-first-token for simple prompts.
+      // The model still sees every skill by name and pulls details on demand.
       parts.push('', '## Available Skills');
-      parts.push('Skills are specialized instruction packages. Use the `skill` tool with command `activate` to activate a relevant learned or available skill.');
-      for (const skill of allSkills) {
-        const activeMarker = skill.isActive ? ' [ACTIVE]' : '';
-        parts.push(`- **${skill.name}**${activeMarker}: ${skill.description}`);
-      }
+      parts.push(
+        'Skills are specialized instruction packages. When one of these names looks relevant, use the `skill` tool with command `info` to read its description, then `activate` to load it (`list` shows every skill with its description).'
+      );
+      parts.push(formatSkillNameIndex(allSkills));
     }
 
     const activeSkills = this.options.getActiveSkills();
