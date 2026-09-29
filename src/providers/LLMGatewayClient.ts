@@ -268,6 +268,7 @@ export class LLMGatewayClient {
   private readonly errorLabels: LLMGatewayCompatibleErrorLabels;
   private readonly reasoningEffort?: LLMGatewaySettings["reasoningEffort"];
   private readonly supportsImageInput: boolean;
+  private readonly supportsPromptCacheKey: boolean;
 
   constructor(
     settings: LLMGatewaySettings,
@@ -279,6 +280,7 @@ export class LLMGatewayClient {
     this.defaultModel = settings.model;
     this.reasoningEffort = settings.reasoningEffort;
     this.supportsImageInput = settings.supportsImageInput ?? false;
+    this.supportsPromptCacheKey = settings.supportsPromptCacheKey ?? false;
     this.errorLabels = errorLabels;
 
     // Network settings with sensible defaults and max limits
@@ -409,6 +411,11 @@ export class LLMGatewayClient {
     };
     if (this.reasoningEffort) {
       payload.reasoning_effort = this.reasoningEffort;
+    }
+    // Other upstreams behind this client may reject unknown fields, so the key
+    // is only sent where the gateway uses it to route a session to a warm cache.
+    if (this.supportsPromptCacheKey && request.promptCache) {
+      payload.prompt_cache_key = request.promptCache.key;
     }
     return payload;
   }

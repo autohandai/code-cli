@@ -99,6 +99,8 @@ export interface DelegatorOptions {
     onSubagentStart?: (context: SubagentStartContext) => Promise<void>;
     /** Active CLI config for feature-gated tools inherited by sub-agents. */
     featureConfig?: LoadedConfig;
+    /** The lead session's prompt caching gate, inherited by every sub-agent. */
+    isPromptCachingEnabled?: SubAgentOptions['isPromptCachingEnabled'];
     /** Parent authorization policy and hook bridge inherited by every nested tool call. */
     authorization?: ToolAuthorizationOptions;
     /** Parent confirmation seam inherited by every nested tool call. */
@@ -193,6 +195,7 @@ export class AgentDelegator {
             depth: this.currentDepth + 1,
             maxDepth: this.maxDepth,
             featureConfig: this.featureConfig,
+            isPromptCachingEnabled: this.options.isPromptCachingEnabled,
             authorization: this.authorization,
             confirmApproval: this.confirmApproval,
             getToolDefinitions: this.getToolDefinitions,

@@ -133,6 +133,7 @@ import { ShellSuggestionProvider } from './agent/ShellSuggestionProvider.js';
 import { SimpleChatHandler, type SimpleChatAgent } from './agent/SimpleChatHandler.js';
 import {
   isPromptCachingEnabled as resolvePromptCachingEnabled,
+  PromptCacheToolSet,
 } from './agent/PromptCache.js';
 import { McpStartupCoordinator } from './agent/McpStartupCoordinator.js';
 import { MentionResolver } from './agent/MentionResolver.js';
@@ -418,6 +419,7 @@ export class AutohandAgent {
   private providerConfigManager!: ProviderConfigManager;
   private reactionParser!: ReactionParser;
   private simpleChatHandler!: SimpleChatHandler;
+  private readonly promptCacheToolSet = new PromptCacheToolSet();
   private isInstructionActive = false;
   private hasPrintedExplorationHeader = false;
   private activeProvider!: ProviderName;
@@ -1038,7 +1040,7 @@ export class AutohandAgent {
   }
 
   private isPromptCachingEnabled(): boolean {
-    return resolvePromptCachingEnabled(this.runtime.config, this.featureFlagManager);
+    return resolvePromptCachingEnabled(this.runtime.config, this.featureFlagManager, this.activeProvider);
   }
 
   /**
@@ -1379,6 +1381,7 @@ export class AutohandAgent {
       hasIncompleteTodoActivity: () => agent.hasIncompleteTodoActivity(),
       isContextOverflowError: (errorOrMessage) => agent.isContextOverflowError(errorOrMessage),
       isPromptCachingEnabled: () => agent.isPromptCachingEnabled(),
+      promptCacheToolSet: agent.promptCacheToolSet,
       saveAssistantMessage: (content, toolCalls) => agent.saveAssistantMessage(content, toolCalls),
       saveToolMessage: (name, content, toolCallId) => agent.saveToolMessage(name, content, toolCallId),
       setComposerFinalResponse: (response) => agent.setComposerFinalResponse(response),
