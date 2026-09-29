@@ -112,15 +112,19 @@ describe('built native computer control', () => {
     });
   });
 
-  it('waits for native control and exposes its tools on the first direct app turn', async () => {
+  it('waits for native control and preserves window IDs for the next app inspection', async () => {
     const provider = await createMockAutohandAINativeSequenceServer([
       {
         content: 'Checking the native app connection.',
         toolCall: {
-          id: 'call_cua_echo',
-          name: 'mcp__autohand-computer-use__echo_test',
-          args: { message: 'computer-control-mcp-ok' },
+          id: 'call_windows',
+          name: 'mcp__autohand-computer-use__list_windows',
+          args: { pid: 6844 },
         },
+      },
+      {
+        content: 'Inspecting the discovered window.',
+        toolCall: { id: 'call_window_state', name: 'mcp__autohand-computer-use__get_window_state', args: { pid: 6844, window_id: 280 } },
       },
       { content: 'COMPUTER_CONTROL_TURN_COMPLETE' },
     ]);
@@ -136,7 +140,7 @@ describe('built native computer control', () => {
           baseUrl: provider.baseUrl,
         },
         features: { autohand_inference: true },
-        agent: { autoMemory: false, sessionRetryLimit: 0, maxIterations: 3 },
+        agent: { autoMemory: false, sessionRetryLimit: 0, maxIterations: 4 },
         network: { maxRetries: 0 },
         ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
       },
@@ -174,7 +178,7 @@ describe('built native computer control', () => {
       tools?: Array<{ function?: { name?: string } }>;
     };
     expect(firstRequest.tools?.map((tool) => tool.function?.name))
-      .toContain('mcp__autohand-computer-use__echo_test');
+      .toContain('mcp__autohand-computer-use__list_windows');
     const userMessage = firstRequest.messages?.find((message) => message.role === 'user')?.content ?? '';
     expect(userMessage).toContain('Computer control mode');
     expect(userMessage).toContain('Operate one exact local app or window');
@@ -184,7 +188,13 @@ describe('built native computer control', () => {
     const secondRequest = provider.requests[1] as {
       messages?: Array<{ role?: string; content?: string }>;
     };
-    expect(JSON.stringify(secondRequest.messages)).toContain('Echo: computer-control-mcp-ok');
+    const windowResult = secondRequest.messages?.find(message => message.role === 'tool')?.content;
+    expect(windowResult).toContain('Found 1 window(s).');
+    expect(windowResult).toContain('"window_id":280');
+    expect(windowResult).toContain('"pid":6844');
+    expect(windowResult).toContain('Spotify Free');
+    expect(JSON.stringify(provider.requests[2])).toContain('Spotify window 280 inspected');
+    expect(session.readAll()).not.toContain('window_id is not a live window');
     expect(await readFile(state.configPath, 'utf8')).not.toContain('cua-driver');
     await exitInteractive(session);
   }, 45_000);

@@ -176,6 +176,38 @@ describe('LLMGatewayClient', () => {
     });
   });
 
+  it('identifies a stalled Autohand AI stream without replaying it or leaking its timer', async () => {
+    vi.useFakeTimers();
+    try {
+      const baseline = vi.getTimerCount();
+      const cancel = vi.fn();
+      const body = new ReadableStream<Uint8Array>({ cancel });
+      const fetchMock = vi.fn().mockResolvedValue(new Response(body, {
+        headers: { 'content-type': 'text/event-stream' },
+      }));
+      global.fetch = fetchMock;
+      const client = new LLMGatewayClient({ apiKey: 'test-key', model: 'fantail' }, {
+        maxRetries: 2, timeout: 1000, retryDelay: 1,
+      }, {
+        serviceName: 'Autohand AI', credentialName: 'Autohand AI API key', accountName: 'Autohand AI account',
+      });
+      const failure = client.complete({ messages: [{ role: 'user', content: 'Inspect Spotify' }], stream: true })
+        .catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(1000);
+      const error = await failure;
+      const requestId = fetchMock.mock.calls[0]?.[1]?.headers?.['x-autohand-client-request-id'];
+      expect(error).toMatchObject({ retryable: false, message: expect.stringContaining('Inference stream stalled') });
+      expect(error).toMatchObject({ message: expect.stringContaining(`Request ID: ${requestId}`) });
+      expect(error).toMatchObject({ message: expect.stringContaining('Check /usage before retrying') });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(body.locked).toBe(false);
+      expect(vi.getTimerCount()).toBe(baseline);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   describe('setDefaultModel', () => {
     it('should update the default model', () => {
       const settings: LLMGatewaySettings = {

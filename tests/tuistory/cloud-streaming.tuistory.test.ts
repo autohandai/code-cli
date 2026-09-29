@@ -7,7 +7,10 @@ const cleanupTasks: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const cleanup of cleanupTasks.splice(0).reverse()) await cleanup(); });
 
 describe('built cloud token streaming', () => {
-  it('stops an ambiguous Moa timeout without replaying the previous turn', async () => {
+  it.each([
+    { model: 'moa', accepted: false },
+    { model: 'fantail', accepted: true },
+  ])('stops a $model timeout without replaying the previous turn (accepted=$accepted)', async ({ model, accepted }) => {
     const auth = await createMockAuthServer();
     cleanupTasks.push(auth.close);
     const attempts: unknown[] = [];
@@ -23,7 +26,14 @@ describe('built cloud token streaming', () => {
         return;
       }
       attempts.push(body.messages);
-      if (attempts.length === 2) { stalledResponse = response; return; }
+      if (attempts.length === 2) {
+        stalledResponse = response;
+        if (accepted) {
+          response.writeHead(200, { 'content-type': 'text/event-stream' });
+          response.flushHeaders();
+        }
+        return;
+      }
       const content = 'Previous work is preserved.';
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       response.end(`data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 7, total_tokens: 12 } })}\n\ndata: [DONE]\n\n`);
@@ -38,7 +48,7 @@ describe('built cloud token streaming', () => {
     if (!address || typeof address === 'string') throw new Error('Fixture did not bind');
     const state = await createTempAutohandHome({ config: {
       provider: 'autohandai', features: { autohand_inference: true, automaticSpecialists: false },
-      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'fixture-only', baseUrl: `http://127.0.0.1:${address.port}`, model: 'moa' },
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'fixture-only', baseUrl: `http://127.0.0.1:${address.port}`, model },
       network: { timeout: 1_000, maxRetries: 1, retryDelay: 2_000 },
     } });
     cleanupTasks.push(state.cleanup);
@@ -54,7 +64,11 @@ describe('built cloud token streaming', () => {
     await session.type('Continue with another short answer');
     await session.press('enter');
     const failed = await session.text({ timeout: 20_000, waitFor: (text) => text.includes('Session failed') });
-    expect(failed).toContain('Request timed out waiting for Autohand AI to start a response');
+    expect(failed).toContain(accepted
+      ? 'Inference stream stalled before completion.'
+      : 'Request timed out waiting for Autohand AI to start a response');
+    expect(failed).toContain('Check /usage before retrying');
+    if (accepted) expect(failed).toContain('The accepted request was not replayed.');
     expect(failed).toMatch(/Request ID: [0-9a-f-]{36}/i);
     expect(failed).not.toContain('Attempting recovery');
     expect(failed).toContain('Previous work is preserved.');

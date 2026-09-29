@@ -452,6 +452,28 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
     });
   });
 
+  it.each([false, true])('preserves structured MCP window IDs alongside a text summary (error=%s)', async (isError) => {
+    const { internals } = createAgent();
+    const tool = 'mcp__autohand-computer-use__list_windows' as AgentAction['type'];
+    internals.toolManager.register({
+      name: tool,
+      description: 'List windows',
+      parameters: { type: 'object', properties: {} },
+    });
+    internals.mcpManager.callTool = vi.fn().mockResolvedValue({
+      isError,
+      content: [{ type: 'text', text: 'Found 1 window(s).' }],
+      structuredContent: { windows: [{ window_id: 280, pid: 6844, title: 'Spotify Free' }] },
+    });
+    internals.hookManager.executeHooks = vi.fn().mockResolvedValue([]);
+    internals.telemetryManager.trackToolUse = vi.fn().mockResolvedValue(undefined);
+
+    const [result] = await internals.toolManager.execute([{ id: 'windows', tool, args: {} }]);
+
+    expect(result.success).toBe(!isError);
+    expect(result.output).toBe('Found 1 window(s).\n{"windows":[{"window_id":280,"pid":6844,"title":"Spotify Free"}]}');
+  });
+
   it('keeps MCP image bytes out of textual tool output while registering a runtime observation', async () => {
     const { internals } = createAgent();
     const screenshotData = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB';
@@ -472,6 +494,7 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
         platform: 'macos',
         screenshot_width: 3456,
         screenshot_height: 2234,
+        preview: { type: 'image', data: screenshotData, mimeType: 'image/png' },
       },
     });
     internals.hookManager.executeHooks = vi.fn().mockResolvedValue([]);
@@ -489,7 +512,10 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
     expect(result).toEqual({
       tool: 'mcp__cua-driver__get_state',
       success: true,
-      output: 'desktop screenshot 3456x2234 px (screen 1728x1117 pts @ 2x)\n[1 image available for visual inspection.]',
+      output: 'desktop screenshot 3456x2234 px (screen 1728x1117 pts @ 2x)\n'
+        + JSON.stringify({ display: 'primary', platform: 'macos', screenshot_width: 3456, screenshot_height: 2234,
+          preview: { type: 'image', data: `[binary content omitted: ${screenshotData.length} characters]`, mimeType: 'image/png' } })
+        + '\n[1 image available for visual inspection.]',
       imageRefs: [imageRef],
     });
     expect(JSON.stringify(result)).not.toContain(screenshotData);

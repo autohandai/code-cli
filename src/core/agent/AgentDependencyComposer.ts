@@ -361,6 +361,9 @@ function stringifyMcpValue(value: unknown): string | undefined {
       if (entry !== null && typeof entry === 'object') {
         if (seen.has(entry)) return '[circular reference omitted]';
         seen.add(entry);
+        if (isPlainRecord(entry) && (entry.type === 'image' || entry.type === 'audio') && typeof entry.data === 'string') {
+          return { ...entry, data: `[binary content omitted: ${entry.data.length} characters]` };
+        }
       }
       return entry;
     });
@@ -430,8 +433,8 @@ async function normalizeMcpToolOutcome(
   if (unsupportedImages > 0) {
     notes.push(`[Visual inspection unavailable] ${unsupportedImages} unsupported image${unsupportedImages === 1 ? ' was' : 's were'} omitted.`);
   }
-  const structured = text.length === 0 ? stringifyMcpValue(result.structuredContent) : undefined;
-  const outputParts = [...text, ...(structured ? [structured] : []), ...notes];
+  const structured = stringifyMcpValue(result.structuredContent);
+  const outputParts = [...text, ...(structured && !text.some(part => part.trim() === structured) ? [structured] : []), ...notes];
   const output = outputParts.length > 0 ? outputParts.join('\n') : undefined;
 
   if (result.isError === true) {

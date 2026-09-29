@@ -487,7 +487,17 @@ export class LLMGatewayClient {
     // Inspection gateways can explicitly return buffered JSON even for stream:true.
     // Preserve that response without inventing incremental deltas or retrying billed work.
     if (isStreaming && !response.headers?.get('content-type')?.includes('application/json')) {
-      return readOpenAIEventStream(response, onDelta, signal, this.timeout);
+      try {
+        return await readOpenAIEventStream(response, onDelta, signal, this.timeout);
+      } catch (error) {
+        if (error instanceof ApiError && error.code !== 'cancelled' && this.errorLabels.serviceName === 'Autohand AI') {
+          throw new ApiError(
+            `${error.message}\nThe accepted request was not replayed. Check /usage before retrying. Request ID: ${headers['x-autohand-client-request-id']}.`,
+            error.code, error.httpStatus, false, error.retryAfterMs, error.rawDetail,
+          );
+        }
+        throw error;
+      }
     }
 
     const json = (await response.json()) as any;
