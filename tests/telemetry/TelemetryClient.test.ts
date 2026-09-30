@@ -517,6 +517,89 @@ describe('TelemetryClient session sync', () => {
       },
     );
 
+    function telemetryPosts() {
+      return vi.mocked(fetch).mock.calls.filter(([input]) => String(input).endsWith('/v1/telemetry'));
+    }
+
+    it('sends the login token as the bearer and no Authorization header without one', async () => {
+      const signedIn = createEnabledClient({ authToken: 'session-token', companySecret: 'ignored' });
+      await signedIn.track(event);
+      await signedIn.flush();
+      const anonymous = createEnabledClient({ companySecret: 'ignored' });
+      await anonymous.track(event);
+      await anonymous.flush();
+
+      const [signedInPost, anonymousPost] = telemetryPosts();
+      expect(new Headers(signedInPost[1]?.headers).get('Authorization')).toBe('Bearer session-token');
+      expect(new Headers(anonymousPost[1]?.headers).has('Authorization')).toBe(false);
+      expect(anonymous.getStats().queued).toBe(0);
+    });
+
+    it('retries anonymously when the API rejects the login token', async () => {
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).endsWith('/health')) return new Response('ok', { status: 200 });
+        return new Headers(init?.headers).has('Authorization')
+          ? new Response('{"success":false}', { status: 401 })
+          : new Response('{}', { status: 200 });
+      }));
+      const client = createEnabledClient({ authToken: 'expired-token' });
+      await client.track(event);
+
+      await expect(client.flush()).resolves.toMatchObject({ sent: 1, queued: 0 });
+      expect(telemetryPosts()).toHaveLength(2);
+
+      await client.track(event);
+      await client.flush();
+      expect(telemetryPosts()).toHaveLength(3);
+      expect(new Headers(telemetryPosts()[2][1]?.headers).has('Authorization')).toBe(false);
+    });
+
+    it('evicts the oldest heartbeats before other events when the queue is full', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
+      const client = createEnabledClient({ maxQueueSize: 3, batchSize: 100 });
+      await client.track({ ...event, eventType: 'skill_use', eventData: { skillName: 'review' } });
+      for (let index = 0; index < 5; index++) {
+        await client.track({ ...event, eventType: 'heartbeat', eventData: { index } });
+      }
+      await client.track({ ...event, eventData: { command: '/last' } });
+
+      const persisted = await fs.readJson(`${tempRoot}/telemetry/queue.json`);
+      expect(persisted.map((queued: { eventType: string }) => queued.eventType)).toEqual([
+        'skill_use',
+        'heartbeat',
+        'command_use',
+      ]);
+      expect(persisted[1].eventData).toEqual({ index: 4 });
+    });
+
+    it('removes stale temp files and keeps only the newest corrupt backups', async () => {
+      const dir = `${tempRoot}/telemetry`;
+      const stale = `${dir}/.queue.json.123.aaaa.tmp`;
+      const fresh = `${dir}/.queue.json.456.bbbb.tmp`;
+      const unrelated = `${dir}/.other.json.789.cccc.tmp`;
+      await fs.outputFile(stale, '');
+      await fs.outputFile(fresh, '');
+      await fs.outputFile(unrelated, '');
+      const old = new Date(Date.now() - 10 * 60_000);
+      await fs.utimes(stale, old, old);
+      await fs.utimes(unrelated, old, old);
+      for (const time of [1000, 5000, 2000, 4000, 3000]) {
+        await fs.outputFile(`${dir}/queue.json.corrupt-${time}-id${time}`, '[]');
+      }
+
+      createEnabledClient();
+
+      const entries = await fs.readdir(dir);
+      expect(entries).not.toContain('.queue.json.123.aaaa.tmp');
+      expect(entries).toContain('.queue.json.456.bbbb.tmp');
+      expect(entries).toContain('.other.json.789.cccc.tmp');
+      expect(entries.filter((entry) => entry.startsWith('queue.json.corrupt-')).sort()).toEqual([
+        'queue.json.corrupt-3000-id3000',
+        'queue.json.corrupt-4000-id4000',
+        'queue.json.corrupt-5000-id5000',
+      ]);
+    });
+
     it('releases the health and telemetry response bodies after a flush', async () => {
       const healthResponse = new Response('ok', { status: 200 });
       const telemetryResponse = new Response('{}', { status: 200 });

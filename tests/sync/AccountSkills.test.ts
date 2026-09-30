@@ -29,6 +29,18 @@ describe('automatic account skill synchronization', () => {
     await syncAccountSkills(config, 'test-token', 'device-a', { root, homeDir });
     expect(registry.hasSkill('account-review')).toBe(true);
   });
+  it('activates and reports an account skill named by a $mention', async () => {
+    const { root, config, registry } = await setup(), homeDir = path.join(root, 'home');
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL) => (
+      String(url).endsWith('/ack') ? Response.json({ success: true }) : Response.json({ accountId: 'account-a', revision: 1, skills: [skill] })
+    )));
+    await syncAccountSkills(config, 'test-token', 'device-a', { root, homeDir });
+    const trackSkillUse = vi.fn(async () => {});
+    registry.setTelemetryManager({ trackSkillUse } as never);
+    const mentioned = registry.activateMentionedSkills('Please use $account-review on this change.');
+    expect(mentioned).toEqual([expect.objectContaining({ name: 'account-review', isActive: true })]);
+    expect(trackSkillUse).toHaveBeenCalledWith(expect.objectContaining({ skillName: 'account-review', action: 'activate' }));
+  });
   it('bounds the refreshed snapshot after publishing a local skill', async () => {
     const { root, config } = await setup(), homeDir = path.join(root, 'home');
     await fs.outputFile(path.join(homeDir, '.agents/skills/abc/SKILL.md'), '---\nname: abc\ndescription: Local\n---\nCheck the result.');

@@ -381,13 +381,14 @@ export class SkillsRegistry {
         continue;
       }
       seen.add(name);
-      const skill = this.skills.get(name);
+      // getSkill, not this.skills: account-managed skills live only in the
+      // account snapshot, and a mention must activate (and report) them too.
+      const skill = this.getSkill(name);
       if (!skill) {
         continue;
       }
-      if (!skill.isActive) {
-        this.activateSkill(name);
-      }
+      this.activateSkill(name);
+      skill.isActive = true;
       mentioned.push(skill);
     }
     return mentioned;

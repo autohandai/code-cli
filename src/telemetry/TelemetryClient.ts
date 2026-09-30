@@ -19,6 +19,8 @@ const TELEMETRY_REQUEST_TIMEOUT_MS = 5_000;
 const DEFAULT_SYNC_TIMEOUT_MS = 1_500;
 const DEFAULT_MAX_QUEUE_SIZE = 500;
 const MAX_SESSION_SYNC_QUEUE_SIZE = 10;
+const MAX_CORRUPT_QUEUE_BACKUPS = 3;
+const STALE_TEMP_FILE_MS = 60_000;
 const TELEMETRY_EVENT_TYPES = new Set<TelemetryEvent['eventType']>([
   'session_start',
   'session_end',
@@ -42,6 +44,11 @@ const TELEMETRY_CLIENT_TYPES = new Set<TelemetryEvent['clientType']>([
 ]);
 
 type UnknownRecord = Record<string, unknown>;
+
+function backupTime(fileName: string): number {
+  const match = /\.corrupt-(\d+)-/.exec(fileName);
+  return match ? Number(match[1]) : 0;
+}
 
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -192,6 +199,26 @@ interface ActiveFlush {
   promise: Promise<TelemetryFlushResult>;
 }
 
+/**
+ * Bound the queue, evicting the oldest heartbeats before anything else.
+ * Heartbeats arrive every few seconds and carry little, so a long offline
+ * spell must not push out skill, tool, and command events.
+ */
+function trimQueue(queue: TelemetryEvent[], maxSize: number): TelemetryEvent[] {
+  let excess = queue.length - maxSize;
+  if (excess <= 0) return queue;
+  const evicted = new Set<TelemetryEvent>();
+  for (const event of queue) {
+    if (excess === 0) break;
+    if (event.eventType === 'heartbeat') {
+      evicted.add(event);
+      excess--;
+    }
+  }
+  const kept = queue.filter((event) => !evicted.has(event));
+  return excess > 0 ? kept.slice(excess) : kept;
+}
+
 export class TelemetryClient {
   private config: TelemetryConfig;
   private queue: TelemetryEvent[] = [];
@@ -199,6 +226,8 @@ export class TelemetryClient {
   private flushTimer: NodeJS.Timeout | null = null;
   private activeFlush: ActiveFlush | null = null;
   private queueWritePromise: Promise<void> = Promise.resolve();
+  /** Set once the API rejects the login token; later batches go anonymously. */
+  private authRejected = false;
 
   constructor(config: Partial<TelemetryConfig> = {}) {
     this.config = {
@@ -257,11 +286,51 @@ export class TelemetryClient {
         if (eventIds.size !== parsed.length) {
           throw new Error('Invalid telemetry queue: duplicate event identifiers');
         }
-        this.queue = parsed.slice(-this.config.maxQueueSize);
+        this.queue = trimQueue(parsed, this.config.maxQueueSize);
       }
     } catch {
       this.queue = [];
       this.backupMalformedQueue(QUEUE_FILE);
+    }
+    this.removeLeftoverFiles();
+  }
+
+  /**
+   * Remove temp files orphaned by interrupted atomic writes and all but the
+   * newest few corrupt-queue backups, so the telemetry directory stays bounded.
+   */
+  private removeLeftoverFiles(): void {
+    try {
+      const now = Date.now();
+      const entries = fs.readdirSync(TELEMETRY_DIR);
+      for (const queueFile of [QUEUE_FILE, SESSION_SYNC_QUEUE_FILE]) {
+        const base = path.basename(queueFile);
+        if (path.dirname(queueFile) !== TELEMETRY_DIR) continue;
+        for (const entry of entries) {
+          if (!entry.startsWith(`.${base}.`) || !entry.endsWith('.tmp')) continue;
+          const entryPath = path.join(TELEMETRY_DIR, entry);
+          try {
+            // Recent temp files may belong to a write still in flight in another process.
+            if (now - fs.statSync(entryPath).mtimeMs > STALE_TEMP_FILE_MS) {
+              fs.unlinkSync(entryPath);
+            }
+          } catch {
+            // Best-effort cleanup.
+          }
+        }
+        const backups = entries
+          .filter((entry) => entry.startsWith(`${base}.corrupt-`))
+          .sort((a, b) => backupTime(b) - backupTime(a));
+        for (const backup of backups.slice(MAX_CORRUPT_QUEUE_BACKUPS)) {
+          try {
+            fs.unlinkSync(path.join(TELEMETRY_DIR, backup));
+          } catch {
+            // Best-effort cleanup.
+          }
+        }
+      }
+    } catch {
+      // Telemetry housekeeping never blocks startup.
     }
   }
 
@@ -380,11 +449,7 @@ export class TelemetryClient {
     };
 
     this.queue.push(fullEvent);
-
-    // Trim queue if too large
-    if (this.queue.length > this.config.maxQueueSize) {
-      this.queue = this.queue.slice(-this.config.maxQueueSize);
-    }
+    this.queue = trimQueue(this.queue, this.config.maxQueueSize);
 
     await this.saveQueue(options.signal);
 
@@ -439,22 +504,34 @@ export class TelemetryClient {
 
     for (let attempt = 0; attempt < this.config.maxRetries && !signal.aborted; attempt++) {
       try {
-        const authToken = `${this.deviceId}.${this.config.companySecret}`;
+        // The API reads a bearer as a login session and rejects anything else,
+        // so only a real login token is sent; without one, events go anonymously.
+        const authToken = this.authRejected ? undefined : this.config.authToken;
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'X-CLI-Version': eventsToSend[0]?.cliVersion || 'unknown'
+        };
+        if (authToken) {
+          headers.Authorization = `Bearer ${authToken}`;
+        }
         const response = await this.fetchWithTimeout(
           `${this.config.apiBaseUrl}/v1/telemetry`,
           {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${authToken}`,
-              'X-CLI-Version': eventsToSend[0]?.cliVersion || 'unknown'
-            },
+            headers,
             body: JSON.stringify({ events: eventsToSend })
           },
           TELEMETRY_REQUEST_TIMEOUT_MS,
           signal
         );
         discardResponseBody(response);
+
+        if (response.status === 401 && authToken) {
+          // An expired login must not silence telemetry: retry without it.
+          this.authRejected = true;
+          failed = eventsToSend.length;
+          continue;
+        }
 
         if (response.ok) {
           const acknowledgedIds = new Set(eventsToSend.map((event) => event.id));
