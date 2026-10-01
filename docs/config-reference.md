@@ -3315,3 +3315,12 @@ The following directories cannot be added:
 - Windows system directories (`C:\Windows`, `C:\Program Files`)
 - Windows user directories (`C:\Users\username`)
 - WSL Windows mounts (`/mnt/c`, `/mnt/c/Windows`)
+
+
+### ACP session preferences
+
+Cloud Autohand sessions expose a Moa reasoning effort control through
+\`session/set_config_option\` with \`configId: "reasoning_effort"\`. Accepted
+values are \`medium\`, \`high\` (default), and \`xhigh\`. Changes apply to the
+active session's subsequent Moa requests and do not overwrite the global config.
+Fantail ignores this setting; local sessions do not advertise it.

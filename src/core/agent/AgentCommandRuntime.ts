@@ -163,6 +163,20 @@ export function applyAgentAcpModel(host: AgentCommandRuntimeHost, modelId: strin
   }
 
 export function applyAgentAcpConfigOption(host: AgentCommandRuntimeHost, configId: string, value: string): void {
+    if (configId === 'reasoning_effort') {
+      const config = host.runtime.config;
+      if ((value === 'medium' || value === 'high' || value === 'xhigh')
+        && (host.activeProvider ?? config.provider) === 'autohandai'
+        && config.autohandai?.plan !== 'local') {
+        host.runtime.config = {
+          ...config,
+          autohandai: { ...config.autohandai, reasoningEffort: value },
+        };
+        host.llm.setReasoningEffort?.(value);
+      }
+      return;
+    }
+
     if (configId === 'thinking_level') {
       if (value === 'none' || value === 'normal' || value === 'extended') {
         host.runtime.options.thinking = value;

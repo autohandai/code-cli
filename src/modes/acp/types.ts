@@ -396,6 +396,23 @@ export function buildConfigOptions(
     currentValue: resolveDefaultModel(config),
   });
 
+  if (config.provider === "autohandai" && config.autohandai?.plan !== "local") {
+    const effort = config.autohandai?.reasoningEffort;
+    options.push({
+      type: "select",
+      id: "reasoning_effort",
+      name: "Moa Reasoning Effort",
+      description: "Depth of reasoning when using Moa",
+      category: "reasoning",
+      currentValue: effort === "medium" || effort === "high" || effort === "xhigh" ? effort : "high",
+      options: [
+        { value: "medium", name: "Medium" },
+        { value: "high", name: "High" },
+        { value: "xhigh", name: "Extra high" },
+      ],
+    });
+  }
+
   // Thinking level
   options.push({
     type: "select",

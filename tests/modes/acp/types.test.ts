@@ -542,3 +542,19 @@ describe("resolveDefaultModel()", () => {
     expect(resolveDefaultModel(config)).toBe("openai/gpt-5");
   });
 });
+
+describe("Autohand ACP reasoning effort", () => {
+  it("advertises the Moa effort ladder on cloud sessions with the configured default", () => {
+    const options = buildConfigOptions(makeConfig({
+      provider:"autohandai",autohandai:{plan:"cloud",model:"fantail",reasoningEffort:"xhigh"},
+    }));
+    expect(options.find(option=>option.id==="reasoning_effort")).toMatchObject({
+      type:"select",currentValue:"xhigh",
+      options:[{value:"medium",name:"Medium"},{value:"high",name:"High"},{value:"xhigh",name:"Extra high"}],
+    });
+  });
+  it("does not advertise cloud effort on local or other-provider sessions", () => {
+    expect(buildConfigOptions(makeConfig()).some(option=>option.id==="reasoning_effort")).toBe(false);
+    expect(buildConfigOptions(makeConfig({provider:"autohandai",autohandai:{plan:"local",model:"local"}})).some(option=>option.id==="reasoning_effort")).toBe(false);
+  });
+});

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { LLMRequest, LLMResponse } from '../types.js';
+import type { LLMRequest, LLMResponse, ReasoningEffort } from '../types.js';
 
 export interface LLMProviderCapabilities {
     /**
@@ -20,6 +20,7 @@ export interface LLMProviderCapabilities {
  * Base interface for all LLM providers
  */
 export interface LLMProvider {
+    setReasoningEffort?(effort: ReasoningEffort): void;
     /**
      * Get the provider name
      */
