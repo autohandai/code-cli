@@ -330,6 +330,7 @@ export const RPC_NOTIFICATIONS = {
   HOOK_SUBAGENT_STOP: 'autohand.hook.subagentStop',
   HOOK_COMPUTER_USE_START: 'autohand.hook.computerUseStart',
   HOOK_COMPUTER_USE_PROGRESS: 'autohand.hook.computerUseProgress',
+  HOOK_COMPUTER_USE_ERROR: 'autohand.hook.computerUseError',
   HOOK_COMPUTER_USE_STOP: 'autohand.hook.computerUseStop',
   HOOK_SUBAGENT_START: 'autohand.hook.subagentStart',
   HOOK_SUBAGENT_PROGRESS: 'autohand.hook.subagentProgress',
@@ -985,6 +986,7 @@ export interface HookComputerUseNotificationParams {
   tool?: string;
   toolCallId?: string;
   success?: boolean;
+  error?: string;
   duration?: number;
   toolCallsCount?: number;
   timestamp: string;

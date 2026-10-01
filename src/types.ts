@@ -791,6 +791,7 @@ export type HookEvent =
   | 'subagent-stop'     // Subagent (Task tool) finished
   | 'computer-use-start'
   | 'computer-use-progress'
+  | 'computer-use-error'
   | 'computer-use-stop'
   | 'session-start'     // Session begins (startup, resume, clear)
   | 'session-end'       // Session ends (quit, exit)

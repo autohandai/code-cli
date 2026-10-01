@@ -98,6 +98,52 @@ describe('ToolImageStore', () => {
     expect(JSON.stringify([result])).not.toContain('base64');
   });
 
+  it('bounds repeated Computer Use observations below the provider payload limit without dropping the latest frame', async () => {
+    const input = await sharp(randomBytes(1280 * 800 * 3), {
+      raw: { width: 1280, height: 800, channels: 3 },
+    }).png().toBuffer();
+    const messages: LLMMessage[] = [{ role: 'user', content: 'Play the requested artist in Spotify.' }];
+    for (let index = 0; index < 6; index++) {
+      const id = `native-${index}`;
+      const registration = await store.register([{ data: input.toString('base64'), mimeType: 'image/png', label: id }]);
+      expect(registration.error).toBeUndefined();
+      const result = { ...toolResult(id), name: 'mcp__autohand-computer-use__get_window_state' };
+      expect(await store.attachRegistered(result, registration.refs)).toEqual({ attached: 1 });
+      messages.push(toolCalls(id), result);
+    }
+    const prepared = store.prepare(messages);
+    expect(images(prepared)).toHaveLength(2);
+    expect(Buffer.byteLength(JSON.stringify(prepared))).toBeLessThan(2 * 1024 * 1024);
+    expect(JSON.stringify(prepared)).toContain('Tool image: native-5');
+    expect(JSON.stringify(prepared)).toContain('Tool image: native-4');
+    expect(JSON.stringify(prepared)).not.toContain('Tool image: native-3');
+    expect(JSON.stringify(prepared)).toContain('unavailable');
+    expect(messages.filter(message => message.role === 'tool')).toHaveLength(6);
+    expect(JSON.stringify(messages)).not.toContain('base64');
+    for (const url of images(prepared)) {
+      expect(Buffer.byteLength(url)).toBeLessThanOrEqual(512 * 1024);
+      const metadata = await sharp(Buffer.from(url.split(',')[1], 'base64')).metadata();
+      expect(metadata.width).toBe(1280);
+      expect(metadata.height).toBe(800);
+    }
+    expect(store.prepare(messages)).toEqual(prepared);
+  });
+
+  it('preserves other MCP images and user attachments when replacing native observations', async () => {
+    const input = await fs.readFile(await screenshot());
+    const user: MultimodalMessage = { role: 'user', content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,' + input.toString('base64') } }] };
+    const messages: MultimodalMessage[] = [user];
+    for (const name of ['mcp__other__screenshot', ...Array<string>(3).fill('mcp__autohand-computer-use__get_window_state')]) {
+      const registration = await store.register([{ data: input.toString('base64'), mimeType: 'image/png' }]);
+      const result = { ...toolResult(String(messages.length)), name };
+      await store.attachRegistered(result, registration.refs);
+      messages.push(result);
+    }
+    const prepared = store.prepare(messages);
+    expect(images(prepared)).toHaveLength(4);
+    expect(prepared[0]).toBe(user);
+  });
+
   it('rejects malformed inline images without echoing their payloads', async () => {
     const malformed = 'not-valid-base64***';
     const malformedResult = await store.register([{ data: malformed, mimeType: 'image/png' }]);

@@ -17,6 +17,6 @@
    13. subagent-stop             0          0       When a subagent finishes
    14. computer-use-start        0          0       When the first authorized Computer Use action
    15. computer-use-progress     0          0       When a Computer Use action starts or settles
-   ↓ 46 more below
+   ↓ 47 more below
 
  ↑/↓ navigate · Enter describe a hook · Esc close · /hooks manage for existing hooks

@@ -1877,16 +1877,18 @@ export class RPCAdapter {
       }
       case 'computer-use-start':
       case 'computer-use-progress':
+      case 'computer-use-error':
       case 'computer-use-stop': {
         const notifications = {
           'computer-use-start': RPC_NOTIFICATIONS.HOOK_COMPUTER_USE_START,
           'computer-use-progress': RPC_NOTIFICATIONS.HOOK_COMPUTER_USE_PROGRESS,
+          'computer-use-error': RPC_NOTIFICATIONS.HOOK_COMPUTER_USE_ERROR,
           'computer-use-stop': RPC_NOTIFICATIONS.HOOK_COMPUTER_USE_STOP,
         };
         if (!this.notificationsSealed) writeNotification(notifications[context.event], {
           runId: context.computerUseId ?? '', status: context.computerUseStatus,
           action: context.computerUseAction, tool: context.tool, toolCallId: context.toolCallId,
-          success: context.success, duration: context.duration, toolCallsCount: context.toolCallsCount,
+          success: context.success, error: context.error, duration: context.duration, toolCallsCount: context.toolCallsCount,
           timestamp: createTimestamp(),
         } satisfies HookComputerUseNotificationParams);
         break;

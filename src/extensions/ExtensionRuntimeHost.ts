@@ -202,6 +202,7 @@ const HOOK_EVENTS = new Set<HookEvent>([
   'subagent-stop',
   'computer-use-start',
   'computer-use-progress',
+  'computer-use-error',
   'computer-use-stop',
   'session-start',
   'session-end',

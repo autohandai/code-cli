@@ -124,6 +124,32 @@ function createAgent(
 }
 
 describe('AgentDependencyComposer typed tool outcomes', () => {
+  it.each(['reported', 'thrown', 'aborted'] as const)('reports native %s outcomes to lifecycle hooks', async (mode) => {
+    const { internals } = createAgent();
+    const tool = 'mcp__autohand-computer-use__type_text' as AgentAction['type'];
+    internals.toolManager.register({ name: tool, description: 'Type', parameters: { type: 'object', properties: {} } });
+    const error = 'type_text incomplete: delivered 0 of 11 characters';
+    internals.mcpManager.callTool = mode === 'reported'
+      ? vi.fn().mockResolvedValue({ isError: true, content: [{ type: 'text', text: error }] })
+      : vi.fn().mockRejectedValue(Object.assign(new Error(error), { name: mode === 'aborted' ? 'AbortError' : 'Error' }));
+    internals.hookManager.executeHooks = vi.fn().mockResolvedValue([]);
+    internals.telemetryManager.trackToolUse = vi.fn().mockResolvedValue(undefined);
+    await internals.toolManager.execute([{ id: 'native-write', tool, args: {} }]);
+    const calls = internals.hookManager.executeHooks.mock.calls;
+    expect(calls.some(([event]) => event === 'post-tool')).toBe(true);
+    const failures = calls.filter(([event]) => event === 'computer-use-error');
+    if (mode === 'aborted') {
+      expect(failures).toHaveLength(0);
+      expect(calls.at(-1)?.[1]).toMatchObject({ computerUseStatus: 'cancelled' });
+    } else {
+      expect(failures).toHaveLength(1);
+      expect(failures[0]?.[1]).toMatchObject({
+        tool, toolCallId: 'native-write', computerUseStatus: 'failed', success: false,
+        error: expect.stringContaining(error),
+      });
+    }
+  });
+
   it('emits Computer Use lifecycle progress alongside the generic tool hooks', async () => {
     const { internals } = createAgent();
     const tool = 'mcp__autohand-computer-use__type_text' as AgentAction['type'];

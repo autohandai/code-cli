@@ -5,6 +5,8 @@
  */
 import { chmod, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { randomBytes } from 'node:crypto';
+import sharp from 'sharp';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
@@ -30,14 +32,14 @@ afterEach(async () => {
   await Promise.all(states.splice(0).map((state) => state.cleanup()));
 });
 
-async function writeFakeCuaDriver(state: TuistoryTempState, initializeDelayMs = 0): Promise<string> {
+async function writeFakeCuaDriver(state: TuistoryTempState, initializeDelayMs = 0, screenshotPath = ''): Promise<string> {
   const executable = path.join(state.workspaceRoot, 'cua-driver');
   const mcpFixture = path.join(repoRoot(), 'tests/fixtures/mock-mcp-server.mjs');
   await writeFile(executable, [
     '#!/bin/sh',
     'case "${1:-}" in',
     '  --version) printf "cua-driver 0.28.2\\n" ;;',
-    `  mcp) MCP_TEST_INITIALIZE_DELAY_MS="${initializeDelayMs}" exec "${process.execPath}" "${mcpFixture}" ;;`,
+    `  mcp) MCP_TEST_SCREENSHOT_PATH="${screenshotPath}" MCP_TEST_INITIALIZE_DELAY_MS="${initializeDelayMs}" exec "${process.execPath}" "${mcpFixture}" ;;`,
     '  doctor) printf "Cua Driver doctor: ready\\n" ;;',
     '  *) exit 2 ;;',
     'esac',
@@ -321,7 +323,7 @@ describe('built native computer control', () => {
     servers.push(provider);
     const state = await createTempAutohandHome({
       config: {
-        hooks: { hooks: (['computer-use-start', 'computer-use-progress', 'computer-use-stop'] as const)
+        hooks: { hooks: (['computer-use-start', 'computer-use-progress', 'computer-use-error', 'computer-use-stop'] as const)
           .map(event => ({ event, command: 'node computer-use-hook.cjs' })) },
         provider: 'autohandai',
         autohandai: {
@@ -396,12 +398,16 @@ process.stdin.on('end', () => require('node:fs').appendFileSync('computer-use-ho
     const nativeHooks = (await readFile(path.join(state.workspaceRoot, 'computer-use-hooks.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
     expect(nativeHooks.map(hook => hook.hook_event_name)).toEqual([
       'computer-use-start',
-      ...Array.from({ length: 8 }, () => 'computer-use-progress'),
+      ...Array.from({ length: 6 }, () => 'computer-use-progress'),
+      'computer-use-error',
+      'computer-use-progress', 'computer-use-progress',
       'computer-use-stop',
     ]);
     expect(new Set(nativeHooks.map(hook => hook.computer_use_id)).size).toBe(1);
     expect(nativeHooks.at(-1)).toMatchObject({ computer_use_status: 'finished', tool_calls_count: 4 });
-    expect(nativeHooks.some(hook => hook.computer_use_status === 'failed')).toBe(true);
+    expect(nativeHooks.filter(hook => hook.hook_event_name === 'computer-use-error')).toEqual([
+      expect.objectContaining({ computer_use_status: 'failed', tool_use_id: 'call_stale', error: expect.stringContaining('window_id') }),
+    ]);
     for (const relative of await readdir(storedSessions, { recursive: true })) {
       if (!relative.endsWith('.json') && !relative.endsWith('.jsonl')) continue;
       const persisted = await readFile(path.join(storedSessions, relative), 'utf8');
@@ -409,6 +415,50 @@ process.stdin.on('end', () => require('node:fs').appendFileSync('computer-use-ho
       expect(persisted).not.toContain('iVBORw0KGgo');
     }
   }, 45_000);
+
+  it('finishes repeated large screenshot observations without overflowing the model request', async () => {
+    const provider = await createMockAutohandAINativeSequenceServer([
+      ...Array.from({ length: 6 }, (_, index) => ({
+        toolCall: { id: `frame-${index}`, name: 'mcp__autohand-computer-use__screenshot_test', args: { frame: index } },
+      })),
+      { content: 'SCREENSHOT_PAYLOAD_BOUNDED' },
+    ]);
+    servers.push(provider);
+    const state = await createTempAutohandHome({
+      config: {
+        provider: 'autohandai',
+        autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'tuistory-key', model: 'moa', baseUrl: provider.baseUrl },
+        features: { autohand_inference: true },
+        agent: { autoMemory: false, sessionRetryLimit: 0, maxIterations: 8 },
+        network: { maxRetries: 0 },
+        ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+      },
+    });
+    states.push(state);
+    const screenshotPath = path.join(state.workspaceRoot, 'large-screenshot.png');
+    await sharp(randomBytes(1280 * 800 * 3), { raw: { width: 1280, height: 800, channels: 3 } }).png().toFile(screenshotPath);
+    const driver = await writeFakeCuaDriver(state, 0, screenshotPath);
+    const computerUseHost = await writeFakeComputerUseHost(state);
+    const session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '--yes'], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot,
+      env: { AUTOHAND_DISABLE_COMPUTER_USE: '0', AUTOHAND_CUA_DRIVER_PATH: driver, AUTOHAND_COMPUTER_USE_APP_PATH: computerUseHost },
+    });
+    sessions.push(session);
+    await session.text({ timeout: 20_000, waitFor: text => text.includes('❯') });
+    await session.type('Observe my desktop six times and summarize the latest state.');
+    await session.press('enter');
+    await session.waitForText('SCREENSHOT_PAYLOAD_BOUNDED', { timeout: 40_000 });
+    expect(provider.requests).toHaveLength(7);
+    for (const request of provider.requests) expect(Buffer.byteLength(JSON.stringify(request))).toBeLessThan(5 * 1024 * 1024);
+    const latest = JSON.stringify(provider.requests.at(-1));
+    const latestMessages = provider.requests.at(-1)?.messages as Array<{ role?: string; content?: unknown }> | undefined;
+    const toolDiagnostics = latestMessages?.filter(message => message.role === 'tool').map(message => JSON.stringify(message.content).slice(0, 500));
+    expect(latest.match(/data:image\/(?:png|jpeg);base64,/g), JSON.stringify(toolDiagnostics)).toHaveLength(2);
+    expect(latest).toContain('unavailable under runtime retention limits');
+    expect(session.readAll()).not.toContain('auto-compacting');
+    expect(session.readAll()).not.toContain('Request payload too large');
+    await exitInteractive(session);
+  }, 60_000);
 
   it('keeps tool discovery compact until the user expands it', async () => {
     const provider = await createMockAutohandAINativeSequenceServer([

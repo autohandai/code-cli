@@ -5,11 +5,12 @@
  * Provides text and screenshot tools.
  */
 
+import { readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 
 const rl = createInterface({ input: process.stdin });
 const initializeDelayMs = Number(process.env.MCP_TEST_INITIALIZE_DELAY_MS ?? 0);
-const screenshotData = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+const screenshotData = process.env.MCP_TEST_SCREENSHOT_PATH ? readFileSync(process.env.MCP_TEST_SCREENSHOT_PATH).toString('base64') : 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
 function send(obj) {
   process.stdout.write(JSON.stringify(obj) + '\n');
@@ -79,10 +80,10 @@ rl.on('line', (line) => {
             },
             {
               name: 'screenshot_test',
-              description: 'Returns a tiny desktop screenshot fixture',
+              description: 'Returns a desktop screenshot fixture',
               inputSchema: {
                 type: 'object',
-                properties: {},
+                properties: { frame: { type: 'integer' } },
               },
             },
           ],

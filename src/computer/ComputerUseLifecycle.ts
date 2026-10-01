@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { HookContext, HookManager } from '../core/HookManager.js';
 import { computerUseStepLabel, computerUseStepResult, COMPUTER_USE_TOOL_PREFIX } from './computerUseOutput.js';
 
-type ActionContext = Pick<HookContext, 'tool' | 'toolCallId' | 'args' | 'success' | 'output' | 'duration'>;
+type ActionContext = Pick<HookContext, 'tool' | 'toolCallId' | 'args' | 'success' | 'output' | 'error' | 'duration'>;
 type RunStatus = 'finished' | 'failed' | 'cancelled';
 
 interface ComputerUseRun {
@@ -37,11 +37,17 @@ export class ComputerUseLifecycle {
 
   async finishAction(context: ActionContext, aborted: boolean): Promise<void> {
     if (!context.tool?.startsWith(COMPUTER_USE_TOOL_PREFIX) || !this.run) return;
-    await this.emit('computer-use-progress', {
-      ...context, computerUseId: this.run.id,
-      computerUseStatus: aborted ? 'cancelled' : computerUseStepResult(context.success === true, context.output ?? '').status,
+    const status = aborted ? 'cancelled' : computerUseStepResult(context.success === true, context.output ?? '').status;
+    const actionContext = {
+      ...context, computerUseId: this.run.id, computerUseStatus: status,
       computerUseAction: computerUseStepLabel(context.tool, context.args ?? {}),
-    });
+    };
+    await this.emit('computer-use-progress', actionContext);
+    if (status === 'failed') {
+      await this.emit('computer-use-error', {
+        ...actionContext, error: context.error?.trim() || context.output?.trim() || 'Computer Use action failed.',
+      });
+    }
   }
 
   async finish(status: RunStatus): Promise<void> {
@@ -55,7 +61,7 @@ export class ComputerUseLifecycle {
     });
   }
 
-  private async emit(event: 'computer-use-start' | 'computer-use-progress' | 'computer-use-stop', context: Omit<HookContext, 'event' | 'workspace'>): Promise<void> {
+  private async emit(event: 'computer-use-start' | 'computer-use-progress' | 'computer-use-error' | 'computer-use-stop', context: Omit<HookContext, 'event' | 'workspace'>): Promise<void> {
     try {
       await this.hooks.executeHooks(event, context, { signal: AbortSignal.timeout(5_000) });
     } catch {

@@ -1356,6 +1356,7 @@ export function initializeAgentDependencies(
         let toolSuccess = false;
         let toolOutput: string | undefined;
         let toolError: string | undefined;
+        let toolAborted = false;
 
         try {
           // Emit tool_start only after ToolManager's canonical authorization.
@@ -1847,6 +1848,7 @@ export function initializeAgentDependencies(
           toolSuccess = finalOutcome.success;
           toolOutput = readableOutput;
           toolError = finalOutcome.success ? undefined : finalOutcome.error;
+          toolAborted = !finalOutcome.success && finalOutcome.kind === 'aborted';
 
           return finalOutcome;
         } catch (error) {
@@ -1854,6 +1856,7 @@ export function initializeAgentDependencies(
           const errorMessage = rawMessage.trim() || 'Tool execution failed.';
           toolOutput = errorMessage;
           toolError = errorMessage;
+          toolAborted = context?.signal?.aborted === true || (error instanceof Error && error.name === 'AbortError');
 
           // Track failed tool use
           await host.telemetryManager.trackToolUse({
@@ -1880,10 +1883,7 @@ export function initializeAgentDependencies(
 
           return {
             success: false,
-            kind: context?.signal?.aborted === true
-              || (error instanceof Error && error.name === 'AbortError')
-              ? 'aborted'
-              : 'operational',
+            kind: toolAborted ? 'aborted' : 'operational',
             error: errorMessage,
           } satisfies ToolActionOutcome;
         } finally {
@@ -1897,8 +1897,8 @@ export function initializeAgentDependencies(
             toolError,
           });
           await host.computerUseLifecycle.finishAction({ tool: action.type, toolCallId: toolId, args: action,
-            success: toolSuccess, output: toolOutput, duration: Date.now() - startTime,
-          }, context?.signal?.aborted === true);
+            success: toolSuccess, output: toolOutput, error: toolError, duration: Date.now() - startTime,
+          }, toolAborted || context?.signal?.aborted === true);
         }
       },
       confirmApproval: (message, context) => host.confirmDangerousAction(message, context),

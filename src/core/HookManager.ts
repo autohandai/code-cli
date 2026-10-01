@@ -575,6 +575,7 @@ export class HookManager {
       case 'post-tool':
       case 'computer-use-start':
       case 'computer-use-progress':
+      case 'computer-use-error':
       case 'permission-request':
         value = context.tool ?? '';
         break;

@@ -4,7 +4,9 @@ Autohand supports a JSON-RPC 2.0 protocol for IDE integration (VS Code, Zed, etc
 
 ## Overview
 
-Managed Computer Use publishes `autohand.hook.computerUseStart`, `autohand.hook.computerUseProgress`, and `autohand.hook.computerUseStop`. They carry `runId`, `status`, and `timestamp`; action events also carry `tool`, `toolCallId`, and a human-readable `action`. Settled actions include `success` and `duration`; stop includes `toolCallsCount` and the run duration. Progress can be `unverified` even when transport delivery succeeded. These observer notifications remain available when shell hooks are disabled. See [Computer Use lifecycle hooks](computer-control.md#lifecycle-hooks) for status semantics.
+Managed Computer Use publishes `autohand.hook.computerUseStart`, `autohand.hook.computerUseProgress`, `autohand.hook.computerUseError`, and `autohand.hook.computerUseStop`. They carry `runId`, `status`, and `timestamp`; action events also carry `tool`, `toolCallId`, and a human-readable `action`. Settled actions include `success` and `duration`; stop includes `toolCallsCount` and the run duration. Progress can be `unverified` even when transport delivery succeeded. These observer notifications remain available when shell hooks are disabled. See [Computer Use lifecycle hooks](computer-control.md#lifecycle-hooks) for status semantics.
+
+Computer Use action failures emit `autohand.hook.computerUseError` after failed progress, with `runId`, `toolCallId`, `tool`, `action`, `status: "failed"`, `success: false`, `error`, `duration`, and `timestamp`. Cancellation and unverified delivery do not emit this notification. Recovery may still finish the run normally.
 
 Communication uses newline-delimited JSON over stdio:
 - **stdin**: Client sends requests to Autohand

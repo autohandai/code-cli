@@ -8,6 +8,8 @@ import { constants, type Stats } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type sharpDefault from 'sharp';
+import type { Sharp } from 'sharp';
+import { COMPUTER_USE_TOOL_PREFIX } from '../computer/computerUseOutput.js';
 import type {
   ContentPart,
   LLMMessage,
@@ -24,6 +26,8 @@ const MAX_INLINE_INPUT_BYTES = 16 * 1024 * 1024;
 const MAX_INLINE_BASE64_CHARS = Math.ceil(MAX_INLINE_INPUT_BYTES / 3) * 4 + 4;
 const MAX_RETAINED_BYTES = 8 * 1024 * 1024;
 const MAX_RETAINED_IMAGES = 6;
+const MAX_COMPUTER_USE_OBSERVATIONS = 2;
+const MAX_COMPUTER_USE_IMAGE_BYTES = 512 * 1024;
 const MAX_IMAGE_LABEL_LENGTH = 200;
 const TOOL_IMAGE_REF = /^tool-image:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -67,6 +71,11 @@ async function compressImage(input: Buffer, signal?: AbortSignal): Promise<Buffe
     .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
     .png({ compressionLevel: 9 })
     .timeout({ seconds: 5 });
+  return renderImage(pipeline, signal);
+}
+
+async function renderImage(pipeline: Sharp, signal?: AbortSignal): Promise<Buffer> {
+  signal?.throwIfAborted();
   const compression = pipeline.toBuffer();
   if (!signal) return compression;
   let interrupt: () => void = () => {};
@@ -83,6 +92,21 @@ async function compressImage(input: Buffer, signal?: AbortSignal): Promise<Buffe
   } finally {
     signal.removeEventListener('abort', interrupt);
   }
+}
+
+async function boundComputerUseImage(image: StoredImage, signal?: AbortSignal): Promise<StoredImage> {
+  if (image.bytes <= MAX_COMPUTER_USE_IMAGE_BYTES) return image;
+  const sharp = await loadSharp();
+  const input = Buffer.from(image.url.slice(image.url.indexOf(',') + 1), 'base64');
+  for (const quality of [85, 65, 45, 25]) {
+    const jpeg = await renderImage(sharp(input, { limitInputPixels: 16_000_000, failOn: 'error' })
+      .flatten({ background: '#ffffff' }).jpeg({ quality })
+      .timeout({ seconds: 5 }), signal);
+    const url = `data:image/jpeg;base64,${jpeg.toString('base64')}`;
+    const bytes = Buffer.byteLength(url, 'utf8');
+    if (bytes <= MAX_COMPUTER_USE_IMAGE_BYTES) return { ...image, url, bytes };
+  }
+  throw new Error('Computer Use screenshot exceeds the encoded image budget; request a smaller capture.');
 }
 
 function decodeBase64Image(data: string): Buffer {
@@ -185,14 +209,21 @@ export class ToolImageStore {
       if (refs.some(ref => !TOOL_IMAGE_REF.test(ref))) throw new Error('Tool image reference is malformed.');
       const uniqueRefs = [...new Set(refs)];
       const missing = uniqueRefs.filter(ref => !this.registered.has(ref));
-      const images = uniqueRefs.flatMap(ref => {
+      let images = uniqueRefs.flatMap(ref => {
         const image = this.registered.get(ref);
         return image ? [image] : [];
       });
+      if (message.name?.startsWith(COMPUTER_USE_TOOL_PREFIX)) {
+        const bounded: StoredImage[] = [];
+        for (const image of images) bounded.push(await boundComputerUseImage(image, signal));
+        images = bounded;
+      }
+      signal?.throwIfAborted();
       for (const ref of uniqueRefs) this.registered.delete(ref);
       if (refs.length > 0) this.requested.add(message);
       if (images.length > 0) {
         this.attachments.set(message, [...(this.attachments.get(message) ?? []), ...images]);
+        this.trimComputerUseObservations();
         this.trimToBudget();
       }
       return missing.length === 0
@@ -232,6 +263,13 @@ export class ToolImageStore {
     } catch (error) {
       return { attached: 0, error: signal?.aborted ? 'Tool image attachment was cancelled.'
         : `Tool image attachment failed: ${error instanceof Error ? error.message : 'Unable to read evidence image.'}` };
+    }
+  }
+
+  private trimComputerUseObservations(): void {
+    const observations = [...this.attachments.keys()].filter(message => message.name?.startsWith(COMPUTER_USE_TOOL_PREFIX));
+    for (const message of observations.slice(0, -MAX_COMPUTER_USE_OBSERVATIONS)) {
+      this.attachments.delete(message);
     }
   }
 

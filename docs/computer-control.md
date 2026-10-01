@@ -78,13 +78,17 @@ Observation requests default to 80 elements, depth 12, and a 1280-pixel image bo
 
 The managed pointer uses a bundled light-gray (`#D3D3D3`) theme with a white outline. It is selected before the session's first action and ships inside standalone binaries. An explicitly requested session theme is preserved.
 
+Computer Use keeps images from the two newest screenshot observations in model requests. Each image is bounded to 512 KiB of encoded data; oversized PNGs are compressed as JPEG at the same dimensions. If a frame cannot fit, the tool observation reports that visual inspection is unavailable and the agent must request a smaller capture. Earlier action text, window IDs, and outcomes remain in history, with omitted images explicitly marked unavailable. Other MCP integrations and user attachments retain their existing behavior.
+
 ## Lifecycle hooks
 
-Configure `computer-use-start`, `computer-use-progress`, and `computer-use-stop` through `/hooks` or the normal hooks configuration. These observer events apply only to the managed `autohand-computer-use` MCP integration. Existing `pre-tool` and `post-tool` hooks still run; use `pre-tool` for authorization or input changes.
+Configure `computer-use-start`, `computer-use-progress`, `computer-use-error`, and `computer-use-stop` through `/hooks` or the normal hooks configuration. These observer events apply only to the managed `autohand-computer-use` MCP integration. Existing `pre-tool` and `post-tool` hooks still run; use `pre-tool` for authorization or input changes.
 
 The first authorized native action starts a run. Progress reports `running`, followed by `done`, `unverified`, `failed`, or `cancelled`, with the existing tool-call ID. The run stops once at turn completion or interruption. Stop statuses are `finished`, `failed`, or `cancelled`; `finished` describes the turn lifecycle and does not prove an application's postcondition. A denied tool does not start a native run.
 
-Hook stdin includes `computer_use_id`, `computer_use_action`, and `computer_use_status`, alongside the standard tool fields. Environment equivalents are `HOOK_COMPUTER_USE_ID`, `HOOK_COMPUTER_USE_ACTION`, and `HOOK_COMPUTER_USE_STATUS`. Stop events include `tool_calls_count` and `duration`. Start/progress matchers match the full tool name; stop matchers match the status. Observer hooks cannot authorize, block, or rewrite input, and their failures do not replace the tool result. Cancelled turns still emit a stop event using a separate bounded hook deadline.
+A failed action also emits `computer-use-error` after its failed progress event. It includes the run ID, tool-call ID, action, duration, and failure text in stdin `error` and `HOOK_ERROR`. Cancellation and unverified delivery do not emit error events. A later successful action does not erase an earlier error; a recovered turn can stop with `finished`. These events do not retry actions automatically.
+
+Hook stdin includes `computer_use_id`, `computer_use_action`, and `computer_use_status`, alongside the standard tool fields. Environment equivalents are `HOOK_COMPUTER_USE_ID`, `HOOK_COMPUTER_USE_ACTION`, and `HOOK_COMPUTER_USE_STATUS`. Stop events include `tool_calls_count` and `duration`. Start/progress/error matchers match the full tool name; stop matchers match the status. Observer hooks cannot authorize, block, or rewrite input, and their failures do not replace the tool result. Cancelled turns still emit a stop event using a separate bounded hook deadline.
 
 ## Browser control
 
