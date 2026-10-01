@@ -44,15 +44,19 @@ Run `autohand computer doctor` after installation and follow the platform guidan
 
 macOS requires the user to approve its protected permission prompts. Autohand opens the correct prompts during installation and does not require a separate driver setup command.
 
+Before a native app request on macOS, Autohand checks the managed host's effective permissions. A missing grant stops the turn before inference and prints recovery steps. Ordinary coding requests do not run this check. Permission-status subprocesses and result polling each have a five-second timeout; granting permissions during installation has a longer interactive timeout. `autohand computer doctor --json` reports `mcpReady: false` and exits unsuccessfully when a required permission is missing.
+
+If Accessibility is already enabled but doctor still reports it missing, macOS may have retained approval for an older signing identity. Remove the stale **Autohand Computer Use** entry, add the installed app again, and enable it. The default location is `~/Applications/Autohand Computer Use.app`, which is separate from the system `/Applications` folder. In the Add dialog, press **Cmd+Shift+G**, paste that path, and press Return to select it. Run doctor again to verify the effective grant. Autohand does not edit the macOS permission database.
+
 ## How a request runs
 
-For a request such as “go to Spotify and play Midnight City,” the agent follows this sequence:
+For a request such as “open Calculator and calculate 12 × 7,” the agent follows this sequence:
 
-1. list running applications and launch Spotify only when needed
+1. list running applications and launch Calculator only when needed
 2. select the exact process and window
 3. get fresh accessibility or visual state
 4. use a current element token for the requested action
-5. observe again and verify that the requested song is playing
+5. observe again and verify that the result is 84
 
 The agent asks before purchases, sending messages or posts, deleting data, changing an account or security setting, changing system permissions, or expanding materially beyond the original request.
 

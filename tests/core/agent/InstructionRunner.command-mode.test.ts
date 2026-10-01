@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
+import * as computerUse from '../../../src/computer/autohandComputerUse.js';
 import { GoalManager } from '../../../src/goals/GoalManager.js';
 import { InstructionRunner, type AgentInstructionHost } from '../../../src/core/agent/InstructionRunner.js';
 import { startDeepResearchRun } from '../../../src/deepResearch/session.js';
@@ -118,6 +119,45 @@ function createHost(): AgentInstructionHost {
 }
 
 describe('InstructionRunner command mode UI', () => {
+  it.each(['open my browser', 'open the Calculator app', 'type hello in the TextEdit window'])(
+    'stops %s before inference when the shared native permission check fails', async instruction => {
+      const host = createHost();
+      const issue = 'Autohand Computer Use needs Accessibility permission.';
+      const check = vi.spyOn(computerUse, 'getManagedComputerUsePermissionIssue').mockResolvedValue(issue);
+      try {
+        expect(await new InstructionRunner(host).run(instruction)).toBe(false);
+        expect(host.emitOutput).toHaveBeenCalledWith({ type: 'error', content: issue });
+        expect(host.buildTurnContext).not.toHaveBeenCalled();
+        expect(host.runReactLoop).not.toHaveBeenCalled();
+        expect(host.isInstructionActive).toBe(false);
+      } finally { check.mockRestore(); }
+    },
+  );
+
+  it('does not inspect desktop permissions for an ordinary coding request', async () => {
+    const check = vi.spyOn(computerUse, 'getManagedComputerUsePermissionIssue');
+    try {
+      expect(await new InstructionRunner(createHost()).run('explain this TypeScript function')).toBe(true);
+      expect(check).not.toHaveBeenCalled();
+    } finally { check.mockRestore(); }
+  });
+
+  it('keeps native permission inspection cancellable and releases turn state', async () => {
+    const host = createHost();
+    const check = vi.spyOn(computerUse, 'getManagedComputerUsePermissionIssue').mockImplementation(async () => {
+      expect(host.isInstructionActive).toBe(true);
+      expect(host.activeAbortController).not.toBeNull();
+      host.activeAbortController?.abort();
+      return undefined;
+    });
+    try {
+      expect(await new InstructionRunner(host).run('open the Calculator app')).toBe(false);
+      expect(host.runReactLoop).not.toHaveBeenCalled();
+      expect(host.activeAbortController).toBeNull();
+      expect(host.isInstructionActive).toBe(false);
+    } finally { check.mockRestore(); }
+  });
+
   it('keeps the human instruction separate from generated native-control context', async () => {
     const host = createHost();
     const instruction = 'open my computer and use spotify find felix rosch and play a song from him';

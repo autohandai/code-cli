@@ -3,8 +3,9 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { chmod, readFile, readdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
 import {
@@ -58,7 +59,94 @@ async function writeFakeComputerUseHost(state: TuistoryTempState): Promise<strin
   return executable;
 }
 
+async function writePermissionFixture(state: TuistoryTempState): Promise<Record<string, string>> {
+  const driver = await writeFakeCuaDriver(state);
+  const app = path.join(await realpath(state.workspaceRoot), 'Autohand Computer Use.app');
+  const executable = path.join(app, 'Contents/MacOS/AutohandComputerUse');
+  await mkdir(path.dirname(executable), { recursive: true });
+  await writeFile(executable, await readFile(await writeFakeComputerUseHost(state)));
+  await chmod(executable, 0o755);
+  const preload = path.join(state.workspaceRoot, 'permission-fixture.mjs');
+  await writeFile(preload, `
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+const spawn = childProcess.spawn;
+const app = ${JSON.stringify(app)};
+childProcess.spawn = function(command, args, options) {
+  if (args?.includes(app) && command.endsWith('/lsregister')) {
+    return spawn(process.execPath, ['-e', ''], options);
+  }
+  if (command === '/usr/bin/open' && args?.includes(app) && args.includes('--result-path')) {
+    const resultPath = args[args.indexOf('--result-path') + 1];
+    const script = 'require("node:fs").writeFileSync(process.argv[1], JSON.stringify({accessibility:false,screenRecording:true,bundleIdentifier:"ai.autohand.computer-use"}))';
+    return spawn(process.execPath, ['-e', script, resultPath], options);
+  }
+  return spawn(command, args, options);
+};
+syncBuiltinESMExports();
+`);
+  return {
+    AUTOHAND_DISABLE_COMPUTER_USE: '0',
+    AUTOHAND_CUA_DRIVER_PATH: driver,
+    AUTOHAND_COMPUTER_USE_APP_PATH: app,
+    NODE_OPTIONS: `--import=${pathToFileURL(preload).href}`,
+  };
+}
+
 describe('built native computer control', () => {
+  it.runIf(process.platform === 'darwin')('reports denied native permissions as JSON with recovery guidance', async () => {
+    const state = await createTempAutohandHome({ initializeGit: false });
+    states.push(state);
+    const session = await launchBuiltAutohand(['computer', 'doctor', '--json'], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      env: await writePermissionFixture(state),
+      cols: 1000,
+    });
+    sessions.push(session);
+    await waitForExit(session, 15_000);
+    expect(session.exitInfo?.exitCode).toBe(1);
+    const report = JSON.parse(session.readAll());
+    expect(report).toMatchObject({ mcpReady: false, permissions: { accessibility: false } });
+    expect(report.error).toContain('remove the old entry');
+    expect(report.error).toContain('Autohand Computer Use.app');
+  });
+
+  it.runIf(process.platform === 'darwin')('stops different app requests before inference and leaves the terminal usable', async () => {
+    const provider = await createMockAutohandAINativeSequenceServer([{ content: 'UNEXPECTED_MODEL_REQUEST' }]);
+    servers.push(provider);
+    const state = await createTempAutohandHome({
+      config: {
+        provider: 'autohandai',
+        autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'tuistory-key', model: 'moa', baseUrl: provider.baseUrl },
+        features: { autohand_inference: true },
+        agent: { autoMemory: false, sessionRetryLimit: 0 },
+        ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+      },
+    });
+    states.push(state);
+    const session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '--yes'], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      env: await writePermissionFixture(state),
+      cols: 160,
+      rows: 50,
+      waitForDataTimeout: 15_000,
+    });
+    sessions.push(session);
+    await session.waitForText('❯', { timeout: 20_000 });
+    for (const [index, request] of ['open the Calculator app', 'type hello in the TextEdit window', 'open my browser'].entries()) {
+      await session.type(request);
+      await session.press('enter');
+      await session.text({ timeout: 15_000, waitFor: () =>
+        session.readAll().split('needs Accessibility permission').length > index + 1 });
+    }
+    expect(provider.requests).toHaveLength(0);
+    expect(session.readAll()).toContain('remove the old entry');
+    expect(session.readAll()).toContain('autohand computer doctor');
+    await exitInteractive(session);
+  }, 60_000);
+
   it('exits unsuccessfully when the required postinstall component cannot be written', async () => {
     const state = await createTempAutohandHome({ initializeGit: false });
     states.push(state);

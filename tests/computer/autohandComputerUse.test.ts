@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import path from 'node:path';
-import { writeFile } from 'node:fs/promises';
-import { describe, expect, it } from 'vitest';
+import { access, writeFile } from 'node:fs/promises';
+import { describe, expect, it, vi } from 'vitest';
 import {
   AUTOHAND_COMPUTER_USE_APP_NAME,
   AUTOHAND_COMPUTER_USE_BUNDLE_ID,
@@ -13,6 +13,7 @@ import {
   buildComputerUsePermissionStatusPlan,
   buildComputerUseRegistrationPlan,
   inspectAutohandComputerUsePermissions,
+  getManagedComputerUsePermissionIssue,
   requestComputerUsePermissions,
   resolveAutohandComputerUseHostPath,
 } from '../../src/computer/autohandComputerUse.js';
@@ -97,6 +98,21 @@ describe('Autohand Computer Use macOS host', () => {
     expect(permissions).toBe('requested');
   });
 
+  it('bounds a missing permission result and cleans up its temporary state', async () => {
+    vi.useFakeTimers();
+    const baseline = vi.getTimerCount();
+    let resultPath = '';
+    try {
+      await expect(inspectAutohandComputerUsePermissions('/fixture/Autohand Computer Use.app', async plan => {
+        const flag = plan.args.indexOf('--result-path');
+        if (flag !== -1) resultPath = plan.args[flag + 1];
+      }, 0)).rejects.toThrow('timed out');
+      expect(resultPath).not.toBe('');
+      await expect(access(path.dirname(resultPath))).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(vi.getTimerCount()).toBe(baseline);
+    } finally { vi.useRealTimers(); }
+  });
+
   it('registers the app immediately before inspecting its permissions', async () => {
     const plans: Array<{ command: string; args: string[] }> = [];
     const permissions = await inspectAutohandComputerUsePermissions(
@@ -179,5 +195,36 @@ describe('Autohand Computer Use macOS host', () => {
       },
       isExecutable: (candidate) => candidate.includes('/path/with/a/host'),
     })).toBeNull();
+  });
+});
+
+describe('managed native permission preflight', () => {
+  const app = '/Applications/Autohand Computer Use.app';
+  const server = { name: 'autohand-computer-use', transport: 'stdio' as const, command: `${app}/Contents/MacOS/AutohandComputerUse`, env: { CUA_DRIVER_HOST_BUNDLE_ID: AUTOHAND_COMPUTER_USE_BUNDLE_ID } };
+
+  it('returns one app-independent recovery message and rechecks a repaired grant', async () => {
+    const inspect = vi.fn().mockResolvedValueOnce({ accessibility: false, screenRecording: true }).mockResolvedValueOnce({ accessibility: true, screenRecording: true });
+    const options = { platform: 'darwin' as const, inspect };
+    const issue = await getManagedComputerUsePermissionIssue([server], options);
+    expect(issue).toContain('Accessibility');
+    expect(issue).toContain('remove the old entry');
+    expect(issue).toContain(app);
+    expect(issue).not.toContain('Spotify');
+    expect(await getManagedComputerUsePermissionIssue([server], options)).toBeUndefined();
+    expect(inspect).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not probe unrelated, manual, disabled or non-macOS servers', async () => {
+    const inspect = vi.fn();
+    for (const servers of [undefined, [], [{ ...server, env: {} }], [{ ...server, autoConnect: false }]]) {
+      expect(await getManagedComputerUsePermissionIssue(servers, { platform: 'darwin', inspect })).toBeUndefined();
+    }
+    expect(await getManagedComputerUsePermissionIssue([server], { platform: 'win32', inspect })).toBeUndefined();
+    expect(inspect).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed check without claiming that permissions are granted', async () => {
+    const inspect = vi.fn().mockRejectedValue(new Error('status process timed out'));
+    expect(await getManagedComputerUsePermissionIssue([server], { platform: 'darwin', inspect })).toContain('could not verify');
   });
 });

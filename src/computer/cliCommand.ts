@@ -19,6 +19,7 @@ import { killAfter } from '../utils/processTimeout.js';
 import {
   AUTOHAND_COMPUTER_USE_APP_NAME,
   inspectAutohandComputerUsePermissions,
+  formatComputerUsePermissionIssue,
   resolveAutohandComputerUseHostPath,
 } from './autohandComputerUse.js';
 
@@ -227,10 +228,13 @@ async function handleDoctor(options: ComputerDoctorOptions): Promise<void> {
     const report = buildComputerStatusReport(await inspectCuaDriver(driverPath));
     const appPath = path.resolve(computerUseHostPath, '..', '..', '..');
     const permissions = await inspectAutohandComputerUsePermissions(appPath);
-    const ready = report.mcpReady && permissions.accessibility && permissions.screenRecording;
+    const permissionIssue = formatComputerUsePermissionIssue(permissions, appPath);
+    const ready = report.mcpReady && !permissionIssue;
     if (options.json) {
       console.log(JSON.stringify({
         ...report,
+        mcpReady: ready,
+        ...(permissionIssue ? { error: permissionIssue } : {}),
         permissionOwner: AUTOHAND_COMPUTER_USE_APP_NAME,
         permissions,
       }, null, 2));
@@ -246,6 +250,7 @@ async function handleDoctor(options: ComputerDoctorOptions): Promise<void> {
         ? chalk.green(`  Driver ${report.version} · ready`)
         : chalk.red(`  Driver · ${report.error ?? 'not ready'}`));
     }
+    if (!options.json && permissionIssue) console.log(chalk.yellow(permissionIssue));
     if (!ready) process.exitCode = 1;
     return;
   }
@@ -263,6 +268,7 @@ export function registerComputerCommand(program: Command): void {
   const withRootJson = <T extends ComputerStatusOptions>(options: T): T => ({
     ...options,
     json: options.json === true
+      || computer.opts<ComputerStatusOptions>().json === true
       || program.opts<{ json?: boolean | string }>().json !== undefined,
   });
 

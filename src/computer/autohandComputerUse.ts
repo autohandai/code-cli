@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import type { McpServerConfigEntry } from '../types.js';
 import { killAfter } from '../utils/processTimeout.js';
 
 export const AUTOHAND_COMPUTER_USE_APP_NAME = 'Autohand Computer Use';
@@ -18,6 +19,7 @@ export const AUTOHAND_COMPUTER_USE_EXECUTABLE_NAME = 'AutohandComputerUse';
 export const AUTOHAND_COMPUTER_USE_LAUNCHER_NAME = 'autohand-computer-use';
 
 const PERMISSION_TIMEOUT_MS = 10 * 60_000;
+const PERMISSION_STATUS_TIMEOUT_MS = 5_000;
 const LAUNCH_SERVICES_REGISTER =
   '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister';
 
@@ -313,8 +315,9 @@ export async function requestComputerUsePermissions(
 export async function inspectAutohandComputerUsePermissions(
   appPath: string,
   executePlan: (plan: ComputerUsePermissionPlan) => Promise<void> = (plan) => (
-    runCommand(plan, PERMISSION_TIMEOUT_MS)
+    runCommand(plan, timeoutMs)
   ),
+  timeoutMs = PERMISSION_STATUS_TIMEOUT_MS,
 ): Promise<ComputerUsePermissionStatus> {
   const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'autohand-computer-use-status-'));
   const resultPath = path.join(temporaryDirectory, 'permissions.json');
@@ -325,7 +328,7 @@ export async function inspectAutohandComputerUsePermissions(
       // LaunchServices can reject a redundant Spotlight scan even when the installed app launches.
     }
     await executePlan(buildComputerUsePermissionStatusPlan({ appPath, resultPath }));
-    return await waitForPermissionStatus(resultPath);
+    return await waitForPermissionStatus(resultPath, timeoutMs);
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });
   }
@@ -355,4 +358,43 @@ export async function prepareAutohandComputerUse(
   const launcherPath = await installLauncher(executable, options.binDirectory);
   const permissions = await requestComputerUsePermissions(destination, options.driverPath);
   return { status: 'ready', appPath: destination, launcherPath, permissions };
+}
+
+export function formatComputerUsePermissionIssue(
+  permissions: ComputerUsePermissionStatus,
+  appPath: string,
+): string | undefined {
+  const missing = [
+    ...(!permissions.accessibility ? ['Accessibility'] : []),
+    ...(!permissions.screenRecording ? ['Screen Recording'] : []),
+  ];
+  if (!missing.length) return undefined;
+  return [
+    `${AUTOHAND_COMPUTER_USE_APP_NAME} needs ${missing.join(' and ')} permission before it can control applications.`,
+    `Open System Settings → Privacy & Security and enable ${AUTOHAND_COMPUTER_USE_APP_NAME} under ${missing.join(' and ')}.`,
+    `If already enabled, remove the old entry and add "${appPath}" again; a replaced or re-signed app may have a stale grant.`,
+    'Then run: autohand computer doctor',
+  ].join('\n');
+}
+
+export async function getManagedComputerUsePermissionIssue(
+  servers: readonly McpServerConfigEntry[] | undefined,
+  options: {
+    platform?: NodeJS.Platform;
+    inspect?: typeof inspectAutohandComputerUsePermissions;
+  } = {},
+): Promise<string | undefined> {
+  if ((options.platform ?? process.platform) !== 'darwin') return undefined;
+  const server = servers?.find(entry => entry.transport === 'stdio'
+    && entry.autoConnect !== false
+    && entry.env?.CUA_DRIVER_HOST_BUNDLE_ID === AUTOHAND_COMPUTER_USE_BUNDLE_ID);
+  if (!server?.command) return undefined;
+  const appPath = path.resolve(server.command, '..', '..', '..');
+  if (!appPath.endsWith('.app')) return undefined;
+  try {
+    const permissions = await (options.inspect ?? inspectAutohandComputerUsePermissions)(appPath);
+    return formatComputerUsePermissionIssue(permissions, appPath);
+  } catch {
+    return `${AUTOHAND_COMPUTER_USE_APP_NAME} could not verify its desktop permissions. Run: autohand computer doctor`;
+  }
 }
