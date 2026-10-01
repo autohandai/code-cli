@@ -10,6 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import type { LoadedConfig, McpServerConfigEntry } from '../types.js';
+import { resolveAutohandHome } from '../constants.js';
 import {
   AUTOHAND_COMPUTER_USE_BUNDLE_ID,
   resolveAutohandComputerUseHostPath,
@@ -248,6 +249,7 @@ export function ensureCuaMcpServer(
         args,
         autoConnect: true,
         env: {
+          CUA_DRIVER_CURSOR_THEME_DIR: path.resolve(resolveAutohandHome({ environment: env }), 'computer-use', 'cursor-themes'),
           CUA_DRIVER_PERMISSION_MODE: 'standard',
           CUA_DRIVER_RS_TELEMETRY_ENABLED: '0',
           ...(computerUseHostPath

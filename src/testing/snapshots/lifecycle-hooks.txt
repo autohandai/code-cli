@@ -15,8 +15,8 @@
    11. subagent-message          0          0       When a message is queued for a subagent
    12. subagent-cancel-requested 0          0       When cancellation is requested for a subagent
    13. subagent-stop             0          0       When a subagent finishes
-   14. permission-request        0          0       When permission is requested
-   15. permission-denied         0          0       When a permission request is refused
-   ↓ 43 more below
+   14. computer-use-start        0          0       When the first authorized Computer Use action
+   15. computer-use-progress     0          0       When a Computer Use action starts or settles
+   ↓ 46 more below
 
  ↑/↓ navigate · Enter describe a hook · Esc close · /hooks manage for existing hooks

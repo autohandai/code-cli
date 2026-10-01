@@ -82,7 +82,7 @@ describe('resolveCuaDriverPath', () => {
 describe('ensureCuaMcpServer', () => {
   it('adds the detected driver as a standard, promptless stdio MCP server', () => {
     const loaded = config();
-    const result = ensureCuaMcpServer(loaded, { platform: 'linux', driverPath: '/opt/cua-driver' });
+    const result = ensureCuaMcpServer(loaded, { platform: 'linux', driverPath: '/opt/cua-driver', env: { AUTOHAND_HOME: '/tmp/autohand-test-home' } });
 
     expect(result.status).toBe('added');
     expect(loaded.mcp?.servers).toEqual([{
@@ -93,6 +93,7 @@ describe('ensureCuaMcpServer', () => {
       args: ['mcp'],
       autoConnect: true,
       env: {
+        CUA_DRIVER_CURSOR_THEME_DIR: path.resolve('/tmp/autohand-test-home', 'computer-use', 'cursor-themes'),
         CUA_DRIVER_PERMISSION_MODE: 'standard',
         CUA_DRIVER_RS_TELEMETRY_ENABLED: '0',
       },

@@ -14,6 +14,8 @@ import { stripAnsiCodes } from '../displayUtils.js';
 import { parseWorkspaceChangeSet } from '../../core/agent/WorkspaceChangeCapture.js';
 import { TodoListOutput } from './TodoListOutput.js';
 import { TeamTaskListOutput } from './TeamTaskListOutput.js';
+import { ComputerUseProgress } from './ComputerUseProgress.js';
+import { isComputerUseStep } from '../../computer/computerUseOutput.js';
 import type { OutputLayout } from './mouseInput.js';
 
 /** Tools whose JSON results are painted as panels instead of printed verbatim. */
@@ -31,6 +33,12 @@ const TEAM_TASK_TOOLS = new Set([
  * Returns null when the tool has no dedicated panel.
  */
 function specialToolRenderer(tool: string, output: string, success: boolean): React.ReactElement | null {
+  if (tool === 'computer_use') {
+    try {
+      const steps: unknown = JSON.parse(output);
+      if (Array.isArray(steps) && steps.every(isComputerUseStep)) return <ComputerUseProgress steps={steps} />;
+    } catch { return null; }
+  }
   if (tool === 'workspace_changes') {
     return <WorkspaceChangesOutput output={output} />;
   }

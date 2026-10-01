@@ -72,6 +72,20 @@ For a request such as “open Calculator and calculate 12 × 7,” the agent fol
 
 The agent asks before purchases, sending messages or posts, deleting data, changing an account or security setting, changing system permissions, or expanding materially beyond the original request.
 
+Managed Computer Use actions appear in one updating task lane. It shows the latest twelve steps, counts earlier steps, and distinguishes failed, interrupted, and unverified actions. Tool names, raw arguments, accessibility trees, and JSON are kept out of this lane. Other MCP integrations keep their existing display.
+
+Observation requests default to 80 elements, depth 12, and a 1280-pixel image bound when the driver advertises those options. Explicit limits are honored. Duplicate accessibility-tree representations are removed from model results while element tokens, window IDs, incomplete-result flags, screenshot geometry, images, and errors are retained. Labels and status rendering use local rules and require no additional model request.
+
+The managed pointer uses a bundled light-gray (`#D3D3D3`) theme with a white outline. It is selected before the session's first action and ships inside standalone binaries. An explicitly requested session theme is preserved.
+
+## Lifecycle hooks
+
+Configure `computer-use-start`, `computer-use-progress`, and `computer-use-stop` through `/hooks` or the normal hooks configuration. These observer events apply only to the managed `autohand-computer-use` MCP integration. Existing `pre-tool` and `post-tool` hooks still run; use `pre-tool` for authorization or input changes.
+
+The first authorized native action starts a run. Progress reports `running`, followed by `done`, `unverified`, `failed`, or `cancelled`, with the existing tool-call ID. The run stops once at turn completion or interruption. Stop statuses are `finished`, `failed`, or `cancelled`; `finished` describes the turn lifecycle and does not prove an application's postcondition. A denied tool does not start a native run.
+
+Hook stdin includes `computer_use_id`, `computer_use_action`, and `computer_use_status`, alongside the standard tool fields. Environment equivalents are `HOOK_COMPUTER_USE_ID`, `HOOK_COMPUTER_USE_ACTION`, and `HOOK_COMPUTER_USE_STATUS`. Stop events include `tool_calls_count` and `duration`. Start/progress matchers match the full tool name; stop matchers match the status. Observer hooks cannot authorize, block, or rewrite input, and their failures do not replace the tool result. Cancelled turns still emit a stop event using a separate bounded hook deadline.
+
 ## Browser control
 
 Native computer control uses the browser and profile already visible on the desktop. This is useful when the result depends on a signed-in local session or visible UI. Autohand's `/browser` extension bridge remains available for browser development, DOM inspection, console logs, and network diagnostics.

@@ -8,6 +8,7 @@ import type { PermissionManager } from '../../permissions/PermissionManager.js';
 import { getProviderConfig } from '../../config.js';
 import { isSearchConfigured } from '../../actions/web.js';
 import { formatToolOutputForDisplay, type ToolOutputDisplay } from '../../ui/toolOutput.js';
+import { COMPUTER_USE_TOOL_PREFIX } from '../../computer/computerUseOutput.js';
 import { getPlanModeManager } from '../../commands/plan.js';
 import type {
   AgentAction,
@@ -148,6 +149,8 @@ class LoopAbortedError extends Error {
 }
 
 export interface ReactLoopInkRenderer {
+  startComputerUseStep?(id: string, tool: string, args: Record<string, unknown>): void;
+  finishComputerUseStep?(id: string, success: boolean, output: string): void;
   setStatus(status: string): void;
   addToolCall(tool: AgentAction['type'], detail: string): void;
   addToolOutputBatch(
@@ -1171,7 +1174,15 @@ export async function runAgentReactLoop(
           : undefined;
 
         if (host.inkRenderer && displayToolOutput) {
-          for (const line of collapseToolCallLogLines(payload.toolCalls)) {
+          const nativeLane = Boolean(host.inkRenderer.startComputerUseStep && host.inkRenderer.finishComputerUseStep);
+          if (nativeLane) {
+            otherCalls.forEach((call, index) => {
+              if (call.tool.startsWith(COMPUTER_USE_TOOL_PREFIX)) {
+                host.inkRenderer?.startComputerUseStep?.(call.id ?? `computer-${iteration}-${index}`, call.tool, call.args ?? {});
+              }
+            });
+          }
+          for (const line of collapseToolCallLogLines(payload.toolCalls.filter(call => !nativeLane || !call.tool.startsWith(COMPUTER_USE_TOOL_PREFIX)))) {
             host.inkRenderer.addToolCall(line.tool, line.detail);
           }
         }
@@ -1350,6 +1361,12 @@ export async function runAgentReactLoop(
               }
               const resultThought = completedCount === 1 ? thought : undefined;
               const call = otherCalls[index];
+              if (displayToolOutput && result.tool.startsWith(COMPUTER_USE_TOOL_PREFIX)
+                && host.inkRenderer?.startComputerUseStep && host.inkRenderer.finishComputerUseStep) {
+                host.inkRenderer.finishComputerUseStep(call?.id ?? `computer-${iteration}-${index}`, result.success,
+                  result.success ? result.output ?? '' : result.error ?? result.output ?? '');
+                return;
+              }
               const group = host.inkRenderer && displayToolOutput ? pendingGroups.get(result.tool) : undefined;
               if (!group) {
                 renderToolResult(result, call, resultThought);

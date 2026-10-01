@@ -156,6 +156,7 @@ import {
 } from './agent/ReactLoopRunner.js';
 import { DEFAULT_RESPONSE_COMPLETION_HOOKS } from './agent/ResponseCompletionClassifier.js';
 import { initializeAgentDependencies, type AgentDependencyHost } from './agent/AgentDependencyComposer.js';
+import type { ComputerUseLifecycle } from '../computer/ComputerUseLifecycle.js';
 import {
   InstructionRunner,
   type AgentInstructionHost,
@@ -400,6 +401,7 @@ export class AutohandAgent {
   private turnMemoryReflectionAbortController: AbortController | null = null;
   private permissionManager!: PermissionManager;
   private hookManager!: HookManager;
+  private computerUseLifecycle?: ComputerUseLifecycle;
   private delegator!: AgentDelegator;
   private specialistOrchestrator!: SpecialistOrchestrator;
   private feedbackManager!: FeedbackManager;
@@ -1295,6 +1297,7 @@ export class AutohandAgent {
 
   async shutdown(options: AgentShutdownOptions = {}): Promise<void> {
     this.shutdownPromise ??= (async () => {
+      await this.computerUseLifecycle?.finish('cancelled');
       await this.flushTurnMemoryReflection();
       await closeAgentSession(this as unknown as AgentSessionAccountingHost, options);
     })();

@@ -789,6 +789,9 @@ export type HookEvent =
   | 'subagent-message'
   | 'subagent-cancel-requested'
   | 'subagent-stop'     // Subagent (Task tool) finished
+  | 'computer-use-start'
+  | 'computer-use-progress'
+  | 'computer-use-stop'
   | 'session-start'     // Session begins (startup, resume, clear)
   | 'session-end'       // Session ends (quit, exit)
   | 'pre-clear'          // Fires before memory extraction on /clear or /new

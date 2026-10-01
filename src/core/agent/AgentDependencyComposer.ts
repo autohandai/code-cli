@@ -66,6 +66,8 @@ import { CommunitySkillsCache } from '../../skills/CommunitySkillsCache.js';
 import { GitHubRegistryFetcher } from '../../skills/GitHubRegistryFetcher.js';
 import { fetchRegistryWithFallback, installSkillWithSecurity } from '../../skills/communityInstaller.js';
 import { McpClientManager } from '../../mcp/McpClientManager.js';
+import { compactComputerUseResult, COMPUTER_USE_TOOL_PREFIX } from '../../computer/computerUseOutput.js';
+import { ComputerUseLifecycle } from '../../computer/ComputerUseLifecycle.js';
 import { resolveRuntimeMcpServers } from '../../computer/cuaDriver.js';
 import {
   findCommunityMcpServers,
@@ -677,6 +679,7 @@ export function initializeAgentDependencies(
         }
       }
     });
+    host.computerUseLifecycle = new ComputerUseLifecycle(host.hookManager);
     host.permissionManager.setModeChangeListener?.(async (mode: PermissionMode, previousMode: PermissionMode) => {
       await host.hookManager.executeHooks('mode-change', { mode, previousMode });
     });
@@ -1356,6 +1359,7 @@ export function initializeAgentDependencies(
 
         try {
           // Emit tool_start only after ToolManager's canonical authorization.
+          await host.computerUseLifecycle.startAction({ tool: action.type, toolCallId: toolId, args: action });
           host.emitOutput({
             type: 'tool_start',
             toolId,
@@ -1795,7 +1799,10 @@ export function initializeAgentDependencies(
                 mcpArgs,
                 { signal: context?.signal },
               );
-              outcome = await normalizeMcpToolOutcome(mcpResult, context);
+              outcome = await normalizeMcpToolOutcome(
+                action.type.startsWith(COMPUTER_USE_TOOL_PREFIX) ? compactComputerUseResult(mcpResult) : mcpResult,
+                context,
+              );
             } else {
               const error = `Invalid MCP tool name: ${action.type}`;
               outcome = { success: false, kind: 'validation', error, output: error };
@@ -1889,6 +1896,9 @@ export function initializeAgentDependencies(
             toolOutput,
             toolError,
           });
+          await host.computerUseLifecycle.finishAction({ tool: action.type, toolCallId: toolId, args: action,
+            success: toolSuccess, output: toolOutput, duration: Date.now() - startTime,
+          }, context?.signal?.aborted === true);
         }
       },
       confirmApproval: (message, context) => host.confirmDangerousAction(message, context),

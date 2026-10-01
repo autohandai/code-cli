@@ -185,6 +185,9 @@ Native ACP clients receive hook events as `autohand.hook.*` notifications, inclu
 | `subagent-message` | When a message is queued for a worker | run identity, queued message |
 | `subagent-cancel-requested` | When a worker stop is requested | run identity, status |
 | `subagent-stop` | When a worker completes, fails, or is cancelled | run identity, status, success, duration, error |
+| `computer-use-start` | Before the first authorized managed Computer Use action in a turn | run ID, tool name, tool-call ID, args |
+| `computer-use-progress` | When each native action starts or settles | run ID, action label, status, tool-call ID, success, duration |
+| `computer-use-stop` | When the turn finishes, fails, or is cancelled | run ID, status, action count, duration |
 | `permission-request` | Before showing permission dialog | tool, path, permission type |
 | `permission-denied` | After the user refuses a permission request | tool, path, command, refusing decision |
 | `notification` | When a notification is sent to user | notification type, message |
@@ -342,6 +345,8 @@ What the matcher matches against depends on the event type:
 | Event | Matcher Matches Against |
 |-------|------------------------|
 | `pre-tool`, `post-tool` | Tool name |
+| `computer-use-start`, `computer-use-progress` | Full native tool name |
+| `computer-use-stop` | `finished`, `failed`, or `cancelled` |
 | `permission-request` | Tool name |
 | `notification` | Notification type |
 | `session-start` | Session type (startup/resume/clear) |
@@ -625,6 +630,9 @@ When your hook command executes, these environment variables are available:
 | `HOOK_SESSION_ID` | Current session ID | All events |
 | `HOOK_TOOL` | Tool name | pre-tool, post-tool, permission-request, permission-denied |
 | `HOOK_TOOL_CALL_ID` | Unique tool call ID | pre-tool, post-tool |
+| `HOOK_COMPUTER_USE_ID` | Stable ID shared by native actions in this turn | computer-use-start, computer-use-progress, computer-use-stop |
+| `HOOK_COMPUTER_USE_ACTION` | Human-readable action label | computer-use-progress |
+| `HOOK_COMPUTER_USE_STATUS` | Action or turn lifecycle status | computer-use-start, computer-use-progress, computer-use-stop |
 | `HOOK_ARGS` | JSON-encoded tool arguments | pre-tool, post-tool |
 | `HOOK_SUCCESS` | "true" or "false" | post-tool |
 | `HOOK_OUTPUT` | Tool output/result | post-tool |

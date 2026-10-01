@@ -46,6 +46,15 @@ function renderAgentUI(state: ReturnType<typeof createInitialUIState>) {
 }
 
 describe('AgentUI live command block', () => {
+  it('renders malformed stored Computer Use history without crashing', () => {
+    const view = render(<ThemeProvider><ToolOutputStatic entry={{
+      id: 'corrupt-history', tool: 'computer_use', success: false,
+      output: '[null,{"id":"old","label":{},"status":"unknown"}]', timestamp: 0,
+    }} /></ThemeProvider>);
+    expect(stripAnsi(view.lastFrame())).toContain('computer_use');
+    expect(stripAnsi(view.lastFrame())).not.toContain('TypeError');
+    view.unmount();
+  });
   it('keeps discovery details hidden behind an expansion hint', () => {
     const { lastFrame } = render(
       <I18nProvider>

@@ -124,6 +124,21 @@ function createAgent(
 }
 
 describe('AgentDependencyComposer typed tool outcomes', () => {
+  it('emits Computer Use lifecycle progress alongside the generic tool hooks', async () => {
+    const { internals } = createAgent();
+    const tool = 'mcp__autohand-computer-use__type_text' as AgentAction['type'];
+    internals.toolManager.register({ name: tool, description: 'Type', parameters: { type: 'object', properties: {} } });
+    internals.mcpManager.callTool = vi.fn().mockResolvedValue({ structuredContent: { effect: 'unverifiable' } });
+    internals.hookManager.executeHooks = vi.fn().mockResolvedValue([]);
+    internals.telemetryManager.trackToolUse = vi.fn().mockResolvedValue(undefined);
+    await internals.toolManager.execute([{ id: 'native-write', tool, args: {} }]);
+    expect(internals.hookManager.executeHooks.mock.calls.map(([event]) => event)).toEqual([
+      'pre-tool', 'computer-use-start', 'computer-use-progress', 'post-tool', 'computer-use-progress',
+    ]);
+    const progress = internals.hookManager.executeHooks.mock.calls.filter(([event]) => event === 'computer-use-progress');
+    expect(progress[0]?.[1]).toMatchObject({ toolCallId: 'native-write', computerUseStatus: 'running' });
+    expect(progress[1]?.[1]).toMatchObject({ toolCallId: 'native-write', computerUseStatus: 'unverified' });
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     getPlanModeManager().restore({ enabled: false, plan: null, phase: 'planning' });
@@ -451,6 +466,74 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
       error: 'MCP read failed',
       output: 'MCP read failed',
     });
+  });
+
+  it('deduplicates native observations while retaining actionable state and screenshot references', async () => {
+    const { internals } = createAgent();
+    const tool = 'mcp__autohand-computer-use__get_window_state' as AgentAction['type'];
+    internals.toolManager.register({ name: tool, description: 'Observe a window', parameters: { type: 'object', properties: {} } });
+    const tree = 'selector:(null)]]\n' + '[22] AXTextField = "iMessage" (Message) actions=[press,scrolltovisible,cancel,showmenu]\n'.repeat(12);
+    const state = {
+      _note: 'Prefer elements over tree_markdown',
+      pid: 31493, window_id: 23893, snapshot_id: 's00000002',
+      elements: [{ element_token: 's00000002:22', role: 'AXTextField', label: 'Message', value: 'iMessage' }],
+      elements_complete: false, total_element_count: 149, returned_element_count: 1,
+      screenshot_scale: 2, screenshot_width: 1568, screenshot_height: 926,
+      tree_markdown: tree,
+    };
+    internals.mcpManager.callTool = vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: tree }, { type: 'image', data: 'fixture-image', mimeType: 'image/png' }],
+      structuredContent: state,
+    });
+    internals.hookManager.executeHooks = vi.fn().mockResolvedValue([]);
+    internals.telemetryManager.trackToolUse = vi.fn().mockResolvedValue(undefined);
+    const [result] = await internals.toolManager.execute([{ id: 'observe', tool, args: {} }], undefined, {
+      registerToolImages: async () => ({ refs: ['tool-image:00000000-0000-4000-8000-000000000000'] }),
+    });
+    expect(result).toMatchObject({ success: true });
+    expect(result.output).not.toContain('tree_markdown');
+    expect(result.output).not.toContain('selector:(null)');
+    expect(result.output).not.toContain('_note');
+    expect(result.output).toContain('s00000002:22');
+    expect(result.output).toContain('"elements_complete":false');
+    expect(result.output).toContain('"screenshot_scale":2');
+    expect(result.imageRefs).toEqual(['tool-image:00000000-0000-4000-8000-000000000000']);
+    expect(result.output!.length).toBeLessThan(JSON.stringify(state).length / 2);
+  });
+
+  it('does not duplicate a structured observation whose tree is a single line', async () => {
+    const { internals } = createAgent();
+    const tool = 'mcp__autohand-computer-use__get_window_state' as AgentAction['type'];
+    internals.toolManager.register({ name: tool, description: 'Observe', parameters: { type: 'object', properties: {} } });
+    const state = { elements: [{ element_token: 's1:22', role: 'AXButton' }], tree_markdown: '[22] AXButton' };
+    internals.mcpManager.callTool = vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: JSON.stringify(state) }], structuredContent: state,
+    });
+    internals.hookManager.executeHooks = vi.fn().mockResolvedValue([]);
+    internals.telemetryManager.trackToolUse = vi.fn().mockResolvedValue(undefined);
+    const [result] = await internals.toolManager.execute([{ id: 'observe', tool, args: {} }]);
+    expect(result.output).toBe('{"elements":[{"element_token":"s1:22","role":"AXButton"}]}');
+  });
+
+  it.each([
+    { server: 'autohand-computer-use', isError: true, elements: [{ element_token: 's1:2' }] },
+    { server: 'autohand-computer-use', isError: false, elements: [] },
+    { server: 'other', isError: false, elements: [{ element_token: 's1:2' }] },
+  ])('preserves error evidence, tree fallbacks, and other servers: %j', async ({ server, isError, elements }) => {
+    const { internals } = createAgent();
+    const tool = `mcp__${server}__get_window_state` as AgentAction['type'];
+    internals.toolManager.register({ name: tool, description: 'Observe', parameters: { type: 'object', properties: {} } });
+    internals.mcpManager.callTool = vi.fn().mockResolvedValue({ isError,
+      content: [{ type: 'text', text: 'delivered 0 of 11 characters; retry only the remaining suffix' }],
+      structuredContent: { elements, tree_markdown: '[2] Message field', elements_complete: false },
+    });
+    internals.hookManager.executeHooks = vi.fn().mockResolvedValue([]);
+    internals.telemetryManager.trackToolUse = vi.fn().mockResolvedValue(undefined);
+    const [result] = await internals.toolManager.execute([{ id: 'evidence', tool, args: {} }]);
+    expect(result.success).toBe(!isError);
+    expect(result.output).toContain('retry only the remaining suffix');
+    expect(result.output).toContain('tree_markdown');
+    expect(result.output).toContain('"elements_complete":false');
   });
 
   it.each([false, true])('preserves structured MCP window IDs alongside a text summary (error=%s)', async (isError) => {

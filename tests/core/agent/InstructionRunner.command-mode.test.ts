@@ -16,6 +16,7 @@ import {
   shouldUsePassiveAgentSessionRetry,
 } from '../../../src/core/agent/InputTurnCoordinator.js';
 import { HookManager } from '../../../src/core/HookManager.js';
+import { ComputerUseLifecycle } from '../../../src/computer/ComputerUseLifecycle.js';
 import { ApiError, classifyApiError } from '../../../src/providers/errors.js';
 import { ProviderNotConfiguredError } from '../../../src/providers/ProviderFactory.js';
 
@@ -119,6 +120,27 @@ function createHost(): AgentInstructionHost {
 }
 
 describe('InstructionRunner command mode UI', () => {
+  it.each(['finished', 'failed', 'cancelled'] as const)('settles the Computer Use lifecycle once when the turn is %s', async status => {
+    const host = createHost();
+    const manager = new HookManager({ workspaceRoot: '/tmp', settings: { enabled: false } });
+    const observer = vi.fn();
+    const unsubscribe = manager.subscribeLifecycle(observer);
+    host.computerUseLifecycle = new ComputerUseLifecycle(manager);
+    host.runReactLoop = vi.fn(async controller => {
+      await host.computerUseLifecycle!.startAction({ tool: 'mcp__autohand-computer-use__list_apps', toolCallId: 'discover' });
+      if (status === 'failed') throw new Error('fixture provider failure');
+      if (status === 'cancelled') controller.abort();
+      return { status: status === 'cancelled' ? 'aborted' : 'completed' };
+    });
+    try {
+      expect(await new InstructionRunner(host).run('inspect the fixture')).toBe(status === 'finished');
+      await host.computerUseLifecycle.finish('cancelled');
+      const stops = observer.mock.calls.map(([event]) => event).filter(event => event.event === 'computer-use-stop');
+      expect(stops).toHaveLength(1);
+      expect(stops[0]).toMatchObject({ computerUseStatus: status, toolCallsCount: 1 });
+      expect(host.cleanupUI).toHaveBeenCalled();
+    } finally { unsubscribe(); }
+  });
   it.each(['open my browser', 'open the Calculator app', 'type hello in the TextEdit window'])(
     'stops %s before inference when the shared native permission check fails', async instruction => {
       const host = createHost();

@@ -313,11 +313,16 @@ describe('built native computer control', () => {
           args: {},
         },
       },
+      { toolCall: { id: 'call_windows', name: 'mcp__autohand-computer-use__list_windows', args: { pid: 6844 } } },
+      { toolCall: { id: 'call_stale', name: 'mcp__autohand-computer-use__get_window_state', args: { pid: 6844, window_id: 1 } } },
+      { toolCall: { id: 'call_fresh', name: 'mcp__autohand-computer-use__get_window_state', args: { pid: 6844, window_id: 280 } } },
       { content: 'COMPUTER_CONTROL_SCREENSHOT_COMPLETE' },
     ]);
     servers.push(provider);
     const state = await createTempAutohandHome({
       config: {
+        hooks: { hooks: (['computer-use-start', 'computer-use-progress', 'computer-use-stop'] as const)
+          .map(event => ({ event, command: 'node computer-use-hook.cjs' })) },
         provider: 'autohandai',
         autohandai: {
           plan: 'cloud',
@@ -327,12 +332,17 @@ describe('built native computer control', () => {
           baseUrl: provider.baseUrl,
         },
         features: { autohand_inference: true },
-        agent: { autoMemory: false, sessionRetryLimit: 0, maxIterations: 3 },
+        agent: { autoMemory: false, sessionRetryLimit: 0, maxIterations: 6 },
         network: { maxRetries: 0 },
         ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
       },
     });
     states.push(state);
+    await writeFile(path.join(state.workspaceRoot, 'computer-use-hook.cjs'), `
+let input = '';
+process.stdin.on('data', chunk => input += chunk);
+process.stdin.on('end', () => require('node:fs').appendFileSync('computer-use-hooks.jsonl', input + '\\n'));
+`);
     const driver = await writeFakeCuaDriver(state);
     const computerUseHost = await writeFakeComputerUseHost(state);
     const session = await launchBuiltAutohand([
@@ -358,8 +368,15 @@ describe('built native computer control', () => {
     await session.waitForText('COMPUTER_CONTROL_SCREENSHOT_COMPLETE', { timeout: 30_000 });
 
     const screen = session.readAll();
-    expect(screen).toContain('desktop screenshot 1x1 px');
-    expect(screen).toContain('[1 image available for visual inspection.]');
+    expect(screen).toContain('Computer Use');
+    expect(screen).toContain('Screenshot test');
+    expect(screen).toContain('Finding the window');
+    expect(screen).toContain('Checking the window');
+    expect(screen).toContain('window_id is not a live window');
+    expect(screen).not.toContain('mcp__autohand-computer-use__get_window_state');
+    expect(screen).not.toContain('mcp__autohand-computer-use__screenshot_test');
+    expect(screen).not.toContain('desktop screenshot 1x1 px');
+    expect(screen).not.toContain('[1 image available for visual inspection.]');
     expect(screen).not.toContain('iVBORw0KGgo');
     const secondRequest = provider.requests[1] as {
       messages?: Array<{ role?: string; content?: unknown }>;
@@ -376,6 +393,15 @@ describe('built native computer control', () => {
 
     await exitInteractive(session);
     const storedSessions = path.join(state.autohandHome, 'sessions');
+    const nativeHooks = (await readFile(path.join(state.workspaceRoot, 'computer-use-hooks.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+    expect(nativeHooks.map(hook => hook.hook_event_name)).toEqual([
+      'computer-use-start',
+      ...Array.from({ length: 8 }, () => 'computer-use-progress'),
+      'computer-use-stop',
+    ]);
+    expect(new Set(nativeHooks.map(hook => hook.computer_use_id)).size).toBe(1);
+    expect(nativeHooks.at(-1)).toMatchObject({ computer_use_status: 'finished', tool_calls_count: 4 });
+    expect(nativeHooks.some(hook => hook.computer_use_status === 'failed')).toBe(true);
     for (const relative of await readdir(storedSessions, { recursive: true })) {
       if (!relative.endsWith('.json') && !relative.endsWith('.jsonl')) continue;
       const persisted = await readFile(path.join(storedSessions, relative), 'utf8');

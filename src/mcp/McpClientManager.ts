@@ -15,6 +15,8 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { buildAutohandChildProcessEnv } from '../utils/childProcessEnv.js';
 import { EventEmitter } from 'node:events';
+import { boundComputerUseObservation } from '../computer/computerUseOutput.js';
+import { DEFAULT_COMPUTER_USE_CURSOR, installComputerUseCursor } from '../computer/computerUseCursor.js';
 import {
   type McpServerConfig,
   type McpToolDefinition,
@@ -784,6 +786,7 @@ class McpHttpConnection extends EventEmitter {
  * ```
  */
 export class McpClientManager {
+  private cursorSessions = new WeakMap<McpStdioConnection | McpHttpConnection, Promise<void>>();
   private servers = new Map<string, McpServerState>();
   private connections = new Map<string, McpStdioConnection | McpHttpConnection>();
   private inFlightConnections = new Set<McpStdioConnection | McpHttpConnection>();
@@ -1069,13 +1072,57 @@ export class McpClientManager {
     }
 
     // Strip internal agent metadata fields that are not part of MCP tool schemas.
-    const toolArgs = { ...args };
+    const toolArgs = serverName === 'autohand-computer-use'
+      ? boundComputerUseObservation(toolName, args, state.tools.find(tool => tool.name === `mcp__${serverName}__${toolName}`)?.parameters.properties ?? {})
+      : { ...args };
     delete (toolArgs as { type?: unknown }).type;
+
+    const themeDirectory = state.config.env?.CUA_DRIVER_CURSOR_THEME_DIR;
+    const managesCursor = serverName === 'autohand-computer-use' && state.config.transport === 'stdio'
+      && themeDirectory && state.tools.some(tool => tool.name === `mcp__${serverName}__start_session`
+        && tool.parameters.properties?.cursor_theme);
+    if (managesCursor) {
+      options.signal?.throwIfAborted();
+      if (toolName === 'start_session') {
+        await this.cursorSessions.get(connection);
+        if (toolArgs.cursor_theme === undefined) {
+          await installComputerUseCursor(themeDirectory);
+          toolArgs.cursor_theme = DEFAULT_COMPUTER_USE_CURSOR;
+        }
+      } else if (toolName !== 'end_session' && toolArgs.session === undefined) {
+        let ready = this.cursorSessions.get(connection);
+        if (!ready) {
+          ready = (async () => {
+            await installComputerUseCursor(themeDirectory);
+            const deadline = AbortSignal.timeout(5_000);
+            const signal = options.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
+            const initialized = await connection.request('tools/call', {
+              name: 'start_session', arguments: { cursor_theme: DEFAULT_COMPUTER_USE_CURSOR },
+            }, { signal });
+            if (initialized && typeof initialized === 'object' && 'isError' in initialized && initialized.isError) {
+              throw new Error('Could not initialize the Computer Use light-gray cursor session');
+            }
+          })();
+          this.cursorSessions.set(connection, ready);
+          void ready.catch(() => {
+            if (this.cursorSessions.get(connection) === ready) this.cursorSessions.delete(connection);
+          });
+        }
+        await ready;
+      } else if (toolName === 'end_session') {
+        await this.cursorSessions.get(connection);
+      }
+    }
 
     const result = await connection.request('tools/call', {
       name: toolName,
       arguments: toolArgs,
     }, options);
+
+    if (managesCursor && !(result && typeof result === 'object' && 'isError' in result && result.isError)) {
+      if (toolName === 'end_session') this.cursorSessions.delete(connection);
+      if (toolName === 'start_session' && toolArgs.session === undefined) this.cursorSessions.set(connection, Promise.resolve());
+    }
 
     return result;
   }

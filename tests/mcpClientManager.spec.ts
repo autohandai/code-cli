@@ -148,6 +148,30 @@ describe('McpClientManager', () => {
     vi.restoreAllMocks();
   });
 
+  it('bounds native observations using advertised fields without overriding explicit requests or other servers', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body)) as { id: number; method: string; params: { arguments: Record<string, unknown> } };
+      if (request.method === 'tools/call') calls.push(request.params.arguments);
+      const result = request.method === 'initialize'
+        ? { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'fixture', version: '1' } }
+        : request.method === 'tools/list' ? { tools: [{ name: 'get_window_state', inputSchema: {
+          type: 'object', properties: { max_elements: { type: 'integer' }, max_depth: { type: 'integer' }, max_dimension: { type: 'integer' } },
+        } }] } : { content: [] };
+      return new Response(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }), { headers: { 'content-type': 'application/json' } });
+    }));
+    for (const name of ['autohand-computer-use', 'other']) {
+      await manager.connect({ name, transport: 'http', url: 'https://fixture.invalid/mcp' });
+      await manager.callTool(name, 'get_window_state', { pid: 42 });
+    }
+    await manager.callTool('autohand-computer-use', 'get_window_state', { pid: 42, max_elements: 300, max_depth: 24, max_dimension: 2048 });
+    expect(calls).toEqual([
+      { pid: 42, max_elements: 80, max_depth: 12, max_dimension: 1280 },
+      { pid: 42 },
+      { pid: 42, max_elements: 300, max_depth: 24, max_dimension: 2048 },
+    ]);
+  });
+
   // ========================================================================
   // Static helper: isMcpTool
   // ========================================================================

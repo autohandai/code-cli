@@ -5,6 +5,7 @@
  */
 import chalk from 'chalk';
 import type { HookManager, HookExecutionResult } from '../HookManager.js';
+import type { ComputerUseLifecycle } from '../../computer/ComputerUseLifecycle.js';
 import { ProviderNotConfiguredError } from '../../providers/ProviderFactory.js';
 import { getManagedComputerUsePermissionIssue } from '../../computer/autohandComputerUse.js';
 import { matchesComputerControlIntent } from '../../skills/computerControlIntent.js';
@@ -91,6 +92,7 @@ function readCompletedTurnUsage(host: AgentInstructionHost): TurnUsage {
 }
 
 export interface AgentInstructionHost {
+  computerUseLifecycle?: ComputerUseLifecycle;
   peerCommunicationRuntime?: PeerCommunicationRuntime;
   recordPeerReferences?: (instruction: string, references: PeerReference[]) => Promise<void>;
   isInstructionActive: boolean;
@@ -730,6 +732,7 @@ export class InstructionRunner {
       cleanupEsc();
       stopPreparation();
       host.stopStatusUpdates();
+      await host.computerUseLifecycle?.finish(abortController.signal.aborted ? 'cancelled' : success ? 'finished' : 'failed');
       const keepPersistentInputForNextTurn =
         host.persistentInputActiveTurn &&
         (host.persistentInput.hasQueued() || host.persistentInput.getCurrentInput().trim().length > 0);

@@ -13,6 +13,7 @@
 import { disableKittyProtocol, enableKittyProtocol, KITTY_DISAMBIGUATE_FLAG } from '../kittyProtocol.js';
 import React, { useState, useImperativeHandle, forwardRef, useCallback, useRef } from 'react';
 import { render, type Instance } from 'ink';
+import { COMPUTER_USE_TOOL_PREFIX, computerUseStepLabel, computerUseStepResult } from '../../computer/computerUseOutput.js';
 import {
   AgentUI,
   createInitialUIState,
@@ -709,6 +710,13 @@ export class InkRenderer {
    * When stopping work, captures elapsed/tokens as completion stats
    */
   setWorking(isWorking: boolean, status = '', options: SetWorkingOptions = {}): void {
+    if (!isWorking && this.state.computerUseSteps?.length) {
+      const steps = this.state.computerUseSteps.map(step => step.status === 'running'
+        ? { ...step, status: 'cancelled' as const, detail: 'Interrupted' }
+        : step);
+      this.addToolOutput('computer_use', steps.every(step => step.status === 'done'), JSON.stringify(steps));
+      this.updateState({ computerUseSteps: [] });
+    }
     const archivedFinalResponse = isWorking
       ? this.state.finalResponse?.trim()
       : undefined;
@@ -892,6 +900,20 @@ export class InkRenderer {
         .filter((message) => message.role === 'user')
         .map((message) => message.content),
     });
+  }
+
+  startComputerUseStep(id: string, tool: string, args: Record<string, unknown>): void {
+    if (!tool.startsWith(COMPUTER_USE_TOOL_PREFIX)) return;
+    this.updateState({ computerUseSteps: [
+      ...(this.state.computerUseSteps ?? []).filter(step => step.id !== id),
+      { id, label: computerUseStepLabel(tool, args), status: 'running' },
+    ] });
+  }
+
+  finishComputerUseStep(id: string, success: boolean, output: string): void {
+    this.updateState({ computerUseSteps: (this.state.computerUseSteps ?? []).map(step => step.id === id
+      ? { ...step, ...computerUseStepResult(success, output) }
+      : step) });
   }
 
   addToolCall(tool: string, detail: string): void {

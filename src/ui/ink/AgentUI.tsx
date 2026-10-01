@@ -66,6 +66,8 @@ import { MarkdownText } from './components/MarkdownText.js';
 import { buildFileMentionSuggestions } from '../mentionFilter.js';
 import { getContentDisplay } from '../displayUtils.js';
 import type { ChatLogMessage } from '../../session/chatLog.js';
+import type { ComputerUseStep } from '../../computer/computerUseOutput.js';
+import { ComputerUseProgress } from './ComputerUseProgress.js';
 import { TypedMessageHistory, type TypedMessageEntry } from '../../session/TypedMessageHistory.js';
 import type { TaskListPosition } from '../../types.js';
 import { formatCompactTokens } from '../../core/agent/AgentFormatter.js';
@@ -163,6 +165,7 @@ export const MAX_TOOL_OUTPUT_ENTRIES = 50;
 export const MAX_VISIBLE_NOTIFICATIONS = 3;
 
 export interface AgentUIState {
+  computerUseSteps?: ComputerUseStep[];
   peerDirectoryVersion?: number;
   isWorking: boolean;
   status: string;
@@ -2743,6 +2746,8 @@ export function AgentUI({
       ))}
 
       {expandedToolOutput ? <ExpandedToolOutput entry={expandedToolOutput} /> : null}
+
+      <ComputerUseProgress steps={state.computerUseSteps ?? []} />
 
       {/* Dynamic content section */}
       <DynamicContent

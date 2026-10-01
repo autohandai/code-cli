@@ -8,6 +8,44 @@ import { describe, expect, it, vi } from 'vitest';
 import { InkRenderer } from '../../../src/ui/ink/InkRenderer.js';
 
 describe('InkRenderer live command blocks', () => {
+  it('keeps failed retries, parallel call identities, and interrupted actions honest', () => {
+    const renderer = new InkRenderer({ onInstruction: () => {}, onEscape: () => {}, onCtrlC: () => {} });
+    renderer.setWorking(true);
+    renderer.startComputerUseStep('unrelated', 'mcp__other__type_text', {});
+    expect(renderer.getState().computerUseSteps ?? []).toEqual([]);
+    for (let index = 0; index < 15; index++) {
+      renderer.startComputerUseStep(String(index), 'mcp__autohand-computer-use__type_text', {});
+    }
+    renderer.finishComputerUseStep('1', true, 'Sent (unverified)');
+    renderer.finishComputerUseStep('0', false, 'delivered 0 of 11 characters; retry only the remaining suffix');
+    renderer.setWorking(false);
+    const archived = renderer.getState().chatMessages.find(message => message.tool === 'computer_use');
+    const steps = JSON.parse(archived?.content ?? '[]');
+    expect(steps).toHaveLength(15);
+    expect(steps[0]).toMatchObject({ id: '0', status: 'failed' });
+    expect(steps[1]).toMatchObject({ id: '1', status: 'unverified' });
+    expect(steps[14]).toMatchObject({ id: '14', status: 'cancelled', detail: 'Interrupted' });
+  });
+  it('keeps native actions in one progress lane and archives it once the turn ends', () => {
+    const renderer = new InkRenderer({ onInstruction: () => {}, onEscape: () => {}, onCtrlC: () => {} });
+    renderer.setWorking(true);
+    renderer.startComputerUseStep('find', 'mcp__autohand-computer-use__list_apps', { query: 'Messages' });
+    renderer.finishComputerUseStep('find', true, '{"apps":[{"name":"Messages"}]}');
+    renderer.startComputerUseStep('type', 'mcp__autohand-computer-use__type_text', { text: 'private message', pid: 31493 });
+    renderer.finishComputerUseStep('type', true, '{"effect":"unverifiable","delivery":{"delivered_count":11}}');
+    expect(renderer.getState().chatMessages).toEqual([]);
+    expect(renderer.getState().computerUseSteps).toMatchObject([
+      { id: 'find', label: 'Finding Messages', status: 'done' },
+      { id: 'type', label: 'Writing text', status: 'unverified' },
+    ]);
+    expect(JSON.stringify(renderer.getState().computerUseSteps)).not.toContain('private message');
+    renderer.setWorking(false);
+    expect(renderer.getState().computerUseSteps).toEqual([]);
+    expect(renderer.getState().chatMessages.filter(message => message.tool === 'computer_use')).toHaveLength(1);
+    renderer.setWorking(false);
+    expect(renderer.getState().chatMessages.filter(message => message.tool === 'computer_use')).toHaveLength(1);
+  });
+
   it('keeps partial responses transient and clears them on completion and cancellation', () => {
     const renderer = new InkRenderer({ onInstruction: () => {}, onEscape: () => {}, onCtrlC: () => {} });
     renderer.setWorking(true);

@@ -74,6 +74,18 @@ function hookNotifications(): Array<[string, Record<string, unknown>]> {
 }
 
 describe('HookManager to RPC lifecycle integration', () => {
+  it('forwards Computer Use start, progress, and stop without requiring shell hooks', async () => {
+    const { hookManager } = createHarness();
+    vi.mocked(writeNotification).mockClear();
+    await hookManager.executeHooks('computer-use-start', { computerUseId: 'native-run', computerUseStatus: 'running' });
+    await hookManager.executeHooks('computer-use-progress', { computerUseId: 'native-run', computerUseStatus: 'unverified', toolCallId: 'write-1', tool: 'mcp__autohand-computer-use__type_text' });
+    await hookManager.executeHooks('computer-use-stop', { computerUseId: 'native-run', computerUseStatus: 'cancelled', toolCallsCount: 1, duration: 25 });
+    expect(hookNotifications().map(([method]) => method)).toEqual([
+      'autohand.hook.computerUseStart', 'autohand.hook.computerUseProgress', 'autohand.hook.computerUseStop',
+    ]);
+    expect(hookNotifications()[1]?.[1]).toMatchObject({ runId: 'native-run', status: 'unverified', toolCallId: 'write-1' });
+    expect(hookNotifications()[2]?.[1]).toMatchObject({ status: 'cancelled', toolCallsCount: 1, duration: 25 });
+  });
   beforeEach(() => {
     vi.clearAllMocks();
   });
