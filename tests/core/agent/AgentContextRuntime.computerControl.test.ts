@@ -7,11 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
-import { buildAgentUserMessage, type AgentContextRuntimeHost } from '../../../src/core/agent/AgentContextRuntime.js';
+import { buildAgentTurnContext, type AgentContextRuntimeHost } from '../../../src/core/agent/AgentContextRuntime.js';
 
 const COMPUTER_MARKER = 'COMPUTER-CONTROL-WORKFLOW-MARKER';
 
-describe('buildAgentUserMessage computer control auto-injection', () => {
+describe('buildAgentTurnContext computer control auto-injection', () => {
   let workspaceRoot: string;
 
   beforeEach(async () => {
@@ -41,18 +41,18 @@ describe('buildAgentUserMessage computer control auto-injection', () => {
   }
 
   it('injects the built-in workflow for a native GUI request', async () => {
-    const message = await buildAgentUserMessage(host(), 'go to Spotify and play Midnight City');
+    const message = await buildAgentTurnContext(host(), 'go to Spotify and play Midnight City');
     expect(message).toContain('Computer control mode');
     expect(message).toContain(COMPUTER_MARKER);
   });
 
   it('stays silent for source work that mentions a browser', async () => {
-    const message = await buildAgentUserMessage(host(), 'build a browser extension');
+    const message = await buildAgentTurnContext(host(), 'build a browser extension');
     expect(message).not.toContain(COMPUTER_MARKER);
   });
 
   it('does not inject the skill twice when it was explicitly mentioned', async () => {
-    const message = await buildAgentUserMessage(host(true), 'open my browser with $computer-control');
+    const message = await buildAgentTurnContext(host(true), 'open my browser with $computer-control');
     expect(message).toContain('Explicitly requested skill: computer-control');
     expect(message).not.toContain('Computer control mode');
     expect(message.split(COMPUTER_MARKER).length - 1).toBe(1);

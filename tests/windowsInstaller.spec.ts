@@ -604,3 +604,17 @@ Write-Output (Start-FirstRun -BinaryPath '${fixture}' -Answer $null)
     }
   });
 });
+
+describe('required computer use installation', () => {
+  powerShellTest('propagates a companion installation failure', () => {
+    const result = runPowerShellProbe([
+      installerWithoutEntrypoint,
+      'function Invoke-FailedComputerInstall { $global:LASTEXITCODE = 7 }',
+      '$env:AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL = "0"',
+      'Install-ComputerControl -BinaryPath "Invoke-FailedComputerInstall"',
+    ].join('\n'));
+    expect(result.status).not.toBe(0);
+    expect(result.stdout).toContain('autohand computer install');
+    expect(result.stdout).not.toContain('still ready');
+  });
+});

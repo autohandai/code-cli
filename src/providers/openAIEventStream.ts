@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { LLMRequest, LLMResponse, LLMToolCall } from '../types.js';
-import { ApiError } from './errors.js';
+import { ApiError, readContentBlockedError } from './errors.js';
 import { normalizeLLMUsage } from './usage.js';
 import { joinReasoning, splitInlineThinking } from './inlineThinking.js';
 import { normalizeProviderFinishReason } from './finishReason.js';
@@ -53,6 +53,8 @@ export async function readOpenAIEventStream(
     try { value = JSON.parse(text); } catch { throw streamError('Malformed event in inference stream.'); }
     const data = record(value);
     if (!data) throw streamError('Invalid inference stream event.');
+    const blocked = data.error && readContentBlockedError(data.error, response.status, response.headers.get('x-autohand-request-id'));
+    if (blocked) throw blocked;
     if (data.error || data.errors) throw streamError('The inference provider returned a stream error.');
     if (typeof data.id === 'string') id = data.id;
     if (typeof data.created === 'number') created = data.created;

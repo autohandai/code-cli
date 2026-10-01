@@ -676,8 +676,9 @@ function Install-ComputerControl {
         Write-Success "Autohand Computer Use is ready."
     }
     catch {
-        Write-Host "Computer control could not be installed. Autohand Code is still ready." -ForegroundColor Yellow
+        Write-Host "Installation is incomplete: Computer control could not be installed." -ForegroundColor Yellow
         Write-Host "Retry with: autohand computer install" -ForegroundColor Yellow
+        throw
     }
 }
 

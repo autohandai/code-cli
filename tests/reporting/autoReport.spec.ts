@@ -650,6 +650,12 @@ describe("AutoReportManager", () => {
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
+    it("does not treat a safety rejection as a CLI crash", async () => {
+      const mgr = new AutoReportManager(makeConfig(), "0.8.2");
+      await mgr.reportError(new ApiError("Safety check blocked this request", "content_blocked", 400, false));
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
     it("skips ApiError with access_denied code", async () => {
       mockFetch.mockResolvedValue(okResponse({ success: true }));
       const mgr = new AutoReportManager(makeConfig(), "0.7.14");

@@ -8,6 +8,29 @@ const client = () => new LLMGatewayClient({ apiKey: 'fixture', model: 'moa' }, {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('cloud inference streaming', () => {
+  it.each([false, true])('preserves a safety rejection without retries or completed tool calls (stream=%s)', async (stream) => {
+    const error = { type: 'content_blocked', categories: ['S7'], requestId: 'server-request-123', message: "This message was blocked by Autohand's safety check. Rephrase it and try again." };
+    const tool = { index: 0, id: 'call-1', type: 'function', function: { name: 'mcp__autohand-computer-use__click', arguments: '{}' } };
+    const body = stream
+      ? event({ choices: [{ delta: { tool_calls: [tool] }, finish_reason: 'tool_calls' }] }) + event({ error })
+      : JSON.stringify({ error });
+    const fetch = vi.fn().mockResolvedValue(new Response(body, {
+      status: stream ? 200 : 400,
+      headers: { 'content-type': stream ? 'text/event-stream' : 'application/json', 'x-autohand-request-id': 'server-request-123' },
+    }));
+    vi.stubGlobal('fetch', fetch);
+    const cloud = new LLMGatewayClient({ apiKey: 'fixture', model: 'fantail' }, { maxRetries: 2, retryDelay: 1 }, {
+      serviceName: 'Autohand AI', credentialName: 'Autohand API key', accountName: 'Autohand account',
+    });
+    const result = cloud.complete({ messages: [{ role: 'user', content: 'Play Felix Rosch in Spotify' }], stream });
+    await expect(result).rejects.toMatchObject({
+      code: 'content_blocked', retryable: false,
+      message: expect.stringContaining('S7'),
+    });
+    await expect(result).rejects.toThrow('Request ID: server-request-123');
+    await expect(result).rejects.not.toThrow(/malformed|network|Check \/usage/);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
   it('targets inference directly by default', () => {
     expect(AUTOHAND_AI_DEFAULT_BASE_URL).toBe('https://inference.autohand.ai/v1');
   });

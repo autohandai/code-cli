@@ -3,6 +3,7 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -19,6 +20,26 @@ afterEach(async () => {
 });
 
 describe('computer control installation integration', () => {
+  it.runIf(process.platform !== 'win32')('fails the Unix installer when the required component fails', async () => {
+    const script = await readFile('install.sh', 'utf8');
+    const functionSource = script.slice(script.indexOf('install_computer_control() {'), script.indexOf('\nmain() {'));
+    const result = spawnSync('/bin/sh', ['-c', [
+      'info() { echo "$*"; }', 'warn() { echo "$*"; }', 'success() { echo "$*"; }',
+      functionSource, 'install_computer_control /usr/bin/false',
+    ].join('\n')], { encoding: 'utf8', env: { ...process.env, AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL: '0' } });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('autohand computer install');
+    expect(result.stdout).not.toContain('still ready');
+  });
+
+  it('allows an explicit headless opt-out before npm postinstall', async () => {
+    const runCli = vi.fn();
+    await expect(installComputerUsePostinstall({
+      packageRoot: '/fixture-without-cli', environment: { AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL: '1' }, runCli,
+    })).resolves.toEqual({ status: 'skipped-disabled' });
+    expect(runCli).not.toHaveBeenCalled();
+  });
+
   it('installs native computer control and the branded macOS permission host after Autohand', async () => {
     const script = await readFile('install.sh', 'utf8');
     expect(script).toContain('install_computer_control');

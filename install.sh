@@ -126,8 +126,9 @@ install_computer_control() {
     if [ "$_computer_status" -eq 0 ]; then
         success "Autohand Computer Use is ready."
     else
-        warn "Computer control could not be installed. Autohand Code is still ready."
+        warn "Installation is incomplete: Computer control could not be installed."
         warn "Retry with: autohand computer install"
+        return 1
     fi
 }
 
@@ -286,7 +287,10 @@ EOF
     install_symlink "$BINARY_NAME" "$_dir/$SHORT_ALIAS_NAME"
     claim_agent_alias_path_wide "$_dir/$BINARY_NAME" "$_dir"
 
-    install_computer_control "$_dir/$BINARY_NAME" "${_tmp_dir}/Autohand Computer Use.app"
+    if ! install_computer_control "$_dir/$BINARY_NAME" "${_tmp_dir}/Autohand Computer Use.app"; then
+        rm -rf "$_tmp_dir"
+        return 1
+    fi
 
     rm -rf "$_tmp_dir"
 

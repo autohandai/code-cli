@@ -142,7 +142,7 @@ describe('release installer command aliases', () => {
     mkdirSync(installDir, { recursive: true });
     writeFileSync(
       join(payloadDir, 'autohand'),
-      '#!/bin/sh\n[ "${1:-}" = "--version" ] && printf "test-version\\n"\n',
+      '#!/bin/sh\n[ "${1:-}" = "--version" ] && printf "test-version\\n"\nexit 0\n',
     );
     chmodSync(join(payloadDir, 'autohand'), 0o755);
     execFileSync('tar', ['-czf', archivePath, '-C', payloadDir, 'autohand']);
@@ -183,7 +183,7 @@ describe('release installer command aliases', () => {
     mkdirSync(installDir, { recursive: true });
     writeFileSync(
       fixtureBinary,
-      '#!/bin/sh\n[ "${1:-}" = "--version" ] && printf "test-version\\n"\n',
+      '#!/bin/sh\n[ "${1:-}" = "--version" ] && printf "test-version\\n"\nexit 0\n',
     );
     chmodSync(fixtureBinary, 0o755);
     writeFixtureAhtraces(payloadDir);
@@ -256,7 +256,7 @@ describe('release installer command aliases', () => {
     mkdirSync(competitorDir, { recursive: true });
     writeFileSync(
       fixtureBinary,
-      '#!/bin/sh\n[ "${1:-}" = "--version" ] && printf "test-version\\n"\n',
+      '#!/bin/sh\n[ "${1:-}" = "--version" ] && printf "test-version\\n"\nexit 0\n',
     );
     chmodSync(fixtureBinary, 0o755);
     writeFixtureAhtraces(payloadDir);
@@ -311,7 +311,7 @@ describe('release installer binary replacement', () => {
     const checksumPath = `${archivePath}.sha256`;
     const fixtureBinary = join(payloadDir, 'autohand');
     const installedBinary = join(installDir, 'autohand');
-    const newBinary = '#!/bin/sh\n[ "${1:-}" = "--version" ] && printf "test-version\\n"\n';
+    const newBinary = '#!/bin/sh\n[ "${1:-}" = "--version" ] && printf "test-version\\n"\nexit 0\n';
 
     mkdirSync(payloadDir, { recursive: true });
     mkdirSync(fixtureBinDir, { recursive: true });
@@ -399,6 +399,27 @@ if [ "\${1:-}" = "computer" ] && [ "\${2:-}" = "install" ]; then exit 0; fi
   function runInstaller(env: Record<string, string>): string {
     return execFileSync('/bin/sh', ['install.sh'], { cwd: ROOT, encoding: 'utf8', env, stdio: ['pipe', 'pipe', 'pipe'] });
   }
+
+  unixIt('fails the complete installer when its required computer component fails', () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), 'autohand-installer-computer-'));
+    tempRoots.push(tempRoot);
+    const { env } = seedFirstRunFixture(tempRoot);
+    const payloadDir = join(tempRoot, 'payload');
+    writeFileSync(join(payloadDir, 'autohand'), [
+      '#!/bin/sh',
+      '[ "${1:-}" = "--version" ] && { printf "test-version\\n"; exit 0; }',
+      '[ "${1:-}" = "computer" ] && exit 7',
+      'exit 0',
+    ].join('\n'));
+    execFileSync('tar', ['-czf', env.AUTOHAND_TEST_ARCHIVE, '-C', payloadDir, 'autohand', 'ahtraces']);
+    const checksum = createHash('sha256').update(readFileSync(env.AUTOHAND_TEST_ARCHIVE)).digest('hex');
+    writeFileSync(env.AUTOHAND_TEST_CHECKSUM, `${checksum}  autohand.tar.gz\n`);
+    const result = spawnSync('/bin/sh', ['install.sh'], { cwd: ROOT, encoding: 'utf8', env });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('Installation is incomplete');
+    expect(result.stdout).not.toContain('Autohand Computer Use is ready');
+    expect(result.stdout).not.toContain('Autohand CLI installed successfully');
+  });
 
   unixIt('starts the installed binary with "hello world" as its first message when asked to', () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'autohand-installer-first-run-'));

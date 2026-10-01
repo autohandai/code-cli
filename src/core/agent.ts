@@ -263,7 +263,7 @@ import {
   steerAgentActiveInstruction,
 } from './agent/AgentUIRuntime.js';
 import {
-  buildAgentUserMessage,
+  buildAgentTurnContext,
   collectAgentContextSummary,
   formatAgentStatusLine,
   generateAgentSessionBootstrap,
@@ -1441,8 +1441,8 @@ export class AutohandAgent {
     return `Cropped ${removed.length} message(s) from the ${direction}.`;
   }
 
-  private async buildUserMessage(instruction: string): Promise<string> {
-    return buildAgentUserMessage(this as unknown as AgentContextRuntimeHost, instruction);
+  private async buildTurnContext(instruction: string): Promise<string> {
+    return buildAgentTurnContext(this as unknown as AgentContextRuntimeHost, instruction);
   }
 
   private async prepareSpecialists(instruction: string): Promise<string | undefined> {

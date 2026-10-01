@@ -145,7 +145,7 @@ export interface AgentInstructionHost {
     ctrlCInterrupt?: boolean
   ): () => void;
   startPreparationStatus(instruction: string): () => void;
-  buildUserMessage(instruction: string): Promise<string>;
+  buildTurnContext(instruction: string): Promise<string>;
   setUIStatus(status: string): void;
   saveUserMessage(instruction: string): Promise<void>;
   updateContextUsage(history: unknown[]): void;
@@ -511,10 +511,11 @@ export class InstructionRunner {
       }
 
       stopPreparation = host.startPreparationStatus(instruction);
-      const userMessage = await host.buildUserMessage(instruction);
+      const turnContext = await host.buildTurnContext(instruction);
       stopPreparation();
       host.setUIStatus('Reasoning with the AI (ReAct loop)...');
-      host.conversation.addMessage({ role: 'user', content: userMessage });
+      host.conversation.addMessage({ role: 'user', content: instruction });
+      if (turnContext) host.conversation.addSystemNote(turnContext);
 
       // Save user message to session
       await host.saveUserMessage(instruction);

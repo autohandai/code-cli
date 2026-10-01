@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import {
   chmodSync,
   copyFileSync,
@@ -18,6 +18,17 @@ const localInstallScriptTest = existsSync('install-local.sh') ? it : it.skip;
 const unixInstallScriptTest = process.platform === 'win32' ? it.skip : it;
 
 describe('local install scripts', () => {
+  localInstallScriptTest('stops local installation when computer use installation fails', () => {
+    const script = readFileSync('install-local.sh', 'utf8');
+    const start = script.indexOf('if [ "${AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL:-0}" != "1" ]; then');
+    const end = script.indexOf('echo "Try it out:"', start);
+    const result = spawnSync('/bin/sh', ['-c', script.slice(start, end)], {
+      encoding: 'utf8', env: { ...process.env, AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL: '0', OS: 'Linux', INSTALL_PATH: '/usr/bin/false' },
+    });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('autohand computer install');
+  });
+
   it('does not run the package build script twice from bun run go', () => {
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
       scripts?: Record<string, string>;

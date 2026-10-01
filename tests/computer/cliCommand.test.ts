@@ -3,8 +3,10 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, expect, it } from 'vitest';
-import { buildComputerStatusReport } from '../../src/computer/cliCommand.js';
+import { describe, expect, it, vi } from 'vitest';
+import { Command } from 'commander';
+import * as installer from '../../src/computer/cuaInstaller.js';
+import { buildComputerStatusReport, registerComputerCommand } from '../../src/computer/cliCommand.js';
 
 describe('computer status', () => {
   it('does not report macOS MCP readiness without the branded permission host', () => {
@@ -28,5 +30,26 @@ describe('computer status', () => {
       requireComputerUseHost: true,
       computerUseHostReady: true,
     })).toMatchObject({ mcpReady: true, error: undefined });
+  });
+});
+
+describe('computer install', () => {
+  it('fails npm postinstall when the required component cannot be installed', async () => {
+    const originalExitCode = process.exitCode;
+    vi.stubEnv('AUTOHAND_INSTALL_COMPUTER_USE', '1');
+    vi.spyOn(installer, 'installCuaDriver').mockRejectedValue(new Error('archive unavailable'));
+    const output = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      process.exitCode = 0;
+      const program = new Command();
+      registerComputerCommand(program);
+      await program.parseAsync(['computer', 'install', '--postinstall', '--non-interactive'], { from: 'user' });
+      expect(process.exitCode).toBe(1);
+      expect(output.mock.calls.flat().join(' ')).toContain('autohand computer install');
+    } finally {
+      process.exitCode = originalExitCode;
+      vi.unstubAllEnvs();
+      vi.restoreAllMocks();
+    }
   });
 });

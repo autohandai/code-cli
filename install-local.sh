@@ -194,7 +194,7 @@ fi
 
 # Verify installation
 echo ""
-echo "✅ Autohand installed successfully!"
+echo "Autohand binary installed"
 INSTALLED_VERSION=$("$INSTALL_PATH" --version 2>/dev/null || echo "unknown")
 echo "   Version: $INSTALLED_VERSION"
 echo "   Path: $INSTALL_PATH"
@@ -218,7 +218,8 @@ if [ "${AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL:-0}" != "1" ]; then
     if [ "$COMPUTER_CONTROL_STATUS" -eq 0 ]; then
         echo "✅ Autohand Computer Use is ready"
     else
-        echo "⚠️  Computer control could not be installed; retry with: autohand computer install"
+        echo "Installation is incomplete: Computer control could not be installed; retry with: autohand computer install"
+        exit 1
     fi
 fi
 

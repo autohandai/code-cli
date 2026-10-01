@@ -13,7 +13,7 @@ import type {
   MultimodalMessage,
 } from "../types.js";
 import { joinReasoning, splitInlineThinking } from "./inlineThinking.js";
-import { ApiError, classifyApiError } from "./errors.js";
+import { ApiError, classifyApiError, readContentBlockedError } from "./errors.js";
 import { normalizeOutboundMessages, toTextOnlyContent } from "./messagePayload.js";
 import { normalizeLLMUsage } from "./usage.js";
 import { readOpenAIEventStream } from "./openAIEventStream.js";
@@ -490,7 +490,7 @@ export class LLMGatewayClient {
       try {
         return await readOpenAIEventStream(response, onDelta, signal, this.timeout);
       } catch (error) {
-        if (error instanceof ApiError && error.code !== 'cancelled' && this.errorLabels.serviceName === 'Autohand AI') {
+        if (error instanceof ApiError && error.code !== 'cancelled' && error.code !== 'content_blocked' && this.errorLabels.serviceName === 'Autohand AI') {
           throw new ApiError(
             `${error.message}\nThe accepted request was not replayed. Check /usage before retrying. Request ID: ${headers['x-autohand-client-request-id']}.`,
             error.code, error.httpStatus, false, error.retryAfterMs, error.rawDetail,
@@ -548,6 +548,8 @@ export class LLMGatewayClient {
       const bodyRecord = body && typeof body === "object" && !Array.isArray(body)
         ? body as Record<string, unknown>
         : undefined;
+      const blocked = readContentBlockedError(bodyRecord?.error, status, response.headers?.get('x-autohand-request-id'));
+      if (blocked) return blocked;
       const arrayDetail = Array.isArray(body) ? coerceErrorDetail(body) : "";
       errorDetail = structuredError?.message
         ?? (coerceErrorDetail(bodyRecord?.error) || coerceErrorDetail(bodyRecord?.message) || arrayDetail);

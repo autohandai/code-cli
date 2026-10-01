@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  buildAgentUserMessage,
+  buildAgentTurnContext,
   type AgentContextRuntimeHost,
 } from '../../../src/core/agent/AgentContextRuntime.js';
 import { listSavedResearchReports } from '../../../src/core/agent/SavedResearchContext.js';
@@ -62,7 +62,7 @@ describe('saved research context', () => {
   });
 
   it('surfaces saved research in the next user prompt context', async () => {
-    const message = await buildAgentUserMessage({
+    const message = await buildAgentTurnContext({
       runtime: {
         workspaceRoot,
         options: {},
@@ -79,7 +79,7 @@ describe('saved research context', () => {
     expect(message).toContain('Saved research reports');
     expect(message).toContain('.autohand/research/topic-dspy.md');
     expect(message).toContain('DSPy Research');
-    expect(message).toContain('Instruction: Use the previous research');
+    expect(message).not.toContain('Instruction: Use the previous research');
   });
 
   it('injects explicitly mentioned skill instructions into the same user turn', async () => {
@@ -92,7 +92,7 @@ describe('saved research context', () => {
       isActive: true,
     }]);
 
-    const message = await buildAgentUserMessage({
+    const message = await buildAgentTurnContext({
       runtime: {
         workspaceRoot,
         options: {},

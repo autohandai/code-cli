@@ -47,6 +47,7 @@ export class AutoReportManager {
     'server_error',     // Provider is down — not our bug
     'auth_failed',      // Bad API key — user config issue
     'payment_required', // Account billing issue
+    'content_blocked', // Safety verdicts are request rejections, not CLI crashes
     'access_denied',    // API key lacks permissions
     'model_not_found',  // Wrong model name — user config issue
   ]);

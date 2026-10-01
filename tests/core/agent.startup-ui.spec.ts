@@ -1633,7 +1633,7 @@ describe('agent startup and active input UI', () => {
     });
     agent.setupPersistentInputInterruptHandlers = vi.fn(() => cleanupEsc);
     agent.startPreparationStatus = vi.fn(() => stopPreparation);
-    agent.buildUserMessage = vi.fn(async (instruction: string) => instruction);
+    agent.buildTurnContext = vi.fn(async (instruction: string) => instruction);
     agent.setUIStatus = vi.fn();
     agent.conversation = {
       addMessage: vi.fn(),
@@ -1746,7 +1746,7 @@ describe('agent startup and active input UI', () => {
     agent.installPersistentConsoleBridge = vi.fn(() => cleanupBridge);
     agent.setupPersistentInputInterruptHandlers = vi.fn(() => cleanupEsc);
     agent.startPreparationStatus = vi.fn(() => stopPreparation);
-    agent.buildUserMessage = vi.fn(async (instruction: string) => instruction);
+    agent.buildTurnContext = vi.fn(async (instruction: string) => instruction);
     agent.setUIStatus = vi.fn();
     agent.conversation = {
       addMessage: vi.fn(),

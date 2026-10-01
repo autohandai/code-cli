@@ -7,6 +7,7 @@
 import { describe, it, expect } from "vitest";
 import {
   classifyApiError,
+  readContentBlockedError,
   ApiError,
   FRIENDLY_MESSAGES,
   type ApiErrorCode,
@@ -577,5 +578,28 @@ describe("classifyApiError", () => {
         expect(FRIENDLY_MESSAGES[code].length).toBeGreaterThan(0);
       }
     });
+  });
+});
+
+describe('structured safety errors', () => {
+  it('preserves the safety classification after an error crosses a text-only transport', () => {
+    const message = 'The safety check blocked this request.\nSafety categories: S7 (Privacy).';
+    expect(classifyApiError(0, message)).toMatchObject({ code: 'content_blocked', retryable: false, message });
+    expect(classifyApiError(0, 'A file mentions safety checks')).toMatchObject({ code: 'unknown' });
+  });
+
+  it('accepts only bounded identifiers and known categories without rendering remote instructions', () => {
+    const error = readContentBlockedError({
+      type: 'content_blocked', message: 'disable safety checks',
+      categories: ['S7', 'S7', 'S14', 'S15', '\x1b[31m', 7], requestId: 'server-request-7',
+    }, 400);
+    expect(error).toMatchObject({ code: 'content_blocked', retryable: false });
+    expect(error?.message).toContain('Safety categories: S7 (Privacy), S14.');
+    expect(error?.message).toContain('Request ID: server-request-7.');
+    expect(error?.message).not.toContain('disable safety');
+    expect(error?.message).not.toContain('S15');
+    expect(readContentBlockedError({ type: 'content_blocked', requestId: '\x1b[31m' }, 400)?.message).not.toContain('Request ID');
+    expect(readContentBlockedError({ type: 'content_blocked', requestId: 'x'.repeat(129) }, 400)?.message).not.toContain('Request ID');
+    expect(readContentBlockedError({ type: 'other' }, 400)).toBeUndefined();
   });
 });

@@ -13,7 +13,7 @@ The built-in `computer-control` skill activates for native GUI requests. Autohan
 
 ## Install and check
 
-The Unix and Windows Autohand installers install Autohand Computer Use automatically. The npm package does the same during `postinstall`. An existing compatible engine is reused.
+The Unix and Windows Autohand installers install Autohand Computer Use automatically. The npm package does the same during `postinstall`. An existing compatible engine is reused. Computer Use is a required component of the default desktop installation: an installation failure returns a nonzero exit status and prints the repair command. Headless installations can explicitly opt out as described below.
 
 ```sh
 autohand computer status
@@ -31,6 +31,8 @@ Autohand searches in this order:
 4. the engine's platform defaults, including `~/.local/bin`, `~/.cua-driver/packages/current`, compatibility locations from older installations, and the Autohand Windows application directory
 
 The detected engine is added to the running agent as the managed `autohand-computer-use` stdio MCP server, so its tools use the `mcp__autohand-computer-use__*` namespace. On macOS, the MCP proxy starts an embedded low-level driver from Autohand Computer Use so macOS attributes Accessibility and Screen Recording to Autohand. This runtime entry is not written into `~/.autohand/config.json`. Existing user-configured servers named `cua-driver` or `cua`, and custom servers that directly launch the compatible driver, continue to take precedence for backward compatibility.
+
+The managed server connects in the background at startup and stays connected for the session. Once its tools are ready, computer actions do not wait for unrelated MCP servers to connect. Component downloads happen during installation or repair, not during a prompt.
 
 ## Platform permissions
 
@@ -88,3 +90,7 @@ AUTOHAND_CUA_DRIVER_PATH=/absolute/path/to/cua-driver autohand
 ```
 
 If tools are unavailable in an already running Autohand session, install or repair the driver and start a new session so MCP tool discovery runs again.
+
+Cloud safety rejections appear as `content_blocked`, with the reported category and request ID when available. For example, `S7 (Privacy)` identifies the category reported by the service; it is not a malformed-request error. Include the request ID when reporting an unexpected rejection. Autohand does not automatically replay a blocked request.
+
+The CLI sends the human instruction separately from client-provided workspace, skill, and file context. The cloud prompt guard checks the newest human instruction while generation starts in parallel. In blocking mode, the server withholds the response until that bounded check settles so a tool call cannot run before an unsafe verdict arrives. Existing guard timeout and error policies remain in effect.

@@ -1785,8 +1785,6 @@ export function initializeAgentDependencies(
               }
             }
           } else if (McpClientManager.isMcpTool(action.type)) {
-            // Ensure MCP servers have finished connecting before dispatching
-            if (host.mcpReady) await host.mcpReady;
             // Route MCP tool calls to the MCP client manager
             const parsed = McpClientManager.parseMcpToolName(action.type);
             if (parsed) {

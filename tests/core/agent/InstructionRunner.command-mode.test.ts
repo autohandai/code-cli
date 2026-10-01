@@ -97,7 +97,7 @@ function createHost(): AgentInstructionHost {
     setupPersistentInputInterruptHandlers: vi.fn(() => vi.fn()),
     setupEscListener: vi.fn(() => vi.fn()),
     startPreparationStatus: vi.fn(() => vi.fn()),
-    buildUserMessage: vi.fn(async instruction => instruction),
+    buildTurnContext: vi.fn(async instruction => instruction),
     setUIStatus: vi.fn(),
     saveUserMessage: vi.fn(async () => {}),
     updateContextUsage: vi.fn(),
@@ -118,6 +118,20 @@ function createHost(): AgentInstructionHost {
 }
 
 describe('InstructionRunner command mode UI', () => {
+  it('keeps the human instruction separate from generated native-control context', async () => {
+    const host = createHost();
+    const instruction = 'open my computer and use spotify find felix rosch and play a song from him';
+    const context = 'Workspace: /private/project\nComputer control mode: observe before acting.';
+    host.buildTurnContext = vi.fn(async () => context);
+
+    expect(await new InstructionRunner(host).run(instruction)).toBe(true);
+    expect(host.conversation.addMessage).toHaveBeenCalledWith({ role: 'user', content: instruction });
+    expect(host.conversation.addSystemNote).toHaveBeenCalledWith(context);
+    expect(vi.mocked(host.conversation.addMessage).mock.invocationCallOrder[0])
+      .toBeLessThan(vi.mocked(host.conversation.addSystemNote).mock.invocationCallOrder.at(-1)!);
+    expect(host.saveUserMessage).toHaveBeenCalledWith(instruction);
+  });
+
   const restoreFns: Array<() => void> = [];
 
   afterEach(() => {
@@ -185,7 +199,7 @@ describe('InstructionRunner command mode UI', () => {
       event: 'pre-prompt', command: `printf '%s' '{"decision":"block","reason":"PROMPT_BLOCKED"}'`,
     }] } });
     expect(await new InstructionRunner(host).run('blocked prompt')).toBe(false);
-    expect(host.buildUserMessage).not.toHaveBeenCalled();
+    expect(host.buildTurnContext).not.toHaveBeenCalled();
     expect(host.runReactLoop).not.toHaveBeenCalled();
     expect(host.runEnvironmentBootstrap).not.toHaveBeenCalled();
     expect(host.isInstructionActive).toBe(false);
@@ -248,7 +262,7 @@ describe('InstructionRunner command mode UI', () => {
     })).resolves.toBe(true);
 
     expect(host.printUserInstructionToChatLog).not.toHaveBeenCalled();
-    expect(host.buildUserMessage).toHaveBeenCalledWith(instruction);
+    expect(host.buildTurnContext).toHaveBeenCalledWith(instruction);
     expect(host.saveUserMessage).toHaveBeenCalledWith(instruction);
     expect(host.conversation.addMessage).toHaveBeenCalledWith({
       role: 'user',

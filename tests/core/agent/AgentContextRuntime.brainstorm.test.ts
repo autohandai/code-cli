@@ -7,14 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
-import { buildAgentUserMessage, type AgentContextRuntimeHost } from '../../../src/core/agent/AgentContextRuntime.js';
+import { buildAgentTurnContext, type AgentContextRuntimeHost } from '../../../src/core/agent/AgentContextRuntime.js';
 import { getPlanModeManager } from '../../../src/commands/plan.js';
 
 const ARCHITECT_MARKER = 'ARCHITECT-LENS-BODY-MARKER';
 
 const DEBUG_MARKER = 'DEBUG_PLAYBOOK_MARKER';
 
-describe('buildAgentUserMessage debugging auto-injection', () => {
+describe('buildAgentTurnContext debugging auto-injection', () => {
   let workspaceRoot: string;
   beforeEach(async () => {
     workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-debug-intent-'));
@@ -41,24 +41,24 @@ describe('buildAgentUserMessage debugging auto-injection', () => {
   }
 
   it('injects the debugging playbook for a failure-shaped instruction', async () => {
-    const message = await buildAgentUserMessage(host(), 'the tuistory tests are failing in CI, can you fix it');
+    const message = await buildAgentTurnContext(host(), 'the tuistory tests are failing in CI, can you fix it');
     expect(message).toContain('Debugging mode');
     expect(message).toContain(DEBUG_MARKER);
   });
 
   it('stays silent for ordinary work and for feature requests that mention bugs', async () => {
-    expect(await buildAgentUserMessage(host(), 'add a bug report form to the settings page')).not.toContain(DEBUG_MARKER);
-    expect(await buildAgentUserMessage(host(), 'rename the session command')).not.toContain(DEBUG_MARKER);
+    expect(await buildAgentTurnContext(host(), 'add a bug report form to the settings page')).not.toContain(DEBUG_MARKER);
+    expect(await buildAgentTurnContext(host(), 'rename the session command')).not.toContain(DEBUG_MARKER);
   });
 
   it('prefers the brainstorm playbook when a request is design-shaped', async () => {
-    const message = await buildAgentUserMessage(host(), "let's design how the retry logic should work when requests fail");
+    const message = await buildAgentTurnContext(host(), "let's design how the retry logic should work when requests fail");
     expect(message).toContain(ARCHITECT_MARKER);
     expect(message).not.toContain(DEBUG_MARKER);
   });
 });
 
-describe('buildAgentUserMessage brainstorm auto-injection', () => {
+describe('buildAgentTurnContext brainstorm auto-injection', () => {
   let workspaceRoot: string;
 
   function hostFor(overrides: {
@@ -98,7 +98,7 @@ describe('buildAgentUserMessage brainstorm auto-injection', () => {
   it('injects the brainstorm playbook in plan mode even for an execution-shaped instruction', async () => {
     getPlanModeManager().enable();
 
-    const message = await buildAgentUserMessage(hostFor(), 'fix the bug in auth.ts');
+    const message = await buildAgentTurnContext(hostFor(), 'fix the bug in auth.ts');
 
     expect(message).toContain('Brainstorming mode');
     expect(message).toContain('Plan mode is active');
@@ -112,28 +112,28 @@ describe('buildAgentUserMessage brainstorm auto-injection', () => {
     manager.startExecution();
     expect(manager.getPhase()).toBe('executing');
 
-    const message = await buildAgentUserMessage(hostFor(), 'fix the bug in auth.ts');
+    const message = await buildAgentTurnContext(hostFor(), 'fix the bug in auth.ts');
 
     expect(message).not.toContain('Brainstorming mode');
     expect(message).not.toContain(ARCHITECT_MARKER);
   });
 
   it('injects the brainstorm playbook in normal mode when the instruction is design-shaped', async () => {
-    const message = await buildAgentUserMessage(hostFor(), "let's design the auth flow");
+    const message = await buildAgentTurnContext(hostFor(), "let's design the auth flow");
 
     expect(message).toContain('Brainstorming mode');
     expect(message).toContain(ARCHITECT_MARKER);
   });
 
   it('does not inject in normal mode for an ordinary instruction', async () => {
-    const message = await buildAgentUserMessage(hostFor(), 'run the tests');
+    const message = await buildAgentTurnContext(hostFor(), 'run the tests');
 
     expect(message).not.toContain('Brainstorming mode');
     expect(message).not.toContain(ARCHITECT_MARKER);
   });
 
   it('does not double-inject when the user explicitly mentions $brainstorm', async () => {
-    const message = await buildAgentUserMessage(
+    const message = await buildAgentTurnContext(
       hostFor({
         activateMentionedSkills: () => [
           { name: 'brainstorm', description: 'Design with three lenses.', body: ARCHITECT_MARKER },

@@ -21,6 +21,7 @@ export type ApiErrorCode =
   | 'context_overflow'
   | 'model_not_found'
   | 'invalid_request'
+  | 'content_blocked'
   | 'auth_failed'
   | 'payment_required'
   | 'access_denied'
@@ -75,6 +76,8 @@ export const FRIENDLY_MESSAGES: Record<ApiErrorCode, string> = {
     'The requested model was not found. Use /model to select a different one.',
   invalid_request:
     'The request was malformed and could not be processed.',
+  content_blocked:
+    'The safety check blocked this request.',
   auth_failed:
     'Authentication failed. Please verify your API key in ~/.autohand/config.json.',
   payment_required:
@@ -94,6 +97,29 @@ export const FRIENDLY_MESSAGES: Record<ApiErrorCode, string> = {
   unknown:
     'An unexpected error occurred. Please try again.',
 };
+
+export function readContentBlockedError(
+  value: unknown,
+  httpStatus: number,
+  requestId?: string | null,
+): ApiError | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const error = value as Record<string, unknown>;
+  if (error.type !== 'content_blocked') return undefined;
+  const categories = Array.isArray(error.categories)
+    ? [...new Set(error.categories.filter((category): category is string =>
+      typeof category === 'string' && /^S(?:[1-9]|1[0-4])$/.test(category)))].slice(0, 14)
+    : [];
+  const candidate = requestId ?? error.requestId;
+  const id = typeof candidate === 'string' && /^[a-zA-Z0-9._:-]{1,128}$/.test(candidate)
+    ? candidate : undefined;
+  const details = [
+    FRIENDLY_MESSAGES.content_blocked,
+    ...(categories.length ? [`Safety categories: ${categories.map(code => code === 'S7' ? 'S7 (Privacy)' : code).join(', ')}.`] : []),
+    ...(id ? [`Request ID: ${id}.`, 'If this seems incorrect, include this ID when reporting it.'] : []),
+  ];
+  return new ApiError(details.join('\n'), 'content_blocked', httpStatus, false);
+}
 
 // ---------------------------------------------------------------------------
 // Body-pattern matchers (order matters — model checks BEFORE overflow)
@@ -231,6 +257,10 @@ export function classifyApiError(
   headers?: Headers,
 ): ApiError {
   const lower = errorBody.toLowerCase();
+  if (httpStatus === 0 && (errorBody === FRIENDLY_MESSAGES.content_blocked
+    || errorBody.startsWith(`${FRIENDLY_MESSAGES.content_blocked}\n`))) {
+    return new ApiError(errorBody, 'content_blocked', httpStatus, false);
+  }
 
   // -------------------------------------------------------------------
   // Status-first classification (non-400 codes are unambiguous)

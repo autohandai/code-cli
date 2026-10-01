@@ -223,6 +223,7 @@ function checksScriptFromParams(params: AutoresearchStartParams): string | undef
 // ApiErrorCode → RPC-specific error shape mapping
 // ---------------------------------------------------------------------------
 const RPC_ERROR_TYPE_MAP: Record<ApiErrorCode, string> = {
+  content_blocked: 'content_blocked',
   context_overflow: 'context',
   model_not_found: 'model',
   invalid_request: 'context',
@@ -238,6 +239,7 @@ const RPC_ERROR_TYPE_MAP: Record<ApiErrorCode, string> = {
 };
 
 const RPC_ERROR_CODE_MAP: Record<ApiErrorCode, number> = {
+  content_blocked: 400,
   context_overflow: 400,
   model_not_found: 404,
   invalid_request: 400,
@@ -253,6 +255,7 @@ const RPC_ERROR_CODE_MAP: Record<ApiErrorCode, number> = {
 };
 
 const RPC_ERROR_ICON_MAP: Record<ApiErrorCode, string> = {
+  content_blocked: '\u26A0\uFE0F',
   context_overflow: '\uD83D\uDCE6',  // 📦
   model_not_found: '\uD83E\uDD16',   // 🤖
   invalid_request: '\uD83D\uDCE6',   // 📦

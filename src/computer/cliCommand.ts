@@ -185,7 +185,8 @@ async function handleInstall(options: ComputerInstallOptions): Promise<void> {
     console.error(chalk.yellow(
       `Could not install native computer control: ${error instanceof Error ? error.message : String(error)}`,
     ));
-    console.error(chalk.gray('Retry later with: autohand computer install'));
+    console.error(chalk.gray('Retry with: autohand computer install'));
+    process.exitCode = 1;
     return;
   }
   const report = buildComputerStatusReport({

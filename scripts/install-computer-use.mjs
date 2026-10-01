@@ -36,6 +36,9 @@ export async function installComputerUsePostinstall(options = {}) {
   const packageRoot = options.packageRoot
     ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const environment = options.environment ?? process.env;
+  if (environment.AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL === '1') {
+    return { status: 'skipped-disabled' };
+  }
   const sourceCheckout = existsSync(path.join(packageRoot, '.git'));
   const forceSourceInstall = environment.AUTOHAND_INSTALL_COMPUTER_USE === '1'
     || environment.AUTOHAND_INSTALL_CUA_DRIVER === '1';

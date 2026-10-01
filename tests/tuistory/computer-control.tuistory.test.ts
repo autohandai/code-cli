@@ -59,6 +59,21 @@ async function writeFakeComputerUseHost(state: TuistoryTempState): Promise<strin
 }
 
 describe('built native computer control', () => {
+  it('exits unsuccessfully when the required postinstall component cannot be written', async () => {
+    const state = await createTempAutohandHome({ initializeGit: false });
+    states.push(state);
+    const occupiedPath = path.join(state.workspaceRoot, 'occupied');
+    await writeFile(occupiedPath, 'fixture');
+    const session = await launchBuiltAutohand([
+      'computer', 'install', '--postinstall', '--non-interactive', '--force', '--bin-dir', occupiedPath,
+    ], { autohandHome: state.autohandHome, cwd: state.workspaceRoot });
+    sessions.push(session);
+    await waitForExit(session, 15_000);
+    expect(session.exitInfo?.exitCode).toBe(1);
+    expect(session.readAll()).toContain('Could not install native computer control');
+    expect(session.readAll()).toContain('autohand computer install');
+  });
+
   it('uses the Autohand Computer Use product name in user-facing status', async () => {
     const state = await createTempAutohandHome();
     states.push(state);
@@ -180,10 +195,11 @@ describe('built native computer control', () => {
     expect(firstRequest.tools?.map((tool) => tool.function?.name))
       .toContain('mcp__autohand-computer-use__list_windows');
     const userMessage = firstRequest.messages?.find((message) => message.role === 'user')?.content ?? '';
-    expect(userMessage).toContain('Computer control mode');
-    expect(userMessage).toContain('Operate one exact local app or window');
-    expect(userMessage).toContain('mcp__autohand-computer-use__');
-    expect(userMessage).not.toContain('Use the tools advertised by the `cua-driver` MCP server');
+    expect(userMessage).toBe('use my spotify and play Felix Rosch');
+    const turnContext = firstRequest.messages?.filter(message => message.role === 'system').map(message => message.content).join('\n') ?? '';
+    expect(turnContext).toContain('Computer control mode');
+    expect(turnContext).toContain('Operate one exact local app or window');
+    expect(turnContext).toContain('mcp__autohand-computer-use__');
 
     const secondRequest = provider.requests[1] as {
       messages?: Array<{ role?: string; content?: string }>;

@@ -34,6 +34,7 @@ import type {
 } from '../../../src/types.js';
 
 interface AgentOutcomeInternals {
+  mcpReady: Promise<void> | null;
   modalActive: boolean;
   activeAbortController?: AbortController;
   agentRunStore: AgentRunStore;
@@ -472,6 +473,24 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
 
     expect(result.success).toBe(!isError);
     expect(result.output).toBe('Found 1 window(s).\n{"windows":[{"window_id":280,"pid":6844,"title":"Spotify Free"}]}');
+  });
+
+  it('dispatches a ready native tool while an unrelated MCP server is still starting', async () => {
+    const { internals } = createAgent();
+    const tool = 'mcp__autohand-computer-use__list_windows' as AgentAction['type'];
+    internals.toolManager.register({ name: tool, description: 'List windows', parameters: { type: 'object', properties: {} } });
+    let release!: () => void;
+    internals.mcpReady = new Promise<void>(resolve => { release = resolve; });
+    internals.mcpManager.callTool = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'Spotify' }] });
+    internals.hookManager.executeHooks = vi.fn().mockResolvedValue([]);
+    internals.telemetryManager.trackToolUse = vi.fn().mockResolvedValue(undefined);
+    const pending = internals.toolManager.execute([{ id: 'windows', tool, args: {} }]);
+    try {
+      await vi.waitFor(() => expect(internals.mcpManager.callTool).toHaveBeenCalledOnce(), { timeout: 100 });
+    } finally {
+      release();
+      await pending;
+    }
   });
 
   it('keeps MCP image bytes out of textual tool output while registering a runtime observation', async () => {
