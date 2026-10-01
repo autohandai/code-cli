@@ -4,10 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Session } from 'tuistory';
+import { launchTerminal, type Session } from 'tuistory';
+import { execFileSync } from 'node:child_process';
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import stripAnsi from 'strip-ansi';
 import {
-  createTempAutohandHome, launchBuiltAutohand, waitForExit,
+  createTempAutohandHome, launchBuiltAutohand, waitForExit, repoRoot,
   type TuistoryTempState,
 } from './helpers/autohandTuistory.js';
 
@@ -29,6 +32,42 @@ async function launch(args: string[]) {
 }
 
 describe('doctor command Tuistory', () => {
+  it.skipIf(process.platform === 'win32')('runs the fresh alpha launcher against its isolated profile in a real terminal', async () => {
+    const state = await createTempAutohandHome();
+    states.push(state);
+    const original = await readFile(state.configPath, 'utf8');
+    const install = path.join(state.workspaceRoot, 'bin');
+    const staging = path.join(state.workspaceRoot, 'staging');
+    await mkdir(install);
+    await mkdir(staging);
+    const source = await readFile(path.join(repoRoot(), 'install.sh'), 'utf8');
+    const prepare = path.join(staging, 'prepare.sh');
+    await writeFile(prepare, source.replace('main "$@" || exit 1', 'prepare_fresh_alpha_profile "$1" "$2"'));
+    execFileSync('/bin/sh', [prepare, install, staging], { env: { ...process.env, HOME: state.workspaceRoot } });
+    const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+    const binary = path.join(install, 'autohand');
+    await writeFile(binary, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(path.join(repoRoot(), 'dist/index.js'))} "$@"\n`);
+    await chmod(binary, 0o755);
+    const profile = (await readFile(path.join(install, 'autohand-alpha.profile'), 'utf8')).trim();
+    const session = await launchTerminal({
+      command: path.join(install, 'autohand-alpha'), args: ['doctor', '--json', '--skip-mcp'],
+      cwd: state.workspaceRoot, cols: 1000, rows: 36,
+      env: {
+        ...process.env, AUTOHAND_HOME: state.autohandHome, AUTOHAND_CONFIG: state.configPath,
+        AUTOHAND_DISABLE_COMPUTER_USE: '1', AUTOHAND_SKIP_UPDATE_CHECK: '1',
+        AUTOHAND_SKIP_PING: '1', AUTOHAND_OFFLINE: '1', NO_COLOR: '1',
+      },
+    });
+    sessions.push(session);
+    await waitForExit(session, 40_000);
+    const output = stripAnsi(session.readAll());
+    expect(output).toContain(path.join(profile, 'config.json'));
+    expect(output).not.toContain(state.configPath);
+    expect(await readFile(state.configPath, 'utf8')).toBe(original);
+    const report = JSON.parse(output.slice(output.indexOf('{'), output.lastIndexOf('}') + 1)) as { ok: boolean };
+    expect(session.exitInfo?.exitCode).toBe(report.ok ? 0 : 1);
+  });
+
   it('prints every section for a fresh install and exits by its verdict', async () => {
     const { session, state } = await launch(['--skip-mcp']);
     await waitForExit(session, 40_000);

@@ -8,6 +8,8 @@
     Install the latest alpha (pre-release) build
 .PARAMETER Clean
     Remove existing installation before installing
+.PARAMETER Fresh
+    Back up and reset the normal profile, create an empty alpha profile, and reinstall Computer Use
 .PARAMETER NoCache
     Bypass CDN cache and fetch fresh release from GitHub
 .PARAMETER Version
@@ -27,6 +29,7 @@
 param(
     [switch]$Alpha,
     [switch]$Clean,
+    [switch]$Fresh,
     [switch]$NoCache,
     [string]$Version,
     [string]$InstallDir,
@@ -86,6 +89,7 @@ Or download and run with options:
 Options:
   -Alpha        Install the latest alpha (pre-release) build
   -Clean        Remove existing installation before installing
+  -Fresh        Back up/reset normal profile and create an empty alpha profile (use with -Alpha)
   -NoCache      Bypass CDN cache and fetch fresh release from GitHub
   -Version      Install specific version (e.g., 0.7.3)
   -InstallDir   Custom installation directory
@@ -656,6 +660,55 @@ function Install-BinaryFile {
     }
 }
 
+function Reset-NormalProfile {
+    if ([string]::IsNullOrWhiteSpace($env:USERPROFILE)) { throw 'USERPROFILE must be set.' }
+    $normal = Join-Path $env:USERPROFILE '.autohand'
+    $backup = $null
+    if (Test-Path -LiteralPath $normal) {
+        $item = Get-Item -LiteralPath $normal -Force
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Refusing to reset a linked profile: $normal"
+        }
+        if (-not $item.PSIsContainer) { throw "Profile is not a directory: $normal" }
+        $backup = Join-Path $env:USERPROFILE ('.autohand.backup.' + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $backup | Out-Null
+        Move-Item -LiteralPath $normal -Destination (Join-Path $backup 'profile')
+    }
+    try {
+        New-Item -ItemType Directory -Path $normal | Out-Null
+    }
+    catch {
+        if ($backup -and -not (Test-Path -LiteralPath $normal)) {
+            Move-Item -LiteralPath (Join-Path $backup 'profile') -Destination $normal
+        }
+        throw
+    }
+    if ($backup) { Write-Success "Normal profile backup: $(Join-Path $backup 'profile')" }
+    Write-Success "Fresh normal profile: $normal"
+}
+
+function Prepare-FreshAlphaProfile {
+    param([Parameter(Mandatory = $true)][string]$InstallPath)
+    $profileRoot = Join-Path $env:USERPROFILE '.autohand-alpha'
+    $profilePath = Join-Path $profileRoot ('profile.' + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $profilePath -Force | Out-Null
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [IO.File]::WriteAllText((Join-Path $InstallPath 'autohand-alpha.profile'), $profilePath, $utf8)
+    $launcher = @'
+$ErrorActionPreference = 'Stop'
+$env:AUTOHAND_HOME = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'autohand-alpha.profile'))
+Remove-Item Env:AUTOHAND_CONFIG -ErrorAction SilentlyContinue
+& (Join-Path $PSScriptRoot 'autohand.exe') @args
+exit $LASTEXITCODE
+'@
+    [IO.File]::WriteAllText((Join-Path $InstallPath 'autohand-alpha.ps1'), $launcher, $utf8)
+    $command = '@echo off' + "`r`n" + 'powershell.exe -NoProfile -File "%~dp0autohand-alpha.ps1" %*' + "`r`n" + 'exit /b %errorlevel%'
+    [IO.File]::WriteAllText((Join-Path $InstallPath 'autohand-alpha.cmd'), $command, $utf8)
+    Reset-NormalProfile
+    Write-Success "Fresh alpha profile: $profilePath"
+    Write-Host 'Run autohand-alpha to test this installation. Earlier profiles are retained.'
+}
+
 function Install-ComputerControl {
     param(
         [Parameter(Mandatory = $true)][string]$BinaryPath
@@ -669,7 +722,9 @@ function Install-ComputerControl {
     Write-Step "Installing Computer control..."
     try {
         # The computer-use engine lives in its own Autohand-managed directory.
-        & $BinaryPath computer install --non-interactive
+        $computerArguments = @('computer', 'install', '--non-interactive')
+        if ($Fresh -or $env:AUTOHAND_INSTALL_FRESH -eq '1') { $computerArguments += "--force" }
+        & $BinaryPath @computerArguments
         if ($LASTEXITCODE -ne 0) {
             throw "autohand computer install exited with code $LASTEXITCODE"
         }
@@ -690,11 +745,6 @@ function Install-Autohand {
         return
     }
 
-    # Clean existing installation if requested
-    if ($Clean) {
-        Remove-ExistingInstallation
-    }
-
     # Determine channel
     $channel = "stable"
     if ($Alpha) {
@@ -702,6 +752,15 @@ function Install-Autohand {
     }
     if ($env:AUTOHAND_CHANNEL) {
         $channel = $env:AUTOHAND_CHANNEL
+    }
+
+    if (($Fresh -or $env:AUTOHAND_INSTALL_FRESH -eq '1') -and $channel -ne 'alpha') {
+        throw '-Fresh requires -Alpha (or AUTOHAND_CHANNEL=alpha).'
+    }
+
+    # Clean existing installation if requested
+    if ($Clean) {
+        Remove-ExistingInstallation
     }
 
     # Detect architecture
@@ -854,6 +913,11 @@ function Install-Autohand {
     Add-AutohandToUserPath -InstallPath $installPath
 
     Install-ComputerControl -BinaryPath $binaryPath
+    $launchBinary = $binaryPath
+    if ($Fresh -or $env:AUTOHAND_INSTALL_FRESH -eq '1') {
+        Prepare-FreshAlphaProfile -InstallPath $installPath
+        $launchBinary = Join-Path $installPath 'autohand-alpha.cmd'
+    }
 
     Write-Host ""
     Write-Success "Autohand CLI installed successfully!"
@@ -893,7 +957,7 @@ function Install-Autohand {
     }
     Write-Host ""
 
-    [void](Start-FirstRun -BinaryPath $binaryPath)
+    [void](Start-FirstRun -BinaryPath $launchBinary)
 }
 
 # Run installer

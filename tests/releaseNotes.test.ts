@@ -73,5 +73,10 @@ describe('generate release notes', () => {
     expect(result.markdown).toContain("Here's what's new since v0.9.2");
     expect(result.markdown).toContain('### Bug Fixes');
     expect(result.markdown).toContain('- Repair installer release notes');
+    expect(result.markdown).toContain('AUTOHAND_VERSION=0.9.3-alpha.a97cfcf');
+    expect(result.markdown).toContain('--alpha --fresh');
+    expect(result.markdown).toContain('autohand-alpha');
+    expect(result.markdown).toContain('-Fresh -Version 0.9.3-alpha.a97cfcf');
+    expect(result.markdown).toContain('~/.autohand.backup.<unique>/profile');
   });
 });

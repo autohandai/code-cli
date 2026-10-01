@@ -16,6 +16,7 @@ import {
   readlinkSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -82,6 +83,120 @@ afterEach(() => {
 });
 
 describe('release installer command aliases', () => {
+  unixIt('restores the normal profile if creating its replacement fails', () => {
+    const root = mkdtempSync(join(tmpdir(), 'autohand-profile-rollback-'));
+    tempRoots.push(root);
+    const normal = join(root, '.autohand');
+    mkdirSync(normal);
+    writeFileSync(join(normal, 'config.json'), 'restore this configuration');
+    const script = readFileSync(join(ROOT, 'install.sh'), 'utf8').replace(/main "\$@" \|\| exit 1\s*$/, `
+mkdir() { return 1; }
+reset_normal_profile
+`);
+    const result = spawnSync('/bin/sh', ['-c', script], {
+      env: { ...process.env, HOME: root, PATH: SAFE_SYSTEM_PATH }, encoding: 'utf8',
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stdout + result.stderr).toContain('Cannot create an empty normal profile');
+    expect(readFileSync(join(normal, 'config.json'), 'utf8')).toBe('restore this configuration');
+  });
+
+  unixIt('rejects fresh mode on the stable channel before touching the profile', () => {
+    const root = mkdtempSync(join(tmpdir(), 'autohand-stable-fresh-'));
+    tempRoots.push(root);
+    const normal = join(root, '.autohand');
+    mkdirSync(normal);
+    writeFileSync(join(normal, 'config.json'), 'keep stable profile');
+    const result = spawnSync('/bin/sh', ['install.sh', '--fresh'], {
+      cwd: ROOT, env: { ...process.env, HOME: root, AUTOHAND_CHANNEL: 'stable' }, encoding: 'utf8',
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stdout + result.stderr).toContain('--fresh requires --alpha');
+    expect(readFileSync(join(normal, 'config.json'), 'utf8')).toBe('keep stable profile');
+  });
+
+  unixIt('refuses to reset a linked normal profile', () => {
+    const root = mkdtempSync(join(tmpdir(), 'autohand-linked-profile-'));
+    tempRoots.push(root);
+    const home = join(root, 'home');
+    const target = join(root, 'shared-profile');
+    mkdirSync(home);
+    mkdirSync(target);
+    writeFileSync(join(target, 'config.json'), 'keep shared configuration');
+    symlinkSync(target, join(home, '.autohand'));
+    const script = readFileSync(join(ROOT, 'install.sh'), 'utf8').replace(/main "\$@" \|\| exit 1\s*$/, 'reset_normal_profile');
+    const result = spawnSync('/bin/sh', ['-c', script], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
+    expect(result.status).not.toBe(0);
+    expect(result.stdout + result.stderr).toContain('symlink');
+    expect(lstatSync(join(home, '.autohand')).isSymbolicLink()).toBe(true);
+    expect(readFileSync(join(target, 'config.json'), 'utf8')).toBe('keep shared configuration');
+  });
+
+  unixIt('installs the exact alpha and backs up the normal profile before resetting it', () => {
+    const root = mkdtempSync(join(tmpdir(), 'autohand-fresh-alpha-'));
+    tempRoots.push(root);
+    const home = join(root, 'home with spaces');
+    const payload = join(root, 'payload');
+    const fixtures = join(root, 'fixture-bin');
+    const install = join(root, 'install');
+    for (const dir of [home, payload, fixtures, install, join(home, '.autohand')]) mkdirSync(dir, { recursive: true });
+    const normalConfig = join(home, '.autohand', 'config.json');
+    writeFileSync(normalConfig, 'normal profile sentinel');
+    const calls = join(root, 'computer-calls');
+    writeFileSync(join(payload, 'autohand'), `#!/bin/sh
+case "$1" in
+  --version) printf '0.8.3-alpha.123abcd\\n' ;;
+  computer) printf '%s\\n' "$*" >> "$AUTOHAND_TEST_CALLS"; exit "\${AUTOHAND_TEST_COMPUTER_EXIT:-0}" ;;
+  *) printf '%s\\n' "$AUTOHAND_HOME" "\${AUTOHAND_CONFIG:-unset}" "$@" ;;
+esac
+`);
+    chmodSync(join(payload, 'autohand'), 0o755);
+    const archive = join(root, 'alpha.tar.gz');
+    execFileSync('tar', ['-czf', archive, '-C', payload, 'autohand']);
+    const checksum = `${archive}.sha256`;
+    writeFileSync(checksum, createHash('sha256').update(readFileSync(archive)).digest('hex'));
+    writeFakeCurl(fixtures);
+    const environment = {
+      ...process.env, HOME: home, PATH: `${fixtures}:${SAFE_SYSTEM_PATH}`,
+      AUTOHAND_INSTALL_DIR: install, AUTOHAND_TEST_ARCHIVE: archive,
+      AUTOHAND_TEST_CHECKSUM: checksum, AUTOHAND_VERSION: '0.8.3-alpha.123abcd',
+      AUTOHAND_TEST_CALLS: calls, AUTOHAND_INSTALL_FIRST_RUN: 'no',
+      AUTOHAND_CONFIG: normalConfig, AUTOHAND_HOME: join(home, '.autohand'),
+      AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL: '0',
+    };
+    const runInstall = () => execFileSync('/bin/sh', ['install.sh', '--alpha', '--fresh'], {
+      cwd: ROOT, env: environment, encoding: 'utf8',
+    });
+    expect(runInstall()).toContain('autohand-alpha');
+    const launcher = join(install, 'autohand-alpha');
+    const probe = () => execFileSync(launcher, ['probe', 'argument with spaces'], { env: environment, encoding: 'utf8' }).trim().split('\n');
+    const first = probe();
+    expect(first.slice(1)).toEqual(['unset', 'probe', 'argument with spaces']);
+    expect(first[0]).not.toBe(join(home, '.autohand'));
+    expect(existsSync(first[0])).toBe(true);
+    expect(readdirSync(first[0])).toEqual([]);
+    writeFileSync(join(first[0], 'test-session'), 'keep earlier test');
+    runInstall();
+    expect(probe()[0]).not.toBe(first[0]);
+    expect(readFileSync(join(first[0], 'test-session'), 'utf8')).toBe('keep earlier test');
+    expect(existsSync(normalConfig)).toBe(false);
+    const backups = readdirSync(home).filter(name => name.startsWith('.autohand.backup.'));
+    expect(backups).toHaveLength(2);
+    const contents = backups.flatMap(name => {
+      const config = join(home, name, 'profile', 'config.json');
+      return existsSync(config) ? [readFileSync(config, 'utf8')] : [];
+    });
+    expect(contents).toContain('normal profile sentinel');
+    expect(readFileSync(calls, 'utf8')).toContain('computer install --non-interactive --force');
+    writeFileSync(normalConfig, 'keep profile when installation fails');
+    const failed = spawnSync('/bin/sh', ['install.sh', '--alpha', '--fresh'], {
+      cwd: ROOT, env: { ...environment, AUTOHAND_TEST_COMPUTER_EXIT: '17' }, encoding: 'utf8',
+    });
+    expect(failed.status).not.toBe(0);
+    expect(readFileSync(normalConfig, 'utf8')).toBe('keep profile when installation fails');
+    expect(readdirSync(home).filter(name => name.startsWith('.autohand.backup.'))).toHaveLength(2);
+  });
+
   unixIt('rejects a downloaded binary that cannot start before replacing the installation', () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'autohand-installer-startup-'));
     tempRoots.push(tempRoot);

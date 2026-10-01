@@ -34,6 +34,18 @@ The detected engine is added to the running agent as the managed `autohand-compu
 
 The managed server connects in the background at startup and stays connected for the session. Once its tools are ready, computer actions do not wait for unrelated MCP servers to connect. Component downloads happen during installation or repair, not during a prompt.
 
+### Fresh alpha testing
+
+Alpha release notes include an installer command pinned to that release. Add `--alpha --fresh` to the Unix installer, or `-Alpha -Fresh` to the Windows installer, to test from empty user profiles. Close running Autohand sessions before installing so they cannot write state back during the reset.
+
+After the CLI and required Computer Use component install successfully, fresh mode moves the default `~/.autohand` directory to `~/.autohand.backup.<unique>/profile` and creates an empty normal profile. Windows uses the same names under `%USERPROFILE%`. The installer prints the backup path; configuration, credentials, sessions, and other files inside the old profile remain in that backup. A linked normal profile is rejected. Omit the fresh flag for an ordinary upgrade that keeps the existing profile active.
+
+Fresh mode also creates an empty `~/.autohand-alpha/profile.<unique>` and installs an `autohand-alpha` launcher. That launcher selects its new profile and ignores inherited `AUTOHAND_HOME` and `AUTOHAND_CONFIG` overrides. Each reinstall creates another profile and retains earlier alpha runs. The regular `autohand` command uses the reset normal profile unless you have explicitly configured a different home or config path. Workspace configuration and macOS Accessibility/Screen Recording grants are unchanged.
+
+To inspect or resume a backup without replacing the new profile, run `AUTOHAND_HOME="<printed-backup-path>" autohand` with `AUTOHAND_CONFIG` unset. In PowerShell, set `$env:AUTOHAND_HOME` to the printed backup path, remove `Env:AUTOHAND_CONFIG`, then run `autohand`.
+
+CI exercises fresh installation and reinstallation against compiled CLI binaries. Native Unix release jobs additionally install the required Computer Use component and check its status before uploading artifacts. These checks do not grant protected OS permissions or prove live app interaction.
+
 ## Platform permissions
 
 Run `autohand computer doctor` after installation and follow the platform guidance it prints.

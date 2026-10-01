@@ -177,6 +177,14 @@ jobs:
           # platform-binary resolution can't be statically bundled.
           bun build ./src/index.ts --compile --external node-llama-cpp --outfile ./binaries/autohand-test
 
+      - name: Verify fresh alpha installation
+        if: runner.os != 'Windows'
+        shell: bash
+        timeout-minutes: 5
+        env:
+          AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL: '1'
+        run: sh src/testing/scenarios/fresh-alpha-install.sh ./binaries/autohand-test ci-alpha-smoke
+
       - name: Verify binary (Unix)
         if: runner.os != 'Windows'
         run: |

@@ -618,3 +618,47 @@ describe('required computer use installation', () => {
     expect(result.stdout).not.toContain('still ready');
   });
 });
+
+
+describe('fresh alpha profile', () => {
+  it('offers an explicit fresh alpha install and forces companion replacement', () => {
+    expect(installer).toContain('[switch]$Fresh');
+    expect(installer).toContain('Prepare-FreshAlphaProfile -InstallPath $installPath');
+    expect(installer).toContain('$computerArguments += "--force"');
+  });
+  powerShellTest('creates a new empty profile per install and retains earlier state', () => {
+    const root = mkdtempSync(join(tmpdir(), 'autohand-fresh-windows-'));
+    try {
+      const result = runPowerShellProbe(`${installerWithoutEntrypoint}
+$env:USERPROFILE = '${root.replaceAll("'", "''")}'
+$normal = Join-Path $env:USERPROFILE '.autohand'
+New-Item -ItemType Directory -Path $normal | Out-Null
+Set-Content (Join-Path $normal 'config.json') 'normal sentinel'
+$install = Join-Path $env:USERPROFILE 'bin'
+New-Item -ItemType Directory -Path $install | Out-Null
+Prepare-FreshAlphaProfile -InstallPath $install
+$first = (Get-Content (Join-Path $install 'autohand-alpha.profile') -Raw).Trim()
+Set-Content (Join-Path $first 'session') 'previous run'
+Prepare-FreshAlphaProfile -InstallPath $install
+$second = (Get-Content (Join-Path $install 'autohand-alpha.profile') -Raw).Trim()
+Write-Output ('DIFFERENT=' + ($first -ne $second))
+Write-Output ('EMPTY=' + (@(Get-ChildItem $second).Count -eq 0))
+Write-Output ('RETAINED=' + (Test-Path (Join-Path $first 'session')))
+Write-Output ('LAUNCHER=' + (Test-Path (Join-Path $install 'autohand-alpha.cmd')))
+Write-Output ('RESET=' + (-not (Test-Path (Join-Path $normal 'config.json'))))
+$backups = @(Get-ChildItem $env:USERPROFILE -Directory -Force | Where-Object Name -Like '.autohand.backup.*')
+Write-Output ('BACKUPS=' + $backups.Count)
+Write-Output ('BACKUP_CONTENT=' + ((Get-Content (Join-Path $backups[0].FullName 'profile/config.json') -ErrorAction SilentlyContinue) + (Get-Content (Join-Path $backups[1].FullName 'profile/config.json') -ErrorAction SilentlyContinue)))
+
+`);
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('DIFFERENT=True');
+      expect(result.stdout).toContain('EMPTY=True');
+      expect(result.stdout).toContain('RETAINED=True');
+      expect(result.stdout).toContain('LAUNCHER=True');
+      expect(result.stdout).toContain('RESET=True');
+      expect(result.stdout).toContain('BACKUPS=2');
+      expect(result.stdout).toContain('BACKUP_CONTENT=normal sentinel');
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+});

@@ -296,6 +296,19 @@ describe('release workflow', () => {
     expect(revision).toMatch(/^[0-9a-f]{40}$/u);
   });
 
+  it('smoke tests fresh alpha installation before uploading release artifacts', () => {
+    const steps = loadReleaseWorkflow().jobs.build.steps;
+    const smoke = steps.find(step => step.name === 'Verify fresh alpha installation');
+    expect(smoke?.run).toContain('src/testing/scenarios/fresh-alpha-install.sh');
+    expect(smoke?.run).toContain('${{ needs.prepare.outputs.version }}');
+    expect(smoke?.run).toContain('${{ matrix.tracesArtifact }}');
+    expect(smoke?.env?.AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL).not.toBe('1');
+    expect(steps.indexOf(smoke!)).toBeLessThan(steps.findIndex(step => step.name === 'Upload artifact'));
+    const ci = parseYaml(readFileSync(CI_WORKFLOW_PATH, 'utf8')) as { jobs: { 'build-test': WorkflowJob } };
+    expect(ci.jobs['build-test'].steps.find(step => step.name === 'Verify fresh alpha installation')?.run)
+      .toContain('src/testing/scenarios/fresh-alpha-install.sh');
+  });
+
   it('pins the separate computer-use source to an immutable commit', () => {
     const revision = readFileSync(
       path.join(REPOSITORY_ROOT, '.github/computer-use-ref'),

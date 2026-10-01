@@ -141,14 +141,24 @@ function appendSection(lines, heading, items, intro) {
   lines.push('');
 }
 
-function appendInstallSection(lines, channel) {
+function appendInstallSection(lines, channel, version) {
   lines.push('---', '', '### Get it', '');
 
   if (channel === 'alpha') {
     lines.push(
       '**Install this alpha build:**',
       '```bash',
-      'curl -fsSL https://autohand.ai/install.sh | sh -s -- --alpha',
+      `curl -fsSL https://raw.githubusercontent.com/autohandai/code-cli/v${version}/install.sh | AUTOHAND_VERSION=${version} sh -s -- --alpha --fresh`,
+      'autohand-alpha',
+      '```',
+      '',
+      'Close running Autohand sessions first. Each fresh install backs up the normal ~/.autohand profile to ~/.autohand.backup.<unique>/profile, resets it, and creates an empty alpha profile. Earlier alpha profiles are retained. The installer prints the backup location. Computer Use is reinstalled; macOS permissions remain controlled by macOS. Omit --fresh (Windows: -Fresh) to keep the normal profile active.',
+      '',
+      '**Windows (PowerShell):**',
+      '```powershell',
+      `Invoke-WebRequest https://raw.githubusercontent.com/autohandai/code-cli/v${version}/install.ps1 -OutFile install-alpha.ps1`,
+      `./install-alpha.ps1 -Alpha -Fresh -Version ${version}`,
+      'autohand-alpha',
       '```',
       '',
       '**Or install the latest stable release:**',
@@ -229,7 +239,7 @@ export function generateReleaseNotes({
     lines.push(`Full comparison: https://github.com/${repo}/compare/${previousTag}...${targetTag}`, '');
   }
 
-  appendInstallSection(lines, channel);
+  appendInstallSection(lines, channel, version.replace(/^v/, ''));
 
   return {
     markdown: lines.join('\n'),

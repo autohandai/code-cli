@@ -53,10 +53,11 @@ describe('computer control installation integration', () => {
 
   it('installs computer use into its Autohand-owned Windows directory', async () => {
     const script = await readFile('install.ps1', 'utf8');
-    expect(script).toContain('Install-ComputerControl');
-    expect(script).toContain('computer install --non-interactive');
-    expect(script).not.toContain('computer install --non-interactive --bin-dir');
-    expect(script).toContain('Computer control');
+    const install = script.slice(script.indexOf('function Install-ComputerControl'), script.indexOf('function Install-Autohand'));
+    expect(install).toContain("@('computer', 'install', '--non-interactive')");
+    expect(install).toContain('& $BinaryPath @computerArguments');
+    expect(install).not.toContain('--bin-dir');
+    expect(install).toContain('Computer control');
   });
 
   it('includes computer control in published npm installation', async () => {

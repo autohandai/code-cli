@@ -533,6 +533,19 @@ jobs:
             throw "Windows ahtraces --version smoke test failed with exit code $LASTEXITCODE"
           }
 
+      - name: Verify fresh alpha installation
+        if: runner.os != 'Windows' && !contains(matrix.target, 'arm64') || matrix.os == 'macos-latest' && contains(matrix.target, 'arm64')
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          host_archive=""
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            host_archive="./binaries/autohand-computer-use-${{ matrix.target }}.tar.gz"
+          fi
+          sh src/testing/scenarios/fresh-alpha-install.sh \
+            "./binaries/${{ matrix.artifact }}" "${{ needs.prepare.outputs.version }}" \
+            "./binaries/${{ matrix.tracesArtifact }}" "$host_archive"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:

@@ -101,10 +101,59 @@ install_local_ai_runtime_if_requested() {
     success "Autohand AI Local runtime installed."
 }
 
+reset_normal_profile() {
+    local _normal="${HOME:?HOME must be set}/.autohand" _backup=""
+    if [ -L "$_normal" ]; then
+        err "Refusing to reset a symlink profile: $_normal"
+    fi
+    if [ -e "$_normal" ]; then
+        [ -d "$_normal" ] || err "Profile is not a directory: $_normal"
+        _backup=$(mktemp -d "$HOME/.autohand.backup.XXXXXX") || err "Cannot create profile backup"
+        mv "$_normal" "$_backup/profile" || err "Cannot back up profile to $_backup/profile"
+    fi
+    if ! mkdir -m 700 "$_normal"; then
+        if [ -n "$_backup" ]; then
+            mv "$_backup/profile" "$_normal" || err "Restore the profile from $_backup/profile"
+        fi
+        err "Cannot create an empty normal profile"
+    fi
+    if [ -n "$_backup" ]; then
+        success "Normal profile backup: $_backup/profile"
+    fi
+    success "Fresh normal profile: $_normal"
+}
+
+prepare_fresh_alpha_profile() {
+    local _dir="$1" _staging="$2" _profile
+    mkdir -p "$HOME/.autohand-alpha" || err "Cannot create alpha profile directory"
+    _profile=$(mktemp -d "$HOME/.autohand-alpha/profile.XXXXXX") || err "Cannot create alpha profile"
+    printf '%s\n' "$_profile" > "$_staging/autohand-alpha.profile" || err "Cannot write alpha profile path"
+    chmod 600 "$_staging/autohand-alpha.profile" || err "Cannot protect alpha profile path"
+    cat > "$_staging/autohand-alpha" <<'LAUNCHER'
+#!/bin/sh
+set -e
+_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+AUTOHAND_HOME=$(cat "$_dir/autohand-alpha.profile")
+export AUTOHAND_HOME
+unset AUTOHAND_CONFIG
+exec "$_dir/autohand" "$@"
+LAUNCHER
+    chmod 755 "$_staging/autohand-alpha" || err "Cannot prepare alpha launcher"
+    install_file "$_staging/autohand-alpha.profile" "$_dir/autohand-alpha.profile"
+    install_file "$_staging/autohand-alpha" "$_dir/autohand-alpha"
+    reset_normal_profile
+    success "Fresh alpha profile: $_profile"
+    info "Run autohand-alpha to test this installation. Earlier profiles are retained."
+}
+
 install_computer_control() {
     local _binary="$1"
     local _computer_use_app="${2:-}"
     local _computer_status
+    set -- computer install --non-interactive
+    if [ "${AUTOHAND_INSTALL_FRESH:-0}" = "1" ]; then
+        set -- "$@" --force
+    fi
 
     if [ "${AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL:-0}" = "1" ]; then
         warn "Skipping Computer control because AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL=1."
@@ -113,12 +162,12 @@ install_computer_control() {
 
     info "Installing Computer control..."
     if [ -d "$_computer_use_app" ]; then
-        if AUTOHAND_COMPUTER_USE_APP_SOURCE="$_computer_use_app" "$_binary" computer install --non-interactive; then
+        if AUTOHAND_COMPUTER_USE_APP_SOURCE="$_computer_use_app" "$_binary" "$@"; then
             _computer_status=0
         else
             _computer_status=$?
         fi
-    elif "$_binary" computer install --non-interactive; then
+    elif "$_binary" "$@"; then
         _computer_status=0
     else
         _computer_status=$?
@@ -157,12 +206,19 @@ EOF
             --alpha)
                 _channel="alpha"
                 ;;
+            --fresh)
+                AUTOHAND_INSTALL_FRESH=1
+                ;;
         esac
     done
 
     # Environment variable override
     if [ -n "${AUTOHAND_CHANNEL:-}" ]; then
         _channel="$AUTOHAND_CHANNEL"
+    fi
+
+    if [ "${AUTOHAND_INSTALL_FRESH:-0}" = "1" ] && [ "$_channel" != "alpha" ]; then
+        err "--fresh requires --alpha (or AUTOHAND_CHANNEL=alpha)."
     fi
 
     get_architecture || return 1
@@ -173,7 +229,7 @@ EOF
     local _url
     local _checksum_url
 
-    if [ "$_channel" = "alpha" ]; then
+    if [ "$_channel" = "alpha" ] && [ "$_version" = "latest" ]; then
         # Alpha: fetch the latest prerelease tag from GitHub API
         printf "${YELLOW}Fetching latest alpha release...${NC}\n"
         local _alpha_tag
@@ -292,6 +348,11 @@ EOF
         return 1
     fi
 
+    local _launch_binary="$_dir/$BINARY_NAME"
+    if [ "${AUTOHAND_INSTALL_FRESH:-0}" = "1" ]; then
+        prepare_fresh_alpha_profile "$_dir" "$_tmp_dir"
+        _launch_binary="$_dir/autohand-alpha"
+    fi
     rm -rf "$_tmp_dir"
 
     if ! echo "$PATH" | tr ':' '\n' | grep -qx "$_dir"; then
@@ -337,7 +398,7 @@ EOF
     fi
 
     echo ""
-    offer_first_run "$_dir/$BINARY_NAME"
+    offer_first_run "$_launch_binary"
 }
 
 compute_sha256() {
