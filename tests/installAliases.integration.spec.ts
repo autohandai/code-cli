@@ -243,18 +243,18 @@ esac
     expect(readFileSync(installedBinary, 'utf8')).toBe(existingBinary);
   });
 
-  unixIt('keeps the installer compatible with a release archive from before ahtraces', () => {
+  unixIt.each([true, false])('installs a legacy archive when the target directory exists: %s', (targetExists) => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'autohand-installer-legacy-'));
     tempRoots.push(tempRoot);
     const payloadDir = join(tempRoot, 'payload');
     const fixtureBinDir = join(tempRoot, 'fixture-bin');
-    const installDir = join(tempRoot, 'install');
+    const installDir = join(tempRoot, 'fresh', 'install');
     const archivePath = join(tempRoot, 'autohand.tar.gz');
     const checksumPath = `${archivePath}.sha256`;
 
     mkdirSync(payloadDir, { recursive: true });
     mkdirSync(fixtureBinDir, { recursive: true });
-    mkdirSync(installDir, { recursive: true });
+    if (targetExists) mkdirSync(installDir, { recursive: true });
     writeFileSync(
       join(payloadDir, 'autohand'),
       '#!/bin/sh\n[ "${1:-}" = "--version" ] && printf "test-version\\n"\nexit 0\n',

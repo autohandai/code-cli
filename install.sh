@@ -251,6 +251,8 @@ EOF
     local _dir
     if [ -n "${AUTOHAND_INSTALL_DIR:-}" ]; then
         _dir="$AUTOHAND_INSTALL_DIR"
+        # A fresh CI runner often has no ~/.local/bin yet.
+        mkdir -p "$_dir" 2>/dev/null || true
     elif [ "$(id -u)" = "0" ]; then
         _dir="/usr/local/bin"
     elif [ -d "$HOME/.local/bin" ]; then
