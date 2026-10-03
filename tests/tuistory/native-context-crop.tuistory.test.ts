@@ -24,7 +24,7 @@ afterEach(async () => {
 });
 
 describe('Native context crop history', () => {
-  it('keeps the active native crop call paired with its result and continues the interactive turn (#567, #555, #550)', async () => {
+  it.each(['autohandai', 'gpt-4.1', 'gpt-5.4', 'gpt-6-astra'])('keeps the active crop call paired and continues with %s (#623–#641)', async (model) => {
     server = await createMockAutohandAINativeSequenceServer([
       {
         content: '',
@@ -38,7 +38,14 @@ describe('Native context crop history', () => {
     ]);
     state = await createTempAutohandHome({
       config: {
-        provider: 'autohandai',
+        provider: model === 'autohandai' ? 'autohandai' : 'openai',
+        openai: {
+          authMode: 'api-key',
+          apiKey: 'tuistory-openai-api-key',
+          model,
+          baseUrl: server.baseUrl,
+          reasoningEffort: 'high',
+        },
         autohandai: {
           plan: 'cloud',
           authMode: 'api-key',
@@ -67,6 +74,15 @@ describe('Native context crop history', () => {
 
     expect(server.requests).toHaveLength(2);
     const continuation = server.requests[1];
+    if (model !== 'autohandai') {
+      expect(continuation?.model).toBe(model);
+      if (model === 'gpt-4.1') {
+        expect(continuation).not.toHaveProperty('reasoning_effort');
+      } else {
+        expect(continuation).not.toHaveProperty('max_tokens');
+        expect(continuation?.reasoning_effort).toBe(model === 'gpt-5.4' ? 'none' : 'high');
+      }
+    }
     expect(continuation?.messages).toEqual(expect.arrayContaining([
       expect.objectContaining({
         role: 'assistant',

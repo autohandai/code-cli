@@ -66,6 +66,32 @@ describe('OpenAIProvider – reasoning effort & model list', () => {
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
 
+    it.each(['gpt-4.1', 'gpt-4o', 'gpt-3.5-turbo'])(
+      'omits reasoning effort when a saved setting is used with %s (#634)', async (model) => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(makeOkResponse());
+        const provider = new OpenAIProvider({ apiKey: 'test-key', model, reasoningEffort: 'high' });
+        await provider.complete({ messages: [{ role: 'user', content: 'hello' }] });
+        const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
+        expect(body).not.toHaveProperty('reasoning_effort');
+      },
+    );
+
+    it.each([
+      ['gpt-6-astra', 'max_completion_tokens'],
+      ['gpt-6-sol', 'max_completion_tokens'],
+      ['gpt-5.4', 'max_completion_tokens'],
+      ['o3-mini', 'max_completion_tokens'],
+      ['gpt-4.1', 'max_tokens'],
+      ['gpt-4o', 'max_tokens'],
+    ])('uses the supported token budget for %s (#632, #640, #641)', async (model, parameter) => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(makeOkResponse());
+      const provider = new OpenAIProvider({ apiKey: 'test-key', model: 'gpt-4o' });
+      await provider.complete({ model, maxTokens: 2048, messages: [{ role: 'user', content: 'hello' }] });
+      const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
+      expect(body[parameter]).toBe(2048);
+      expect(body).not.toHaveProperty(parameter === 'max_tokens' ? 'max_completion_tokens' : 'max_tokens');
+    });
+
     it('should include reasoning_effort when set in provider config', async () => {
       const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(makeOkResponse());
 

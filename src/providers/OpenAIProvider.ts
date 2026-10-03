@@ -10,6 +10,7 @@ import { ApiError, classifyApiError, type ApiErrorCode } from './errors.js';
 import { isChatGPTAuthExpired, refreshChatGPTAuth } from './openaiAuth.js';
 import { normalizeLLMUsage } from './usage.js';
 import { normalizeProviderFinishReason } from './finishReason.js';
+import { normalizeOutboundMessages } from './messagePayload.js';
 import {
     getProviderDefaultModel,
     getProviderModelIds,
@@ -185,7 +186,7 @@ const OPENAI_CHATGPT_FRIENDLY_MESSAGES: Partial<Record<ApiErrorCode, string>> = 
 };
 
 function mustDisableChatCompletionReasoningForTools(model: string, hasTools: boolean): boolean {
-    return hasTools && /^gpt-5\.6(?:$|[-_.])/iu.test(model);
+    return hasTools && /^gpt-5\.(?:4|6)(?:$|[-_.])/iu.test(model);
 }
 
 export class OpenAIProvider implements LLMProvider {
@@ -247,24 +248,8 @@ export class OpenAIProvider implements LLMProvider {
         const hasTools = Boolean(request.tools?.length);
         const body: Record<string, unknown> = {
             model,
-            messages: request.messages.map((msg: OpenAIProviderMessage) => {
-                const mapped: Record<string, unknown> = {
-                    role: msg.role === 'system' ? 'system' : msg.role === 'user' ? 'user' : msg.role === 'tool' ? 'tool' : 'assistant',
-                    content: this.toChatCompletionContent(msg.content),
-                };
-                // Include tool_calls on assistant messages so the API can match
-                // subsequent role:"tool" results to the calls that triggered them
-                if (msg.role === 'assistant' && msg.tool_calls?.length) {
-                    mapped.tool_calls = msg.tool_calls;
-                }
-                // Add tool call ID for tool response messages
-                if (msg.role === 'tool' && msg.tool_call_id) {
-                    mapped.tool_call_id = msg.tool_call_id;
-                }
-                if (msg.name) {
-                    mapped.name = msg.name;
-                }
-                return mapped;
+            messages: normalizeOutboundMessages(request.messages, {
+                transformContent: (content) => this.toChatCompletionContent(content),
             }),
             temperature: request.temperature || 0.7,
             // Newer OpenAI models (gpt-5.x, o-series) require max_completion_tokens
@@ -275,7 +260,8 @@ export class OpenAIProvider implements LLMProvider {
         };
 
         // Add reasoning effort when configured (with runtime validation)
-        if (this.reasoningEffort && VALID_REASONING_EFFORTS.has(this.reasoningEffort)) {
+        if (this.usesMaxCompletionTokens(model)
+            && this.reasoningEffort && VALID_REASONING_EFFORTS.has(this.reasoningEffort)) {
             body.reasoning_effort = mustDisableChatCompletionReasoningForTools(model, hasTools)
                 ? 'none'
                 : this.reasoningEffort;
@@ -973,12 +959,9 @@ export class OpenAIProvider implements LLMProvider {
      */
     private usesMaxCompletionTokens(model: string): boolean {
         const lower = model.toLowerCase();
-        return (
-            lower.startsWith('gpt-5') ||
-            lower.startsWith('o1') ||
-            lower.startsWith('o3') ||
-            lower.startsWith('o4')
-        );
+        const gptGeneration = /^gpt-(\d+)(?:$|[.\-_])/.exec(lower)?.[1];
+        return (gptGeneration !== undefined && Number(gptGeneration) >= 5)
+            || /^o[134](?:$|[-_.])/.test(lower);
     }
 
     private extractResponsesContent(data: OpenAIResponsesResponse): string {

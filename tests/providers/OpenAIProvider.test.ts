@@ -7,6 +7,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { OpenAIProvider } from '../../src/providers/OpenAIProvider.js';
 import { ApiError } from '../../src/providers/errors.js';
+import { UNANSWERED_TOOL_CALL_PLACEHOLDER } from '../../src/providers/messagePayload.js';
+import type { MultimodalMessage } from '../../src/types.js';
 
 /**
  * Build a mock SSE response body from a `response.completed` payload.
@@ -97,11 +99,11 @@ describe('OpenAIProvider', () => {
     expect(sentBody.prompt_cache_key).toBeUndefined();
   });
 
-  it('disables Chat Completions reasoning for GPT-5.6 tool calls', async () => {
+  it.each(['gpt-5.4', 'gpt-5.4-2026-03-05', 'gpt-5.6-sol'])('disables Chat Completions reasoning for %s tool calls', async (model) => {
     const gpt56Provider = new OpenAIProvider({
       baseUrl: 'http://localhost:9999',
       apiKey: 'test-key',
-      model: 'gpt-5.6-sol',
+      model,
       reasoningEffort: 'high',
     });
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
@@ -130,6 +132,47 @@ describe('OpenAIProvider', () => {
     };
     expect(sentBody.reasoning_effort).toBe('none');
     expect(sentBody.tools).toHaveLength(1);
+  });
+
+  it.each([1, 3, 5])('repairs %i missing tool responses before the next turn (#623–#631)', async (count) => {
+    const calls = Array.from({ length: count + 1 }, (_, index) => ({
+      id: `call_${index}`,
+      type: 'function' as const,
+      function: { name: 'read_file', arguments: '{"path":"package.json"}' },
+    }));
+    const messages: MultimodalMessage[] = [
+      { role: 'user', content: 'Inspect the project' },
+      { role: 'assistant', content: '', tool_calls: calls },
+      { role: 'tool', tool_call_id: 'call_0', content: 'actual file contents' },
+      { role: 'user', content: 'Continue' },
+    ];
+    const original = structuredClone(messages);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+      choices: [{ message: { content: 'OK' }, finish_reason: 'stop' }],
+    })));
+
+    await provider.complete({ messages });
+    const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)) as { messages: MultimodalMessage[] };
+    const results = body.messages.slice(2, 3 + count);
+    expect(results).toHaveLength(count + 1);
+    expect(results[0]).toMatchObject({ role: 'tool', tool_call_id: 'call_0', content: 'actual file contents' });
+    expect(results.slice(1)).toEqual(calls.slice(1).map((call) => ({
+      role: 'tool', tool_call_id: call.id, content: UNANSWERED_TOOL_CALL_PLACEHOLDER,
+    })));
+    expect(body.messages.at(-1)).toEqual({ role: 'user', content: 'Continue' });
+    expect(messages).toEqual(original);
+  });
+
+  it('omits orphaned tool results after their call was compacted away', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+      choices: [{ message: { content: 'OK' }, finish_reason: 'stop' }],
+    })));
+    await provider.complete({ messages: [
+      { role: 'user', content: 'Continue' },
+      { role: 'tool', tool_call_id: 'orphan', content: 'old result' },
+    ] });
+    const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)) as { messages: MultimodalMessage[] };
+    expect(body.messages).toEqual([{ role: 'user', content: 'Continue' }]);
   });
 
   describe('error handling', () => {
