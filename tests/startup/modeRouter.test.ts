@@ -5,11 +5,14 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  applyStartupInteractionMode,
   resolveAgentLaunchMode,
   resolveInternalLaunchMode,
   resolvePostAuthLaunchMode,
   resolveProtocolLaunchMode,
+  resolveStartupInteractionMode,
 } from '../../src/startup/modeRouter.js';
+import type { CLIOptions } from '../../src/types.js';
 
 describe('CLI mode routing', () => {
   it('routes no-argument launches to the interactive agent', () => {
@@ -67,5 +70,91 @@ describe('CLI mode routing', () => {
       resumeSessionId: 'resume-id',
     })).toBe('command');
     expect(resolveAgentLaunchMode({ resumeSessionId: 'resume-id' })).toBe('resume');
+  });
+});
+
+describe('startup interaction mode', () => {
+  const interactive = { options: {}, isInteractiveTerminal: true } as const;
+
+  it('starts interactive terminal sessions in auto mode by default', () => {
+    expect(resolveStartupInteractionMode(interactive)).toBe('automode');
+  });
+
+  it('keeps an explicit --auto-mode request in auto mode even when the config opts out', () => {
+    expect(resolveStartupInteractionMode({
+      options: { interactiveAutoMode: true },
+      configuredMode: 'default',
+      isInteractiveTerminal: true,
+    })).toBe('automode');
+  });
+
+  it.each([
+    [{ plan: true }, 'plan'],
+    [{ yolo: 'allow:read_file' }, 'yolo'],
+    [{ restricted: true }, 'default'],
+    [{ dryRun: true }, 'default'],
+    [{ unrestricted: true }, 'default'],
+    [{ yes: true }, 'default'],
+  ] as const)('lets the explicit flag %j decide the mode (%s)', (options, expected) => {
+    expect(resolveStartupInteractionMode({ ...interactive, options })).toBe(expected);
+  });
+
+  it.each([
+    [{ prompt: 'review this' }, true],
+    [{ mode: 'rpc' }, true],
+    [{ mode: 'acp' }, true],
+    [{ mode: 'teammate' }, true],
+    [{}, false],
+  ] as const)('never escalates the non-interactive launch %j (tty=%s)', (options, isInteractiveTerminal) => {
+    expect(resolveStartupInteractionMode({
+      options,
+      configuredMode: 'automode',
+      isInteractiveTerminal,
+    })).toBe('default');
+  });
+
+  it.each(['restricted', 'external'] as const)(
+    'respects a %s permission config over the auto default',
+    (permissionMode) => {
+      expect(resolveStartupInteractionMode({ ...interactive, permissionMode })).toBe('default');
+      expect(resolveStartupInteractionMode({
+        ...interactive,
+        permissionMode,
+        configuredMode: 'automode',
+      })).toBe('default');
+    },
+  );
+
+  it('does not treat the wizard-written interactive permission mode as an opt-out', () => {
+    expect(resolveStartupInteractionMode({ ...interactive, permissionMode: 'interactive' })).toBe('automode');
+  });
+
+  it.each(['default', 'plan', 'automode', 'yolo'] as const)(
+    'honours ui.defaultInteractionMode = %s',
+    (configuredMode) => {
+      expect(resolveStartupInteractionMode({ ...interactive, configuredMode })).toBe(configuredMode);
+    },
+  );
+
+  it('maps the resolved mode onto the launch options the agent reads', () => {
+    const auto: CLIOptions = {};
+    applyStartupInteractionMode(auto, 'automode');
+    expect(auto).toEqual({ interactiveAutoMode: true });
+
+    const plan: CLIOptions = {};
+    applyStartupInteractionMode(plan, 'plan');
+    expect(plan).toEqual({ plan: true });
+
+    const yolo: CLIOptions = {};
+    applyStartupInteractionMode(yolo, 'yolo');
+    expect(yolo).toEqual({ yolo: 'allow:*' });
+
+    const explicitYolo: CLIOptions = { yolo: 'allow:read_file' };
+    applyStartupInteractionMode(explicitYolo, 'yolo');
+    expect(explicitYolo).toEqual({ yolo: 'allow:read_file' });
+
+    const standard: CLIOptions = { restricted: true };
+    applyStartupInteractionMode(standard, 'default');
+    expect(standard).toEqual({ restricted: true });
   });
 });

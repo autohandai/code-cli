@@ -33,6 +33,7 @@ import type {
 } from "./types.js";
 import { AUTOHAND_FILES, AUTOHAND_HOME, PROJECT_DIR_NAME } from "./constants.js";
 import { KEYBINDING_PROFILE_IDS, isKeybindingProfileId } from "./keybindings/profiles.js";
+import { INTERACTION_MODE_SEQUENCE } from "./core/agent/InteractionModeController.js";
 import { hookIdentifier } from "./core/hookEvents.js";
 import { normalizeHooksSettings } from "./core/legacyHookEvents.js";
 import { isAutohandInferenceEnabled } from "./featureFlags.js";
@@ -1579,6 +1580,15 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
       taskListPosition !== "above-composer"
     ) {
       throw new Error(`ui.taskListPosition must be up or above-composer in ${configPath}`);
+    }
+    const defaultInteractionMode: unknown = config.ui.defaultInteractionMode;
+    if (
+      defaultInteractionMode !== undefined &&
+      !(INTERACTION_MODE_SEQUENCE as readonly unknown[]).includes(defaultInteractionMode)
+    ) {
+      throw new Error(
+        `ui.defaultInteractionMode must be one of ${INTERACTION_MODE_SEQUENCE.join(", ")} in ${configPath}`,
+      );
     }
     if (
       config.ui.keybindingProfile !== undefined &&

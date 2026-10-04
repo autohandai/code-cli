@@ -127,6 +127,8 @@ export async function createTempAutohandHome(options: CreateTempAutohandHomeOpti
       checkForUpdates: false,
       // Rotating tips put random command text on idle screens; the tip scenario turns them on.
       showTips: false,
+      // Scenarios exercise approval prompts; the startup-mode scenario removes this pin.
+      defaultInteractionMode: 'default',
     },
   };
   const overrideConfig = options.config ?? {};

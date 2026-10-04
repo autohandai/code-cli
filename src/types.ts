@@ -345,6 +345,11 @@ export interface UISettings {
    * Shift+Enter steering shortcuts for existing configurations. Default: select.
    */
   enterWhileWorking?: 'select' | 'steer' | 'queue';
+  /**
+   * Interaction mode an interactive terminal session starts in (default: automode).
+   * Explicit flags and a restricted permission mode always take precedence.
+   */
+  defaultInteractionMode?: 'default' | 'plan' | 'automode' | 'yolo';
   /** Enable mouse click-to-position editing in the Ink composer (default: true). */
   mouseComposerCursor?: boolean;
   /** Shortcut profile for the Ink composer: Autohand defaults or another agent's conventions (default: autohand). */

@@ -50,6 +50,34 @@ async function startApi(): Promise<MockFeedbackApiServer> {
 
 const QUIET_UI = { promptSuggestions: false, showCompletionNotification: false, terminalBell: false };
 
+describe('startup interaction mode', () => {
+  it('starts an interactive session in auto mode without a banner above the composer', async () => {
+    // `undefined` removes the pin the shared temp home applies for approval-prompt scenarios.
+    const session = await launchInteractive({ config: { ui: { defaultInteractionMode: undefined } } });
+
+    await waitForComposer(session);
+    const screen = await session.text({ timeout: 10_000, waitFor: (text) => text.includes('● AUTO'), trimEnd: true });
+
+    expect(screen).toContain('● AUTO');
+    expect(screen).not.toContain('[AUTO]');
+    expect(screen).not.toContain('auto mode active');
+
+    await exitInteractive(session);
+  });
+
+  it('starts in the default mode when ui.defaultInteractionMode says so', async () => {
+    const session = await launchInteractive({ config: { ui: { defaultInteractionMode: 'default' } } });
+
+    await waitForComposer(session);
+    await session.type('ready');
+    const screen = await session.text({ timeout: 5_000, waitFor: (text) => text.includes('ready'), trimEnd: true });
+
+    expect(screen).not.toContain('● AUTO');
+
+    await exitInteractive(session);
+  });
+});
+
 describe('non-blocking feedback', () => {
   it.each([1, 2, 3, 4, 5])('shows the survey above the composer and submits the selected score %i unchanged', async (score) => {
     const api = await startApi();

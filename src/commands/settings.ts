@@ -6,6 +6,8 @@
 import chalk from 'chalk';
 import { resolveMouseComposerCursor } from '../ui/mouseReporting.js';
 import { KEYBINDING_PROFILE_IDS } from '../keybindings/profiles.js';
+import { INTERACTION_MODE_SEQUENCE } from '../core/agent/InteractionModeController.js';
+import { DEFAULT_STARTUP_INTERACTION_MODE } from '../startup/modeRouter.js';
 import { getCurrentLocale, t } from '../i18n/index.js';
 import { getTheme, initTheme, isThemeInitialized, listAvailableThemes } from '../ui/theme/index.js';
 import { getDefaultThemeName } from '../ui/theme/themes.js';
@@ -167,6 +169,8 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
   { key: 'ui.showTips', labelKey: 'commands.settings.ui.showTips', descriptionKey: 'commands.settings.ui.showTipsDesc', category: 'ui', type: 'boolean', defaultValue: true },
   { key: 'ui.statusLine', labelKey: 'commands.settings.ui.statusLine', descriptionKey: 'commands.settings.ui.statusLineDesc', category: 'ui', type: 'string', redirect: '/statusline' },
   { key: 'ui.updateCheckInterval', labelKey: 'commands.settings.ui.updateCheckInterval', descriptionKey: 'commands.settings.ui.updateCheckIntervalDesc', category: 'ui', type: 'number', defaultValue: 24 },
+  // New UI settings go last: the numbered shortcuts of the entries above are muscle memory.
+  { key: 'ui.defaultInteractionMode', labelKey: 'commands.settings.ui.defaultInteractionMode', descriptionKey: 'commands.settings.ui.defaultInteractionModeDesc', category: 'ui', type: 'enum', enumValues: [...INTERACTION_MODE_SEQUENCE], defaultValue: DEFAULT_STARTUP_INTERACTION_MODE },
 
   // Agent Behavior
   { key: 'agent.maxIterations', labelKey: 'commands.settings.agent.maxIterations', descriptionKey: 'commands.settings.agent.maxIterationsDesc', category: 'agent', type: 'number', defaultValue: 100 },

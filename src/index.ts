@@ -79,10 +79,12 @@ import {
   type RootCliOptions,
 } from './startup/cliOptions.js';
 import {
+  applyStartupInteractionMode,
   resolveAgentLaunchMode,
   resolveInternalLaunchMode,
   resolvePostAuthLaunchMode,
   resolveProtocolLaunchMode,
+  resolveStartupInteractionMode,
 } from './startup/modeRouter.js';
 import { prepareBareModeConfig } from './runtime/bareMode.js';
 import {
@@ -1607,6 +1609,13 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       process.exitCode = 1;
       return;
     }
+
+    applyStartupInteractionMode(options, resolveStartupInteractionMode({
+      options,
+      configuredMode: config.ui?.defaultInteractionMode,
+      permissionMode: config.permissions?.mode,
+      isInteractiveTerminal: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+    }));
 
     const normalizedYolo = normalizeYoloInput(options.yolo as string | boolean | undefined);
     if (normalizedYolo) {

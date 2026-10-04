@@ -764,6 +764,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `activitySymbol`             | string | `"✳"`   | Symbol shown before the activity verb in activity indicator output |
 | `showTips`                   | boolean | `true`  | Rotate tips about slash commands, the `/ @ $ ! : ?` triggers and shortcuts beside the idle composer |
 | `enterWhileWorking`          | string  | `select` | While a turn runs, Enter queues a draft; select a queued message with the arrow keys, press Enter to edit it, then Enter to steer or Shift+Enter to save it in the queue. `steer` and `queue` retain the earlier direct steering shortcuts for configured sessions |
+| `defaultInteractionMode`    | `"default"`, `"plan"`, `"automode"` or `"yolo"` | `"automode"` | Mode an interactive terminal session starts in. Auto mode runs without approval prompts; set `"default"` to be asked before risky actions. `--plan`, `--yolo`, `--restricted`, `--dry-run`, `--unrestricted`, `--yes` and a `restricted` or `external` `permissions.mode` take precedence, and command, RPC and ACP runs are never switched to auto mode |
 | `statusLine.showProviderModel` | boolean | `true`  | Show the active provider and model in the composer status line |
 | `statusLine.showContext`       | boolean | `true`  | Show the context percentage in the composer status line |
 | `statusLine.showCommandHint`   | boolean | `true`  | Show command, mention, skill, and terminal-entry hints in the composer status line |

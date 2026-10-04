@@ -256,6 +256,26 @@ describe('getProviderConfig', () => {
     }
   });
 
+  it('accepts every interaction mode as the startup default and rejects unknown ones', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
+    const configPath = path.join(tempDir, 'config.json');
+
+    try {
+      for (const defaultInteractionMode of ['default', 'plan', 'automode', 'yolo']) {
+        await fs.writeJson(configPath, { provider: 'openrouter', ui: { defaultInteractionMode } });
+        const config = await loadConfig(configPath);
+        expect(config.ui?.defaultInteractionMode).toBe(defaultInteractionMode);
+      }
+
+      await fs.writeJson(configPath, { provider: 'openrouter', ui: { defaultInteractionMode: 'auto' } });
+      await expect(loadConfig(configPath)).rejects.toThrow(
+        'ui.defaultInteractionMode must be one of default, plan, automode, yolo',
+      );
+    } finally {
+      await fs.remove(tempDir);
+    }
+  });
+
   it('accepts a known keybinding profile and rejects unknown ones', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
     const configPath = path.join(tempDir, 'config.json');
