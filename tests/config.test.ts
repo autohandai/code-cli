@@ -256,6 +256,23 @@ describe('getProviderConfig', () => {
     }
   });
 
+  it('accepts compact and full tool output and rejects anything else', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
+    const configPath = path.join(tempDir, 'config.json');
+
+    try {
+      for (const toolOutput of ['compact', 'full']) {
+        await fs.writeJson(configPath, { provider: 'openrouter', ui: { toolOutput } });
+        expect((await loadConfig(configPath)).ui?.toolOutput).toBe(toolOutput);
+      }
+
+      await fs.writeJson(configPath, { provider: 'openrouter', ui: { toolOutput: 'short' } });
+      await expect(loadConfig(configPath)).rejects.toThrow('ui.toolOutput must be compact or full');
+    } finally {
+      await fs.remove(tempDir);
+    }
+  });
+
   it('accepts every interaction mode as the startup default and rejects unknown ones', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
     const configPath = path.join(tempDir, 'config.json');

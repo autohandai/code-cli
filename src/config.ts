@@ -1581,6 +1581,10 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
     ) {
       throw new Error(`ui.taskListPosition must be up or above-composer in ${configPath}`);
     }
+    const toolOutput: unknown = config.ui.toolOutput;
+    if (toolOutput !== undefined && toolOutput !== "compact" && toolOutput !== "full") {
+      throw new Error(`ui.toolOutput must be compact or full in ${configPath}`);
+    }
     const defaultInteractionMode: unknown = config.ui.defaultInteractionMode;
     if (
       defaultInteractionMode !== undefined &&

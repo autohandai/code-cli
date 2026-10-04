@@ -7,7 +7,7 @@ import chalk from 'chalk';
 import type { PermissionManager } from '../../permissions/PermissionManager.js';
 import { getProviderConfig } from '../../config.js';
 import { isSearchConfigured } from '../../actions/web.js';
-import { formatToolOutputForDisplay, type ToolOutputDisplay } from '../../ui/toolOutput.js';
+import { DEFAULT_TOOL_OUTPUT_MODE, formatToolOutputForDisplay, type ToolOutputDisplay, type ToolOutputMode } from '../../ui/toolOutput.js';
 import { COMPUTER_USE_TOOL_PREFIX } from '../../computer/computerUseOutput.js';
 import { getPlanModeManager } from '../../commands/plan.js';
 import type {
@@ -1216,6 +1216,11 @@ export async function runAgentReactLoop(
           let completedCount = 0;
           const totalTools = otherCalls.length;
           const charLimit = host.runtime.config.ui?.readFileCharLimit ?? 300;
+          // A preview is only worth showing where it can be opened again: the
+          // Ink transcript. Plain and command output print the result in full.
+          const toolOutputMode: ToolOutputMode = host.inkRenderer
+            ? host.runtime.config.ui?.toolOutput ?? DEFAULT_TOOL_OUTPUT_MODE
+            : 'full';
           const deferredDiffResults: Array<{
             result: ToolExecutionResult;
             call: ToolCallRequest | undefined;
@@ -1234,12 +1239,16 @@ export async function runAgentReactLoop(
                 tool: result.tool,
                 content: result.output ?? '',
                 charLimit,
+                mode: toolOutputMode,
                 filePath,
                 command,
                 commandArgs,
               });
             }
             const output = result.error ?? result.output ?? 'Tool failed';
+            if (toolOutputMode === 'compact') {
+              return formatToolOutputForDisplay({ tool: result.tool, content: output, charLimit, mode: 'compact', failed: true });
+            }
             return { output, truncated: false, totalChars: output.length };
           };
 

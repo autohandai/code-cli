@@ -2972,9 +2972,7 @@ export class ActionExecutor {
           browserToolInvoker: hasBrowserBridgeOutput() ? invokeBrowserTool : undefined,
           signal: context?.signal,
         });
-        // Show preview
-        const preview = content.slice(0, 500);
-        console.log(chalk.gray(preview + (content.length > 500 ? '\n   ... (truncated)' : '')));
+        // The page is shown once, as the tool result; a console preview here printed it twice.
         return content;
       }
       case 'package_info': {

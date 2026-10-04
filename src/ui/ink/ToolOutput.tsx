@@ -11,6 +11,7 @@ import type { ResolvedColors } from '../theme/types.js';
 import { hexToRgb } from '../theme/Theme.js';
 import { renderTerminalMarkdown } from '../../core/immediateCommandRouter.js';
 import { stripAnsiCodes } from '../displayUtils.js';
+import { hiddenLineCount } from '../toolOutput.js';
 import { parseWorkspaceChangeSet } from '../../core/agent/WorkspaceChangeCapture.js';
 import { TodoListOutput } from './TodoListOutput.js';
 import { TeamTaskListOutput } from './TeamTaskListOutput.js';
@@ -470,6 +471,14 @@ export interface ToolOutputProps {
   entry: ToolOutputEntry;
 }
 
+/** A preview says how much it leaves out; a summary of the detail only says it can be opened. */
+function expandHint(shown: string, expanded: string): string {
+  const hidden = hiddenLineCount(shown, expanded);
+  return hidden > 0
+    ? `+ ${hidden} ${hidden === 1 ? 'line' : 'lines'} (ctrl+o to expand)`
+    : 'Ctrl+O expand';
+}
+
 function ToolOutputComponent({ entry }: ToolOutputProps) {
   const { colors } = useTheme();
   const { tool, success, output } = entry;
@@ -501,7 +510,7 @@ function ToolOutputComponent({ entry }: ToolOutputProps) {
         )
       )}
       {entry.expandedOutput ? (
-        <Text color={colors.muted}>Ctrl+O expand</Text>
+        <Text color={colors.muted}>{expandHint(output, entry.expandedOutput)}</Text>
       ) : null}
     </Box>
   );

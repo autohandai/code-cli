@@ -1596,6 +1596,24 @@ describe('ActionExecutor', () => {
         expect(outcome).toMatchObject({ success: false, kind: 'aborted' });
       });
 
+      it('returns the fetched page without dumping it to the console a second time', async () => {
+        const page = Array.from({ length: 200 }, (_, index) => `paragraph ${index + 1}`).join('\n');
+        vi.spyOn(webActions, 'fetchUrl').mockResolvedValue(page);
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const executor = createExecutor();
+
+        const outcome = await executor.executeForTool(
+          { type: 'fetch_url', url: 'https://example.com' },
+          { approvalHandled: true },
+        );
+        const logged = stripAnsi(logSpy.mock.calls.flat().join('\n'));
+        logSpy.mockRestore();
+
+        expect(outcome).toMatchObject({ success: true, output: page });
+        expect(logged).toContain('https://example.com');
+        expect(logged).not.toContain('paragraph 1');
+      });
+
       it('forwards the active signal to package metadata requests', async () => {
         const controller = new AbortController();
         const abortError = Object.assign(new Error('Web action aborted.'), { name: 'AbortError' });

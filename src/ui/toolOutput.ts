@@ -17,7 +17,24 @@ const TRUNCATED_TOOLS = new Set<AgentAction['type']>([
   'glob'
 ]);
 
+/** Diffs are rendered line by line with colour; a cut diff reads as a different change. */
+const DIFF_TOOLS = new Set<AgentAction['type']>([
+  'git_diff',
+  'git_diff_range',
+  'apply_patch',
+]);
+
 const MAX_EXPANDED_TOOL_OUTPUT_CHARS = 64 * 1024;
+
+/** How tool results are shown in the transcript: a short preview, or everything. */
+export type ToolOutputMode = 'compact' | 'full';
+export const TOOL_OUTPUT_MODES: readonly ToolOutputMode[] = ['compact', 'full'];
+export const DEFAULT_TOOL_OUTPUT_MODE: ToolOutputMode = 'compact';
+
+export const COMPACT_PREVIEW_LINES = 3;
+/** A failure is previewed from its end, where the error usually is, and gets a little more room. */
+export const COMPACT_FAILURE_PREVIEW_LINES = 5;
+export const COMPACT_LINE_CHARS = 160;
 
 function boundExpandedOutput(content: string): string {
   if (content.length <= MAX_EXPANDED_TOOL_OUTPUT_CHARS) return content;
@@ -44,6 +61,10 @@ export interface FileToolOutputOptions {
   tool: AgentAction['type'];
   content: string;
   charLimit: number;
+  /** `compact` shows a few lines and keeps the rest for expansion. Defaults to `full`. */
+  mode?: ToolOutputMode;
+  /** The tool failed: `content` is its error, previewed from the end. */
+  failed?: boolean;
   /** File path for file operations */
   filePath?: string;
   /** Command for run_command or shell tool */
@@ -69,12 +90,74 @@ function countLines(content: string): number {
   return content.split('\n').length;
 }
 
+function contentLines(content: string): string[] {
+  return content.replace(/^(?:[ \t]*\r?\n)+/u, '').trimEnd().split(/\r?\n/u);
+}
+
+/**
+ * How many lines of the expanded text a preview leaves out. Only a preview made
+ * of the expanded text's own lines counts; a summary written about the detail
+ * ("3 matching tools") hides nothing that can be counted, so the answer is 0.
+ */
+export function hiddenLineCount(shown: string, expanded: string): number {
+  if (!shown) return 0;
+  const expandedLines = contentLines(expanded);
+  const available = new Set(expandedLines);
+  const shownLines = shown.split(/\r?\n/u);
+  if (!shownLines.every((line) => available.has(line))) return 0;
+  return Math.max(0, expandedLines.length - shownLines.length);
+}
+
+function clipLine(line: string): string {
+  return line.length > COMPACT_LINE_CHARS ? `${line.slice(0, COMPACT_LINE_CHARS - 1)}…` : line;
+}
+
+/**
+ * Cuts content down to a few lines for the transcript. `kept` is what stays
+ * visible; `complete` says whether that is everything there was.
+ */
+function previewLines(content: string, from: 'head' | 'tail'): { kept: string[]; complete: boolean } {
+  const lines = contentLines(content);
+  const kept = from === 'head'
+    ? lines.slice(0, COMPACT_PREVIEW_LINES)
+    : lines.slice(-COMPACT_FAILURE_PREVIEW_LINES);
+  const clipped = kept.map(clipLine);
+  return {
+    kept: clipped,
+    complete: kept.length === lines.length && clipped.every((line, index) => line === kept[index]),
+  };
+}
+
+function compactDisplay(content: string, header: string | undefined, from: 'head' | 'tail'): ToolOutputDisplay {
+  const totalChars = content.length;
+  const body = header && content.startsWith(header) ? content.slice(header.length) : content;
+  const preview = previewLines(body, from);
+  const backgroundPidLine = body.match(/(?:^|\n)(\[Background PID: \d+\])\s*$/)?.[1];
+  const shown = [
+    ...(header ? [header] : []),
+    ...preview.kept.filter((line) => line.length > 0 || preview.kept.length > 1),
+    ...(backgroundPidLine && !preview.kept.includes(backgroundPidLine) ? [backgroundPidLine] : []),
+  ];
+  return {
+    output: shown.join('\n'),
+    truncated: !preview.complete,
+    totalChars,
+    ...(preview.complete ? {} : { expandedOutput: boundExpandedOutput(content) }),
+  };
+}
+
 /**
  * Format tool output for display - shows file summary for file ops, truncates for find/search
  */
 export function formatToolOutputForDisplay(options: FileToolOutputOptions): ToolOutputDisplay {
   const { tool, content, charLimit, filePath, command, commandArgs } = options;
   const totalChars = content.length;
+  const compact = options.mode === 'compact' && !DIFF_TOOLS.has(tool);
+
+  if (compact && options.failed) {
+    return compactDisplay(content, undefined, 'tail');
+  }
+
 
   if (tool === 'ask_followup_question') {
     return {
@@ -89,6 +172,9 @@ export function formatToolOutputForDisplay(options: FileToolOutputOptions): Tool
     const fullCommand = commandArgs?.length
       ? `${command} ${commandArgs.join(' ')}`
       : command;
+    if (compact) {
+      return compactDisplay(content, `$ ${fullCommand}`, 'head');
+    }
     const outputLines = content ? content.split('\n').length : 0;
     const backgroundPidLine = content.match(/(?:^|\n)(\[Background PID: \d+\])\s*$/)?.[1];
     const truncatedContent = charLimit > 0 && totalChars > charLimit
@@ -150,6 +236,10 @@ export function formatToolOutputForDisplay(options: FileToolOutputOptions): Tool
     } catch {
       // Malformed JSON — fall through to default
     }
+  }
+
+  if (compact) {
+    return compactDisplay(content, undefined, 'head');
   }
 
   // For find/search tools, show truncated content

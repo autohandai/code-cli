@@ -758,6 +758,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `autoConfirm`                | boolean | `false` | Skip confirmation prompts for safe operations                                                  |
 | `readFileCharLimit`          | number | `300`   | Max characters to display from read/find tool output (full content is still sent to the model) |
 | `silentToolOutput`           | boolean | `false` | Hide tool output blocks in the terminal while still preserving tool results for the model/session |
+| `toolOutput`                 | `"compact"` or `"full"` | `"compact"` | How tool results appear in the interactive transcript. `compact` shows the first 3 lines of a result (the last 5 of a failure) followed by `+ N lines (ctrl+o to expand)`; press Ctrl+O or click above the composer to open the latest result, and again to close it. `full` prints results as before. The model, hooks, RPC and ACP clients always receive the complete output, and `--prompt` runs always print it |
 | `taskListPosition`           | `"up"` or `"above-composer"` | `"above-composer"` | Place the live task list above the status line or directly above the composer |
 | `activityVerbs`              | string or string[] | built-in pool | Custom activity verb or verb pool for the working indicator, rendered as `Verb...` |
 | `activityVerbsEnabled`       | boolean | `true`  | Show rotating activity verbs like `Compiling...` while the agent is working |

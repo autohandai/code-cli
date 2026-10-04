@@ -480,6 +480,88 @@ describe('ReactLoopRunner composer status', () => {
     }
   });
 
+  describe('compact tool output', () => {
+    const FULL = Array.from({ length: 83 }, (_, index) => `line ${index + 1}`).join('\n');
+
+    async function runOneTool(
+      result: { tool: 'fetch_url' | 'run_command'; success: boolean; output?: string; error?: string },
+      ui: Record<string, unknown>,
+      withInk = true,
+    ) {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const addToolOutput = vi.fn();
+      const llmComplete = vi
+        .fn()
+        .mockResolvedValueOnce({
+          id: 'tool-call',
+          created: 1,
+          content: JSON.stringify({ toolCalls: [{ tool: result.tool, args: { url: 'https://example.test', command: 'bun', args: ['test'] } }] }),
+          raw: {},
+        })
+        .mockResolvedValueOnce({ id: 'answer', created: 2, content: '{"finalResponse":"Done."}', raw: {} });
+      const host = createReactLoopTestHost(llmComplete, new ReactionParser());
+      host.runtime.config.ui = ui;
+      if (withInk) {
+        host.inkRenderer = {
+          setStatus: vi.fn(),
+          addToolCall: vi.fn(),
+          addToolOutputBatch: vi.fn(),
+          addToolOutput,
+          setThinking: vi.fn(),
+          setElapsed: vi.fn(),
+          setTokens: vi.fn(),
+          setWorking: vi.fn(),
+          setFinalResponse: vi.fn(),
+        };
+      }
+      host.toolManager.execute = vi.fn(async (_calls, onResult) => {
+        onResult(0, result);
+        return [result];
+      });
+      let logged = '';
+      try {
+        await runAgentReactLoop(host, new AbortController());
+        logged = logSpy.mock.calls.flat().join('\n');
+      } finally {
+        logSpy.mockRestore();
+      }
+      const recorded = JSON.stringify(vi.mocked(host.conversation.addMessage).mock.calls);
+      return { addToolOutput, logged, recorded };
+    }
+
+    it('shows a short preview by default and keeps the full result for expansion', async () => {
+      const { addToolOutput } = await runOneTool({ tool: 'fetch_url', success: true, output: FULL }, {});
+
+      expect(addToolOutput).toHaveBeenCalledExactlyOnceWith('fetch_url', true, 'line 1\nline 2\nline 3', undefined, FULL);
+    });
+
+    it('still records the complete result for the model', async () => {
+      const { recorded } = await runOneTool({ tool: 'fetch_url', success: true, output: FULL }, {});
+
+      expect(recorded).toContain('line 83');
+    });
+
+    it('shows everything when ui.toolOutput is full', async () => {
+      const { addToolOutput } = await runOneTool({ tool: 'fetch_url', success: true, output: FULL }, { toolOutput: 'full' });
+
+      expect(addToolOutput).toHaveBeenCalledExactlyOnceWith('fetch_url', true, FULL, undefined);
+    });
+
+    it('previews the end of a failed command and keeps the whole error', async () => {
+      const { addToolOutput } = await runOneTool({ tool: 'run_command', success: false, error: FULL }, {});
+
+      expect(addToolOutput).toHaveBeenCalledExactlyOnceWith(
+        'run_command', false, 'line 79\nline 80\nline 81\nline 82\nline 83', undefined, FULL,
+      );
+    });
+
+    it('prints the complete result where nothing can be expanded later', async () => {
+      const { logged } = await runOneTool({ tool: 'fetch_url', success: true, output: FULL }, {}, false);
+
+      expect(logged).toContain('line 83');
+    });
+  });
+
   it('passes the instruction signal to tools and skips the exhaustion summary after abort', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const parser = new ReactionParser();

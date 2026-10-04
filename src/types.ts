@@ -307,6 +307,11 @@ export interface UISettings {
   readFileCharLimit?: number;
   /** Hide tool output blocks from terminal display while preserving transcript/model context (default: false) */
   silentToolOutput?: boolean;
+  /**
+   * How tool results appear in the transcript: `compact` shows the first lines and
+   * opens the rest on demand, `full` prints everything (default: compact).
+   */
+  toolOutput?: 'compact' | 'full';
   /** Position of the active task list in the Ink composer area (default: above-composer). */
   taskListPosition?: TaskListPosition;
   /** Show notification when work is completed (default: true) */

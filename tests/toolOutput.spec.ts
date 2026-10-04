@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, it, expect } from 'vitest';
-import { formatToolOutputForDisplay } from '../src/ui/toolOutput.js';
+import { COMPACT_LINE_CHARS, COMPACT_PREVIEW_LINES, formatToolOutputForDisplay, hiddenLineCount } from '../src/ui/toolOutput.js';
 
 describe('formatToolOutputForDisplay', () => {
   it('shows file summary for read_file with path', () => {
@@ -236,5 +236,152 @@ describe('formatToolOutputForDisplay', () => {
       expect(result.expandedOutput).toContain('details truncated');
       expect(result.expandedOutput).toContain(`${raw.length} total characters`);
     });
+  });
+});
+
+describe('compact tool output', () => {
+  const lines = (count: number, prefix = 'line') => Array.from({ length: count }, (_, index) => `${prefix} ${index + 1}`).join('\n');
+  const compact = (options: Partial<Parameters<typeof formatToolOutputForDisplay>[0]> & { tool: string; content: string }) =>
+    formatToolOutputForDisplay({ charLimit: 300, mode: 'compact', ...options } as Parameters<typeof formatToolOutputForDisplay>[0]);
+
+  it('shows the first lines of a long fetch_url result and keeps the rest for expansion', () => {
+    const content = lines(83);
+
+    const result = compact({ tool: 'fetch_url', content });
+
+    expect(result.output).toBe('line 1\nline 2\nline 3');
+    expect(result.output.split('\n')).toHaveLength(COMPACT_PREVIEW_LINES);
+    expect(result.expandedOutput).toBe(content);
+    expect(result.truncated).toBe(true);
+    expect(result.totalChars).toBe(content.length);
+  });
+
+  it('leaves a short result alone and offers nothing to expand', () => {
+    const result = compact({ tool: 'fetch_url', content: 'line 1\nline 2\nline 3' });
+
+    expect(result.output).toBe('line 1\nline 2\nline 3');
+    expect(result.expandedOutput).toBeUndefined();
+    expect(result.truncated).toBe(false);
+  });
+
+  it('clips a page that arrives as one enormous line', () => {
+    const content = 'x'.repeat(30_000);
+
+    const result = compact({ tool: 'fetch_url', content });
+
+    expect(result.output.length).toBeLessThanOrEqual(COMPACT_LINE_CHARS);
+    expect(result.output.endsWith('…')).toBe(true);
+    expect(result.expandedOutput).toBe(content);
+  });
+
+  it('skips leading blank lines so the preview is not empty', () => {
+    const result = compact({ tool: 'web_search', content: `\n\n${lines(10)}` });
+
+    expect(result.output).toBe('line 1\nline 2\nline 3');
+  });
+
+  it('shows a command once, then the first lines of its output', () => {
+    const content = `$ sed -n 447,497p http.ts\n${lines(83, 'row')}`;
+
+    const result = compact({ tool: 'run_command', content, command: 'sed', commandArgs: ['-n', '447,497p', 'http.ts'] });
+
+    expect(result.output).toBe('$ sed -n 447,497p http.ts\nrow 1\nrow 2\nrow 3');
+    expect(result.output.match(/\$ sed/gu)).toHaveLength(1);
+    expect(result.expandedOutput).toBe(content);
+  });
+
+  it('keeps the background PID visible when it falls outside the preview', () => {
+    const content = `$ bun dev\n${lines(40)}\n[Background PID: 4242]`;
+
+    const result = compact({ tool: 'run_command', content, command: 'bun', commandArgs: ['dev'] });
+
+    expect(result.output).toBe('$ bun dev\nline 1\nline 2\nline 3\n[Background PID: 4242]');
+  });
+
+  it('shows only the command when it printed nothing', () => {
+    const result = compact({ tool: 'shell', content: '$ true', command: 'true' });
+
+    expect(result.output).toBe('$ true');
+    expect(result.expandedOutput).toBeUndefined();
+  });
+
+  it('previews the end of a failure, where the error is', () => {
+    const content = lines(60, 'trace');
+
+    const result = compact({ tool: 'run_command', content, failed: true });
+
+    expect(result.output).toBe('trace 56\ntrace 57\ntrace 58\ntrace 59\ntrace 60');
+    expect(result.expandedOutput).toBe(content);
+  });
+
+  it('bounds what is kept for expansion', () => {
+    const result = compact({ tool: 'fetch_url', content: lines(40_000) });
+
+    expect(result.expandedOutput!.length).toBeLessThanOrEqual(64 * 1024);
+    expect(result.expandedOutput).toContain('details truncated');
+  });
+
+  it.each([
+    ['read_file', { filePath: 'src/index.ts' }, 'src/index.ts\n  83 lines'],
+    ['ask_followup_question', {}, 'Answer:'],
+  ] as const)('keeps the dedicated summary of %s', (tool, extra, expected) => {
+    const result = compact({ tool, content: tool === 'read_file' ? lines(83) : '<answer>yes</answer>', ...extra });
+
+    expect(result.output).toContain(expected);
+    expect(result.expandedOutput).toBeUndefined();
+  });
+
+  it.each(['git_diff', 'git_diff_range', 'apply_patch'])('never cuts a %s diff', (tool) => {
+    const content = lines(83, '+ added');
+
+    const result = compact({ tool, content });
+
+    expect(result.output).toBe(content);
+    expect(result.expandedOutput).toBeUndefined();
+  });
+
+  it.each(['find', 'glob', 'search'])('previews %s results by line, not by a character budget', (tool) => {
+    const content = lines(200, 'src/file');
+
+    const result = compact({ tool, content });
+
+    expect(result.output).toBe('src/file 1\nsrc/file 2\nsrc/file 3');
+    expect(result.expandedOutput).toBe(content);
+  });
+
+  it('is off unless asked for: existing callers keep the full output', () => {
+    const content = lines(83);
+
+    expect(formatToolOutputForDisplay({ tool: 'fetch_url', content, charLimit: 300 }).output).toBe(content);
+    expect(formatToolOutputForDisplay({ tool: 'fetch_url', content, charLimit: 300, mode: 'full' }).output).toBe(content);
+  });
+});
+
+describe('hiddenLineCount', () => {
+  it('counts the lines a head preview leaves out', () => {
+    const expanded = Array.from({ length: 83 }, (_, index) => `line ${index + 1}`).join('\n');
+
+    expect(hiddenLineCount('line 1\nline 2\nline 3', expanded)).toBe(80);
+  });
+
+  it('counts the lines a tail preview leaves out', () => {
+    const expanded = Array.from({ length: 60 }, (_, index) => `trace ${index + 1}`).join('\n');
+
+    expect(hiddenLineCount('trace 58\ntrace 59\ntrace 60', expanded)).toBe(57);
+  });
+
+  it('accounts for a command header and a background PID line', () => {
+    const expanded = `$ bun dev\n${Array.from({ length: 40 }, (_, index) => `line ${index + 1}`).join('\n')}\n[Background PID: 7]`;
+
+    expect(hiddenLineCount('$ bun dev\nline 1\nline 2\nline 3\n[Background PID: 7]', expanded)).toBe(37);
+  });
+
+  it.each([
+    ['a summary that is not part of the detail', '1 matching tool', '[\n  {"name":"read_file"}\n]'],
+    ['a clipped line', `${'x'.repeat(159)}…`, 'x'.repeat(30_000)],
+    ['identical text', 'a\nb', 'a\nb'],
+    ['an empty preview', '', 'a\nb\nc'],
+  ])('returns 0 for %s', (_name, shown, expanded) => {
+    expect(hiddenLineCount(shown, expanded)).toBe(0);
   });
 });

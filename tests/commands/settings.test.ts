@@ -77,6 +77,17 @@ describe('setNestedValue', () => {
 });
 
 describe('SETTINGS_REGISTRY', () => {
+  it('keeps the numbered shortcut of the first UI settings stable and appends new ones', () => {
+    const uiKeys = SETTINGS_REGISTRY.filter((setting) => setting.category === 'ui').map((setting) => setting.key);
+
+    // /settings numbers these 1-9; scenarios and habits depend on the numbers.
+    expect(uiKeys.slice(0, 9)).toEqual([
+      'ui.theme', 'ui.locale', 'ui.autoConfirm', 'ui.silentToolOutput', 'ui.taskListPosition',
+      'ui.showThinking', 'ui.renderMarkdown', 'ui.terminalBell', 'ui.checkForUpdates',
+    ]);
+    expect(uiKeys.slice(-2)).toEqual(['ui.toolOutput', 'ui.defaultInteractionMode']);
+  });
+
   it('has entries for all categories', () => {
     const registeredCategories = new Set(SETTINGS_REGISTRY.map(s => s.category));
     for (const cat of SETTING_CATEGORIES) {
