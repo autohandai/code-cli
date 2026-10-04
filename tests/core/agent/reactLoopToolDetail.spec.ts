@@ -147,3 +147,26 @@ describe('formatToolCallLogDetail — generic fallback', () => {
     expect(detail.endsWith('...')).toBe(true);
   });
 });
+
+describe('formatToolCallLogDetail — run_tool_script', () => {
+  it('shows the description the model gave the script', () => {
+    expect(formatToolCallLogDetail(call('run_tool_script', {
+      script: 'const files = await tools.find({ pattern: "*.ts" });\nreturn files.output.length;',
+      description: 'Count TypeScript files',
+    }))).toBe('Count TypeScript files');
+  });
+
+  it('falls back to the first line of code, never the whole script', () => {
+    const detail = formatToolCallLogDetail(call('run_tool_script', {
+      script: '\n  // scan the repo\n  const files = await tools.find({ pattern: "*.ts" });\n  return files.output.length;',
+    }));
+
+    expect(detail).toBe('// scan the repo');
+    expect(detail).not.toContain('tools.find');
+  });
+
+  it('is empty for a script with no text', () => {
+    expect(formatToolCallLogDetail(call('run_tool_script', { script: '  ' }))).toBe('');
+  });
+});
+

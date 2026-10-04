@@ -86,6 +86,7 @@ export const TOOL_KIND_MAP: Record<string, ToolKind> = {
 
   // Execute operations
   run_command: "execute",
+  run_tool_script: "execute",
   custom_command: "execute",
   git_status: "execute",
   git_diff: "execute",
@@ -176,6 +177,7 @@ export const TOOL_DISPLAY_NAMES: Record<string, string> = {
 
   // Execute operations
   run_command: "Run",
+  run_tool_script: "Run script",
   custom_command: "Custom",
   git_status: "Git Status",
   git_diff: "Git Diff",

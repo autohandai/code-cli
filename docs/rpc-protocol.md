@@ -507,6 +507,7 @@ Tool execution started.
 ```typescript
 {
   toolId: string;
+  parentToolId?: string; // set when a run_tool_script script made the call (see codemode.md)
   toolName: string;
   args: Record<string, unknown>;
   timestamp: string;
@@ -531,6 +532,7 @@ Tool execution complete.
 ```typescript
 {
   toolId: string;
+  parentToolId?: string; // set when a run_tool_script script made the call
   toolName: string;
   success: boolean;
   output?: string;

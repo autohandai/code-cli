@@ -358,6 +358,11 @@ function joinDetailParts(parts: Array<string | undefined>): string {
  * `sleep {"reason":"...","seconds":180}`.
  */
 const TOOL_DETAIL_FORMATTERS: Record<string, (args: ToolArgs | undefined) => string> = {
+  // A script is many lines of code; its one-line purpose is what belongs in the log.
+  run_tool_script: (args) =>
+    getStringArg(args, 'description')
+    ?? getStringArg(args, 'script')?.split('\n').map((line) => line.trim()).find(Boolean)
+    ?? '',
   sleep: (args) => {
     const seconds = getNumberArg(args, 'seconds');
     return joinDetailParts([seconds === undefined ? undefined : `${seconds}s`, getStringArg(args, 'reason')]);

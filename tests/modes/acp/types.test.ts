@@ -84,6 +84,7 @@ describe("TOOL_KIND_MAP", () => {
 
   it('contains expected execute tools with ToolKind "execute"', () => {
     expect(TOOL_KIND_MAP["run_command"]).toBe("execute");
+    expect(TOOL_KIND_MAP["run_tool_script"]).toBe("execute");
     expect(TOOL_KIND_MAP["custom_command"]).toBe("execute");
     expect(TOOL_KIND_MAP["git_status"]).toBe("execute");
     expect(TOOL_KIND_MAP["git_commit"]).toBe("execute");

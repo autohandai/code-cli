@@ -196,6 +196,19 @@ describe('RPC Adapter - P2 Handlers', () => {
       }));
     });
 
+    it('reports the script a nested tool call belongs to, and omits the field for a direct call', () => {
+      const outputListener = mockAgent.setOutputListener.mock.calls[0]?.[0];
+
+      outputListener({ type: 'tool_start', toolId: 'script-1:0', toolName: 'read_file', toolArgs: { path: 'a.ts' }, parentToolId: 'script-1' });
+      outputListener({ type: 'tool_end', toolId: 'script-1:0', toolName: 'read_file', toolSuccess: true, toolOutput: 'ok', parentToolId: 'script-1' });
+      outputListener({ type: 'tool_start', toolId: 'direct-1', toolName: 'read_file', toolArgs: { path: 'b.ts' } });
+
+      expect(writeNotification).toHaveBeenCalledWith('autohand.toolStart', expect.objectContaining({ toolId: 'script-1:0', parentToolId: 'script-1' }));
+      expect(writeNotification).toHaveBeenCalledWith('autohand.toolEnd', expect.objectContaining({ toolId: 'script-1:0', parentToolId: 'script-1' }));
+      const direct = vi.mocked(writeNotification).mock.calls.find(([, params]) => (params as { toolId?: string }).toolId === 'direct-1');
+      expect(direct?.[1]).not.toHaveProperty('parentToolId');
+    });
+
     it('does not infer success when a runtime tool_end omits status', () => {
       const outputListener = mockAgent.setOutputListener.mock.calls[0]?.[0];
 

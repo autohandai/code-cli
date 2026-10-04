@@ -146,6 +146,62 @@ function compactDisplay(content: string, header: string | undefined, from: 'head
   };
 }
 
+interface ScriptReport {
+  result: unknown;
+  logs: string;
+  calls: { total: number; failed: number; byTool: Record<string, number> };
+  durationMs: number;
+}
+
+function parseScriptReport(content: string): ScriptReport | null {
+  try {
+    const parsed = JSON.parse(content) as Partial<ScriptReport> | null;
+    const calls = parsed?.calls;
+    if (!parsed || typeof calls?.total !== 'number' || typeof calls.byTool !== 'object' || calls.byTool === null) {
+      return null;
+    }
+    return {
+      result: parsed.result,
+      logs: typeof parsed.logs === 'string' ? parsed.logs : '',
+      calls: { total: calls.total, failed: typeof calls.failed === 'number' ? calls.failed : 0, byTool: calls.byTool },
+      durationMs: typeof parsed.durationMs === 'number' ? parsed.durationMs : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function formatDuration(durationMs: number): string {
+  return durationMs < 1000 ? `${Math.round(durationMs)}ms` : `${(durationMs / 1000).toFixed(1)}s`;
+}
+
+/** A script's result is a report about many tool calls: lead with what it did, then what it returned. */
+function scriptReportDisplay(report: ScriptReport, totalChars: number, compact: boolean): ToolOutputDisplay {
+  const { total, failed, byTool } = report.calls;
+  const breakdown = Object.entries(byTool)
+    .sort(([, left], [, right]) => right - left)
+    .map(([tool, count]) => `${tool} ×${count}`)
+    .join(', ');
+  const header = [
+    total === 0 ? 'no tool calls' : `${total} tool ${total === 1 ? 'call' : 'calls'} (${breakdown})${failed > 0 ? `, ${failed} failed` : ''}`,
+    formatDuration(report.durationMs),
+  ].join(' · ');
+  const answer = typeof report.result === 'string' ? report.result : JSON.stringify(report.result, null, 2) ?? 'null';
+  const everything = [header, answer, ...(report.logs ? ['', 'Logs:', report.logs] : [])].join('\n');
+
+  if (!compact) {
+    return { output: everything, truncated: false, totalChars };
+  }
+  const preview = previewLines(answer, 'head');
+  const complete = preview.complete && !report.logs;
+  return {
+    output: [header, ...preview.kept].join('\n'),
+    truncated: !complete,
+    totalChars,
+    ...(complete ? {} : { expandedOutput: boundExpandedOutput(everything) }),
+  };
+}
+
 /**
  * Format tool output for display - shows file summary for file ops, truncates for find/search
  */
@@ -158,6 +214,12 @@ export function formatToolOutputForDisplay(options: FileToolOutputOptions): Tool
     return compactDisplay(content, undefined, 'tail');
   }
 
+  if (tool === 'run_tool_script' && !options.failed) {
+    const report = parseScriptReport(content);
+    if (report) {
+      return scriptReportDisplay(report, totalChars, compact);
+    }
+  }
 
   if (tool === 'ask_followup_question') {
     return {

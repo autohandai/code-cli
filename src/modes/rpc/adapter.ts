@@ -3364,6 +3364,7 @@ export class RPCAdapter {
           }
           writeNotification(RPC_NOTIFICATIONS.TOOL_START, {
             toolId: event.toolId ?? generateId('tool'),
+            ...(event.parentToolId === undefined ? {} : { parentToolId: event.parentToolId }),
             toolName: event.toolName,
             args: redactBrowserToolArguments(event.toolName, event.toolArgs ?? {}),
             timestamp: createTimestamp(),
@@ -3375,6 +3376,7 @@ export class RPCAdapter {
         if (event.toolName) {
           writeNotification(RPC_NOTIFICATIONS.TOOL_END, {
             toolId: event.toolId ?? 'unknown',
+            ...(event.parentToolId === undefined ? {} : { parentToolId: event.parentToolId }),
             toolName: event.toolName,
             success: event.toolSuccess === true,
             output: event.toolOutput,

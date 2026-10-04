@@ -46,6 +46,8 @@ const READ_ONLY_TOOLS = [
   'plan',
   'exit_plan_mode',
   'ask_followup_question',
+  // A script only calls other tools; each of those calls is checked against this list.
+  'run_tool_script',
 ];
 
 /**

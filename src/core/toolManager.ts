@@ -32,6 +32,7 @@ import {
 import { getPlanModeManager } from '../commands/plan.js';
 import { randomUUID } from 'node:crypto';
 import { HOOK_TOOL_NAMES } from './hookTools.js';
+import { CODE_MODE_TOOL_NAME } from './codemode/feature.js';
 import { PEER_TOOL_DEFINITIONS } from './peerTools.js';
 import { GOAL_STATUSES } from '../goals/types.js';
 
@@ -146,6 +147,8 @@ export interface ToolManagerOptions {
 export interface PreToolHookContext {
   tool: string;
   toolCallId: string;
+  /** Present when the call was made by a script: the `run_tool_script` call it belongs to. */
+  parentToolCallId?: string;
   args: Record<string, unknown>;
   path?: string;
   signal?: AbortSignal;
@@ -300,6 +303,47 @@ const completionEvidenceParameter: ToolParameter = {
     },
   },
   required: ['summary', 'checks'],
+};
+
+/**
+ * Script tool definition — registered only while the `code_mode` feature is on.
+ * It needs no approval of its own: the script can do nothing except call tools,
+ * and each of those calls is authorized exactly as if the model had made it.
+ */
+export const CODE_MODE_TOOL_DEFINITION: ToolDefinition = {
+  name: CODE_MODE_TOOL_NAME,
+  description: [
+    'Run one JavaScript script that calls your tools and returns only its final value.',
+    'Use it when a task needs many tool calls whose raw output you do not need to read yourself:',
+    'scanning or aggregating across files, loops, filtering, counting, joining results.',
+    'Inside the script, call `await tools.<name>(args)` with the same arguments as the tool itself',
+    '(MCP tools as `tools["mcp__server__tool"](args)`). Each call resolves to',
+    '`{ ok: true, output }` or `{ ok: false, error, kind }` and never throws; start independent calls',
+    'together with `Promise.all`. `console.log` is captured. `return` a small JSON-serialisable value:',
+    'only that value, the logs and call counts come back to you. The script has no file, network,',
+    'process or timer access of its own, and cannot delegate, plan, ask the user, or start another script.',
+    'Every nested call goes through the usual permission checks, and a denied call ends the script.',
+    'Prefer the ordinary tools for one or two simple calls.',
+  ].join(' '),
+  parameters: {
+    type: 'object',
+    properties: {
+      script: {
+        type: 'string',
+        description: 'Body of an async JavaScript function (plain JavaScript, not TypeScript). Top-level `await` and `return` are allowed. Example: "const files = await tools.find({ pattern: \'*.ts\' }); return files.ok ? files.output.split(\'\\n\').length : files.error;"',
+      },
+      description: {
+        type: 'string',
+        description: 'One short line saying what the script does, shown to the user and to hooks.',
+      },
+      timeout_ms: {
+        type: 'number',
+        description: 'Budget for the script\'s own execution time in milliseconds, not counting time spent inside tool calls (default 60000, maximum 300000).',
+      },
+    },
+    required: ['script'],
+  },
+  requiresApproval: false,
 };
 
 export const GOAL_TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -2560,6 +2604,7 @@ export class ToolManager {
     return DEFAULT_TOOL_DEFINITIONS.some(d => d.name === name)
       || HOOK_TOOL_NAMES.has(name)
       || GOAL_TOOL_DEFINITIONS.some(d => d.name === name)
+      || name === CODE_MODE_TOOL_NAME
       || SPECIALIST_BUILTIN_TOOL_NAMES.has(name as AgentAction['type']);
   }
 
@@ -2689,6 +2734,9 @@ export class ToolManager {
     executionContext: Omit<ToolExecutionContext, 'toolCallId'> = {},
   ): Promise<ToolExecutionResult[]> {
     const signal = executionContext.signal;
+    const parentToolCall = executionContext.parentToolCallId === undefined
+      ? {}
+      : { parentToolCallId: executionContext.parentToolCallId };
     const results = new Map<number, ToolExecutionResult>();
 
     // Get plan mode manager to check read-only enforcement
@@ -2794,6 +2842,7 @@ export class ToolManager {
           const hookResults = await this.runPreToolHooks({
             tool: call.tool,
             toolCallId: call.id!,
+            ...parentToolCall,
             args: this.getCallArgs(call),
             path: permissionContext.path,
             ...(signal === undefined ? {} : { signal }),
@@ -2866,6 +2915,7 @@ export class ToolManager {
           const hookResults = await this.runPermissionRequestHooks({
             tool: call.tool,
             toolCallId: call.id!,
+            ...parentToolCall,
             args: this.getCallArgs(call),
             path: permissionContext.path,
             command: promptContext.command,
@@ -3418,7 +3468,10 @@ export class ToolManager {
   }
 
   private shouldExecuteSequentially(call: ToolCallRequest): boolean {
-    return HOOK_TOOL_NAMES.has(call.tool) || SEQUENTIAL_TOOL_CATEGORIES.has(getToolCategory(call.tool));
+    // A script issues its own tool calls, writes included, so nothing else may run alongside it.
+    return call.tool === CODE_MODE_TOOL_NAME
+      || HOOK_TOOL_NAMES.has(call.tool)
+      || SEQUENTIAL_TOOL_CATEGORIES.has(getToolCategory(call.tool));
   }
 
   /**

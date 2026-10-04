@@ -218,6 +218,42 @@ describe('stateful read ledger', () => {
     expect(third).toEqual(first);
   });
 
+  describe('reads made by a script (modelVisible: false)', () => {
+    const scriptRead = { approvalHandled: true, modelVisible: false } as const;
+    const modelRead = { approvalHandled: true } as const;
+
+    it('always get the content, even right after the model read the same file', async () => {
+      await fse.writeFile(path.join(workspaceRoot, 'script.txt'), 'alpha\nbeta');
+      const executor = createExecutor({ readStateDedup: true });
+
+      const first = await executor.executeForTool({ type: 'read_file', path: 'script.txt' }, modelRead);
+      const fromScript = await executor.executeForTool({ type: 'read_file', path: 'script.txt' }, scriptRead);
+
+      expect(fromScript).toEqual(first);
+    });
+
+    it('do not turn the model\'s first read of that file into an "unchanged" stub', async () => {
+      await fse.writeFile(path.join(workspaceRoot, 'unseen.txt'), 'alpha\nbeta');
+      const executor = createExecutor({ readStateDedup: true });
+
+      await executor.executeForTool({ type: 'read_file', path: 'unseen.txt' }, scriptRead);
+      const firstModelRead = await executor.executeForTool({ type: 'read_file', path: 'unseen.txt' }, modelRead);
+      const secondModelRead = await executor.executeForTool({ type: 'read_file', path: 'unseen.txt' }, modelRead);
+
+      expect(firstModelRead).toEqual({ success: true, output: '     1\talpha\n     2\tbeta' });
+      expect(secondModelRead.success && secondModelRead.output).toContain('unchanged since the previous read');
+    });
+
+    it('leave no record that the model has seen the file', async () => {
+      await fse.writeFile(path.join(workspaceRoot, 'unrecorded.txt'), 'alpha');
+      const executor = createExecutor({ readBeforeWrite: true });
+
+      await executor.executeForTool({ type: 'read_file', path: 'unrecorded.txt' }, scriptRead);
+
+      expect(sessionManager.getCurrentSession()?.getReadFileState()).toBeNull();
+    });
+  });
+
   it('does not stub a repeated offset-zero read while the ledger is partial', async () => {
     await fse.writeFile(path.join(workspaceRoot, 'partial.txt'), 'one\ntwo\nthree');
     const executor = createExecutor({ readStateDedup: true });

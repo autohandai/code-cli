@@ -2006,6 +2006,22 @@ describe("AutohandAcpAdapter", () => {
       });
     });
 
+    it("marks a tool call made by a script with its parent call, and leaves direct calls unmarked", async () => {
+      const outputListener = mockAgent.setOutputListener.mock.calls[0][0];
+
+      await outputListener({ type: "tool_start", toolId: "script-1:0", toolName: "read_file", toolArgs: { path: "a.ts" }, parentToolId: "script-1" });
+      await outputListener({ type: "tool_end", toolId: "script-1:0", toolName: "read_file", toolSuccess: true, toolOutput: "ok", parentToolId: "script-1" });
+      await outputListener({ type: "tool_start", toolId: "direct-1", toolName: "read_file", toolArgs: { path: "b.ts" } });
+
+      const updates = connection.sessionUpdate.mock.calls.map(([params]: [{ update: Record<string, unknown> }]) => params.update);
+      const nested = updates.filter((update) => update.toolCallId === "script-1:0");
+      expect(nested).toHaveLength(2);
+      for (const update of nested) {
+        expect(update._meta).toEqual({ autohand: { parentToolCallId: "script-1" } });
+      }
+      expect(updates.find((update) => update.toolCallId === "direct-1")).not.toHaveProperty("_meta");
+    });
+
     it("maps runtime tool failures to failed ACP updates with readable details", async () => {
       const outputListener = mockAgent.setOutputListener.mock.calls[0][0];
 

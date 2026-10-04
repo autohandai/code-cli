@@ -187,6 +187,23 @@ describe('HookManager', () => {
       expect(child?.stdin?.write).toHaveBeenCalledWith(expect.stringContaining('"subagent_task":"Inspect code"'));
     });
 
+    it('tells tool hooks which script made a nested call, and nothing extra for a direct call', async () => {
+      await manager.addHook({ event: 'pre-tool', command: 'true' });
+
+      await manager.executeHooks('pre-tool', { tool: 'read_file', toolCallId: 'script-1:0', parentToolCallId: 'script-1' });
+      const nested = vi.mocked(spawn).mock.results.at(-1)?.value;
+      expect(vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env).toMatchObject({
+        HOOK_TOOL_CALL_ID: 'script-1:0',
+        HOOK_PARENT_TOOL_CALL_ID: 'script-1',
+      });
+      expect(nested?.stdin?.write).toHaveBeenCalledWith(expect.stringContaining('"parent_tool_use_id":"script-1"'));
+
+      await manager.executeHooks('pre-tool', { tool: 'read_file', toolCallId: 'direct-1' });
+      const direct = vi.mocked(spawn).mock.results.at(-1)?.value;
+      expect(vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env).not.toHaveProperty('HOOK_PARENT_TOOL_CALL_ID');
+      expect(direct?.stdin?.write).not.toHaveBeenCalledWith(expect.stringContaining('parent_tool_use_id'));
+    });
+
     it('returns only enabled hooks for specific event', async () => {
       await manager.addHook({ event: 'pre-tool', command: 'echo 1', enabled: true });
       await manager.addHook({ event: 'pre-tool', command: 'echo 2', enabled: false });

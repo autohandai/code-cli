@@ -59,6 +59,7 @@ import { MemoryManager } from '../../memory/MemoryManager.js';
 import type { CapabilityUsageInput } from '../../memory/types.js';
 import { FeedbackManager } from '../../feedback/FeedbackManager.js';
 import { FeedbackSurveyController } from './FeedbackSurveyController.js';
+import { CODE_MODE_TOOL_NAME, codeModeToolDefinitions, runCodeModeScript, syncCodeModeTool } from './CodeModeRunner.js';
 import { TelemetryManager } from '../../telemetry/TelemetryManager.js';
 import { SkillsRegistry } from '../../skills/SkillsRegistry.js';
 import type { SkillDefinition } from '../../skills/types.js';
@@ -887,6 +888,7 @@ export function initializeAgentDependencies(
         const hookContext = {
           tool: context.tool,
           toolCallId: context.toolCallId,
+          ...(context.parentToolCallId === undefined ? {} : { parentToolCallId: context.parentToolCallId }),
           args: context.args,
           path: context.path,
         };
@@ -898,6 +900,7 @@ export function initializeAgentDependencies(
         const hookContext = {
           tool: context.tool,
           toolCallId: context.toolCallId,
+          ...(context.parentToolCallId === undefined ? {} : { parentToolCallId: context.parentToolCallId }),
           args: context.args,
           ...(context.path === undefined ? {} : { path: context.path }),
           ...(context.command === undefined ? {} : { command: context.command }),
@@ -1364,6 +1367,8 @@ export function initializeAgentDependencies(
         let toolOutput: string | undefined;
         let toolError: string | undefined;
         let toolAborted = false;
+        const parentToolCall = context?.parentToolCallId === undefined ? {} : { parentToolCallId: context.parentToolCallId };
+        const parentToolEvent = context?.parentToolCallId === undefined ? {} : { parentToolId: context.parentToolCallId };
 
         try {
           // Emit tool_start only after ToolManager's canonical authorization.
@@ -1371,6 +1376,7 @@ export function initializeAgentDependencies(
           host.emitOutput({
             type: 'tool_start',
             toolId,
+            ...parentToolEvent,
             toolName: action.type,
             toolArgs: action as Record<string, unknown>,
           });
@@ -1796,6 +1802,14 @@ export function initializeAgentDependencies(
                 }
               }
             }
+          } else if (action.type === CODE_MODE_TOOL_NAME) {
+            outcome = await runCodeModeScript(host.toolManager, {
+              script: action.script,
+              timeoutMs: action.timeout_ms,
+              toolCallId: toolId,
+              signal: context?.signal,
+              context,
+            });
           } else if (McpClientManager.isMcpTool(action.type)) {
             // Route MCP tool calls to the MCP client manager
             const parsed = McpClientManager.parseMcpToolName(action.type);
@@ -1841,6 +1855,7 @@ export function initializeAgentDependencies(
           const postToolContext = {
             tool: action.type,
             toolCallId: toolId,
+            ...parentToolCall,
             args: action as Record<string, unknown>,
             success: finalOutcome.success,
             output: readableOutput,
@@ -1877,6 +1892,7 @@ export function initializeAgentDependencies(
           const failedPostToolContext = {
             tool: action.type,
             toolCallId: toolId,
+            ...parentToolCall,
             args: action as Record<string, unknown>,
             success: false,
             output: errorMessage,
@@ -1898,6 +1914,7 @@ export function initializeAgentDependencies(
           host.emitOutput({
             type: 'tool_end',
             toolId,
+            ...parentToolEvent,
             toolName: action.type,
             toolSuccess,
             toolOutput,
@@ -1909,7 +1926,12 @@ export function initializeAgentDependencies(
         }
       },
       confirmApproval: (message, context) => host.confirmDangerousAction(message, context),
-      definitions: [...featureGatedToolDefinitions, ...delegationTools, ...HOOK_TOOL_DEFINITIONS],
+      definitions: [
+        ...featureGatedToolDefinitions,
+        ...codeModeToolDefinitions(runtime.config),
+        ...delegationTools,
+        ...HOOK_TOOL_DEFINITIONS,
+      ],
       clientContext,
       customPolicy,
       authorization: toolAuthorization,
@@ -2150,6 +2172,7 @@ export function initializeAgentDependencies(
             host.toolManager.unregister(definition.name);
           }
         }
+        syncCodeModeTool(host.toolManager, runtime.config);
         void mobileRelayController?.refreshDeliveryStatus();
       },
       refreshStatusLine: () => {

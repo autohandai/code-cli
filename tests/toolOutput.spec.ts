@@ -385,3 +385,62 @@ describe('hiddenLineCount', () => {
     expect(hiddenLineCount(shown, expanded)).toBe(0);
   });
 });
+
+describe('run_tool_script result', () => {
+  const report = (overrides: Record<string, unknown> = {}) => JSON.stringify({
+    ok: true,
+    result: { scanned: 200, withTodo: ['src/a.ts', 'src/b.ts'] },
+    logs: 'scanned 200 files',
+    calls: { total: 201, failed: 1, byTool: { find: 1, read_file: 200 } },
+    durationMs: 1840,
+    ...overrides,
+  }, null, 2);
+
+  it('leads with what the script did, then what it returned', () => {
+    const result = formatToolOutputForDisplay({ tool: 'run_tool_script', content: report(), charLimit: 300, mode: 'compact' });
+    const [header, ...rest] = result.output.split('\n');
+
+    expect(header).toBe('201 tool calls (read_file ×200, find ×1), 1 failed · 1.8s');
+    expect(rest.slice(0, 2)).toEqual(['{', '  "scanned": 200,']);
+    expect(rest).toHaveLength(COMPACT_PREVIEW_LINES);
+    expect(result.expandedOutput).toContain('"withTodo"');
+    expect(result.expandedOutput).toContain('scanned 200 files');
+  });
+
+  it('shows a short answer whole, with nothing to expand', () => {
+    const result = formatToolOutputForDisplay({
+      tool: 'run_tool_script',
+      content: report({ result: 42, logs: '', calls: { total: 1, failed: 0, byTool: { read_file: 1 } }, durationMs: 12 }),
+      charLimit: 300,
+      mode: 'compact',
+    });
+
+    expect(result.output).toBe('1 tool call (read_file ×1) · 12ms\n42');
+    expect(result.expandedOutput).toBeUndefined();
+  });
+
+  it('shows a text answer as text and says when no tool was called', () => {
+    const result = formatToolOutputForDisplay({
+      tool: 'run_tool_script',
+      content: report({ result: 'all good', logs: '', calls: { total: 0, failed: 0, byTool: {} }, durationMs: 3 }),
+      charLimit: 300,
+      mode: 'full',
+    });
+
+    expect(result.output).toBe('no tool calls · 3ms\nall good');
+  });
+
+  it('prints everything, logs included, in full mode', () => {
+    const result = formatToolOutputForDisplay({ tool: 'run_tool_script', content: report(), charLimit: 300, mode: 'full' });
+
+    expect(result.output).toContain('"src/b.ts"');
+    expect(result.output).toContain('Logs:\nscanned 200 files');
+    expect(result.expandedOutput).toBeUndefined();
+  });
+
+  it('falls back to the raw text when the result is not the expected report', () => {
+    const result = formatToolOutputForDisplay({ tool: 'run_tool_script', content: 'not json', charLimit: 300, mode: 'compact' });
+
+    expect(result.output).toBe('not json');
+  });
+});

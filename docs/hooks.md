@@ -477,6 +477,7 @@ echo "Tool: $TOOL_NAME with args: $TOOL_ARGS"
   "tool_name": "write_file",
   "tool_input": { "path": "src/index.ts", "content": "..." },
   "tool_use_id": "call_123",
+  "parent_tool_use_id": null,
   "tool_response": null,
   "tool_success": null,
   "file_path": null,
@@ -631,6 +632,7 @@ When your hook command executes, these environment variables are available:
 | `HOOK_SESSION_ID` | Current session ID | All events |
 | `HOOK_TOOL` | Tool name | pre-tool, post-tool, permission-request, permission-denied |
 | `HOOK_TOOL_CALL_ID` | Unique tool call ID | pre-tool, post-tool |
+| `HOOK_PARENT_TOOL_CALL_ID` | For a call made by a `run_tool_script` script ([code mode](./codemode.md)): the ID of that script's tool call. Unset for direct calls | pre-tool, post-tool, permission-request |
 | `HOOK_COMPUTER_USE_ID` | Stable ID shared by native actions in this turn | computer-use-start, computer-use-progress, computer-use-error, computer-use-stop |
 | `HOOK_COMPUTER_USE_ACTION` | Human-readable action label | computer-use-progress, computer-use-error |
 | `HOOK_COMPUTER_USE_STATUS` | Action or turn lifecycle status | computer-use-start, computer-use-progress, computer-use-error, computer-use-stop |

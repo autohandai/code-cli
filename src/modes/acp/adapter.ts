@@ -118,6 +118,11 @@ const AUTOHAND_ACP_AUTH_METHODS: NonNullable<InitializeResponse['authMethods']> 
   },
 ];
 
+/** ACP has no field for nesting, so a script's tool calls name their parent in vendor metadata. */
+function parentToolCallMeta(parentToolId: string | undefined): { _meta?: { autohand: { parentToolCallId: string } } } {
+  return parentToolId === undefined ? {} : { _meta: { autohand: { parentToolCallId: parentToolId } } };
+}
+
 function isSupportedImageMimeType(mimeType: string): mimeType is ImageMimeType {
   return (
     mimeType === 'image/png'
@@ -1468,6 +1473,7 @@ export class AutohandAcpAdapter implements Agent {
                 status: 'in_progress' as ToolCallStatus,
                 locations,
                 rawInput: event.toolArgs ?? {},
+                ...parentToolCallMeta(event.parentToolId),
               },
             });
 
@@ -1495,6 +1501,7 @@ export class AutohandAcpAdapter implements Agent {
                 toolCallId,
                 status,
                 rawOutput,
+                ...parentToolCallMeta(event.parentToolId),
               },
             });
 

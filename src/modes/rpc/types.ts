@@ -802,6 +802,8 @@ export interface MessageEndParams {
 
 export interface ToolStartParams {
   toolId: string;
+  /** Present when the call was made by a `run_tool_script` script: that script's toolId. */
+  parentToolId?: string;
   toolName: string;
   args: Record<string, unknown>;
   timestamp: string;
@@ -816,6 +818,8 @@ export interface ToolUpdateParams {
 
 export interface ToolEndParams {
   toolId: string;
+  /** Present when the call was made by a `run_tool_script` script: that script's toolId. */
+  parentToolId?: string;
   toolName: string;
   success: boolean;
   output?: string;

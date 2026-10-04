@@ -1221,7 +1221,11 @@ export class ActionExecutor {
         const offset = typeof action.offset === 'number' ? action.offset : 0;
         const limit = typeof action.limit === 'number' ? action.limit : 0;
         const effectiveLimit = Math.min(limit > 0 ? limit : READ_FILE_MAX_LINES, READ_FILE_MAX_LINES);
-        const statefulReadMode = resolveStatefulReadMode(this.runtime.config);
+        // A read whose result goes to a script, not into the model's context, is
+        // neither deduplicated nor counted as something the model has seen.
+        const statefulReadMode = context?.modelVisible === false
+          ? 'off'
+          : resolveStatefulReadMode(this.runtime.config);
         const viewKey = this.readViewKey(action.path, offset, effectiveLimit);
 
         if (typeof this.files.readFileWindow === 'function') {

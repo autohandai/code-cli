@@ -167,6 +167,14 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     defaultEnabled: false,
   },
   {
+    id: 'code_mode',
+    label: 'Code mode',
+    description: 'Let the agent run one sandboxed script that calls its tools and returns only the answer, instead of many separate tool calls.',
+    stage: 'experimental',
+    configPath: 'features.codeMode',
+    defaultEnabled: false,
+  },
+  {
     id: 'token_usage_status',
     label: 'Token usage status',
     description: 'Show real-time token usage (tokens up/down and context window occupancy) in the status line.',

@@ -455,6 +455,8 @@ export interface FeatureFlagSettings {
   awsBedrockProvider?: boolean;
   /** Enable the experimental persistent /goal surface across CLI, tools, RPC, and ACP. */
   slashGoal?: boolean;
+  /** Expose `run_tool_script`: one sandboxed script that calls tools and returns only its result (default: false). */
+  codeMode?: boolean;
   /** Show real-time token usage (tokens up/down + context window occupancy) in the status line. */
   tokenUsageStatus?: boolean;
   /** Enable experimental provider-native prompt cache affinity. */
@@ -1799,6 +1801,7 @@ export type AgentAction =
   | { type: 'custom_command'; name: string; command: string; args?: string[]; description?: string; dangerous?: boolean }
   | { type: 'plan'; notes: string }
   | { type: 'exit_plan_mode'; summary?: string }
+  | { type: 'run_tool_script'; script: string; description?: string; timeout_ms?: number }
   | { type: 'multi_file_edit'; file_path: string; edits: Array<{ old_string: string; new_string: string; replace_all?: boolean }> }
   | { type: 'todo_write'; tasks: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm: string }> }
   | {
@@ -2061,6 +2064,13 @@ export interface ToolExecutionContext {
   approvalHandled?: boolean;
   /** Active instruction cancellation signal for foreground work. */
   signal?: AbortSignal;
+  /** Set on a call made by a `run_tool_script` script: the id of that script's own tool call. */
+  parentToolCallId?: string;
+  /**
+   * False when the result goes to a script, not into the model's context. Such
+   * a read must not count as the model having seen the file.
+   */
+  modelVisible?: boolean;
   /** Privately retain tool-returned images without placing image bytes in tool output or history. */
   registerToolImages?: (
     images: readonly ToolImageInput[],
@@ -2119,6 +2129,8 @@ export interface AgentOutputEvent {
   thought?: string;
   toolName?: string;
   toolId?: string;
+  /** On tool events for a call made by a script: the id of the `run_tool_script` call. */
+  parentToolId?: string;
   toolArgs?: Record<string, unknown>;
   toolOutput?: string;
   toolSuccess?: boolean;
