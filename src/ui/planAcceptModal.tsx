@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import os from 'node:os';
-import React from 'react';
-import { Box, Text, render } from 'ink';
+import React, { useState } from 'react';
+import { Box, Text, render, useInput } from 'ink';
 import { Modal, type ModalOption } from './ink/components/Modal.js';
 import { I18nProvider, useTranslation } from './i18n/index.js';
 import { inkRenderOptions } from './inkRenderOptions.js';
@@ -20,6 +20,8 @@ export interface PlanAcceptOption {
 export interface PlanAcceptModalOptions {
   planFilePath: string;
   options: PlanAcceptOption[];
+  /** Opens the saved plan outside the terminal; resolves with the program started, or null. */
+  onOpenPlan?: () => Promise<string | null>;
 }
 
 export interface PlanAcceptResult {
@@ -31,23 +33,40 @@ export interface PlanAcceptResult {
 /** Internal value used to identify the "No, revise" option */
 const REVISE_VALUE = '__revise__';
 
-interface PlanAcceptModalWrapperProps {
-  planFilePath: string;
-  options: PlanAcceptOption[];
+export interface PlanAcceptPromptProps extends PlanAcceptModalOptions {
   onSubmit: (result: PlanAcceptResult) => void;
 }
 
+type OpenStatus = { opened: string } | { failed: true } | null;
+
 /**
- * Wrapper component that uses the base Modal and displays
- * the plan file path footer.
+ * The plan review prompt: the acceptance options, where the plan is saved,
+ * and the keys that open it for editing or accept it in one stroke.
  */
-function PlanAcceptModalWrapper({
+export function PlanAcceptPrompt({
   planFilePath,
   options,
   onSubmit,
-}: PlanAcceptModalWrapperProps) {
+  onOpenPlan,
+}: PlanAcceptPromptProps) {
   const { t } = useTranslation();
   const { colors } = useTheme();
+  const [openStatus, setOpenStatus] = useState<OpenStatus>(null);
+
+  useInput((char, key) => {
+    if (key.ctrl && char === 'g' && onOpenPlan) {
+      void onOpenPlan()
+        .then((command) => setOpenStatus(command ? { opened: command } : { failed: true }))
+        .catch(() => setOpenStatus({ failed: true }));
+      return;
+    }
+    if (key.shift && key.tab) {
+      const shortcutOption = options.find((option) => option.shortcut === 'shift+tab');
+      if (shortcutOption) {
+        onSubmit({ type: 'option', optionId: shortcutOption.id });
+      }
+    }
+  });
 
   // Convert PlanAcceptOptions to ModalOptions
   const modalOptions: ModalOption[] = [
@@ -94,8 +113,13 @@ function PlanAcceptModalWrapper({
         allowCustomInput={true}
       />
       <Text color={colors.muted}>
-        {t('ui.planEditHint')} · {displayPath}
+        {onOpenPlan ? `${t('ui.planEditHint')} · ` : ''}{displayPath}
       </Text>
+      {openStatus ? (
+        <Text color={colors.muted}>
+          {'opened' in openStatus ? t('ui.planOpened', { command: openStatus.opened }) : t('ui.planOpenFailed')}
+        </Text>
+      ) : null}
     </Box>
   );
 }
@@ -106,7 +130,7 @@ function PlanAcceptModalWrapper({
 export async function showPlanAcceptModal(
   options: PlanAcceptModalOptions
 ): Promise<PlanAcceptResult> {
-  const { planFilePath, options: acceptOptions } = options;
+  const { planFilePath, options: acceptOptions, onOpenPlan } = options;
 
   // Non-interactive fallback
   if (!process.stdout.isTTY) {
@@ -119,9 +143,10 @@ export async function showPlanAcceptModal(
     const instance = render(
       <I18nProvider>
         <ThemeProvider>
-          <PlanAcceptModalWrapper
+          <PlanAcceptPrompt
             planFilePath={planFilePath}
             options={acceptOptions}
+            onOpenPlan={onOpenPlan}
             onSubmit={(result) => {
               if (completed) return;
               completed = true;

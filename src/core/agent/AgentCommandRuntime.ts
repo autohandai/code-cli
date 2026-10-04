@@ -21,6 +21,10 @@ import { safeSetRawMode } from '../../ui/rawMode.js';
 import { isToolAllowedByYolo, normalizeYoloInput, parseYoloPattern } from '../../permissions/yoloMode.js';
 import { isAllowedPermissionPrompt, normalizePermissionPromptResponse, type PermissionPromptResult } from '../../permissions/types.js';
 import type { Plan } from '../../modes/planMode/types.js';
+import { PlanFileStorage } from '../../modes/planMode/PlanFileStorage.js';
+import { applyPlanEdits } from '../../modes/planMode/PlanParser.js';
+import { openPlanFile } from '../../modes/planMode/openPlanFile.js';
+import { renderTerminalMarkdown } from '../immediateCommandRouter.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { BARE_SLASH_COMMANDS_DISABLED_MESSAGE } from '../../runtime/bareMode.js';
 import { buildCommandUseData } from '../../telemetry/commandUsage.js';
@@ -454,7 +458,7 @@ export async function executeAgentAskFollowupQuestion(host: AgentCommandRuntimeH
       if (answer === null) {
         host.consecutiveCancellations++;
         console.log(chalk.yellow('\n  (Question cancelled)\n'));
-        return '<answer>User cancelled host question. Do NOT call ask_followup_question again. Continue with your best judgment or provide a final response.</answer>';
+        return '<answer>User cancelled this question. Do NOT call ask_followup_question again. Continue with your best judgment or provide a final response.</answer>';
       }
 
       host.consecutiveCancellations = 0;
@@ -463,45 +467,59 @@ export async function executeAgentAskFollowupQuestion(host: AgentCommandRuntimeH
     });
   }
 
-export async function handleAgentPlanCreated(host: AgentCommandRuntimeHost, plan: Plan, filePath: string): Promise<string> {
+/** Shows a plan the way its author wrote it: goal, steps, detail and risks, not a flattened list. */
+function printPlan(plan: Plan, filePath: string): void {
+  const rule = chalk.cyan('─'.repeat(60));
+  console.log(`\n${rule}`);
+  console.log(chalk.cyan.bold('📋 Plan'));
+  console.log(rule);
+  console.log(renderTerminalMarkdown(plan.rawText.trim()));
+  console.log(rule);
+  console.log(chalk.gray(`  Saved to: ${filePath}`));
+  console.log(`${rule}\n`);
+}
+
+export async function handleAgentPlanCreated(_host: AgentCommandRuntimeHost, plan: Plan, filePath: string): Promise<string> {
     const planManager = getPlanModeManager();
+    printPlan(plan, filePath);
 
     // Guard: if plan mode is not enabled, just save the plan without
     // interacting with the manager. This prevents state corruption when
     // the LLM calls `plan` outside plan mode (which should no longer
-    // happen since the tool is gated, but we keep host as a safety net).
+    // happen since the tool is gated, but we keep this as a safety net).
     if (!planManager.isEnabled()) {
-      console.log(chalk.cyan('\n' + '─'.repeat(60)));
-      console.log(chalk.cyan.bold('📋 Plan Summary'));
-      console.log(chalk.cyan('─'.repeat(60)));
-      for (const step of plan.steps) {
-        console.log(chalk.white(`  ${step.number}. ${step.description}`));
-      }
-      console.log(chalk.cyan('─'.repeat(60)));
-      console.log(chalk.gray(`  Saved to: ${filePath}`));
-      console.log(chalk.cyan('─'.repeat(60) + '\n'));
-
       return `Plan saved to ${filePath}. Plan mode is not active — enable it with /plan to use the acceptance flow.`;
     }
 
-    // Store the plan in PlanModeManager
     planManager.setPlan(plan);
 
-    // Display plan summary
-    console.log(chalk.cyan('\n' + '─'.repeat(60)));
-    console.log(chalk.cyan.bold('📋 Plan Summary'));
-    console.log(chalk.cyan('─'.repeat(60)));
-
-    for (const step of plan.steps) {
-      console.log(chalk.white(`  ${step.number}. ${step.description}`));
-    }
-
-    console.log(chalk.cyan('─'.repeat(60)));
-    console.log(chalk.gray(`  Saved to: ${filePath}`));
-    console.log(chalk.cyan('─'.repeat(60) + '\n'));
-
-    return `Plan saved to ${filePath} (${plan.steps.length} step(s)).\n\nCall \`exit_plan_mode\` when you are ready to present host plan to the user for approval.`;
+    return `Plan saved to ${filePath} (${plan.steps.length} step(s)).\n\nCall \`exit_plan_mode\` when you are ready to present the plan to the user for approval.`;
   }
+
+/**
+ * Picks up what the user changed in the saved plan file while the review
+ * prompt was open. A file that cannot be read back leaves the plan as presented.
+ */
+async function adoptPlanFileEdits(plan: Plan): Promise<{ plan: Plan; edited: boolean }> {
+  try {
+    const saved = await new PlanFileStorage().loadPlan(plan.id);
+    const edited = saved ? applyPlanEdits(plan, saved) : null;
+    if (edited) {
+      getPlanModeManager().setPlan(edited);
+      return { plan: edited, edited: true };
+    }
+  } catch {
+    // Fall through to the plan as presented.
+  }
+  return { plan, edited: false };
+}
+
+function describeAcceptedPlan(plan: Plan, edited: boolean): string {
+  const steps = `Steps:\n${plan.steps.map(s => `${s.number}. ${s.description}`).join('\n')}`;
+  return edited
+    ? `The user edited the plan before accepting it. Follow the edited plan, not the one you wrote.\n\n${steps}\n\nFull plan:\n${plan.rawText}`
+    : steps;
+}
 
 export async function handleAgentExitPlanMode(
   host: AgentCommandRuntimeHost,
@@ -547,7 +565,7 @@ export async function handleAgentExitPlanMode(
 
     // Get acceptance options from PlanModeManager
     const acceptOptions = planManager.getAcceptOptions();
-    const filePath = `${plan.id}.md`;
+    const filePath = path.join(new PlanFileStorage().getPlansDirectory(), `${plan.id}.md`);
 
     return host.withModalPause(async () => {
       const result = await showPlanAcceptModal({
@@ -556,7 +574,8 @@ export async function handleAgentExitPlanMode(
           id: opt.id,
           label: opt.label,
           shortcut: opt.shortcut
-        }))
+        })),
+        onOpenPlan: () => openPlanFile(filePath),
       });
 
       // Handle result
@@ -589,9 +608,13 @@ export async function handleAgentExitPlanMode(
       if (result.type === 'option' && result.optionId) {
         const selectedOption = acceptOptions.find(opt => opt.id === result.optionId);
         if (selectedOption) {
+          const accepted = await adoptPlanFileEdits(plan);
           const config = planManager.acceptPlan(selectedOption.id);
 
           console.log(chalk.green(`\n✓ Plan accepted: ${selectedOption.label}`));
+          if (accepted.edited) {
+            console.log(chalk.gray('  Using the plan as you edited it in the file.'));
+          }
           if (config.clearContext) {
             console.log(chalk.gray('  Context will be cleared for fresh execution.'));
             await host.resetConversationContext();
@@ -607,12 +630,13 @@ export async function handleAgentExitPlanMode(
           );
           return {
             success: true,
-            output: `Plan accepted with option: ${config.option}. Ready for execution.\n\nSteps:\n${plan.steps.map(s => `${s.number}. ${s.description}`).join('\n')}`,
+            output: `Plan accepted with option: ${config.option}. Ready for execution.\n\n${describeAcceptedPlan(accepted.plan, accepted.edited)}`,
           } satisfies ToolActionOutcome;
         }
       }
 
       // Default: accept with manual approve if result wasn't recognized
+      const accepted = await adoptPlanFileEdits(plan);
       planManager.acceptPlan('manual_approve');
       console.log(chalk.green('\n✓ Plan accepted with manual approval for edits.\n'));
       host.conversation.addSystemNote(
@@ -621,7 +645,7 @@ export async function handleAgentExitPlanMode(
 
       return {
         success: true,
-        output: `Plan accepted. Starting execution with manual edit approval.\n\nSteps:\n${plan.steps.map(s => `${s.number}. ${s.description}`).join('\n')}`,
+        output: `Plan accepted. Starting execution with manual edit approval.\n\n${describeAcceptedPlan(accepted.plan, accepted.edited)}`,
       } satisfies ToolActionOutcome;
     });
   }
@@ -672,7 +696,7 @@ export function resolveAgentWorkspacePath(host: AgentCommandRuntimeHost, relativ
     const allowedDirsList = allowedRoots.join(', ');
     throw new Error(
       `Path ${relativePath} escapes the allowed directories: ${allowedDirsList}. ` +
-      'Tell the user to grant access with /add-dir <path> for host session or restart with --add-dir <path>.'
+      'Tell the user to grant access with /add-dir <path> for this session or restart with --add-dir <path>.'
     );
   }
 

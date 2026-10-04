@@ -183,6 +183,105 @@ Created: 2025-01-19T10:00:00.000Z
     });
   });
 
+  describe('authored notes', () => {
+    const NOTES = [
+      '## Goal',
+      'Refresh tokens lazily.',
+      '',
+      '## Steps',
+      '1. Read the store',
+      '   - note the callers',
+      '2. Extract TokenRefresher',
+      '',
+      '## Risks',
+      '- The mobile relay reads the token synchronously',
+    ].join('\n');
+
+    const planWithNotes = () => ({
+      id: 'plan-notes1',
+      steps: [
+        { number: 1, description: 'Read the store', status: 'pending' as const },
+        { number: 2, description: 'Extract TokenRefresher', status: 'completed' as const },
+      ],
+      rawText: NOTES,
+      createdAt: Date.parse('2026-10-03T10:00:00.000Z'),
+    });
+
+    async function savedContent(plan: ReturnType<typeof planWithNotes>): Promise<string> {
+      const fs = await import('fs-extra');
+      const { PlanFileStorage } = await import('../../../src/modes/planMode/PlanFileStorage.js');
+      await new PlanFileStorage().savePlan(plan);
+      return (fs.default.writeFile as ReturnType<typeof vi.fn>).mock.calls[0][1] as string;
+    }
+
+    async function loadFrom(content: string) {
+      const fs = await import('fs-extra');
+      const { PlanFileStorage } = await import('../../../src/modes/planMode/PlanFileStorage.js');
+      (fs.default.pathExists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+      (fs.default.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(content);
+      return new PlanFileStorage().loadPlan('plan-notes1');
+    }
+
+    it('writes the full notes the model authored, not only the step list', async () => {
+      const content = await savedContent(planWithNotes());
+
+      expect(content).toContain('## Steps\n\n- [ ] 1. Read the store\n- [x] 2. Extract TokenRefresher\n');
+      expect(content).toContain(`## Notes\n\n${NOTES}\n`);
+      expect(content.indexOf('## Steps')).toBeLessThan(content.indexOf('## Notes'));
+    });
+
+    it('does not repeat a plan that is nothing but its steps', async () => {
+      const content = await savedContent({
+        ...planWithNotes(),
+        rawText: '1. Read the store\n2. Extract TokenRefresher',
+      });
+
+      expect(content).not.toContain('## Notes');
+    });
+
+    it('round-trips steps, statuses and notes', async () => {
+      const plan = planWithNotes();
+
+      const loaded = await loadFrom(await savedContent(plan));
+
+      expect(loaded).toEqual(plan);
+    });
+
+    it('never mistakes checklist lines inside the notes for steps', async () => {
+      const plan = { ...planWithNotes(), rawText: `${NOTES}\n\n- [ ] 9. Looks like a step but is prose` };
+
+      const loaded = await loadFrom(await savedContent(plan));
+
+      expect(loaded?.steps.map(({ number }) => number)).toEqual([1, 2]);
+      expect(loaded?.rawText).toContain('- [ ] 9. Looks like a step but is prose');
+    });
+
+    it('still loads a plan file written before notes were stored', async () => {
+      const legacy = '# Plan: plan-notes1\n\nCreated: 2026-10-03T10:00:00.000Z\n\n## Steps\n\n- [ ] 1. Read the store\n- [>] 2. Extract TokenRefresher\n';
+
+      const loaded = await loadFrom(legacy);
+
+      expect(loaded?.steps).toEqual([
+        { number: 1, description: 'Read the store', status: 'pending' },
+        { number: 2, description: 'Extract TokenRefresher', status: 'in_progress' },
+      ]);
+      expect(loaded?.rawText).toBe('1. Read the store\n2. Extract TokenRefresher');
+    });
+
+    it('picks up steps the user edited by hand in the file', async () => {
+      const edited = (await savedContent(planWithNotes()))
+        .replace('- [ ] 1. Read the store', '- [ ] 1. Read the store and its tests\n- [ ] 3. Add a migration');
+
+      const loaded = await loadFrom(edited);
+
+      expect(loaded?.steps.map(({ number, description }) => `${number}. ${description}`)).toEqual([
+        '1. Read the store and its tests',
+        '3. Add a migration',
+        '2. Extract TokenRefresher',
+      ]);
+    });
+  });
+
   describe('listPlans', () => {
     it('should list all plan files in the plans directory', async () => {
       const fs = await import('fs-extra');

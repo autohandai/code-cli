@@ -12,6 +12,12 @@ import path from 'node:path';
 import { AUTOHAND_PATHS } from '../../constants.js';
 import type { Plan, PlanStep, PlanStepStatus } from './types.js';
 
+const NOTES_HEADING = '## Notes';
+
+function stepsAsText(steps: PlanStep[]): string {
+  return steps.map((step) => `${step.number}. ${step.description}`).join('\n');
+}
+
 /**
  * PlanFileStorage - manages plan persistence to markdown files
  */
@@ -110,6 +116,13 @@ export class PlanFileStorage {
 
     lines.push('');
 
+    // The checklist is the machine-readable part; the notes are the plan as
+    // the model wrote it (goal, detail, risks) and are what a person reads.
+    const notes = plan.rawText.trim();
+    if (notes && notes !== stepsAsText(plan.steps)) {
+      lines.push(NOTES_HEADING, '', notes, '');
+    }
+
     return lines.join('\n');
   }
 
@@ -135,11 +148,16 @@ export class PlanFileStorage {
   private parsePlanFromMarkdown(content: string, planId: string): Plan {
     const steps: PlanStep[] = [];
 
+    // Only the checklist holds steps: the notes below it are free-form markdown.
+    const notesStart = content.indexOf(`\n${NOTES_HEADING}\n`);
+    const checklist = notesStart === -1 ? content : content.slice(0, notesStart);
+    const notes = notesStart === -1 ? '' : content.slice(notesStart + NOTES_HEADING.length + 2).trim();
+
     // Parse steps from markdown checkboxes
     const stepPattern = /^-\s+\[([ x>\-])\]\s+(\d+)\.\s+(.+)$/gm;
     let match: RegExpExecArray | null;
 
-    while ((match = stepPattern.exec(content)) !== null) {
+    while ((match = stepPattern.exec(checklist)) !== null) {
       const checkboxChar = match[1];
       const number = parseInt(match[2], 10);
       const description = match[3].trim();
@@ -152,13 +170,13 @@ export class PlanFileStorage {
     }
 
     // Parse created date
-    const dateMatch = content.match(/Created:\s*(.+)/);
+    const dateMatch = checklist.match(/Created:\s*(.+)/);
     const createdAt = dateMatch ? new Date(dateMatch[1]).getTime() : Date.now();
 
     return {
       id: planId,
       steps,
-      rawText: steps.map(s => `${s.number}. ${s.description}`).join('\n'),
+      rawText: notes || stepsAsText(steps),
       createdAt,
     };
   }

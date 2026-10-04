@@ -129,9 +129,12 @@ describe('plan mode integration', () => {
         notes: '1. First numbered\n- Bullet item\n2) Another numbered'
       });
 
+      // A bullet between numbered steps is detail of the step above it, not a step of its own.
       expect(mockOnPlanCreated).toHaveBeenCalled();
       const [plan] = mockOnPlanCreated.mock.calls[0];
-      expect(plan.steps).toHaveLength(3);
+      expect(plan.steps.map((step: { number: number; description: string }) => `${step.number}. ${step.description}`))
+        .toEqual(['1. First numbered', '2. Another numbered']);
+      expect(plan.rawText).toContain('- Bullet item');
     });
 
     it('creates single step when notes have no list format', async () => {
@@ -519,7 +522,7 @@ describe('plan cleanup and resume', () => {
     planModeManager.enable();
 
     const recentDate = Date.now() - (1 * 24 * 60 * 60 * 1000);
-    const incompletePlanContent = `# Plan: incomplete-plan\n\nCreated: ${new Date(recentDate).toISOString()}\n\n## Steps\n\n- [ ] 1. Pending step`;
+    const incompletePlanContent = `# Plan: incomplete-plan\n\nCreated: ${new Date(recentDate).toISOString()}\n\n## Steps\n\n- [x] 1. Finished step\n- [ ] 2. Pending step`;
 
     mockFs.pathExists.mockResolvedValue(true);
     mockFs.readdir.mockResolvedValue(['incomplete-plan.md']);
@@ -548,7 +551,7 @@ describe('plan cleanup and resume', () => {
     planModeManager.enable();
 
     const recentDate = Date.now() - (1 * 24 * 60 * 60 * 1000);
-    const incompletePlanContent = `# Plan: incomplete-plan\n\nCreated: ${new Date(recentDate).toISOString()}\n\n## Steps\n\n- [ ] 1. Pending step`;
+    const incompletePlanContent = `# Plan: incomplete-plan\n\nCreated: ${new Date(recentDate).toISOString()}\n\n## Steps\n\n- [x] 1. Finished step\n- [ ] 2. Pending step`;
 
     mockFs.pathExists.mockResolvedValue(true);
     mockFs.readdir.mockResolvedValue(['incomplete-plan.md']);
