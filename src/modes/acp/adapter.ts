@@ -645,8 +645,13 @@ export class AutohandAcpAdapter implements Agent {
         version: packageJson.version,
       },
       authMethods: AUTOHAND_ACP_AUTH_METHODS,
-      ...(this.config.sessions?.communication?.enabled && this.clientCapabilities?._meta?.autohandPeerEvents === 1
-        ? { _meta: { peerCommunication: { version: 1 } } } : {}),
+      _meta: {
+        // Context a host prepends to a prompt (`<autohand_*>`, `<*_context>` blocks) is
+        // not read as the user asking for specialists; see userAuthoredInstruction.
+        hostContext: { version: 1 },
+        ...(this.config.sessions?.communication?.enabled && this.clientCapabilities?._meta?.autohandPeerEvents === 1
+          ? { peerCommunication: { version: 1 } } : {}),
+      },
     };
   }
 

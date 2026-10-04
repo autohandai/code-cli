@@ -343,6 +343,23 @@ describe("AutohandAcpAdapter", () => {
   });
 
   describe("initialize()", () => {
+    it("tells the client that host context blocks are not read as user intent", async () => {
+      // Clients gate context they prepend to a prompt (response modes, user profile)
+      // on this: an agent that does not advertise it would scan that text for
+      // specialist requests. Advertised to every client, with or without peer events.
+      const result = await adapter.initialize(makeInitRequest());
+      expect(result._meta).toMatchObject({ hostContext: { version: 1 } });
+
+      config.sessions = { communication: { enabled: true } };
+      const withPeers = await adapter.initialize(makeInitRequest({
+        clientCapabilities: { _meta: { autohandPeerEvents: 1 } },
+      }));
+      expect(withPeers._meta).toEqual({
+        hostContext: { version: 1 },
+        peerCommunication: { version: 1 },
+      });
+    });
+
     it("returns correct protocol version", async () => {
       const result = await adapter.initialize(makeInitRequest());
 

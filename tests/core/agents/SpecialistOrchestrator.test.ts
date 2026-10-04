@@ -85,6 +85,62 @@ describe('specialist intent detection', () => {
     expect(detectSpecialistRequest('Review the security module.')).toBeNull();
   });
 
+  it('ignores context a host application wrapped around the user message', () => {
+    // Desktop clients put their own context in front of what the user typed. That
+    // text is full of ordinary words ("use", "agent", "review", "test") and must
+    // never be read as the user asking for specialists.
+    const hostContext = [
+      '<autohand_response_modes>',
+      'Use short sentences. The agent keeps a glossary. Review every answer and run the tests.',
+      '</autohand_response_modes>',
+      '',
+      '<autohand_user_profile>',
+      'I lead the security team and need docs for every release.',
+      '</autohand_user_profile>',
+    ].join('\n');
+
+    expect(detectSpecialistRequest(`${hostContext}\n\nhi`)).toBeNull();
+    expect(detectSpecialistRequest(`${hostContext}\n\nwhat are the last 2 changes made here`)).toBeNull();
+    expect(detectSpecialistRequest([
+      '<thread_context>',
+      'Earlier the user asked to bring a team of ui and security agents.',
+      '</thread_context>',
+      '',
+      '<latest_user_message>',
+      'what changed since then?',
+      '</latest_user_message>',
+    ].join('\n'))).toBeNull();
+  });
+
+  it('still detects a request the user typed after host context, without the context in the objective', () => {
+    const request = detectSpecialistRequest([
+      '<autohand_response_modes>',
+      'Use short sentences. The agent keeps a glossary. Review every answer and run the tests.',
+      '</autohand_response_modes>',
+      '',
+      'Bring a team of ui and security agents to inspect this repo.',
+    ].join('\n'));
+
+    expect(request).toEqual({
+      objective: 'Bring a team of ui and security agents to inspect this repo.',
+      requestedRoles: ['ui', 'security'],
+      source: 'intent',
+      executionMode: 'parallel',
+    });
+    expect(detectSpecialistRequest([
+      '<thread_context>',
+      'Earlier work touched the docs and the tests.',
+      '</thread_context>',
+      '',
+      '<latest_user_message>',
+      'Bring a security agent to inspect this repo.',
+      '</latest_user_message>',
+    ].join('\n'))).toMatchObject({
+      objective: 'Bring a security agent to inspect this repo.',
+      requestedRoles: ['security'],
+    });
+  });
+
   it('serializes objectives that explicitly request workspace mutation', () => {
     expect(detectSpecialistRequest('Bring UI and security agents to implement this change.')?.executionMode)
       .toBe('serial');
@@ -250,6 +306,78 @@ describe('SpecialistOrchestrator resolution', () => {
     expect(registry.loadAgents).toHaveBeenCalledTimes(2);
   });
 
+  it('uses specialists already installed from the catalog without installing them again', async () => {
+    // The registry reports catalog-managed files under ~/.autohand/agents with the
+    // "catalog" source. They are installed: nothing is staged and nothing is fetched.
+    const fetchRegistry = vi.fn().mockResolvedValue(catalogRegistry);
+    const install = vi.fn().mockResolvedValue('Sub-agent reviewer already exists at /agents/reviewer.md. Use overwrite=true to replace it.');
+    const delegate = delegator();
+    const orchestrator = new SpecialistOrchestrator(delegate, {
+      registry: registryWith([
+        agent('reviewer', 'catalog'),
+        agent('ui-ux-tester', 'catalog', 'UI and UX tester for release checks'),
+      ]),
+      catalog: { fetchRegistry, install },
+    });
+    const plan = await orchestrator.resolve(createSpecialistRequest('Inspect this repo.', ['testing', 'review']));
+
+    expect(plan.selectedAgents).toEqual([
+      expect.objectContaining({ requestedRole: 'testing', agentName: 'ui-ux-tester', source: 'catalog' }),
+      expect.objectContaining({ requestedRole: 'review', agentName: 'reviewer', source: 'catalog' }),
+    ]);
+    expect(orchestrator.stageCatalogInstallation(plan)).toBeUndefined();
+    expect(await orchestrator.installCatalogSelections(plan)).toEqual({ installedAgents: [], failedAgents: [] });
+    expect(fetchRegistry).not.toHaveBeenCalled();
+    expect(install).not.toHaveBeenCalled();
+
+    const result = await orchestrator.execute(plan);
+    expect(result.completed).toBe(true);
+    expect(plan.unresolvedRoles).toEqual([]);
+    expect(delegate.delegateParallelForTool).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({ agent_name: 'ui-ux-tester' }),
+        expect.objectContaining({ agent_name: 'reviewer' }),
+      ],
+      {},
+    );
+  });
+
+  it('stages only the specialists that still have to come from the catalog', async () => {
+    const install = vi.fn().mockImplementation(async (name: string) => `Installed sub-agent ${name}.`);
+    const orchestrator = new SpecialistOrchestrator(delegator(), {
+      registry: registryWith([agent('reviewer', 'catalog')]),
+      catalog: { fetchRegistry: vi.fn().mockResolvedValue(catalogRegistry), install },
+    });
+    const plan = await orchestrator.resolve(createSpecialistRequest('Inspect this repo.', ['review', 'ui']));
+
+    const staged = orchestrator.stageCatalogInstallation(plan);
+    expect(staged?.agentNames).toEqual(['ui-designer']);
+
+    const result = await orchestrator.installStagedCatalogSelections(staged!.planId, staged!.agentNames);
+    expect(result).toEqual({ installedAgents: ['ui-designer'], failedAgents: [] });
+    expect(install).toHaveBeenCalledTimes(1);
+    // Once installed there is nothing left to stage for the same plan.
+    expect(orchestrator.stageCatalogInstallation(plan)).toBeUndefined();
+  });
+
+  it('keeps installed catalog specialists when a staged installation is declined', async () => {
+    const orchestrator = new SpecialistOrchestrator(delegator(), {
+      registry: registryWith([agent('reviewer', 'catalog')]),
+      catalog: { fetchRegistry: vi.fn().mockResolvedValue(catalogRegistry), install: vi.fn() },
+    });
+    const plan = await orchestrator.resolve(createSpecialistRequest('Inspect this repo.', ['review', 'ui']));
+    const staged = orchestrator.stageCatalogInstallation(plan)!;
+
+    orchestrator.declineStagedCatalogInstallation(staged.planId);
+
+    expect(plan.selectedAgents).toEqual([
+      expect.objectContaining({ requestedRole: 'review', agentName: 'reviewer' }),
+    ]);
+    expect(plan.unresolvedRoles).toEqual(['ui']);
+    expect(plan.resolutionNotice).toContain('ui-designer');
+    expect(plan.resolutionNotice).not.toContain('reviewer');
+  });
+
   it('keeps valid local specialists and reports each denied catalog selection once', async () => {
     const orchestrator = new SpecialistOrchestrator(delegator(), {
       registry: registryWith([agent('security-auditor', 'builtin')]),
@@ -292,6 +420,41 @@ describe('SpecialistOrchestrator resolution', () => {
     ]);
     expect(plan.unresolvedRoles).toEqual(['ui']);
     expect(plan.resolutionNotice?.match(/not approved/g)).toHaveLength(1);
+  });
+});
+
+describe('SpecialistOrchestrator turn results', () => {
+  const orchestrator = () => new SpecialistOrchestrator(delegator(), { registry: registryWith([]), offline: true });
+
+  it('hands back the results of a roster that already ran for the turn', () => {
+    const specialists = orchestrator();
+    specialists.beginTurn();
+    specialists.rememberTurnResult(['review', 'testing'], 'results');
+
+    // The lead model tends to ask for the same roster again once it reads the request.
+    expect(specialists.turnResultFor(['review', 'testing'])).toBe('results');
+    expect(specialists.turnResultFor(['testing'])).toBe('results');
+  });
+
+  it('does not reuse results for roles that have not run', () => {
+    const specialists = orchestrator();
+    specialists.beginTurn();
+    specialists.rememberTurnResult(['review'], 'results');
+
+    expect(specialists.turnResultFor(['review', 'security'])).toBeUndefined();
+    expect(specialists.turnResultFor([])).toBeUndefined();
+  });
+
+  it('forgets the results when the next turn or a fresh session begins', () => {
+    const specialists = orchestrator();
+    specialists.beginTurn();
+    specialists.rememberTurnResult(['review'], 'results');
+    specialists.beginTurn();
+    expect(specialists.turnResultFor(['review'])).toBeUndefined();
+
+    specialists.rememberTurnResult(['review'], 'results');
+    specialists.clearSessionContext();
+    expect(specialists.turnResultFor(['review'])).toBeUndefined();
   });
 });
 

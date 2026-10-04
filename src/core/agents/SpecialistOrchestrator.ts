@@ -111,6 +111,25 @@ const MUTATING_OBJECTIVE = /\b(implement|fix|change|modify|edit|write|create|del
 const EXPLICIT_ORCHESTRATION = /\b(bring|assemble|form|create|use|run|ask|have|need|spin\s+up)\b/i;
 const ORCHESTRATION_NOUN = /\b(teams?|specialists?|agents?)\b/i;
 
+const LATEST_USER_MESSAGE = /<latest_user_message>\s*([\s\S]*?)\s*<\/latest_user_message>/i;
+const HOST_CONTEXT_BLOCK = /<((?:autohand_[a-z0-9_]+)|(?:[a-z0-9_]+_context))>[\s\S]*?<\/\1>/gi;
+
+/**
+ * The part of an instruction the user actually typed.
+ *
+ * Host applications (Autohand Desktop) send their own context in the same text:
+ * a thread recap, a persistent goal, response-mode rules, a user profile. Those
+ * blocks are prose full of ordinary words, so intent detection must not read
+ * them as a request. A host that marks the message does so with
+ * `<latest_user_message>`; otherwise its blocks are tagged `<autohand_*>` or
+ * `<*_context>` and everything outside them is the user's.
+ */
+export function userAuthoredInstruction(instruction: string): string {
+  const marked = LATEST_USER_MESSAGE.exec(instruction);
+  if (marked) return marked[1].trim();
+  return instruction.replace(HOST_CONTEXT_BLOCK, '').trim();
+}
+
 function aliasMatchIndex(input: string, alias: string): number {
   const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
   const match = new RegExp(`(?:^|[^a-z0-9])${escaped}(?:$|[^a-z0-9])`, 'i').exec(input);
@@ -144,18 +163,19 @@ export function detectSpecialistRequest(
   instruction: string,
   source: SpecialistRequestSource = 'intent',
 ): SpecialistRequest | null {
-  if (!EXPLICIT_ORCHESTRATION.test(instruction) || !ORCHESTRATION_NOUN.test(instruction)) {
+  const authored = userAuthoredInstruction(instruction);
+  if (!EXPLICIT_ORCHESTRATION.test(authored) || !ORCHESTRATION_NOUN.test(authored)) {
     return null;
   }
 
-  const requestedRoles = extractRequestedRoles(instruction);
+  const requestedRoles = extractRequestedRoles(authored);
   if (requestedRoles.length === 0) return null;
 
   return {
-    objective: instruction.trim(),
+    objective: authored,
     requestedRoles,
     source,
-    executionMode: executionModeFor(instruction, requestedRoles),
+    executionMode: executionModeFor(authored, requestedRoles),
   };
 }
 
@@ -254,8 +274,16 @@ export class SpecialistOrchestrator {
   private readonly catalog: SpecialistCatalogAdapter;
   private readonly getAllowedTools?: () => ReadonlySet<string>;
   private readonly catalogSnapshots = new WeakMap<SpecialistPlan, CatalogRegistry>();
+  /**
+   * Catalog agents a plan selected that are not on disk yet. The `catalog` source
+   * alone cannot say this: the registry also reports it for agents that were
+   * installed from the catalog earlier, and those must never be installed again.
+   */
+  private readonly pendingCatalogInstalls = new WeakMap<SpecialistPlan, Set<string>>();
   private readonly stagedInstallations = new Map<string, SpecialistPlan>();
   private activeInterview?: ActiveSpecialistInterview;
+  /** The roster that already ran for the current turn, and what it reported. */
+  private turnResult?: { roles: ReadonlySet<string>; results: string };
 
   constructor(
     private readonly delegator: AgentDelegator,
@@ -336,6 +364,8 @@ export class SpecialistOrchestrator {
       try {
         const catalogRegistry = await this.catalog.fetchRegistry();
         this.catalogSnapshots.set(plan, catalogRegistry);
+        const pendingInstalls = new Set<string>();
+        this.pendingCatalogInstalls.set(plan, pendingInstalls);
         for (const index of locallyUnresolvedIndexes) {
           const requestedRole = request.requestedRoles[index];
           const role = definitionForRole(requestedRole);
@@ -350,6 +380,7 @@ export class SpecialistOrchestrator {
           ).find((agent) => !usedAgents.has(agent.name));
           if (!match) continue;
           usedAgents.add(match.name);
+          pendingInstalls.add(match.name);
           selections[index] = {
             requestedRole,
             agentName: match.name,
@@ -372,8 +403,15 @@ export class SpecialistOrchestrator {
     return plan;
   }
 
+  /** Selections that still have to be installed from the catalog before they can run. */
+  private pendingCatalogSelections(plan: SpecialistPlan): SelectedSpecialist[] {
+    const pendingInstalls = this.pendingCatalogInstalls.get(plan);
+    if (!pendingInstalls || pendingInstalls.size === 0) return [];
+    return plan.selectedAgents.filter((selected) => pendingInstalls.has(selected.agentName));
+  }
+
   async installCatalogSelections(plan: SpecialistPlan): Promise<SpecialistInstallationResult> {
-    const pending = plan.selectedAgents.filter((selected) => selected.source === 'catalog');
+    const pending = this.pendingCatalogSelections(plan);
     if (pending.length === 0) {
       return { installedAgents: [], failedAgents: [] };
     }
@@ -402,6 +440,7 @@ export class SpecialistOrchestrator {
             throw new Error(output);
           }
           installedAgents.push(selected.agentName);
+          this.pendingCatalogInstalls.get(plan)?.delete(selected.agentName);
         } catch (error) {
           failedAgents.push(selected.agentName);
           failedRoles.add(selected.requestedRole);
@@ -430,9 +469,7 @@ export class SpecialistOrchestrator {
   }
 
   stageCatalogInstallation(plan: SpecialistPlan): StagedSpecialistInstallation | undefined {
-    const agentNames = plan.selectedAgents
-      .filter((selected) => selected.source === 'catalog')
-      .map((selected) => selected.agentName);
+    const agentNames = this.pendingCatalogSelections(plan).map((selected) => selected.agentName);
     if (agentNames.length === 0) return undefined;
 
     const planId = randomUUID();
@@ -447,9 +484,7 @@ export class SpecialistOrchestrator {
     const plan = this.stagedInstallations.get(planId);
     if (!plan) throw new Error('Specialist installation plan is missing or was already consumed.');
 
-    const expectedNames = plan.selectedAgents
-      .filter((selected) => selected.source === 'catalog')
-      .map((selected) => selected.agentName);
+    const expectedNames = this.pendingCatalogSelections(plan).map((selected) => selected.agentName);
     if (
       expectedNames.length !== agentNames.length
       || expectedNames.some((name, index) => name !== agentNames[index])
@@ -466,8 +501,9 @@ export class SpecialistOrchestrator {
     if (!plan) return;
     this.stagedInstallations.delete(planId);
 
-    const declined = plan.selectedAgents.filter((selected) => selected.source === 'catalog');
-    plan.selectedAgents = plan.selectedAgents.filter((selected) => selected.source !== 'catalog');
+    const declined = this.pendingCatalogSelections(plan);
+    plan.selectedAgents = plan.selectedAgents.filter((selected) => !declined.includes(selected));
+    this.pendingCatalogInstalls.delete(plan);
     for (const selected of declined) {
       if (!plan.unresolvedRoles.includes(selected.requestedRole)) {
         plan.unresolvedRoles.push(selected.requestedRole);
@@ -486,6 +522,28 @@ export class SpecialistOrchestrator {
   clearSessionContext(): void {
     this.activeInterview = undefined;
     this.stagedInstallations.clear();
+    this.turnResult = undefined;
+  }
+
+  /** Starts a new lead turn: results remembered for the previous one no longer apply. */
+  beginTurn(): void {
+    this.turnResult = undefined;
+  }
+
+  /** Records what a roster that completed during this turn reported to the lead. */
+  rememberTurnResult(roles: readonly string[], results: string): void {
+    this.turnResult = { roles: new Set(roles), results };
+  }
+
+  /**
+   * Results to reuse when every requested role already ran this turn. The lead
+   * often asks for the roster named in the user's message a second time; running
+   * it again would repeat minutes of specialist work for the same answer.
+   */
+  turnResultFor(roles: readonly string[]): string | undefined {
+    const ran = this.turnResult;
+    if (!ran || roles.length === 0) return undefined;
+    return roles.every((role) => ran.roles.has(role)) ? ran.results : undefined;
   }
 
   async continueInterview(answer: string, options: DelegationExecutionOptions = {}): Promise<SpecialistExecutionResult | null> {

@@ -1456,13 +1456,19 @@ export class AutohandAgent {
       return undefined;
     }
 
+    this.specialistOrchestrator.beginTurn();
     const request = detectSpecialistRequest(instruction);
     if (!request) {
       const continuation = await this.specialistOrchestrator.continueInterview(instruction, { signal: this.activeAbortController?.signal });
       return continuation ? formatSpecialistResults(continuation) : undefined;
     }
 
-    return this.runSpecialistOrchestration(request);
+    const { results, completed } = await this.runSpecialistOrchestration(request);
+    // Only a roster that fully ran is worth reusing; a partial one may be retried.
+    if (completed) {
+      this.specialistOrchestrator.rememberTurnResult(request.requestedRoles, results);
+    }
+    return results;
   }
 
   private async orchestrateSpecialistsFromTool(
@@ -1470,16 +1476,18 @@ export class AutohandAgent {
     requestedRoles: string[],
     signal?: AbortSignal,
   ): Promise<string> {
-    return this.runSpecialistOrchestration(
-      createSpecialistRequest(objective, requestedRoles, 'tool'),
-      signal,
-    );
+    const request = createSpecialistRequest(objective, requestedRoles, 'tool');
+    const alreadyRun = this.specialistOrchestrator.turnResultFor(request.requestedRoles);
+    if (alreadyRun) {
+      return `These specialists already ran for this turn. Use their results below instead of running them again.\n${alreadyRun}`;
+    }
+    return (await this.runSpecialistOrchestration(request, signal)).results;
   }
 
   private async runSpecialistOrchestration(
     request: SpecialistRequest,
     signal = this.activeAbortController?.signal,
-  ): Promise<string> {
+  ): Promise<{ results: string; completed: boolean }> {
     signal?.throwIfAborted();
     const plan = await this.specialistOrchestrator.resolve(request);
     signal?.throwIfAborted();
@@ -1499,11 +1507,17 @@ export class AutohandAgent {
       signal?.throwIfAborted();
     }
     if (plan.selectedAgents.length === 0) {
-      return formatSpecialistResults({ plan, batches: [], completed: false });
+      return {
+        results: formatSpecialistResults({ plan, batches: [], completed: false }),
+        completed: false,
+      };
     }
 
     const result = await this.specialistOrchestrator.execute(plan, { signal });
-    return formatSpecialistResults(result);
+    return {
+      results: formatSpecialistResults(result),
+      completed: result.completed && plan.unresolvedRoles.length === 0,
+    };
   }
 
   private async buildSystemPrompt(): Promise<string> {
