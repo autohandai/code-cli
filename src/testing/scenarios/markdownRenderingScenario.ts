@@ -1,5 +1,29 @@
 import type { Session } from 'tuistory';
 
+export function markdownRenderingSample(marker = 'RENDERED_HEADING'): string {
+  return [
+    `### ${marker}`,
+    '- first `inline_code` item',
+    '- second item',
+    '',
+    '| Area | Status |',
+    '| --- | --- |',
+    '| hooks | done |',
+    '',
+    '[Documentation][docs]',
+    '',
+    '![Architecture](https://example.test/architecture.png)',
+    '',
+    '```ts',
+    'const ready = true;',
+    '```',
+    '',
+    '> A readable quote.',
+    '',
+    '[docs]: https://example.test/docs',
+  ].join('\n');
+}
+
 /** Submit a prompt in the composer and wait until the expected text renders. */
 export async function submitPromptAndWait(session: Session, prompt: string, expected: string | RegExp): Promise<void> {
   await session.type(prompt);

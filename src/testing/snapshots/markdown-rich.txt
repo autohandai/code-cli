@@ -1,0 +1,17 @@
+RENDERED_HEADING
+
+• first `inline_code` item
+• second item
+
+Area  │ Status
+──────┼───────
+hooks │ done
+
+Documentation (https://example.test/docs)
+
+Image: Architecture (https://example.test/architecture.png)
+
+ts
+│ const ready = true;
+
+│ A readable quote.

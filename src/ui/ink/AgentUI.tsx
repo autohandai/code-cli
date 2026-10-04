@@ -2908,7 +2908,7 @@ const DynamicContent = memo(function DynamicContent({
       <ThinkingOutput thought={thinking} />
 
       {isWorking && streamingResponse && (
-        <Box marginTop={1}><Text wrap="truncate-end">{streamingResponse}</Text></Box>
+        <Box marginTop={1}><MarkdownDiffContent content={streamingResponse} markdown /></Box>
       )}
 
       {/* Final response (when not working) */}

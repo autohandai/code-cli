@@ -6,7 +6,7 @@
 import fs from 'fs-extra';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
-import { setMarkdownRendering, submitPromptAndWait } from '../../src/testing/scenarios/markdownRenderingScenario.js';
+import { markdownRenderingSample, setMarkdownRendering, submitPromptAndWait } from '../../src/testing/scenarios/markdownRenderingScenario.js';
 import {
   createMockAuthServer,
   createMockAutohandAINativeSequenceServer,
@@ -28,21 +28,11 @@ afterEach(async () => {
   await Promise.all(states.splice(0).map(state => state.cleanup()));
 });
 
-const response = (marker: string) => [
-  `### ${marker}`,
-  '- first `inline_code` item',
-  '- second item',
-  '',
-  '| Area | Status |',
-  '| --- | --- |',
-  '| hooks | done |',
-].join('\n');
-
 describe('markdown rendering in the built CLI', () => {
-  it('renders assistant markdown by default and shows it as written after /settings turns rendering off', async () => {
+  it.each([60, 120])('renders rich markdown at %i columns and preserves the raw setting', async (columns) => {
     const server = await createMockAutohandAINativeSequenceServer([
-      { content: response('RENDERED_HEADING') },
-      { content: response('RAW_HEADING') },
+      { content: markdownRenderingSample('RENDERED_HEADING') },
+      { content: markdownRenderingSample('RAW_HEADING') },
     ]);
     servers.push(server);
     const authServer = await createMockAuthServer();
@@ -57,7 +47,7 @@ describe('markdown rendering in the built CLI', () => {
     states.push(state);
 
     const session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '--yes'], {
-      autohandHome: state.autohandHome, cwd: state.workspaceRoot, cols: 120, rows: 40,
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, cols: columns, rows: 50,
       env: { AUTOHAND_AUTH_API_URL: `${authServer.baseUrl}/api/auth` },
     });
     sessions.push(session);
@@ -69,6 +59,13 @@ describe('markdown rendering in the built CLI', () => {
     expect(screen).toMatch(/•\s+first `inline_code` item/);
     expect(screen).toMatch(/Area\s+│\s+Status/);
     expect(screen).not.toContain('| --- | --- |');
+    expect(screen).toContain('Image: Architecture');
+    expect(screen).toContain('https://example.test/docs');
+    expect(screen).not.toContain('[docs]:');
+    const snapshot = await fs.readFile(new URL('../../src/testing/snapshots/markdown-rich.txt', import.meta.url), 'utf8');
+    for (const block of snapshot.trimEnd().split('\n\n')) {
+      expect(screen).toContain(block);
+    }
 
     await setMarkdownRendering(session, false);
     await submitPromptAndWait(session, 'show them as written', 'RAW_HEADING');

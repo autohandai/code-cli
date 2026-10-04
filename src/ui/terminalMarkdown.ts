@@ -12,11 +12,16 @@
  * @license Apache-2.0
  */
 import chalk, { Chalk, type ChalkInstance } from 'chalk';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { stripVTControlCharacters } from 'node:util';
 import type { List, ListItem, Nodes, PhrasingContent, Root, RootContent, Table } from 'mdast';
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import stringWidth from 'string-width';
+import terminalLink from 'terminal-link';
 import { unified } from 'unified';
+import wrapAnsi from 'wrap-ansi';
 import { renderTerminalMarkdown } from '../core/immediateCommandRouter.js';
 import { highlight } from './syntaxHighlight.js';
 import { getTheme, isThemeInitialized } from './theme/index.js';
@@ -25,8 +30,10 @@ import type { ColorToken } from './theme/types.js';
 export interface TerminalMarkdownOptions {
   /** Apply ANSI styling. Defaults to the terminal's color support. */
   color?: boolean;
-  /** Terminal width used for horizontal rules. Defaults to the current terminal. */
+  /** Available columns for prose, lists, code and tables. */
   width?: number;
+  /** Disable terminal hyperlinks while retaining visible destinations. */
+  hyperlinks?: boolean;
 }
 
 type MarkdownToken = Extract<ColorToken,
@@ -85,6 +92,49 @@ interface RenderContext {
   source: string;
   styles: Styles;
   width: number;
+  hyperlinks: boolean;
+  definitions: Map<string, string>;
+  insideLink?: boolean;
+}
+
+function wrap(text: string, width: number, trim = true): string[] {
+  return wrapAnsi(text, Math.max(1, width), { hard: true, trim }).split('\n');
+}
+
+function linkTarget(destination: string): string | undefined {
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(destination)) return undefined;
+  if (path.isAbsolute(destination)) return pathToFileURL(destination).href;
+  if (/^[a-z][a-z\d+.-]*:/i.test(destination)) {
+    try {
+      const url = new URL(destination);
+      return ['https:', 'http:', 'mailto:', 'file:'].includes(url.protocol) ? destination : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return destination.startsWith('#') ? undefined : pathToFileURL(path.resolve(destination)).href;
+}
+
+function collectDefinitions(node: Nodes, definitions = new Map<string, string>()): Map<string, string> {
+  if (node.type === 'definition' && !definitions.has(node.identifier.toLowerCase())) {
+    definitions.set(node.identifier.toLowerCase(), node.url);
+  }
+  if ('children' in node) {
+    for (const child of node.children) collectDefinitions(child, definitions);
+  }
+  return definitions;
+}
+
+function renderLink(label: string, destination: string, ctx: RenderContext): string {
+  if (ctx.insideLink) return label;
+  const text = ctx.styles.underline(ctx.styles.token('mdLink', label));
+  const target = linkTarget(destination);
+  if (ctx.hyperlinks && target) {
+    return terminalLink(text, target, { fallback: () => `${text} (${destination})` });
+  }
+  return label === destination || label === destination.replace(/^mailto:/, '')
+    ? text
+    : `${text} ${ctx.styles.token('mdLinkUrl', `(${destination})`)}`;
 }
 
 function sourceOf(node: Nodes, ctx: RenderContext): string {
@@ -101,7 +151,7 @@ function renderInlineNode(node: PhrasingContent, ctx: RenderContext): string {
   const { styles } = ctx;
   switch (node.type) {
     case 'text':
-      return node.value;
+      return node.value.replace(/\n/g, ' ');
     case 'strong':
       return styles.bold(renderInline(node.children, ctx));
     case 'emphasis':
@@ -116,17 +166,20 @@ function renderInlineNode(node: PhrasingContent, ctx: RenderContext): string {
     case 'break':
       return '\n';
     case 'link': {
-      const label = renderInline(node.children, ctx);
-      const text = styles.underline(styles.token('mdLink', label));
-      if (label === node.url || label === node.url.replace(/^mailto:/, '')) {
-        return text;
-      }
-      return `${text} ${styles.token('mdLinkUrl', `(${node.url})`)}`;
+      const label = renderInline(node.children, { ...ctx, insideLink: true });
+      return renderLink(label, node.url, ctx);
     }
     case 'image':
-      return `${node.alt || 'image'} ${styles.token('mdLinkUrl', `(${node.url})`)}`;
-    case 'linkReference':
-      return renderInline(node.children, ctx);
+      return renderLink(`Image: ${node.alt || node.url.split('/').at(-1) || 'image'}`, node.url, ctx);
+    case 'linkReference': {
+      const destination = ctx.definitions.get(node.identifier.toLowerCase());
+      const label = renderInline(node.children, { ...ctx, insideLink: true });
+      return destination ? renderLink(label, destination, ctx) : label;
+    }
+    case 'imageReference': {
+      const destination = ctx.definitions.get(node.identifier.toLowerCase());
+      return destination ? renderLink(`Image: ${node.alt || 'image'}`, destination, ctx) : sourceOf(node, ctx);
+    }
     case 'footnoteReference':
       return `[^${node.label ?? node.identifier}]`;
     case 'html':
@@ -154,24 +207,24 @@ function renderBlock(node: RootContent, ctx: RenderContext): string[] {
   const { styles } = ctx;
   switch (node.type) {
     case 'paragraph':
-      return renderInline(node.children, ctx).split('\n');
+      return wrap(renderInline(node.children, ctx), ctx.width);
     case 'heading':
-      return renderInline(node.children, ctx)
-        .split('\n')
+      return wrap(renderInline(node.children, ctx), ctx.width)
         .map((line) => styles.bold(styles.token('mdHeading', line)));
     case 'thematicBreak':
-      return [styles.token('mdHr', '─'.repeat(Math.max(3, Math.min(ctx.width, MAX_RULE_WIDTH))))];
+      return [styles.token('mdHr', '─'.repeat(Math.min(ctx.width, MAX_RULE_WIDTH)))];
     case 'blockquote': {
       const border = styles.token('mdQuoteBorder', '│');
-      return renderBlocks(node.children, ctx).map((line) => (line ? `${border} ${styles.token('mdQuote', line)}` : border));
+      return renderBlocks(node.children, { ...ctx, width: Math.max(1, ctx.width - 2) }).map((line) => (line ? `${border} ${styles.token('mdQuote', line)}` : border));
     }
     case 'code': {
       const lines: string[] = [];
       if (node.lang) {
-        lines.push(`  ${styles.token('mdCodeBlockBorder', node.lang)}`);
+        lines.push(...wrap(styles.token('mdCodeBlockBorder', node.lang), ctx.width));
       }
       const code = styles.color && node.lang ? highlight(node.value, node.lang) : node.value;
-      lines.push(...code.split('\n').map((line) => `  ${line}`));
+      const border = styles.token('mdCodeBlockBorder', '│');
+      lines.push(...wrap(code, ctx.width - 2, false).map((line) => `${border} ${line}`));
       return lines;
     }
     case 'list':
@@ -179,7 +232,9 @@ function renderBlock(node: RootContent, ctx: RenderContext): string[] {
     case 'table':
       return renderTable(node, ctx);
     case 'html':
-      return node.value.split('\n');
+      return wrap(node.value, ctx.width);
+    case 'definition':
+      return [];
     default:
       return sourceOf(node, ctx).split('\n');
   }
@@ -204,7 +259,7 @@ function renderList(list: List, depth: number, ctx: RenderContext): string[] {
 
     const styledMarker = list.ordered && item.checked == null ? marker : ctx.styles.token('mdListBullet', marker);
     const continuation = ' '.repeat(stringWidth(marker) + 1);
-    const itemLines = renderListItem(item, depth, ctx);
+    const itemLines = renderListItem(item, depth, { ...ctx, width: Math.max(1, ctx.width - stringWidth(continuation)) });
     if (itemLines.length === 0) {
       lines.push(styledMarker);
     }
@@ -233,32 +288,55 @@ function renderTable(table: Table, ctx: RenderContext): string[] {
   const { styles } = ctx;
   const rows = table.children.map((row) => row.children.map((cell) => renderInline(cell.children, ctx)));
   const columns = Math.max(0, ...rows.map((row) => row.length));
-  const widths = Array.from({ length: columns }, (_, column) =>
+  const naturalWidths = Array.from({ length: columns }, (_, column) =>
     Math.max(0, ...rows.map((row) => stringWidth(row[column] ?? ''))));
+  const available = ctx.width - (columns - 1) * 3;
+  if (available < columns * 3) {
+    return joinBlocks(rows.slice(1).map((row) => row.flatMap((cell, column) =>
+      wrap(`${rows[0]?.[column] || column + 1}: ${cell}`, ctx.width))), true);
+  }
+  const share = Math.floor(available / columns);
+  const widths = naturalWidths.map(width => Math.min(width, share));
+  let remaining = available - widths.reduce((sum, width) => sum + width, 0);
+  while (remaining > 0) {
+    const column = widths.findIndex((width, index) => width < naturalWidths[index]);
+    if (column < 0) break;
+    widths[column]++;
+    remaining--;
+  }
   const align = table.align ?? [];
   const divider = styles.token('mdHr', '│');
 
-  const lines = rows.map((row, rowIndex) => Array.from({ length: columns }, (_, column) => {
-    const cell = padCell(row[column] ?? '', widths[column], align[column]);
-    return rowIndex === 0 ? styles.bold(cell) : cell;
-  }).join(` ${divider} `).trimEnd());
-
-  if (lines.length > 0) {
-    const rule = styles.token('mdHr', widths.map((width) => '─'.repeat(width)).join('─┼─'));
-    lines.splice(1, 0, rule);
-  }
+  const lines: string[] = [];
+  rows.forEach((row, rowIndex) => {
+    const cells = widths.map((width, column) => wrap(row[column] ?? '', width));
+    const height = Math.max(...cells.map(cell => cell.length));
+    for (let line = 0; line < height; line++) {
+      lines.push(cells.map((cell, column) => {
+        const padded = padCell(cell[line] ?? '', widths[column], align[column]);
+        return rowIndex === 0 ? styles.bold(padded) : padded;
+      }).join(` ${divider} `).trimEnd());
+    }
+    if (rowIndex === 0) {
+      lines.push(styles.token('mdHr', widths.map(width => '─'.repeat(width)).join('─┼─')));
+    }
+  });
   return lines;
 }
 
 /** Render markdown as styled terminal text. */
 export function renderMarkdownForTerminal(markdown: string, options: TerminalMarkdownOptions = {}): string {
   if (!markdown) return markdown;
+  const source = stripVTControlCharacters(markdown).replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '');
+  const tree = unified().use(remarkParse).use(remarkGfm).parse(source) as Root;
+  const requestedWidth = options.width ?? process.stdout.columns ?? 80;
   const ctx: RenderContext = {
-    source: markdown,
+    source,
     styles: createStyles(options.color ?? chalk.level > 0),
-    width: options.width ?? process.stdout.columns ?? 80,
+    width: Number.isFinite(requestedWidth) ? Math.max(1, Math.floor(requestedWidth)) : 80,
+    hyperlinks: options.hyperlinks !== false && terminalLink.isSupported,
+    definitions: collectDefinitions(tree),
   };
-  const tree = unified().use(remarkParse).use(remarkGfm).parse(markdown) as Root;
   const lines = renderBlocks(tree.children, ctx);
   while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
     lines.pop();

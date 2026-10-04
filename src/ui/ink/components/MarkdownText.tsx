@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import React from 'react';
-import { Text } from 'ink';
+import { Box, Text, useWindowSize } from 'ink';
 import { formatAssistantMarkdown } from '../../terminalMarkdown.js';
 
 /**
@@ -12,5 +12,7 @@ import { formatAssistantMarkdown } from '../../terminalMarkdown.js';
  * `ui.renderMarkdown` is off. The preference is read on every render.
  */
 export function MarkdownText({ content }: { content: string }): React.ReactElement {
-  return <Text>{formatAssistantMarkdown(content)}</Text>;
+  const { columns } = useWindowSize();
+  const width = Math.max(1, Math.min(columns, 100));
+  return <Box width="100%" maxWidth={width}><Text>{formatAssistantMarkdown(content, { width })}</Text></Box>;
 }
