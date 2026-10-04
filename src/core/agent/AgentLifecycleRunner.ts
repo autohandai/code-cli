@@ -32,6 +32,8 @@ import { renderTerminalMarkdown } from '../immediateCommandRouter.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { isShellCommand, parseShellCommand } from '../../ui/shellCommand.js';
 import { plan as planCommand } from '../../commands/plan.js';
+import type { SlashCommandContext } from '../slashCommandTypes.js';
+import type { InteractionMode } from './InteractionModeController.js';
 import { runWithConcurrency } from '../../utils/parallel.js';
 import { buildSessionChatLog } from '../../session/chatLog.js';
 import { formatExitCleanup, formatForceExit } from '../../ui/theme/startup.js';
@@ -1819,7 +1821,15 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
               let handled: string | null = null;
               if (command === '/plan' && host.inkRenderer?.isRunning()) {
                 const logBuffer: string[] = [];
-                handled = await planCommand({} as any, args.join(' '), {
+                // The mode controller owns plan/auto/yolo exclusivity; without it
+                // /plan would enable planning while the session stays in auto mode.
+                const planContext = typeof host.setInteractionMode === 'function'
+                  ? {
+                    getInteractionMode: () => host.getInteractionMode(),
+                    setInteractionMode: (mode: InteractionMode) => host.setInteractionMode(mode),
+                  }
+                  : {};
+                handled = await planCommand(planContext as SlashCommandContext, args.join(' '), {
                   output: (msg: string) => logBuffer.push(msg),
                 });
                 if (logBuffer.length > 0) {
