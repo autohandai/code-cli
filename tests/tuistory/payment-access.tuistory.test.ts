@@ -25,7 +25,7 @@ describe('Stripe suspension in an open CLI', () => {
       autohandai: { plan: 'cloud', authMode: 'account', accountToken: 'tuistory-account-token', model: 'moa', baseUrl: server.baseUrl, reasoningEffort: 'high' },
       agent: { autoMemory: false }, ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
     } });
-    session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '--y'], { autohandHome: state.autohandHome, cwd: state.workspaceRoot, env: { AUTOHAND_AUTH_API_URL: `${auth.baseUrl}/api/auth` } });
+    session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '--y'], { autohandHome: state.autohandHome, cwd: state.workspaceRoot, env: { AUTOHAND_AUTH_API_URL: `${auth.baseUrl}/api/auth` }, waitForDataTimeout: 15_000 });
     await sendPaymentTransitionTurn(session, 'Say the paid marker', 'PAID_TURN_DONE');
     blocked = true;
     await sendPaymentTransitionTurn(session, 'Continue on the available plan', 'FREE_TURN_DONE');
