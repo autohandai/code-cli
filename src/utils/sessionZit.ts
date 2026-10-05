@@ -5,9 +5,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
-import { PROJECT_DIR_NAME } from '../constants.js';
 
 export type SessionZitOption = boolean | string | undefined;
 
@@ -39,14 +37,6 @@ export interface SessionZitRecordResult {
 const DEFAULT_INTENT = 'Autohand session';
 const ZIT_AGENT_NAME = 'autohand';
 const MAX_SUMMARY_LENGTH = 8000;
-
-/** Per-session state Autohand writes into the workspace; never part of the change. */
-const AUTOHAND_RUNTIME_STATE = [
-  `/${PROJECT_DIR_NAME}/memory/`,
-  `/${PROJECT_DIR_NAME}/goals.local.json`,
-  `/${PROJECT_DIR_NAME}/settings.local.json`,
-  `/${PROJECT_DIR_NAME}/session-permissions.json`,
-];
 
 interface CommandResult {
   stdout: string;
@@ -100,20 +90,6 @@ function ensureZitBin(zitBin: string, cwd: string): void {
 function hasZitGraph(repoRoot: string): boolean {
   const result = run('git', repoRoot, ['rev-parse', '--verify', '--quiet', 'refs/zit/current']);
   return result.status === 0;
-}
-
-/**
- * Zit reads a workspace's ignore patterns from `zit-ignore` in its git dir;
- * add Autohand's runtime state there so it is not recorded as the agent's work.
- */
-function ignoreAutohandRuntimeState(workspacePath: string): void {
-  const gitDir = run('git', workspacePath, ['rev-parse', '--absolute-git-dir']);
-  if (gitDir.status !== 0) return;
-
-  const ignoreFile = path.join(gitDir.stdout.trim(), 'zit-ignore');
-  if (!existsSync(ignoreFile)) return;
-
-  appendFileSync(ignoreFile, `\n# autohand: session runtime state\n${AUTOHAND_RUNTIME_STATE.join('\n')}\n`);
 }
 
 /**
@@ -215,7 +191,6 @@ export function prepareSessionZit(input: SessionZitInput): SessionZitInfo {
     ? workspace.id
     : path.basename(path.dirname(workspacePath));
 
-  ignoreAutohandRuntimeState(workspacePath);
   const zitCommand = exposeZitToShell(zitBin);
 
   // Shell commands the agent runs (`zit claim`, `zit status`) target this workspace.

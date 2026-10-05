@@ -2873,7 +2873,7 @@ What happens:
 
 1. Autohand requires a git repository and the `zit` CLI (`ZIT_BIN`, else `zit` on `PATH`; install with `cargo install zit`).
 2. If the repository has no Zit graph yet (`refs/zit/current`), it runs `zit init`.
-3. It runs `zit materialise --agent autohand --intent <intent>` and uses the printed directory as the session workspace. `ZIT_WORKSPACE` is set to the workspace id, so the agent's `zit claim` and `zit status` commands target it; when `ZIT_BIN` points outside `PATH`, its directory is added to `PATH` for the agent's shell. Autohand's own session state (`.autohand/memory/`, `goals.local.json`, `settings.local.json`, `session-permissions.json`) is excluded from the recorded change.
+3. It runs `zit materialise --agent autohand --intent <intent>` and uses the printed directory as the session workspace. `ZIT_WORKSPACE` is set to the workspace id, so the agent's `zit claim` and `zit status` commands target it; when `ZIT_BIN` points outside `PATH`, its directory is added to `PATH` for the agent's shell. Zit ignores Autohand's own session state (`.autohand/memory/`, `goals.local.json`, `settings.local.json`, `session-permissions.json`), so it never becomes part of the recorded change.
 4. The agent is told it shares the repository with other agents: claim a file (`zit claim <path>`, `path#Symbol` or `path#Section heading`) before editing it, pick other work if a claim is refused, and never commit.
 5. When the session ends (normal exit, `SIGINT` or `SIGTERM`), Autohand runs `zit record --workspace <id> --dispose` once, with the agent's final response as the summary (trimmed to the last 8000 characters). It prints `zit: recorded <change>` or `zit: nothing to record` on stderr.
 
