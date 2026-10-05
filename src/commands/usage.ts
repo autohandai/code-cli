@@ -69,7 +69,7 @@ export interface UsageDashboardData {
 
 export const metadata = {
   command: '/usage',
-  description: 'Show account plan limits and token activity',
+  description: 'Explore usage, sessions, skills, extensions, and trace insights',
   implemented: true,
   subcommands: [
     { name: 'daily', description: 'Show daily token activity for the last 12 months' },
@@ -734,6 +734,28 @@ export async function usage(ctx: SlashCommandContext, args: string[] = []): Prom
       model: ctx.model,
       period,
     });
+    if (!ctx.isNonInteractive && ctx.onBeforeModal && process.stdin.isTTY && process.stdout.isTTY && !args.includes('--text')) {
+      const [{ showUsageScreen }, { loadUsageReport }] = await Promise.all([
+        import('../ui/ink/components/UsageScreen.js'), import('../usage/usageReport.js'),
+      ]);
+      await ctx.onBeforeModal();
+      try {
+        await showUsageScreen({
+          account: formatAccount(ctx.config, 'Local profile'),
+          initialDays: period === 'monthly' ? 30 : 7,
+          loadReport: (query, signal) => loadUsageReport(ctx, query, signal),
+          loadAccount: async (signal) => { signal.throwIfAborted(); return resolveAccountEntitlement(ctx); },
+          loadTraces: async (query, signal) => {
+            if (!ctx.config) return null;
+            const { isTraceMonitoringEnabled } = await import('../integrations/ahtraces/consent.js');
+            if (!isTraceMonitoringEnabled(ctx.config) || ctx.config.traces?.discoveryMap === false) return null;
+            const { buildLocalWorkMap } = await import('../integrations/ahtraces/workMap.js');
+            return buildLocalWorkMap(ctx.config, { since: `${query.days}d`, ...(query.scope === 'project' ? { workspace: ctx.workspaceRoot } : {}) }, signal);
+          },
+        });
+      } finally { await ctx.onAfterModal?.(); }
+      return '';
+    }
     const [activity, entitlement] = await Promise.all([
       gatherUsageActivityData(ctx, period),
       resolveAccountEntitlement(ctx),

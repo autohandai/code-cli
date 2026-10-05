@@ -288,7 +288,7 @@ describe('interactive built CLI Tuistory tests: processes, research, usage, sett
     });
 
     await waitForComposer(session);
-    await session.type('/usage');
+    await session.type('/usage --text');
     await session.press('enter');
     await session.waitForText('Token activity', { timeout: 10_000 });
     const output = session.readAll();
@@ -296,7 +296,7 @@ describe('interactive built CLI Tuistory tests: processes, research, usage, sett
     const screenLines = screen.split('\n');
     const sundayIndex = screenLines.findIndex((line) => line.startsWith('Su  '));
     const monthHeader = sundayIndex > 0
-      ? screenLines.slice(0, sundayIndex).reverse().find((line) => line.trim().length > 0) ?? ''
+      ? screenLines.slice(0, sundayIndex).join(' ')
       : '';
     const visibleMonthLabels = monthHeader.match(/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/gu) ?? [];
 
@@ -350,10 +350,10 @@ describe('interactive built CLI Tuistory tests: processes, research, usage, sett
     });
 
     await waitForComposer(session);
-    await session.type('/usage');
+    await session.type('/usage --text');
     await session.press('enter');
     await session.waitForText('Autohand Code Pro', { timeout: 10_000 });
-    const output = session.readAll();
+    const output = session.readAll().replace(/\s+/gu, ' ');
 
     expect(output).toContain('Autohand plan');
     expect(output).toContain('250 requests / 5 hours');

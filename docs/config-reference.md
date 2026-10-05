@@ -2955,6 +2955,14 @@ Remote feature flags are fetched from `/v1/feature-flags/evaluate`, cached at `~
 
 `cli_usage_v2` is an experimental feature switch for the project token activity dashboard shown by `/usage`, `/usage weekly`, and `/usage monthly` (config path `features.cliUsageV2`, default on). Disable it with `autohand experiments disable cli_usage_v2`.
 
+In an interactive terminal, `/usage` opens a dedicated keyboard-driven screen with Overview, Usage, Messages, Extensions, Skills, Sessions, and Traces reports. Tab/Shift+Tab or 1–7 selects a report, left/right selects a chart day, up/down and Page Up/Page Down browse content, and Enter opens session details. Press `r` for 7/30 days, `p` for this project/all local projects, `s` to sort sessions, `R` to refresh, and `?` for help. Escape goes back; Escape at the report level or Ctrl+C closes the screen and restores the composer.
+
+Local reports use session metadata and recorded project capability events. Tokens are provider-reported; missing totals remain unavailable. Message counts include all roles. Historical token/message charts group whole session totals by their last active UTC day, because older metadata does not record daily usage. Extension activity counts recorded extension skill/command activations, not inferred tool calls; the installed extension inventory remains scoped to the current workspace. The report loads up to 1,000 newest indexed sessions and capability-log tails from up to 20 projects (256 KiB per log). Coverage limits and unreadable sources are marked as partial.
+
+Account plan and quotas come from the existing authenticated Autohand API. Local data remains available when the API is unavailable. The Traces report loads ahtraces Work Map aggregates on demand when local trace monitoring and discovery are enabled; it includes outcomes, verification, tool errors, models, reasoning, and workflows. Trace totals remain separate from local session totals to avoid double counting. Opening `/usage` does not enable monitoring or cloud sync.
+
+Use `/usage --text`, `/usage weekly --text`, or `/usage monthly --text` for the existing printable report. Non-interactive/RPC/ACP callers continue receiving text.
+
 `usage_v2` is the legacy model, provider, context, and usage-limits dashboard plus the enhanced `/status` Usage tab. Enable it with `autohand experiments enable usage_v2`.
 
 `token_usage_status` is an experimental feature switch (config path `features.tokenUsageStatus`, default off) that shows real-time token usage in the working status line — cumulative tokens up (`↑`) and down (`↓`) plus context-window occupancy, e.g. `↑15.7k ↓3.2k · context: 6.0% (15.7k/262.1k)`. The context window is resolved per model across all providers. Enable it with `autohand experiments enable token_usage_status`.
@@ -3011,7 +3019,7 @@ The picker loads twenty sessions per page and provides **More sessions** and **P
 | `/export`     | Export session to markdown/JSON/HTML                  |
 | `/share`      | Share current session                                 |
 | `/status`     | Show session status and the signed-in Autohand plan   |
-| `/usage`      | Show Autohand plan limits and project token activity  |
+| `/usage`      | Explore usage, sessions, skills, extensions, and trace insights |
 | `/upgrade`    | Open the console to upgrade your Autohand plan        |
 
 `/undo` never resets or cleans the Git worktree. It preserves unrelated tracked and untracked work, and refuses to overwrite a file that changed after the recorded agent mutation.
