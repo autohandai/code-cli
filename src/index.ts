@@ -68,6 +68,7 @@ import {
   prepareSessionZit,
   type SessionZitFinalizer,
   type SessionZitInfo,
+  ZitClaimGuard,
 } from './utils/sessionZit.js';
 import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
 import { registerBrowserCommand, registerBrowserOptions } from './browser/cliCommand.js';
@@ -1840,7 +1841,8 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       workspaceRoot,
       options,
       commandOutputCaptured: captureCommandOutput,
-      additionalDirs: additionalDirs.length > 0 ? additionalDirs : undefined
+      additionalDirs: additionalDirs.length > 0 ? additionalDirs : undefined,
+      ...(sessionZit ? { zitClaims: new ZitClaimGuard(sessionZit) } : {}),
     };
 
     // Print banner FIRST for immediate visual feedback

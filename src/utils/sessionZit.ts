@@ -141,7 +141,8 @@ export function buildZitSessionInstructions(info: Pick<SessionZitInfo, 'workspac
   return [
     '## Zit workspace',
     `You are working in a Zit workspace (id ${info.workspaceId}) that is shared with other agents working on the same repository.`,
-    `- Before editing any file, always claim it first, even for small edits: \`${zit} claim <path>\`, or narrower with \`${zit} claim "path#Symbol"\` or \`${zit} claim "path#Section heading"\`.`,
+    '- Your file tools (write, edit, patch, delete, rename) claim each file in Zit before writing it.',
+    `- Shell commands are not claimed for you: before changing a file through the shell, run \`${zit} claim <path>\` yourself (or narrower: \`${zit} claim "path#Symbol"\`, \`${zit} claim "path#Section heading"\`).`,
     '- If a claim is refused, another agent holds that resource: pick other work or stop and explain why.',
     `- \`${zit} status\` shows the changes and workspaces other agents hold.`,
     '- Do not commit, branch, or push with git. Zit records your work as a change when the session ends.',
@@ -287,4 +288,48 @@ export function createSessionZitFinalizer(
   }
 
   return { finish };
+}
+
+export type ZitClaimResult = { ok: true } | { ok: false; message: string };
+
+/**
+ * Claims files in the session's Zit workspace before a tool writes them.
+ * Paths are relative to the workspace; each one is claimed once per session.
+ */
+export class ZitClaimGuard {
+  private readonly granted = new Set<string>();
+
+  constructor(private readonly info: Pick<SessionZitInfo, 'zitBin' | 'workspaceId' | 'workspacePath'>) {}
+
+  claim(paths: string[]): ZitClaimResult {
+    const pending = [...new Set(paths)].filter((candidate) => !this.granted.has(candidate));
+    if (pending.length === 0) {
+      return { ok: true };
+    }
+
+    const result = run(this.info.zitBin, this.info.workspacePath, [
+      'claim',
+      '--workspace',
+      this.info.workspaceId,
+      ...pending,
+    ]);
+    if (result.status === 0) {
+      for (const candidate of pending) {
+        this.granted.add(candidate);
+      }
+      return { ok: true };
+    }
+
+    const output = `${result.stdout}${result.stderr}`.trim();
+    if (!result.error && output.startsWith('refused')) {
+      return {
+        ok: false,
+        message: `Zit refused the claim on ${pending.join(', ')}; nothing was written.\n${output}\nAnother agent holds this. Pick other work or stop.`,
+      };
+    }
+    return {
+      ok: false,
+      message: `zit claim failed for ${pending.join(', ')}; nothing was written: ${failureDetails(result)}`,
+    };
+  }
 }

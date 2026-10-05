@@ -297,6 +297,18 @@ const PEER_GIT_COMMAND_BY_ACTION: Readonly<Record<string, string>> = {
   git_push: 'git push',
 };
 
+/** Files a unified diff touches, from its `--- a/x` and `+++ b/x` headers. */
+function pathsInUnifiedDiff(diff: string): string[] {
+  const paths = new Set<string>();
+  for (const line of diff.split('\n')) {
+    const match = /^(?:---|\+\+\+) (?:[ab]\/)?(.+?)\s*$/.exec(line);
+    if (match && match[1] !== '/dev/null') {
+      paths.add(match[1]);
+    }
+  }
+  return [...paths];
+}
+
 const PEER_DIRECT_WRITE_ACTIONS = new Set<string>([
   'write_file',
   'append_file',
@@ -1034,6 +1046,36 @@ export class ActionExecutor {
     return [];
   }
 
+  /**
+   * In a --zit session, claim every file a tool is about to write. A refused
+   * or failed claim blocks the tool before it touches the file.
+   */
+  private claimZitWritePaths(action: AgentAction): string | undefined {
+    const zitClaims = this.runtime.zitClaims;
+    if (!zitClaims) {
+      return undefined;
+    }
+    const paths = this.writePathsForZitClaim(action)
+      .map((candidate) => this.toWorkspaceRelative(candidate))
+      .filter((candidate): candidate is string => Boolean(candidate));
+    if (paths.length === 0) {
+      return undefined;
+    }
+    const result = zitClaims.claim(paths);
+    return result.ok ? undefined : result.message;
+  }
+
+  private writePathsForZitClaim(action: AgentAction): string[] {
+    // Directories and Autohand's own task list are not source files to claim.
+    if (action.type === 'create_directory' || action.type === 'todo_write') {
+      return [];
+    }
+    if (action.type === 'git_apply_patch') {
+      return pathsInUnifiedDiff(this.pickText(action.patch, action.diff) ?? '');
+    }
+    return this.writePathsForPeerGuard(action);
+  }
+
   private async executeLegacy(
     action: AgentAction,
     context?: ToolExecutionContext,
@@ -1104,6 +1146,11 @@ export class ActionExecutor {
         peerPreflightFailure,
         peerPreflightFailure,
       );
+    }
+
+    const zitClaimFailure = this.claimZitWritePaths(action);
+    if (zitClaimFailure) {
+      return this.recordToolFailure(capture, 'authorization', zitClaimFailure, zitClaimFailure);
     }
 
     if (executionState) {

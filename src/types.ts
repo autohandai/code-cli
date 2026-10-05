@@ -8,6 +8,7 @@ import type { ThemeDefinition } from './ui/theme/types.js';
 import type { KeybindingProfileId } from './keybindings/profiles.js';
 import type { TeamActivitySnapshot } from './core/teams/types.js';
 import type { GoalCheckpointInput, GoalCompletionEvidence } from './goals/types.js';
+import type { ZitClaimGuard } from './utils/sessionZit.js';
 
 // InkRenderer type defined inline to avoid tsx dev mode issues with .tsx imports
 interface InkRendererInterface {
@@ -2104,6 +2105,8 @@ export interface AgentRuntime {
   isCommandMode?: boolean;
   /** True when final command output is emitted by a transport writer. */
   commandOutputCaptured?: boolean;
+  /** Claims files in the --zit workspace before tools write them. */
+  zitClaims?: ZitClaimGuard;
 }
 
 export interface AgentStatusSnapshot {
