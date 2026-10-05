@@ -158,6 +158,9 @@ export const AUTOHAND_FILES = {
 
   /** Last successful CLI announcements payload and local dismissals */
   announcementsCache: path.join(AUTOHAND_HOME, 'announcements.json'),
+
+  /** Whether the hidden `~axo` mascot is out; kept out of synced config on purpose */
+  axoState: path.join(AUTOHAND_HOME, 'axo.json'),
 } as const;
 
 /**

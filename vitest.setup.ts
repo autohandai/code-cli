@@ -6,6 +6,7 @@
  * Global test setup:
  * - Ensures i18n is initialized before any module-level t() calls
  * - Mocks node:sqlite for CursorImporter tests
+ * - Keeps the developer's Axo state file out of tests
  */
 import { vi } from 'vitest';
 
@@ -22,6 +23,13 @@ vi.mock('node:sqlite', () => ({
       close: vi.fn(),
     })),
   },
+}));
+
+// Axo is a per-user easter egg: tests must neither pick up nor overwrite the
+// developer's ~/.autohand/axo.json. Its own tests import the real module.
+vi.mock('./src/ui/axo/axoStateFile.js', () => ({
+  readAxoEnabled: () => false,
+  writeAxoEnabled: async () => {},
 }));
 
 import { initI18n } from './src/i18n/index.js';

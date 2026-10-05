@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { isAxoInput } from '../../ui/axo/axoCommand.js';
 import { isStartupTimingEnabled, startupTimeline } from '../../startup/startupTimeline.js';
 import { buildOutputSchemaInstruction, buildOutputSchemaRepairInstruction, checkOutputAgainstSchema, type OutputSchemaSpec } from '../../modes/outputSchema.js';
 import { autoNameAgentSessionFromInstruction, refineAgentSessionTitle, syncAgentTerminalTitleName } from './AgentSessionTitle.js';
@@ -1743,6 +1744,12 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
 
         // The user moved on: an unanswered session survey must not linger.
         host.feedbackSurvey?.clear();
+
+        // `~axo` needs the full terminal UI; without it there is no Axo to show.
+        if (!mobileTurn && isAxoInput(instruction)) {
+          if (!host.inkRenderer?.isRunning()) console.log(chalk.gray('Axo only lives in the full terminal UI.'));
+          continue;
+        }
 
         // Handle ! shell commands locally (never send to LLM)
         if (!mobileTurn && isShellCommand(instruction)) {

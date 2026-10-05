@@ -3,6 +3,7 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { isAxoInput } from './axo/axoCommand.js';
 import { isLeadingTargetInput } from './messageTargets.js';
 import { isImmediateCommand } from './shellCommand.js';
 
@@ -13,5 +14,5 @@ import { isImmediateCommand } from './shellCommand.js';
  * for the model.
  */
 export function canSteerComposerInput(text: string): boolean {
-  return !isImmediateCommand(text) && !isLeadingTargetInput(text);
+  return !isImmediateCommand(text) && !isLeadingTargetInput(text) && !isAxoInput(text);
 }

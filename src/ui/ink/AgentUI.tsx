@@ -43,6 +43,9 @@ import { useTranslation } from '../i18n/index.js';
 import { getPlanModeManager } from '../../commands/plan.js';
 import type { InputBorderStyle } from '../box.js';
 import { PLAN_BORDER_COLOR, hexToAnsiRgb } from '../box.js';
+import { AxoBuddy, shouldShowAxo } from '../axo/AxoBuddy.js';
+import { parseAxoInput, type AxoCommand } from '../axo/axoCommand.js';
+import type { AxoUIState } from '../axo/axoState.js';
 import { TextBuffer } from '../textBuffer.js';
 import { handleTextBufferKey, type KeyHandlerResult } from '../textBufferKeyHandler.js';
 import {
@@ -165,6 +168,10 @@ export const MAX_TOOL_OUTPUT_ENTRIES = 50;
 export const MAX_VISIBLE_NOTIFICATIONS = 3;
 
 export interface AgentUIState {
+  /** Axo, the hidden `~axo` mascot. Absent or disabled means it stays away. */
+  axo?: AxoUIState;
+  /** How the last turn ended, whether or not it produced a summary row; cleared when the next starts. */
+  lastTurnOutcome?: TurnCompletionStatus;
   computerUseSteps?: ComputerUseStep[];
   peerDirectoryVersion?: number;
   isWorking: boolean;
@@ -266,6 +273,10 @@ export interface AgentUIProps {
   /** Select from the queue to steer by default; legacy shortcut mappings remain configurable. */
   enterWhileWorking?: 'select' | 'steer' | 'queue';
   onInstruction: (text: string, metadata?: PeerInstructionMetadata) => void;
+  /** `~axo …` typed in the composer; handled locally, never sent as a turn. */
+  onAxoCommand?: (command: AxoCommand) => void;
+  /** Axo finished its goodbye after `~axo home`. */
+  onAxoGone?: () => void;
   peerScopes?: PeerScope[];
   peersProvider?: (scope?: PeerScope) => PeerDescriptor[];
   onPeersRefresh?: (scope?: PeerScope) => Promise<unknown>;
@@ -839,6 +850,8 @@ export function AgentUI({
   state,
   typedMessageHistory,
   onInstruction,
+  onAxoCommand,
+  onAxoGone,
   onSteer,
   onSteerQueuedInstruction,
   onWorkingSpinnerFrame,
@@ -1026,6 +1039,8 @@ export function AgentUI({
   const onEditGoalObjectiveRef = useRef(onEditGoalObjective);
   onEditGoalObjectiveRef.current = onEditGoalObjective;
   const onInstructionRef = useRef(onInstruction);
+  const onAxoCommandRef = useRef(onAxoCommand);
+  onAxoCommandRef.current = onAxoCommand;
   const onSteerRef = useRef(onSteer);
   onSteerRef.current = onSteer;
   const onSteerQueuedInstructionRef = useRef(onSteerQueuedInstruction);
@@ -2280,6 +2295,27 @@ export function AgentUI({
       // it back to the actual pasted text only at submit time.
       let text = resolveInkHiddenPastes(buffer.getText(), pasteState);
       text = text.trim();
+
+      // `~axo` belongs to Axo: it never becomes a turn, a queued message, or history.
+      const axoCommand = onAxoCommandRef.current ? parseAxoInput(text) : null;
+      if (axoCommand) {
+        clearInkComposerInputForSubmit(buffer, pasteState, {
+          setInput,
+          setCursorOffset,
+          onInputChange: onInputChangeRef.current,
+          clearPendingInputSync: () => {
+            pendingInputSyncRef.current = null;
+            if (inputSyncTimerRef.current) {
+              clearTimeout(inputSyncTimerRef.current);
+              inputSyncTimerRef.current = null;
+            }
+          },
+        });
+        dismissAutocompleteState();
+        onAxoCommandRef.current?.(axoCommand);
+        return;
+      }
+
       const goalEdit = editingGoalRef.current;
 
       if (goalEdit !== null) {
@@ -2774,6 +2810,9 @@ export function AgentUI({
           onCtrlC={onCtrlC}
         />
       ) : <FixedBottom
+        axo={state.axo}
+        lastTurnOutcome={state.lastTurnOutcome}
+        onAxoGone={onAxoGone}
         onWorkingSpinnerFrame={onWorkingSpinnerFrame}
         announcement={state.announcement}
         feedbackSurvey={state.feedbackSurvey}
@@ -3597,6 +3636,9 @@ const MessageTargetWrapper = memo(function MessageTargetWrapper({
  * Split into StatusSection and InputSection for better memoization
  */
 interface FixedBottomProps {
+  axo?: AxoUIState;
+  lastTurnOutcome?: TurnCompletionStatus;
+  onAxoGone?: () => void;
   onWorkingSpinnerFrame?: (frame: number) => void;
   announcement?: AnnouncementLineState;
   feedbackSurvey?: FeedbackSurveyState;
@@ -3714,6 +3756,9 @@ function useUserDrivenComposerCursor(
 }
 
 const FixedBottom = memo(function FixedBottom({
+  axo,
+  lastTurnOutcome,
+  onAxoGone,
   onWorkingSpinnerFrame,
   announcement,
   feedbackSurvey,
@@ -3817,6 +3862,17 @@ const FixedBottom = memo(function FixedBottom({
           runtimeLineExtensions?.status,
         )}
       />
+      {axo && onAxoGone && shouldShowAxo(axo.enabled, terminalColumns, terminalRows) ? (
+        <AxoBuddy
+          axo={axo}
+          isWorking={isWorking}
+          turnStatus={lastTurnOutcome}
+          input={input}
+          columns={terminalColumns}
+          rows={terminalRows}
+          onGone={onAxoGone}
+        />
+      ) : null}
       <InputLineWrapper
         enableQueueInput={enableQueueInput}
         input={input}

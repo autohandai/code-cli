@@ -42,6 +42,8 @@ export interface InkUIManagerOptions {
   workspaceRoot?: string;
   suggestionProvider?: () => string | undefined;
   resolveShellSuggestion?: (input: string) => Promise<string | null>;
+  /** Answers `~axo <question>` with one small model call. */
+  askAxo?: (question: string, signal: AbortSignal) => Promise<string | null>;
   extensionKeybindings?: ExtensionKeybinding[];
   runtimeLineExtensions?: AgentUILineExtensions;
   getInteractionMode?: () => InteractionMode;

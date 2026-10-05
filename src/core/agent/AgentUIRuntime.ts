@@ -5,6 +5,7 @@ import { allowedPeerScopes } from '../../session/peers/PeerScope.js';
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { isAxoInput } from '../../ui/axo/axoCommand.js';
 import { resolveMouseComposerCursor } from '../../ui/mouseReporting.js';
 import { deliverAgentTargetMessage, listAgentMessageTargets } from './AgentMessageTargets.js';
 import os from 'node:os';
@@ -303,6 +304,8 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
           typeof host.resolveLlmShellSuggestion === 'function'
             ? host.resolveLlmShellSuggestion(input)
             : Promise.resolve(null),
+        askAxo: (question: string, signal: AbortSignal) =>
+          host.axoResponder?.ask(question, signal) ?? Promise.resolve(null),
         suggestionProvider: () => host.suggestionEngine?.getNextPromptSuggestion() ?? undefined,
         // Read ui.showTips on every draw so toggling it in /settings applies at the next rotation.
         tipProvider: host.runtime?.options?.bare
@@ -609,6 +612,8 @@ function trySteerAgentActiveInstruction(host: AgentUIRuntimeHost, text: string):
 }
 
 export async function handleAgentInkSubmittedInstruction(host: AgentUIRuntimeHost, text: string, metadata?: PeerInstructionMetadata): Promise<void> {
+    // `~axo` is the composer's easter egg; the UI handles it, and it never reaches the model.
+    if (isAxoInput(text)) return;
     const peerInput = parsePeerInput(text);
     const messaging: PeerClient | undefined = host.peerMessaging;
     if (peerInput.kind === 'direct' && messaging?.policy.enabled) {

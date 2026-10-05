@@ -58,12 +58,22 @@ import type { TaskListPosition } from '../../types.js';
 import type { PeerDescriptor, PeerReceipt, PeerScope } from '../../session/peers/PeerProtocol.js';
 import type { PeerComposerDraft, PeerInstructionMetadata, PeerReference } from '../peerMention.js';
 import type { LineExtension, LineSegment } from './StatusLine.js';
+import type { AxoCommand } from '../axo/axoCommand.js';
+import { AXO_NO_ANSWER } from '../axo/axoPose.js';
+import { applyAxoCommand, AXO_AWAY, sendAxoHome, withAxoCue } from '../axo/axoState.js';
+import { readAxoEnabled, writeAxoEnabled } from '../axo/axoStateFile.js';
 import {
   createSequencedQueuedWork,
   type SequencedQueuedWork,
 } from '../../utils/queuedWorkSequence.js';
 
 export interface InkRendererOptions {
+  /** Whether Axo was out last session; injectable for tests. Defaults to `~/.autohand/axo.json`. */
+  loadAxoEnabled?: () => boolean;
+  /** Remembers whether Axo is out; injectable for tests. Defaults to `~/.autohand/axo.json`. */
+  saveAxoEnabled?: (enabled: boolean) => void | Promise<void>;
+  /** Asks the model for Axo's one-line answer to `~axo <question>`; null when it can't. */
+  askAxo?: (question: string, signal: AbortSignal) => Promise<string | null>;
   onSteer?: (text: string) => void;
   onSteerQueuedMessage?: (text: string) => boolean;
   onWorkingSpinnerFrame?: (frame: number) => void;
@@ -225,6 +235,8 @@ interface AgentUIWrapperProps {
   onToggleLiveCommandExpanded: (id?: string) => void;
   onToggleToolOutputExpanded: () => void;
   onToggleTeamPanel: () => void;
+  onAxoCommand: (command: AxoCommand) => void;
+  onAxoGone: () => void;
   onCloseAgentRunsPanel: () => void;
   onCancelAgentRun?: (id: string) => void | Promise<unknown>;
   onMessageAgentRun?: (id: string, text: string) => Promise<boolean>;
@@ -270,6 +282,8 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       onToggleLiveCommandExpanded,
       onToggleToolOutputExpanded,
       onToggleTeamPanel,
+      onAxoCommand,
+      onAxoGone,
       onCloseAgentRunsPanel,
       onCancelAgentRun,
       onMessageAgentRun,
@@ -335,6 +349,8 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         onToggleLiveCommandExpanded={onToggleLiveCommandExpanded}
         onToggleToolOutputExpanded={onToggleToolOutputExpanded}
         onToggleTeamPanel={onToggleTeamPanel}
+        onAxoCommand={onAxoCommand}
+        onAxoGone={onAxoGone}
         onCloseAgentRunsPanel={onCloseAgentRunsPanel}
         onCancelAgentRun={onCancelAgentRun}
         onMessageAgentRun={onMessageAgentRun}
@@ -470,6 +486,7 @@ export class InkRenderer {
     this.options = options;
     this.state = {
       ...createInitialUIState(),
+      axo: { enabled: (options.loadAxoEnabled ?? readAxoEnabled)(), cue: null },
       lineExtensions: options.lineExtensions,
       extensionKeybindings: options.extensionKeybindings,
       extensionLineExtensions: options.runtimeLineExtensions,
@@ -554,6 +571,8 @@ export class InkRenderer {
             onToggleLiveCommandExpanded={(id) => this.toggleActiveLiveCommandExpanded(id)}
             onToggleToolOutputExpanded={() => this.toggleLatestToolOutputExpanded()}
             onToggleTeamPanel={() => this.toggleTeamPanel()}
+            onAxoCommand={(command) => this.handleAxoCommand(command)}
+            onAxoGone={() => this.sendAxoHome()}
             onCloseAgentRunsPanel={() => this.setAgentRunsPanelVisible(false)}
             onCancelAgentRun={this.options.onCancelAgentRun}
             onMessageAgentRun={this.options.onMessageAgentRun}
@@ -758,6 +777,12 @@ export class InkRenderer {
         ...(completionStatus ? { status: completionStatus } : {})
       };
       this.countersChangedSinceSummary = false;
+    }
+
+    // Turn outcome for ambient UI (Axo): known even when no summary row is written.
+    if (isWorking) updates.lastTurnOutcome = undefined;
+    else if (options.succeeded !== undefined) {
+      updates.lastTurnOutcome = options.succeeded ? 'completed' : 'failed';
     }
 
     // When starting new work, clear completion stats
@@ -1057,6 +1082,8 @@ export class InkRenderer {
       interactionMode: this.options.getInteractionMode?.() ?? this.state.interactionMode,
       announcement: this.state.announcement,
       feedbackSurvey: this.state.feedbackSurvey,
+      // /clear and /new start a fresh task, not a fresh Axo.
+      axo: this.state.axo,
     };
     this.queuedInstructionEntries = [];
     this.notificationContentsByKey.clear();
@@ -1386,6 +1413,49 @@ export class InkRenderer {
 
   toggleTeamPanel(): void {
     this.setTeamPanelVisible(!this.state.teamPanelVisible);
+  }
+
+  /** `~axo …` from the composer. Summoning or dismissing Axo is remembered across sessions. */
+  handleAxoCommand(command: AxoCommand): void {
+    const before = this.state.axo ?? AXO_AWAY;
+    // Anything Axo is asked replaces an answer still on its way.
+    this.axoQuestion?.abort();
+    this.axoQuestion = null;
+    const askAxo = this.options.askAxo;
+    const axo = command.kind === 'say' && askAxo
+      ? withAxoCue(before, { kind: 'think', text: command.text }, Date.now())
+      : applyAxoCommand(before, command, Date.now());
+    this.updateState({ axo });
+    if (axo.enabled !== before.enabled) void (this.options.saveAxoEnabled ?? writeAxoEnabled)(axo.enabled);
+    if (command.kind === 'say' && askAxo) void this.answerAxoQuestion(askAxo, command.text);
+  }
+
+  private axoQuestion: AbortController | null = null;
+
+  private async answerAxoQuestion(
+    askAxo: NonNullable<InkRendererOptions['askAxo']>,
+    question: string,
+  ): Promise<void> {
+    const controller = new AbortController();
+    this.axoQuestion = controller;
+    let answer: string | null = null;
+    try {
+      answer = await askAxo(question, controller.signal);
+    } catch {
+      answer = null;
+    }
+    // A newer command, or Axo going home, makes this answer stale.
+    if (this.axoQuestion !== controller || !this.state.axo?.enabled) return;
+    this.axoQuestion = null;
+    this.updateState({ axo: withAxoCue(this.state.axo, { kind: 'answer', text: answer ?? AXO_NO_ANSWER }, Date.now()) });
+  }
+
+  /** Axo finished its goodbye after `~axo home`. */
+  sendAxoHome(): void {
+    this.axoQuestion?.abort();
+    this.axoQuestion = null;
+    this.updateState({ axo: sendAxoHome() });
+    void (this.options.saveAxoEnabled ?? writeAxoEnabled)(false);
   }
 
   setGoalActivity(goalActivity: GoalSessionSnapshot): void {
@@ -1787,6 +1857,8 @@ export class InkRenderer {
       interactionMode: this.options.getInteractionMode?.() ?? this.state.interactionMode,
       announcement: this.state.announcement,
       feedbackSurvey: this.state.feedbackSurvey,
+      // /clear and /new start a fresh task, not a fresh Axo.
+      axo: this.state.axo,
     };
     this.queuedInstructionEntries = [];
     this.notificationContentsByKey.clear();
