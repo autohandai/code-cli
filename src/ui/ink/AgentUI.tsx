@@ -2774,7 +2774,7 @@ export function AgentUI({
           : <ToolOutputStatic key={item.id} entry={item as ToolOutputEntry} />
       ))}
 
-      {expandedToolOutput ? <ExpandedToolOutput entry={expandedToolOutput} /> : null}
+      {expandedToolOutput ? <ExpandedToolOutput key={expandedToolOutput.id} entry={expandedToolOutput} terminalRows={windowSize.rows} terminalColumns={windowSize.columns} /> : null}
 
       <ComputerUseProgress steps={state.computerUseSteps ?? []} />
 

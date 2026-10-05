@@ -8,7 +8,7 @@ import { cleanup, render } from 'ink-testing-library';
 import stripAnsi from 'strip-ansi';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AgentUI, createInitialUIState, type AgentUIState } from '../../../src/ui/ink/AgentUI.js';
-import { ToolOutputStatic, type ToolOutputEntry } from '../../../src/ui/ink/ToolOutput.js';
+import { ExpandedToolOutput, ToolOutputStatic, type ToolOutputEntry } from '../../../src/ui/ink/ToolOutput.js';
 import { I18nProvider } from '../../../src/ui/i18n/index.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 
@@ -156,5 +156,52 @@ describe('expanding compact output with the mouse', () => {
     await clickAboveComposer(stdin, composerRow);
 
     expect(onToggleToolOutputExpanded).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('expanded output viewport', () => {
+  it('pages large diffs without taking the composer space and wraps long rows', async () => {
+    const detail = Array.from({ length: 690 }, (_, i) => `+ row-${i + 1} ${'wide '.repeat(20)}`).join('\n');
+    const { lastFrame, stdin } = render(
+      <ThemeProvider>
+        <ExpandedToolOutput entry={previewEntry({ tool: 'git_diff', expandedOutput: detail })} terminalRows={24} terminalColumns={60} />
+      </ThemeProvider>,
+    );
+    await flush();
+    const first = stripAnsi(lastFrame() ?? '');
+    expect(first.split('\n').length).toBeLessThanOrEqual(12);
+    expect(first).toContain('row-1 ');
+    expect(first).not.toContain('row-690 ');
+    expect(first).toContain('PgUp/PgDn');
+    stdin.write('\x1b[6~');
+    await flush();
+    expect(stripAnsi(lastFrame() ?? '')).not.toContain('row-1 ');
+    stdin.write('\x1b[5~');
+    await flush();
+    expect(stripAnsi(lastFrame() ?? '')).toBe(first);
+  });
+});
+
+
+describe('expanded output page boundaries', () => {
+  it('retains the last row and stays on the last page after repeated page down', async () => {
+    const { lastFrame, stdin } = render(
+      <ThemeProvider>
+        <ExpandedToolOutput entry={previewEntry()} terminalRows={24} terminalColumns={60} />
+      </ThemeProvider>,
+    );
+    await flush();
+    stdin.write('\x1b[5~');
+    await flush();
+    expect(stripAnsi(lastFrame() ?? '')).toContain('Rows 1–8 of 83');
+    for (let i = 0; i < 12; i++) {
+      stdin.write('\x1b[6~');
+      await flush();
+    }
+    const frame = stripAnsi(lastFrame() ?? '');
+    expect(frame).toContain('Rows 81–83 of 83');
+    expect(frame).toContain('line 83');
+    expect(frame.split('\n').length).toBeLessThanOrEqual(12);
   });
 });

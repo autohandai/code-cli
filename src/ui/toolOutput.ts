@@ -17,13 +17,6 @@ const TRUNCATED_TOOLS = new Set<AgentAction['type']>([
   'glob'
 ]);
 
-/** Diffs are rendered line by line with colour; a cut diff reads as a different change. */
-const DIFF_TOOLS = new Set<AgentAction['type']>([
-  'git_diff',
-  'git_diff_range',
-  'apply_patch',
-]);
-
 const MAX_EXPANDED_TOOL_OUTPUT_CHARS = 64 * 1024;
 
 /** How tool results are shown in the transcript: a short preview, or everything. */
@@ -208,7 +201,7 @@ function scriptReportDisplay(report: ScriptReport, totalChars: number, compact: 
 export function formatToolOutputForDisplay(options: FileToolOutputOptions): ToolOutputDisplay {
   const { tool, content, charLimit, filePath, command, commandArgs } = options;
   const totalChars = content.length;
-  const compact = options.mode === 'compact' && !DIFF_TOOLS.has(tool);
+  const compact = options.mode === 'compact';
 
   if (compact && options.failed) {
     return compactDisplay(content, undefined, 'tail');

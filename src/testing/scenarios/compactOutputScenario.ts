@@ -16,6 +16,8 @@ export async function runLongOutputTurn(session: Session, finishedMarker: string
 
 export async function expandLatestOutput(session: Session): Promise<string> {
   await session.press(['ctrl', 'o']);
+  await session.waitForText('Ctrl+O collapse');
+  await session.press('pagedown');
   return await session.text({
     timeout: 10_000,
     waitFor: (text) => text.includes('Ctrl+O collapse') && text.includes(LAST_ROW),
@@ -30,4 +32,10 @@ export async function collapseLatestOutput(session: Session): Promise<string> {
     waitFor: (text) => !text.includes('Ctrl+O collapse'),
     trimEnd: true,
   });
+}
+
+export function outputViewport(session: Session): string {
+  const data = session.getTerminalData();
+  return data.lines.slice(-data.rows)
+    .map(line => line.spans.map(span => span.text).join('').trimEnd()).join('\n');
 }

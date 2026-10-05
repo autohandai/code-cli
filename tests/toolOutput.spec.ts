@@ -331,13 +331,14 @@ describe('compact tool output', () => {
     expect(result.expandedOutput).toBeUndefined();
   });
 
-  it.each(['git_diff', 'git_diff_range', 'apply_patch'])('never cuts a %s diff', (tool) => {
+  it.each(['git_diff', 'git_diff_range', 'apply_patch'])('previews a large %s diff and retains details for expansion', (tool) => {
     const content = lines(83, '+ added');
 
     const result = compact({ tool, content });
 
-    expect(result.output).toBe(content);
-    expect(result.expandedOutput).toBeUndefined();
+    expect(result.output).toBe('+ added 1\n+ added 2\n+ added 3');
+    expect(result.expandedOutput).toBe(content);
+    expect(result.truncated).toBe(true);
   });
 
   it.each(['find', 'glob', 'search'])('previews %s results by line, not by a character budget', (tool) => {

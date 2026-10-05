@@ -3,6 +3,9 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { execFileSync } from 'node:child_process';
+import { readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import type { Session } from 'tuistory';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -13,6 +16,7 @@ import {
   collapseLatestOutput,
   expandLatestOutput,
   runLongOutputTurn,
+  outputViewport,
 } from '../../src/testing/scenarios/compactOutputScenario.js';
 import {
   createMockAutohandAINativeSequenceServer, createTempAutohandHome, exitInteractive,
@@ -29,9 +33,9 @@ afterEach(async () => {
   for (const state of states.splice(0)) await state.cleanup();
 });
 
-async function launch(ui: Record<string, unknown> = {}) {
+async function launch(ui: Record<string, unknown> = {}, largeDiff = false) {
   const server = await createMockAutohandAINativeSequenceServer([
-    { content: 'Listing rows.', toolCall: { id: 'long-output', name: 'run_command', args: LONG_OUTPUT_COMMAND } },
+    { content: 'Listing rows.', toolCall: { id: 'long-output', name: largeDiff ? 'git_diff' : 'run_command', args: largeDiff ? {} : LONG_OUTPUT_COMMAND } },
     { content: 'COMPACT_OUTPUT_DONE' },
   ]);
   servers.push(server);
@@ -44,10 +48,14 @@ async function launch(ui: Record<string, unknown> = {}) {
     ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false, ...ui },
   } });
   states.push(state);
+  if (largeDiff) {
+    await writeFile(path.join(state.workspaceRoot, 'large.ts'), Array.from({ length: 690 }, (_, i) => `export const row${i + 1} = ${i + 1};`).join('\n'));
+    execFileSync('git', ['add', '--intent-to-add', 'large.ts'], { cwd: state.workspaceRoot });
+  }
   // --yes: the scenario is about how the output is shown, not about approving the command.
   const session = await launchBuiltAutohand(
     ['--yes', '--config', state.configPath, '--path', state.workspaceRoot],
-    { autohandHome: state.autohandHome, cwd: state.workspaceRoot, rows: 60, waitForDataTimeout: 15_000 },
+    { autohandHome: state.autohandHome, cwd: state.workspaceRoot, rows: largeDiff ? 24 : 60, cols: largeDiff ? 80 : 120, waitForDataTimeout: 15_000 },
   );
   sessions.push(session);
   return { session, server };
@@ -83,6 +91,44 @@ describe('compact tool output', () => {
 
     await exitInteractive(session);
   });
+
+  it('keeps a 690-line diff and its expanded pages above a usable composer', async () => {
+    const { session, server } = await launch({}, true);
+    await runLongOutputTurn(session, 'COMPACT_OUTPUT_DONE');
+    await session.waitForText('Completed in');
+    const compact = outputViewport(session);
+    expect(compact).toContain('ctrl+o to expand');
+    expect(compact).toContain('❯');
+    expect(compact).not.toContain('row690');
+    expect(toolResult(server, 'long-output')).toContain('row690');
+
+    await session.press(['ctrl', 'o']);
+    await session.waitForText('PgUp/PgDn');
+    await session.text();
+    const first = outputViewport(session);
+    expect(first).toContain('Ctrl+O collapse');
+    expect(first).toContain('diff --git');
+    expect(first).toContain('❯');
+    await session.type('draft stays editable');
+    await session.waitForText('❯ draft stays editable');
+    await session.press('pagedown');
+    await session.waitForText('Rows 9–16');
+    const second = outputViewport(session);
+    const details = second.slice(second.indexOf('git_diff details'));
+    expect(details).not.toContain('diff --git');
+    const snapshot = await readFile(new URL('../../src/testing/snapshots/large-output-page.txt', import.meta.url), 'utf8');
+    for (const row of snapshot.trimEnd().split('\n')) expect(details).toContain(row);
+    expect(second).toContain('❯ draft stays editable');
+    await session.press('pageup');
+    await session.waitForText('Rows 1–8');
+    expect(outputViewport(session)).toContain('diff --git');
+    await session.resize({ cols: 60, rows: 20 });
+    await session.text();
+    expect(outputViewport(session)).toContain('❯ draft stays editable');
+    await collapseLatestOutput(session);
+    expect(outputViewport(session)).toContain('❯ draft stays editable');
+    await exitInteractive(session);
+  }, 90_000);
 
   it('prints the whole result when ui.toolOutput is full', async () => {
     const { session } = await launch({ toolOutput: 'full', readFileCharLimit: 5_000 });
