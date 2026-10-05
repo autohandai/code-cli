@@ -200,6 +200,26 @@ describe('SystemPromptBuilder', () => {
     expect(prompt.endsWith('Additional launch metadata')).toBe(true);
   });
 
+  it('appends session instructions after appendSysPrompt and after a replacement sysPrompt', async () => {
+    const appended = await createBuilder({
+      runtime: {
+        options: { appendSysPrompt: 'Additional launch metadata', sessionInstructions: '## Zit workspace\nClaim first' },
+        workspaceRoot: process.cwd(),
+        config: {},
+      },
+    }).build();
+    const replaced = await createBuilder({
+      runtime: {
+        options: { sysPrompt: 'Custom profile replacement only', sessionInstructions: '## Zit workspace\nClaim first' },
+        workspaceRoot: process.cwd(),
+        config: {},
+      },
+    }).build();
+
+    expect(appended.endsWith('Additional launch metadata\n\n## Zit workspace\nClaim first')).toBe(true);
+    expect(replaced).toBe('Custom profile replacement only\n\n## Zit workspace\nClaim first');
+  });
+
   it('bare mode omits implicit memories, discovered instructions, and discovered agents from the system prompt', async () => {
     const prompt = await createBuilder({
       runtime: {

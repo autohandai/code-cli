@@ -1280,6 +1280,8 @@ export interface CLIOptions {
   completionPromise?: string;
   /** Run the session in an isolated git worktree (optional explicit worktree name) */
   worktree?: boolean | string;
+  /** Run the session in a Zit workspace (optional explicit intent) */
+  zit?: boolean | string;
   /** Disable git worktree isolation */
   noWorktree?: boolean;
   /** Checkpoint interval (default: 5) */
@@ -1306,6 +1308,8 @@ export interface CLIOptions {
   appendSysPrompt?: string;
   /** File path appended to the system prompt. Alias for appendSysPrompt. */
   appendSystemPromptFile?: string;
+  /** Session-scoped instructions appended after the system prompt (set internally, e.g. by --zit). */
+  sessionInstructions?: string;
   /** Explicit MCP config file for bare mode or custom startup. */
   mcpConfig?: string;
   /**

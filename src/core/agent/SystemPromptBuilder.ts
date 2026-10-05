@@ -103,6 +103,12 @@ export class SystemPromptBuilder {
   constructor(private readonly options: SystemPromptBuilderOptions) {}
 
   async build(): Promise<string> {
+    const prompt = await this.buildPrompt();
+    const sessionInstructions = this.options.runtime.options.sessionInstructions?.trim();
+    return sessionInstructions ? `${prompt}\n\n${sessionInstructions}` : prompt;
+  }
+
+  private async buildPrompt(): Promise<string> {
     const { runtime } = this.options;
 
     if (runtime.options.sysPrompt) {

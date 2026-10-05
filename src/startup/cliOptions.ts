@@ -120,6 +120,28 @@ export function normalizeTmuxWorktreeOption(options: RootCliOptions): string | n
   return null;
 }
 
+export function validateZitOption(options: RootCliOptions): string | null {
+  if (options.zit === undefined || options.zit === false) {
+    return null;
+  }
+  if (options.worktree !== undefined && options.worktree !== false) {
+    return '--zit cannot be used with --worktree; choose one isolation mode';
+  }
+  if (isTmuxEnabled(options.tmux)) {
+    return '--zit cannot be used with --tmux (--tmux implies --worktree)';
+  }
+  if (options.patch) {
+    return '--zit cannot be used with --patch';
+  }
+  if (options.mode === 'rpc' || options.mode === 'acp') {
+    return `--zit is not supported with --mode ${options.mode}`;
+  }
+  if (typeof options.autoMode === 'string') {
+    return '--zit is not supported with a standalone --auto-mode loop';
+  }
+  return null;
+}
+
 export function normalizeContextCompactOption(options: RootCliOptions): void {
   if (options.cc !== undefined) {
     options.contextCompact = options.cc;

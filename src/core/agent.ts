@@ -2158,6 +2158,13 @@ export class AutohandAgent {
   }
 
   /**
+   * The most recent final assistant response, e.g. to summarise a session.
+   */
+  getLastAssistantResponse(): string {
+    return this.lastAssistantResponseForNotification;
+  }
+
+  /**
    * Get the MCP client manager for server/tool listing
    */
   getMcpManager(): McpClientManager {

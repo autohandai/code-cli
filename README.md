@@ -262,6 +262,7 @@ events and writes exactly one final `result` or `error` object to stdout.
 | `--teammate-mode <mode>`        |       | Team display mode: auto, in-process, or tmux                                     |
 | `--worktree [name]`             |       | Run session in isolated git worktree (optional name)                             |
 | `--tmux`                        |       | Launch in a dedicated tmux session (implies --worktree)                          |
+| `--zit [intent]`                |       | Run session in a disposable Zit workspace, recorded as a Zit change on exit      |
 | `--auto-mode [prompt]`          |       | Enable interactive auto-mode, or start standalone loop with inline task          |
 | `--max-iterations <n>`          |       | Max auto-mode iterations (default: 50)                                           |
 | `--completion-promise <text>`   |       | Completion marker text (default: "DONE")                                         |

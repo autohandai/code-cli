@@ -61,6 +61,14 @@ import {
 } from './modes/commandOutput.js';
 import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from './constants.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessionWorktree.js';
+import {
+  buildZitSessionInstructions,
+  createSessionZitFinalizer,
+  isSessionZitEnabled,
+  prepareSessionZit,
+  type SessionZitFinalizer,
+  type SessionZitInfo,
+} from './utils/sessionZit.js';
 import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './utils/tmux.js';
 import { registerBrowserCommand, registerBrowserOptions } from './browser/cliCommand.js';
 import { registerComputerCommand } from './computer/cliCommand.js';
@@ -77,6 +85,7 @@ import {
   normalizeSearchEngineOption,
   normalizeTmuxWorktreeOption,
   type RootCliOptions,
+  validateZitOption,
 } from './startup/cliOptions.js';
 import {
   applyStartupInteractionMode,
@@ -458,6 +467,7 @@ program
   .option('--teammate-mode <mode>', 'Legacy team display preference; live team view stays in the lead terminal')
   .option('--worktree [name]', 'Run session in isolated git worktree (optional name)')
   .option('--tmux', 'Launch in a dedicated tmux session (implies --worktree)')
+  .option('--zit [intent]', 'Run session in a disposable Zit workspace, recorded as a Zit change on exit (optional intent)')
   // Auto-mode options
   .option('--auto-mode [prompt]', 'Enable interactive auto-mode, or start a standalone loop with an inline task')
   .option('--max-iterations <n>', 'Max auto-mode iterations (default: 50)', parseInt)
@@ -571,6 +581,12 @@ program
       && process.stdin.isTTY
     ) {
       console.error(chalk.red('Structured output requires a one-shot prompt. Use -p or --prompt.'));
+      process.exit(1);
+    }
+
+    const zitOptionError = validateZitOption(opts);
+    if (zitOptionError) {
+      console.error(chalk.red(zitOptionError));
       process.exit(1);
     }
 
@@ -1541,6 +1557,8 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
     : undefined;
   const restoreConsoleOutput = captureCommandOutput ? redirectConsoleOutputToStderr() : undefined;
   let commandOutputCompleted = false;
+  // Records the --zit workspace once: in the finally block below, or on process exit.
+  let sessionZitFinalizer: SessionZitFinalizer | null = null;
   const runtimeResourceOwner = new CliRuntimeResourceOwner<
     AuthUser,
     VersionCheckResult,
@@ -1580,6 +1598,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
     const originalWorkspaceRoot = resolveWorkspaceRoot(config, options.path);
     let workspaceRoot = originalWorkspaceRoot;
     let sessionWorktree: ReturnType<typeof import('./utils/sessionWorktree.js')['prepareSessionWorktree']> | null = null;
+    let sessionZit: SessionZitInfo | null = null;
 
     // Initialize i18n with locale detection
     const { locale: detectedLocale } = detectLocale({
@@ -1746,6 +1765,29 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       }
     }
 
+    // Optional disposable Zit workspace, recorded as a Zit change when the session ends
+    if (isSessionZitEnabled(options.zit)) {
+      sessionZit = prepareSessionZit({
+        cwd: originalWorkspaceRoot,
+        zit: options.zit,
+        prompt: options.prompt,
+        mode: 'cli',
+      });
+      workspaceRoot = sessionZit.workspacePath;
+      options.sessionInstructions = buildZitSessionInstructions(sessionZit);
+      // SIGINT/SIGTERM abort this command's lifecycle, which ends in the finally block.
+      sessionZitFinalizer = createSessionZitFinalizer(sessionZit, {
+        getSummary: () => agent?.getLastAssistantResponse(),
+      });
+
+      const zitSafetyCheck = checkWorkspaceSafety(workspaceRoot);
+      if (!zitSafetyCheck.safe) {
+        printDangerousWorkspaceWarning(workspaceRoot, zitSafetyCheck);
+        process.exitCode = 1;
+        return;
+      }
+    }
+
     // Validate and resolve additional directories from --add-dir flag
     const additionalDirs: string[] = [];
     if (options.addDir && options.addDir.length > 0) {
@@ -1808,6 +1850,15 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
     if (!structuredOutput && sessionWorktree && process.stdout.isTTY) {
       console.log(chalk.gray(`Using git worktree: ${sessionWorktree.worktreePath}`));
       console.log(chalk.gray(`Branch: ${sessionWorktree.branchName}${sessionWorktree.createdBranch ? ' (new)' : ''}\n`));
+    }
+    if (sessionZit) {
+      // Prompt mode keeps stdout for the response, so report the workspace on stderr there.
+      const zitStatus = `Using zit workspace: ${sessionZit.workspacePath}\n`;
+      if (!structuredOutput && process.stdout.isTTY) {
+        console.log(chalk.gray(zitStatus));
+      } else {
+        process.stderr.write(chalk.gray(zitStatus));
+      }
     }
     // Store whether Ink will be enabled so we can synchronize startup.
     // Ink is code-defaulted, not controlled by stale config.ui.useInkRenderer.
@@ -2174,6 +2225,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       agent?.shutdownRuntimeResources(),
       runtimeResourceOwner?.shutdown(),
     ]);
+    sessionZitFinalizer?.finish(agent?.getLastAssistantResponse());
     agentHolder.current = null;
     restoreConsoleOutput?.();
   }
