@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -139,6 +139,47 @@ describe.skipIf(!hasZit)('prepareSessionZit / finishSessionZit (real zit)', () =
 
     expect(result.changeId).toBeNull();
   });
+
+  it('records and exits on SIGTERM when graceful shutdown stalls', async () => {
+    const root = path.resolve(import.meta.dirname, '../..');
+    const script = path.join(tmp, 'stalled-session.ts');
+    writeFileSync(script, `
+import { writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { createSessionZitFinalizer, prepareSessionZit } from ${JSON.stringify(path.join(root, 'src/utils/sessionZit.ts'))};
+const info = prepareSessionZit({ cwd: ${JSON.stringify(repo)}, zit: 'Stalled session' });
+writeFileSync(path.join(info.workspacePath, 'STALLED.md'), 'work\\n');
+createSessionZitFinalizer(info, { exitOnSignal: () => true, signalGraceMs: 300, getSummary: () => 'Stalled summary' });
+// A graceful handler that never finishes, and a handle that keeps the loop alive.
+process.on('SIGTERM', () => {});
+setInterval(() => {}, 1000);
+process.stdout.write('READY\\n');
+`);
+    const child = spawn(process.execPath, ['--import', path.join(root, 'node_modules/tsx/dist/loader.mjs'), script], {
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stderr = '';
+    child.stderr.on('data', (chunk) => { stderr += String(chunk); });
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`never ready: ${stderr}`)), 60_000);
+      child.stdout.on('data', (chunk) => {
+        if (String(chunk).includes('READY')) { clearTimeout(timer); resolve(); }
+      });
+    });
+
+    child.kill('SIGTERM');
+    const code = await new Promise<number | null>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`still running: ${stderr}`)), 20_000);
+      child.on('exit', (exitCode) => { clearTimeout(timer); resolve(exitCode); });
+    });
+
+    expect(code).toBe(143);
+    const recorded = /zit: recorded ([0-9a-f]{40})/.exec(stderr);
+    expect(recorded).not.toBeNull();
+    expect(zit(repo, ['show', recorded![1]!])).toContain('reported Stalled summary');
+    expect(JSON.parse(zit(repo, ['status', '--json'])).workspaces).toEqual([]);
+  }, 120_000);
 
   it('finalizer records only once', () => {
     const info = prepareSessionZit({ cwd: repo, zit: true });

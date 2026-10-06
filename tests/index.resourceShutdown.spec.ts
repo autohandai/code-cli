@@ -18,6 +18,8 @@ describe('CLI runtime resource boundaries', () => {
     const agentBoundary = runCli.slice(runCli.indexOf('agent = new AutohandAgent'));
 
     expect(runCli).not.toContain('process.exit(');
+    // Only a backstop for leaked handles once a one-shot run has finished cleanup.
+    expect(runCli).toContain("if (resolveAgentLaunchMode(options) === 'command') {\n      armPromptExitBackstop();");
     expect(agentBoundary).not.toContain('process.exit(');
     expect(agentBoundary).toContain('await Promise.allSettled([');
     expect(agentBoundary).toContain('agent?.shutdownRuntimeResources()');

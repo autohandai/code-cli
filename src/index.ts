@@ -61,6 +61,7 @@ import {
 } from './modes/commandOutput.js';
 import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from './constants.js';
 import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessionWorktree.js';
+import { armPromptExitBackstop } from './runtime/promptExitBackstop.js';
 import {
   buildZitSessionInstructions,
   createSessionZitFinalizer,
@@ -1547,6 +1548,12 @@ interface InternalCLIOptions extends CLIOptions {
   reviewExecution?: ReviewCliExecution['review'];
 }
 
+/**
+ * After SIGINT/SIGTERM, how long graceful shutdown (bounded at about 2.5 s
+ * per stage) may run before the zit finalizer records and exits regardless.
+ */
+const ZIT_SIGNAL_GRACE_MS = 6_000;
+
 async function runCLI(options: InternalCLIOptions): Promise<void> {
   const agentHolder: { current: AutohandAgent | null } = { current: null };
   const commandLifecycleController = new AbortController();
@@ -1776,9 +1783,12 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       });
       workspaceRoot = sessionZit.workspacePath;
       options.sessionInstructions = buildZitSessionInstructions(sessionZit);
-      // SIGINT/SIGTERM abort this command's lifecycle, which ends in the finally block.
+      // SIGINT/SIGTERM abort this command's lifecycle, which ends in the finally
+      // block below. If that stalls, the finalizer records and exits itself.
       sessionZitFinalizer = createSessionZitFinalizer(sessionZit, {
         getSummary: () => agent?.getLastAssistantResponse(),
+        exitOnSignal: () => true,
+        signalGraceMs: ZIT_SIGNAL_GRACE_MS,
       });
 
       const zitSafetyCheck = checkWorkspaceSafety(workspaceRoot);
@@ -2230,6 +2240,9 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
     sessionZitFinalizer?.finish(agent?.getLastAssistantResponse());
     agentHolder.current = null;
     restoreConsoleOutput?.();
+    if (resolveAgentLaunchMode(options) === 'command') {
+      armPromptExitBackstop();
+    }
   }
 }
 

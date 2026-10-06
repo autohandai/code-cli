@@ -252,6 +252,13 @@ export interface SessionZitFinalizerOptions {
    * and so reaches the exit hook.
    */
   exitOnSignal?: () => boolean;
+  /**
+   * How long the session's own graceful shutdown may take after a signal
+   * before the finalizer records the workspace and exits regardless. The
+   * listener stays installed, so a signal can never kill the process without
+   * recording. 0 records and exits at once.
+   */
+  signalGraceMs?: number;
   log?: (line: string) => void;
 }
 
@@ -278,10 +285,22 @@ export function createSessionZitFinalizer(
 
   const exitOnSignal = options.exitOnSignal;
   if (exitOnSignal) {
-    const onSignal = (exitCode: number) => () => {
-      if (!exitOnSignal()) return;
+    const graceMs = options.signalGraceMs ?? 0;
+    let forcedExitArmed = false;
+    const recordAndExit = (exitCode: number): void => {
       finishWithDefaultSummary();
       process.exit(exitCode);
+    };
+    const onSignal = (exitCode: number) => () => {
+      if (!exitOnSignal() || forcedExitArmed) return;
+      forcedExitArmed = true;
+      if (graceMs <= 0) {
+        recordAndExit(exitCode);
+        return;
+      }
+      // Unreferenced: if graceful shutdown drains the event loop first, the
+      // exit hook records instead and this timer never fires.
+      setTimeout(() => recordAndExit(exitCode), graceMs).unref();
     };
     process.on('SIGINT', onSignal(130));
     process.on('SIGTERM', onSignal(143));
