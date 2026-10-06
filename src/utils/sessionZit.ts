@@ -5,6 +5,8 @@
  */
 
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 export type SessionZitOption = boolean | string | undefined;
@@ -141,7 +143,7 @@ export function buildZitSessionInstructions(info: Pick<SessionZitInfo, 'workspac
   return [
     '## Zit workspace',
     `You are working in a Zit workspace (id ${info.workspaceId}) that is shared with other agents working on the same repository.`,
-    '- Your file tools (write, edit, patch, delete, rename) claim what they change in Zit before writing: the changed sections of a Markdown file, otherwise the whole file.',
+    '- Your file tools (write, edit, patch, delete, rename) claim what they change in Zit before writing: only the functions, types or Markdown sections an edit changes; new, deleted or renamed files whole.',
     `- Shell commands are not claimed for you: before changing a file through the shell, run \`${zit} claim <path>\` yourself (or narrower: \`${zit} claim "path#Symbol"\`, \`${zit} claim "path#Section heading"\`).`,
     '- If a claim is refused, another agent holds that resource: pick other work or stop and explain why.',
     `- \`${zit} status\` shows the changes and workspaces other agents hold.`,
@@ -317,12 +319,73 @@ export type ZitClaimResult = { ok: true } | { ok: false; message: string };
  */
 export class ZitClaimGuard {
   private readonly granted = new Set<string>();
+  /** False once zit has rejected `claim --edit`; it predates the flag. */
+  private supportsEdit = true;
 
   constructor(private readonly info: Pick<SessionZitInfo, 'zitBin' | 'workspaceId' | 'workspacePath'>) {}
 
-  /** Claim what an edit changes, at the granularity zit tracks (see zitResourcesForEdit). */
+  /**
+   * Claim what an edit changes: the resources zit's own index reports for the
+   * new content (`zit claim --edit --dry-run`), minus those this session holds.
+   * With a zit that lacks `--edit`, fall back to zitResourcesForEdit.
+   */
   claimEdit(filePath: string, previous: string | null, next: string): ZitClaimResult {
+    if (previous === next) {
+      return { ok: true };
+    }
+    if (this.supportsEdit) {
+      const resources = this.resourcesForEdit(filePath, next);
+      if (resources.ok) {
+        return this.claim(resources.resources);
+      }
+      if (!resources.unsupported) {
+        return { ok: false, message: resources.message };
+      }
+      this.supportsEdit = false;
+    }
     return this.claim(zitResourcesForEdit(filePath, previous, next));
+  }
+
+  private resourcesForEdit(
+    filePath: string,
+    next: string,
+  ): { ok: true; resources: string[] } | { ok: false; unsupported: boolean; message: string } {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'autohand-zit-edit-'));
+    try {
+      const content = path.join(dir, 'content');
+      writeFileSync(content, next);
+      const result = run(this.info.zitBin, this.info.workspacePath, [
+        'claim',
+        '--workspace',
+        this.info.workspaceId,
+        '--edit',
+        filePath,
+        '--content',
+        content,
+        '--dry-run',
+        '--json',
+      ]);
+      if (result.status === 0) {
+        const parsed = JSON.parse(result.stdout) as { resources?: unknown };
+        const resources = Array.isArray(parsed.resources)
+          ? parsed.resources.filter((resource): resource is string => typeof resource === 'string')
+          : [];
+        return { ok: true, resources };
+      }
+      return {
+        ok: false,
+        unsupported: !result.error && /unexpected argument '--edit'/.test(result.stderr),
+        message: `zit claim failed for ${filePath}; nothing was written: ${failureDetails(result)}`,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        unsupported: false,
+        message: `zit claim failed for ${filePath}; nothing was written: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 
   /** Claim resources (`path`, `path#Name`, `path#`); granted ones are not claimed again. */
@@ -398,10 +461,10 @@ export function markdownSections(text: string): Map<string | null, string> {
 }
 
 /**
- * The zit resources an edit changes. Markdown edits name the sections whose
- * text changes (`path#Heading`, or `path#` for text before the first heading).
- * New files, and files zit indexes by symbol that we cannot parse here, are
- * claimed whole.
+ * Fallback for a zit without `claim --edit`: the resources an edit changes,
+ * computed here. Markdown edits name the sections whose text changes
+ * (`path#Heading`, or `path#` for text before the first heading). New files,
+ * and code files zit indexes by symbol, are claimed whole.
  */
 export function zitResourcesForEdit(filePath: string, previous: string | null, next: string): string[] {
   const escaped = zitFileResource(filePath);

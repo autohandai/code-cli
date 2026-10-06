@@ -20,6 +20,7 @@ const hasZit = existsSync(REAL_ZIT);
 const README = '# Demo\n\nintro\n\n## Install\nrun it\n\n## Usage\nuse it\n';
 const WITH_NEW_USAGE = README.replace('use it', 'use it well');
 const WITH_NEW_INSTALL = README.replace('run it', 'run it twice');
+const APP = 'export function first() {\n  return 1;\n}\n\nexport function second() {\n  return 2;\n}\n';
 const replaceBlock = (search: string, replace: string) =>
   `<<<<<<< SEARCH\n${search}\n=======\n${replace}\n>>>>>>> REPLACE`;
 
@@ -66,7 +67,7 @@ describe.skipIf(!hasZit)('ActionExecutor zit claims (real zit)', () => {
     git(repo, ['init', '-q']);
     writeFileSync(path.join(repo, 'README.md'), README);
     writeFileSync(path.join(repo, 'notes.md'), 'notes\n');
-    writeFileSync(path.join(repo, 'app.ts'), 'export const a = 1;\n');
+    writeFileSync(path.join(repo, 'app.ts'), APP);
     git(repo, ['add', '.']);
     git(repo, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'init']);
 
@@ -95,9 +96,34 @@ describe.skipIf(!hasZit)('ActionExecutor zit claims (real zit)', () => {
     });
   }
 
+  /** Claims that took something; `--edit --dry-run` queries are not claims. */
   function claimCalls(): string[] {
     if (!existsSync(callLog)) return [];
-    return readFileSync(callLog, 'utf8').split('\n').filter((line) => line.startsWith('claim '));
+    return readFileSync(callLog, 'utf8')
+      .split('\n')
+      .filter((line) => line.startsWith('claim ') && !line.includes('--dry-run'));
+  }
+
+  function readApp(): string {
+    return readFileSync(path.join(info.workspacePath, 'app.ts'), 'utf8');
+  }
+
+  /** Replace the wrapper with one that predates `zit claim --edit`. */
+  function useZitWithoutEdit(): void {
+    const wrapper = path.join(tmp, 'bin', 'zit-logged');
+    writeFileSync(wrapper, [
+      '#!/bin/sh',
+      `echo "$*" >> "${callLog}"`,
+      'for arg in "$@"; do',
+      '  if [ "$arg" = "--edit" ]; then',
+      "    echo \"error: unexpected argument '--edit' found\" >&2",
+      '    exit 2',
+      '  fi',
+      'done',
+      `exec "${REAL_ZIT}" "$@"`,
+      '',
+    ].join('\n'));
+    chmodSync(wrapper, 0o755);
   }
 
   function workspaceClaims(workspaceId: string): string[] {
@@ -216,17 +242,70 @@ describe.skipIf(!hasZit)('ActionExecutor zit claims (real zit)', () => {
     finishSessionZit(info);
   });
 
-  it('claims the whole file for code and for new files', async () => {
+  it('lets an edit to our function through while another workspace holds a different function', async () => {
+    const other = zit(repo, ['materialise', '--agent', 'rival-agent', '--intent', 'Rival']).stdout.trim();
+    const otherId = path.basename(path.dirname(other));
+    const rivalContent = path.join(tmp, 'rival-app.ts');
+    writeFileSync(rivalContent, APP.replace('return 1', 'return 10'));
+    expect(zit(other, ['claim', '--workspace', otherId, '--edit', 'app.ts', '--content', rivalContent]).status).toBe(0);
     const executor = createExecutor();
 
     await executor.execute({ type: 'read_file', path: 'app.ts' });
-    await executor.execute({ type: 'write_file', path: 'app.ts', contents: 'export const a = 2;\n' }, { approvalHandled: true });
+    const ours = await executor.executeForTool(
+      { type: 'search_replace', path: 'app.ts', blocks: replaceBlock('  return 2;', '  return 20;') },
+      { approvalHandled: true },
+    );
+    expect(ours.success).toBe(true);
+    expect(readApp()).toBe(APP.replace('return 2', 'return 20'));
+    expect(claimCalls()).toEqual([`claim --workspace ${info.workspaceId} app.ts#second`]);
+
+    await executor.execute({ type: 'read_file', path: 'app.ts' });
+    const theirs = await executor.executeForTool(
+      { type: 'search_replace', path: 'app.ts', blocks: replaceBlock('  return 1;', '  return 100;') },
+      { approvalHandled: true },
+    );
+    expect(theirs.success).toBe(false);
+    const error = theirs.success ? '' : theirs.error;
+    expect(error).toContain('app.ts#first');
+    expect(error).toContain('rival-agent');
+    expect(error).toContain('Another agent holds this. Pick other work or stop.');
+    expect(readApp()).toBe(APP.replace('return 2', 'return 20'));
+
+    finishSessionZit(info);
+    zit(repo, ['dispose', otherId]);
+  });
+
+  it('claims a new file whole', async () => {
+    const executor = createExecutor();
+
     await executor.execute({ type: 'write_file', path: 'docs/new.md', contents: '# New\n' }, { approvalHandled: true });
 
-    expect(claimCalls()).toEqual([
+    expect(claimCalls()).toEqual([`claim --workspace ${info.workspaceId} docs/new.md`]);
+
+    finishSessionZit(info);
+  });
+
+  it('falls back to Markdown sections and whole code files when zit has no --edit', async () => {
+    useZitWithoutEdit();
+    const executor = createExecutor();
+
+    await executor.execute({ type: 'read_file', path: 'README.md' });
+    await executor.execute({ type: 'write_file', path: 'README.md', contents: WITH_NEW_USAGE }, { approvalHandled: true });
+    await executor.execute({ type: 'read_file', path: 'app.ts' });
+    await executor.execute(
+      { type: 'search_replace', path: 'app.ts', blocks: replaceBlock('  return 2;', '  return 20;') },
+      { approvalHandled: true },
+    );
+
+    expect(readApp()).toBe(APP.replace('return 2', 'return 20'));
+    expect(claimCalls().filter((line) => !line.includes('--edit'))).toEqual([
+      `claim --workspace ${info.workspaceId} README.md#Usage`,
       `claim --workspace ${info.workspaceId} app.ts`,
-      `claim --workspace ${info.workspaceId} docs/new.md`,
     ]);
+    // Detected once: no further --edit attempts after the first refusal of the flag.
+    expect(claimCalls().filter((line) => line.includes('--edit'))).toHaveLength(0);
+    const editQueries = readFileSync(callLog, 'utf8').split('\n').filter((line) => line.includes('--edit'));
+    expect(editQueries).toHaveLength(1);
 
     finishSessionZit(info);
   });
