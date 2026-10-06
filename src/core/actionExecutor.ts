@@ -136,6 +136,7 @@ import {
   type ReadStateStore,
 } from './agent/ReadSessionLedger.js';
 import { buildLocalWorkMap, parseWorkMapHarnesses } from '../integrations/ahtraces/workMap.js';
+import { zitFileResource } from '../utils/sessionZit.js';
 
 interface ActivityTodo {
   id?: string;
@@ -297,6 +298,17 @@ const PEER_GIT_COMMAND_BY_ACTION: Readonly<Record<string, string>> = {
   git_push: 'git push',
 };
 
+/** Tools whose writes reach FileActionManager's write guard with their content. */
+const ZIT_CONTENT_CLAIMED_ACTIONS = new Set<string>([
+  'write_file',
+  'append_file',
+  'apply_patch',
+  'search_replace',
+  'multi_file_edit',
+  'notebook_edit',
+  'format_file',
+]);
+
 /** Files a unified diff touches, from its `--- a/x` and `+++ b/x` headers. */
 function pathsInUnifiedDiff(diff: string): string[] {
   const paths = new Set<string>();
@@ -375,6 +387,15 @@ export class ActionExecutor {
   constructor(private readonly deps: AgentExecutorDeps) {
     this.runtime = deps.runtime;
     this.files = deps.files;
+    const zitClaims = deps.runtime.zitClaims;
+    if (zitClaims) {
+      this.files.setWriteGuard((relativePath, previous, next) => {
+        const result = zitClaims.claimEdit(relativePath, previous, next);
+        if (!result.ok) {
+          throw new Error(result.message);
+        }
+      });
+    }
     this.resolveWorkspacePath = deps.resolveWorkspacePath;
     this.confirmDangerousAction = deps.confirmDangerousAction;
     this.projectManager = deps.projectManager;
@@ -1061,13 +1082,15 @@ export class ActionExecutor {
     if (paths.length === 0) {
       return undefined;
     }
-    const result = zitClaims.claim(paths);
+    const result = zitClaims.claim(paths.map(zitFileResource));
     return result.ok ? undefined : result.message;
   }
 
   private writePathsForZitClaim(action: AgentAction): string[] {
     // Directories and Autohand's own task list are not source files to claim.
-    if (action.type === 'create_directory' || action.type === 'todo_write') {
+    // Text edits are claimed by the file write guard, which sees the content
+    // and so claims only the sections or symbols that change.
+    if (action.type === 'create_directory' || action.type === 'todo_write' || ZIT_CONTENT_CLAIMED_ACTIONS.has(action.type)) {
       return [];
     }
     if (action.type === 'git_apply_patch') {

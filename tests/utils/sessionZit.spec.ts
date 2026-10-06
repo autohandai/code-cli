@@ -18,6 +18,7 @@ import {
   prepareSessionZit,
   resolveZitIntent,
   trimZitSummary,
+  zitResourcesForEdit,
 } from '../../src/utils/sessionZit.js';
 import { validateZitOption } from '../../src/startup/cliOptions.js';
 
@@ -180,6 +181,44 @@ process.stdout.write('READY\\n');
     expect(zit(repo, ['show', recorded![1]!])).toContain('reported Stalled summary');
     expect(JSON.parse(zit(repo, ['status', '--json'])).workspaces).toEqual([]);
   }, 120_000);
+
+  it('names the same Markdown sections for an edit as zit records for it', () => {
+    const base = [
+      'intro text',
+      '',
+      '# Install',
+      'run it',
+      '',
+      '## Linux ##',
+      'apt',
+      '',
+      '```sh',
+      '# not a heading',
+      '```',
+      '',
+      '# Usage',
+      'use it',
+      '',
+    ].join('\n');
+    writeFileSync(path.join(repo, 'GUIDE.md'), base);
+    git(repo, ['add', '.']);
+    git(repo, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'guide']);
+
+    const edits = [
+      base.replace('apt', 'dnf'),
+      base.replace('# not a heading', '# still not a heading'),
+      base.replace('intro text', 'new intro'),
+      base.replace('# Usage', '# Using it'),
+      `${base}\n# Appendix\nmore\n`,
+      base.replace('run it\n', ''),
+    ];
+    for (const edited of edits) {
+      const info = prepareSessionZit({ cwd: repo, zit: true });
+      writeFileSync(path.join(info.workspacePath, 'GUIDE.md'), edited);
+      const recorded = finishSessionZit(info).writes;
+      expect(zitResourcesForEdit('GUIDE.md', base, edited).sort()).toEqual([...recorded].sort());
+    }
+  }, 180_000);
 
   it('finalizer records only once', () => {
     const info = prepareSessionZit({ cwd: repo, zit: true });

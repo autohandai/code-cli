@@ -145,6 +145,9 @@ const SEARCH_EXCLUDED_DIRECTORIES = new Set([
   'binaries',
 ]);
 
+/** Inspects a text write before it lands; throws to block it. Paths are workspace-relative. */
+export type FileWriteGuard = (relativePath: string, previous: string | null, next: string) => void;
+
 export class FileActionManager {
   private undoStack: UndoEntry[] = [];
   private workspaceRoot: string;
@@ -160,6 +163,7 @@ export class FileActionManager {
   private currentToolId = '';
   private currentToolName = '';
   private previewStaleCheckEnabled = false;
+  private writeGuard: FileWriteGuard | null = null;
 
   constructor(
     workspaceRoot: string,
@@ -385,6 +389,21 @@ export class FileActionManager {
     if (this.onBatchChange) {
       this.onBatchChange(change);
     }
+  }
+
+  /**
+   * Called before any text write lands, with the content before (null for a
+   * new file) and after. Throwing blocks the write.
+   */
+  setWriteGuard(guard: FileWriteGuard | null): void {
+    this.writeGuard = guard;
+  }
+
+  private guardWrite(filePath: string, previous: string | null, next: string): void {
+    if (!this.writeGuard) return;
+    const relativePath = path.relative(this.workspaceRoot, filePath);
+    if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) return;
+    this.writeGuard(relativePath.split(path.sep).join('/'), previous, next);
   }
 
   get root(): string {
@@ -792,6 +811,7 @@ export class FileActionManager {
       return;
     }
 
+    this.guardWrite(filePath, exists ? previous : null, contents);
     await fs.ensureDir(path.dirname(filePath));
 
     // Limit undo stack size to prevent memory exhaustion
@@ -837,6 +857,7 @@ export class FileActionManager {
       return;
     }
 
+    this.guardWrite(filePath, await fs.pathExists(filePath) ? current : null, updated);
     this.undoStack.push({
       kind: 'restore-file',
       absolutePath: filePath,

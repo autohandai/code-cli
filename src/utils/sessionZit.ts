@@ -141,7 +141,7 @@ export function buildZitSessionInstructions(info: Pick<SessionZitInfo, 'workspac
   return [
     '## Zit workspace',
     `You are working in a Zit workspace (id ${info.workspaceId}) that is shared with other agents working on the same repository.`,
-    '- Your file tools (write, edit, patch, delete, rename) claim each file in Zit before writing it.',
+    '- Your file tools (write, edit, patch, delete, rename) claim what they change in Zit before writing: the changed sections of a Markdown file, otherwise the whole file.',
     `- Shell commands are not claimed for you: before changing a file through the shell, run \`${zit} claim <path>\` yourself (or narrower: \`${zit} claim "path#Symbol"\`, \`${zit} claim "path#Section heading"\`).`,
     '- If a claim is refused, another agent holds that resource: pick other work or stop and explain why.',
     `- \`${zit} status\` shows the changes and workspaces other agents hold.`,
@@ -320,8 +320,18 @@ export class ZitClaimGuard {
 
   constructor(private readonly info: Pick<SessionZitInfo, 'zitBin' | 'workspaceId' | 'workspacePath'>) {}
 
-  claim(paths: string[]): ZitClaimResult {
-    const pending = [...new Set(paths)].filter((candidate) => !this.granted.has(candidate));
+  /** Claim what an edit changes, at the granularity zit tracks (see zitResourcesForEdit). */
+  claimEdit(filePath: string, previous: string | null, next: string): ZitClaimResult {
+    return this.claim(zitResourcesForEdit(filePath, previous, next));
+  }
+
+  /** Claim resources (`path`, `path#Name`, `path#`); granted ones are not claimed again. */
+  claim(resources: string[]): ZitClaimResult {
+    const covered = (resource: string): boolean => {
+      const hash = resource.indexOf('#');
+      return this.granted.has(resource) || (hash >= 0 && this.granted.has(resource.slice(0, hash)));
+    };
+    const pending = [...new Set(resources)].filter((resource) => !covered(resource));
     if (pending.length === 0) {
       return { ok: true };
     }
@@ -351,4 +361,61 @@ export class ZitClaimGuard {
       message: `zit claim failed for ${pending.join(', ')}; nothing was written: ${failureDetails(result)}`,
     };
   }
+}
+
+const MARKDOWN_EXTENSIONS = new Set(['md', 'mdx', 'markdown']);
+
+/** Zit's text form for a whole-file resource: a literal `#` or `%` in the path is escaped. */
+export function zitFileResource(filePath: string): string {
+  return filePath.replace(/%/g, '%25').replace(/#/g, '%23');
+}
+
+/**
+ * Markdown sections as zit indexes them: each heading starts a section named
+ * after it (headings inside fenced code do not count, equal names share one
+ * section), and text before the first heading is module-level (`null`).
+ */
+export function markdownSections(text: string): Map<string | null, string> {
+  const bodies = new Map<string | null, string>();
+  let section: string | null = null;
+  let fenced = false;
+  const lines = text.split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  for (const raw of lines) {
+    const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+    const trimmed = line.trimStart();
+    if (trimmed.startsWith('```') || trimmed.startsWith('~~~')) {
+      fenced = !fenced;
+    }
+    const hashes = /^#*/.exec(trimmed)![0].length;
+    if (!fenced && hashes >= 1 && hashes <= 6 && trimmed[hashes] === ' ') {
+      section = trimmed.slice(hashes).trim().replace(/#+$/, '').trim();
+    }
+    const key = section ? section : null;
+    bodies.set(key, `${bodies.get(key) ?? ''}${line}\n`);
+  }
+  return bodies;
+}
+
+/**
+ * The zit resources an edit changes. Markdown edits name the sections whose
+ * text changes (`path#Heading`, or `path#` for text before the first heading).
+ * New files, and files zit indexes by symbol that we cannot parse here, are
+ * claimed whole.
+ */
+export function zitResourcesForEdit(filePath: string, previous: string | null, next: string): string[] {
+  const escaped = zitFileResource(filePath);
+  const extension = filePath.includes('.') ? filePath.slice(filePath.lastIndexOf('.') + 1) : '';
+  if (previous === null || !MARKDOWN_EXTENSIONS.has(extension)) {
+    return previous === next ? [] : [escaped];
+  }
+  const before = markdownSections(previous);
+  const after = markdownSections(next);
+  const changed: string[] = [];
+  for (const name of new Set([...before.keys(), ...after.keys()])) {
+    if (before.get(name) !== after.get(name)) {
+      changed.push(name === null ? `${escaped}#` : `${escaped}#${name}`);
+    }
+  }
+  return changed;
 }

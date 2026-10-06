@@ -17,6 +17,12 @@ const REAL_ZIT = process.env.ZIT_BIN
   || '/Users/igorcosta/Documents/autohand/faster_worktree/target/release/zit';
 const hasZit = existsSync(REAL_ZIT);
 
+const README = '# Demo\n\nintro\n\n## Install\nrun it\n\n## Usage\nuse it\n';
+const WITH_NEW_USAGE = README.replace('use it', 'use it well');
+const WITH_NEW_INSTALL = README.replace('run it', 'run it twice');
+const replaceBlock = (search: string, replace: string) =>
+  `<<<<<<< SEARCH\n${search}\n=======\n${replace}\n>>>>>>> REPLACE`;
+
 function git(cwd: string, args: string[]): void {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
   if (result.status !== 0) {
@@ -58,8 +64,9 @@ describe.skipIf(!hasZit)('ActionExecutor zit claims (real zit)', () => {
 
     mkdirSync(repo, { recursive: true });
     git(repo, ['init', '-q']);
-    writeFileSync(path.join(repo, 'README.md'), '# Demo\n');
+    writeFileSync(path.join(repo, 'README.md'), README);
     writeFileSync(path.join(repo, 'notes.md'), 'notes\n');
+    writeFileSync(path.join(repo, 'app.ts'), 'export const a = 1;\n');
     git(repo, ['add', '.']);
     git(repo, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'init']);
 
@@ -100,19 +107,32 @@ describe.skipIf(!hasZit)('ActionExecutor zit claims (real zit)', () => {
     return status.workspaces.find((workspace) => workspace.id === workspaceId)?.claims ?? [];
   }
 
-  it('claims the file before a granted write and the claim shows in zit status', async () => {
+  function readme(): string {
+    return readFileSync(path.join(info.workspacePath, 'README.md'), 'utf8');
+  }
+
+  /** A second workspace whose recorded, unaccepted change wrote the Install section. */
+  function rivalWritesInstall(): string {
+    const other = zit(repo, ['materialise', '--agent', 'rival-agent', '--intent', 'Rival']).stdout.trim();
+    const otherId = path.basename(path.dirname(other));
+    writeFileSync(path.join(other, 'README.md'), WITH_NEW_INSTALL.replace('twice', 'by the rival'));
+    expect(zit(repo, ['record', '--workspace', otherId, '--dispose']).status).toBe(0);
+    return otherId;
+  }
+
+  it('claims only the Markdown section a write changes, and the claim shows in zit status', async () => {
     const executor = createExecutor();
 
     await executor.execute({ type: 'read_file', path: 'README.md' });
     const outcome = await executor.executeForTool(
-      { type: 'write_file', path: 'README.md', contents: '# Demo\n\n## Usage\n' },
+      { type: 'write_file', path: 'README.md', contents: WITH_NEW_USAGE },
       { approvalHandled: true },
     );
 
     expect(outcome.success).toBe(true);
-    expect(readFileSync(path.join(info.workspacePath, 'README.md'), 'utf8')).toBe('# Demo\n\n## Usage\n');
-    expect(workspaceClaims(info.workspaceId)).toContain('README.md');
-    expect(claimCalls()).toEqual([`claim --workspace ${info.workspaceId} README.md`]);
+    expect(readme()).toBe(WITH_NEW_USAGE);
+    expect(workspaceClaims(info.workspaceId)).toEqual(['README.md#Usage']);
+    expect(claimCalls()).toEqual([`claim --workspace ${info.workspaceId} README.md#Usage`]);
 
     finishSessionZit(info);
   });
@@ -125,7 +145,7 @@ describe.skipIf(!hasZit)('ActionExecutor zit claims (real zit)', () => {
     const executor = createExecutor();
     await executor.execute({ type: 'read_file', path: 'README.md' });
     const outcome = await executor.executeForTool(
-      { type: 'write_file', path: 'README.md', contents: 'overwritten\n' },
+      { type: 'write_file', path: 'README.md', contents: WITH_NEW_USAGE },
       { approvalHandled: true },
     );
 
@@ -134,23 +154,79 @@ describe.skipIf(!hasZit)('ActionExecutor zit claims (real zit)', () => {
     expect(error).toContain('rival-agent');
     expect(error).toContain(otherId);
     expect(error).toContain('Another agent holds this. Pick other work or stop.');
-    expect(readFileSync(path.join(info.workspacePath, 'README.md'), 'utf8')).toBe('# Demo\n');
-    expect(workspaceClaims(info.workspaceId)).not.toContain('README.md');
+    expect(readme()).toBe(README);
+    expect(workspaceClaims(info.workspaceId)).toEqual([]);
 
     finishSessionZit(info);
     zit(repo, ['dispose', otherId]);
   });
 
-  it('claims each file once per session', async () => {
+  it('lets a write to our section through while another change holds a different section of the file', async () => {
+    const rivalChange = rivalWritesInstall();
+    expect(rivalChange).toBeTruthy();
+    // The model claims its section through the shell, as it did in the real run.
+    expect(zit(info.workspacePath, ['claim', '--workspace', info.workspaceId, 'README.md#Usage']).status).toBe(0);
     const executor = createExecutor();
 
     await executor.execute({ type: 'read_file', path: 'README.md' });
-    await executor.execute({ type: 'write_file', path: 'README.md', contents: 'one\n' }, { approvalHandled: true });
-    await executor.execute({ type: 'read_file', path: 'README.md' });
-    await executor.execute({ type: 'write_file', path: 'README.md', contents: 'two\n' }, { approvalHandled: true });
+    const ours = await executor.executeForTool(
+      { type: 'search_replace', path: 'README.md', blocks: replaceBlock('use it', 'use it well') },
+      { approvalHandled: true },
+    );
+    expect(ours.success).toBe(true);
+    expect(readme()).toBe(WITH_NEW_USAGE);
 
-    expect(readFileSync(path.join(info.workspacePath, 'README.md'), 'utf8')).toBe('two\n');
-    expect(claimCalls()).toHaveLength(1);
+    await executor.execute({ type: 'read_file', path: 'README.md' });
+    const theirs = await executor.executeForTool(
+      { type: 'search_replace', path: 'README.md', blocks: replaceBlock('run it', 'run it twice') },
+      { approvalHandled: true },
+    );
+    expect(theirs.success).toBe(false);
+    const error = theirs.success ? '' : theirs.error;
+    expect(error).toContain('README.md#Install');
+    expect(error).toContain('rival-agent');
+    expect(error).toContain('Another agent holds this. Pick other work or stop.');
+    expect(readme()).toBe(WITH_NEW_USAGE);
+
+    finishSessionZit(info);
+  });
+
+  it('claims each section once per session', async () => {
+    const executor = createExecutor();
+
+    await executor.execute({ type: 'read_file', path: 'README.md' });
+    await executor.execute({ type: 'write_file', path: 'README.md', contents: WITH_NEW_USAGE }, { approvalHandled: true });
+    await executor.execute({ type: 'read_file', path: 'README.md' });
+    await executor.execute(
+      { type: 'write_file', path: 'README.md', contents: WITH_NEW_USAGE.replace('well', 'very well') },
+      { approvalHandled: true },
+    );
+    expect(claimCalls()).toEqual([`claim --workspace ${info.workspaceId} README.md#Usage`]);
+
+    await executor.execute({ type: 'read_file', path: 'README.md' });
+    await executor.execute(
+      { type: 'search_replace', path: 'README.md', blocks: replaceBlock('run it', 'run it twice') },
+      { approvalHandled: true },
+    );
+    expect(claimCalls()).toEqual([
+      `claim --workspace ${info.workspaceId} README.md#Usage`,
+      `claim --workspace ${info.workspaceId} README.md#Install`,
+    ]);
+
+    finishSessionZit(info);
+  });
+
+  it('claims the whole file for code and for new files', async () => {
+    const executor = createExecutor();
+
+    await executor.execute({ type: 'read_file', path: 'app.ts' });
+    await executor.execute({ type: 'write_file', path: 'app.ts', contents: 'export const a = 2;\n' }, { approvalHandled: true });
+    await executor.execute({ type: 'write_file', path: 'docs/new.md', contents: '# New\n' }, { approvalHandled: true });
+
+    expect(claimCalls()).toEqual([
+      `claim --workspace ${info.workspaceId} app.ts`,
+      `claim --workspace ${info.workspaceId} docs/new.md`,
+    ]);
 
     finishSessionZit(info);
   });
@@ -203,6 +279,6 @@ describe.skipIf(!hasZit)('ActionExecutor zit claims (real zit)', () => {
 
     expect(outcome.success).toBe(false);
     expect(outcome.success ? '' : outcome.error).toContain('zit claim failed');
-    expect(readFileSync(path.join(info.workspacePath, 'README.md'), 'utf8')).toBe('# Demo\n');
+    expect(readme()).toBe(README);
   });
 });
