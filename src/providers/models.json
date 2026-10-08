@@ -1,8 +1,8 @@
 {
   "providers": {
     "autohandai": {
-      "defaultModel": "fantail",
-      "runtimeDefaultModel": "fantail",
+      "defaultModel": "moa",
+      "runtimeDefaultModel": "moa",
       "models": [
         {
           "id": "fantail",

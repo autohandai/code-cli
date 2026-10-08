@@ -135,6 +135,8 @@ export async function createTempAutohandHome(options: CreateTempAutohandHomeOpti
   const config = {
     ...baseConfig,
     ...overrideConfig,
+    // Scripted legacy scenarios cover their own flow; orchestration scenarios enable its additional requests explicitly.
+    ...(overrideConfig.autohandai ? { autohandai: { orchestration: false, ...recordOrEmpty(overrideConfig.autohandai) } } : {}),
     openrouter: {
       ...recordOrEmpty(baseConfig.openrouter),
       ...recordOrEmpty(overrideConfig.openrouter),

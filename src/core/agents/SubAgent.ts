@@ -48,6 +48,7 @@ import { TruncationRecoveryTracker } from '../agent/TruncationRecovery.js';
 import { DEFAULT_RESPONSE_COMPLETION_HOOKS } from '../agent/ResponseCompletionClassifier.js';
 import { getSessionPromptCacheDirective, isPromptCachingEnabled } from '../agent/PromptCache.js';
 import { usesAutohandAICloud } from '../../providers/AutohandAIProvider.js';
+import { isAutohandOrchestrationEnabled, RESEARCH_WORKER_INSTRUCTIONS, RESEARCH_WORKER_TOOLS } from '../agent/AutohandOrchestration.js';
 
 /**
  * Options for creating a SubAgent with context inheritance
@@ -204,6 +205,9 @@ export class SubAgent {
         if (options.allowedToolNames) {
             definitions = definitions.filter(definition => options.allowedToolNames?.has(definition.name));
         }
+        if (options.depth > 0 && options.featureConfig && isAutohandOrchestrationEnabled(options.featureConfig)) {
+            definitions = definitions.filter(definition => RESEARCH_WORKER_TOOLS.has(definition.name));
+        }
 
         // Create delegator if sub-agent can delegate
         if (canDelegate) {
@@ -268,6 +272,7 @@ export class SubAgent {
         // Build enhanced system prompt with tool signatures
         const enhancedSystemPrompt = [
             this.buildSystemPrompt(config.systemPrompt, definitions),
+            options.depth > 0 && options.featureConfig && isAutohandOrchestrationEnabled(options.featureConfig) ? RESEARCH_WORKER_INSTRUCTIONS : '',
             options.workspaceRoot ? `## Execution workspace\nYour tools execute in: ${JSON.stringify(options.workspaceRoot)}\nUse this selected repository, not the terminal launch directory. Read applicable repository instructions before making changes. If the request refers to another repository or the scope is ambiguous, report the mismatch to the lead instead of guessing or switching repositories.` : '',
             'The delegated task is a bounded part of the original user request. Preserve the user\'s constraints; a review or diagnosis does not authorize edits. Report conflicts between the delegated task and the original request to the lead.',
             formatAgentRoster(AgentRegistry.getInstance().getAllAgents(), new Set(definitions.map(definition => definition.name))),

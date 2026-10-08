@@ -48,7 +48,7 @@ import {
 import { isAwsBedrockProviderEnabled } from "./features/featureRegistry.js";
 import { getCustomProviderConfig, isCustomProviderName } from "./providers/customProviders.js";
 import { getProviderDefaultModel, getProviderModelOptions, getProviderRuntimeDefaultModel, normalizeOpenRouterModelId } from "./providers/modelCatalog.js";
-import { DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION, MAX_CONCURRENT_THREADS_PER_SESSION, isValidSessionThreadLimit } from "./core/agents/SessionThreadBudget.js";
+import { MAX_CONCURRENT_THREADS_PER_SESSION, isValidSessionThreadLimit } from "./core/agents/SessionThreadBudget.js";
 
 const DEFAULT_CONFIG_PATH = AUTOHAND_FILES.configJson;
 const TOML_CONFIG_PATH = AUTOHAND_FILES.configToml;
@@ -202,11 +202,7 @@ function createDefaultConfig(): AutohandConfig {
     agent: {
       toolSelectionCache: true,
     },
-    features: {
-      multi_agent_v2: {
-        max_concurrent_threads_per_session: DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION,
-      },
-    },
+    features: {},
   };
 }
 

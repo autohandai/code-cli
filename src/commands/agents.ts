@@ -8,6 +8,7 @@ import chalk from 'chalk';
 import readline from 'node:readline';
 import { t } from '../i18n/index.js';
 import { AgentRegistry } from '../core/agents/AgentRegistry.js';
+import { isAutohandOrchestrationEnabled } from '../core/agent/AutohandOrchestration.js';
 import { getProviderConfig, loadConfig, saveConfig } from '../config.js';
 import { getProviderRunnableModelOptions } from '../providers/modelCatalog.js';
 import { ProviderFactory } from '../providers/ProviderFactory.js';
@@ -24,6 +25,7 @@ export const metadata = {
         { name: 'help', description: 'show agent commands and keyboard controls' },
         { name: 'view', description: 'inspect this session’s agent runs, results, and usage' },
         { name: 'provider [agent]', description: 'set the default provider/model or an agent-specific override' },
+        { name: 'orchestration [on|off]', description: 'toggle Autohand AI research workers and Moa checkpoint reviews' },
         { name: 'definitions', description: 'list configured sub-agent definitions' },
         { name: 'new', description: 'create a new sub-agent from a description' },
     ],
@@ -57,10 +59,26 @@ export async function handler(args: string[] = [], deps: AgentsCommandDeps = {})
             '  /agents --once            Print one global heartbeat snapshot',
             '  /agents definitions       List configured agent definitions',
             '  /agents provider [agent]  Set default or agent-specific provider/model',
+            '  /agents orchestration [on|off]  Show or switch Autohand AI orchestration',
             '  /agents new               Create an agent definition',
             '  /team view                Open the current team’s compact activity view',
             '  /squad view               Inspect recorded external Squad runs (independent sessions; read-only)',
         ].join('\n');
+    }
+    if (subcommand === 'orchestration') {
+        const config = deps.config ?? await loadConfig(undefined, process.cwd());
+        if (!config.autohandai || config.autohandai.plan !== 'cloud' || config.provider !== 'autohandai') {
+            return 'Orchestration is available with the Autohand AI Cloud provider.';
+        }
+        const choice = args[1]?.toLowerCase();
+        if (choice && choice !== 'on' && choice !== 'off') return 'Usage: /agents orchestration [on|off]';
+        if (choice) {
+            const next = { ...config, autohandai: { ...config.autohandai, orchestration: choice === 'on' } };
+            await (deps.persistConfig ?? saveConfig)(next);
+            config.autohandai = next.autohandai;
+        }
+        return `Autohand AI orchestration ${isAutohandOrchestrationEnabled(config) ? 'enabled' : 'disabled'}. `
+            + 'Use /model for the lead and /agents provider for workers. Moa reviews require Moa access.';
     }
     if (subcommand === 'view') {
         if (!deps.onToggleAgentRunsView) return 'The session agent inspector is available in an interactive Autohand session. Use /agents view there.';

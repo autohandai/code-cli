@@ -10,10 +10,18 @@ import { ProviderFactory } from '../../../src/providers/ProviderFactory.js';
 import type { AutohandConfig } from '../../../src/types.js';
 
 describe('resolveTeamModelAssignment', () => {
+  it('keeps research workers on Fantail even when a definition requests Moa reasoning', () => {
+    const cloud: AutohandConfig = { provider: 'autohandai', autohandai: { plan: 'cloud', model: 'moa' } };
+    expect(resolveTeamModelAssignment({ config: cloud, active: { provider: 'autohandai', model: 'moa' }, agentModel: 'moa', agentReasoning: 'high', environment: {} })).toEqual({ provider: 'autohandai', model: 'fantail', source: 'agent-nature' });
+    expect(resolveTeamModelAssignment({ config: { ...cloud, teams: { defaultModel: 'moa' } }, active: { provider: 'autohandai', model: 'moa' }, environment: {} }).model).toBe('moa');
+  });
+  it('applies free account entitlements to explicit worker model selections', () => {
+    expect(resolveTeamModelAssignment({ config, active: { provider: 'autohandai', model: 'fantail' }, accountTier: 'free', override: { model: 'moa' }, environment: {} }).model).toBe('fantail');
+  });
   const config: AutohandConfig = {
     provider: 'openrouter',
     openrouter: { apiKey: 'test-key', model: 'openrouter/auto' },
-    autohandai: { plan: 'cloud', model: 'fantail' },
+    autohandai: { plan: 'cloud', model: 'fantail', orchestration: false },
   };
 
   it('runs Autohand AI members on the fast tier when nothing overrides it', () => {

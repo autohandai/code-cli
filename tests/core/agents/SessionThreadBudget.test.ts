@@ -12,6 +12,14 @@ import {
 } from '../../../src/core/agents/SessionThreadBudget.js';
 
 describe('SessionThreadBudget', () => {
+  it('admits three cloud research workers and reuses released capacity', () => {
+    const budget = getSessionThreadBudget({ provider: 'autohandai', autohandai: { plan: 'cloud', model: 'moa' } });
+    const leases = [0, 1, 2].map(index => budget.tryAcquire(`worker-${index}`));
+    expect(budget.maxThreads).toBe(4);
+    expect(() => budget.tryAcquire('fourth')).toThrow(SessionThreadLimitError);
+    leases[0].release();
+    expect(() => budget.tryAcquire('replacement')).not.toThrow();
+  });
   it('keeps workspace changes and child runs mutually exclusive', () => {
     const budget = new SessionThreadBudget();
     const worker = budget.tryAcquire('worker');

@@ -25,7 +25,8 @@ describe('applyPostLoginProviderDefault', () => {
       plan: 'cloud',
       authMode: 'account',
       accountToken: 'ahc_test_token',
-      model: 'fantail',
+      model: 'moa',
+      reasoningEffort: 'high',
     });
     expect(result.autohandai?.baseUrl).toMatch(/^https:\/\//);
   });

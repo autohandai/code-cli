@@ -50,7 +50,7 @@ describe("modelCatalog", () => {
       "grok-4.3",
       "grok-4.20-reasoning",
     ]));
-    expect(getProviderDefaultModel("autohandai")).toBe("fantail");
+    expect(getProviderDefaultModel("autohandai")).toBe("moa");
     expect(getProviderDefaultModel("anthropic")).toBe("claude-sonnet-5");
     expect(getProviderModelIds("anthropic")).toEqual(expect.arrayContaining([
       "claude-sonnet-5",

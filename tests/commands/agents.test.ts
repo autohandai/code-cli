@@ -10,6 +10,17 @@ import type { LoadedConfig } from '../../src/types.js';
 import { AgentRegistry } from '../../src/core/agents/AgentRegistry.js';
 
 describe('/agents command', () => {
+  it('switches orchestration persistently without changing provider/model choices', async () => {
+    const config: LoadedConfig = { provider: 'autohandai', autohandai: { plan: 'cloud', model: 'moa' } };
+    const persistConfig = vi.fn(async () => {});
+    expect(await handler(['orchestration', 'off'], { config, persistConfig })).toContain('disabled');
+    expect(config.autohandai).toMatchObject({ orchestration: false, model: 'moa' });
+    expect(await handler(['orchestration', 'on'], { config, persistConfig })).toContain('enabled');
+    expect(config.autohandai?.orchestration).toBe(true);
+    expect(persistConfig).toHaveBeenCalledTimes(2);
+    expect(await handler(['orchestration', 'bogus'], { config, persistConfig })).toContain('on|off');
+    expect(persistConfig).toHaveBeenCalledTimes(2);
+  });
   it('lists plain-text definitions from the active session configuration', async () => {
     const registry = AgentRegistry.getInstance();
     const previousPaths = registry.getExternalPaths();

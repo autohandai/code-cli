@@ -231,6 +231,11 @@ class GitCaptureBackend implements CaptureBackend<GitSnapshot> {
     return { kind: 'git', tree };
   }
 
+  async pending(): Promise<WorkspaceChangeSet> {
+    const tree = (await this.runGit(['write-tree'], undefined, this.budgetMs)).trim();
+    return this.diff({ kind: 'git', tree }, await this.snapshot());
+  }
+
   async diff(before: GitSnapshot, after: GitSnapshot): Promise<WorkspaceChangeSet> {
     if (before.tree === after.tree) {
       return emptyChangeSet();
@@ -281,7 +286,7 @@ class GitCaptureBackend implements CaptureBackend<GitSnapshot> {
       cwd: this.workspaceRoot,
       env: this.environment,
       maxBuffer,
-      timeoutMs,
+      timeoutMs: timeoutMs ?? this.budgetMs,
     });
   }
 
@@ -439,6 +444,16 @@ export class WorkspaceChangeCapture {
   ) {}
 
   private budgetExceeded = false;
+
+  static async pending(workspaceRoot: string): Promise<WorkspaceChangeSet | null> {
+    const backend = await GitCaptureBackend.create(path.resolve(workspaceRoot));
+    if (!backend) return null;
+    try {
+      return await backend.pending();
+    } finally {
+      await backend.dispose();
+    }
+  }
 
   static async create(workspaceRoot: string, options: { budgetMs?: number } = {}): Promise<WorkspaceChangeCapture> {
     const absoluteRoot = path.resolve(workspaceRoot);

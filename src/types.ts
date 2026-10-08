@@ -113,6 +113,7 @@ export type AutohandAIAuthMode = 'account' | 'api-key';
 
 export interface AutohandAISettings extends ProviderSettings {
   plan: AutohandAIPlan;
+  orchestration?: boolean;
   authMode?: AutohandAIAuthMode;
   apiKey?: string;
   /** Autohand account token for CLI-authenticated Cloud usage. SDKs must use apiKey. */

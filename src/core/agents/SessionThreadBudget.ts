@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { LoadedConfig } from '../../types.js';
+import { orchestrationThreadLimit } from '../agent/AutohandOrchestration.js';
 
 export const DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION = 9;
 export const MAX_CONCURRENT_THREADS_PER_SESSION = 64;
@@ -92,16 +93,14 @@ export class SessionThreadBudget implements ThreadBudget {
   }
 }
 
-type ThreadBudgetConfig = Pick<LoadedConfig, 'features'>;
+type ThreadBudgetConfig = Pick<LoadedConfig, 'features' | 'provider' | 'autohandai'>;
 const sessionBudgets = new WeakMap<ThreadBudgetConfig, SessionThreadBudget>();
 
 export function getSessionThreadBudget(config?: ThreadBudgetConfig): SessionThreadBudget {
   if (!config) return new SessionThreadBudget();
   const existing = sessionBudgets.get(config);
   if (existing) return existing;
-  const budget = new SessionThreadBudget(() =>
-    config.features?.multi_agent_v2?.max_concurrent_threads_per_session
-      ?? DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION);
+  const budget = new SessionThreadBudget(() => orchestrationThreadLimit(config));
   sessionBudgets.set(config, budget);
   return budget;
 }

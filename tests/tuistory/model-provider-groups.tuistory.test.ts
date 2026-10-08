@@ -341,6 +341,21 @@ describe('/model provider and Autohand plan journeys Tuistory', () => {
     await closeInteractive(session);
   });
 
+  it('switches the default orchestration from the composer and persists the choice', async () => {
+    const { session, state } = await launchInteractive(configuredAutohandCloud);
+    await session.type('/agents orchestration off');
+    await dismissAutocompleteMenu(session);
+    await session.press('enter');
+    expect(await session.text({ timeout: 30_000, waitFor: text => text.includes('orchestration disabled') })).toContain('orchestration disabled');
+    const disabled = JSON.parse(await readFile(state.configPath, 'utf8')) as { autohandai: { orchestration: boolean; model: string } };
+    expect(disabled.autohandai).toMatchObject({ orchestration: false, model: 'fantail' });
+    await session.type('/agents orchestration on');
+    await dismissAutocompleteMenu(session);
+    await session.press('enter');
+    expect(await session.text({ timeout: 30_000, waitFor: text => text.includes('orchestration enabled') })).toContain('orchestration enabled');
+    await closeInteractive(session);
+  });
+
   it('keeps Weka out of the executable teammate model picker', async () => {
     const { session } = await launchInteractive(configuredAutohandCloud);
     await session.type('/agents provider');

@@ -79,6 +79,9 @@ import {
 import { usesAutohandAICloud } from '../../providers/AutohandAIProvider.js';
 import { combineDeltaHandlers, StreamedOutputRelay, StreamingResponsePreview } from './StreamingResponsePreview.js';
 import type { RunBudgetGate } from './RunBudget.js';
+import { CheckpointAdvisor, checkpointForCalls, type AdvisorCheckpoint, type AdvisorReview, type TurnAdvisor } from './CheckpointAdvisor.js';
+import { canUseMoaAdvisor } from './AutohandOrchestration.js';
+import { createTeamMemberProvider } from '../teams/TeamModelPolicy.js';
 
 const COMPLETION_REMINDER_TOOL_BATCH_THRESHOLD = 3;
 const MAX_TOOL_FREE_RECOVERIES = 2;
@@ -175,6 +178,9 @@ export interface ReactLoopInkRenderer {
 }
 
 export interface AgentReactLoopHost {
+  accountTier?: string;
+  createCheckpointAdvisor?(): TurnAdvisor | undefined;
+  captureAdvisorDiff?(): Promise<string>;
   peerCommunicationRuntime?: PeerCommunicationRuntime;
   peerRuntime?: AgentPeerRuntime;
   activeProvider?: ProviderName;
@@ -263,7 +269,7 @@ export interface ReactLoopControl {
 
 export type ReactLoopResult =
   | { status: 'completed' }
-  | { status: 'incomplete'; reason: 'iteration_limit' | 'pending_todos' }
+  | { status: 'incomplete'; reason: 'iteration_limit' | 'pending_todos' | 'advisor_review' }
   | { status: 'stopped'; stepNumber: number }
   | { status: 'aborted' };
 
@@ -587,6 +593,46 @@ export async function runAgentReactLoop(
       : null;
 
     try {
+    const advisor = host.createCheckpointAdvisor ? host.createCheckpointAdvisor()
+      : canUseMoaAdvisor({ ...host.runtime.config, provider: host.activeProvider ?? host.runtime.config.provider }, host.accountTier, host.runtime.options.model ?? host.runtime.config.autohandai?.model)
+        ? new CheckpointAdvisor({
+            provider: createTeamMemberProvider(host.runtime.config, { provider: 'autohandai', model: 'moa', reasoningEffort: 'high', source: 'agent-nature' }),
+            budget: host.runBudget,
+            recordUsage: usage => {
+              if (usage) {
+                host.currentTurnActualUsage = addUsageToTurn(host.currentTurnActualUsage, host.activeProvider, usage);
+                host.totalTokensUsed += usage.totalTokens;
+                host.sessionPromptTokens += usage.promptTokens;
+                host.sessionCompletionTokens += usage.completionTokens;
+              } else {
+                host.currentTurnHadUnavailableUsage = true;
+                host.currentTurnActualUsage = { kind: 'unavailable', provider: host.activeProvider, reason: 'not_reported' };
+              }
+            },
+          }) : undefined;
+    let hadToolWork = false;
+    let advisorRejections = 0;
+    const consultAdvisor = async (checkpoint: AdvisorCheckpoint, evidence: string): Promise<AdvisorReview> => {
+      host.setSpinnerStatus(`Moa reviewing ${checkpoint.replaceAll('_', ' ')}... (esc to interrupt)`);
+      let context = evidence;
+      if (checkpoint === 'commit' || checkpoint === 'completion') {
+        try {
+          if (host.captureAdvisorDiff) context += `\n${await host.captureAdvisorDiff()}`;
+          else {
+            const changes = await WorkspaceChangeCapture.pending(host.runtime.workspaceRoot);
+            if (changes?.omittedFiles || changes?.files.some(file => file.patch.includes('[diff truncated]'))) {
+              return { verdict: 'unavailable', feedback: 'The workspace diff exceeds the review limit. Review a smaller change before completing.' };
+            }
+            context += `\nWorkspace diff against HEAD (includes staged and untracked files): ${JSON.stringify(changes ?? { unavailable: 'This workspace is not a Git repository; use the session evidence and disclose this limit.' })}`;
+          }
+        } catch (error) {
+          return { verdict: 'unavailable', feedback: `Cannot capture the workspace diff: ${error instanceof Error ? error.message : String(error)}` };
+        }
+      }
+      const review = await advisor!.review(checkpoint, { history: host.conversation.history(), context, signal: abortController.signal });
+      host.conversation.addSystemNote(`[Moa ${checkpoint} review: ${review.verdict}] ${review.feedback}`);
+      return review;
+    };
     const perToolFailureLimit = 2; // Max consecutive failures for same tool (regardless of args)
     const loopGuard = new ToolLoopGuard();
     const toolConsecutiveFailures = new Map<string, number>();
@@ -819,12 +865,13 @@ export async function runAgentReactLoop(
         // the answer is still being generated, and the client no longer has to
         // wait for the whole completion inside one timeout budget.
         const supportsStreaming = host.llm.getCapabilities?.().streaming === true;
-        const preview = supportsStreaming && host.inkRenderer?.setStreamingResponse
+        const deferReviewedOutput = Boolean(advisor && hadToolWork);
+        const preview = supportsStreaming && !deferReviewedOutput && host.inkRenderer?.setStreamingResponse
           ? new StreamingResponsePreview((text) => host.inkRenderer?.setStreamingResponse?.(text))
           : undefined;
         // Output listeners (ACP, RPC, command output) receive the same deltas
         // as the terminal preview, so protocol hosts show the reply as it arrives.
-        streamedOutput = supportsStreaming ? new StreamedOutputRelay((event) => host.emitOutput(event)) : undefined;
+        streamedOutput = supportsStreaming && !deferReviewedOutput ? new StreamedOutputRelay((event) => host.emitOutput(event)) : undefined;
         const relay = streamedOutput;
         const onRetry = relay
           ? (event: LLMRetryEvent) => { retryWait.handle(event); relay.onRetry(event); }
@@ -1123,6 +1170,21 @@ export async function runAgentReactLoop(
       }
 
       if (payload.toolCalls && payload.toolCalls.length > 0) {
+        hadToolWork = true;
+        const checkpoint = checkpointForCalls(payload.toolCalls);
+        if (advisor && checkpoint) {
+          const review = await consultAdvisor(checkpoint, JSON.stringify(payload));
+          if (review.verdict !== 'approved') {
+            await recordRejectedNativeToolCalls(payload.toolCalls, `Checkpoint review: ${review.feedback}`);
+            expectedOutboundToolResultIds = currentAssistantToolCallIds;
+            advisorRejections += 1;
+            if (review.verdict === 'unavailable' || advisorRejections >= 3) {
+              renderFinalResponse(`Work paused for Moa review: ${review.feedback}`);
+              return { status: 'incomplete', reason: 'advisor_review' };
+            }
+            continue;
+          }
+        }
         const loopDecision = loopGuard.observeCalls(payload.toolCalls);
         if (loopDecision.type === 'reject') {
           await recordRejectedNativeToolCalls(
@@ -1520,7 +1582,20 @@ export async function runAgentReactLoop(
           }
 
           // Track per-tool consecutive failures (catches loops where LLM varies args but same tool keeps failing)
-          for (const result of results) {
+          for (const [resultIndex, result] of results.entries()) {
+            const call = otherCalls[resultIndex];
+            if (advisor && call && advisor.observeFailure(call, result)) {
+              const review = await consultAdvisor('repeated_failure', JSON.stringify({ call, result }));
+              if (review.verdict !== 'approved') {
+                advisorRejections += 1;
+                if (review.verdict === 'unavailable' || advisorRejections >= 3) {
+                  renderFinalResponse(`Work paused for Moa review: ${review.feedback}`);
+                  return { status: 'incomplete', reason: 'advisor_review' };
+                }
+              }
+              toolConsecutiveFailures.delete(result.tool);
+              continue;
+            }
             if (!result.success) {
               const count = (toolConsecutiveFailures.get(result.tool) ?? 0) + 1;
               toolConsecutiveFailures.set(result.tool, count);
@@ -1678,6 +1753,17 @@ export async function runAgentReactLoop(
         }
         renderFinalResponse(turnOutcome.response, { thought: payload.thought });
         return { status: 'incomplete', reason: 'pending_todos' };
+      }
+      if (advisor && hadToolWork) {
+        const review = await consultAdvisor('completion', turnOutcome.response);
+        if (review.verdict !== 'approved') {
+          advisorRejections += 1;
+          if (review.verdict === 'unavailable' || advisorRejections >= 3) {
+            renderFinalResponse(`Work remains pending Moa review: ${review.feedback}`);
+            return { status: 'incomplete', reason: 'advisor_review' };
+          }
+          continue;
+        }
       }
       renderFinalResponse(turnOutcome.response, { thought: payload.thought });
       return { status: 'completed' };

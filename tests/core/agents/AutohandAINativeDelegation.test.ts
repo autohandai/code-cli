@@ -46,7 +46,7 @@ function reply(response: ServerResponse, content: string, calls?: LLMToolCall[])
   }));
 }
 
-async function fixture(mode: 'success' | 'failure' | 'cancel' | 'image' | 'missing-image', options: { reasoning?: AgentDefinition['reasoning'] } = {}) {
+async function fixture(mode: 'success' | 'failure' | 'cancel' | 'image' | 'missing-image', options: { reasoning?: AgentDefinition['reasoning']; orchestration?: boolean } = {}) {
   const requests: WireRequest[] = [];
   const requestPaths: string[] = [];
   const childRequested = Promise.withResolvers<void>();
@@ -100,6 +100,7 @@ async function fixture(mode: 'success' | 'failure' | 'cancel' | 'image' | 'missi
     provider: 'autohandai',
     features: { autohand_inference: true },
     autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'local-test-key', model: 'moa',
+      orchestration: options.orchestration,
       reasoningEffort: 'xhigh', baseUrl: `http://127.0.0.1:${address.port}/v1` },
     network: { maxRetries: 0, retryDelay: 0 },
   };
@@ -236,7 +237,7 @@ describe('Autohand AI native delegation wire protocol', () => {
   });
 
   it('routes a reasoning-natured child to moa with the effort its definition asks for', async () => {
-    const state = await fixture('success', { reasoning: 'high' });
+    const state = await fixture('success', { reasoning: 'high', orchestration: false });
     await expect(state.parent.run('Verify the fixture using the installed reader.'))
       .resolves.toBe('PARENT_VERIFIED_CHILD_RESULT');
     const [parent, child, childResult] = state.requests;

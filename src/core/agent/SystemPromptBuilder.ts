@@ -15,6 +15,7 @@ import { isGoalFeatureEnabled } from '../../goals/feature.js';
 import type { SkillSource } from '../../skills/types.js';
 import type { AgentDefinition } from '../agents/AgentRegistry.js';
 import { formatAgentRoster } from '../agents/agentRoster.js';
+import { isAutohandOrchestrationEnabled, ORCHESTRATION_INSTRUCTIONS } from './AutohandOrchestration.js';
 
 interface PromptSkillSummary {
   name: string;
@@ -103,7 +104,9 @@ export class SystemPromptBuilder {
   constructor(private readonly options: SystemPromptBuilderOptions) {}
 
   async build(): Promise<string> {
-    const prompt = await this.buildPrompt();
+    const base = await this.buildPrompt();
+    const prompt = isAutohandOrchestrationEnabled(this.options.runtime.config)
+      ? `${base}\n\n${ORCHESTRATION_INSTRUCTIONS}` : base;
     const sessionInstructions = this.options.runtime.options.sessionInstructions?.trim();
     return sessionInstructions ? `${prompt}\n\n${sessionInstructions}` : prompt;
   }

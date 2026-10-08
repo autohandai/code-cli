@@ -1339,6 +1339,7 @@ export class AutohandAgent {
 
     return {
       get activeProvider() { return agent.activeProvider; },
+      get accountTier() { return agent.accountPlan?.tier; },
       autoReportManager: agent.autoReportManager,
       steering: agent.steering,
       get permissionManager() { return agent.permissionManager; },

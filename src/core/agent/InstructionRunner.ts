@@ -40,6 +40,7 @@ import {
 const INCOMPLETE_LOOP_REASONS: Record<Extract<ReactLoopResult, { status: 'incomplete' }>['reason'], string> = {
   iteration_limit: 'The agent loop reached its iteration limit before completion',
   pending_todos: 'The turn ended with unfinished todo items',
+  advisor_review: 'The turn ended before its Moa checkpoint review was resolved',
 };
 
 interface InstructionConversation {

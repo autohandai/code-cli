@@ -44,8 +44,7 @@ function hasUserChosenProvider(config: LoadedConfig): boolean {
 }
 
 /** Same account-mode shape `/model` already builds for this provider (ProviderConfigManager.ts). */
-function applyAutohandAIProviderDefaults(config: LoadedConfig, accountToken: string): LoadedConfig {
-  const model = 'fantail';
+function applyAutohandAIProviderDefaults(config: LoadedConfig, accountToken: string, model = 'moa'): LoadedConfig {
   return {
     ...config,
     provider: 'autohandai',
@@ -55,6 +54,7 @@ function applyAutohandAIProviderDefaults(config: LoadedConfig, accountToken: str
       accountToken,
       baseUrl: AUTOHAND_AI_DEFAULT_BASE_URL,
       model,
+      ...(model === 'moa' ? { reasoningEffort: 'high' as const } : {}),
       contextWindow: getAutohandAICloudModelContextWindow(model),
     },
   };
@@ -128,7 +128,7 @@ export async function maybeOfferAutohandAISwitch(deps: AutohandSwitchOfferDeps):
     `Your ${deps.providerLabel} hit a rate limit. Try Autohand's Fantail model instead?`,
   );
   if (accepted) {
-    next = applyAutohandAIProviderDefaults(next, token);
+    next = applyAutohandAIProviderDefaults(next, token, 'fantail');
   }
   await deps.persist(next);
   return next;

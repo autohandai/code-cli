@@ -11,6 +11,7 @@ import { isCustomProviderName } from '../../providers/customProviders.js';
 import { usesAutohandAICloud } from '../../providers/AutohandAIProvider.js';
 import type { AutohandConfig, BuiltInProviderName, ProviderName, ReasoningEffort } from '../../types.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
+import { isAutohandOrchestrationEnabled } from '../agent/AutohandOrchestration.js';
 
 export type TeamModelAssignmentSource =
   | 'member-override'
@@ -30,6 +31,7 @@ export interface TeamModelAssignment {
 }
 
 export interface TeamModelAssignmentInput {
+  accountTier?: string;
   config: AutohandConfig;
   active: Pick<TeamModelAssignment, 'provider' | 'model'>;
   override?: Partial<Pick<TeamModelAssignment, 'provider' | 'model'>>;
@@ -127,6 +129,17 @@ function resolveAutohandAINature(input: TeamModelAssignmentInput): TeamModelAssi
  * being sent through whichever provider happens to be configured globally.
  */
 export function resolveTeamModelAssignment(input: TeamModelAssignmentInput): TeamModelAssignment {
+  const assignment = resolveAssignment(input);
+  if (input.accountTier === 'free' && assignment.provider === 'autohandai'
+    && input.config.autohandai?.plan === 'cloud' && assignment.model === 'moa') {
+    const freeAssignment = { ...assignment };
+    delete freeAssignment.reasoningEffort;
+    return { ...freeAssignment, model: 'fantail' };
+  }
+  return assignment;
+}
+
+function resolveAssignment(input: TeamModelAssignmentInput): TeamModelAssignment {
   const active: TeamModelAssignment = {
     provider: input.active.provider,
     model: input.active.model.trim(),
@@ -164,6 +177,7 @@ export function resolveTeamModelAssignment(input: TeamModelAssignmentInput): Tea
   ];
 
   for (const candidate of candidates) {
+    if (candidate.source === 'agent-definition' && isAutohandOrchestrationEnabled(input.config, active.provider)) continue;
     if (!candidate.provider && !candidate.model) continue;
     const provider = candidate.provider ?? active.provider;
     if (isSuggestedSource(candidate.source) && candidate.model && !isKnownModelForProvider(input.config, provider, candidate.model)) {
@@ -173,6 +187,9 @@ export function resolveTeamModelAssignment(input: TeamModelAssignmentInput): Tea
   }
 
   if (usesAutohandAICloud(input.config, active.provider)) {
+    if (isAutohandOrchestrationEnabled(input.config, active.provider)) {
+      return { provider: 'autohandai', model: 'fantail', source: 'agent-nature' };
+    }
     return resolveAutohandAINature(input);
   }
 

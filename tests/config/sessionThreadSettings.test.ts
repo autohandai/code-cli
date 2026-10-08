@@ -9,6 +9,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadConfig, saveConfig } from '../../src/config.js';
 import { setConfigSetting } from '../../src/commands/settings.js';
+import { getSessionThreadBudget } from '../../src/core/agents/SessionThreadBudget.js';
 
 const settingKey = 'features.multi_agent_v2.max_concurrent_threads_per_session';
 let tempRoot: string;
@@ -25,7 +26,11 @@ describe('session thread configuration', () => {
   it('defaults new configurations to nine threads including the main agent', async () => {
     const config = await loadConfig(path.join(tempRoot, 'config.json'), undefined, { initializeTheme: false });
 
-    expect(config.features?.multi_agent_v2?.max_concurrent_threads_per_session).toBe(9);
+    expect(config.features?.multi_agent_v2?.max_concurrent_threads_per_session).toBeUndefined();
+    expect(getSessionThreadBudget(config).maxThreads).toBe(9);
+    config.provider = 'autohandai';
+    config.autohandai = { plan: 'cloud', model: 'moa' };
+    expect(getSessionThreadBudget(config).maxThreads).toBe(4);
   });
 
   it.each(['json', 'yaml', 'toml'])('persists the nested setting in %s without changing teammate limits', async (extension) => {

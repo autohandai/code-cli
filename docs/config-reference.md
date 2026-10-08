@@ -212,6 +212,14 @@ These explicit inputs remain available in bare mode:
 
 Autohand-hosted inference (the `autohandai` provider, Fantail/Moa) is enabled by default. Set this to `false` to hide it — for example, to keep a workspace pinned to a different provider without it appearing in `/model`.
 
+Autohand AI Cloud also enables [orchestration](autohand-orchestration.md) by default:
+Moa leads new account sessions and Fantail handles read-only research workers.
+Known Free accounts retain Fantail. Set `autohandai.orchestration` to `false`, or
+use `/agents orchestration off`, to restore ordinary worker behavior and disable
+Moa checkpoint reviews. The default thread limit is four (lead plus three
+workers); an explicit `features.multi_agent_v2.max_concurrent_threads_per_session`
+overrides it. `/model` and `/agents provider` retain model selection controls.
+
 ```json
 {
   "features": {

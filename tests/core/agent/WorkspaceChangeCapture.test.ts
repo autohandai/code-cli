@@ -27,6 +27,16 @@ afterEach(async () => {
 });
 
 describe('WorkspaceChangeCapture', () => {
+  it('captures the pending diff including staged and untracked files without altering the real index', async () => {
+    const root = await createGitWorkspace();
+    await fs.writeFile(path.join(root, 'staged.ts'), 'export const staged = 1;\n');
+    await execFileAsync('git', ['add', 'staged.ts'], { cwd: root });
+    await fs.writeFile(path.join(root, 'new.ts'), 'export const fresh = 2;\n');
+    const before = await execFileAsync('git', ['ls-files', '--stage'], { cwd: root });
+    const changes = await WorkspaceChangeCapture.pending(root);
+    expect(changes?.files.map(file => file.path)).toEqual(['new.ts', 'staged.ts']);
+    expect((await execFileAsync('git', ['ls-files', '--stage'], { cwd: root })).stdout).toBe(before.stdout);
+  });
   it('reports only changes made after the checkpoint in an already-dirty workspace', async () => {
     const workspaceRoot = await createGitWorkspace();
     await fs.outputFile(path.join(workspaceRoot, 'src/existing.ts'), 'const value = "preexisting";\n');

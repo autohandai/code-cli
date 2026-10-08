@@ -19,6 +19,31 @@ function createDelegator(): AgentDelegator {
 }
 
 describe('AgentDelegator typed outcomes', () => {
+  it('enforces the cloud research scope even if a worker asks to write a file', async () => {
+    const registry = AgentRegistry.getInstance();
+    vi.spyOn(registry, 'loadAgents').mockResolvedValue();
+    vi.spyOn(registry, 'getAgent').mockReturnValue({ name: 'reader', description: 'Reader', systemPrompt: 'Read source.', tools: ['*'], path: '/tmp/reader.md' });
+    const requests: Array<Parameters<LLMProvider['complete']>[0]> = [];
+    const executeForTool = vi.fn();
+    const provider: LLMProvider = {
+      getName: () => 'autohandai', setModel: () => {}, listModels: async () => [], isAvailable: async () => true,
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      complete: async request => {
+        requests.push(request);
+        return { id: 'worker', created: 0, raw: null, content: requests.length === 1 ? '' : 'Read-only report completed.',
+          ...(requests.length === 1 ? { toolCalls: [{ id: 'unsafe', function: { name: 'write_file', arguments: '{"path":"secret.ts","contents":"overwrite"}' } }] } : {}) };
+      },
+    };
+    const delegator = new AgentDelegator(provider, { executeForTool } as unknown as ActionExecutor, {
+      featureConfig: { provider: 'autohandai', autohandai: { plan: 'cloud', model: 'moa' } },
+    });
+    expect((await delegator.delegateTaskForTool('reader', 'Inspect source')).success).toBe(true);
+    expect(executeForTool).not.toHaveBeenCalled();
+    expect(requests[0].tools?.map(tool => tool.name)).toContain('read_file');
+    expect(requests[0].tools?.map(tool => tool.name)).not.toContain('write_file');
+    expect(requests[0].tools?.map(tool => tool.name)).not.toContain('delegate_task');
+    expect(JSON.stringify(requests[0].messages)).toContain('compact structured report');
+  });
   afterEach(() => {
     vi.restoreAllMocks();
   });

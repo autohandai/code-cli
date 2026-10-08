@@ -50,6 +50,7 @@ import type {
   ToolImageMimeType,
 } from '../../types.js';
 import { AgentDelegator } from '../agents/AgentDelegator.js';
+import { orchestrationThreadLimit } from './AutohandOrchestration.js';
 import { AgentRunStore, type AgentRunsSnapshot, type AgentRunSource } from '../agents/AgentRunStore.js';
 import { createAgentRunLifecycleHandler } from '../agents/AgentRunLifecycle.js';
 import { attachTeamActivityBridge, enableAutomaticCoordinationMode } from './TeamActivityBridge.js';
@@ -85,7 +86,7 @@ import { executeHookTool, HOOK_TOOL_DEFINITIONS, isHookAction } from '../hookToo
 import { isAllowedPermissionPrompt, normalizePermissionPromptResponse, type PermissionMode } from '../../permissions/types.js';
 import { TeamManager } from '../teams/TeamManager.js';
 import { authorizeTeammateTool, createTeammateConfirmation } from '../teams/TeammateAuthorization.js';
-import { SessionThreadBudget, DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION } from '../agents/SessionThreadBudget.js';
+import { SessionThreadBudget } from '../agents/SessionThreadBudget.js';
 import type { TeamMember, TeamTask } from '../teams/types.js';
 import { createTeamMemberProvider, resolveTeamModelAssignment } from '../teams/TeamModelPolicy.js';
 import { RepeatManager } from '../RepeatManager.js';
@@ -741,9 +742,7 @@ export function initializeAgentDependencies(
     });
     // One budget for the whole run: lead requests and in-process sub-agents alike.
     host.runBudget = RunBudget.fromSettings(runtime.options, runtime.config.agent?.budget);
-    host.sessionThreadBudget = new SessionThreadBudget(() =>
-      runtime.config.features?.multi_agent_v2?.max_concurrent_threads_per_session
-        ?? DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION);
+    host.sessionThreadBudget = new SessionThreadBudget(() => orchestrationThreadLimit(runtime.config, host.activeProvider));
     host.teamManager = new TeamManager({
       bindPeerRun: (runId, alias) => host.peerRuntime?.bindRun(runId, alias),
       runStore: host.agentRunStore,
@@ -949,6 +948,7 @@ export function initializeAgentDependencies(
         return resolveTeamModelAssignment({
           config: runtime.config,
           active: { provider, model },
+          accountTier: host.accountPlan?.tier,
           agentName: definition.name,
           agentModel: definition.model,
           agentReasoning: definition.reasoning,
@@ -1521,6 +1521,7 @@ export function initializeAgentDependencies(
             const assignment = resolveTeamModelAssignment({
               config: host.runtime.config,
               active: { provider: activeProvider, model: activeModel },
+              accountTier: host.accountPlan?.tier,
               override: { provider: action.provider, model: action.model },
               agentName: action.agent_name,
               agentModel: agentDefinition?.model,

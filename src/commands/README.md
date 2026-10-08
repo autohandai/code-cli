@@ -30,6 +30,8 @@ Each command is a separate TypeScript file that exports:
 | `/agents` | `agents.ts` | Show active Autohand CLI instances |
 | `/agents view` | `agents.ts` | Inspect live worker activity, results, and usage; message or cancel a selected run |
 | `/agents definitions` | `agents.ts` | List configured sub-agents |
+| `/agents orchestration [on\|off]` | `agents.ts` | Show or switch Autohand AI research workers and Moa checkpoint reviews |
+| `/agents provider [agent]` | `agents.ts` | Choose the default worker provider/model or an agent-specific override |
 | `/pr-review` | `pr-review.ts` | Review the current diff, staged changes, or an explicit pull request without publishing a review |
 | `/deslop` | `deslop.ts` | Simplify scoped changes with behavior-preserving tests |
 | `/tester` | `tester.ts` | Verify acceptance criteria, run declared project tests, and capture browser evidence |
