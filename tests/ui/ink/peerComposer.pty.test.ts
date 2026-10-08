@@ -68,6 +68,7 @@ describe('peer composer real PTY', () => {
     terminal.type('\u001b[Z');
     await terminal.waitFor(':remote');
     terminal.type('\t');
+    await terminal.waitFor(/❯ :remote\s*\n/);
     terminal.type('across workspaces');
     await terminal.waitFor('❯ :remote across workspaces');
     terminal.enter();
