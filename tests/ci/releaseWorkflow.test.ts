@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 
 interface WorkflowStep {
+  shell?: string;
   id?: string;
   name?: string;
   if?: string;
@@ -137,6 +138,11 @@ function runVersionStep(manualVersion: string): string {
 }
 
 describe('release workflow', () => {
+  it('uses Bash for compilation on Windows as well as Unix runners', () => {
+    const step = loadReleaseWorkflow().jobs.build.steps.find(step => step.name === 'Compile binaries');
+    expect(step?.shell).toBe('bash');
+  });
+
   it('allows the automatic alpha release to use ad-hoc signing without Apple credentials', () => {
     const result = runMacOsSigningPreflight('alpha');
     expect(result.status, result.diagnostics).toBe(0);

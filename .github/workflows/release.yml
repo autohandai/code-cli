@@ -347,6 +347,7 @@ jobs:
         run: bun run build
 
       - name: Compile binaries
+        shell: bash
         env:
           BUILD_GIT_COMMIT: ${{ steps.ahtraces-ref.outputs.sha }}
         run: |
