@@ -3123,6 +3123,7 @@ The picker loads twenty sessions per page and provides **More sessions** and **P
 | `/theme`      | Change color theme                                    |
 | `/language`   | Change display language                               |
 | `/feedback`   | Send feedback to the Autohand team                    |
+| `/bug`        | File a bug report (alias: `/bug-report`)              |
 | `/whatsnew`   | View and dismiss active CLI announcements             |
 
 ---

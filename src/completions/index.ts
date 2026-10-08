@@ -55,6 +55,8 @@ const DEFAULT_CONFIG: CompletionConfig = {
     '/agents',
     '/agents-new',
     '/feedback',
+    '/bug',
+    '/bug-report',
     '/help',
     '/formatters',
     '/lint',

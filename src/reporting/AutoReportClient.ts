@@ -14,6 +14,7 @@ import { AUTOHAND_FILES } from '../constants.js';
 import packageJson from '../../package.json' with { type: 'json' };
 
 const DEVICE_ID_FILE = AUTOHAND_FILES.deviceId;
+const DEFAULT_REPORT_TIMEOUT_MS = 5000;
 
 export class AutoReportClient {
   private readonly apiBaseUrl: string;
@@ -69,7 +70,7 @@ export class AutoReportClient {
    * Send an error report to the API
    * NEVER throws - always returns a ReportResponse
    */
-  async report(data: ErrorReport): Promise<ReportResponse> {
+  async report(data: ErrorReport, options: { timeoutMs?: number } = {}): Promise<ReportResponse> {
     try {
       const payload: ErrorReportPayload = {
         ...data,
@@ -81,7 +82,7 @@ export class AutoReportClient {
       };
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const timeoutId = setTimeout(() => controller.abort(), options.timeoutMs ?? DEFAULT_REPORT_TIMEOUT_MS);
 
       try {
         const response = await fetch(`${this.apiBaseUrl}/v1/reports`, {

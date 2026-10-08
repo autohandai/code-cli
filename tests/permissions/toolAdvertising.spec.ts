@@ -112,4 +112,39 @@ describe('run tool scope at execution', () => {
     expect(outside.success).toBe(false);
     expect(outside.error).toContain('outside the --allowed-tools scope');
   });
+
+  it('matches argument-scoped allowed patterns against the command being run', async () => {
+    const executor = vi.fn().mockResolvedValue({ success: true, output: 'ok' });
+    const permissionManager = new PermissionManager({ mode: 'unrestricted' });
+    permissionManager.setRunToolScope(resolveRunToolScope({ allowedTools: ['run_command(git:*)'] }));
+    const manager = new ToolManager({
+      executor,
+      confirmApproval: vi.fn().mockResolvedValue({ decision: 'allow_once' }),
+      definitions: [{ name: 'run_command', description: 'Run' }],
+      authorization: { permissionManager },
+    });
+    const [allowed] = await manager.execute([{ tool: 'run_command', args: { command: 'git', args: ['status'] } }]);
+    expect(allowed.success).toBe(true);
+    const [outside] = await manager.execute([{ tool: 'run_command', args: { command: 'ls', args: ['-la'] } }]);
+    expect(outside.success).toBe(false);
+    expect(outside.error).toContain("Tool 'run_command' is outside the --allowed-tools scope for this run.");
+    expect(executor).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports argument-scoped denials with the run scope message', async () => {
+    const executor = vi.fn().mockResolvedValue({ success: true, output: 'ok' });
+    const permissionManager = new PermissionManager({ mode: 'unrestricted' });
+    permissionManager.setRunToolScope(resolveRunToolScope({ disallowedTools: ['run_command(rm:*)'] }));
+    const manager = new ToolManager({
+      executor,
+      confirmApproval: vi.fn().mockResolvedValue({ decision: 'allow_once' }),
+      definitions: [{ name: 'run_command', description: 'Run' }],
+      authorization: { permissionManager },
+    });
+    const [denied] = await manager.execute([{ tool: 'run_command', args: { command: 'rm', args: ['-rf', 'dist'] } }]);
+    expect(denied.success).toBe(false);
+    expect(denied.error).toContain("Tool 'run_command' is disabled for this run by --disallowed-tools.");
+    const [allowed] = await manager.execute([{ tool: 'run_command', args: { command: 'ls' } }]);
+    expect(allowed.success).toBe(true);
+  });
 });

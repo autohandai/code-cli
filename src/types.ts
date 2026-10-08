@@ -1312,6 +1312,8 @@ export interface CLIOptions {
   yolo?: string;
   /** Timeout in seconds for auto-approve mode */
   timeout?: number;
+  /** Permission settings from before --yolo was applied, restored when --timeout ends. */
+  yoloBasePermissions?: PermissionSettings;
   /** Enable browser integration. False when --no-browser is used. */
   browser?: boolean;
   /** @deprecated Compatibility input for --chrome and --no-chrome. */

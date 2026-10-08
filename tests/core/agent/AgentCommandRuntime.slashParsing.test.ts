@@ -115,14 +115,14 @@ describe('renderAgentSlashCommandResult', () => {
 });
 
 describe('runAgentSlashCommandWithInput', () => {
-  it('preserves the prompt loaded by /whatityped', async () => {
+  it.each(['/whatityped', '/feedback'])('preserves the active draft after %s', async (command) => {
     const clearInput = vi.fn();
     const host = {
       runtime: { options: {}, config: {} },
       inkRenderer: { isRunning: () => true, clearInput },
       handleSlashCommand: vi.fn(async () => null),
     };
-    await runAgentSlashCommandWithInput(host, '/whatityped', []);
+    await runAgentSlashCommandWithInput(host, command, []);
     expect(clearInput).not.toHaveBeenCalled();
   });
 

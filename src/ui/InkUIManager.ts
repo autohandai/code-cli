@@ -32,6 +32,7 @@ export interface InkUIManagerOptions {
   onEscape: () => void;
   onCtrlC: () => void;
   onDismissAnnouncement?: (id: string) => void;
+  onFeedbackSurveyAnswer?: InkRendererOptions['onFeedbackSurveyAnswer'];
   enableQueueInput?: boolean;
   onImageDetected?: (data: Buffer, mimeType: string, filename?: string) => number;
   filesProvider?: () => string[];

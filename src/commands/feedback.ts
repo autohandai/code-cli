@@ -10,6 +10,7 @@ import { t } from '../i18n/index.js';
 import { safePrompt } from '../utils/prompt.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import { AUTOHAND_FILES, AUTOHAND_PATHS } from '../constants.js';
+import { buildFeedbackTranscript, redactSensitiveText, type FeedbackTranscript } from '../feedback/sessionTranscript.js';
 import packageJson from '../../package.json' with { type: 'json' };
 
 export const metadata = {
@@ -18,11 +19,23 @@ export const metadata = {
     implemented: true
 };
 
-type FeedbackContext = Pick<SlashCommandContext, 'config'> & { sessionManager?: SlashCommandContext['sessionManager'] };
+export type FeedbackCommandContext = Partial<Pick<
+    SlashCommandContext,
+    | 'config'
+    | 'currentSession'
+    | 'isNonInteractive'
+    | 'onBeforeModal'
+    | 'onAfterModal'
+    | 'requestFeedbackSurvey'
+    | 'notifyUser'
+>>;
+
+const USAGE = 'Usage: /feedback <message>';
 
 // API configuration
 const DEFAULT_API_BASE_URL = 'https://api.autohand.ai';
-const API_TIMEOUT = 10000;
+// Generous: the request carries the session transcript and runs in the background.
+const API_TIMEOUT = 20000;
 
 // Cooldown configuration
 const COOLDOWN_MAX_SUBMISSIONS = 5;
@@ -91,173 +104,141 @@ async function recordSubmission(): Promise<void> {
 }
 
 /**
- * Feedback command - captures rating and text feedback, sends to API
+ * Feedback command. `/feedback <message>` sends the message with the current
+ * session transcript and returns at once; the result arrives through
+ * `notifyUser`. Without a message it opens the session survey above the
+ * composer, and only falls back to a single question where no composer exists.
  */
-export async function feedback(_ctx: FeedbackContext): Promise<string | null> {
-    // Check cooldown first
+export async function feedback(ctx: FeedbackCommandContext, args: string[] = []): Promise<string | null> {
     const cooldown = await checkCooldown();
     if (!cooldown.allowed) {
-        console.log(chalk.yellow(`Feedback limit reached (${COOLDOWN_MAX_SUBMISSIONS} per hour).`));
-        console.log(chalk.gray(`Please wait ${cooldown.waitMinutes} minute${cooldown.waitMinutes === 1 ? '' : 's'} before submitting again.`));
-        return null;
+        return [
+            chalk.yellow(`Feedback limit reached (${COOLDOWN_MAX_SUBMISSIONS} per hour).`),
+            chalk.gray(`Please wait ${cooldown.waitMinutes} minute${cooldown.waitMinutes === 1 ? '' : 's'} before submitting again.`),
+        ].join('\n');
     }
 
-    // Step 1: Prompt for rating (1-5 or skip)
-    const ratingAnswer = await safePrompt<{ rating: string }>([
-        {
-            type: 'select',
-            name: 'rating',
-            message: 'How would you rate your experience?',
-            choices: [
-                { name: '5', message: 'Excellent' },
-                { name: '4', message: 'Good' },
-                { name: '3', message: 'Okay' },
-                { name: '2', message: 'Poor' },
-                { name: '1', message: 'Very Poor' },
-                { name: 'skip', message: 'Skip rating' }
-            ]
+    let message = args.join(' ').trim();
+    if (!message) {
+        if (ctx.requestFeedbackSurvey?.()) {
+            return chalk.gray('Rate this session above the composer, or send details with /feedback <message>.');
         }
-    ]);
-
-    if (!ratingAnswer) {
-        console.log(chalk.gray('Feedback discarded.'));
-        return null;
+        if (ctx.isNonInteractive) {
+            return USAGE;
+        }
+        message = await promptForMessage(ctx);
+        if (!message) {
+            return chalk.gray('Feedback discarded.');
+        }
     }
 
-    if (ratingAnswer.rating === 'skip') {
-        console.log(chalk.gray('Feedback skipped.'));
-        return null;
+    const { payload, transcript, hasRuntimeError } = await buildFeedbackPayload(ctx, message);
+    await saveLocalCopy(payload, transcript);
+    await recordSubmission();
+
+    const delivery = deliverFeedback(payload, getFeedbackApiBaseUrl(ctx), hasRuntimeError);
+    if (!ctx.notifyUser) {
+        return delivery;
     }
 
-    const npsScore = parseInt(ratingAnswer.rating, 10);
-    let reason: string | undefined;
-    let improvement: string | undefined;
-    let recommend: boolean | undefined;
+    const notifyUser = ctx.notifyUser;
+    void delivery.then(notifyUser);
+    return chalk.gray(transcript
+        ? `Sending feedback with this session's transcript (${transcript.messages.length} messages)…`
+        : 'Sending feedback…');
+}
 
-    // Step 2: Follow-up based on score
-    if (npsScore >= 4) {
-        // Happy user - ask for recommendation reason
-        const reasonAnswer = await safePrompt<{ reason: string }>([
+async function promptForMessage(ctx: FeedbackCommandContext): Promise<string> {
+    await ctx.onBeforeModal?.();
+    try {
+        const answer = await safePrompt<{ message: string }>([
             {
                 type: 'input',
-                name: 'reason',
-                message: 'What do you like most about Autohand? (optional, press Enter to skip)'
+                name: 'message',
+                message: 'What would you like to tell us? (press Enter to send, leave empty to cancel)'
             }
         ]);
-
-        if (!reasonAnswer) {
-            console.log(chalk.gray('Feedback discarded.'));
-            return null;
-        }
-
-        reason = reasonAnswer.reason?.trim() || undefined;
-
-        // Ask about recommendation (always ask, even if reason was skipped)
-        const recommendAnswer = await safePrompt<{ recommend: string }>([
-            {
-                type: 'select',
-                name: 'recommend',
-                message: 'Would you recommend Autohand to a colleague?',
-                choices: [
-                    { name: 'yes', message: 'Yes' },
-                    { name: 'no', message: 'No' }
-                ]
-            }
-        ]);
-
-        if (!recommendAnswer) {
-            console.log(chalk.gray('Feedback discarded.'));
-            return null;
-        }
-
-        recommend = recommendAnswer.recommend === 'yes';
-    } else {
-        // Unhappy user - ask for improvement
-        const improvementAnswer = await safePrompt<{ improvement: string }>([
-            {
-                type: 'input',
-                name: 'improvement',
-                message: 'What could we do better? (optional, press Enter to skip)'
-            }
-        ]);
-
-        if (!improvementAnswer) {
-            console.log(chalk.gray('Feedback discarded.'));
-            return null;
-        }
-
-        improvement = improvementAnswer.improvement?.trim() || undefined;
+        return answer?.message?.trim() ?? '';
+    } finally {
+        await ctx.onAfterModal?.();
     }
+}
 
-    // Build payload matching API schema
-    const now = new Date().toISOString();
+async function buildFeedbackPayload(ctx: FeedbackCommandContext, message: string): Promise<{
+    payload: Record<string, unknown> & { deviceId: string };
+    transcript: FeedbackTranscript | undefined;
+    hasRuntimeError: boolean;
+}> {
+    const session = ctx.currentSession;
+    const sessionId = session?.metadata.sessionId;
+    const builtTranscript = buildFeedbackTranscript(session?.getMessages(), { sessionId });
+    const transcript = builtTranscript.messages.length > 0 ? builtTranscript : undefined;
     const runtimeError = getLastRuntimeError();
-    const deviceId = await getDeviceId();
 
-    const payload = {
-        npsScore,
-        recommend,
-        reason,
-        improvement,
-        triggerType: 'manual' as const,
-        timestamp: now,
-        deviceId,
-        cliVersion: packageJson.version,
-        platform: process.platform,
-        osVersion: os.release(),
-        nodeVersion: process.version,
-        env: {
-            platform: `${process.platform}-${process.arch}`,
-            node: process.version,
-            bun: process.versions?.bun,
-            cwd: process.cwd(),
-            shell: process.env.SHELL
+    return {
+        payload: {
+            npsScore: 0,
+            freeformFeedback: redactSensitiveText(message),
+            triggerType: 'manual' as const,
+            timestamp: new Date().toISOString(),
+            sessionId,
+            deviceId: await getDeviceId(),
+            cliVersion: packageJson.version,
+            platform: process.platform,
+            osVersion: os.release(),
+            nodeVersion: process.version,
+            env: {
+                platform: `${process.platform}-${process.arch}`,
+                node: process.version,
+                bun: process.versions?.bun,
+                cwd: redactSensitiveText(process.cwd()),
+                shell: process.env.SHELL
+            },
+            runtimeError: runtimeError ? formatError(runtimeError) : null,
+            transcript,
         },
-        runtimeError: runtimeError ? formatError(runtimeError) : null
+        transcript,
+        hasRuntimeError: Boolean(runtimeError),
     };
+}
 
-    // Save locally as backup
+/** The local log is a delivery backup, not a second copy of the conversation. */
+async function saveLocalCopy(payload: Record<string, unknown>, transcript: FeedbackTranscript | undefined): Promise<void> {
     try {
         const feedbackPath = AUTOHAND_FILES.feedbackLog;
         await fs.ensureFile(feedbackPath);
-        await fs.appendFile(feedbackPath, JSON.stringify(payload) + '\n', 'utf8');
+        const localCopy = {
+            ...payload,
+            transcript: transcript && { messageCount: transcript.messageCount, truncated: transcript.truncated },
+        };
+        await fs.appendFile(feedbackPath, JSON.stringify(localCopy) + '\n', 'utf8');
     } catch {
         // Silent fail for local backup - API is primary
     }
+}
 
-    // Send to API
-    try {
-        const apiBaseUrl = getFeedbackApiBaseUrl(_ctx);
-        const response = await sendFeedbackToApi(payload, apiBaseUrl);
-        if (response.success) {
-            console.log(chalk.green(t('commands.feedback.success')));
-        } else {
-            // Show specific error if available
-            if (/rate limit/i.test(response.error ?? '')) {
-                console.log(chalk.yellow('Feedback saved locally (rate limited, will retry later).'));
-            } else {
-                console.log(chalk.yellow(`Feedback saved locally. ${response.error ? `(${response.error})` : ''}`));
-            }
-        }
-    } catch (error) {
-        console.log(chalk.yellow(`Feedback saved locally (${(error as Error).message}).`));
+/** Never rejects: the outcome is always a line the user can read. */
+async function deliverFeedback(
+    payload: Record<string, unknown> & { deviceId: string },
+    apiBaseUrl: string,
+    hasRuntimeError: boolean
+): Promise<string> {
+    const response = await sendFeedbackToApi(payload, apiBaseUrl);
+    if (!response.success) {
+        return /rate limit/i.test(response.error ?? '')
+            ? chalk.yellow('Feedback saved locally (rate limited, will retry later).')
+            : chalk.yellow(`Feedback saved locally${response.error ? ` (${response.error})` : ''}.`);
     }
-
-    // Record submission for cooldown tracking
-    await recordSubmission();
-
-    if (runtimeError) {
-        console.log(chalk.gray('Included recent runtime error in feedback.'));
-    }
-
-    return null;
+    return hasRuntimeError
+        ? `${chalk.green(t('commands.feedback.success'))}\n${chalk.gray('Included recent runtime error in feedback.')}`
+        : chalk.green(t('commands.feedback.success'));
 }
 
 /**
  * Send feedback to api.autohand.ai
  */
 async function sendFeedbackToApi(
-    payload: Record<string, unknown>,
+    payload: Record<string, unknown> & { deviceId: string },
     apiBaseUrl: string
 ): Promise<{ success: boolean; id?: string; error?: string }> {
     const controller = new AbortController();
@@ -269,7 +250,7 @@ async function sendFeedbackToApi(
             headers: {
                 'Content-Type': 'application/json',
                 'X-CLI-Version': packageJson.version,
-                'X-Device-ID': payload.deviceId as string
+                'X-Device-ID': payload.deviceId
             },
             body: JSON.stringify(payload),
             signal: controller.signal
@@ -295,7 +276,7 @@ async function sendFeedbackToApi(
     }
 }
 
-function getFeedbackApiBaseUrl(ctx: FeedbackContext): string {
+function getFeedbackApiBaseUrl(ctx: FeedbackCommandContext): string {
     return process.env.AUTOHAND_API_URL?.trim()
         || ctx.config?.api?.baseUrl?.trim()
         || DEFAULT_API_BASE_URL;

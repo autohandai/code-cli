@@ -130,6 +130,10 @@ export interface SlashCommandContext {
     onBeforeModal?: () => void | Promise<void>;
     /** Called after /learn modal closes (resume persistent input) */
     onAfterModal?: () => void | Promise<void>;
+    /** Opens the session survey above the composer; false when it cannot be shown there. */
+    requestFeedbackSurvey?: () => boolean;
+    /** Tells the user something after the command has returned, e.g. when background work finishes. */
+    notifyUser?: (message: string) => void;
     /** Called with the top recommended skill slug from /learn for install hint */
     onTopRecommendation?: (slug: string) => void;
     /** Team manager for /team and /tasks commands */

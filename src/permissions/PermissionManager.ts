@@ -22,6 +22,7 @@ import {
 import { matchesToolPattern } from './toolPatterns.js';
 import { filterAdvertisedTools } from './toolAdvertising.js';
 import { checkRunToolScope, isToolAdvertisedByScope, type RunToolScope } from './runToolScope.js';
+import { YoloTimer } from './yoloMode.js';
 import {
   addToSessionAllowList,
   addToSessionDenyList,
@@ -263,6 +264,37 @@ export class PermissionManager {
     return this.runToolScope;
   }
 
+  private autoApproval: { timer: YoloTimer; baseline: PermissionSettings; onExpire?: () => void } | undefined;
+
+  /**
+   * Bounds --yolo to a time window (--timeout). The yolo settings are already
+   * merged into the settings this manager was built with; once the window
+   * ends, the next permission check restores `baseline` and prompting resumes.
+   */
+  expireAutoApprovalAfter(
+    timeoutSeconds: number | undefined,
+    baseline: PermissionSettings | undefined,
+    onExpire?: () => void,
+  ): void {
+    if (!timeoutSeconds || timeoutSeconds <= 0) return;
+    this.autoApproval = { timer: new YoloTimer(timeoutSeconds), baseline: baseline ?? {}, onExpire };
+  }
+
+  private restoreExpiredAutoApproval(): void {
+    if (!this.autoApproval || this.autoApproval.timer.isActive()) return;
+    const { baseline, onExpire } = this.autoApproval;
+    this.autoApproval = undefined;
+    this.settings = this.normalizeSettings(baseline);
+    this.setMode(this.settings.mode || 'interactive');
+    onExpire?.();
+  }
+
+  /** Run scope decision for one concrete call, matched on its command line or path. */
+  checkRunToolScope(context: PermissionContext): ReturnType<typeof checkRunToolScope> {
+    const call = this.contextToCall(context);
+    return checkRunToolScope(this.runToolScope, { kind: context.requestedTool ?? context.tool, target: call.target });
+  }
+
   /** Tool schemas worth offering the model under the run scope and effective settings. */
   filterAdvertisedTools<T extends { name: string }>(definitions: readonly T[]): T[] {
     const inScope = definitions.filter((definition) => isToolAdvertisedByScope(this.runToolScope, definition.name));
@@ -316,6 +348,8 @@ export class PermissionManager {
    * Check if an action should be allowed, denied, or prompted
    */
   checkPermission(context: PermissionContext): PermissionDecision {
+    this.restoreExpiredAutoApproval();
+
     // SECURITY: Always check security blacklist FIRST - cannot be bypassed by any mode
     if (this.isSecurityBlacklisted(context)) {
       return { allowed: false, reason: 'blacklisted' };

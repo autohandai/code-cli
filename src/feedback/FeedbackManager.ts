@@ -4,12 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Intelligent Feedback Collection System
- * Prompts users at optimal moments without being intrusive
+ * Decides when a session survey is worth offering and records the answers.
+ * It never takes over the terminal: showing the survey is the UI's job.
  */
 import fs from 'fs-extra';
 import path from 'node:path';
-import chalk from 'chalk';
-import { showModal, showInput, showConfirm, type ModalOption } from '../ui/ink/components/Modal.js';
 import { FeedbackApiClient, getFeedbackApiClient } from './FeedbackApiClient.js';
 import { AUTOHAND_PATHS } from '../constants.js';
 
@@ -43,6 +42,12 @@ export type FeedbackTrigger =
   | 'session_end'
   | 'long_session'
   | 'manual';
+
+export interface FeedbackSurveyAnswer {
+  npsScore: number;
+  trigger: FeedbackTrigger;
+  sessionId?: string;
+}
 
 export interface FeedbackConfig {
   /** Minimum interactions before first prompt (default: 7) */
@@ -245,7 +250,6 @@ export class FeedbackManager {
   shouldPrompt(context: {
     userMessage?: string;
     taskCompleted?: boolean;
-    sessionEnding?: boolean;
   }): FeedbackTrigger | null {
     // Disabled or already prompted this session
     if (!this.config.enabled || this.hasPromptedThisSession) {
@@ -262,12 +266,7 @@ export class FeedbackManager {
       return null;
     }
 
-    // Priority 1: Session ending (always prompt if conditions met)
-    if (context.sessionEnding) {
-      return 'session_end';
-    }
-
-    // Priority 2: Gratitude detected (high intent signal)
+    // Priority 1: Gratitude detected (high intent signal)
     if (context.userMessage && this.detectsGratitude(context.userMessage)) {
       // Higher probability for gratitude
       if (Math.random() < 0.5) {
@@ -275,17 +274,17 @@ export class FeedbackManager {
       }
     }
 
-    // Priority 3: Task completed
+    // Priority 2: Task completed
     if (context.taskCompleted && this.passesRandomCheck()) {
       return 'task_complete';
     }
 
-    // Priority 4: Long session
+    // Priority 3: Long session
     if (this.isLongSession() && this.passesRandomCheck()) {
       return 'long_session';
     }
 
-    // Priority 5: Interaction count threshold
+    // Priority 4: Interaction count threshold
     if (this.sessionInteractions >= this.config.minInteractions && this.passesRandomCheck()) {
       return 'interaction_count';
     }
@@ -293,207 +292,41 @@ export class FeedbackManager {
     return null;
   }
 
-  // ============ Prompt UI ============
+  // ============ Survey Recording ============
 
-  /**
-   * Display the feedback prompt and collect response
-   * Returns true if feedback was collected, false if dismissed
-   */
-  async promptForFeedback(
-    trigger: FeedbackTrigger,
-    sessionId?: string
-  ): Promise<boolean> {
+  /** Starts the per-session and cooldown clocks for a survey that was put on screen. */
+  markPrompted(): void {
     this.hasPromptedThisSession = true;
     this.state.lastPromptedAt = new Date().toISOString();
     this.saveState();
-
-    console.log();
-    console.log(chalk.cyan('━'.repeat(50)));
-    console.log(chalk.cyan.bold('  Quick Feedback'));
-    console.log(chalk.gray('  Help us improve Autohand (takes 10 seconds)'));
-    console.log(chalk.cyan('━'.repeat(50)));
-    console.log();
-
-    try {
-      // Step 1: NPS Score (1-5) with number key shortcuts (Modal has built-in support)
-      const ratingOptions: ModalOption[] = [
-        { label: `${chalk.green('⭐⭐⭐⭐⭐')} Excellent`, value: '5' },
-        { label: `${chalk.green('⭐⭐⭐⭐')} Good`, value: '4' },
-        { label: `${chalk.yellow('⭐⭐⭐')} Okay`, value: '3' },
-        { label: `${chalk.red('⭐⭐')} Poor`, value: '2' },
-        { label: `${chalk.red('⭐')} Very Poor`, value: '1' },
-        { label: `${chalk.gray('s')} Skip`, value: 'skip' }
-      ];
-
-      const ratingResult = await showModal({
-        title: 'How would you rate your experience?',
-        options: ratingOptions
-      });
-
-      // User cancelled or readline closed
-      if (!ratingResult) {
-        this.state.dismissed++;
-        this.saveState();
-        return false;
-      }
-
-      if (ratingResult.value === 'skip') {
-        this.state.dismissed++;
-        this.saveState();
-        console.log(chalk.gray('\nNo problem! You can always use /feedback later.\n'));
-        return false;
-      }
-
-      const npsScore = parseInt(ratingResult.value as string, 10);
-      let reason: string | undefined;
-      let improvement: string | undefined;
-      let recommend: boolean | undefined;
-
-      // Step 2: Follow-up based on score
-      if (npsScore >= 4) {
-        // Happy user - ask for recommendation reason
-        const reasonAnswer = await showInput({
-          title: 'What do you like most about Autohand? (optional, press Enter to skip)'
-        });
-        reason = reasonAnswer || undefined;
-
-        // Ask about recommendation (always ask, even if reason was skipped)
-        recommend = await showConfirm({
-          title: 'Would you recommend Autohand to a colleague?',
-          defaultValue: true
-        });
-      } else {
-        // Unhappy user - ask for improvement
-        const improvementAnswer = await showInput({
-          title: 'What could we do better? (optional, press Enter to skip)'
-        });
-        improvement = improvementAnswer || undefined;
-      }
-
-      // Save response
-      const response: FeedbackResponse = {
-        npsScore,
-        recommend,
-        reason,
-        improvement,
-        timestamp: new Date().toISOString(),
-        sessionId,
-        triggerType: trigger
-      };
-
-      await this.saveFeedbackResponse(response);
-
-      // Update state
-      this.state.feedbackCount++;
-      this.state.lastFeedbackAt = response.timestamp;
-      this.state.npsScores.push(npsScore);
-      this.state.averageNps =
-        this.state.npsScores.reduce((a, b) => a + b, 0) / this.state.npsScores.length;
-      this.saveState();
-
-      // Thank the user
-      console.log();
-      console.log(chalk.green('Thank you for your feedback!'));
-      if (npsScore >= 4) {
-        console.log(chalk.gray('Your support helps us build a better tool.'));
-      } else {
-        console.log(chalk.gray("We'll work hard to improve your experience."));
-      }
-      console.log();
-
-      return true;
-    } catch (error: any) {
-      // User cancelled (Ctrl+C or ESC) or readline closed
-      if (error?.code === 'ERR_USE_AFTER_CLOSE') {
-        // Silent exit - readline already closed
-        return false;
-      }
-      this.state.dismissed++;
-      this.saveState();
-      console.log(chalk.gray('\nFeedback skipped.\n'));
-      return false;
-    }
   }
 
-  // ============ Quick Rating (Minimal Interrupt) ============
-
   /**
-   * Ultra-quick 1-5 rating with single keypress
-   * Use this for minimal interruption
+   * Records an answered survey. The answer is kept locally before delivery is
+   * attempted, and a failed delivery never rejects: callers fire this and move on.
    */
-  async quickRating(): Promise<number | null> {
-    console.log();
-    console.log(
-      chalk.cyan('Quick rating: ') +
-      chalk.gray('Press ') +
-      chalk.bold('1-5') +
-      chalk.gray(' to rate your experience (or ') +
-      chalk.bold('Enter') +
-      chalk.gray(' to skip)')
-    );
-    console.log(
-      chalk.gray('  1=Poor  2=Fair  3=Good  4=Great  5=Excellent')
-    );
+  async recordSurveyAnswer(answer: FeedbackSurveyAnswer): Promise<void> {
+    const response: FeedbackResponse = {
+      npsScore: answer.npsScore,
+      timestamp: new Date().toISOString(),
+      sessionId: answer.sessionId,
+      triggerType: answer.trigger,
+    };
 
-    return new Promise((resolve) => {
-      const stdin = process.stdin;
-      const wasRaw = stdin.isRaw;
+    this.state.feedbackCount++;
+    this.state.lastFeedbackAt = response.timestamp;
+    this.state.npsScores.push(answer.npsScore);
+    this.state.averageNps =
+      this.state.npsScores.reduce((a, b) => a + b, 0) / this.state.npsScores.length;
+    this.saveState();
 
-      try { stdin.setRawMode(true); } catch { /* TTY may be gone */ }
-      stdin.resume();
-      stdin.setEncoding('utf8');
+    await this.saveFeedbackResponse(response);
+  }
 
-      const timeout = setTimeout(() => {
-        cleanup();
-        resolve(null);
-      }, 10000); // 10 second timeout
-
-      const cleanup = () => {
-        clearTimeout(timeout);
-        try { stdin.setRawMode(wasRaw ?? false); } catch { /* TTY may be gone */ }
-        stdin.removeListener('data', onData);
-      };
-
-      const onData = (key: string) => {
-        // Ctrl+C
-        if (key === '\u0003') {
-          cleanup();
-          resolve(null);
-          return;
-        }
-
-        // Enter or Escape
-        if (key === '\r' || key === '\n' || key === '\u001b') {
-          cleanup();
-          console.log();
-          resolve(null);
-          return;
-        }
-
-        // Check for 1-5
-        const num = parseInt(key, 10);
-        if (num >= 1 && num <= 5) {
-          cleanup();
-          console.log(chalk.green(` ${num}`));
-
-          // Record quick rating
-          this.state.npsScores.push(num);
-          this.state.feedbackCount++;
-          this.state.lastFeedbackAt = new Date().toISOString();
-          this.state.averageNps =
-            this.state.npsScores.reduce((a, b) => a + b, 0) / this.state.npsScores.length;
-          this.hasPromptedThisSession = true;
-          this.state.lastPromptedAt = new Date().toISOString();
-          this.saveState();
-
-          console.log(chalk.green('Thanks!'));
-          console.log();
-          resolve(num);
-        }
-      };
-
-      stdin.on('data', onData);
-    });
+  /** Records a survey that was dismissed or typed past. */
+  recordDismissal(): void {
+    this.state.dismissed++;
+    this.saveState();
   }
 
   // ============ Analytics ============

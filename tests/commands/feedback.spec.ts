@@ -41,441 +41,323 @@ vi.mock('chalk', () => ({
 }));
 
 // Must import after mocks are set up
-import { feedback } from '../../src/commands/feedback.js';
-import { FeedbackApiClient } from '../../src/feedback/FeedbackApiClient.js';
+import fs from 'fs-extra';
+import { feedback, type FeedbackCommandContext } from '../../src/commands/feedback.js';
 import { safePrompt } from '../../src/utils/prompt.js';
+import type { SessionMessage } from '../../src/session/types.js';
+
+const mockedFs = vi.mocked(fs);
+const mockedPrompt = vi.mocked(safePrompt);
+
+function sessionWith(messages: SessionMessage[], sessionId = 'session-42'): NonNullable<FeedbackCommandContext['currentSession']> {
+  return { metadata: { sessionId }, getMessages: () => messages } as NonNullable<FeedbackCommandContext['currentSession']>;
+}
+
+const CONVERSATION: SessionMessage[] = [
+  { role: 'user', content: 'rename the helper', timestamp: '2026-10-03T10:00:00.000Z' },
+  { role: 'assistant', content: 'Renamed it in 3 files.', timestamp: '2026-10-03T10:00:05.000Z' },
+];
 
 describe('feedback command', () => {
   let originalFetch: typeof global.fetch;
   let mockFetch: ReturnType<typeof vi.fn>;
-  let consoleOutput: string[];
-  let originalConsoleLog: typeof console.log;
-  let originalConsoleError: typeof console.error;
+  const originalApiUrl = process.env.AUTOHAND_API_URL;
+
+  const sentPayload = (call = 0) => JSON.parse(mockFetch.mock.calls[call]?.[1]?.body as string) as Record<string, any>;
+  const apiAccepts = () => mockFetch.mockResolvedValue({ ok: true, json: async () => ({ success: true, id: 'feedback-1' }) });
 
   beforeEach(() => {
-    // Mock fetch
     originalFetch = global.fetch;
     mockFetch = vi.fn();
-    global.fetch = mockFetch;
-
-    // Capture console output
-    consoleOutput = [];
-    originalConsoleLog = console.log;
-    originalConsoleError = console.error;
-    console.log = (...args: unknown[]) => {
-      consoleOutput.push(args.join(' '));
-    };
-    console.error = (...args: unknown[]) => {
-      consoleOutput.push(args.join(' '));
-    };
-
+    global.fetch = mockFetch as unknown as typeof global.fetch;
+    delete process.env.AUTOHAND_API_URL;
+    delete (globalThis as Record<string, unknown>).__autohandLastError;
     vi.clearAllMocks();
+    mockedFs.pathExists.mockResolvedValue(false as never);
   });
 
   afterEach(() => {
     global.fetch = originalFetch;
-    console.log = originalConsoleLog;
-    console.error = originalConsoleError;
+    if (originalApiUrl === undefined) {
+      delete process.env.AUTOHAND_API_URL;
+    } else {
+      process.env.AUTOHAND_API_URL = originalApiUrl;
+    }
   });
 
-  describe('rating capture', () => {
-    it('should prompt for rating (1-5) with conditional follow-up questions', async () => {
-      // Simulate user providing rating 4 (happy path), reason, and recommend
-      (safePrompt as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ rating: '4' })
-        .mockResolvedValueOnce({ reason: 'Great CLI tool!' })
-        .mockResolvedValueOnce({ recommend: 'yes' });
+  describe('/feedback <message>', () => {
+    it('sends the message with the current session transcript attached', async () => {
+      apiAccepts();
 
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({ success: true, id: 'test-123' }),
+      const result = await feedback({ currentSession: sessionWith(CONVERSATION) }, ['the', 'diff', 'view', 'flickers']);
+
+      expect(mockFetch).toHaveBeenCalledOnce();
+      expect(mockFetch.mock.calls[0]?.[0]).toBe('https://api.autohand.ai/v1/feedback');
+      const payload = sentPayload();
+      expect(payload).toMatchObject({
+        npsScore: 0,
+        freeformFeedback: 'the diff view flickers',
+        triggerType: 'manual',
+        sessionId: 'session-42',
+        transcript: {
+          sessionId: 'session-42',
+          messageCount: 2,
+          truncated: false,
+          messages: [
+            { role: 'user', content: 'rename the helper' },
+            { role: 'assistant', content: 'Renamed it in 3 files.' },
+          ],
+        },
       });
-
-      await feedback({ sessionManager: null as any });
-
-      // Should call safePrompt 3 times: rating, reason, recommend (for score >= 4)
-      expect(safePrompt).toHaveBeenCalledTimes(3);
-
-      // First call should be for rating
-      const firstCall = (safePrompt as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(firstCall).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            name: 'rating',
-          }),
-        ])
-      );
+      expect(result).toContain('Thank you');
+      expect(mockedPrompt).not.toHaveBeenCalled();
     });
 
-    it('should accept ratings from 1-5 or skip', async () => {
-      // For rating 5 (happy path), prompt for reason and recommend
-      (safePrompt as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ rating: '5' })
-        .mockResolvedValueOnce({ reason: 'Love it!' })
-        .mockResolvedValueOnce({ recommend: 'yes' });
+    it('includes every field the API schema requires', async () => {
+      apiAccepts();
 
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({ success: true, id: 'test-456' }),
-      });
+      await feedback({}, ['works', 'well']);
 
-      await feedback({ sessionManager: null as any });
-
-      // Verify API was called with npsScore
-      expect(mockFetch).toHaveBeenCalled();
-      const fetchCall = mockFetch.mock.calls[0];
-      const body = JSON.parse(fetchCall[1].body);
-      expect(body.npsScore).toBe(5);
+      const payload = sentPayload();
+      expect(payload).toEqual(expect.objectContaining({
+        timestamp: expect.any(String),
+        deviceId: expect.any(String),
+        cliVersion: expect.any(String),
+        platform: process.platform,
+        osVersion: expect.any(String),
+        nodeVersion: process.version,
+      }));
+      expect(payload.env).toEqual(expect.objectContaining({ platform: `${process.platform}-${process.arch}`, node: process.version }));
+      expect(payload).not.toHaveProperty('transcript');
+      expect(payload).not.toHaveProperty('sessionId');
     });
 
-    it('should ask for improvement for ratings < 4', async () => {
-      // For rating 2 (unhappy path), prompt for improvement
-      (safePrompt as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ rating: '2' })
-        .mockResolvedValueOnce({ improvement: 'Needs better error messages' });
+    it('redacts secrets and the home directory from the message, the transcript and the working directory', async () => {
+      apiAccepts();
+      const session = sessionWith([
+        { role: 'user', content: 'token is ghp_abcdefghijklmnopqrstuvwxyz0123456789', timestamp: '2026-10-03T10:00:00.000Z' },
+      ]);
 
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({ success: true, id: 'test-789' }),
-      });
+      await feedback({ currentSession: session }, ['my', 'key', 'sk-abcdefghijklmnop1234', 'leaked']);
 
-      await feedback({ sessionManager: null as any });
+      const body = mockFetch.mock.calls[0]?.[1]?.body as string;
+      expect(body).not.toContain('ghp_abcdefghijklmnopqrstuvwxyz0123456789');
+      expect(body).not.toContain('sk-abcdefghijklmnop1234');
+      expect(sentPayload().env.cwd).not.toContain(process.env.HOME ?? '/nonexistent-home');
+    });
 
-      // Should call safePrompt 2 times: rating, improvement (for score < 4)
-      expect(safePrompt).toHaveBeenCalledTimes(2);
+    it('leaves the transcript out when the session has no conversation yet', async () => {
+      apiAccepts();
 
-      // Verify API was called with improvement
-      expect(mockFetch).toHaveBeenCalled();
-      const fetchCall = mockFetch.mock.calls[0];
-      const body = JSON.parse(fetchCall[1].body);
-      expect(body.npsScore).toBe(2);
-      expect(body.improvement).toBe('Needs better error messages');
-      expect(body.reason).toBeUndefined();
-      expect(body.recommend).toBeUndefined();
+      await feedback({ currentSession: sessionWith([]) }, ['first', 'impression']);
+
+      expect(sentPayload()).not.toHaveProperty('transcript');
+      expect(sentPayload().sessionId).toBe('session-42');
+    });
+
+    it('attaches the last runtime error when there is one', async () => {
+      apiAccepts();
+      (globalThis as Record<string, unknown>).__autohandLastError = new Error('Test runtime error');
+
+      const result = await feedback({}, ['it', 'crashed']);
+
+      expect(sentPayload().runtimeError).toEqual(expect.objectContaining({ message: 'Test runtime error' }));
+      expect(result).toContain('runtime error');
+    });
+
+    it('prefers AUTOHAND_API_URL, then the configured API base URL', async () => {
+      apiAccepts();
+      const config = { api: { baseUrl: 'https://config.example.test/' } } as FeedbackCommandContext['config'];
+
+      await feedback({ config }, ['hello']);
+      expect(mockFetch.mock.calls[0]?.[0]).toBe('https://config.example.test/v1/feedback');
+
+      process.env.AUTOHAND_API_URL = 'https://env.example.test';
+      await feedback({ config }, ['hello']);
+      expect(mockFetch.mock.calls[1]?.[0]).toBe('https://env.example.test/v1/feedback');
+    });
+
+    it('keeps a local copy without the transcript messages', async () => {
+      apiAccepts();
+
+      await feedback({ currentSession: sessionWith(CONVERSATION) }, ['note']);
+
+      expect(mockedFs.appendFile).toHaveBeenCalledOnce();
+      const line = mockedFs.appendFile.mock.calls[0]?.[1] as string;
+      expect(JSON.parse(line)).toMatchObject({ freeformFeedback: 'note', transcript: { messageCount: 2 } });
+      expect(line).not.toContain('rename the helper');
     });
   });
 
-  describe('API submission', () => {
-    it('should send feedback to api.autohand.ai', async () => {
-      (safePrompt as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ rating: '3' })
-        .mockResolvedValueOnce({ improvement: 'Works okay' });
+  describe('non-blocking delivery', () => {
+    it('returns before the API answers and reports the result through notifyUser', async () => {
+      let respond!: (value: unknown) => void;
+      mockFetch.mockReturnValue(new Promise((resolve) => { respond = resolve; }));
+      const notifyUser = vi.fn();
 
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({ success: true, id: 'test-789' }),
-      });
+      const result = await feedback({ currentSession: sessionWith(CONVERSATION), notifyUser }, ['slow', 'network']);
 
-      await feedback({ sessionManager: null as any });
+      expect(result).toContain('Sending feedback');
+      expect(result).toContain('2 messages');
+      expect(notifyUser).not.toHaveBeenCalled();
 
-      expect(mockFetch).toHaveBeenCalled();
-      const fetchCall = mockFetch.mock.calls[0];
-      const url = fetchCall[0];
-
-      // Should use api.autohand.ai as base URL
-      expect(url).toBe('https://api.autohand.ai/v1/feedback');
+      respond({ ok: true, json: async () => ({ success: true, id: 'feedback-1' }) });
+      await vi.waitFor(() => expect(notifyUser).toHaveBeenCalledOnce());
+      expect(notifyUser.mock.calls[0]?.[0]).toContain('Thank you');
     });
 
-    it('should include required fields matching API schema', async () => {
-      (safePrompt as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ rating: '4' })
-        .mockResolvedValueOnce({ reason: 'The feedback text' })
-        .mockResolvedValueOnce({ recommend: 'yes' });
+    it('reports a failed background delivery instead of losing it silently', async () => {
+      mockFetch.mockRejectedValue(new Error('Network error'));
+      const notifyUser = vi.fn();
 
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({ success: true, id: 'test-schema' }),
-      });
+      await feedback({ notifyUser }, ['offline', 'note']);
 
-      await feedback({ sessionManager: null as any });
-
-      const fetchCall = mockFetch.mock.calls[0];
-      const body = JSON.parse(fetchCall[1].body);
-
-      // Required fields per API schema
-      expect(body).toHaveProperty('npsScore');
-      expect(body).toHaveProperty('triggerType', 'manual');
-      expect(body).toHaveProperty('timestamp');
-      expect(body).toHaveProperty('deviceId');
-      expect(body).toHaveProperty('cliVersion');
-      expect(body).toHaveProperty('platform');
-
-      // For rating >= 4, should have reason and recommend
-      expect(body).toHaveProperty('reason', 'The feedback text');
-      expect(body).toHaveProperty('recommend', true);
-      expect(body).not.toHaveProperty('improvement');
+      await vi.waitFor(() => expect(notifyUser).toHaveBeenCalledOnce());
+      expect(notifyUser.mock.calls[0]?.[0]).toContain('saved locally');
+      expect(notifyUser.mock.calls[0]?.[0]).toContain('Network error');
     });
 
-    it('should prefer AUTOHAND_API_URL or config api base URL when submitting feedback', async () => {
-      (safePrompt as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ rating: '5' })
-        .mockResolvedValueOnce({ reason: 'Uses custom URL' })
-        .mockResolvedValueOnce({ recommend: 'yes' });
+    it('waits for delivery when there is nobody to notify later', async () => {
+      apiAccepts();
 
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({ success: true, id: 'test-custom-url' }),
-      });
+      const result = await feedback({}, ['from', 'the', 'flag']);
 
-      await feedback({
-        sessionManager: null as any,
-        config: {
-          api: {
-            baseUrl: 'https://custom-api.example.com',
-          },
-        } as any,
-      });
-
-      const fetchCall = mockFetch.mock.calls[0];
-      const url = fetchCall[0] as string;
-      expect(url).toBe('https://custom-api.example.com/v1/feedback');
+      expect(result).toContain('Thank you');
     });
+  });
 
-    it('should send prompted feedback to the slashless API endpoint', async () => {
-      const client = new FeedbackApiClient({
-        baseUrl: 'https://api.example.test',
-        offlineQueue: false,
-      });
+  describe('/feedback without a message', () => {
+    it('opens the survey line above the composer instead of prompting', async () => {
+      const requestFeedbackSurvey = vi.fn(() => true);
 
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({ success: true, id: 'prompted-feedback' }),
-      });
+      const result = await feedback({ requestFeedbackSurvey }, []);
 
-      await client.submit({
-        npsScore: 5,
-        recommend: true,
-        reason: 'Useful prompts',
-        timestamp: '2026-05-05T00:00:00.000Z',
-        triggerType: 'interaction_count',
-      });
-
-      expect(mockFetch).toHaveBeenCalled();
-      expect(mockFetch.mock.calls[0][0]).toBe('https://api.example.test/v1/feedback');
-    });
-
-    it('should discard feedback when user skips rating', async () => {
-      (safePrompt as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ rating: 'skip' });
-
-      await feedback({ sessionManager: null as any });
-
-      // Should not call API when rating is skipped
+      expect(requestFeedbackSurvey).toHaveBeenCalledOnce();
+      expect(result).toContain('/feedback <message>');
+      expect(mockedPrompt).not.toHaveBeenCalled();
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
-    it('should include environment info in env field', async () => {
-      (safePrompt as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ rating: '5' })
-        .mockResolvedValueOnce({ reason: 'Excellent!' })
-        .mockResolvedValueOnce({ recommend: 'yes' });
-
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({ success: true, id: 'test-env' }),
+    it('asks one question when no survey line is available, pausing other input around it', async () => {
+      apiAccepts();
+      const order: string[] = [];
+      mockedPrompt.mockImplementationOnce(async () => {
+        order.push('prompt');
+        return { message: '  typed in the prompt  ' };
       });
 
-      await feedback({ sessionManager: null as any });
+      const result = await feedback({
+        requestFeedbackSurvey: () => false,
+        onBeforeModal: () => { order.push('before'); },
+        onAfterModal: () => { order.push('after'); },
+      }, []);
 
-      const fetchCall = mockFetch.mock.calls[0];
-      const body = JSON.parse(fetchCall[1].body);
-
-      expect(body).toHaveProperty('env');
-      expect(body.env).toHaveProperty('platform');
-      expect(body.env).toHaveProperty('node');
-      expect(body.env).toHaveProperty('cwd');
+      expect(order).toEqual(['before', 'prompt', 'after']);
+      expect(mockedPrompt).toHaveBeenCalledOnce();
+      expect(sentPayload().freeformFeedback).toBe('typed in the prompt');
+      expect(result).toContain('Thank you');
     });
 
-    it('should include runtime error if present', async () => {
-      // Set up a runtime error
-      (globalThis as any).__autohandLastError = new Error('Test error');
+    it.each([[null], [{ message: '   ' }]])('discards feedback when the prompt returns %j', async (answer) => {
+      mockedPrompt.mockResolvedValueOnce(answer as never);
 
-      (safePrompt as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ rating: '2' })
-        .mockResolvedValueOnce({ improvement: 'Had an error' });
+      const result = await feedback({}, []);
 
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({ success: true, id: 'test-error' }),
-      });
+      expect(result).toContain('discarded');
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
 
-      await feedback({ sessionManager: null as any });
+    it('never prompts in a non-interactive session', async () => {
+      const result = await feedback({ isNonInteractive: true }, []);
 
-      const fetchCall = mockFetch.mock.calls[0];
-      const body = JSON.parse(fetchCall[1].body);
-
-      expect(body).toHaveProperty('runtimeError');
-      expect(body.runtimeError).toHaveProperty('message', 'Test error');
-
-      // Clean up
-      delete (globalThis as any).__autohandLastError;
+      expect(result).toContain('Usage: /feedback <message>');
+      expect(mockedPrompt).not.toHaveBeenCalled();
     });
   });
 
   describe('cooldown rate limiting', () => {
-    it('should allow feedback when no previous submissions exist', async () => {
-      const fs = await import('fs-extra');
-      (fs.default.pathExists as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-
-      (safePrompt as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ rating: '5' })
-        .mockResolvedValueOnce({ reason: 'First feedback!' })
-        .mockResolvedValueOnce({ recommend: 'yes' });
-
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({ success: true, id: 'test-first' }),
-      });
-
-      await feedback({ sessionManager: null as any });
-
-      // Should proceed to API call
-      expect(mockFetch).toHaveBeenCalled();
-    });
-
-    it('should block feedback when 5 submissions made in last hour', async () => {
-      const fs = await import('fs-extra');
+    it('blocks the sixth submission within an hour', async () => {
       const now = Date.now();
-      const recentSubmissions = [
-        now - 5 * 60 * 1000,   // 5 min ago
-        now - 10 * 60 * 1000,  // 10 min ago
-        now - 15 * 60 * 1000,  // 15 min ago
-        now - 20 * 60 * 1000,  // 20 min ago
-        now - 25 * 60 * 1000,  // 25 min ago
-      ];
+      mockedFs.pathExists.mockResolvedValue(true as never);
+      mockedFs.readJson.mockResolvedValue({ submissions: [1, 2, 3, 4, 5].map((minutes) => now - minutes * 60_000) } as never);
 
-      (fs.default.pathExists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
-      (fs.default.readJson as ReturnType<typeof vi.fn>).mockResolvedValue({
-        submissions: recentSubmissions,
-      });
+      const result = await feedback({}, ['one', 'more']);
 
-      await feedback({ sessionManager: null as any });
-
-      // Should NOT prompt for feedback or call API
-      expect(safePrompt).not.toHaveBeenCalled();
+      expect(result).toContain('Feedback limit reached');
       expect(mockFetch).not.toHaveBeenCalled();
-
-      // Should show rate limit message
-      expect(consoleOutput.some(msg => msg.includes('limit') || msg.includes('wait'))).toBe(true);
     });
 
-    it('should allow feedback when old submissions are outside 1 hour window', async () => {
-      const fs = await import('fs-extra');
+    it('allows feedback when earlier submissions are older than an hour', async () => {
+      apiAccepts();
       const now = Date.now();
-      const oldSubmissions = [
-        now - 2 * 60 * 60 * 1000,  // 2 hours ago
-        now - 3 * 60 * 60 * 1000,  // 3 hours ago
-        now - 4 * 60 * 60 * 1000,  // 4 hours ago
-        now - 5 * 60 * 60 * 1000,  // 5 hours ago
-        now - 6 * 60 * 60 * 1000,  // 6 hours ago
-      ];
+      mockedFs.pathExists.mockResolvedValue(true as never);
+      mockedFs.readJson.mockResolvedValue({ submissions: [1, 2, 3, 4, 5].map((hours) => now - (hours + 1) * 3_600_000) } as never);
 
-      (fs.default.pathExists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
-      (fs.default.readJson as ReturnType<typeof vi.fn>).mockResolvedValue({
-        submissions: oldSubmissions,
-      });
+      await feedback({}, ['fresh', 'window']);
 
-      (safePrompt as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ rating: '4' })
-        .mockResolvedValueOnce({ reason: 'Back again!' })
-        .mockResolvedValueOnce({ recommend: 'yes' });
-
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({ success: true, id: 'test-allowed' }),
-      });
-
-      await feedback({ sessionManager: null as any });
-
-      // Should proceed to API call since old submissions don't count
-      expect(mockFetch).toHaveBeenCalled();
+      expect(mockFetch).toHaveBeenCalledOnce();
     });
 
-    it('should save submission timestamp after successful feedback', async () => {
-      const fs = await import('fs-extra');
-      (fs.default.pathExists as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+    it('allows feedback when the cooldown state is corrupted', async () => {
+      apiAccepts();
+      mockedFs.pathExists.mockResolvedValue(true as never);
+      mockedFs.readJson.mockRejectedValue(new Error('Unexpected token'));
 
-      (safePrompt as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ rating: '5' })
-        .mockResolvedValueOnce({ reason: 'Great!' })
-        .mockResolvedValueOnce({ recommend: 'yes' });
+      await feedback({}, ['still', 'works']);
 
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({ success: true, id: 'test-save' }),
-      });
+      expect(mockFetch).toHaveBeenCalledOnce();
+    });
 
-      await feedback({ sessionManager: null as any });
+    it('records the submission time for the next check', async () => {
+      apiAccepts();
 
-      // Should save the cooldown state
-      expect(fs.default.writeJson).toHaveBeenCalled();
-      const writeCall = (fs.default.writeJson as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(writeCall[1]).toHaveProperty('submissions');
-      expect(writeCall[1].submissions.length).toBeGreaterThan(0);
+      await feedback({}, ['tracked']);
+
+      const cooldownWrite = mockedFs.writeJson.mock.calls.find(([, state]) => 'submissions' in (state as object));
+      expect((cooldownWrite?.[1] as { submissions: number[] }).submissions).toHaveLength(1);
     });
   });
 
   describe('error handling', () => {
-    it('should handle API errors gracefully', async () => {
-      (safePrompt as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ rating: '4' })
-        .mockResolvedValueOnce({ reason: 'Test feedback' })
-        .mockResolvedValueOnce({ recommend: 'yes' });
+    it('reports an API error and keeps the local copy', async () => {
+      mockFetch.mockResolvedValue({ ok: false, status: 500, text: async () => '{"error":"Failed to save feedback"}' });
 
-      mockFetch.mockResolvedValue({
-        ok: false,
-        status: 500,
-        text: async () => 'Internal Server Error',
-      });
+      const result = await feedback({}, ['server', 'down']);
 
-      // Should not throw
-      const result = await feedback({ sessionManager: null as any });
-
-      // Should complete without error even if API fails
-      expect(result).toBeNull();
+      expect(result).toContain('saved locally');
+      expect(result).toContain('API error: 500 Failed to save feedback');
+      expect(mockedFs.appendFile).toHaveBeenCalledOnce();
     });
 
-    it('should handle network errors gracefully', async () => {
-      (safePrompt as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ rating: '4' })
-        .mockResolvedValueOnce({ reason: 'Test feedback' })
-        .mockResolvedValueOnce({ recommend: 'yes' });
-
-      mockFetch.mockRejectedValue(new Error('Network error'));
-
-      // Should not throw
-      const result = await feedback({ sessionManager: null as any });
-      expect(result).toBeNull();
-    });
-
-    it('should sanitize HTML challenge responses from API errors', async () => {
-      (safePrompt as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ rating: '4' })
-        .mockResolvedValueOnce({ reason: 'Test feedback' })
-        .mockResolvedValueOnce({ recommend: 'yes' });
-
+    it('reduces an HTML challenge page to one readable line', async () => {
       mockFetch.mockResolvedValue({
         ok: false,
         status: 403,
         text: async () => '<!DOCTYPE html><html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>',
       });
 
-      const result = await feedback({ sessionManager: null as any });
-      expect(result).toBeNull();
+      const result = await feedback({}, ['blocked']);
 
-      const combined = consoleOutput.join('\n');
-      expect(combined).toContain('API error: 403 blocked by Cloudflare challenge');
-      expect(combined).not.toContain('<html>');
-      expect(combined).not.toContain('__cf_chl_opt');
+      expect(result).toContain('API error: 403 blocked by Cloudflare challenge');
+      expect(result).not.toContain('<html>');
+      expect(result).not.toContain('__cf_chl_opt');
     });
 
-    it('should discard feedback when user cancels rating prompt', async () => {
-      (safePrompt as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+    it('explains a rate-limited response', async () => {
+      mockFetch.mockResolvedValue({ ok: false, status: 429, text: async () => '{"error":"Rate limit exceeded"}' });
 
-      await feedback({ sessionManager: null as any });
+      const result = await feedback({}, ['too', 'many']);
 
-      // Should not call API
-      expect(mockFetch).not.toHaveBeenCalled();
+      expect(result).toContain('rate limited');
+    });
+
+    it('survives a failing local backup', async () => {
+      apiAccepts();
+      mockedFs.appendFile.mockRejectedValueOnce(new Error('EACCES') as never);
+
+      const result = await feedback({}, ['read-only', 'home']);
+
+      expect(result).toContain('Thank you');
     });
   });
 });

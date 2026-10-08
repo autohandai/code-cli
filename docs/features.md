@@ -73,7 +73,8 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | `/agents definitions` | List installed sub-agent definitions |
 | `/agents view` | Inspect direct and team runs |
 | `/agents-new` | Create new agent via wizard |
-| `/feedback` | Send feedback |
+| `/feedback` | Send feedback with this session's transcript attached |
+| `/bug`, `/bug-report` | File a bug report as a GitHub issue |
 | `/help` | Display help |
 | `/about` | Show information about Autohand |
 | `/whatsnew` | View and dismiss active CLI announcements |
