@@ -11,9 +11,11 @@ import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import stripAnsi from 'strip-ansi';
+import { waitForTerminalScreen } from '../../../src/testing/drivers/tuistory-driver.js';
 import {
   createTempAutohandHome,
   launchBuiltAutohand,
+  waitForExit,
   type CreateTempAutohandHomeOptions,
   type MockAuthServer,
   type MockOllamaServer,
@@ -259,6 +261,7 @@ export function registerBuiltCliCleanup(): void {
   afterEach(async () => {
     for (const session of sessions.splice(0)) {
       session.close();
+      await waitForExit(session);
     }
     for (const server of mockServers.splice(0)) {
       await server.close();
@@ -299,7 +302,7 @@ export async function launchInteractive(options: {
 }
 
 export async function waitForComposer(session: Session): Promise<void> {
-  await session.text({
+  await waitForTerminalScreen(session, {
     timeout: 20_000,
     waitFor: (text) => text.includes('❯'),
   });

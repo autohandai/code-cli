@@ -12,7 +12,10 @@ const states: TuistoryTempState[] = [];
 const servers: MockNativeToolServer[] = [];
 const authServers: MockAuthServer[] = [];
 afterEach(async () => {
-  sessions.splice(0).forEach(session => session.close());
+  for (const session of sessions.splice(0)) {
+    session.close();
+    await waitForExit(session);
+  }
   await Promise.all(servers.splice(0).map(server => server.close()));
   await Promise.all(authServers.splice(0).map(server => server.close()));
   await Promise.all(states.splice(0).map(state => state.cleanup()));

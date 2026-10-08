@@ -30,6 +30,7 @@ jobs:
       channel: ${{ steps.determine.outputs.channel }}
       version: ${{ steps.version.outputs.version }}
       should_release: ${{ steps.check.outputs.should_release }}
+      macos_signing_mode: ${{ steps.macos-signing.outputs.mode }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -59,6 +60,37 @@ jobs:
             echo "⏭️ Skipping - last commit is a release commit"
           else
             echo "should_release=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Select macOS signing mode
+        id: macos-signing
+        if: steps.check.outputs.should_release == 'true'
+        env:
+          RELEASE_CHANNEL: ${{ steps.determine.outputs.channel }}
+          APPLICATION_CERT_BASE64: ${{ secrets.APPLICATION_CERT_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
+          DEVELOPER_NAME: ${{ secrets.DEVELOPER_NAME }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APP_SPECIFIC_PASSWORD: ${{ secrets.APP_SPECIFIC_PASSWORD }}
+        run: |
+          set -euo pipefail
+          required=(APPLICATION_CERT_BASE64 CERT_PASSWORD DEVELOPER_NAME TEAM_ID APPLE_ID APP_SPECIFIC_PASSWORD)
+          missing=()
+          for name in "${required[@]}"; do
+            if [ -z "${!name}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "mode=developer-id" >> "$GITHUB_OUTPUT"
+          elif [ "$RELEASE_CHANNEL" = "alpha" ] && [ "${#missing[@]}" -eq "${#required[@]}" ]; then
+            echo "mode=adhoc" >> "$GITHUB_OUTPUT"
+            echo "::warning::macOS alpha artifacts will be ad-hoc signed, not notarized. macOS may require Open Anyway and renewed Computer Use permissions after updates."
+          else
+            echo "::error::Incomplete macOS signing configuration. Missing: ${missing[*]}. Stable releases require all Apple credentials; alpha releases can omit all of them for ad-hoc signing."
+            exit 1
           fi
 
       - name: Setup Node.js
@@ -300,11 +332,11 @@ jobs:
           bun-version-file: package.json
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --cpu="*"
 
       - name: Install ahtraces dependencies
         working-directory: ahtraces-component
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --cpu="*"
 
       - name: Update version before build
         run: |
@@ -315,6 +347,7 @@ jobs:
         run: bun run build
 
       - name: Compile binaries
+        shell: bash
         env:
           BUILD_GIT_COMMIT: ${{ steps.ahtraces-ref.outputs.sha }}
         run: |
@@ -330,7 +363,7 @@ jobs:
           bun build ./ahtraces-component/src/index.ts --compile --target=bun-${{ matrix.target }} '--env=BUILD_GIT_*' --outfile ./binaries/${{ matrix.tracesArtifact }}
 
       - name: Import macOS signing certificate
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && needs.prepare.outputs.macos_signing_mode == 'developer-id'
         env:
           APPLICATION_CERT_BASE64: ${{ secrets.APPLICATION_CERT_BASE64 }}
           CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
@@ -374,7 +407,7 @@ jobs:
           ./computer-use-component/autohand/scripts/build-macos-host.sh --output "./binaries/Autohand Computer Use.app" --version "$AUTOHAND_BUILD_VERSION"
 
       - name: Sign and notarize macOS artifacts
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && needs.prepare.outputs.macos_signing_mode == 'developer-id'
         env:
           DEVELOPER_NAME: ${{ secrets.DEVELOPER_NAME }}
           TEAM_ID: ${{ secrets.TEAM_ID }}
@@ -426,6 +459,19 @@ jobs:
           spctl -a -vv -t exec "./binaries/Autohand Computer Use.app"
           rm -rf ./binaries/notarization ./binaries/autohand-macos-notarization.zip
 
+          tar -czf "./binaries/autohand-computer-use-${{ matrix.target }}.tar.gz" \
+            -C ./binaries "Autohand Computer Use.app"
+
+      - name: Ad-hoc sign macOS alpha artifacts
+        if: runner.os == 'macOS' && needs.prepare.outputs.macos_signing_mode == 'adhoc'
+        run: |
+          set -euo pipefail
+          codesign --force --sign - --timestamp=none ./binaries/${{ matrix.artifact }}
+          codesign --verify --strict --verbose=4 ./binaries/${{ matrix.artifact }}
+          codesign --force --sign - --timestamp=none ./binaries/${{ matrix.tracesArtifact }}
+          codesign --verify --strict --verbose=4 ./binaries/${{ matrix.tracesArtifact }}
+          codesign --force --sign - --timestamp=none "./binaries/Autohand Computer Use.app"
+          codesign --verify --deep --strict --verbose=4 "./binaries/Autohand Computer Use.app"
           tar -czf "./binaries/autohand-computer-use-${{ matrix.target }}.tar.gz" \
             -C ./binaries "Autohand Computer Use.app"
 
@@ -720,6 +766,19 @@ jobs:
             --repo "${{ github.repository }}" \
             --output release-notes.md
           cat release-notes.md
+
+      - name: Document ad-hoc macOS signing
+        if: needs.prepare.outputs.macos_signing_mode == 'adhoc'
+        run: |
+          cat >> release-notes.md <<'EOF'
+
+          ### macOS alpha signing
+
+          These macOS alpha binaries and the Computer Use app are ad-hoc signed, not notarized by Apple.
+          Downloaded apps may require **Open Anyway** in System Settings → Privacy & Security.
+          See [Apple's instructions](https://support.apple.com/en-us/102445).
+          Computer Use may require Accessibility and Screen Recording permissions again after updates.
+          EOF
 
       - name: Create Release
         uses: softprops/action-gh-release@v3

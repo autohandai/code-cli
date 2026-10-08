@@ -10,6 +10,7 @@ import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import stripAnsi from 'strip-ansi';
+import { waitForTerminalScreen } from '../../src/testing/drivers/tuistory-driver.js';
 import { openGoalsPanel } from '../../src/testing/scenarios/goalsCommandScenario.js';
 import { TIP_ROTATION_MS } from '../../src/ui/tips.js';
 import {
@@ -201,11 +202,11 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
     }));
     expect(working).not.toContain('Tip: ');
 
-    const finished = await session.text({
+    const finished = await waitForTerminalScreen(session, {
       timeout: 15_000,
       waitFor: (text) => text.includes('Tip check completed.')
         && !text.includes('esc to cancel')
-        && idleTipOf(text) !== undefined,
+        && /^Completed in .+ {2,}Tip: /u.test(rowAboveComposer(text)),
     });
     expect(rowAboveComposer(finished)).toMatch(/^Completed in .+ {2,}Tip: /u);
 
@@ -214,13 +215,13 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
     await session.type('Run it once more so the second summary lands.');
     await session.press('enter');
     await session.text({ timeout: 10_000, waitFor: (text) => text.includes('esc to cancel') });
-    const secondFinish = await session.text({
+    const secondFinish = await waitForTerminalScreen(session, {
       timeout: 20_000,
       waitFor: (text) => {
         const screen = stripAnsi(text);
         return !screen.includes('esc to cancel')
           && (screen.match(/Completed in /gu)?.length ?? 0) >= 2
-          && idleTipOf(screen) !== undefined;
+          && /^Completed in .+ {2,}Tip: /u.test(rowAboveComposer(screen));
       },
     });
     // The first summary stays in the transcript, the second keeps the live row.

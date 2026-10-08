@@ -178,6 +178,64 @@ describe('/hooks command', () => {
   });
 
   describe('toggle hook', () => {
+    it('waits for a pending toggle to persist before reporting success and returning', async () => {
+      await manager.addHook({ event: 'pre-tool', command: 'echo test', enabled: false });
+      const saved = Promise.withResolvers<boolean>();
+      vi.spyOn(manager, 'toggleHook').mockReturnValue(saved.promise);
+      mockSafePrompt.mockResolvedValueOnce({ action: 'toggle' });
+      mockShowModal.mockImplementation(async (opts: { onToggle?: (opt: { value: string }, checked: boolean) => void }) => {
+        opts.onToggle?.({ value: '0' }, true);
+        return null;
+      });
+      let completed = false;
+      const command = hooks({ hookManager: manager }, 'manage').then(() => { completed = true; });
+      try {
+        await new Promise<void>(resolve => setImmediate(resolve));
+        expect(completed).toBe(false);
+        expect(consoleLogSpy).not.toHaveBeenCalledWith(expect.stringContaining('No changes made'));
+      } finally {
+        saved.resolve(true);
+        await command;
+      }
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Toggled 1 hook'));
+    });
+
+    it('persists multiple toggles in order instead of racing settings writes', async () => {
+      await manager.addHook({ event: 'pre-tool', command: 'echo first', enabled: false });
+      await manager.addHook({ event: 'post-tool', command: 'echo second', enabled: false });
+      const saved = Promise.withResolvers<boolean>();
+      const toggle = vi.spyOn(manager, 'toggleHook').mockReturnValueOnce(saved.promise).mockResolvedValue(true);
+      mockSafePrompt.mockResolvedValueOnce({ action: 'toggle' });
+      mockShowModal.mockImplementation(async (opts: { onToggle?: (opt: { value: string }, checked: boolean) => void }) => {
+        opts.onToggle?.({ value: '0' }, true);
+        opts.onToggle?.({ value: '1' }, true);
+        return null;
+      });
+      const command = hooks({ hookManager: manager }, 'manage');
+      try {
+        await new Promise<void>(resolve => setImmediate(resolve));
+        expect(toggle).toHaveBeenCalledTimes(1);
+      } finally {
+        saved.resolve(true);
+        await command;
+      }
+      expect(toggle.mock.calls).toEqual([['pre-tool', 0], ['post-tool', 0]]);
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Toggled 2 hooks'));
+    });
+
+    it('propagates a failed save without reporting a successful toggle', async () => {
+      await manager.addHook({ event: 'pre-tool', command: 'echo test', enabled: false });
+      vi.spyOn(manager, 'toggleHook').mockRejectedValue(new Error('Could not save hook settings'));
+      mockSafePrompt.mockResolvedValueOnce({ action: 'toggle' });
+      mockShowModal.mockImplementation(async (opts: { onToggle?: (opt: { value: string }, checked: boolean) => void }) => {
+        opts.onToggle?.({ value: '0' }, true);
+        return null;
+      });
+
+      await expect(hooks({ hookManager: manager }, 'manage')).rejects.toThrow('Could not save hook settings');
+      expect(consoleLogSpy).not.toHaveBeenCalledWith(expect.stringContaining('Toggled 1 hook'));
+    });
+
     it('toggles hook via spacebar in multiselect modal', async () => {
       await manager.addHook({ event: 'pre-tool', command: 'echo test', enabled: true, description: 'Test hook' });
 

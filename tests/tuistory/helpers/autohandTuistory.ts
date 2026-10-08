@@ -10,7 +10,8 @@ import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { launchTerminal, type Session } from 'tuistory';
+import type { Session } from 'tuistory';
+import { launchTuistorySession } from '../../../src/testing/drivers/tuistory-driver.js';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -660,6 +661,37 @@ globalThis.fetch = async (input, init) => {
     });
   }
 
+  const pathname = new URL(url).pathname;
+  if (pathname === '/v1/feature-flags/evaluate') {
+    return Response.json({ success: true, flags: [] });
+  }
+  if (pathname === '/v1/announcements') {
+    return Response.json({ success: true, announcements: [] });
+  }
+  if (url === 'https://openrouter.ai/api/v1/models') {
+    return Response.json({ data: [] });
+  }
+  if (url === 'https://openrouter.ai/api/v1/chat/completions' && method.toUpperCase() === 'POST') {
+    return Response.json({
+      choices: [{ message: { role: 'assistant', content: 'Mobile pairing ready.' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    });
+  }
+  if (pathname.startsWith('/v1/mobile/sessions/')) {
+    if (pathname.endsWith('/heartbeat') && method.toUpperCase() === 'POST') {
+      return Response.json({ success: true, pairing: { status: 'pending' } });
+    }
+    if (pathname.endsWith('/events') && method.toUpperCase() === 'POST') {
+      return Response.json({ success: true });
+    }
+    if (pathname.endsWith('/actions') && method.toUpperCase() === 'GET') {
+      return Response.json({ success: true, actions: [], cursor: 0 });
+    }
+  }
+  if (pathname === '/v1/work/claim' && method.toUpperCase() === 'POST') {
+    return Response.json({ success: false, error: 'No work available' }, { status: 404 });
+  }
+
   if (!originalFetch) {
     throw new Error('fetch is not available in this runtime');
   }
@@ -1194,7 +1226,7 @@ export async function launchBuiltAutohand(
     ...options.env,
   };
 
-  return await launchTerminal({
+  return await launchTuistorySession({
     command: process.execPath,
     args: [path.join(root, 'dist/index.js'), ...args],
     cwd: options.cwd ?? root,

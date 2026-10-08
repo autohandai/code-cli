@@ -17,6 +17,7 @@ import {
   createTempAutohandHome,
   exitInteractive,
   launchBuiltAutohand,
+  waitForExit,
   type TuistoryTempState,
 } from './helpers/autohandTuistory.js';
 
@@ -26,6 +27,7 @@ const tempStates: TuistoryTempState[] = [];
 afterEach(async () => {
   for (const session of sessions.splice(0)) {
     session.close();
+    await waitForExit(session);
   }
   for (const state of tempStates.splice(0)) {
     await state.cleanup();

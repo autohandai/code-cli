@@ -49,6 +49,15 @@ function hasFullHistoryCheckout(job: WorkflowJob): boolean {
  * release workflow kept failing because it runs the same suite from its own job.
  */
 describe('CI workflow checkout', () => {
+  it('offers an opt-in complete proof on a runner with full Git history', () => {
+    const proof = readWorkflowJobs().find(job => job.workflow === 'full-proof.yml' && job.name === 'proof');
+    expect(proof).toBeDefined();
+    expect(hasFullHistoryCheckout(proof!)).toBe(true);
+    expect(proof?.body).toContain("contains(github.event.pull_request.labels.*.name, 'full-proof')");
+    expect(proof?.body).toContain('bun-version-file: package.json');
+    expect(proof?.body).toContain('run: bun run proof');
+  });
+
   it('uses the declared Bun toolchain in every build and release job', () => {
     const packageJson: { packageManager?: string } = JSON.parse(
       readFileSync(path.join(WORKFLOW_DIR, '../../package.json'), 'utf8'),
