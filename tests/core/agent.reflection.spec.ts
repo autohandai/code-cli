@@ -57,6 +57,7 @@ function createReactLoopHarness(
     nativeToolCalling?: boolean;
     hasIncompleteTodoActivity?: () => boolean;
     advisor?: TurnAdvisor;
+    provider?: 'openai' | 'autohandai';
   } = {},
 ) {
   const parser = createParser();
@@ -83,7 +84,7 @@ function createReactLoopHarness(
   const host = {
     createCheckpointAdvisor: () => harnessOptions.advisor,
     captureAdvisorDiff: async () => 'diff --git a/file.ts b/file.ts',
-    activeProvider: 'openai' as const,
+    activeProvider: harnessOptions.provider ?? 'openai',
     ...(harnessOptions.responseCompletionHooks
       ? { responseCompletionHooks: harnessOptions.responseCompletionHooks }
       : {}),
@@ -179,6 +180,30 @@ function createReactLoopHarness(
 /* ── Tests ────────────────────────────────────────────────── */
 
 describe('checkpoint review in the live execution loop', () => {
+  it('refreshes orchestration instructions across setting and provider changes without losing history', async () => {
+    const { host } = createReactLoopHarness(Array.from({ length: 5 }, () => ({ content: 'The requested source review is complete and its findings are ready.' })), { provider: 'autohandai' });
+    host.runtime.config.provider = 'autohandai';
+    host.runtime.config.autohandai = { plan: 'cloud', model: 'moa' };
+    const instruction = () => host.conversation.history().filter(message => message.role === 'system' && message.content?.startsWith('[Autohand AI orchestration]'));
+    await runAgentReactLoop(host, new AbortController());
+    expect(instruction()).toHaveLength(1);
+    expect(instruction()[0].content).toContain('orchestration is enabled');
+    host.runtime.config.autohandai.orchestration = false;
+    await runAgentReactLoop(host, new AbortController());
+    expect(instruction()).toHaveLength(2);
+    expect(instruction().at(-1)?.content).toContain('orchestration is disabled');
+    host.runtime.config.autohandai.orchestration = true;
+    await runAgentReactLoop(host, new AbortController());
+    expect(instruction().at(-1)?.content).toContain('orchestration is enabled');
+    host.activeProvider = 'openai';
+    await runAgentReactLoop(host, new AbortController());
+    expect(instruction()).toHaveLength(4);
+    expect(instruction().at(-1)?.content).toContain('orchestration is disabled');
+    await runAgentReactLoop(host, new AbortController());
+    expect(instruction()).toHaveLength(4);
+    expect(host.conversation.history()).toContainEqual({ role: 'user', content: 'check reflection' });
+  });
+
   it('reviews before staging and before completion, and never on an ordinary read', async () => {
     const order: string[] = [];
     const advisor: TurnAdvisor = {

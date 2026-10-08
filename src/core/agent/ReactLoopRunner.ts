@@ -80,7 +80,7 @@ import { usesAutohandAICloud } from '../../providers/AutohandAIProvider.js';
 import { combineDeltaHandlers, StreamedOutputRelay, StreamingResponsePreview } from './StreamingResponsePreview.js';
 import type { RunBudgetGate } from './RunBudget.js';
 import { CheckpointAdvisor, checkpointForCalls, type AdvisorCheckpoint, type AdvisorReview, type TurnAdvisor } from './CheckpointAdvisor.js';
-import { canUseMoaAdvisor } from './AutohandOrchestration.js';
+import { canUseMoaAdvisor, isAutohandOrchestrationEnabled, ORCHESTRATION_INSTRUCTIONS } from './AutohandOrchestration.js';
 import { createTeamMemberProvider } from '../teams/TeamModelPolicy.js';
 
 const COMPLETION_REMINDER_TOOL_BATCH_THRESHOLD = 3;
@@ -610,6 +610,19 @@ export async function runAgentReactLoop(
               }
             },
           }) : undefined;
+    const orchestrationEnabled = isAutohandOrchestrationEnabled(host.runtime.config, host.activeProvider);
+    const orchestrationKey = '[Autohand AI orchestration]';
+    const orchestrationHistory = host.conversation.history();
+    const previousOrchestrationNote = [...orchestrationHistory].reverse().find(message => message.role === 'system' && message.content?.startsWith(orchestrationKey));
+    if (usesAutohandAICloud(host.runtime.config, host.activeProvider ?? host.runtime.config.provider)
+      || orchestrationHistory.some(message => message.role === 'system'
+        && (message.content?.includes(orchestrationKey) || message.content?.includes(ORCHESTRATION_INSTRUCTIONS)))) {
+      const instruction = orchestrationEnabled
+        ? `${ORCHESTRATION_INSTRUCTIONS}${advisor ? '' : ' Moa reviews are unavailable for the current account/model; verify the work yourself.'}`
+        : 'Autohand AI orchestration is disabled for the current provider or setting. This supersedes earlier orchestration instructions. Use ordinary delegation with the selected worker models and tools; no Moa checkpoint review will run.';
+      const note = `${orchestrationKey} ${instruction}`;
+      if (previousOrchestrationNote?.content !== note) host.conversation.addSystemNote(note);
+    }
     let hadToolWork = false;
     let advisorRejections = 0;
     const consultAdvisor = async (checkpoint: AdvisorCheckpoint, evidence: string): Promise<AdvisorReview> => {

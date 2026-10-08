@@ -46,7 +46,8 @@ describe('default Autohand AI orchestration', () => {
         } else {
           leadTurns += 1;
           if (leadTurns === 1) reply(response, 'Inspecting three independent scopes.', { name: 'delegate_parallel', args: { tasks: [1, 2, 3].map(index => ({ agent_name: `reader-${index}`, task: 'Inspect fixture.txt and return structured evidence.' })) } });
-          else reply(response, 'ORCHESTRATION_VERIFIED: Three source reports agree.');
+          else if (leadTurns === 2) reply(response, 'ORCHESTRATION_VERIFIED: Three source reports agree.');
+          else reply(response, `ORCHESTRATION_MODE_${leadTurns === 3 ? 'OFF' : 'ON'}: The requested setting is active.`);
         }
       })().catch(error => { response.writeHead(500).end(String(error)); });
     });
@@ -86,6 +87,16 @@ describe('default Autohand AI orchestration', () => {
       expect(audit.extra_body?.chat_template_kwargs?.reasoning_effort).toBe('high');
       expect(JSON.stringify(audit.messages)).toContain('fixture.txt');
       expect(JSON.stringify(audit.messages)).toContain('Workspace diff against HEAD');
+      for (const mode of ['off', 'on']) {
+        await session.type(`/agents orchestration ${mode}`);
+        await session.press('enter');
+        await session.text({ timeout: 15_000, waitFor: text => text.includes(`Autohand AI orchestration ${mode === 'on' ? 'enabled' : 'disabled'}.`) });
+        await session.type(`Confirm the ${mode} setting in a short reply.`);
+        await session.press('enter');
+        await session.text({ timeout: 15_000, waitFor: text => text.includes(`ORCHESTRATION_MODE_${mode.toUpperCase()}`) });
+        const instructions = requests.at(-1)!.messages.filter(message => message.role === 'system' && message.content.startsWith('[Autohand AI orchestration]'));
+        expect(instructions.at(-1)?.content).toContain(`orchestration is ${mode === 'on' ? 'enabled' : 'disabled'}`);
+      }
       await exitInteractive(session);
     } finally {
       session.close();
