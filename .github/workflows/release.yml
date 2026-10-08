@@ -332,11 +332,11 @@ jobs:
           bun-version-file: package.json
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --cpu="*"
 
       - name: Install ahtraces dependencies
         working-directory: ahtraces-component
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --cpu="*"
 
       - name: Update version before build
         run: |

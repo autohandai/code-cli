@@ -138,6 +138,17 @@ function runVersionStep(manualVersion: string): string {
 }
 
 describe('release workflow', () => {
+  it('installs native dependencies for cross-compiled architectures before compiling', () => {
+    const steps = loadReleaseWorkflow().jobs.build.steps;
+    const compileIndex = steps.findIndex(step => step.name === 'Compile binaries');
+    for (const name of ['Install dependencies', 'Install ahtraces dependencies']) {
+      const index = steps.findIndex(step => step.name === name);
+      expect(index).toBeGreaterThanOrEqual(0);
+      expect(index).toBeLessThan(compileIndex);
+      expect(steps[index]?.run).toContain('--frozen-lockfile --cpu="*"');
+    }
+  });
+
   it('uses Bash for compilation on Windows as well as Unix runners', () => {
     const step = loadReleaseWorkflow().jobs.build.steps.find(step => step.name === 'Compile binaries');
     expect(step?.shell).toBe('bash');
