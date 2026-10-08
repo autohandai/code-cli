@@ -739,6 +739,7 @@ docker run -it autohand
 - [Agent Skills](docs/agent-skills.md) - Skills system guide
 - [Autohand Computer Use](docs/computer-control.md) - Install native computer control and operate local apps conversationally
 - [ACP integration guide](docs/guides/ACP.md) - Use the native ACP agent in compatible editors, IDEs, and ADEs
+- [Herdr integration](docs/herdr-integration.md) - Pane state, notifications, and session resume when running inside Herdr
 - [Extending Autohand Code CLI](docs/extending.md) - Build tools, skills, hooks, MCP servers, and integrations
 - [Autohand Code extensions](docs/extensions.md) - Validate, install, inspect, and manage declarative extension packages
 - [Extension authoring](docs/extension-authoring.md) - Package tools and agents for the public extension ecosystem

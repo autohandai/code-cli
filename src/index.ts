@@ -66,6 +66,7 @@ import { registerComputerCommand } from './computer/cliCommand.js';
 import { registerReviewCommand } from './review/reviewCliCommand.js';
 import { registerTransferCommand } from './startup/transferCommand.js';
 import { registerResumeCommand } from './startup/resumeCommand.js';
+import { attachHerdrIntegration } from './integrations/herdr/index.js';
 import { probeMcpServersWithManager, registerDoctorCommand } from './startup/doctorCommand.js';
 import type { ReviewCliExecution } from './review/reviewCliRuntime.js';
 import { formatDeprecatedBrowserOptionWarning } from './browser/compatibility.js';
@@ -2048,6 +2049,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
     }
     agent = new AutohandAgent(llmProvider, files, runtime);
     agentHolder.current = agent;
+    attachHerdrIntegration({ hookManager: agent.getHookManager() });
     startupTimeline.mark('agent constructed');
     if (commandLifecycleController.signal.aborted) {
       agent.requestExit();
