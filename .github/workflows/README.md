@@ -122,15 +122,23 @@ Add these secrets in GitHub Settings → Secrets → Actions:
 2. **`AHTRACES_REPO_TOKEN`** (required for release and CI builds)
    - Fine-grained read-only token for the private `autohandai/ahtraces` repository
 
-3. **macOS signing and notarization secrets** (required for every alpha and stable release)
+3. **macOS signing and notarization secrets** (required for stable releases; optional for alpha)
    - `APPLICATION_CERT_BASE64`: base64-encoded Developer ID Application `.p12`
    - `CERT_PASSWORD`: password for the signing certificate archive
    - `DEVELOPER_NAME`: organization name in the Developer ID certificate
    - `TEAM_ID`: Apple Developer team identifier
    - `APPLE_ID`: Apple account used by `notarytool`
    - `APP_SPECIFIC_PASSWORD`: app-specific password for that Apple account
-   - The release fails before upload when signing credentials are missing. This prevents
-     ad hoc app updates from changing the macOS permission identity.
+   - Configure all six secrets to sign with Developer ID and notarize macOS artifacts.
+     Stable releases and partially configured signing fail in the prepare job when
+     credentials are missing, before the test and build jobs run.
+   - Alpha releases with none of these secrets use ad-hoc signing. Signatures are
+     verified before upload and again after downloading the artifacts, but Apple
+     does not notarize these builds. Downloaded apps may require **Open Anyway** in
+     System Settings → Privacy & Security. See [Apple's instructions](https://support.apple.com/en-us/102445).
+   - Ad-hoc signing does not preserve the Developer ID permission identity across
+     updates. Users may need to grant Accessibility and Screen Recording access
+     to Autohand Computer Use again after installing a new alpha.
 
 4. **`MODEL_CATALOG_PR_TOKEN`** (optional for model catalog pull requests)
    - Fine-grained token with repository Contents, Issues, and Pull requests read/write access
