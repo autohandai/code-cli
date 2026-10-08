@@ -355,6 +355,7 @@ describe("AutohandAcpAdapter", () => {
         clientCapabilities: { _meta: { autohandPeerEvents: 1 } },
       }));
       expect(withPeers._meta).toEqual({
+        autohandWorkspaceSetup: 1,
         hostContext: { version: 1 },
         peerCommunication: { version: 1 },
       });
@@ -914,6 +915,24 @@ describe("AutohandAcpAdapter", () => {
         "Add unit tests for the auth module",
         { signal: expect.any(AbortSignal) },
       );
+    });
+
+    it("lets a cloud host delegate dependency setup to the agent without changing permissions", async () => {
+      await adapter.initialize(makeInitRequest({
+        clientCapabilities: { _meta: { autohandWorkspaceSetup: 'agent-managed' } },
+      }));
+      await adapter.prompt({ sessionId, prompt: [{ type: 'text', text: 'Update README.md' }] });
+      expect(mockAgent.runInstruction).toHaveBeenCalledWith('Update README.md', {
+        signal: expect.any(AbortSignal), environmentBootstrap: 'skip', qualityPipeline: 'agent-managed',
+      });
+      expect(mockAgent.applyAcpMode).not.toHaveBeenCalledWith('yolo');
+    });
+
+    it("rejects a failed instruction instead of returning a successful empty turn", async () => {
+      mockAgent.runInstruction.mockResolvedValue(false);
+      await expect(adapter.prompt({
+        sessionId, prompt: [{ type: 'text', text: 'Update README.md' }],
+      })).rejects.toMatchObject({ code: -32603 });
     });
 
     it("keeps adjacent ACP text blocks separated", async () => {

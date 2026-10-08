@@ -406,7 +406,9 @@ export class InstructionRunner {
     if (intentResult.intent === 'implementation' && options.environmentBootstrap !== 'skip') {
       const bootstrapResult = await host.runEnvironmentBootstrap();
       if (!bootstrapResult.success) {
-        console.log(chalk.red('\n[BLOCKED] Environment setup failed. Fix issues before proceeding.'));
+        const issue = 'Environment setup failed. Check the dependency installation and toolchain before retrying.';
+        console.log(chalk.red(`\n[BLOCKED] ${issue}`));
+        host.emitOutput({ type: 'error', content: issue });
         host.isInstructionActive = false;
         return false;
       }
@@ -560,7 +562,7 @@ export class InstructionRunner {
         return recordIncompleteLoop(loopResult);
       }
 
-      if (host.lastIntent === 'implementation' && host.filesModifiedThisSession) {
+      if (host.lastIntent === 'implementation' && host.filesModifiedThisSession && options.qualityPipeline !== 'agent-managed') {
         host.modalActive = true;
         try {
           // PersistentInput uses terminal scroll regions that must be torn down

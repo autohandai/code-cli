@@ -651,6 +651,7 @@ export class AutohandAcpAdapter implements Agent {
       },
       authMethods: AUTOHAND_ACP_AUTH_METHODS,
       _meta: {
+        autohandWorkspaceSetup: 1,
         // Context a host prepends to a prompt (`<autohand_*>`, `<*_context>` blocks) is
         // not read as the user asking for specialists; see userAuthoredInstruction.
         hostContext: { version: 1 },
@@ -871,6 +872,9 @@ export class AutohandAcpAdapter implements Agent {
     try {
       const runInstruction = (): Promise<boolean> => agent.runInstruction(instruction, {
         ...(reviewRequest ? { hookInstruction: trimmed } : {}),
+        ...(this.clientCapabilities?._meta?.autohandWorkspaceSetup === 'agent-managed'
+          ? { environmentBootstrap: 'skip' as const, qualityPipeline: 'agent-managed' as const }
+          : {}),
         signal: session.abortController.signal,
       });
       const success = reviewRequest
@@ -897,11 +901,15 @@ export class AutohandAcpAdapter implements Agent {
       if (!success && this.cancelledSessions.has(params.sessionId)) {
         return { stopReason: 'cancelled' };
       }
+      if (!success) {
+        throw RequestError.internalError(undefined, 'Autohand Code could not complete this turn. Check the reported setup or tool error before retrying.');
+      }
       return { stopReason: 'end_turn' };
     } catch (err) {
       if (session.abortController.signal.aborted || this.cancelledSessions.has(params.sessionId)) {
         return { stopReason: 'cancelled' };
       }
+      if (err instanceof RequestError) throw err;
       const classified = this.classifyAndFormatError(err);
       process.stderr.write(`[ACP] Prompt error (${classified.code}): ${classified.message}\n`);
       this.emitHookSessionError(params.sessionId, classified.message, classified.code);

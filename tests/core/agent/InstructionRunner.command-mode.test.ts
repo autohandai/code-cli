@@ -356,6 +356,35 @@ describe('InstructionRunner command mode UI', () => {
     expect(vi.mocked(host.runEnvironmentBootstrap).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(host.runReactLoop).mock.invocationCallOrder[0]);
   });
 
+  it('reports a failed dependency bootstrap to the ACP output listener before stopping', async () => {
+    const host = createHost();
+    host.intentDetector.detect = vi.fn(() => ({ intent: 'implementation', confidence: 1, reasons: [] }));
+    host.runEnvironmentBootstrap = vi.fn(async () => ({
+      success: false, steps: [{ name: 'Dependencies', status: 'failed', error: 'Install timed out' }],
+    }));
+    expect(await new InstructionRunner(host).run('Update README.md')).toBe(false);
+    expect(host.emitOutput).toHaveBeenCalledWith({
+      type: 'error', content: expect.stringContaining('Environment setup failed'),
+    });
+    expect(host.runReactLoop).not.toHaveBeenCalled();
+    expect(host.isInstructionActive).toBe(false);
+  });
+
+  it('lets the cloud agent validate its own task without automatic install or build commands', async () => {
+    const host = createHost();
+    host.intentDetector.detect = vi.fn(() => ({ intent: 'implementation', confidence: 1, reasons: [] }));
+    host.runReactLoop = vi.fn(async () => {
+      host.filesModifiedThisSession = true;
+      return { status: 'completed' as const };
+    });
+    expect(await new InstructionRunner(host).run('Update README.md', {
+      environmentBootstrap: 'skip', qualityPipeline: 'agent-managed',
+    })).toBe(true);
+    expect(host.runEnvironmentBootstrap).not.toHaveBeenCalled();
+    expect(host.runQualityPipeline).not.toHaveBeenCalled();
+    expect(host.runReactLoop).toHaveBeenCalledOnce();
+  });
+
   it('keeps a trusted review diagnostic without bootstrap or automatic quality checks when files are marked modified', async () => {
     const host = createHost();
     host.filesModifiedThisSession = true;

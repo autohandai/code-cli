@@ -16,6 +16,7 @@ import type { Intent } from '../IntentDetector.js';
 export interface QueuedInstructionPolicy {
   peerAutomatic?: boolean;
   environmentBootstrap?: 'skip';
+  qualityPipeline?: 'agent-managed';
   intent?: Intent;
 }
 
