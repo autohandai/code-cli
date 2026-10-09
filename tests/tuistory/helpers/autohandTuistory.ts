@@ -998,6 +998,17 @@ export async function createMockAuthServer(
     'S'.repeat(43),
   ].join('.');
   const server = createServer((request, response) => {
+    if (request.url === '/v1/models' && request.method === 'GET') {
+      const authenticated = request.headers.authorization === 'Bearer tuistory-test-token';
+      response.writeHead(authenticated ? 200 : 401, { 'content-type': 'application/json' });
+      response.end(JSON.stringify(authenticated ? {
+        object: 'list',
+        data: (options.paymentBlocked?.() ? ['fantail'] : ['fantail', 'moa', 'auto'])
+          .map(id => ({ id, object: 'model' })),
+      } : { error: 'invalid_credential' }));
+      return;
+    }
+
     if (request.url === '/api/auth/me' && request.method === 'GET') {
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end(JSON.stringify({

@@ -846,6 +846,9 @@ describe('interactive built CLI Tuistory tests: processes, research, usage, sett
     const state = await createTempAutohandHome({
       config: {
         provider: 'openrouter',
+        autohandai: {
+          baseUrl: `${authServer.baseUrl}/v1`,
+        },
         features: {
           autohand_inference: true,
         },
