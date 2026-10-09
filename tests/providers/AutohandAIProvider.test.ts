@@ -9,9 +9,8 @@ import type { ContentPart } from "../../src/types.js";
 import {
   AUTOHAND_AI_CLOUD_MODELS,
   AUTOHAND_AI_DEFAULT_BASE_URL,
-  AUTOHAND_AI_DEFAULT_CONTEXT_WINDOW,
-  AUTOHAND_AI_MOA_CONTEXT_WINDOW,
   AutohandAIProvider,
+  getAutohandAIAvailableModelOptions,
 } from "../../src/providers/AutohandAIProvider.js";
 
 describe("AutohandAIProvider", () => {
@@ -26,18 +25,25 @@ describe("AutohandAIProvider", () => {
     vi.restoreAllMocks();
   });
 
-  it("exposes Auto, Fantail, and Moa cloud models with the provider context contract", async () => {
-    const provider = new AutohandAIProvider({
-      plan: "cloud",
-      authMode: "api-key",
-      apiKey: "test-autohand-key",
-      model: "fantail",
-    });
+  it("uses the authenticated plan catalog and excludes non-chat models", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ data: [
+      { id: "fantail" }, { id: "auto" }, { id: "gpt-6-sol" }, { id: "weka" }, { id: "flux-2" },
+    ] }));
+    globalThis.fetch = fetchMock as typeof globalThis.fetch;
+    const provider = new AutohandAIProvider({ plan: "cloud", authMode: "account", accountToken: "test-account", model: "fantail" });
+    await expect(provider.listModels()).resolves.toEqual(["fantail", "auto", "gpt-6-sol"]);
+    expect(fetchMock).toHaveBeenCalledWith(`${AUTOHAND_AI_DEFAULT_BASE_URL}/models`, expect.objectContaining({
+      headers: { Authorization: "Bearer test-account" },
+    }));
+    expect(AUTOHAND_AI_CLOUD_MODELS).toEqual(expect.arrayContaining(["gpt-5.6-luna", "deepseek-v4-flash", "gpt-6-sol", "grok-4.7", "qwen3.8-27b"]));
+  });
 
-    await expect(provider.listModels()).resolves.toEqual([...AUTOHAND_AI_CLOUD_MODELS]);
-    expect(AUTOHAND_AI_CLOUD_MODELS).toEqual(["fantail", "moa", "auto"]);
-    expect(AUTOHAND_AI_DEFAULT_CONTEXT_WINDOW).toBe(262_144);
-    expect(AUTOHAND_AI_MOA_CONTEXT_WINDOW).toBe(1_000_000);
+  it("does not offer paid models when discovery fails or the account has no allowed models", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValueOnce(Response.json({ error: "unauthorized" }, { status: 401 }))
+      .mockResolvedValueOnce(Response.json({ data: [] })) as typeof globalThis.fetch;
+    const settings = { plan: "cloud" as const, apiKey: "test-key" };
+    await expect(getAutohandAIAvailableModelOptions(settings)).rejects.toThrow("401");
+    await expect(getAutohandAIAvailableModelOptions(settings)).resolves.toEqual([]);
   });
 
   it.each(["weka", "autohand/weka", "autohandai/weka"])(

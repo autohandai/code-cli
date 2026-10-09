@@ -136,13 +136,13 @@ describe("SetupWizard autohandai onboarding", () => {
   const originalAutohandInferenceFlag = process.env.AUTOHAND_FEATURE_AUTOHAND_INFERENCE;
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     process.env.AUTOHAND_FEATURE_AUTOHAND_INFERENCE = "1";
     mockPathExists.mockResolvedValue(false);
     mockCheckWorkspaceSafety.mockReturnValue({ safe: true });
     mockDetectLocale.mockReturnValue({ locale: "en", source: "fallback" });
     mockChangeLanguage.mockResolvedValue(undefined);
-    mockFetch.mockResolvedValue({ ok: true, status: 200 });
+    mockFetch.mockImplementation(async () => Response.json({ data: [{ id: "fantail" }, { id: "auto" }] }));
     (globalThis as typeof globalThis & { fetch: typeof mockFetch }).fetch = mockFetch as any;
     mockRenderSetupProgress.mockReturnValue("[progress]");
   });

@@ -13,6 +13,13 @@ var mockShowConfirm = vi.fn();
 var mockShowPassword = vi.fn();
 var mockSaveConfig = vi.fn();
 
+vi.mock('../../../src/providers/AutohandAIProvider.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/providers/AutohandAIProvider.js')>();
+  return { ...actual, getAutohandAIAvailableModelOptions: vi.fn(async () => [
+    { id: 'fantail', displayName: 'Fantail' }, { id: 'moa', displayName: 'Moa (Thinking)' }, { id: 'auto', displayName: 'Auto' },
+  ]) };
+});
+
 vi.mock("../../../src/ui/ink/components/Modal.js", () => ({
   showConfirm: mockShowConfirm,
   showModal: mockShowModal,

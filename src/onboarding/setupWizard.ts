@@ -26,7 +26,7 @@ import { DEEPSEEK_MODELS, DEEPSEEK_DEFAULT_BASE_URL } from '../providers/DeepSee
 import { BEDROCK_DEFAULT_MODEL, BEDROCK_DEFAULT_REGION, BEDROCK_MODELS, resolveBedrockAuthMode, resolveBedrockEndpoint } from '../providers/BedrockProvider.js';
 import {
   AUTOHAND_AI_CLOUD_MODELS,
-  AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS,
+  getAutohandAIAvailableModelOptions,
   AUTOHAND_AI_DEFAULT_BASE_URL,
   AUTOHAND_AI_MOA_CONTEXT_WINDOW,
   AUTOHAND_AI_LOCAL_MODELS,
@@ -715,12 +715,18 @@ export class SetupWizard {
     }
 
     if (provider === 'autohandai') {
-      const options: ModalOption[] = AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS.map((model) => ({
-        label: model.label,
+      const availableModels = await getAutohandAIAvailableModelOptions({
+        plan: 'cloud', authMode: this.state.autohandAIAuthMode,
+        accountToken: this.state.autohandAIAccountToken, apiKey: this.state.apiKey,
+        baseUrl: this.state.providerBaseUrl,
+      });
+      if (!availableModels.length) throw new Error('Your account has no hosted chat models available.');
+      const options: ModalOption[] = availableModels.map((model) => ({
+        label: model.displayName ?? model.id,
         value: model.id,
         description: model.description,
       }));
-      const defaultIndex = Math.max(0, AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS.findIndex((model) => model.id === defaultModel));
+      const defaultIndex = Math.max(0, availableModels.findIndex((model) => model.id === defaultModel));
       const result = await showModal({
         title: t('providers.config.selectModel'),
         options,

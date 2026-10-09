@@ -379,7 +379,8 @@ describe("parseAvailableModels()", () => {
       autohandai: { model: "fantail" },
     });
 
-    expect(parseAvailableModels(config)).toEqual(["fantail", "moa", "auto"]);
+    expect(parseAvailableModels(config, ['fantail', 'gpt-6-sol'])).toEqual(['fantail', 'gpt-6-sol']);
+    expect(parseAvailableModels(config, [])).toEqual([]);
   });
 
   it("places the configured model first when it exists", () => {

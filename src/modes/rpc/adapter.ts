@@ -1,3 +1,4 @@
+import { getAutohandAIAvailableModelOptions } from "../../providers/AutohandAIProvider.js";
 /**
  * RPC Adapter
  * Wraps AutohandAgent and bridges callbacks to JSON-RPC 2.0 notifications
@@ -4278,6 +4279,12 @@ export class RPCAdapter {
     try {
       const config = (this.agent as unknown as { runtime?: { config?: AutohandConfig } } | null)
         ?.runtime?.config;
+      if (config?.provider === 'autohandai' && config.autohandai?.plan !== 'local') {
+        const models = await getAutohandAIAvailableModelOptions({
+          ...config.autohandai, accountToken: config.auth?.token ?? config.autohandai?.accountToken,
+        });
+        return { models: models.map(model => ({ id: model.id, displayName: model.displayName ?? model.id })) };
+      }
       const autohandModelIds = new Set(
         getProviderModelOptions('autohandai').map((model) => model.id),
       );

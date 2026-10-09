@@ -1,3 +1,4 @@
+import { getAutohandAIAvailableModelOptions } from "../../providers/AutohandAIProvider.js";
 /**
  * ACP Adapter
  * Core adapter implementing the ACP Agent interface in-process.
@@ -233,9 +234,19 @@ export class AutohandAcpAdapter implements Agent {
     } as SessionModeState;
   }
 
-  private buildSessionModels(config: LoadedConfig, modelId: string): LegacySessionModelState {
+  private async availableModelIds(config: LoadedConfig): Promise<string[]> {
+    if (config.provider === 'autohandai' && config.autohandai?.plan !== 'local') {
+      const models = await getAutohandAIAvailableModelOptions({
+        ...config.autohandai, accountToken: config.auth?.token ?? config.autohandai?.accountToken,
+      });
+      return parseAvailableModels(config, models.map(model => model.id));
+    }
+    return parseAvailableModels(config);
+  }
+
+  private async buildSessionModels(config: LoadedConfig, modelId: string): Promise<LegacySessionModelState> {
     return {
-      availableModels: parseAvailableModels(config).map((m) => ({
+      availableModels: (await this.availableModelIds(config)).map((m) => ({
         modelId: m,
         name: m.split('/').pop() ?? m,
       })),
@@ -287,7 +298,7 @@ export class AutohandAcpAdapter implements Agent {
     }
 
     const config = await this.ensureConfig();
-    this.validateModel(config, modelId);
+    await this.validateModel(config, modelId);
 
     const persistedSession = agent.getSessionManager().getCurrentSession();
     if (!persistedSession) {
@@ -318,8 +329,8 @@ export class AutohandAcpAdapter implements Agent {
     }
   }
 
-  private validateModel(config: LoadedConfig, modelId: string): void {
-    const models = parseAvailableModels(config);
+  private async validateModel(config: LoadedConfig, modelId: string): Promise<void> {
+    const models = await this.availableModelIds(config);
     if (!models.includes(modelId)) {
       throw RequestError.invalidParams({ message: `Unsupported model: ${modelId}` });
     }
@@ -445,7 +456,7 @@ export class AutohandAcpAdapter implements Agent {
     this.sessions.set(managedSessionId, state);
     this.agents.set(managedSessionId, agent);
     this.forwardHookLifecycle(managedSessionId, agent);
-    this.sessionConfigOptions.set(managedSessionId, buildConfigOptions(config));
+    this.sessionConfigOptions.set(managedSessionId, buildConfigOptions(config, await this.availableModelIds(config)));
 
     agent.setOutputListener((event: AgentOutputEvent) => {
       this.handleAgentOutput(managedSessionId, event);
@@ -676,7 +687,7 @@ export class AutohandAcpAdapter implements Agent {
     const response: ResponseWithLegacyModels<NewSessionResponse> = {
       sessionId,
       modes: this.buildSessionModes(state.modeId),
-      models: this.buildSessionModels(config, state.modelId),
+      models: await this.buildSessionModels(config, state.modelId),
       configOptions: this.getSessionConfigOptions(sessionId),
       _meta: {
         commands: this.getSessionCommands(config).map((cmd) => ({
@@ -1092,7 +1103,7 @@ export class AutohandAcpAdapter implements Agent {
       process.stderr.write(`[ACP] Resumed session ${params.sessionId}\n`);
       return {
         modes: this.buildSessionModes(state.modeId),
-        models: this.buildSessionModels(config, state.modelId),
+        models: await this.buildSessionModels(config, state.modelId),
         configOptions: this.getSessionConfigOptions(params.sessionId),
       };
     } catch (error) {
@@ -1165,7 +1176,7 @@ export class AutohandAcpAdapter implements Agent {
       process.stderr.write(`[ACP] Loaded session ${params.sessionId} with ${messages.length} messages\n`);
       return {
         modes: this.buildSessionModes(state.modeId),
-        models: this.buildSessionModels(config, state.modelId),
+        models: await this.buildSessionModels(config, state.modelId),
         configOptions: this.getSessionConfigOptions(params.sessionId),
       };
     } catch (error) {

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { discardResponseBody } from "../utils/responseBody.js";
 import { LLMGatewayClient } from "./LLMGatewayClient.js";
 import { MLXProvider } from "./MLXProvider.js";
 import type {
@@ -25,6 +26,7 @@ export const AUTOHAND_AI_DEFAULT_BASE_URL = "https://inference.autohand.ai/v1";
 export const AUTOHAND_AI_DEFAULT_MAX_OUTPUT_TOKENS = 16_000;
 
 function normalizeAutohandAICloudModelId(model: string | undefined): string | undefined {
+  model = model?.replace(/^(?:openai|xai)\//i, "").replace(/^@cf\/qwen\//i, "");
   return model?.trim().replace(/^autohand(?:ai)?\//i, "").toLowerCase();
 }
 
@@ -74,6 +76,26 @@ export const AUTOHAND_AI_CLOUD_MODEL_DEFINITIONS: readonly AutohandAICloudModelD
         ) }
       : {}),
   }));
+
+export async function getAutohandAIAvailableModelOptions(settings: Partial<AutohandAISettings>) {
+  const token = settings.authMode === "account" ? settings.accountToken : settings.apiKey;
+  if (!token) throw new Error("Sign in or configure an Autohand AI API key before choosing a hosted model.");
+  const response = await fetch(`${resolveAutohandAICloudBaseUrl(settings.baseUrl).replace(/\/$/, "")}/models`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) {
+    await discardResponseBody(response);
+    throw new Error(`Unable to load models for your Autohand plan (${response.status}).`);
+  }
+  const payload: unknown = await response.json();
+  if (!payload || typeof payload !== "object" || !("data" in payload) || !Array.isArray(payload.data)) {
+    throw new Error("Autohand returned an invalid model catalog.");
+  }
+  const ids = new Set(payload.data.flatMap((entry: unknown) =>
+    entry && typeof entry === "object" && "id" in entry && typeof entry.id === "string" ? [entry.id] : []));
+  return getProviderRunnableModelOptions("autohandai").filter(model => ids.has(model.id));
+}
 
 export const AUTOHAND_AI_FANTAIL_CONTEXT_WINDOW = requireCatalogNumber("fantail", "contextWindow");
 export const AUTOHAND_AI_MOA_CONTEXT_WINDOW = requireCatalogNumber("moa", "contextWindow");
@@ -208,7 +230,7 @@ export class AutohandAIProvider implements LLMProvider {
     if (this.config.plan === "local") {
       return [...AUTOHAND_AI_LOCAL_MODELS];
     }
-    return [...AUTOHAND_AI_CLOUD_MODELS];
+    return (await getAutohandAIAvailableModelOptions(this.config)).map(model => model.id);
   }
 
   async isAvailable(): Promise<boolean> {

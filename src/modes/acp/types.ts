@@ -379,6 +379,7 @@ export interface AcpSessionState {
  */
 export function buildConfigOptions(
   config: LoadedConfig,
+  allowedModels?: readonly string[],
 ): SessionConfigOption[] {
   const options: SessionConfigOption[] = [];
 
@@ -388,7 +389,7 @@ export function buildConfigOptions(
     name: "Model",
     description: "Select the model used for this session",
     category: "model",
-    options: parseAvailableModels(config).map((modelId) => ({
+    options: parseAvailableModels(config, allowedModels).map((modelId) => ({
       value: modelId,
       name: modelId.split("/").pop() ?? modelId,
     })),
@@ -474,7 +475,7 @@ function isBuiltInProviderName(value: string): value is BuiltInProviderName {
   ].includes(value);
 }
 
-export function parseAvailableModels(config: LoadedConfig): string[] {
+export function parseAvailableModels(config: LoadedConfig, allowedModels?: readonly string[]): string[] {
   const models: string[] = [];
 
   const providerName = config.provider ?? "openrouter";
@@ -484,7 +485,7 @@ export function parseAvailableModels(config: LoadedConfig): string[] {
     : isBuiltInProviderName(providerName)
       ? providerName
       : "openrouter";
-  const catalogModels = getProviderRunnableModelIds(catalogProvider);
+  const catalogModels = getProviderRunnableModelIds(catalogProvider).filter(model => allowedModels === undefined || allowedModels.includes(model));
 
   // A configured model is useful for custom providers, but Autohand AI must
   // only expose models its own catalog supports. A stale persisted selection

@@ -34,6 +34,7 @@ import {
   AUTOHAND_AI_DEFAULT_BASE_URL,
   AUTOHAND_AI_MOA_CONTEXT_WINDOW,
   getAutohandAICloudModelCliUnsupportedReason,
+  getAutohandAIAvailableModelOptions,
   getAutohandAICloudModelContextWindow,
 } from "../../providers/AutohandAIProvider.js";
 import {
@@ -51,7 +52,6 @@ import {
   getProviderDefaultModel,
   getProviderModelIds,
   getProviderModelOptions,
-  getProviderRunnableModelOptions,
   getProviderRuntimeDefaultModel,
   mergeModelIds,
 } from "../../providers/modelCatalog.js";
@@ -353,7 +353,7 @@ export class ProviderConfigManager {
       return;
     }
 
-    if (this.isCloudSettingsProvider(provider)) {
+    if ((provider === "autohandai" && this.runtime.config.autohandai?.plan !== "local") || this.isCloudSettingsProvider(provider)) {
       await this.changeCloudProviderSettings(
         provider,
         currentModel,
@@ -622,7 +622,7 @@ export class ProviderConfigManager {
         return !!config.model;
       }
       if (authMode === "account") {
-        return !!(this.runtime.config.autohandai?.accountToken ?? this.runtime.config.auth?.token);
+        return !!(this.runtime.config.auth?.token ?? this.runtime.config.autohandai?.accountToken);
       }
       return !!config.apiKey && config.apiKey !== "replace-me";
     }
@@ -743,10 +743,19 @@ export class ProviderConfigManager {
       return;
     }
 
-    const modelChoices: ModalOption[] = getProviderRunnableModelOptions("autohandai").map((model) => ({
-      label: model.displayName ?? model.id,
-      value: model.id,
-      description: model.description,
+    const accountToken = this.runtime.config.auth?.token ?? this.runtime.config.autohandai?.accountToken;
+    const apiKey = accountToken ? undefined : this.runtime.config.autohandai?.apiKey ?? await showPassword({
+      title: t("providers.config.enterApiKey", { provider: t("providers.autohandai") }),
+      placeholder: t("ui.apiKeyPlaceholder"),
+    });
+    if (!accountToken && !apiKey) return;
+    const availableModels = await getAutohandAIAvailableModelOptions({
+      plan: "cloud", authMode: accountToken ? "account" : "api-key", accountToken, apiKey: apiKey ?? undefined,
+      baseUrl: this.runtime.config.autohandai?.baseUrl,
+    });
+    if (!availableModels.length) throw new Error("Your account has no hosted chat models available.");
+    const modelChoices: ModalOption[] = availableModels.map(model => ({
+      label: model.displayName ?? model.id, value: model.id, description: model.description,
     }));
     const modelResult = await showModal({
       title: t("providers.config.selectModel"),
@@ -766,35 +775,22 @@ export class ProviderConfigManager {
     }
     const reasoningEffort = model === "moa" ? await this.promptAutohandAIMoaReasoningEffort() : undefined;
     const contextWindow = getAutohandAICloudModelContextWindow(model);
-    const accountToken = this.runtime.config.auth?.token;
     if (accountToken) {
       this.runtime.config.autohandai = {
         plan: "cloud",
         authMode: "account",
         accountToken,
-        baseUrl: AUTOHAND_AI_DEFAULT_BASE_URL,
+        baseUrl: this.runtime.config.autohandai?.baseUrl ?? AUTOHAND_AI_DEFAULT_BASE_URL,
         model,
         contextWindow,
         ...(reasoningEffort !== undefined && { reasoningEffort }),
       };
     } else {
-      const apiKey = await showPassword({
-        title: t("providers.config.enterApiKey", {
-          provider: t("providers.autohandai"),
-        }),
-        placeholder: t("ui.apiKeyPlaceholder"),
-      });
-
-      if (!apiKey) {
-        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
-        return;
-      }
-
       this.runtime.config.autohandai = {
         plan: "cloud",
         authMode: "api-key",
-        apiKey,
-        baseUrl: AUTOHAND_AI_DEFAULT_BASE_URL,
+        apiKey: apiKey ?? undefined,
+        baseUrl: this.runtime.config.autohandai?.baseUrl ?? AUTOHAND_AI_DEFAULT_BASE_URL,
         model,
         contextWindow,
         ...(reasoningEffort !== undefined && { reasoningEffort }),
@@ -3281,7 +3277,11 @@ export class ProviderConfigManager {
 
         newModel = (result.value as string).trim();
       } else if (provider === "autohandai") {
-        const autohandModels = getProviderRunnableModelOptions("autohandai");
+        const autohandModels = await getAutohandAIAvailableModelOptions({
+          ...this.runtime.config.autohandai, plan: "cloud",
+          accountToken: this.runtime.config.auth?.token ?? this.runtime.config.autohandai?.accountToken,
+        });
+        if (!autohandModels.length) throw new Error("Your account has no hosted chat models available.");
         const modelOptions: ModalOption[] = autohandModels.map((model) => ({
           label: model.displayName ?? model.id,
           value: model.id,

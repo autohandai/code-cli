@@ -32,6 +32,11 @@
           "reasoningEffort": "high",
           "reasoningEfforts": ["medium", "high", "xhigh"]
         },
+        {"id": "gpt-5.6-luna", "displayName": "GPT-5.6 Luna", "description": "Lite and above", "contextWindow": 1050000, "maxTokens": 16000, "toolCalls": true},
+        {"id": "deepseek-v4-flash", "displayName": "DeepSeek V4 Flash", "description": "Lite and above", "contextWindow": 1048576, "maxTokens": 16000, "toolCalls": true, "reasoningEffort": "high", "reasoningEfforts": ["none", "low", "high"]},
+        {"id": "gpt-6-sol", "displayName": "GPT-6 Sol", "description": "Pro, Pro+, Max, Team and Enterprise", "contextWindow": 1050000, "maxTokens": 16000, "toolCalls": true, "reasoningEffort": "high", "reasoningEfforts": ["low", "medium", "high", "xhigh"]},
+        {"id": "grok-4.7", "displayName": "Grok 4.7", "description": "Pro+, Max, Team and Enterprise", "contextWindow": 500000, "maxTokens": 16000, "toolCalls": true, "reasoningEffort": "high", "reasoningEfforts": ["low", "medium", "high", "xhigh"]},
+        {"id": "qwen3.8-27b", "displayName": "qwen3.8-27b", "description": "Pro+, Max, Team and Enterprise", "contextWindow": 262144, "maxTokens": 16000, "toolCalls": true},
         {
           "id": "weka",
           "displayName": "Weka (API + Console only)",

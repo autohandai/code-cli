@@ -8,9 +8,10 @@
  * rendered by Ink, so only a real terminal run proves keyboard input, viewport
  * windowing, and cancellation reach the screen the user actually looks at.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { createServer, type Server } from 'node:http';
 import stripAnsi from 'strip-ansi';
 import type { Session } from 'tuistory';
 import {
@@ -38,6 +39,20 @@ const configuredAutohandCloud = {
   },
 };
 
+let catalogServer: Server;
+let allowedModels: string[];
+beforeEach(async () => {
+  allowedModels = ['fantail', 'moa', 'auto'];
+  catalogServer = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ data: allowedModels.map(id => ({ id })) }));
+  });
+  await new Promise<void>(resolve => catalogServer.listen(0, '127.0.0.1', resolve));
+  const address = catalogServer.address();
+  if (!address || typeof address === 'string') throw new Error('Missing model fixture address');
+  configuredAutohandCloud.autohandai.baseUrl = `http://127.0.0.1:${address.port}/v1`;
+});
+
 interface LaunchedInteractive {
   session: Session;
   state: TuistoryTempState;
@@ -56,6 +71,7 @@ afterEach(async () => {
     session.close();
   }
   await Promise.all(unclosedSessions.map((session) => session.waitForExit(2_000)));
+  await new Promise<void>((resolve, reject) => catalogServer.close(error => error ? reject(error) : resolve()));
   for (const state of tempStates.splice(0)) {
     await state.cleanup();
   }
@@ -194,6 +210,22 @@ async function openProviderList(session: Session): Promise<string> {
 }
 
 describe('/model provider and Autohand plan journeys Tuistory', () => {
+  it('shows the plan-filtered models and persists a Grok selection', async () => {
+    allowedModels = ['fantail', 'gpt-6-sol', 'grok-4.7', 'qwen3.8-27b'];
+    const { session, state } = await launchInteractive(configuredAutohandCloud);
+    await openConfiguredAutohandSettings(session);
+    await session.type('1');
+    const models = await session.text({ timeout: 30_000, waitFor: text => text.includes('Grok 4.7') });
+    expect(models).toContain('GPT-6 Sol');
+    expect(models).toContain('qwen3.8-27b');
+    expect(models).not.toContain('Moa (Thinking)');
+    await session.type('3');
+    await session.text({ timeout: 30_000, waitFor: text => text.includes('grok-4.7') && text.includes('❯') });
+    const config = JSON.parse(await readFile(state.configPath, 'utf8'));
+    expect(config.autohandai.model).toBe('grok-4.7');
+    await closeInteractive(session);
+  });
+
   it('renders a direct plan action with the established modal controls for a Cloud user', async () => {
     const { session } = await launchInteractive(configuredAutohandCloud);
     const settings = await openConfiguredAutohandSettings(session);
@@ -448,7 +480,7 @@ describe('/model provider and Autohand plan journeys Tuistory', () => {
         plan: 'cloud',
         authMode: 'api-key',
         apiKey: 'autohand-tuistory-api-key',
-        baseUrl: 'https://api.autohand.ai/v1',
+        baseUrl: configuredAutohandCloud.autohandai.baseUrl,
         model: 'fantail',
       },
     });

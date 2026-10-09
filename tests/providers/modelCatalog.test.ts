@@ -73,6 +73,11 @@ describe("modelCatalog", () => {
       expect.objectContaining({ id: "fantail", contextWindow: 262_144, maxTokens: 16_000 }),
       expect.objectContaining({ id: "moa", contextWindow: 1_000_000, maxTokens: 262_144 }),
       expect.objectContaining({ id: "auto", contextWindow: 262_144, maxTokens: 16_000 }),
+      expect.objectContaining({ id: "gpt-5.6-luna", maxTokens: 16_000, toolCalls: true }),
+      expect.objectContaining({ id: "deepseek-v4-flash", maxTokens: 16_000, toolCalls: true }),
+      expect.objectContaining({ id: "gpt-6-sol", maxTokens: 16_000, toolCalls: true }),
+      expect.objectContaining({ id: "grok-4.7", maxTokens: 16_000, toolCalls: true }),
+      expect.objectContaining({ id: "qwen3.8-27b", maxTokens: 16_000, toolCalls: true }),
       expect.objectContaining({
         id: "weka",
         contextWindow: 32_000,
@@ -81,7 +86,7 @@ describe("modelCatalog", () => {
         description: expect.stringContaining("not runnable in the CLI"),
       }),
     ]);
-    expect(getProviderRunnableModelIds("autohandai")).toEqual(["fantail", "moa", "auto"]);
+    expect(getProviderRunnableModelIds("autohandai")).toEqual(["fantail", "moa", "auto", "gpt-5.6-luna", "deepseek-v4-flash", "gpt-6-sol", "grok-4.7", "qwen3.8-27b"]);
     rmSync(dir, { recursive: true, force: true });
   });
 

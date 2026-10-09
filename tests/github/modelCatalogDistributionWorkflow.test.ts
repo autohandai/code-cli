@@ -52,6 +52,11 @@ describe("model catalog distribution automation", () => {
           maxTokens: 16_000,
           provider: "autohandai",
         }),
+        "gpt-5.6-luna": expect.objectContaining({ provider: "autohandai", maxTokens: 16_000 }),
+        "deepseek-v4-flash": expect.objectContaining({ provider: "autohandai", maxTokens: 16_000 }),
+        "gpt-6-sol": expect.objectContaining({ provider: "autohandai", maxTokens: 16_000 }),
+        "grok-4.7": expect.objectContaining({ provider: "autohandai", maxTokens: 16_000 }),
+        "qwen3.8-27b": expect.objectContaining({ provider: "autohandai", maxTokens: 16_000 }),
         weka: expect.objectContaining({
           api: "autohand-decisions",
           baseUrl: "https://api.autohand.ai/v1",
