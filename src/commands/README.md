@@ -25,7 +25,8 @@ Each command is a separate TypeScript file that exports:
 | `/resume` | `resume.ts` | Resume a previous session |
 | `/handoff web` | `handoff-web.ts` | Continue this conversation in Web; `--workspace` includes repository changes, `--new` starts a new Web conversation instead of resuming the one this session was imported from, and `--no-open` prints the link |
 | `/memory` | `memory.ts` | List memory or inspect, zoom, forget derived summaries, rebuild projections, and delete entries |
-| `/feedback` | `feedback.ts` | Submit feedback |
+| `/feedback` | `feedback.ts` | Send feedback with the session transcript; without a message, opens the survey line |
+| `/bug`, `/bug-report` | `bug.ts` | File a GitHub issue with environment, transcript and GitHub username |
 | `/agents` | `agents.ts` | Show active Autohand CLI instances |
 | `/agents view` | `agents.ts` | Inspect live worker activity, results, and usage; message or cancel a selected run |
 | `/agents definitions` | `agents.ts` | List configured sub-agents |

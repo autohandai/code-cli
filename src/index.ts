@@ -666,7 +666,10 @@ program
       const { locale } = detectLocale();
       await initI18n(locale);
       const config = await loadConfig(opts.config);
-      await feedback({ config });
+      const result = await feedback({ config });
+      if (result) {
+        console.log(result);
+      }
       process.exit(0);
     }
 
@@ -1604,6 +1607,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       try {
         const yoloPattern = parseYoloPattern(normalizedYolo);
         options.yolo = normalizedYolo;
+        options.yoloBasePermissions = config.permissions;
         config.permissions = {
           ...config.permissions,
           ...buildPermissionSettingsFromYolo(yoloPattern),

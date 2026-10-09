@@ -4,62 +4,83 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, expect, it, vi } from 'vitest';
-import { showAgentFeedbackWithPause } from '../../../src/core/agent/AgentUIRuntime.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-describe('showAgentFeedbackWithPause', () => {
-  it('defers automatic feedback while the Ink request queue has user prompts', async () => {
-    const promptForFeedback = vi.fn();
-    const host = {
-      persistentInputActiveTurn: false,
-      persistentInput: {
-        getQueueLength: () => 0,
-      },
-      inkRenderer: {
-        isRunning: () => true,
-        getQueueCount: () => 2,
-        pause: vi.fn(),
-        resume: vi.fn(),
-      },
-      feedbackManager: {
-        promptForFeedback,
-      },
-    };
+const inkUIManager = vi.hoisted(() => ({
+  createInkUIManager: vi.fn((options: Record<string, unknown>) => ({ options })),
+}));
 
-    await showAgentFeedbackWithPause(host, 'interaction_count', 'session-queued');
+vi.mock('../../../src/ui/InkUIManager.js', () => ({
+  createInkUIManager: inkUIManager.createInkUIManager,
+}));
 
-    expect(promptForFeedback).not.toHaveBeenCalled();
-    expect(host.inkRenderer.pause).not.toHaveBeenCalled();
-    expect(host.inkRenderer.resume).not.toHaveBeenCalled();
+type SurveyAnswerHandler = (id: string, key: string) => void;
+
+describe('feedback survey wiring', () => {
+  const ttyDescriptors = {
+    stdout: Object.getOwnPropertyDescriptor(process.stdout, 'isTTY'),
+    stdin: Object.getOwnPropertyDescriptor(process.stdin, 'isTTY'),
+  };
+
+  function restoreTTY(stream: NodeJS.WriteStream | NodeJS.ReadStream, descriptor: PropertyDescriptor | undefined): void {
+    if (descriptor) {
+      Object.defineProperty(stream, 'isTTY', descriptor);
+    } else {
+      delete (stream as { isTTY?: boolean }).isTTY;
+    }
+  }
+
+  beforeEach(() => {
+    inkUIManager.createInkUIManager.mockClear();
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
   });
 
-  it('pauses and resumes the Ink renderer around automatic feedback prompts', async () => {
-    const callOrder: string[] = [];
-    const host = {
-      persistentInputActiveTurn: false,
-      persistentInput: {
-        getQueueLength: () => 0,
+  afterEach(() => {
+    restoreTTY(process.stdout, ttyDescriptors.stdout);
+    restoreTTY(process.stdin, ttyDescriptors.stdin);
+  });
+
+  function makeUIHost(feedbackSurvey?: { answer: SurveyAnswerHandler }) {
+    return {
+      useInkRenderer: true,
+      runtime: {
+        config: { ui: {} as Record<string, unknown> },
+        options: { bare: false },
+        workspaceRoot: '/tmp/workspace',
       },
-      inkRenderer: {
-        isRunning: () => true,
-        getQueueCount: () => 0,
-        pause: vi.fn(() => {
-          callOrder.push('ink.pause');
-        }),
-        resume: vi.fn(async () => {
-          callOrder.push('ink.resume');
-        }),
-      },
-      feedbackManager: {
-        promptForFeedback: vi.fn(async () => {
-          callOrder.push('feedback.prompt');
-          return true;
-        }),
-      },
+      activityIndicator: { nextTipFitting: vi.fn() },
+      feedbackSurvey,
     };
+  }
 
-    await showAgentFeedbackWithPause(host, 'task_complete', 'session-feedback');
+  async function capturedAnswerHandler(host: ReturnType<typeof makeUIHost>): Promise<SurveyAnswerHandler> {
+    const { initializeAgentUIManager } = await import('../../../src/core/agent/AgentUIRuntime.js');
+    initializeAgentUIManager(host as never);
+    expect(inkUIManager.createInkUIManager).toHaveBeenCalledTimes(1);
+    const options = inkUIManager.createInkUIManager.mock.calls[0]?.[0] as { onFeedbackSurveyAnswer?: SurveyAnswerHandler };
+    expect(options.onFeedbackSurveyAnswer).toBeTypeOf('function');
+    return options.onFeedbackSurveyAnswer!;
+  }
 
-    expect(callOrder).toEqual(['ink.pause', 'feedback.prompt', 'ink.resume']);
+  it('routes a survey key from the composer to the survey controller', async () => {
+    const answer = vi.fn();
+    const onAnswer = await capturedAnswerHandler(makeUIHost({ answer }));
+
+    onAnswer('feedback-survey-1', '3');
+
+    expect(answer).toHaveBeenCalledExactlyOnceWith('feedback-survey-1', '3');
+  });
+
+  it('ignores a survey key on a host built without a controller', async () => {
+    const onAnswer = await capturedAnswerHandler(makeUIHost());
+
+    expect(() => onAnswer('feedback-survey-1', '3')).not.toThrow();
+  });
+
+  it('no longer exposes a modal feedback prompt that pauses the renderer', async () => {
+    const runtime = await import('../../../src/core/agent/AgentUIRuntime.js') as Record<string, unknown>;
+
+    expect(runtime.showAgentFeedbackWithPause).toBeUndefined();
   });
 });

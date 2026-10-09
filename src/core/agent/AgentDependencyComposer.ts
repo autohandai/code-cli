@@ -57,6 +57,7 @@ import { ErrorLogger } from '../errorLogger.js';
 import { MemoryManager } from '../../memory/MemoryManager.js';
 import type { CapabilityUsageInput } from '../../memory/types.js';
 import { FeedbackManager } from '../../feedback/FeedbackManager.js';
+import { FeedbackSurveyController } from './FeedbackSurveyController.js';
 import { TelemetryManager } from '../../telemetry/TelemetryManager.js';
 import { SkillsRegistry } from '../../skills/SkillsRegistry.js';
 import type { SkillDefinition } from '../../skills/types.js';
@@ -621,6 +622,14 @@ export function initializeAgentDependencies(
     // --allowed-tools / --disallowed-tools: a run-only restriction layer,
     // applied here so every launch mode that builds an agent honours it.
     host.permissionManager.setRunToolScope(resolveRunToolScope(runtime.options));
+    if (runtime.options.yolo) {
+      // --timeout ends auto-approval; confirmations also consult options.yolo.
+      host.permissionManager.expireAutoApprovalAfter(runtime.options.timeout, runtime.options.yoloBasePermissions, () => {
+        runtime.options.yolo = undefined;
+        host.basePermissionMode = host.permissionManager.getMode();
+        host.syncInteractiveAutomodePermissions();
+      });
+    }
     host.basePermissionMode = host.permissionManager.getMode();
     host.syncInteractiveAutomodePermissions();
 
@@ -994,6 +1003,10 @@ export function initializeAgentDependencies(
     host.feedbackManager = new FeedbackManager({
       apiBaseUrl: runtime.config.api?.baseUrl || 'https://api.autohand.ai',
       cliVersion: packageJson.version
+    });
+    host.feedbackSurvey = new FeedbackSurveyController({
+      getSink: () => host.inkRenderer,
+      recorder: host.feedbackManager,
     });
     host.skillsRegistry = new SkillsRegistry(AUTOHAND_PATHS.skills, 'autohand-user', { accountConfigPath: runtime.config.configPath });
     if (!runtime.options.bare) {
@@ -2137,6 +2150,9 @@ export function initializeAgentDependencies(
         return sessionMgr.getCurrentSession() ?? undefined;
       },
       onSessionRenamed: () => syncAgentTerminalTitleName(host),
+      requestFeedbackSurvey: () =>
+        host.feedbackSurvey?.show('manual', sessionMgr.getCurrentSession()?.metadata.sessionId) ?? false,
+      notifyUser: (message: string) => host.notifyUser(message),
       // Add-dir command context
       fileManager: host.files,
       get additionalDirs() {

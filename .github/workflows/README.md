@@ -66,6 +66,14 @@ resolutions. Weekly Dependabot updates keep the GitHub Actions versions current.
 4. Build verification
 5. Multi-platform build test
 
+### Full proof (`full-proof.yml`)
+
+Add the `full-proof` label to a pull request to run the complete `bun run proof`
+command on a fresh Ubuntu runner. The job uses the declared Bun version, Node.js
+24, frozen dependencies, and full Git history for terminal version assertions.
+It reruns when the labeled pull request changes and cancels its superseded run.
+The regular sharded CI jobs remain available for faster feedback.
+
 ### 🤖 Model catalog pull requests (`model-catalog-pr.yml`)
 
 **Trigger:**

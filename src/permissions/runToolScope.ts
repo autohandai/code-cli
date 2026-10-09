@@ -27,9 +27,24 @@ export function resolveRunToolScope(options: { allowedTools?: string[]; disallow
 
 /** Whether a tool should be offered to the model at all under the scope. */
 export function isToolAdvertisedByScope(scope: RunToolScope | undefined, toolName: string): boolean {
-  if (!scope) return true;
-  if (scope.denied.some((pattern) => pattern.kind === toolName && !pattern.argument)) return false;
-  return scope.allowed.length === 0 || scope.allowed.some((pattern) => pattern.kind === toolName);
+  return checkRunToolScopeByName(scope, toolName).allowed;
+}
+
+/**
+ * Decision for a tool before its arguments are known. An argument-scoped
+ * pattern keeps the tool eligible; the concrete call is then matched with
+ * `checkRunToolScope` once its target is known.
+ */
+export function checkRunToolScopeByName(
+  scope: RunToolScope | undefined,
+  toolName: string,
+): { allowed: true } | { allowed: false; reason: 'run_scope_denied' | 'run_scope_not_allowed' } {
+  if (!scope) return { allowed: true };
+  if (scope.denied.some((pattern) => pattern.kind === toolName && !pattern.argument)) return { allowed: false, reason: 'run_scope_denied' };
+  if (scope.allowed.length > 0 && !scope.allowed.some((pattern) => pattern.kind === toolName)) {
+    return { allowed: false, reason: 'run_scope_not_allowed' };
+  }
+  return { allowed: true };
 }
 
 /**

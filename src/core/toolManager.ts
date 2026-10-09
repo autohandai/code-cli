@@ -20,7 +20,7 @@ import {
   type PermissionPromptResponse,
 } from '../permissions/types.js';
 import { PermissionManager } from '../permissions/PermissionManager.js';
-import { checkRunToolScope, describeRunScopeRefusal } from '../permissions/runToolScope.js';
+import { checkRunToolScopeByName, describeRunScopeRefusal } from '../permissions/runToolScope.js';
 import type { HookExecutionResult } from './HookManager.js';
 import {
   getToolCategory,
@@ -2763,13 +2763,22 @@ export class ToolManager {
         this.assertNotAborted(signal);
         // The run scope is matched on the tool the model actually named, before
         // capability mapping turns e.g. delete_path into a write_file context.
-        const scope = checkRunToolScope(this.permissionManager.getRunToolScope(), { kind: call.tool, target: '' });
+        const scope = checkRunToolScopeByName(this.permissionManager.getRunToolScope(), call.tool);
         if (!scope.allowed) {
           reject(describeRunScopeRefusal(call.tool, scope.reason), 'validation');
           continue;
         }
         let action = this.toAction(call);
         let permissionContexts = this.resolvePermissionContexts(action);
+        // Argument-scoped patterns such as run_command(git:*) need the command
+        // or path, which is only known once the contexts are resolved.
+        const scopedRefusal = permissionContexts
+          .map((context) => this.permissionManager.checkRunToolScope(context))
+          .find((result) => !result.allowed);
+        if (scopedRefusal && !scopedRefusal.allowed) {
+          reject(describeRunScopeRefusal(call.tool, scopedRefusal.reason), 'validation');
+          continue;
+        }
         let policyEvaluation = this.evaluatePermissionContexts(permissionContexts);
         if (policyEvaluation.denied) {
           reject(`Tool '${call.tool}' was denied by the permission policy.`);

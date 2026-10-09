@@ -235,7 +235,7 @@ export async function runAgentSlashCommandWithInput(host: AgentCommandRuntimeHos
         host.persistentInputActiveTurn = false;
       }
       cleanupConsoleBridge();
-      if (isInteractive && command !== '/whatityped' && command !== '/peers' && host.inkRenderer?.isRunning()) {
+      if (isInteractive && command !== '/whatityped' && command !== '/peers' && command !== '/feedback' && host.inkRenderer?.isRunning()) {
         host.inkRenderer.clearInput();
       }
     }

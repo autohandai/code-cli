@@ -14,6 +14,7 @@ import * as sessions from '../commands/sessions.js';
 import * as session from '../commands/session.js';
 import * as agents from '../commands/agents.js';
 import * as feedback from '../commands/feedback.js';
+import * as bugCmd from '../commands/bug.js';
 import * as agentsNew from '../commands/agents-new.js';
 import * as undo from '../commands/undo.js';
 import * as newCmd from '../commands/new.js';
@@ -95,6 +96,8 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   agents.metadata,
   agentsNew.metadata,
   feedback.metadata,
+  bugCmd.metadata,
+  bugCmd.aliasMetadata,
   undo.metadata,
   newCmd.metadata,
   clearCmd.metadata,

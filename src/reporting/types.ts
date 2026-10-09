@@ -4,7 +4,22 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { GitHubIdentitySource } from '../feedback/githubIdentity.js';
+import type { FeedbackTranscript } from '../feedback/sessionTranscript.js';
+
+/** Who filed a user bug report. `accountId` is stored privately and never published. */
+export interface ReportReporter {
+  githubLogin?: string;
+  githubSource?: GitHubIdentitySource;
+  accountId?: string;
+}
+
 export interface ErrorReport {
+  /** `user` for reports filed with /bug; absent for automatic error reports. */
+  reportKind?: 'auto' | 'user';
+  reporter?: ReportReporter;
+  environment?: Record<string, string>;
+  transcript?: FeedbackTranscript;
   errorType: string;
   errorMessage: string;
   sanitizedStack?: string;

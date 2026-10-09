@@ -87,6 +87,7 @@ import type { ToolDefinition } from './toolManager.js';
 import { ErrorLogger } from './errorLogger.js';
 import { MemoryManager } from '../memory/MemoryManager.js';
 import { FeedbackManager } from '../feedback/FeedbackManager.js';
+import type { FeedbackSurveyController } from './agent/FeedbackSurveyController.js';
 import { TelemetryManager } from '../telemetry/TelemetryManager.js';
 import type { CommandUseData, CommandUseSurface } from '../telemetry/types.js';
 import {
@@ -253,7 +254,6 @@ import {
   setAgentPersistentInputActivityLine,
   setAgentSpinnerStatus,
   setAgentUIStatus,
-  showAgentFeedbackWithPause,
   shouldAgentPreferPtyForImmediateShellCommands,
   startAgentStatusUpdates,
   stopAgentStatusUpdates,
@@ -403,6 +403,7 @@ export class AutohandAgent {
   private delegator!: AgentDelegator;
   private specialistOrchestrator!: SpecialistOrchestrator;
   private feedbackManager!: FeedbackManager;
+  private feedbackSurvey!: FeedbackSurveyController;
   private telemetryManager!: TelemetryManager;
   private featureFlagManager?: RemoteFeatureFlagManager;
   private skillsRegistry!: SkillsRegistry;
@@ -1748,17 +1749,6 @@ export class AutohandAgent {
 
   notifyUser(message: string): void {
     return notifyAgentUser(this, message);
-  }
-
-  /**
-   * Show a feedback prompt, pausing persistent input first so the Modal
-   * owns stdin exclusively and keystrokes don't leak into the composer.
-   */
-  private async showFeedbackWithPause(
-    trigger: string,
-    sessionId?: string
-  ): Promise<void> {
-    return showAgentFeedbackWithPause(this, trigger, sessionId);
   }
 
   /**

@@ -1244,5 +1244,18 @@
     "modalHint": "↑↓ move  ·  enter dismiss  ·  esc close",
     "none": "No new announcements.",
     "unavailable": "Announcements are unavailable in this session."
+  },
+  "feedback": {
+    "survey": {
+      "question": "How is Autohand doing this session? (optional)",
+      "bad": "Bad",
+      "poor": "Poor",
+      "fine": "Fine",
+      "good": "Good",
+      "great": "Great",
+      "dismiss": "Dismiss",
+      "thanks": "Thanks for the feedback!",
+      "thanksLow": "Thanks. Tell us what went wrong: /feedback <message>"
+    }
   }
 }

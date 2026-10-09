@@ -276,6 +276,9 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
         onDismissAnnouncement: (id: string) => {
           void host.announcementManager?.dismiss?.(id);
         },
+        onFeedbackSurveyAnswer: (id: string, key: string) => {
+          host.feedbackSurvey?.answer(id, key);
+        },
         enableQueueInput: true,
         enterWhileWorking: host.runtime?.config?.ui?.enterWhileWorking ?? 'select',
         onImageDetected: (data: Buffer, mimeType: string, filename?: string) =>
@@ -564,48 +567,6 @@ export function notifyAgentUser(host: AgentUIRuntimeHost, message: string): void
     }
 
     promptNotify(chalk.yellow(content));
-  }
-
-export async function showAgentFeedbackWithPause(host: AgentUIRuntimeHost, trigger: string, sessionId?: string): Promise<void> {
-    const inkQueueCount = typeof host.inkRenderer?.getQueueCount === 'function'
-      ? host.inkRenderer.getQueueCount()
-      : 0;
-    if (inkQueueCount > 0) {
-      return;
-    }
-
-    const needsPersistentPause = host.persistentInputActiveTurn;
-    const needsInkPause = typeof host.inkRenderer?.isRunning === 'function'
-      ? host.inkRenderer.isRunning()
-      : Boolean(host.inkRenderer);
-
-    if (needsInkPause) {
-      host.modalActive = true;
-      host.inkRenderer.pause();
-      await new Promise<void>((resolve) => setImmediate(resolve));
-    }
-
-    if (needsPersistentPause) {
-      host.persistentInput.pause();
-    }
-
-    try {
-      if (trigger === 'gratitude') {
-        await host.feedbackManager.quickRating();
-      } else {
-        await host.feedbackManager.promptForFeedback(trigger as any, sessionId);
-      }
-    } catch {
-      // Feedback should never crash the session
-    } finally {
-      if (needsPersistentPause) {
-        host.persistentInput.resume();
-      }
-      if (needsInkPause) {
-        await host.inkRenderer.resume();
-        host.modalActive = false;
-      }
-    }
   }
 
 export function addAgentUIToolOutput(host: AgentUIRuntimeHost, tool: string, success: boolean, output: string): void {

@@ -337,23 +337,24 @@ async function toggleHooksMulti(manager: HookManager, allHooks: HookDefinition[]
     };
   });
 
-  let toggleCount = 0;
+  const toggles: Array<{ event: HookDefinition['event']; index: number }> = [];
 
   await showModal({
     title: 'Toggle hooks — spacebar to enable/disable',
     options,
     multiSelect: true,
-    onToggle: async (option, _checked) => {
+    onToggle: (option, _checked) => {
       const idx = parseInt(option.value, 10);
       const hook = allHooks[idx];
       if (!hook) return;
       const eventHooks = allHooks.filter(h => h.event === hook.event);
       const eventIndex = eventHooks.indexOf(hook);
-      await manager.toggleHook(hook.event, eventIndex);
-      toggleCount++;
+      toggles.push({ event: hook.event, index: eventIndex });
     },
   });
 
+  for (const { event, index } of toggles) await manager.toggleHook(event, index);
+  const toggleCount = toggles.length;
   if (toggleCount > 0) {
     console.log(chalk.green(`  ✓ Toggled ${toggleCount} hook${toggleCount > 1 ? 's' : ''}`));
   } else {

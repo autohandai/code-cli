@@ -7,9 +7,15 @@ let session: Session | undefined;
 let auth: MockAuthServer | undefined;
 let server: MockNativeToolServer | undefined;
 let state: TuistoryTempState | undefined;
-afterEach(async () => { session?.close(); await auth?.close(); await server?.close(); await state?.cleanup(); });
+afterEach(async () => {
+  if (session && !session.exitInfo) await exitInteractive(session);
+  session?.close();
+  await auth?.close();
+  await server?.close();
+  await state?.cleanup();
+});
 describe('Stripe suspension in an open CLI', () => {
-  it('notifies once, changes the composer to Free, and uses Fantail on the next turn without restarting', async () => {
+  it('notifies once and uses Fantail after the background plan refresh without restarting', async () => {
     let blocked = false;
     auth = await createMockAuthServer({ paymentBlocked: () => blocked });
     server = await createMockAutohandAINativeSequenceServer([{ content: 'PAID_TURN_DONE' }, { content: 'FREE_TURN_DONE' }, { content: 'FREE_STILL_WORKS' }]);
@@ -27,12 +33,13 @@ describe('Stripe suspension in an open CLI', () => {
     expect(session.readAll()).toContain('Stripe blocked your payment');
     expect(session.readAll()).toContain('Manage billing: https://console.autohand.ai/billing');
     expect(server.requests[0]?.model).toBe('moa');
-    expect(server.requests[1]?.model).toBe('fantail');
+    // The refresh can settle before or during this turn; it must affect the next admission.
+    expect(['moa', 'fantail']).toContain(server.requests[1]?.model);
+    await sendPaymentTransitionTurn(session, 'Continue once more', 'FREE_STILL_WORKS');
+    expect(server.requests[2]?.model).toBe('fantail');
     const config = JSON.parse(await readFile(state.configPath, 'utf8'));
     expect(config.autohandai.model).toBe('fantail');
     expect(config.autohandai.reasoningEffort).toBeUndefined();
-    await sendPaymentTransitionTurn(session, 'Continue once more', 'FREE_STILL_WORKS');
-    expect(server.requests[2]?.model).toBe('fantail');
     await exitInteractive(session);
   });
 });

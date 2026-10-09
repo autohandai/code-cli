@@ -402,6 +402,15 @@ describe('slash command dispatch – output vs instruction', () => {
     }
   });
 
+  it.each(['/bug', '/bug-report'])('%s is registered and asks for a description instead of reaching the LLM', async (command) => {
+    const handler = new SlashCommandHandler(createMinimalContext(), SLASH_COMMANDS);
+
+    expect(handler.isCommandSupported(command)).toBe(true);
+    const result = await handler.handle(command, []);
+
+    expect(result).toContain('Usage: /bug <what went wrong>');
+  });
+
   it('non-interactive commands still work in non-interactive mode', async () => {
     const ctx = { ...createMinimalContext(), isNonInteractive: true };
     const handler = new SlashCommandHandler(ctx, SLASH_COMMANDS);

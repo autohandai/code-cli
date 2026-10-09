@@ -204,12 +204,12 @@ export class SlashCommandHandler {
         }
         case '/feedback': {
           const { feedback } = await import('../commands/feedback.js');
-          await this.ctx.onBeforeModal?.();
-          try {
-            return await feedback(this.ctx);
-          } finally {
-            await this.ctx.onAfterModal?.();
-          }
+          return feedback(this.ctx, args);
+        }
+        case '/bug':
+        case '/bug-report': {
+          const { bug } = await import('../commands/bug.js');
+          return bug(this.ctx, args);
         }
         case '/resume': {
           const { resume } = await import('../commands/resume.js');

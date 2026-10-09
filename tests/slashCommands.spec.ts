@@ -11,7 +11,7 @@ describe('slash commands registry', () => {
     const commands = SLASH_COMMANDS.map((cmd) => cmd.command);
     const expected = [
       '/quit', '/exit', '/model', '/session', '/sessions', '/resume', '/init',
-      '/agents', '/agents new', '/feedback', '/help', '/?',
+      '/agents', '/agents new', '/feedback', '/bug', '/bug-report', '/help', '/?',
       '/undo', '/new', '/memory', '/browser', '/review', '/pr-review',
       '/usage', '/upgrade', '/go', '/handoff', '/handoff session', '/handoff web', '/statusline', '/goal', '/goals', '/whatityped', '/rename'
     ];

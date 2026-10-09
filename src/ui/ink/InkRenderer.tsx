@@ -21,6 +21,7 @@ import {
   MAX_VISIBLE_NOTIFICATIONS,
   type ActivityItem,
   type AnnouncementLineState,
+  type FeedbackSurveyState,
   type TipLineState,
   type AgentUILineExtensions,
   type AgentUIState,
@@ -73,6 +74,7 @@ export interface InkRendererOptions {
   onEscape: () => void;
   onCtrlC: () => void;
   onDismissAnnouncement?: (id: string) => void;
+  onFeedbackSurveyAnswer?: (id: string, key: string) => void;
   enableQueueInput?: boolean;
   /** Called when a dragged/dropped image is detected in the input */
   onImageDetected?: (data: Buffer, mimeType: string, filename?: string) => number;
@@ -218,6 +220,7 @@ interface AgentUIWrapperProps {
   onEscape: () => void;
   onCtrlC: () => void;
   onDismissAnnouncement?: (id: string) => void;
+  onFeedbackSurveyAnswer?: (id: string, key: string) => void;
   onToggleLiveCommandExpanded: (id?: string) => void;
   onToggleToolOutputExpanded: () => void;
   onToggleTeamPanel: () => void;
@@ -262,6 +265,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
       onEscape,
       onCtrlC,
       onDismissAnnouncement,
+      onFeedbackSurveyAnswer,
       onToggleLiveCommandExpanded,
       onToggleToolOutputExpanded,
       onToggleTeamPanel,
@@ -326,6 +330,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
         onEscape={onEscape}
         onCtrlC={onCtrlC}
         onDismissAnnouncement={onDismissAnnouncement}
+        onFeedbackSurveyAnswer={onFeedbackSurveyAnswer}
         onToggleLiveCommandExpanded={onToggleLiveCommandExpanded}
         onToggleToolOutputExpanded={onToggleToolOutputExpanded}
         onToggleTeamPanel={onToggleTeamPanel}
@@ -544,6 +549,7 @@ export class InkRenderer {
             onEscape={this.options.onEscape}
             onCtrlC={this.options.onCtrlC}
             onDismissAnnouncement={this.options.onDismissAnnouncement}
+            onFeedbackSurveyAnswer={this.options.onFeedbackSurveyAnswer}
             onToggleLiveCommandExpanded={(id) => this.toggleActiveLiveCommandExpanded(id)}
             onToggleToolOutputExpanded={() => this.toggleLatestToolOutputExpanded()}
             onToggleTeamPanel={() => this.toggleTeamPanel()}
@@ -1028,6 +1034,7 @@ export class InkRenderer {
       ...createInitialUIState(),
       interactionMode: this.options.getInteractionMode?.() ?? this.state.interactionMode,
       announcement: this.state.announcement,
+      feedbackSurvey: this.state.feedbackSurvey,
     };
     this.queuedInstructionEntries = [];
     this.notificationContentsByKey.clear();
@@ -1267,6 +1274,10 @@ export class InkRenderer {
 
   setAnnouncement(announcement: AnnouncementLineState | undefined): void {
     this.updateState({ announcement });
+  }
+
+  setFeedbackSurvey(feedbackSurvey: FeedbackSurveyState | undefined): void {
+    this.updateState({ feedbackSurvey });
   }
 
   setTip(tip: TipLineState | undefined): void {
@@ -1753,6 +1764,7 @@ export class InkRenderer {
       ...createInitialUIState(),
       interactionMode: this.options.getInteractionMode?.() ?? this.state.interactionMode,
       announcement: this.state.announcement,
+      feedbackSurvey: this.state.feedbackSurvey,
     };
     this.queuedInstructionEntries = [];
     this.notificationContentsByKey.clear();
