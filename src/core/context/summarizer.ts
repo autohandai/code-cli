@@ -108,6 +108,7 @@ export async function summarizeWithLLM(
   }
 
   try {
+    const expectedProjectScope = memoryManager?.getProjectMemoryScope?.();
     const serializedLog = serializeMessagesForSummary(messages);
 
     const summarizationPrompt = [
@@ -140,7 +141,7 @@ export async function summarizeWithLLM(
 
     // Persist key facts to memory if MemoryManager is available
     if (memoryManager) {
-      await persistKeyFacts(summaryText, memoryManager).catch(() => {
+      await persistKeyFacts(summaryText, memoryManager, expectedProjectScope).catch(() => {
         // Silently ignore memory persistence failures
       });
     }
@@ -185,7 +186,7 @@ export function extractFileOperations(messages: LLMMessage[]): { readFiles: stri
 /**
  * Extract and persist key facts from a summary to project memory.
  */
-export async function persistKeyFacts(summary: string, memoryManager: MemoryManager): Promise<void> {
+export async function persistKeyFacts(summary: string, memoryManager: MemoryManager, expectedProjectScope?: string): Promise<void> {
   const factPatterns = [
     /(?:chose|decided|selected|using|preference|prefer)\s+.{10,100}/gi,
     /(?:constraint|requirement|must|should)\s+.{10,100}/gi,
@@ -200,6 +201,14 @@ export async function persistKeyFacts(summary: string, memoryManager: MemoryMana
   }
 
   for (const fact of [...facts].slice(0, 5)) {
-    await memoryManager.store(fact, 'project', ['context-summary'], 'context-summarization');
+    if (expectedProjectScope !== undefined && expectedProjectScope !== memoryManager.getProjectMemoryScope?.()) return;
+    const storeArgs: Parameters<MemoryManager['store']> = [fact, 'project', ['context-summary'], 'context-summarization'];
+    if (expectedProjectScope !== undefined) storeArgs[5] = expectedProjectScope;
+    try {
+      await memoryManager.store(...storeArgs);
+    } catch (error) {
+      if (expectedProjectScope !== undefined && expectedProjectScope !== memoryManager.getProjectMemoryScope?.()) return;
+      throw error;
+    }
   }
 }

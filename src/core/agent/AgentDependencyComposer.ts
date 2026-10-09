@@ -57,6 +57,7 @@ import { attachTeamActivityBridge, enableAutomaticCoordinationMode } from './Tea
 import { buildTeamTaskPayload, taskToolTruncatesDescriptions } from '../teams/taskPayload.js';
 import { ErrorLogger } from '../errorLogger.js';
 import { MemoryManager } from '../../memory/MemoryManager.js';
+import { ProjectMemorySync } from '../../sync/ProjectMemorySync.js';
 import type { CapabilityUsageInput } from '../../memory/types.js';
 import { FeedbackManager } from '../../feedback/FeedbackManager.js';
 import { FeedbackSurveyController } from './FeedbackSurveyController.js';
@@ -566,7 +567,13 @@ export function initializeAgentDependencies(
           .map((skill) => skill.name),
       }),
     });
-    host.memoryManager = new MemoryManager(runtime.workspaceRoot);
+    host.memoryManager = new MemoryManager(runtime.workspaceRoot, {
+      getSessionId: () => host.sessionManager?.getCurrentSession?.()?.metadata?.sessionId,
+      projectMemory: runtime.options.bare || runtime.options.ephemeral
+        ? undefined
+        : new ProjectMemorySync({ configPath: runtime.config.configPath }),
+      onProjectMemoryError: (error) => promptNotify(chalk.yellow(`Project memory: ${error.message}`)),
+    });
 
     // Initialize context orchestrator for auto-compaction
     // Default enabled, can be toggled with --no-cc or /cc command

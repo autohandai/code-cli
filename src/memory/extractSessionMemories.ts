@@ -6,7 +6,7 @@
 
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import type { MemoryManager } from './MemoryManager.js';
-import type { MemoryLevel } from './types.js';
+import type { MemoryEntry, MemoryLevel } from './types.js';
 import type { LLMMessage } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -48,6 +48,8 @@ export interface ExtractionDeps {
   options?: {
     minUserMessages?: number;
     source?: string;
+    origin?: MemoryEntry['origin'] | null;
+    expectedProjectScope?: string;
     turnOutcome?: TurnMemoryReflectionOutcome;
   };
 }
@@ -156,6 +158,7 @@ export async function extractAndSaveSessionMemories(
   deps: ExtractionDeps,
 ): Promise<ExtractedMemory[]> {
   const { llm, memoryManager, conversationHistory, signal } = deps;
+  const expectedProjectScope = deps.options?.expectedProjectScope ?? memoryManager.getProjectMemoryScope?.();
   const minUserMessages = deps.options?.minUserMessages ?? MIN_USER_MESSAGES;
   const source = deps.options?.source ?? 'session-extraction';
   const extractionPrompt = EXTRACTION_PROMPT + buildTurnOutcomeGuidance(deps.options?.turnOutcome);
@@ -219,12 +222,21 @@ export async function extractAndSaveSessionMemories(
     };
 
     try {
-      await memoryManager.store(
+      if (memory.level === 'project' && expectedProjectScope !== undefined
+        && expectedProjectScope !== memoryManager.getProjectMemoryScope?.()) {
+        continue;
+      }
+      const storeArgs: Parameters<MemoryManager['store']> = [
         memory.content,
         memory.level,
         memory.tags,
         source,
-      );
+      ];
+      if (deps.options?.origin !== undefined) storeArgs[4] = deps.options.origin;
+      if (memory.level === 'project' && expectedProjectScope !== undefined) {
+        storeArgs[5] = expectedProjectScope;
+      }
+      await memoryManager.store(...storeArgs);
       saved.push(memory);
     } catch {
       // Individual store failure -- skip and continue

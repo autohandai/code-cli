@@ -8,13 +8,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { promises as nodeFs } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MemoryManager } from '../../src/memory/MemoryManager.js';
+import { MemoryManager, type MemoryManagerOptions, type ProjectMemoryAdapter } from '../../src/memory/MemoryManager.js';
+import { acquireFileLock } from '../../src/utils/atomicFile.js';
 import { MemoryEventLog } from '../../src/memory/MemoryEventLog.js';
 import { SYNC_EXCLUDE_ALWAYS } from '../../src/sync/types.js';
 
 const temporaryRoots: string[] = [];
 
-async function createManager(): Promise<{
+async function createManager(options: MemoryManagerOptions = {}): Promise<{
   manager: MemoryManager;
   memoryDir: string;
 }> {
@@ -22,6 +23,7 @@ async function createManager(): Promise<{
   temporaryRoots.push(workspaceRoot);
   const manager = new MemoryManager(workspaceRoot, {
     userMemoryDir: path.join(workspaceRoot, 'user-memory'),
+    ...options,
   });
   await manager.initialize();
   return {
@@ -36,6 +38,178 @@ afterEach(async () => {
 });
 
 describe('MemoryManager event log integration', () => {
+  it('refreshes shared projects outside the view lock and publishes canonical mutations after release', async () => {
+    let sharedDirectory: string | undefined;
+    const refresh = vi.fn(async (workspace: string) => {
+      sharedDirectory = path.join(workspace, 'account-cache');
+      expect(await fs.pathExists(path.join(sharedDirectory, 'events', '.view.lock'))).toBe(false);
+    });
+    const publish = vi.fn(async () => {
+      expect(await fs.pathExists(path.join(sharedDirectory!, 'events', '.view.lock'))).toBe(false);
+      expect((await new MemoryEventLog(sharedDirectory!).readAll()).length).toBeGreaterThan(0);
+    });
+    const adapter: ProjectMemoryAdapter = { refresh, publish, directory: () => sharedDirectory, assertWritable: vi.fn() };
+    const { manager, memoryDir } = await createManager({ projectMemory: adapter });
+    const entry = await manager.store('Share the repository testing convention', 'project');
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(await fs.pathExists(path.join(memoryDir, `${entry.id}.json`))).toBe(false);
+    expect(await fs.pathExists(path.join(sharedDirectory!, `${entry.id}.json`))).toBe(true);
+    await manager.store('Private user preference', 'user');
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenCalledWith(path.dirname(path.dirname(memoryDir)), memoryDir, sharedDirectory);
+    await manager.updateMemory(entry.id, 'Share the canonical repository testing convention', 'project');
+    await manager.delete(entry.id, 'project');
+    await manager.recordCapabilityUse({ kind: 'skill', name: 'tdd', source: 'project', origin: 'user', outcome: 'succeeded' });
+    expect(publish).toHaveBeenCalledTimes(4);
+    expect((await new MemoryEventLog(sharedDirectory!).readAll()).map((event) => event.operation)).toEqual(['create', 'update', 'delete', 'capability_used']);
+  });
+
+  it('keeps shared account directories isolated and stops exposing them when disconnected', async () => {
+    let selectedAccount = 'team-a';
+    let sharedDirectory: string | undefined;
+    const adapter: ProjectMemoryAdapter = {
+      refresh: async (workspace) => { sharedDirectory = selectedAccount ? path.join(workspace, selectedAccount) : undefined; },
+      directory: () => sharedDirectory,
+      assertWritable: () => {},
+      publish: async () => {},
+    };
+    const { manager } = await createManager({ projectMemory: adapter });
+    await manager.store('Alpha architecture decision', 'project');
+    selectedAccount = 'team-b';
+    await manager.store('Beta testing convention', 'project');
+    expect((await manager.list('project')).map((entry) => entry.content)).toEqual(['Beta testing convention']);
+    selectedAccount = 'team-a';
+    expect(await manager.getSharedProjectContext()).toContain('Alpha architecture decision');
+    expect(await manager.getSharedProjectContext()).not.toContain('Beta testing convention');
+    await manager.store('Private preference stays outside team context', 'user');
+    const bootstrap = await manager.getContextMemories();
+    expect(bootstrap).toContain('<autohand_shared_project_memory>');
+    expect(bootstrap.split('</autohand_shared_project_memory>')[1]).toContain('Private preference stays outside team context');
+    expect(await manager.getSharedProjectContext()).not.toContain('Private preference stays outside team context');
+    selectedAccount = '';
+    expect(await manager.getSharedProjectContext()).toBe('');
+    expect(await manager.list('project')).toEqual([]);
+  });
+
+  it('allows read-only context but rejects canonical project writes', async () => {
+    let directory: string | undefined;
+    const publish = vi.fn(async () => {});
+    const { manager } = await createManager({ projectMemory: {
+      refresh: async (workspace) => { directory = path.join(workspace, 'readonly-cache'); },
+      directory: () => directory,
+      assertWritable: () => { throw new Error('This team account is read-only'); },
+      publish,
+    } });
+    await expect(manager.getSharedProjectContext()).resolves.toContain('supersedes');
+    await expect(manager.store('Cannot publish this decision', 'project')).rejects.toThrow(/read-only/);
+    expect(publish).not.toHaveBeenCalled();
+    await expect(manager.store('Personal preference remains writable', 'user')).resolves.toBeDefined();
+  });
+
+  it('bounds large shared raw entries in turn and bootstrap context while preserving personal preferences', async () => {
+    let directory: string | undefined;
+    const { manager } = await createManager({ projectMemory: {
+      refresh: async (workspace) => { directory = path.join(workspace, 'bounded-shared-cache'); },
+      directory: () => directory,
+      assertWritable: () => {},
+      publish: async () => {},
+    } });
+    const oversized = `Repository guidance ${'long shared coding rule '.repeat(600)}PRIVATE_SHARED_TAIL`;
+    const personal = `Personal formatting preference ${'keep original personal text '.repeat(220)}PERSONAL_TAIL`;
+    await manager.store(oversized, 'project');
+    await manager.store(personal, 'user');
+
+    const turn = await manager.getSharedProjectContext();
+    const bootstrap = await manager.getContextMemories();
+    const sharedBootstrap = bootstrap.split('<autohand_shared_project_memory>')[1]?.split('</autohand_shared_project_memory>')[0] ?? '';
+
+    expect(turn.length).toBeLessThanOrEqual(4_400);
+    expect(sharedBootstrap.length).toBeLessThanOrEqual(4_100);
+    expect(turn).toContain('truncated');
+    expect(turn).toContain('recall_memory');
+    expect(turn).not.toContain('PRIVATE_SHARED_TAIL');
+    expect(bootstrap).toContain('<autohand_shared_project_memory>');
+    expect(bootstrap).toContain('</autohand_shared_project_memory>');
+    expect(bootstrap).toContain(personal);
+    expect(bootstrap).not.toContain('PRIVATE_SHARED_TAIL');
+    expect(await manager.get((await manager.list('project'))[0]!.id, 'project')).toMatchObject({ content: oversized });
+  });
+
+  it('retains local shared writes and reports offline refresh and publishing failures', async () => {
+    let directory: string | undefined;
+    let offline = false;
+    const report = vi.fn();
+    const { manager } = await createManager({ projectMemory: {
+      refresh: async (workspace) => {
+        directory ??= path.join(workspace, 'offline-cache');
+        if (offline) throw new Error('Project memory refresh failed: check your connection');
+      },
+      directory: () => directory,
+      assertWritable: () => {},
+      publish: async () => { throw new Error('Project memory upload failed: retry when online'); },
+    }, onProjectMemoryError: report });
+    offline = true;
+    const stored = await manager.store('Keep a pending repository decision', 'project');
+    expect(await manager.get(stored.id, 'project')).toEqual(stored);
+    expect(report).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('refresh failed') }));
+    expect(report).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('upload failed') }));
+  });
+
+  it('rejects an account switch while waiting for the old directory lock', async () => {
+    let selectedAccount = 'team-a';
+    let directory: string | undefined;
+    const adapter: ProjectMemoryAdapter = {
+      refresh: vi.fn(async (workspace) => { directory = path.join(workspace, selectedAccount); }),
+      directory: (workspace) => path.join(workspace, selectedAccount),
+      assertWritable: () => {},
+      publish: vi.fn(async () => {}),
+    };
+    const { manager } = await createManager({ projectMemory: adapter });
+    const lease = await acquireFileLock(path.join(directory!, 'events', '.view.lock'));
+    const saving = manager.store('Never redirect an account mutation', 'project');
+    await vi.waitFor(() => expect(adapter.refresh).toHaveBeenCalledTimes(2));
+    selectedAccount = 'team-b';
+    await lease!.release();
+    await expect(saving).rejects.toThrow(/changed/);
+    expect(adapter.publish).not.toHaveBeenCalled();
+    expect(await manager.list('project')).toEqual([]);
+  });
+
+  it('checks the expected project scope after acquiring a held mutation lock', async () => {
+    let identity = 'identity-a';
+    let directory: string | undefined;
+    const publish = vi.fn(async () => {});
+    const refresh = vi.fn(async (workspace: string) => { directory = path.join(workspace, 'same-project-cache'); });
+    const { manager } = await createManager({ projectMemory: {
+      refresh, directory: () => directory, scope: () => identity, assertWritable: () => {}, publish,
+    } });
+    const expectedScope = manager.getProjectMemoryScope();
+    const lease = await acquireFileLock(path.join(directory!, 'events', '.view.lock'));
+    const saving = manager.store('A queued reflection belongs to its original account', 'project', [], 'turn-reflection', null, expectedScope);
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
+    identity = 'identity-b';
+    await lease!.release();
+
+    await expect(saving).rejects.toThrow(/scope changed/i);
+    expect(await manager.list('project')).toEqual([]);
+    expect(publish).not.toHaveBeenCalled();
+    await expect(manager.store('Personal preferences ignore project scope switches', 'user', [], 'turn-reflection', null, expectedScope)).resolves.toBeDefined();
+  });
+
+  it('preserves the creation session through updates and event-log replay', async () => {
+    let sessionId = 'creation-session';
+    const { manager, memoryDir } = await createManager({ getSessionId: () => sessionId });
+    const entry = await manager.store('Always verify memory storage', 'project');
+    expect(entry).toMatchObject({ origin: { sessionId: 'creation-session' } });
+    sessionId = 'later-session';
+    await manager.updateMemory(entry.id, 'Always verify canonical memory storage', 'project');
+    await manager.rebuildFromEventLog('project');
+    expect(await manager.get(entry.id, 'project')).toMatchObject({ origin: { sessionId: 'creation-session' } });
+    const events = await new MemoryEventLog(memoryDir).readAll();
+    expect(events[0]?.entry).toMatchObject({ origin: { sessionId: 'creation-session' } });
+  });
+
   it('keeps startup available when memory initialization runs out of disk space', async () => {
     const { manager } = await createManager();
     await manager.store('Existing user preference', 'user');

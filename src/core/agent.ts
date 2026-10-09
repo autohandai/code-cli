@@ -86,7 +86,7 @@ import {
 } from './agents/SpecialistOrchestrator.js';
 import type { ToolDefinition } from './toolManager.js';
 import { ErrorLogger } from './errorLogger.js';
-import { MemoryManager } from '../memory/MemoryManager.js';
+import { MemoryManager, wrapSharedProjectMemory } from '../memory/MemoryManager.js';
 import { FeedbackManager } from '../feedback/FeedbackManager.js';
 import type { FeedbackSurveyController } from './agent/FeedbackSurveyController.js';
 import { TelemetryManager } from '../telemetry/TelemetryManager.js';
@@ -354,10 +354,11 @@ import {
   type PostTurnActionHost,
 } from './agent/PostTurnActionCoordinator.js';
 
-function formatTurnMemoryUpdate(saved: ExtractedMemory[]): string {
+function formatTurnMemoryUpdate(saved: ExtractedMemory[], sharedProject = false): string {
   const lines = ['[Auto Memory Update] Background reflection saved these memories for future turns:'];
   for (const memory of saved) {
-    lines.push(`- ${memory.level}: ${memory.content}`);
+    const line = `- ${memory.level}: ${memory.content}`;
+    lines.push(memory.level === 'project' && sharedProject ? wrapSharedProjectMemory(line) : line);
   }
   return lines.join('\n');
 }
@@ -365,6 +366,9 @@ function formatTurnMemoryUpdate(saved: ExtractedMemory[]): string {
 interface TurnMemoryReflectionRequest {
   outcome: TurnMemoryReflectionOutcome;
   conversationHistory: LLMMessage[];
+  sessionId?: string;
+  projectMemoryScope?: string;
+  sharedProjectMemory?: boolean;
 }
 
 export class AutohandAgent {
@@ -892,7 +896,13 @@ export class AutohandAgent {
         && message.content.includes('[Auto Memory Update]'))
     );
     this.turnMemoryReflectionQueue ??= [];
-    this.turnMemoryReflectionQueue.push({ outcome, conversationHistory });
+    this.turnMemoryReflectionQueue.push({
+      outcome,
+      conversationHistory,
+      sessionId: this.sessionManager?.getCurrentSession?.()?.metadata?.sessionId,
+      projectMemoryScope: this.memoryManager?.getProjectMemoryScope?.(),
+      sharedProjectMemory: this.memoryManager?.hasSharedProjectMemory?.() ?? false,
+    });
     this.startQueuedTurnMemoryReflection();
   }
 
@@ -947,17 +957,25 @@ export class AutohandAgent {
         options: {
           minUserMessages: 1,
           source: 'turn-reflection',
+          origin: request.sessionId ? { sessionId: request.sessionId } : null,
+          expectedProjectScope: request.projectMemoryScope,
           turnOutcome: request.outcome,
         },
       });
 
-      if (abortController.signal.aborted || this.runtimeResourceShutdownPromise || saved.length === 0) {
+      const currentScope = this.memoryManager?.getProjectMemoryScope?.();
+      const currentSaved = saved.filter(memory => memory.level !== 'project'
+        || request.projectMemoryScope === undefined || request.projectMemoryScope === currentScope);
+      if (abortController.signal.aborted || this.runtimeResourceShutdownPromise || currentSaved.length === 0) {
         return;
       }
 
-      this.conversation.addSystemNote(formatTurnMemoryUpdate(saved), '[Auto Memory Update]');
+      this.conversation.addSystemNote(
+        formatTurnMemoryUpdate(currentSaved, request.sharedProjectMemory),
+        '[Auto Memory Update]',
+      );
       this.writeTurnMemoryDebugLine(
-        `[memory] turn reflection saved ${saved.length} ${saved.length === 1 ? 'memory' : 'memories'}`,
+        `[memory] turn reflection saved ${currentSaved.length} ${currentSaved.length === 1 ? 'memory' : 'memories'}`,
       );
     } finally {
       if (this.turnMemoryReflectionAbortController === abortController) {

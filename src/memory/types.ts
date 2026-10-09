@@ -13,6 +13,7 @@ export interface MemoryEntry {
   updatedAt: string;
   tags?: string[];
   source?: string;
+  origin?: { sessionId: string };
 }
 
 export interface MemoryIndex {

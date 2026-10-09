@@ -10,6 +10,7 @@ import { resolveComputerControlAutoInjection } from '../../skills/computerContro
 import { resolveDebugAutoInjection } from '../../skills/debugIntent.js';
 import { getProviderConfig } from '../../config.js';
 import { t } from '../../i18n/index.js';
+import { stripSharedProjectMemory, wrapSharedProjectMemory } from '../../memory/MemoryManager.js';
 import type {
   AgentRuntime,
   ExplorationEvent,
@@ -52,6 +53,7 @@ export interface AgentContextRuntimeHost {
     addSystemNote(content: string, label?: string): void;
     history(): LLMMessage[];
     reset(systemPrompt: string): void;
+    replaceMessage?(index: number, message: LLMMessage): void;
   };
   filesModifiedThisSession?: boolean;
   ignoreFilter: { isIgnored(path: string): boolean };
@@ -59,7 +61,10 @@ export interface AgentContextRuntimeHost {
     getQueueCount?(): number;
     setContextPercent(percent: number): void;
   } | null;
-  memoryManager: { getContextMemories(limit?: number): Promise<string> };
+  memoryManager: {
+    getContextMemories(limit?: number): Promise<string>;
+    getSharedProjectContext?(limit?: number): Promise<string>;
+  };
   mentionResolver: {
     clear(): void;
     flush(): MentionContext | null;
@@ -190,6 +195,18 @@ export async function buildAgentTurnContext(
   host: AgentContextRuntimeHost,
   instruction: string
 ): Promise<string> {
+  const sharedProjectMemory = host.runtime.options.bare
+    ? ''
+    : await host.memoryManager?.getSharedProjectContext?.() ?? '';
+  if (host.conversation?.replaceMessage) {
+    host.conversation.history().forEach((message, index) => {
+      if (message.role !== 'system' || !message.content) return;
+      const content = stripSharedProjectMemory(message.content);
+      if (content !== message.content) {
+        host.conversation.replaceMessage?.(index, { ...message, content });
+      }
+    });
+  }
   const context = await collectAgentContextSummary(host);
 
   const turnContextParts = [
@@ -205,6 +222,7 @@ export async function buildAgentTurnContext(
       : undefined,
     host.runtime.options.path ? `Target path: ${host.runtime.options.path}` : undefined,
     `Options: dryRun=${host.runtime.options.dryRun ?? false}, yes=${host.runtime.options.yes ?? false}`,
+    sharedProjectMemory ? wrapSharedProjectMemory(sharedProjectMemory) : undefined,
   ]
     .filter(Boolean)
     .map(String);

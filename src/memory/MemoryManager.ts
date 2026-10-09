@@ -6,6 +6,7 @@
 import fs from 'fs-extra';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type {
   CapabilityUsageInput,
   LearnedProjectCapability,
@@ -26,6 +27,9 @@ import { materializeMemoryProjection } from './MemoryProjection.js';
 import { assertSafeMemoryId } from './MemoryPathSafety.js';
 
 const SIMILARITY_THRESHOLD = 0.6;
+const MAX_SHARED_MEMORY_CONTEXT_CHARS = 4_000;
+const SHARED_PROJECT_MEMORY_START = '<autohand_shared_project_memory>';
+const SHARED_PROJECT_MEMORY_END = '</autohand_shared_project_memory>';
 const MEMORY_INDEX_LOCK_OPTIONS = {
   staleMs: 30_000,
   waitTimeoutMs: 5_000,
@@ -39,24 +43,64 @@ function isStorageCapacityError(error: unknown): boolean {
     && (error.code === 'ENOSPC' || error.code === 'EDQUOT');
 }
 
+export function wrapSharedProjectMemory(content: string): string {
+  const escaped = content
+    .replaceAll(SHARED_PROJECT_MEMORY_START, '&lt;autohand_shared_project_memory&gt;')
+    .replaceAll(SHARED_PROJECT_MEMORY_END, '&lt;/autohand_shared_project_memory&gt;');
+  return `${SHARED_PROJECT_MEMORY_START}\n${escaped}\n${SHARED_PROJECT_MEMORY_END}`;
+}
+
+export function stripSharedProjectMemory(content: string): string {
+  return content.replace(/<autohand_shared_project_memory>[\s\S]*?<\/autohand_shared_project_memory>/g, '');
+}
+
+export interface ProjectMemoryAdapter {
+  refresh(workspaceRoot: string, localDirectory: string): Promise<void>;
+  directory(workspaceRoot: string): string | undefined;
+  scope?(workspaceRoot: string): string | undefined;
+  assertWritable(workspaceRoot: string): void;
+  publish(workspaceRoot: string, localDirectory: string, expectedDirectory?: string): Promise<void>;
+}
+
+interface ProjectMemoryOperation {
+  workspaceRoot: string;
+  localDirectory: string;
+  directory: string;
+  shared: boolean;
+}
+
 export interface MemoryManagerOptions {
   userMemoryDir?: string;
+  getSessionId?: () => string | undefined;
+  projectMemory?: ProjectMemoryAdapter;
+  onProjectMemoryError?: (error: Error) => void;
 }
 
 export class MemoryManager {
   private readonly userMemoryDir: string;
+  private readonly getSessionId?: () => string | undefined;
+  private readonly projectMemory?: ProjectMemoryAdapter;
+  private readonly onProjectMemoryError?: (error: Error) => void;
+  private workspaceRoot?: string;
   private projectMemoryDir: string | null = null;
-  private readonly eventLogs = new Map<MemoryLevel, MemoryEventLog>();
-  private readonly summaryTrees = new Map<MemoryLevel, MemorySummaryTree>();
+  private readonly projectOperation = new AsyncLocalStorage<ProjectMemoryOperation>();
+  private selectedProjectDirectory?: string;
+  private readonly eventLogs = new Map<MemoryLevel, { directory: string; value: MemoryEventLog }>();
+  private readonly summaryTrees = new Map<MemoryLevel, { directory: string; value: MemorySummaryTree }>();
 
   constructor(workspaceRoot?: string, options: MemoryManagerOptions = {}) {
     this.userMemoryDir = options.userMemoryDir ?? AUTOHAND_PATHS.memory;
+    this.getSessionId = options.getSessionId;
+    this.projectMemory = options.projectMemory;
+    this.onProjectMemoryError = options.onProjectMemoryError;
+    this.workspaceRoot = workspaceRoot;
     if (workspaceRoot) {
       this.projectMemoryDir = path.join(workspaceRoot, PROJECT_DIR_NAME, 'memory');
     }
   }
 
   setWorkspace(workspaceRoot: string): void {
+    this.workspaceRoot = workspaceRoot;
     this.projectMemoryDir = path.join(workspaceRoot, PROJECT_DIR_NAME, 'memory');
     this.eventLogs.delete('project');
     this.summaryTrees.delete('project');
@@ -66,7 +110,6 @@ export class MemoryManager {
     const levels: MemoryLevel[] = this.projectMemoryDir ? ['user', 'project'] : ['user'];
     for (const level of levels) {
       try {
-        await fs.ensureDir(this.getMemoryDir(level));
         await this.initializeLevel(level);
       } catch (error) {
         if (!isStorageCapacityError(error)) {
@@ -81,13 +124,45 @@ export class MemoryManager {
       if (!this.projectMemoryDir) {
         throw new Error('Project memory directory not set. Use setWorkspace() first.');
       }
-      return this.projectMemoryDir;
+      const pinned = this.projectOperation.getStore();
+      if (pinned) {
+        return pinned.directory;
+      }
+      const directory = this.workspaceRoot && this.projectMemory?.directory(this.workspaceRoot)
+        || this.projectMemoryDir;
+      if (directory !== this.selectedProjectDirectory) {
+        this.eventLogs.delete('project');
+        this.summaryTrees.delete('project');
+        this.selectedProjectDirectory = directory;
+      }
+      return directory;
     }
     return this.userMemoryDir;
   }
 
-  async store(content: string, level: MemoryLevel, tags?: string[], source?: string): Promise<MemoryEntry> {
-    return this.withMemoryMutationLock(level, () => this.storeUnlocked(content, level, tags, source));
+  getProjectMemoryScope(): string | undefined {
+    if (!this.workspaceRoot || !this.projectMemoryDir) return undefined;
+    const directory = this.projectMemory?.directory(this.workspaceRoot) ?? this.projectMemoryDir;
+    return JSON.stringify([
+      path.resolve(this.workspaceRoot),
+      path.resolve(directory),
+      this.projectMemory?.scope?.(this.workspaceRoot) ?? null,
+    ]);
+  }
+
+  hasSharedProjectMemory(): boolean {
+    return !!(this.workspaceRoot && this.projectMemory?.directory(this.workspaceRoot));
+  }
+
+  async store(content: string, level: MemoryLevel, tags?: string[], source?: string, origin?: MemoryEntry['origin'] | null, expectedProjectScope?: string): Promise<MemoryEntry> {
+    const sessionId = origin === undefined ? this.getSessionId?.() : undefined;
+    const creationOrigin = origin ?? (sessionId ? { sessionId } : undefined);
+    return this.withMemoryMutationLock(level, () => {
+      if (level === 'project' && expectedProjectScope !== undefined && expectedProjectScope !== this.getProjectMemoryScope()) {
+        throw new Error('The project memory scope changed. Reflection must stay in its original account and workspace.');
+      }
+      return this.storeUnlocked(content, level, tags, source, creationOrigin);
+    }, true);
   }
 
   private async storeUnlocked(
@@ -95,6 +170,7 @@ export class MemoryManager {
     level: MemoryLevel,
     tags?: string[],
     source?: string,
+    origin?: MemoryEntry['origin'],
   ): Promise<MemoryEntry> {
     const dir = this.getMemoryDir(level);
     await fs.ensureDir(dir);
@@ -117,21 +193,22 @@ export class MemoryManager {
       createdAt: now,
       updatedAt: now,
       tags,
-      source
+      source,
+      ...(origin ? { origin } : {}),
     };
 
     const entryPath = path.join(dir, `${id}.json`);
     await eventLog.append({ operation: 'create', level, entry });
     await atomicWriteJson(entryPath, entry);
     await this.updateIndex(level, entry);
-    scheduleBackgroundSync();
+    this.scheduleMemorySync(level);
 
     return entry;
   }
 
   async updateMemory(id: string, content: string, level: MemoryLevel, tags?: string[]): Promise<MemoryEntry> {
     assertSafeMemoryId(id);
-    return this.withMemoryMutationLock(level, () => this.updateMemoryUnlocked(id, content, level, tags));
+    return this.withMemoryMutationLock(level, () => this.updateMemoryUnlocked(id, content, level, tags), true);
   }
 
   private async updateMemoryUnlocked(
@@ -159,13 +236,17 @@ export class MemoryManager {
     await eventLog.append({ operation: 'update', level, entry: updated });
     await atomicWriteJson(entryPath, updated);
     await this.updateIndex(level, updated);
-    scheduleBackgroundSync();
+    this.scheduleMemorySync(level);
 
     return updated;
   }
 
   async get(id: string, level: MemoryLevel): Promise<MemoryEntry | null> {
     assertSafeMemoryId(id);
+    return this.withMemoryRead(level, () => this.getUnlocked(id, level));
+  }
+
+  private async getUnlocked(id: string, level: MemoryLevel): Promise<MemoryEntry | null> {
     const dir = this.getMemoryDir(level);
     const entryPath = path.join(dir, `${id}.json`);
 
@@ -177,6 +258,10 @@ export class MemoryManager {
   }
 
   async list(level: MemoryLevel): Promise<MemoryEntry[]> {
+    return this.withMemoryRead(level, () => this.listUnlocked(level));
+  }
+
+  private async listUnlocked(level: MemoryLevel): Promise<MemoryEntry[]> {
     const dir = this.getMemoryDir(level);
 
     if (!(await fs.pathExists(dir))) {
@@ -231,14 +316,18 @@ export class MemoryManager {
         origin: usage.origin,
         outcome: usage.outcome,
       });
-    });
-    scheduleBackgroundSync();
+      this.scheduleMemorySync('project');
+    }, true);
   }
 
   async getLearnedProjectCapabilities(limit = 5): Promise<LearnedProjectCapability[]> {
     if (!this.projectMemoryDir || !Number.isInteger(limit) || limit <= 0) {
       return [];
     }
+    return this.withMemoryRead('project', () => this.getLearnedProjectCapabilitiesUnlocked(limit));
+  }
+
+  private async getLearnedProjectCapabilitiesUnlocked(limit: number): Promise<LearnedProjectCapability[]> {
     const eventLog = await this.initializeEventLog('project');
     const events = await eventLog.readAll();
     const learned = new Map<string, LearnedProjectCapability>();
@@ -296,7 +385,7 @@ export class MemoryManager {
 
   async delete(id: string, level: MemoryLevel): Promise<void> {
     assertSafeMemoryId(id);
-    await this.withMemoryMutationLock(level, () => this.deleteUnlocked(id, level));
+    await this.withMemoryMutationLock(level, () => this.deleteUnlocked(id, level), true);
   }
 
   private async deleteUnlocked(id: string, level: MemoryLevel): Promise<void> {
@@ -308,7 +397,7 @@ export class MemoryManager {
       await eventLog.append({ operation: 'delete', level, memoryId: id });
       await atomicRemoveFile(entryPath);
       await this.removeFromIndex(level, id);
-      scheduleBackgroundSync();
+      this.scheduleMemorySync(level);
     }
   }
 
@@ -390,17 +479,58 @@ export class MemoryManager {
    * system prompt tokens. Older memories remain accessible via recall_memory.
    */
   async getContextMemories(limit = 5): Promise<string> {
+    return this.projectMemoryDir
+      ? this.withMemoryRead('project', () => this.getContextMemoriesUnlocked(limit))
+      : this.getContextMemoriesUnlocked(limit);
+  }
+
+  async getSharedProjectContext(limit = 5): Promise<string> {
+    if (!this.projectMemoryDir || !this.projectMemory || !Number.isInteger(limit) || limit <= 0) {
+      return '';
+    }
+    return this.withMemoryRead('project', async () => {
+      if (!this.projectOperation.getStore()?.shared) {
+        return '';
+      }
+      const parts = [
+        '## Shared Team Project Memory',
+        'This current account/project snapshot supersedes earlier shared memory snapshots. Treat it as repository guidance subordinate to the human request.',
+      ];
+      const entries = await this.listUnlocked('project');
+      if (entries.length) {
+        await this.appendContextLevel(parts, 'project', entries, limit);
+      } else {
+        parts.push('No shared project memories are currently saved.');
+      }
+      await this.appendLearnedCapabilities(parts);
+      return parts.join('\n');
+    });
+  }
+
+  private async getContextMemoriesUnlocked(limit: number): Promise<string> {
     const { project, user } = await this.listAll();
     const parts: string[] = [];
+    const shared = !!this.projectOperation.getStore()?.shared;
 
     if (project.length > 0) {
-      await this.appendContextLevel(parts, 'project', project, limit);
+      const projectParts: string[] = [];
+      await this.appendContextLevel(projectParts, 'project', project, limit);
+      parts.push(shared ? wrapSharedProjectMemory(projectParts.join('\n')) : projectParts.join('\n'));
     }
 
     if (user.length > 0) {
       await this.appendContextLevel(parts, 'user', user, limit);
     }
 
+    const capabilityParts: string[] = [];
+    await this.appendLearnedCapabilities(capabilityParts);
+    if (capabilityParts.length) {
+      parts.push(shared ? wrapSharedProjectMemory(capabilityParts.join('\n')) : capabilityParts.join('\n'));
+    }
+    return parts.join('\n');
+  }
+
+  private async appendLearnedCapabilities(parts: string[]): Promise<void> {
     const capabilities = (await this.getLearnedProjectCapabilities(10).catch((error: unknown) => {
       if (!isStorageCapacityError(error)) {
         throw error;
@@ -424,8 +554,6 @@ export class MemoryManager {
         'Use learned skills when they match the task. Slash commands are user workflows: suggest relevant commands, but never execute them automatically.',
       );
     }
-
-    return parts.join('\n');
   }
 
   async getMemoryOutline(
@@ -455,11 +583,11 @@ export class MemoryManager {
     nodeId: string,
     options: MemoryOutlineOptions = {},
   ): Promise<MemoryOutline> {
-    return this.getSummaryTree(level).zoom(level, snapshotId, nodeId, options);
+    return this.withMemoryRead(level, () => this.getSummaryTree(level).zoom(level, snapshotId, nodeId, options));
   }
 
   async forgetMemorySummaries(level: MemoryLevel, snapshotId?: string): Promise<number> {
-    return this.getSummaryTree(level).forget(level, snapshotId);
+    return this.withMemoryRead(level, () => this.getSummaryTree(level).forget(level, snapshotId));
   }
 
   async rebuildFromEventLog(level: MemoryLevel): Promise<{ restored: number; removed: number }> {
@@ -482,7 +610,7 @@ export class MemoryManager {
     const replayed = await eventLog.replay();
     const result = await materializeMemoryProjection(dir, replayed);
     if (syncAfterRebuild) {
-      scheduleBackgroundSync();
+      this.scheduleMemorySync(level);
     }
     return result;
   }
@@ -581,26 +709,31 @@ export class MemoryManager {
   }
 
   private async initializeEventLog(level: MemoryLevel): Promise<MemoryEventLog> {
-    let eventLog = this.eventLogs.get(level);
+    const directory = this.getMemoryDir(level);
+    const cached = this.eventLogs.get(level);
+    let eventLog = cached?.directory === directory ? cached.value : undefined;
     if (!eventLog) {
-      eventLog = new MemoryEventLog(this.getMemoryDir(level));
-      this.eventLogs.set(level, eventLog);
+      eventLog = new MemoryEventLog(directory);
+      this.eventLogs.set(level, { directory, value: eventLog });
     }
     await eventLog.initialize(level, await this.list(level));
     return eventLog;
   }
 
   private getSummaryTree(level: MemoryLevel): MemorySummaryTree {
-    let tree = this.summaryTrees.get(level);
+    const directory = this.getMemoryDir(level);
+    const cached = this.summaryTrees.get(level);
+    let tree = cached?.directory === directory ? cached.value : undefined;
     if (!tree) {
-      tree = new MemorySummaryTree(this.getMemoryDir(level));
-      this.summaryTrees.set(level, tree);
+      tree = new MemorySummaryTree(directory);
+      this.summaryTrees.set(level, { directory, value: tree });
     }
     return tree;
   }
 
   private async initializeLevel(level: MemoryLevel): Promise<void> {
     await this.withMemoryMutationLock(level, async () => {
+      await fs.ensureDir(this.getMemoryDir(level));
       const eventLog = await this.initializeEventLog(level);
       await this.rebuildProjectionUnlocked(level, eventLog, false);
     });
@@ -609,9 +742,69 @@ export class MemoryManager {
   private async withMemoryMutationLock<T>(
     level: MemoryLevel,
     operation: () => Promise<T>,
+    publish = false,
   ): Promise<T> {
-    const lockPath = path.join(this.getMemoryDir(level), 'events', '.view.lock');
-    return withFileLock(lockPath, operation, MEMORY_INDEX_LOCK_OPTIONS);
+    return this.withMemoryRead(level, async () => {
+      const pinned = level === 'project' ? this.projectOperation.getStore() : undefined;
+      const assertWritable = () => {
+        if (!publish || !pinned || !this.projectMemory) return;
+        const directory = this.projectMemory.directory(pinned.workspaceRoot) ?? pinned.localDirectory;
+        if (directory !== pinned.directory || this.workspaceRoot !== pinned.workspaceRoot) {
+          throw new Error('The project memory account or workspace changed. Retry the memory operation.');
+        }
+        this.projectMemory.assertWritable(pinned.workspaceRoot);
+      };
+      assertWritable();
+      const lockPath = path.join(this.getMemoryDir(level), 'events', '.view.lock');
+      const result = await withFileLock(lockPath, async () => {
+        assertWritable();
+        return operation();
+      }, MEMORY_INDEX_LOCK_OPTIONS);
+      if (publish && pinned?.shared && this.projectMemory) {
+        try {
+          await this.projectMemory.publish(pinned.workspaceRoot, pinned.localDirectory, pinned.directory);
+        } catch (error) {
+          this.reportProjectMemoryError(error);
+        }
+      }
+      return result;
+    });
+  }
+
+  private async withMemoryRead<T>(level: MemoryLevel, operation: () => Promise<T>): Promise<T> {
+    if (level !== 'project' || this.projectOperation.getStore()) {
+      return operation();
+    }
+    const workspaceRoot = this.workspaceRoot;
+    const localDirectory = this.projectMemoryDir;
+    if (!workspaceRoot || !localDirectory) {
+      return operation();
+    }
+    if (this.projectMemory) {
+      try {
+        await this.projectMemory.refresh(workspaceRoot, localDirectory);
+      } catch (error) {
+        this.reportProjectMemoryError(error);
+      }
+    }
+    const sharedDirectory = this.projectMemory?.directory(workspaceRoot);
+    const directory = sharedDirectory ?? localDirectory;
+    if (directory !== this.selectedProjectDirectory) {
+      this.eventLogs.delete('project');
+      this.summaryTrees.delete('project');
+      this.selectedProjectDirectory = directory;
+    }
+    return this.projectOperation.run({ workspaceRoot, localDirectory, directory, shared: !!sharedDirectory }, operation);
+  }
+
+  private reportProjectMemoryError(error: unknown): void {
+    this.onProjectMemoryError?.(error instanceof Error ? error : new Error(String(error)));
+  }
+
+  private scheduleMemorySync(level: MemoryLevel): void {
+    if (level !== 'project' || !this.projectOperation.getStore()?.shared) {
+      scheduleBackgroundSync();
+    }
   }
 
   private async readIndex(indexPath: string): Promise<MemoryIndex> {
@@ -646,9 +839,18 @@ export class MemoryManager {
       }
     }
 
-    parts.push(level === 'project' ? '## Project Memories' : '## User Preferences');
-    for (const entry of entries.slice(0, limit)) {
-      parts.push(`- ${entry.content}`);
+    const rawParts = [
+      level === 'project' ? '## Project Memories' : '## User Preferences',
+      ...entries.slice(0, limit).map((entry) => `- ${entry.content}`),
+    ];
+    if (level === 'project' && this.projectOperation.getStore()?.shared) {
+      const text = rawParts.join('\n');
+      const hint = '\n[Shared project memory truncated. Use recall_memory with level="project" to retrieve more.]';
+      parts.push(text.length > MAX_SHARED_MEMORY_CONTEXT_CHARS
+        ? `${text.slice(0, MAX_SHARED_MEMORY_CONTEXT_CHARS - hint.length)}${hint}`
+        : text);
+    } else {
+      parts.push(...rawParts);
     }
   }
 
