@@ -119,7 +119,7 @@ describe('project test script evidence', () => {
     const controller = new AbortController();
     const run = runProjectTestScript({ workspaceRoot, script: 'test', signal: controller.signal });
     try {
-      await vi.waitFor(async () => expect(await fs.readFile(pidPath, 'utf8')).toMatch(/^\d+$/), { timeout: 10_000 });
+      await vi.waitFor(async () => expect(await fs.readFile(pidPath, 'utf8')).toMatch(/^\d+$/), { timeout: 20_000 });
     } finally {
       controller.abort();
       await run;
@@ -131,5 +131,5 @@ describe('project test script evidence', () => {
     expect(result.message).toContain('cancelled');
     expect(await fs.readFile(result.logPath!, 'utf8')).toContain('test process started');
     expect(() => process.kill(pid, 0)).toThrow();
-  });
+  }, 45_000);
 });

@@ -79,6 +79,16 @@ const DEFAULT_COMMANDS: SlashCommand[] = [
 ];
 
 describe('SlashCommandHandler', () => {
+  it('rejects the status-bar menu outside an interactive terminal', async () => {
+    const ctx = { ...createContext(), isNonInteractive: true };
+    const handler = new SlashCommandHandler(ctx, [
+      { command: '/statusbar', description: 'configure status bar', implemented: true },
+    ]);
+    expect(await handler.handle('/statusbar')).toContain('requires an interactive terminal');
+    expect(ctx.onBeforeModal).not.toHaveBeenCalled();
+    expect(mockShowModal).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     mockShowModal.mockReset();
   });

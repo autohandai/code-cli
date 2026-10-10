@@ -144,7 +144,8 @@ export class ActiveAgentRegistry {
 
   private async isOwnedFile(filename: string): Promise<boolean> {
     try {
-      const info = await fse.lstat(filename);
+      let info = await fse.lstat(filename);
+      if (info.nlink === 0) info = await fse.lstat(filename);
       return info.isFile() && !info.isSymbolicLink() && info.nlink === 1 && info.size <= 131_072
         && (process.platform === 'win32' || info.uid === process.geteuid?.() && (info.mode & 0o077) === 0);
     } catch { return false; }

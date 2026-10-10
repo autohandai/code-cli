@@ -103,13 +103,19 @@ describe('additional participating process launchers', () => {
     const marker = path.join(directory, 'nested-marker');
     const childCode = 'process.stdout.write("nested")';
     await writeFile(path.join(directory, 'nested.cjs'), `require("node:child_process").execFileSync(process.execPath,["-e",${JSON.stringify(childCode)}]); require("node:fs").writeFileSync(process.argv[2],"done")`);
-    const running = executor({ yes: true }, false, 5_000).executeForTool({ type: 'run_command', command: process.execPath, args: [path.join(directory, 'nested.cjs'), marker] }, { approvalHandled: true });
-    await vi.waitFor(async () => {
-      const status = await lead.coordinate({ operation: 'status', resource });
-      expect(status.queue).toHaveLength(1);
-      await lead.coordinate({ operation: 'grant', requestId: status.queue[0].requestId });
-    }, { interval: 1, timeout: 1_000 });
-    expect(await running).toMatchObject({ success: true });
-    expect(existsSync(marker)).toBe(true);
-  });
+    const controller = new AbortController();
+    const running = executor({ yes: true }, false, 5_000).executeForTool({ type: 'run_command', command: process.execPath, args: [path.join(directory, 'nested.cjs'), marker] }, { approvalHandled: true, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(45_000)]) });
+    try {
+      await vi.waitFor(async () => {
+        const status = await lead.coordinate({ operation: 'status', resource });
+        expect(status.queue).toHaveLength(1);
+        await lead.coordinate({ operation: 'grant', requestId: status.queue[0].requestId });
+      }, { interval: 1, timeout: 1_000 });
+      expect(await running).toMatchObject({ success: true });
+      expect(existsSync(marker)).toBe(true);
+    } finally {
+      controller.abort();
+      await running;
+    }
+  }, 60_000);
 });

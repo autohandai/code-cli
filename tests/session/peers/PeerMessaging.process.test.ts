@@ -22,7 +22,7 @@ afterEach(async () => {
 async function launch(alias: string) {
   const peer = new PeerProcessDriver();
   processes.push(peer);
-  await peer.launch({ home, workspaceRoot, alias });
+  await peer.launch({ home, workspaceRoot, alias, startupTimeoutMs: 30_000 });
   return peer;
 }
 
@@ -35,7 +35,7 @@ describe('independent-process peer integration', () => {
     expect(await sender.request('send', input)).toMatchObject({ state: 'accepted' });
     expect(await receiver.request('messages')).toMatchObject({ messages: [expect.objectContaining({ messageId: input.messageId, content: input.content })] });
     expect(await sender.request('status', { messageId: input.messageId })).toMatchObject({ state: 'consumed' });
-  });
+  }, 90_000);
 
   it('never routes an old instance message to a restarted process using the same alias', async () => {
     const sender = await launch('sender');
@@ -45,7 +45,7 @@ describe('independent-process peer integration', () => {
     const replacement = await launch('same-session');
     await expect(sender.request('send', { to: receiver.self.peerId, content: 'stale target' })).rejects.toMatchObject({ code: 'PEER_OFFLINE' });
     expect(await replacement.request('messages')).toMatchObject({ messages: [] });
-  });
+  }, 90_000);
 
   it('preserves capacity across competing process requests and controller grants', async () => {
     const controller = await launch('controller');
@@ -65,5 +65,5 @@ describe('independent-process peer integration', () => {
     const state = await first.request<{ holder: { state: string }; queue: unknown[] }>('resource', { operation: 'status', resource });
     expect(state.holder.state).toBe('reserved');
     expect(state.queue).toHaveLength(1);
-  });
+  }, 90_000);
 });

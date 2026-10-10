@@ -22,6 +22,19 @@ function frameOf(view: ReturnType<typeof renderInkScreen>): string {
 }
 
 describe('MarkdownText', () => {
+  it('preserves process IDs and QR quiet-zone whitespace in operational command messages', () => {
+    const commandOutput = 'Background processes:\n1  node fixture.cjs  (pid 1234, running 0m00s)\n\n    █▀▀▀█    \n    █▄▄▄█    ';
+    const view = renderInkScreen(<I18nProvider><AgentUI
+      state={{ ...createInitialUIState(), chatMessages: [{ role: 'assistant', content: commandOutput, renderMarkdown: false }] }}
+      onInstruction={() => {}} onEscape={() => {}} onCtrlC={() => {}}
+    /></I18nProvider>);
+    mounted.push(view);
+
+    expect(frameOf(view)).toMatch(/^1 {2}node fixture\.cjs/m);
+    expect(frameOf(view)).toMatch(/^ {4}█▀▀▀█/m);
+    expect(frameOf(view)).not.toContain('│ █▀▀▀█');
+  });
+
   it('reflows list continuations when the terminal becomes narrower', async () => {
     const view = renderInkScreen(<MarkdownText content="- A long list item that remains aligned with its text" />);
     mounted.push(view);

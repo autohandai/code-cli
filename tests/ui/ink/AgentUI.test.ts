@@ -29,6 +29,8 @@ import { I18nProvider } from '../../../src/ui/i18n/index.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import { getPromptBlockWidth } from '../../../src/ui/inputPrompt.js';
 import { GoalPanel } from '../../../src/ui/ink/GoalPanel.js';
+import { buildStatusBarExtensions } from '../../../src/core/agent/StatusBarRenderer.js';
+import type { LoadedConfig } from '../../../src/types.js';
 import { DEFAULT_KEYBINDINGS, resolveKeybindings } from '../../../src/keybindings/profiles.js';
 
 function stripAnsi(value: string): string {
@@ -83,6 +85,27 @@ afterEach(() => {
 });
 
 describe('AgentUI TextBuffer integration helpers', () => {
+  it('renders configured two-line sections beside working status and cancellation controls', () => {
+    const config = { ui: { statusBar: { layout: 'two-line', sections: [
+      { id: 'model', line: 1 }, { id: 'agents', line: 2 },
+    ] } } } as LoadedConfig;
+    const state = {
+      ...createInitialUIState(), isWorking: true, status: 'Reviewing...', elapsed: '12s', tokens: '100 tokens',
+      configuredLineExtensions: buildStatusBarExtensions(config, { model: 'status-bar-model', agentCount: 2 }),
+    };
+    const { lastFrame } = render(React.createElement(I18nProvider, null,
+      React.createElement(ThemeProvider, null, React.createElement(AgentUI, {
+        state, onInstruction: () => {}, onEscape: () => {}, onCtrlC: () => {},
+      })),
+    ));
+    const screen = stripAnsi(lastFrame() ?? '');
+    expect(screen).toContain('status-bar-model');
+    expect(screen).toContain('2 agents');
+    expect(screen).toContain('Reviewing...');
+    expect(screen).toContain('esc');
+    expect(screen).toContain('12s');
+  });
+
   it('updates streamed text without another working-state transition', async () => {
     const state = { ...createInitialUIState(), isWorking: true };
     const frame = (streamingResponse: string | null) => React.createElement(I18nProvider, null,

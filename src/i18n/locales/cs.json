@@ -212,6 +212,8 @@
         "promptSuggestionsDesc": "Zobrazit LLM generované návrhy dalších kroků",
         "activitySymbol": "Symbol aktivity",
         "activitySymbolDesc": "Symbol zobrazený před slovesem aktivity",
+        "statusBar": "Stavový řádek",
+        "statusBarDesc": "Konfigurovat sekce a rozvržení stavového řádku",
         "updateCheckInterval": "Interval kontroly aktualizací (hodiny)",
         "updateCheckIntervalDesc": "Hodiny mezi kontrolami aktualizací"
       },

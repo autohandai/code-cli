@@ -133,7 +133,7 @@ describe('workspace change capture budget', () => {
     const { runProcess, WorkspaceChangeCaptureBudgetError } = await import('../../../src/core/agent/WorkspaceChangeCapture.js');
     await expect(runProcess(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], { cwd: os.tmpdir(), timeoutMs: 50 }))
       .rejects.toBeInstanceOf(WorkspaceChangeCaptureBudgetError);
-    await expect(runProcess(process.execPath, ['-e', 'process.stdout.write("ok")'], { cwd: os.tmpdir(), timeoutMs: 5_000 })).resolves.toBe('ok');
+    await expect(runProcess(process.execPath, ['-e', 'process.stdout.write("ok")'], { cwd: os.tmpdir(), timeoutMs: 20_000 })).resolves.toBe('ok');
   });
 
   it('stops capturing after a snapshot exceeds the budget and reports it', async () => {

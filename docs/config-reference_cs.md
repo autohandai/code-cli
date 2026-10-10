@@ -825,12 +825,12 @@ Jemná kontrola nad oprávněními nástroje.
 {
   "permissions": {
     "mode": "interactive",
-    "whitelist": [
+    "allowList": [
       "run_command:npm *",
       "run_command:bun *",
       "run_command:git status"
     ],
-    "blacklist": ["run_command:rm -rf *", "run_command:sudo *"],
+    "denyList": ["run_command:rm -rf *", "run_command:sudo *"],
     "rules": [
       {
         "tool": "run_command",
@@ -850,13 +850,13 @@ Jemná kontrola nad oprávněními nástroje.
 | `"unrestricted"` | Žádné výzvy, povolit vše |
 | `"restricted"` | Odmítnout všechny nebezpečné operace |
 
-### `whitelist`
+### `allowList`
 
 Pole vzorů nástrojů, které nikdy nevyžadují schválení.
 ```json
 ["run_command:npm *", "run_command:bun test"]
 ```
-### `blacklist`
+### `denyList`
 
 Pole vzorů nástrojů, které jsou vždy blokovány.
 ```json
@@ -887,7 +887,7 @@ Když schválíte operaci se souborem (úpravy, zápis, smazání), automaticky 
 {
   "version": 1,
   "permissions": {
-    "whitelist": [
+    "allowList": [
       "apply_patch:src/components/Button.tsx",
       "write_file:package.json",
       "run_command:bun test"
@@ -1678,8 +1678,8 @@ autohand --no-browser       # Start with browser bridge disabled
   },
   "permissions": {
     "mode": "interactive",
-    "whitelist": ["run_command:npm *", "run_command:bun *"],
-    "blacklist": ["run_command:rm -rf /"],
+    "allowList": ["run_command:npm *", "run_command:bun *"],
+    "denyList": ["run_command:rm -rf /"],
     "rememberSession": true
   },
   "network": {
@@ -1763,10 +1763,10 @@ agent:
 
 permissions:
   mode: interactive
-  whitelist:
+  allowList:
     - "run_command:npm *"
     - "run_command:bun *"
-  blacklist:
+  denyList:
     - "run_command:rm -rf /"
   rememberSession: true
 
@@ -1857,8 +1857,8 @@ debug = false
 
 [permissions]
 mode = "interactive"
-whitelist = ["run_command:npm *", "run_command:bun *"]
-blacklist = ["run_command:rm -rf /"]
+allowList = ["run_command:npm *", "run_command:bun *"]
+denyList = ["run_command:rm -rf /"]
 rememberSession = true
 ```
 ---

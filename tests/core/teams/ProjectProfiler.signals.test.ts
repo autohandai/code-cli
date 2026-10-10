@@ -84,7 +84,9 @@ describe('ProjectProfiler expanded signals (fixture repos)', () => {
     await fs.writeJson(path.join(tempDir, 'package.json'), {
       name: 'lint-fixture',
       scripts: {
-        lint: 'node -e "console.error(\'src/a.ts:1:10 error: unused variable\'); process.exit(1)"',
+        lint: process.platform === 'win32'
+          ? 'node -e "console.error(\'src/a.ts:1:10 error: unused variable\'); process.exit(1)"'
+          : "printf '%s\\n' 'src/a.ts:1:10 error: unused variable' >&2; exit 1",
       },
     });
 

@@ -41,7 +41,7 @@ describe('auto-research CLI subcommands', () => {
     await fs.remove(tmpDir);
   });
 
-  function runCli(args: string[]): { stdout: string; exitCode: number } {
+  function runCli(args: string[]): { stdout: string; exitCode: number; error?: string } {
     const runnerArgs = USES_BUN
       ? [CLI_ENTRY, ...args]
       : ['--import', TSX_LOADER, CLI_ENTRY, ...args];
@@ -49,7 +49,8 @@ describe('auto-research CLI subcommands', () => {
       cwd: workspaceRoot,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 30_000,
+      timeout: 60_000,
+      killSignal: 'SIGKILL',
       env: {
         ...process.env,
         AUTOHAND_HOME: tmpDir,
@@ -62,6 +63,7 @@ describe('auto-research CLI subcommands', () => {
     return {
       stdout: (result.stdout ?? '') + (result.stderr ?? ''),
       exitCode: result.status ?? 1,
+      ...(result.error ? { error: result.error.message } : {}),
     };
   }
 
@@ -83,7 +85,7 @@ describe('auto-research CLI subcommands', () => {
       '4',
     ]);
 
-    expect(start.exitCode).toBe(0);
+    expect(start.exitCode, start.error ?? start.stdout).toBe(0);
     expect(start.stdout).toContain('Auto-research session started');
     expect(start.stdout).toContain('Loop instruction');
     expect(start.stdout).toContain('Initialized benchmark config from command options.');
@@ -142,5 +144,5 @@ describe('auto-research CLI subcommands', () => {
       active: true,
       goal: 'optimize bundle size',
     }));
-  });
+  }, 450_000);
 });

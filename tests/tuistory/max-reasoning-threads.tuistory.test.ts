@@ -8,17 +8,21 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
 import { selectMaximumMoaReasoning } from '../../src/testing/scenarios/maxReasoningThreadsScenario.js';
 import {
+  createMockAuthServer,
   createTempAutohandHome,
   exitInteractive,
   launchBuiltAutohand,
+  type MockAuthServer,
   type TuistoryTempState,
 } from './helpers/autohandTuistory.js';
 
 const sessions: Session[] = [];
 const states: TuistoryTempState[] = [];
+const servers: MockAuthServer[] = [];
 
 afterEach(async () => {
   for (const session of sessions.splice(0)) session.close();
+  await Promise.all(servers.splice(0).map(server => server.close()));
   await Promise.all(states.splice(0).map(state => state.cleanup()));
 });
 
@@ -27,13 +31,16 @@ describe('maximum reasoning thread warning Tuistory', () => {
     { label: 'default nine-thread session', limit: undefined, warns: true },
     { label: 'four-thread session', limit: 4, warns: false },
   ])('sets maximum Moa reasoning in a $label', async ({ limit, warns }) => {
+    const server = await createMockAuthServer();
+    servers.push(server);
     const state = await createTempAutohandHome({
       config: {
         provider: 'autohandai',
         autohandai: {
           plan: 'cloud',
           authMode: 'api-key',
-          apiKey: 'tuistory-autohand-api-key',
+          apiKey: 'tuistory-test-token',
+          baseUrl: `${server.baseUrl}/v1`,
           model: 'moa',
           reasoningEffort: 'high',
         },

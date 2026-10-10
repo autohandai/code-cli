@@ -1544,6 +1544,19 @@ describe('OpenAIProvider', () => {
   });
 
 
+  it('sends max_completion_tokens instead of max_tokens for gpt-6-astra', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        id: 'resp-gpt6', created: 1,
+        choices: [{ message: { role: 'assistant', content: 'OK' }, finish_reason: 'stop' }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    );
+    await provider.complete({ model: 'gpt-6-astra', maxTokens: 16000, messages: [{ role: 'user', content: 'hi' }] });
+    const sentBody = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    expect(sentBody.max_completion_tokens).toBe(16000);
+    expect(sentBody.max_tokens).toBeUndefined();
+  });
+
   describe('Chat Completions finish reason normalization', () => {
     const mockJson = (body: unknown) => vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }),

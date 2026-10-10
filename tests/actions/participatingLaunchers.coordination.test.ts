@@ -61,7 +61,10 @@ describe('participating launcher enforcement', () => {
 
   it.each(['bootstrap', 'worktree', 'template'] as const)('parks %s commands under a strict policy', async route => {
     const marker = path.join(directory, 'script-marker');
-    const fake = `#!${process.execPath}\nif (process.argv[2] === 'rev-parse') process.stdout.write(process.cwd());\nif (['fetch', 'ci', 'install'].includes(process.argv[2])) require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'started');`;
+    const quotedMarker = `'${marker.replace(/'/g, "'\\''")}'`;
+    const fake = process.platform === 'win32'
+      ? `#!${process.execPath}\nif (process.argv[2] === 'rev-parse') process.stdout.write(process.cwd());\nif (['fetch', 'ci', 'install'].includes(process.argv[2])) require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'started');`
+      : `#!/bin/sh\nif [ "$1" = rev-parse ]; then printf '%s' "$PWD"; fi\ncase "$1" in fetch|ci|install) printf started > ${quotedMarker} ;; esac`;
     await writeFile(path.join(directory, 'git'), fake, { mode: 0o700 });
     await writeFile(path.join(directory, 'npm'), fake, { mode: 0o700 });
     vi.stubEnv('PATH', `${directory}:${process.env.PATH}`);

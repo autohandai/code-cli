@@ -212,6 +212,8 @@
         "promptSuggestionsDesc": "LLM tarafından oluşturulan sonraki adım önerilerini göster",
         "activitySymbol": "Etkinlik sembolü",
         "activitySymbolDesc": "Etkinlik fiilinden önce gösterilen sembol",
+        "statusBar": "Durum çubuğu",
+        "statusBarDesc": "Durum çubuğu bölümlerini ve düzenini yapılandır",
         "updateCheckInterval": "Güncelleme kontrol aralığı (saat)",
         "updateCheckIntervalDesc": "Güncelleme kontrolleri arasındaki saat sayısı"
       },

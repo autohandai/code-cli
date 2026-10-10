@@ -1,0 +1,25 @@
+
+ Toggle Status Bar Sections
+
+   ─ Line 1: Identity ─
+ ▸ ☐  2. Project
+      Workspace path with deterministic emoji
+   ☑  3. Git branch
+      Active branch or worktree name
+   ☐  4. Git ahead
+      Commits ahead of remote
+   ☐  5. Git behind
+      Commits behind remote
+   ☐  6. Dirty indicator
+      Uncommitted changes marker
+   ☐  7. Worktree
+      Worktree name when not on main
+   ☐  8. Pull request
+      Associated PR number
+   ☑  9. Model
+      Active provider and model name
+   ☐ 10. Provider
+      Provider name separately from model
+   ↓ 13 more below
+
+ Space toggle · Enter confirm · ESC cancel

@@ -793,6 +793,31 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `checkForUpdates`            | boolean | `true`  | Check for CLI updates on startup                                                               |
 | `updateCheckInterval`        | number | `24`    | Hours between update checks (uses cached result within interval)                               |
 
+### Status bar layout
+
+Run `/statusbar` to choose a classic or two-line layout and toggle individual sections. Use the arrow keys to navigate, Space to toggle a section, and Enter on Done to return. Changes are saved when you leave the main menu.
+
+```json
+{
+  "ui": {
+    "statusBar": {
+      "layout": "two-line",
+      "sections": [
+        { "id": "project", "line": 1 },
+        { "id": "git", "line": 1 },
+        { "id": "model", "line": 1 },
+        { "id": "tasks", "line": 2 },
+        { "id": "agents", "line": 2 },
+        { "id": "mcp", "line": 2 },
+        { "id": "hints", "line": 2 }
+      ]
+    }
+  }
+}
+```
+
+Sections without current data stay hidden. Working status, cancellation hints, and queue information remain controlled by `ui.statusLine`. Existing configurations keep their current display until `ui.statusBar` is configured; `/statusline` remains available.
+
 ### Aurora theme
 
 Aurora is the default theme for new configurations and when no theme is selected. It combines charcoal surfaces, cool off-white text, soft periwinkle accents, and restrained mint, rose, and amber status colours. Existing saved theme selections are preserved.
@@ -1350,12 +1375,12 @@ Fine-grained control over tool permissions.
 {
   "permissions": {
     "mode": "interactive",
-    "whitelist": [
+    "allowList": [
       "run_command:npm *",
       "run_command:bun *",
       "run_command:git status"
     ],
-    "blacklist": ["run_command:rm -rf *", "run_command:sudo *"],
+    "denyList": ["run_command:rm -rf *", "run_command:sudo *"],
     "rules": [
       {
         "tool": "run_command",
@@ -1376,21 +1401,23 @@ Fine-grained control over tool permissions.
 | `"unrestricted"` | No prompts, allow everything                          |
 | `"restricted"`   | Deny all dangerous operations                         |
 
-### `whitelist`
+### `allowList`
 
-Array of tool patterns that never require approval.
+Array of tool patterns that never require approval. Entries use the `tool:pattern` form, and `*` matches any text.
 
 ```json
 ["run_command:npm *", "run_command:bun test"]
 ```
 
-### `blacklist`
+### `denyList`
 
-Array of tool patterns that are always blocked.
+Array of tool patterns that are always blocked, including runs started with `--yes` or `--unrestricted`.
 
 ```json
 ["run_command:rm -rf /", "run_command:sudo *"]
 ```
+
+`whitelist` and `blacklist` are deprecated aliases for `allowList` and `denyList`. They are read only when the matching new key is absent, so a config that sets both uses `allowList` and `denyList` and ignores the older keys.
 
 ### `rules`
 
@@ -1418,7 +1445,7 @@ When you approve a file operation (edit, write, delete), it's automatically save
 {
   "version": 1,
   "permissions": {
-    "whitelist": [
+    "allowList": [
       "apply_patch:src/components/Button.tsx",
       "write_file:package.json",
       "run_command:bun test"
@@ -1457,8 +1484,8 @@ This displays:
 
 - Current permission mode (interactive, unrestricted, restricted)
 - Workspace and config file paths
-- All approved patterns (whitelist)
-- All denied patterns (blacklist)
+- All approved patterns (`allowList`)
+- All denied patterns (`denyList`)
 - Summary statistics
 
 **Interactive Command:**
@@ -1469,8 +1496,8 @@ This displays:
 
 In interactive mode, the `/permissions` command provides the same information plus options to:
 
-- Remove items from the whitelist
-- Remove items from the blacklist
+- Remove items from the `allowList`
+- Remove items from the `denyList`
 - Clear all saved permissions
 
 ---
@@ -2559,8 +2586,8 @@ autohand --no-browser       # Start with browser bridge disabled
   },
   "permissions": {
     "mode": "interactive",
-    "whitelist": ["run_command:npm *", "run_command:bun *"],
-    "blacklist": ["run_command:rm -rf /"],
+    "allowList": ["run_command:npm *", "run_command:bun *"],
+    "denyList": ["run_command:rm -rf /"],
     "rememberSession": true
   },
   "network": {
@@ -2651,10 +2678,10 @@ agent:
 
 permissions:
   mode: interactive
-  whitelist:
+  allowList:
     - "run_command:npm *"
     - "run_command:bun *"
-  blacklist:
+  denyList:
     - "run_command:rm -rf /"
   rememberSession: true
 
@@ -2752,8 +2779,8 @@ debug = false
 
 [permissions]
 mode = "interactive"
-whitelist = ["run_command:npm *", "run_command:bun *"]
-blacklist = ["run_command:rm -rf /"]
+allowList = ["run_command:npm *", "run_command:bun *"]
+denyList = ["run_command:rm -rf /"]
 rememberSession = true
 ```
 
@@ -2848,7 +2875,7 @@ These flags override config file settings:
 | `--yolo [pattern]`            | Auto-approve tool calls matching pattern (e.g., `allow:read,write` or `deny:delete`)           |
 | `--allowed-tools <patterns>`  | Only offer and authorize these tools this run; comma-separated or repeated (e.g. `read_file,run_command(git:*)`). A run-only restriction on top of every configured policy: never saved, never widened by a local or extension allowlist |
 | `--disallowed-tools <patterns>` | Never offer or authorize these tools this run. Matched on the tool the model names, before capability mapping, so `delete_path` stays blocked even when unrestricted. Applies to MCP and delegated tools too |
-| `--timeout <seconds>`         | Timeout in seconds for auto-approve mode                                                       |
+| `--timeout <seconds>`         | Time window for `--yolo` auto-approval; when it ends, the permission settings from before `--yolo` return and normal approval resumes |
 | `--max-requests <n>`          | Stop the run after this many model requests, sub-agents included; the turn fails with the limit named and exit code 1 in command mode |
 | `--max-tokens <n>`            | Stop the run once reported token usage reaches this total, sub-agents included                  |
 | `--max-duration <seconds>`    | Stop the run after this much wall time; checked before each model request                       |
@@ -3102,6 +3129,7 @@ The picker loads twenty sessions per page and provides **More sessions** and **P
 | `/memory`     | List memory; `outline`, `zoom`, `forget`, `rebuild`, or `delete` |
 | `/settings`   | Configure Autohand settings                           |
 | `/statusline` | Configure composer status-line fields                 |
+| `/statusbar` | Configure status-bar sections and classic or two-line layout |
 | `/experiments` | Toggle experimental feature switches                  |
 | `/sync`       | Sync settings across devices                          |
 | `/import`     | Import sessions, settings, MCP, memory, skills, and hooks from supported agents |

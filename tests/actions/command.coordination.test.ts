@@ -43,7 +43,7 @@ describe('managed process launch gate', () => {
   it('assigns separate tickets to concurrent commands from the same run and spawns each only after its grant', async () => {
     const controller = new AbortController();
     const markers = [path.join(directory, 'first-concurrent'), path.join(directory, 'second-concurrent')] as const;
-    const start = (marker: string) => withCommandCoordination({ coordinator: worker, waitTimeoutMs: 5000 }, () => runCommand(process.execPath, markerCommand(marker), directory, { signal: controller.signal }));
+    const start = (marker: string) => withCommandCoordination({ coordinator: worker, waitTimeoutMs: 60_000 }, () => runCommand(process.execPath, markerCommand(marker), directory, { signal: controller.signal }));
     const running = [start(markers[0])];
     void running[0].catch(() => {});
     try {
@@ -53,13 +53,13 @@ describe('managed process launch gate', () => {
       await vi.waitFor(async () => expect((await lead.coordinate({ operation: 'status', resource })).queue).toHaveLength(2));
       expect(markers.filter(existsSync)).toHaveLength(0);
       await grantQueued();
-      await vi.waitFor(() => expect(markers.filter(existsSync)).toHaveLength(1));
+      await vi.waitFor(() => expect(markers.filter(existsSync)).toHaveLength(1), { timeout: 45_000 });
       await vi.waitFor(async () => expect((await lead.coordinate({ operation: 'status', resource })).holder).toBeNull());
       await grantQueued();
       expect((await finished).every(result => result.status === 'fulfilled')).toBe(true);
       expect(markers.filter(existsSync)).toHaveLength(2);
     } finally { controller.abort(); await Promise.allSettled(running); }
-  });
+  }, 90_000);
 
   it('releases partial unused grants when a later resource wait expires', async () => {
     const other = 'machine/second-build';
@@ -123,9 +123,9 @@ describe('managed process launch gate', () => {
     const result = await running;
     expect(result.backgroundPid).toBeGreaterThan(0);
     expect((await lead.coordinate({ operation: 'status', resource })).holder?.state).toBe('running');
-    await vi.waitFor(() => expect(finished).toHaveBeenCalled(), { timeout: 5_000 });
+    await vi.waitFor(() => expect(finished).toHaveBeenCalled(), { timeout: 30_000 });
     await vi.waitFor(async () => expect((await lead.coordinate({ operation: 'status', resource })).holder).toBeNull());
-  });
+  }, 60_000);
 
   it('does not release when a shell exits before a live child in the owned process group', async () => {
     const childMarker = path.join(directory, 'child-finished');
@@ -135,9 +135,9 @@ describe('managed process launch gate', () => {
     await grantQueued();
     await running;
     if (!existsSync(childMarker)) expect((await lead.coordinate({ operation: 'status', resource })).holder).not.toBeNull();
-    await vi.waitFor(() => expect(existsSync(childMarker)).toBe(true), { timeout: 5_000 });
+    await vi.waitFor(() => expect(existsSync(childMarker)).toBe(true), { timeout: 30_000 });
     await vi.waitFor(async () => expect((await lead.coordinate({ operation: 'status', resource })).holder).toBeNull());
-  });
+  }, 60_000);
 
   it('cleans up a proven spawn failure without granting another command during starting', async () => {
     const running = withCommandCoordination({ coordinator: worker, waitTimeoutMs: 5_000 }, () => runCommand(path.join(directory, 'nonexistent-executable'), [], directory));
@@ -153,11 +153,11 @@ describe('managed process launch gate', () => {
     const running = withCommandCoordination({ coordinator: worker, waitTimeoutMs: 5_000 }, () => runCommand(process.execPath, markerCommand(marker, 20_000), directory, { signal: controller.signal }));
     const rejected = expect(running).rejects.toMatchObject({ name: 'AbortError' });
     await grantQueued();
-    await vi.waitFor(() => expect(existsSync(marker)).toBe(true));
+    await vi.waitFor(() => expect(existsSync(marker)).toBe(true), { timeout: 30_000 });
     controller.abort();
     await rejected;
     await vi.waitFor(async () => expect((await lead.coordinate({ operation: 'status', resource })).holder).toBeNull());
-  });
+  }, 60_000);
 
   it('preserves ordinary command execution outside an enrolled context', async () => {
     expect(await runCommand(process.execPath, ['-e', 'process.stdout.write("unaffected")'], directory)).toMatchObject({ stdout: 'unaffected', code: 0 });

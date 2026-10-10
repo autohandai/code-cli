@@ -9,6 +9,7 @@ import {
   StatusLine,
   formatLineSegments,
   mergeLineExtensions,
+  renderLineSegments,
   type LineExtension,
   type LineSegment,
 } from './StatusLine.js';
@@ -3037,7 +3038,7 @@ const ChatHistoryMessage = memo(function ChatHistoryMessage({
 
   return (
     <Box marginTop={1}>
-      <MarkdownDiffContent content={message.content} markdown />
+      <MarkdownDiffContent content={message.content} markdown={message.renderMarkdown !== false} />
     </Box>
   );
 });
@@ -3467,7 +3468,7 @@ const HelpLineSection = memo(function HelpLineSection({
   showModeLabel = true,
   width,
 }: HelpLineSectionProps) {
-  const { colors } = useTheme();
+  const { colors, theme } = useTheme();
   const { t } = useTranslation();
 
   // Format context usage.
@@ -3482,20 +3483,41 @@ const HelpLineSection = memo(function HelpLineSection({
   const providerDisplay = provider
     ? `${namePrefix} (${t(`providers.${provider}`) ?? provider}${model ? `, ${model}` : ''})`
     : '';
-  const glyphColor = INTERACTION_MODE_GLYPH_COLOR[interactionMode];
-  const modeLabel = interactionMode !== 'default' && showModeLabel
+
+  const segments = lineExtension?.replaceDefault ? lineExtension.segments ?? [] : [];
+  const hasStatusBarSegments = segments.length > 0;
+  const hasModeSection = segments.some((segment) => segment.id === 'mode');
+  const glyphColor = !hasModeSection ? INTERACTION_MODE_GLYPH_COLOR[interactionMode] : undefined;
+  const modeLabel = interactionMode !== 'default' && showModeLabel && !hasModeSection
     ? getInteractionModeLabel(interactionMode)
     : '';
+
+  const leftSegments = segments.filter((segment) => segment.id !== 'hints');
+  const rightSegments = segments.filter((segment) => segment.id === 'hints');
+
   return (
-    <Box width={width}>
-      {glyphColor ? (
-        <Box flexShrink={0}>
-          <Text>{colorizeGlyphText(glyphColor, modeLabel ? `● ${modeLabel} ` : '● ')}</Text>
-        </Box>
-      ) : null}
-      <Text color={colors.dim}>
-        {getComposerHelpLine(isWorking, providerDisplay, contextDisplay, t('ui.commandHint'), lineExtension)}
-      </Text>
+    <Box width={width} justifyContent={rightSegments.length > 0 ? 'space-between' : undefined}>
+      <Box flexShrink={1}>
+        {glyphColor ? (
+          <Box flexShrink={0}>
+            <Text>{colorizeGlyphText(glyphColor, modeLabel ? `● ${modeLabel} ` : '● ')}</Text>
+          </Box>
+        ) : null}
+        {hasStatusBarSegments ? (
+          <Text>
+            {renderLineSegments(leftSegments, ' · ', theme)}
+          </Text>
+        ) : (
+          <Text color={colors.dim}>
+            {getComposerHelpLine(isWorking, providerDisplay, contextDisplay, t('ui.commandHint'), lineExtension)}
+          </Text>
+        )}
+      </Box>
+      {rightSegments.length > 0 && (
+        <Text>
+          {renderLineSegments(rightSegments, ' · ', theme)}
+        </Text>
+      )}
     </Box>
   );
 }, (prev, next) => {

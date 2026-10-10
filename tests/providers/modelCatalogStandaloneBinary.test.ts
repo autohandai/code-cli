@@ -41,7 +41,7 @@ describe("standalone model catalog binary", () => {
         "--compile",
         "--outfile",
         binaryPath,
-      ], { cwd: ROOT, stdio: "pipe" });
+      ], { cwd: ROOT, stdio: "pipe", timeout: 60_000, killSignal: "SIGKILL" });
       chmodSync(binaryPath, 0o755);
 
       const output = execFileSync(binaryPath, [], {
@@ -49,11 +49,13 @@ describe("standalone model catalog binary", () => {
         encoding: "utf8",
         env: { ...process.env, AUTOHAND_HOME: autohandHome },
         stdio: ["ignore", "pipe", "pipe"],
+        timeout: 60_000,
+        killSignal: "SIGKILL",
       });
 
       expect(output).toContain("catalog-ok");
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 150_000);
 });

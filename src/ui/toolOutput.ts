@@ -5,6 +5,8 @@
  */
 import type { AgentAction } from '../types.js';
 import * as path from 'path';
+import stringWidth from 'string-width';
+import wrapAnsi from 'wrap-ansi';
 
 /** Tools that should show file summary instead of content */
 const FILE_SUMMARY_TOOLS = new Set<AgentAction['type']>([
@@ -102,7 +104,9 @@ export function hiddenLineCount(shown: string, expanded: string): number {
 }
 
 function clipLine(line: string): string {
-  return line.length > COMPACT_LINE_CHARS ? `${line.slice(0, COMPACT_LINE_CHARS - 1)}…` : line;
+  if (stringWidth(line) <= COMPACT_LINE_CHARS) return line;
+  const firstLine = wrapAnsi(line, COMPACT_LINE_CHARS - 1, { hard: true, wordWrap: false, trim: false }).split('\n')[0];
+  return `${firstLine}…`;
 }
 
 /**

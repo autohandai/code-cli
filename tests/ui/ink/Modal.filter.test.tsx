@@ -12,6 +12,26 @@ function renderModal(props: React.ComponentProps<typeof Modal>) {
 }
 
 describe('Modal row numbers', () => {
+  it('selects an action with Enter without toggling it with Space', async () => {
+    const onToggle = vi.fn();
+    const onSelect = vi.fn();
+    const done = { label: 'Done', value: '__done__', action: true };
+    const { stdin, lastFrame, unmount } = renderModal({
+      title: 'Sections', options: [done], multiSelect: true, onToggle, onSelect, onCancel: vi.fn(),
+    });
+    try {
+      await new Promise(resolve => setTimeout(resolve, 20));
+      stdin.write(' ');
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(onToggle).not.toHaveBeenCalled();
+      expect(stripAnsi(lastFrame() ?? '')).not.toMatch(/[☑☐]/u);
+      stdin.write('\r');
+      expect(onSelect).toHaveBeenCalledWith(done);
+    } finally {
+      unmount();
+    }
+  });
+
   it('right-aligns numbers so columns survive two-digit rows', () => {
     const options = Array.from({ length: 12 }, (_, index) => ({
       label: `option ${index}`, value: `v${index}`,

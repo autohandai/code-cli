@@ -19,6 +19,7 @@ import { normalizeLLMUsage } from "./usage.js";
 import { readOpenAIEventStream } from "./openAIEventStream.js";
 import { buildChatTemplateKwargs, coerceErrorDetail } from "./openAICompatibleShared.js";
 import { normalizeProviderFinishReason } from "./finishReason.js";
+import { recordRateLimitHeaders } from './rateLimitHeaders.js';
 
 /**
  * Sanitize messages for API consumption.
@@ -483,6 +484,8 @@ export class LLMGatewayClient {
     if (!response.ok) {
       throw await this.buildFriendlyError(response);
     }
+
+    recordRateLimitHeaders(this.baseUrl, response.headers);
 
     // Inspection gateways can explicitly return buffered JSON even for stream:true.
     // Preserve that response without inventing incremental deltas or retrying billed work.

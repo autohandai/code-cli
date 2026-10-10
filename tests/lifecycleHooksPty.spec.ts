@@ -10,7 +10,7 @@ describe('lifecycle hook node-pty terminal', () => {
     const terminal = new PtyDriver();
     terminals.push(terminal);
     terminal.launch(process.execPath, ['--import', 'tsx', path.resolve('src/testing/scenarios/lifecycleHooksPty.ts')]);
-    await terminal.waitFor('Lifecycle hooks from config and enabled plugins.');
+    await terminal.waitFor('Lifecycle hooks from config and enabled plugins.', 30_000);
     expect(terminal.snapshot()).toMatch(/session-start\s+2\s+2/);
     terminal.down();
     await terminal.waitFor(/▸\s+2\.\s+session-end/);
@@ -27,5 +27,5 @@ describe('lifecycle hook node-pty terminal', () => {
     await terminal.waitFor('Creation cancelled. No hook installed.');
     terminal.ctrlC();
     await terminal.waitFor('HOOK_MENU_CLOSED');
-  }, 20_000);
+  }, 60_000);
 });

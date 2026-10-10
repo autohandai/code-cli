@@ -25,6 +25,7 @@ const servers: MockNativeToolServer[] = [];
 afterEach(async () => {
   for (const session of sessions.splice(0)) {
     session.close();
+    await session.waitForExit();
   }
   for (const server of servers.splice(0)) {
     await server.close();

@@ -299,6 +299,25 @@ describe('/usage command', () => {
     }
   });
 
+  it('keeps every month label whole on every day of the year', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const { usage } = await import('../../src/commands/usage.js');
+      for (let day = 0; day < 366; day += 1) {
+        vi.setSystemTime(new Date(Date.UTC(2026, 0, 1 + day, 12)));
+        const output = stripAnsi(await usage(makeContext()));
+        const lines = output.split('\n');
+        const sundayIndex = lines.findIndex(line => line.startsWith('Su  '));
+        const monthHeader = lines[sundayIndex - 1] ?? '';
+        const words = monthHeader.trim().split(/\s+/u);
+        expect(words.every(word => /^(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/u.test(word)), monthHeader).toBe(true);
+        expect(words.length, monthHeader).toBeGreaterThanOrEqual(12);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('renders weekly when /usage weekly is requested', async () => {
     const { usage } = await import('../../src/commands/usage.js');
 

@@ -847,14 +847,14 @@ export class InkRenderer {
     });
   }
 
-  addAssistantMessage(message: string): void {
+  addAssistantMessage(message: string, renderMarkdown = true): void {
     const content = message.trim();
     if (!content) {
       return;
     }
 
     this.updateState({
-      chatMessages: [...this.state.chatMessages, { role: 'assistant', content }],
+      chatMessages: [...this.state.chatMessages, { role: 'assistant', content, ...(renderMarkdown ? {} : { renderMarkdown: false }) }],
     });
   }
 

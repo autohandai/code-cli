@@ -4,15 +4,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('node:child_process', () => ({
   spawn: vi.fn(() => {
-    const child = new EventEmitter() as EventEmitter & { stdin: { writable: boolean; write: () => void }; stdout: EventEmitter; stderr: EventEmitter; kill: () => void };
-    child.stdin = { writable: true, write: () => {} };
+    const child = new EventEmitter() as EventEmitter & { stdin: PassThrough; stdout: EventEmitter; stderr: EventEmitter; kill: () => void };
+    child.stdin = new PassThrough();
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
-    child.kill = () => {};
+    child.kill = () => {
+      child.stdin.destroy();
+      child.emit('close', 0);
+    };
     return child;
   }),
 }));
@@ -34,10 +38,14 @@ describe('MCP stdio server environment', () => {
     const connection = new McpStdioConnection({ name: 'fs', transport: 'stdio', command: 'mcp-fs', env: { MCP_TOKEN: 'server-only' } }, 'newline');
     await connection.start();
 
-    const options = vi.mocked(spawn).mock.calls.at(-1)?.[2] as { env: NodeJS.ProcessEnv };
-    expect(options.env.ZZ_MCP_SECRET).toBeUndefined();
-    expect(options.env.MCP_TOKEN).toBe('server-only');
-    expect(options.env.AUTOHAND_CLI).toBe('1');
-    expect(options.env.PATH).toBe(process.env.PATH);
+    try {
+      const options = vi.mocked(spawn).mock.calls.at(-1)?.[2] as { env: NodeJS.ProcessEnv };
+      expect(options.env.ZZ_MCP_SECRET).toBeUndefined();
+      expect(options.env.MCP_TOKEN).toBe('server-only');
+      expect(options.env.AUTOHAND_CLI).toBe('1');
+      expect(options.env.PATH).toBe(process.env.PATH);
+    } finally {
+      await connection.stop();
+    }
   });
 });

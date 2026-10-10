@@ -488,12 +488,12 @@ Ctrl+D는 컴포저가 비어 있을 때만 종료합니다. `?` 패널은 항�
 {
   "permissions": {
     "mode": "interactive",
-    "whitelist": [
+    "allowList": [
       "run_command:npm *",
       "run_command:bun *",
       "run_command:git status"
     ],
-    "blacklist": ["run_command:rm -rf *", "run_command:sudo *"],
+    "denyList": ["run_command:rm -rf *", "run_command:sudo *"],
     "rules": [
       {
         "tool": "run_command",
@@ -514,7 +514,7 @@ Ctrl+D는 컴포저가 비어 있을 때만 종료합니다. `?` 패널은 항�
 | `"unrestricted"` | 프롬프트 없음, 모두 허용              |
 | `"restricted"`   | 모든 위험한 작업 거부                 |
 
-### `whitelist`
+### `allowList`
 
 승인이 필요 없는 도구 패턴 배열입니다.
 
@@ -522,7 +522,7 @@ Ctrl+D는 컴포저가 비어 있을 때만 종료합니다. `?` 패널은 항�
 ["run_command:npm *", "run_command:bun test"]
 ```
 
-### `blacklist`
+### `denyList`
 
 항상 차단되는 도구 패턴 배열입니다.
 
@@ -556,7 +556,7 @@ Ctrl+D는 컴포저가 비어 있을 때만 종료합니다. `?` 패널은 항�
 {
   "version": 1,
   "permissions": {
-    "whitelist": [
+    "allowList": [
       "apply_patch:src/components/Button.tsx",
       "write_file:package.json",
       "run_command:bun test"
@@ -765,8 +765,8 @@ autohand --auto-skill
   },
   "permissions": {
     "mode": "interactive",
-    "whitelist": ["run_command:npm *", "run_command:bun *"],
-    "blacklist": ["run_command:rm -rf /"],
+    "allowList": ["run_command:npm *", "run_command:bun *"],
+    "denyList": ["run_command:rm -rf /"],
     "rememberSession": true
   },
   "network": {
@@ -823,10 +823,10 @@ agent:
 
 permissions:
   mode: interactive
-  whitelist:
+  allowList:
     - "run_command:npm *"
     - "run_command:bun *"
-  blacklist:
+  denyList:
     - "run_command:rm -rf /"
   rememberSession: true
 

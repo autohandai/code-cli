@@ -240,7 +240,7 @@ describe('dependency install guardrails', () => {
       devDependencies?: Record<string, string>;
     };
 
-    expect(packageJson.devDependencies?.tuistory).toBe('0.10.1');
+    expect(packageJson.devDependencies?.tuistory).toBe('0.11.0');
   });
 
   it('pins node-pty while the native helper permission workaround targets its layout', () => {

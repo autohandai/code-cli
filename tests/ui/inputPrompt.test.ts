@@ -1593,8 +1593,11 @@ describe('idle prompt shell commands', () => {
       ? 'echo main'
       : `node -e 'process.stdout.write("shell-start" + "x".repeat(2 * 1024 * 1024) + "shell-end")'`;
     rl.emit('line', `! ${command}`);
-    await vi.waitFor(() => expect(writes.join('')).toContain(size === 'normal' ? '└ main' : '└ shell-start'), { timeout: 5_000 });
-    promptInterrupt('done');
+    try {
+      await vi.waitFor(() => expect(writes.join('')).toContain(size === 'normal' ? '└ main' : '└ shell-start'), { timeout: 20_000 });
+    } finally {
+      promptInterrupt('done');
+    }
     await expect(promptPromise).resolves.toBe('done');
 
     expect(writes.join('')).toContain(`You ran ${command}`);

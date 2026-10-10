@@ -4,7 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { chmod, mkdtemp, readdir, rm, stat, symlink, writeFile, lstat } from 'node:fs/promises';
+import { chmod, mkdtemp, open, readdir, rm, stat, symlink, writeFile, lstat } from 'node:fs/promises';
+import fse from 'fs-extra';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -41,6 +42,31 @@ describe('ActiveAgentRegistry', () => {
     const records = await registry.listActive();
 
     expect(records.map((record) => record.sessionId)).toEqual(['newer', 'older']);
+  });
+
+  it.skipIf(process.platform === 'win32')('rechecks metadata from an inode replaced during an active scan', async () => {
+    const registry = new ActiveAgentRegistry(tempRoot, {
+      now: () => new Date('2026-01-01T00:00:01.000Z'),
+      isPidAlive: () => true,
+    });
+    const record = createRecord({ sessionId: 'atomic-scan' });
+    await registry.write(record);
+    const filename = path.join(tempRoot, 'atomic-scan.json');
+    const previous = await open(filename, 'r');
+    try {
+      await registry.write({ ...record, updatedAt: '2026-01-01T00:00:01.000Z', messageCount: 2 });
+      const replaced = await previous.stat();
+      expect(replaced.nlink).toBe(0);
+      vi.spyOn(fse, 'lstat')
+        .mockResolvedValueOnce(await lstat(tempRoot))
+        .mockResolvedValueOnce(replaced);
+
+      expect(await registry.listActive()).toEqual([
+        expect.objectContaining({ sessionId: 'atomic-scan', messageCount: 2 }),
+      ]);
+    } finally {
+      await previous.close();
+    }
   });
 
   it('prunes stale heartbeat records', async () => {

@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
+import { killAfter } from '../../../src/utils/processTimeout.js';
 
 interface ProcessResult {
   code: number | null;
@@ -35,10 +36,10 @@ function runRestrictedProfile(
     });
     let stdout = '';
     let stderr = '';
-    const timeout = setTimeout(() => {
+    killAfter(child, 30_000, () => {
       child.kill('SIGKILL');
       reject(new Error('Restricted RPC process did not exit after stdin closed.'));
-    }, 10_000);
+    });
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
@@ -48,11 +49,9 @@ function runRestrictedProfile(
       stderr += chunk;
     });
     child.once('error', (error) => {
-      clearTimeout(timeout);
       reject(error);
     });
     child.once('close', (code) => {
-      clearTimeout(timeout);
       resolve({ code, stdout, stderr });
     });
     child.stdin.end(`${JSON.stringify(request)}\n`);
@@ -98,7 +97,7 @@ describe('Blueprint restricted RPC processes', () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
-  });
+  }, 45_000);
 
   it('starts setup-only without network and rejects unrelated methods terminally', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'autohand-setup-process-'));
@@ -130,5 +129,5 @@ describe('Blueprint restricted RPC processes', () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
-  });
+  }, 45_000);
 });

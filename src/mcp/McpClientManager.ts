@@ -191,6 +191,16 @@ export class McpStdioConnection extends EventEmitter {
           env: buildAutohandChildProcessEnv(this.config.env),
         });
 
+        const stdin = this.process.stdin;
+        if (stdin) {
+          const onStdinError = (error: Error): void => {
+            this.rejectPendingRequests(error);
+            if (this.listenerCount('error') > 0) this.emit('error', error);
+          };
+          stdin.on('error', onStdinError);
+          stdin.once('close', () => stdin.off('error', onStdinError));
+        }
+
         this.process.stdout?.on('data', (data: Buffer) => {
           this.handleStdoutData(data);
         });
@@ -1321,6 +1331,8 @@ export class McpClientManager {
         errMsg = typeof closeCode === 'number'
           ? `MCP connection closed (server exited with code ${closeCode})`
           : 'MCP connection closed before initialization completed';
+      } else if (error instanceof Error && 'code' in error && error.code === 'EPIPE' && typeof closeCode === 'number') {
+        errMsg = `${errMsg} (server exited with code ${closeCode})`;
       }
 
       // Enrich error with stderr output for diagnostics

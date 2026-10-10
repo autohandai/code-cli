@@ -487,12 +487,12 @@ Control granular sobre permisos de herramientas.
 {
   "permissions": {
     "mode": "interactive",
-    "whitelist": [
+    "allowList": [
       "run_command:npm *",
       "run_command:bun *",
       "run_command:git status"
     ],
-    "blacklist": ["run_command:rm -rf *", "run_command:sudo *"],
+    "denyList": ["run_command:rm -rf *", "run_command:sudo *"],
     "rules": [
       {
         "tool": "run_command",
@@ -513,7 +513,7 @@ Control granular sobre permisos de herramientas.
 | `"unrestricted"` | Sin solicitudes, permitir todo                                  |
 | `"restricted"`   | Denegar todas las operaciones peligrosas                        |
 
-### `whitelist`
+### `allowList`
 
 Array de patrones de herramientas que nunca requieren aprobación.
 
@@ -521,7 +521,7 @@ Array de patrones de herramientas que nunca requieren aprobación.
 ["run_command:npm *", "run_command:bun test"]
 ```
 
-### `blacklist`
+### `denyList`
 
 Array de patrones de herramientas que siempre se bloquean.
 
@@ -555,7 +555,7 @@ Cuando apruebas una operación de archivo (editar, escribir, eliminar), se guard
 {
   "version": 1,
   "permissions": {
-    "whitelist": [
+    "allowList": [
       "apply_patch:src/components/Button.tsx",
       "write_file:package.json",
       "run_command:bun test"
@@ -1184,8 +1184,8 @@ Para una experiencia interactiva más precisa, use `/learn` dentro de una sesió
   },
   "permissions": {
     "mode": "interactive",
-    "whitelist": ["run_command:npm *", "run_command:bun *"],
-    "blacklist": ["run_command:rm -rf /"],
+    "allowList": ["run_command:npm *", "run_command:bun *"],
+    "denyList": ["run_command:rm -rf /"],
     "rememberSession": true
   },
   "network": {
@@ -1285,10 +1285,10 @@ agent:
 
 permissions:
   mode: interactive
-  whitelist:
+  allowList:
     - "run_command:npm *"
     - "run_command:bun *"
-  blacklist:
+  denyList:
     - "run_command:rm -rf /"
   rememberSession: true
 

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, it, expect } from 'vitest';
+import { stripVTControlCharacters } from 'node:util';
 import { COMPACT_LINE_CHARS, COMPACT_PREVIEW_LINES, formatToolOutputForDisplay, hiddenLineCount } from '../src/ui/toolOutput.js';
 
 describe('formatToolOutputForDisplay', () => {
@@ -240,6 +241,24 @@ describe('formatToolOutputForDisplay', () => {
 });
 
 describe('compact tool output', () => {
+  it('retains a complete syntax-colored diff line when its visible text fits', () => {
+    const plain = '    1 + const newValue = true;';
+    const content = [...plain].map(char => `\x1b[38;2;134;207;163m${char}\x1b[39m`).join('');
+    const result = formatToolOutputForDisplay({ tool: 'apply_patch', content, charLimit: 300, mode: 'compact' });
+
+    expect(result.output).toBe(content);
+    expect(stripVTControlCharacters(result.output)).toBe(plain);
+    expect(result.truncated).toBe(false);
+  });
+
+  it('clips visible cells without splitting ANSI color sequences', () => {
+    const content = Array.from({ length: 200 }, () => '\x1b[31mx\x1b[39m').join('');
+    const result = formatToolOutputForDisplay({ tool: 'shell', content, charLimit: 300, mode: 'compact' });
+
+    expect(stripVTControlCharacters(result.output)).toBe(`${'x'.repeat(COMPACT_LINE_CHARS - 1)}…`);
+    expect(result.expandedOutput).toBe(content);
+  });
+
   const lines = (count: number, prefix = 'line') => Array.from({ length: count }, (_, index) => `${prefix} ${index + 1}`).join('\n');
   const compact = (options: Partial<Parameters<typeof formatToolOutputForDisplay>[0]> & { tool: string; content: string }) =>
     formatToolOutputForDisplay({ charLimit: 300, mode: 'compact', ...options } as Parameters<typeof formatToolOutputForDisplay>[0]);

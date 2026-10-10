@@ -64,8 +64,8 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
           servers: [{
             name: 'hung',
             transport: 'stdio',
-            command: process.execPath,
-            args: ['-e', 'setTimeout(() => {}, 120000)'],
+            command: process.platform === 'win32' ? process.execPath : '/bin/sh',
+            args: process.platform === 'win32' ? ['-e', 'setTimeout(() => {}, 120000)'] : ['-c', 'exec sleep 120'],
           }],
         },
       },

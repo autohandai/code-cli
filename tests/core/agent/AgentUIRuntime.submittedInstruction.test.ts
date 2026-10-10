@@ -35,7 +35,7 @@ describe('handleAgentInkSubmittedInstruction while an instruction is active', ()
 
     expect(handleSlashCommand).toHaveBeenCalledWith('/ps', []);
     expect(host.inkRenderer.addQueuedInstruction).not.toHaveBeenCalled();
-    expect(host.inkRenderer.addAssistantMessage).toHaveBeenCalledWith('No background processes running.');
+    expect(host.inkRenderer.addAssistantMessage).toHaveBeenCalledWith('No background processes running.', false);
   });
 
   it('dispatches /stop with its argument immediately instead of queueing it', async () => {
@@ -46,7 +46,7 @@ describe('handleAgentInkSubmittedInstruction while an instruction is active', ()
 
     expect(handleSlashCommand).toHaveBeenCalledWith('/stop', ['1']);
     expect(host.inkRenderer.addQueuedInstruction).not.toHaveBeenCalled();
-    expect(host.inkRenderer.addAssistantMessage).toHaveBeenCalledWith('Stopped "bun run dev" (pid 1234).');
+    expect(host.inkRenderer.addAssistantMessage).toHaveBeenCalledWith('Stopped "bun run dev" (pid 1234).', false);
   });
 
   it('still dispatches /deep-research status immediately (pre-existing behavior)', async () => {

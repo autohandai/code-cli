@@ -20,6 +20,7 @@ export interface ChatToolBatchGroup {
 export interface ChatLogMessage {
   role: 'user' | 'assistant' | 'thinking' | 'tool' | 'tool_call' | 'tool_batch' | 'completion' | 'notification';
   content: string;
+  renderMarkdown?: boolean;
   tool?: string;
   success?: boolean;
   groups?: ChatToolBatchGroup[];

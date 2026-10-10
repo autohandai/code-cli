@@ -20,7 +20,8 @@ import { createImmediateShellCommandBlockWriter, formatImmediateShellCommandHead
 import { SLASH_COMMANDS } from '../slashCommands.js';
 import { buildHostTokenUsageStatus, formatElapsedTime, formatSessionActualTokens, formatTurnUsage } from './AgentFormatter.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
-import { buildStatusLineExtension, getConfigStatusLineSettings } from './StatusLineSettings.js';
+import { getConfigStatusLineSettings } from './StatusLineSettings.js';
+import { buildStatusBarActivityData, buildStatusBarExtensions } from './StatusBarRenderer.js';
 import { resolveStatusLineGitLabel } from './AgentContextRuntime.js';
 import { extensionRuntimeHost } from '../../extensions/ExtensionRuntimeHost.js';
 import { resolveKeybindings } from '../../keybindings/profiles.js';
@@ -755,13 +756,23 @@ export function forceRenderAgentSpinner(host: AgentUIRuntimeHost): void {
     const footerLine = host.formatStatusLine();
     host.persistentInput.setStatusLine(footerLine);
     const statusLineSettings = getConfigStatusLineSettings(host.runtime.config);
-    host.inkRenderer?.setConfiguredLineExtensions?.(withPeerLineExtension(buildStatusLineExtension({
-      settings: statusLineSettings,
+    host.inkRenderer?.setConfiguredLineExtensions?.(withPeerLineExtension(buildStatusBarExtensions(host.runtime.config, {
       workspaceRoot: host.runtime.workspaceRoot,
       homeDir: os.homedir(),
       gitLabel: resolveStatusLineGitLabel(host),
       sessionDiffStats: host.sessionDiffStatsTracker?.getStats?.(),
       sessionHasFileChanges: host.filesModifiedThisSession === true,
+      ...(host.runtime.config?.ui?.statusBar !== undefined ? {
+        ...buildStatusBarActivityData(host.inkRenderer?.getState?.(), host.mcpManager?.getServers?.()),
+        interactionMode: host.getInteractionMode?.(),
+        model: host.runtime.options.model ?? 'unconfigured',
+        providerLabel: host.activeProvider ?? host.runtime.config.provider ?? 'openrouter',
+        planLabel: host.accountPlan?.label,
+        contextPercentLeft: host.contextPercentLeft,
+        sessionTokensUsed: sessionTotal,
+        sessionTokenUsageUnavailable: sessionStatus === 'unavailable',
+        commandHint: t('ui.commandHint'),
+      } : {}),
     }), host.peerAwareness?.getPeers?.().length ?? 0));
     host.inkRenderer?.setShowModeLabel?.(statusLineSettings.showModeLabel);
     const usingTerminalRegions = host.isUsingTerminalRegionsForActiveTurn();

@@ -10,13 +10,13 @@ export class PeerProcessDriver {
   private stderr = '';
   self!: PeerDescriptor;
 
-  async launch(options: { home: string; workspaceRoot: string; alias: string; executable?: string; entry?: string }): Promise<void> {
+  async launch(options: { home: string; workspaceRoot: string; alias: string; executable?: string; entry?: string; startupTimeoutMs?: number }): Promise<void> {
     const entry = options.entry ?? path.resolve(import.meta.dirname, '../scenarios/peerProcessScenario.ts');
     const child = spawn(options.executable ?? 'bun', [entry, options.home, options.workspaceRoot, options.alias], { stdio: 'pipe' });
     this.child = child;
     child.stderr.on('data', data => { this.stderr += String(data); });
     const ready = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error(`Peer did not start: ${this.stderr}`)), 10_000);
+      const timeout = setTimeout(() => reject(new Error(`Peer did not start: ${this.stderr}`)), options.startupTimeoutMs ?? 10_000);
       const lines = createInterface({ input: child.stdout });
       lines.on('line', line => {
         const message = JSON.parse(line) as { ready?: PeerDescriptor; id?: string; result?: unknown; error?: { message: string; code?: string } };

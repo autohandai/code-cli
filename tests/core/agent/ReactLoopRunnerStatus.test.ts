@@ -1514,9 +1514,10 @@ describe('ReactLoopRunner prompt-cache tool stability', () => {
       host.toolManager.toFunctionDefinitions = vi.fn(() => definitions);
       host.toolManager.execute = vi.fn().mockResolvedValue([{ tool: 'read_file', success: true, output: 'code' }]);
       host.sessionManager.getCurrentSession = vi.fn(() => ({ metadata: { sessionId: 'session-123' } }));
-      host.conversation.history = vi.fn()
-        .mockReturnValueOnce([{ role: 'user', content: 'fix the parser' }])
-        .mockReturnValue([{ role: 'user', content: 'thanks' }]);
+      host.conversation.history = vi.fn(() => [{
+        role: 'user' as const,
+        content: llmComplete.mock.calls.length === 0 ? 'fix the parser' : 'thanks',
+      }]);
       configure(host);
 
       await runAgentReactLoop(host, new AbortController());

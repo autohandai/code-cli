@@ -32,6 +32,7 @@ import {
 /** Slow on purpose: the plan changes rarely and this must not add load. */
 const ACCOUNT_PLAN_REFRESH_MS = 30_000;
 import { safePrompt } from '../utils/prompt.js';
+import { t } from '../i18n/index.js';
 import { maybeOfferAutohandAISwitch } from '../commands/login.js';
 import { getFeatureState, isAwsBedrockProviderEnabled } from '../features/featureRegistry.js';
 import type { RemoteFeatureFlagManager } from '../features/RemoteFeatureFlagManager.js';
@@ -164,7 +165,8 @@ import {
   type RunInstructionOptions,
   type SessionFailureBugReportOptions,
 } from './agent/InstructionRunner.js';
-import { buildStatusLineExtension, getConfigStatusLineSettings } from './agent/StatusLineSettings.js';
+import { getConfigStatusLineSettings } from './agent/StatusLineSettings.js';
+import { buildStatusBarActivityData, buildStatusBarExtensions } from './agent/StatusBarRenderer.js';
 import {
   agentSleep,
   injectAgentContinuationMessage,
@@ -1723,13 +1725,23 @@ export class AutohandAgent {
     this.ui?.setProviderModel?.(providerLabel, model);
     this.ui?.setPlanLabel?.(formatComposerPlanLabel(this.accountPlan));
     const statusLineSettings = getConfigStatusLineSettings(this.runtime.config);
-    this.inkRenderer?.setConfiguredLineExtensions?.(withPeerLineExtension(buildStatusLineExtension({
-      settings: statusLineSettings,
+    this.inkRenderer?.setConfiguredLineExtensions?.(withPeerLineExtension(buildStatusBarExtensions(this.runtime.config, {
       workspaceRoot: this.runtime.workspaceRoot,
       homeDir: os.homedir(),
       gitLabel: resolveStatusLineGitLabel(this as unknown as StatusLineGitLabelHost),
       sessionDiffStats: this.sessionDiffStatsTracker?.getStats(),
       sessionHasFileChanges: this.filesModifiedThisSession === true,
+      ...(this.runtime.config.ui?.statusBar !== undefined ? {
+        ...buildStatusBarActivityData(this.inkRenderer?.getState(), this.mcpManager?.getServers()),
+        interactionMode: this.getInteractionMode(),
+        model,
+        providerLabel,
+        planLabel: formatComposerPlanLabel(this.accountPlan),
+        contextPercentLeft: this.contextPercentLeft,
+        sessionTokensUsed: this.totalTokensUsed ?? 0,
+        sessionTokenUsageUnavailable: this.sessionTokenUsageUnavailable,
+        commandHint: t('ui.commandHint'),
+      } : {}),
     }), this.peerAwareness.getPeers().length));
     this.inkRenderer?.setShowModeLabel?.(statusLineSettings.showModeLabel);
   }

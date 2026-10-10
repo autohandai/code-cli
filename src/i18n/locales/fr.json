@@ -212,6 +212,8 @@
         "promptSuggestionsDesc": "Afficher les suggestions d'étapes suivantes générées par LLM",
         "activitySymbol": "Symbole d'activité",
         "activitySymbolDesc": "Symbole affiché avant le verbe d'activité",
+        "statusBar": "Barre de statut",
+        "statusBarDesc": "Configurer les sections et la disposition de la barre de statut",
         "updateCheckInterval": "Intervalle de vérification des mises à jour (heures)",
         "updateCheckIntervalDesc": "Heures entre les vérifications de mises à jour"
       },

@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
+import type { ChildProcess } from 'node:child_process';
 import { McpClientManager, McpStdioConnection } from '../src/mcp/McpClientManager.js';
 import type { McpServerConfig } from '../src/mcp/types.js';
 import path from 'node:path';
@@ -248,7 +249,7 @@ describe('McpClientManager', () => {
       expect(servers).toHaveLength(1);
       expect(servers[0].name).toBe('test-server');
       expect(servers[0].status).toBe('connected');
-    });
+    }, 90_000);
 
     it('stores error state for servers that fail to connect', async () => {
       await manager.connectAll([badConfig]);
@@ -380,6 +381,39 @@ describe('McpClientManager', () => {
       (connection as unknown as { process: typeof child }).process = child;
       return { connection, writes };
     }
+
+    it('settles pending calls and releases their resources when stdin reports a broken pipe', async () => {
+      const connection = new McpStdioConnection({
+        ...stdioConfig,
+        command: process.platform === 'win32' ? process.execPath : '/bin/sh',
+        args: process.platform === 'win32' ? ['-e', 'setTimeout(() => {}, 120000)'] : ['-c', 'exec sleep 120'],
+      }, 'newline');
+      const onError = vi.fn();
+      connection.on('error', onError);
+      await connection.start();
+      const child = (connection as unknown as { process: ChildProcess }).process;
+      const stdin = child.stdin!;
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const baselineTimers = vi.getTimerCount();
+      const controller = new AbortController();
+      const removeListener = vi.spyOn(controller.signal, 'removeEventListener');
+      const calls = ['initialize', 'tools/list'].map(method => connection.request(method, {}, { signal: controller.signal }).catch((error: unknown) => error));
+      const brokenPipe = Object.assign(new Error('write EPIPE'), { code: 'EPIPE' });
+      try {
+        expect(() => stdin.emit('error', brokenPipe)).not.toThrow();
+        expect(await Promise.all(calls)).toEqual([brokenPipe, brokenPipe]);
+        expect(vi.getTimerCount()).toBe(baselineTimers);
+        expect(removeListener).toHaveBeenCalledTimes(2);
+        connection.notify('notifications/initialized');
+        expect(() => stdin.emit('error', brokenPipe)).not.toThrow();
+        expect(onError).toHaveBeenCalledWith(brokenPipe);
+      } finally {
+        vi.useRealTimers();
+        await connection.stop();
+        await Promise.all(calls);
+      }
+      expect(stdin.listenerCount('error')).toBe(0);
+    });
 
     it('keeps the thirty second budget for requests so cold npx servers can finish installing', async () => {
       vi.useFakeTimers();

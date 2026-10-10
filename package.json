@@ -84,7 +84,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.7.0",
-    "@anthropic-ai/sdk": "^0.120.0",
+    "@anthropic-ai/sdk": "^0.127.0",
     "@aws-sdk/client-bedrock": "^3.1146.0",
     "@aws-sdk/client-bedrock-runtime": "^3.1146.0",
     "@aws-sdk/credential-providers": "^3.1146.0",
@@ -138,9 +138,9 @@
     "strip-ansi": "^7.2.0",
     "tsup": "^8.5.1",
     "tsx": "^4.23.15",
-    "tuistory": "0.10.1",
+    "tuistory": "0.11.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.1"
   },
   "overrides": {
     "ansi-styles": "^6.2.3",

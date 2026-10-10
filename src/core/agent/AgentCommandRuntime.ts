@@ -121,7 +121,7 @@ export function renderAgentSlashCommandResult(
   if (shouldRenderSlashCommandResultInComposer(command)) {
     host.inkRenderer.setCommandResult?.(command, result);
   } else {
-    host.inkRenderer.addAssistantMessage?.(result);
+    host.inkRenderer.addAssistantMessage?.(result, false);
   }
   return true;
 }

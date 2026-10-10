@@ -16,8 +16,6 @@ export async function selectMaximumMoaReasoning(session: Session): Promise<strin
   await session.press('enter');
   await waitForScreen(session, 'What would you like to change?');
   await session.press('1');
-  await waitForScreen(session, 'Change API key only');
-  await session.press('1');
   await waitForScreen(session, 'Select a model');
   await session.press('enter');
   await waitForScreen(session, 'Choose Moa thinking effort');

@@ -13,6 +13,7 @@ if (!existsSync(distEntry)) {
 export default defineConfig({
   cacheDir: '.vitest-tuistory',
   test: {
+    clearMocks: false,
     include: ['tests/tuistory/**/*.tuistory.test.ts'],
     testTimeout: 60_000,
     hookTimeout: 60_000,

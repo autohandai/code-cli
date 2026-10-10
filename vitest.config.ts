@@ -7,6 +7,7 @@ const minWorkerCount = isCi ? 1 : 2;
 export default defineConfig({
   cacheDir: '.vitest',
   test: {
+    clearMocks: false,
     setupFiles: ['./vitest.setup.ts'],
     testTimeout: 30_000,
     hookTimeout: 30_000,

@@ -212,6 +212,8 @@
         "promptSuggestionsDesc": "Pokaż sugestie LLM o następnym kroku",
         "activitySymbol": "Symbol aktywności",
         "activitySymbolDesc": "Symbol wyświetlany przed czasownikiem aktywności",
+        "statusBar": "Pasek stanu",
+        "statusBarDesc": "Konfiguruj sekcje i układ paska stanu",
         "updateCheckInterval": "Interwał sprawdzania aktualizacji (godziny)",
         "updateCheckIntervalDesc": "Godziny między sprawdzaniem aktualizacji"
       },

@@ -980,10 +980,10 @@ describe('interactive built CLI Tuistory tests: steering, caret, slash commands,
       'Skipping the interactive publish prompt while auto mode is active.',
       { timeout: 30_000 },
     );
-    await session.waitForText(
-      `Publish later with: /publish-research ${reportPath}`,
-      { timeout: 10_000 },
-    );
+    await session.text({
+      timeout: 10_000,
+      waitFor: text => text.replace(/\s+/g, ' ').includes(`Publish later with: /publish-research ${reportPath}`),
+    });
 
     const output = session.readAll();
     expect(output).toContain(`Research saved: ${reportPath}`);

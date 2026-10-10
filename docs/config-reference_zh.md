@@ -488,12 +488,12 @@ Ctrl+D 仅在撰写区为空时退出。`?` 面板始终列出当前配置文件
 {
   "permissions": {
     "mode": "interactive",
-    "whitelist": [
+    "allowList": [
       "run_command:npm *",
       "run_command:bun *",
       "run_command:git status"
     ],
-    "blacklist": ["run_command:rm -rf *", "run_command:sudo *"],
+    "denyList": ["run_command:rm -rf *", "run_command:sudo *"],
     "rules": [
       {
         "tool": "run_command",
@@ -514,7 +514,7 @@ Ctrl+D 仅在撰写区为空时退出。`?` 面板始终列出当前配置文件
 | `"unrestricted"` | 无提示，允许所有           |
 | `"restricted"`   | 拒绝所有危险操作           |
 
-### `whitelist`
+### `allowList`
 
 永不需要批准的工具模式数组。
 
@@ -522,7 +522,7 @@ Ctrl+D 仅在撰写区为空时退出。`?` 面板始终列出当前配置文件
 ["run_command:npm *", "run_command:bun test"]
 ```
 
-### `blacklist`
+### `denyList`
 
 始终阻止的工具模式数组。
 
@@ -556,7 +556,7 @@ Ctrl+D 仅在撰写区为空时退出。`?` 面板始终列出当前配置文件
 {
   "version": 1,
   "permissions": {
-    "whitelist": [
+    "allowList": [
       "apply_patch:src/components/Button.tsx",
       "write_file:package.json",
       "run_command:bun test"
@@ -1183,8 +1183,8 @@ autohand --auto-skill
   },
   "permissions": {
     "mode": "interactive",
-    "whitelist": ["run_command:npm *", "run_command:bun *"],
-    "blacklist": ["run_command:rm -rf /"],
+    "allowList": ["run_command:npm *", "run_command:bun *"],
+    "denyList": ["run_command:rm -rf /"],
     "rememberSession": true
   },
   "network": {
@@ -1284,10 +1284,10 @@ agent:
 
 permissions:
   mode: interactive
-  whitelist:
+  allowList:
     - "run_command:npm *"
     - "run_command:bun *"
-  blacklist:
+  denyList:
     - "run_command:rm -rf /"
   rememberSession: true
 

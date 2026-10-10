@@ -169,6 +169,7 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
   { key: 'ui.activitySymbol', labelKey: 'commands.settings.ui.activitySymbol', descriptionKey: 'commands.settings.ui.activitySymbolDesc', category: 'ui', type: 'string', defaultValue: '\u2733' },
   { key: 'ui.showTips', labelKey: 'commands.settings.ui.showTips', descriptionKey: 'commands.settings.ui.showTipsDesc', category: 'ui', type: 'boolean', defaultValue: true },
   { key: 'ui.statusLine', labelKey: 'commands.settings.ui.statusLine', descriptionKey: 'commands.settings.ui.statusLineDesc', category: 'ui', type: 'string', redirect: '/statusline' },
+  { key: 'ui.statusBar', labelKey: 'commands.settings.ui.statusBar', descriptionKey: 'commands.settings.ui.statusBarDesc', category: 'ui', type: 'string', redirect: '/statusbar' },
   { key: 'ui.updateCheckInterval', labelKey: 'commands.settings.ui.updateCheckInterval', descriptionKey: 'commands.settings.ui.updateCheckIntervalDesc', category: 'ui', type: 'number', defaultValue: 24 },
   // New UI settings go last: the numbered shortcuts of the entries above are muscle memory.
   { key: 'ui.toolOutput', labelKey: 'commands.settings.ui.toolOutput', descriptionKey: 'commands.settings.ui.toolOutputDesc', category: 'ui', type: 'enum', enumValues: [...TOOL_OUTPUT_MODES], defaultValue: DEFAULT_TOOL_OUTPUT_MODE },

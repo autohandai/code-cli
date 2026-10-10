@@ -110,7 +110,7 @@ describe('renderAgentSlashCommandResult', () => {
     renderAgentSlashCommandResult(host, '/help', 'Help output');
 
     expect(setCommandResult).not.toHaveBeenCalled();
-    expect(addAssistantMessage).toHaveBeenCalledWith('Help output');
+    expect(addAssistantMessage).toHaveBeenCalledWith('Help output', false);
   });
 });
 
