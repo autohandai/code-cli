@@ -127,6 +127,7 @@ Precedence, lowest first: config file, workspace `.autohand` overlays, environme
 | `AUTOHAND_CODE`                        | Environment detection flag (set automatically)   | `1`                              |
 | `AUTOHAND_CODE_SIMPLE`                 | Enable bare mode without passing `--bare`        | `1`                              |
 | `AUTOHAND_DISABLE_STATEFUL_READ`       | Emergency opt-out for all stateful-read experiments | `1`                           |
+| `AUTOHAND_COMPUTER_USE_GLIDE_MS`       | Initial managed cursor movement duration, 0–5000 ms; default 50, zero uses engine timing | `150` |
 
 ### Process provider selection
 
