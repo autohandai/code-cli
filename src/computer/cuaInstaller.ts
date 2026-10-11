@@ -169,7 +169,7 @@ export function buildCuaInstallerPlan(options: BuildCuaInstallerPlanOptions): Cu
   return {
     assets: [asset],
     command: '/usr/bin/tar',
-    args: ['-xzf', archivePath, '-C', extractDirectory],
+    args: ['-xzf', archivePath, '--exclude=._*', '-C', extractDirectory],
     env: {},
     extractDirectory,
   };

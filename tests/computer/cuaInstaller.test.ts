@@ -3,8 +3,9 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -61,6 +62,7 @@ describe('Autohand Computer Use release assets', () => {
     expect(unixPlan.args).toEqual([
       '-xzf',
       path.join('/tmp/computer-use-install', unixPlan.assets[0]!.name),
+      '--exclude=._*',
       '-C',
       path.join('/tmp/computer-use-install', 'extracted'),
     ]);
@@ -157,6 +159,68 @@ describe('installCuaDriver', () => {
     });
 
     expect(prepareComputerUse).not.toHaveBeenCalled();
+  });
+
+  it.skipIf(process.platform === 'win32').each([
+    { extra: '', missing: '', error: '' },
+    { extra: 'unexpected-payload', missing: '', error: 'unexpected entry unexpected-payload' },
+    { extra: '', missing: 'libcua_driver_sdk.so', error: 'did not contain libcua_driver_sdk.so' },
+  ])('extracts metadata-bearing archives while validating runtime entries: $error', async ({ extra, missing, error }) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'autohand-computer-use-archive-'));
+    tempRoots.push(root);
+    const payload = path.join(root, 'payload');
+    const binDirectory = path.join(root, 'bin');
+    await mkdir(path.join(payload, 'wayland-helper'), { recursive: true });
+    const files: Record<string, string> = {
+      'cua-driver': '#!/bin/sh\nprintf "cua-driver 0.28.2\\n"\n',
+      'cua-cursor-theme': '#!/bin/sh\n',
+      'cua_driver_abi.h': 'header',
+      'cua_driver_node_runtime.node': 'runtime',
+      'libcua_driver_sdk.so': 'sdk',
+      'LICENSE-CUA.md': 'MIT',
+      'wayland-helper/install.sh': '#!/bin/sh\n',
+      'wayland-helper/README.md': 'helper',
+      '._libcua_driver_sdk.so': 'AppleDouble metadata',
+      'wayland-helper/._README.md': 'AppleDouble metadata',
+    };
+    if (extra) files[extra] = 'unexpected';
+    if (missing) delete files[missing];
+    await Promise.all(Object.entries(files).map(([name, content]) => writeFile(path.join(payload, name), content)));
+    const archivePath = path.join(root, 'fixture.tar.gz');
+    execFileSync('/usr/bin/tar', ['-czf', archivePath, '-C', payload, '.'], {
+      env: { ...process.env, COPYFILE_DISABLE: '1' },
+      timeout: 5_000,
+    });
+    const content = await readFile(archivePath);
+    const result = installCuaDriver({
+      platform: 'linux',
+      architecture: 'x64',
+      binDirectory,
+      force: true,
+      fetchImpl: async () => new Response(content),
+      resolveDriverPath: ({ env }) => env?.AUTOHAND_CUA_DRIVER_PATH ?? null,
+      buildPlan: (options) => {
+        const plan = buildCuaInstallerPlan(options);
+        return {
+          ...plan,
+          args: process.platform === 'darwin' ? [...plan.args, '--options=!mac-ext'] : plan.args,
+          assets: plan.assets.map(asset => ({
+            ...asset,
+            sha256: createHash('sha256').update(content).digest('hex'),
+          })),
+        };
+      },
+    });
+    if (error) {
+      await expect(result).rejects.toThrow(error);
+      expect(await readdir(binDirectory)).toEqual([]);
+      return;
+    }
+    await expect(result).resolves.toMatchObject({ status: 'installed', version: CUA_DRIVER_VERSION });
+    const installed = await readdir(binDirectory, { recursive: true });
+    expect(installed).toContain('libcua_driver_sdk.so');
+    expect(installed).toContain(path.join('wayland-helper', 'README.md'));
+    expect(installed.some(name => path.basename(name).startsWith('._'))).toBe(false);
   });
 
   it('downloads, verifies, extracts, installs, and probes an Autohand component archive', async () => {
