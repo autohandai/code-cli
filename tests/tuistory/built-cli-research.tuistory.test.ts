@@ -15,6 +15,7 @@ import { getHelpOrderedSlashCommands } from '../../src/ui/inputPrompt.js';
 import {
   clearComposerInput,
   createMockAuthServer,
+  createMockAutohandModelCatalogServer,
   createMockOllamaServer,
   createMockOpenRouterFetchPreload,
   createMockOpenRouterSequenceServer,
@@ -843,9 +844,12 @@ describe('interactive built CLI Tuistory tests: processes, research, usage, sett
     const selectedModel = 'fantail';
     const authServer = await createMockAuthServer();
     mockAuthServers.push(authServer);
+    const catalogServer = await createMockAutohandModelCatalogServer([selectedModel, 'moa']);
+    mockServers.push(catalogServer);
     const state = await createTempAutohandHome({
       config: {
         provider: 'openrouter',
+        autohandai: { baseUrl: catalogServer.baseUrl },
         features: {
           autohand_inference: true,
         },

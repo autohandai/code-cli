@@ -8,17 +8,21 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
 import { selectMaximumMoaReasoning } from '../../src/testing/scenarios/maxReasoningThreadsScenario.js';
 import {
+  createMockAutohandModelCatalogServer,
   createTempAutohandHome,
   exitInteractive,
   launchBuiltAutohand,
+  type MockAutohandModelCatalogServer,
   type TuistoryTempState,
 } from './helpers/autohandTuistory.js';
 
 const sessions: Session[] = [];
 const states: TuistoryTempState[] = [];
+const catalogServers: MockAutohandModelCatalogServer[] = [];
 
 afterEach(async () => {
   for (const session of sessions.splice(0)) session.close();
+  await Promise.all(catalogServers.splice(0).map(server => server.close()));
   await Promise.all(states.splice(0).map(state => state.cleanup()));
 });
 
@@ -27,6 +31,8 @@ describe('maximum reasoning thread warning Tuistory', () => {
     { label: 'default nine-thread session', limit: undefined, warns: true },
     { label: 'four-thread session', limit: 4, warns: false },
   ])('sets maximum Moa reasoning in a $label', async ({ limit, warns }) => {
+    const catalogServer = await createMockAutohandModelCatalogServer(['fantail', 'moa']);
+    catalogServers.push(catalogServer);
     const state = await createTempAutohandHome({
       config: {
         provider: 'autohandai',
@@ -34,6 +40,7 @@ describe('maximum reasoning thread warning Tuistory', () => {
           plan: 'cloud',
           authMode: 'api-key',
           apiKey: 'tuistory-autohand-api-key',
+          baseUrl: catalogServer.baseUrl,
           model: 'moa',
           reasoningEffort: 'high',
         },

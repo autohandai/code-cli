@@ -166,6 +166,54 @@ export async function createTempAutohandHome(options: CreateTempAutohandHomeOpti
   };
 }
 
+export interface MockAutohandModelCatalogServer {
+  baseUrl: string;
+  close: () => Promise<void>;
+}
+
+/**
+ * Serves the hosted Autohand model catalog that `/model` now fetches, so a
+ * test never reaches inference.autohand.ai with a fixture key.
+ */
+export async function createMockAutohandModelCatalogServer(
+  models: string[],
+): Promise<MockAutohandModelCatalogServer> {
+  const server = createServer((request, response) => {
+    if (request.method === 'GET' && request.url === '/v1/models') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ data: models.map((id) => ({ id })) }));
+      return;
+    }
+
+    response.writeHead(404, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Mock Autohand model catalog server did not bind to a TCP port.');
+  }
+
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}/v1`,
+    close: async () => {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error?: Error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+    },
+  };
+}
+
 export async function createMockOllamaServer(models: string[]): Promise<MockOllamaServer> {
   const server = createServer((request, response) => {
     if (request.url === '/api/tags') {

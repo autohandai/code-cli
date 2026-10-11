@@ -16,9 +16,9 @@ export async function selectMaximumMoaReasoning(session: Session): Promise<strin
   await session.press('enter');
   await waitForScreen(session, 'What would you like to change?');
   await session.press('1');
-  await waitForScreen(session, 'Change API key only');
-  await session.press('1');
-  await waitForScreen(session, 'Select a model');
+  // Option 1 opens the hosted model picker directly; the list is fetched from
+  // the account catalog, so wait for the current model's row before selecting it.
+  await waitForScreen(session, 'Moa (Thinking)');
   await session.press('enter');
   await waitForScreen(session, 'Choose Moa thinking effort');
   await session.press('3');
