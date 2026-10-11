@@ -357,6 +357,16 @@ describe('release workflow', () => {
     expect(compile?.run).toContain("'--env=AUTOHAND_BUILD_*'");
   });
 
+  it('preserves the CI binary identity when it is installed outside the checkout', () => {
+    const ci = parseYaml(readFileSync(CI_WORKFLOW_PATH, 'utf8')) as {
+      jobs: { 'build-test': WorkflowJob };
+    };
+    const compile = ci.jobs['build-test'].steps.find(step => step.name === 'Test compilation');
+
+    expect(compile?.env?.AUTOHAND_BUILD_GIT_COMMIT).toBe('${{ github.sha }}');
+    expect(compile?.run).toContain("'--env=AUTOHAND_BUILD_*'");
+  });
+
   it('builds and bundles the branded macOS computer use host', () => {
     const workflow = loadReleaseWorkflow();
     const buildSteps = workflow.jobs.build.steps;

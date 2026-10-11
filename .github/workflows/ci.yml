@@ -171,11 +171,13 @@ jobs:
         run: bun run build
 
       - name: Test compilation
+        env:
+          AUTOHAND_BUILD_GIT_COMMIT: ${{ github.sha }}
         run: |
           mkdir -p binaries
           # See release.yml's Compile binary step: node-llama-cpp's dynamic
           # platform-binary resolution can't be statically bundled.
-          bun build ./src/index.ts --compile --external node-llama-cpp --outfile ./binaries/autohand-test
+          bun build ./src/index.ts --compile --external node-llama-cpp '--env=AUTOHAND_BUILD_*' --outfile ./binaries/autohand-test
 
       - name: Verify fresh alpha installation
         if: runner.os != 'Windows'

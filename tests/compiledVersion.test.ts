@@ -34,6 +34,8 @@ describe('standalone binary version metadata', () => {
 
       expect(execFileSync(binary, ['--version'], { encoding: 'utf8' }).trim())
         .toBe('0.9.9-alpha.1234abc (7654321)');
+      expect(execFileSync(binary, ['--version'], { encoding: 'utf8', cwd: root }).trim())
+        .toBe('0.9.9-alpha.1234abc (7654321)');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
