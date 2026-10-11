@@ -68,6 +68,43 @@ describe('doctor command Tuistory', () => {
     expect(session.exitInfo?.exitCode).toBe(report.ok ? 0 : 1);
   });
 
+  it.skipIf(process.platform === 'win32')('compares fresh-install versions with the same environment in a real terminal', async () => {
+    const state = await createTempAutohandHome({ initializeGit: false });
+    states.push(state);
+    const binary = path.join(state.workspaceRoot, 'autohand-fixture');
+    await writeFile(binary, `#!/bin/sh
+case "$1" in
+  --version)
+    if [ "$HOME" = "$AUTOHAND_TEST_RUNNER_HOME" ]; then
+      printf '0.8.2 (runner-commit)\\n'
+    else
+      printf '0.8.2 (unknown)\\n'
+    fi
+    ;;
+  --help) printf 'Usage: autohand\\n' ;;
+  *) exit 1 ;;
+esac
+`);
+    await chmod(binary, 0o755);
+    const session = await launchTerminal({
+      command: '/bin/sh',
+      args: [path.join(repoRoot(), 'src/testing/scenarios/fresh-alpha-install.sh'), binary, 'ci-alpha-smoke'],
+      cwd: state.workspaceRoot, cols: 1000, rows: 36,
+      env: {
+        ...process.env,
+        HOME: state.workspaceRoot,
+        AUTOHAND_TEST_RUNNER_HOME: state.workspaceRoot,
+        PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
+        AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL: '1',
+      },
+    });
+    sessions.push(session);
+    await waitForExit(session, 30_000);
+    const output = stripAnsi(session.readAll());
+    expect(session.exitInfo?.exitCode, output).toBe(0);
+    expect(output).toContain('Fresh alpha install and reinstall passed: 0.8.2 (unknown)');
+  });
+
   it('prints every section for a fresh install and exits by its verdict', async () => {
     const { session, state } = await launch(['--skip-mcp']);
     await waitForExit(session, 40_000);

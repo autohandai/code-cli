@@ -80,8 +80,11 @@ done
 [ "$sentinel_found" -eq 1 ]
 installed_version=$(env HOME="$test_root/user" PATH="$test_path" "$test_root/bin/autohand-alpha" --version)
 [ "$installed_version" != 'stale-version' ]
-expected_version=$("$binary" --version)
-[ "$installed_version" = "$expected_version" ]
+expected_version=$(env HOME="$test_root/user" PATH="$test_path" "$binary" --version)
+if [ "$installed_version" != "$expected_version" ]; then
+    printf 'Installed version "%s" did not match source binary "%s".\n' "$installed_version" "$expected_version" >&2
+    exit 1
+fi
 env HOME="$test_root/user" PATH="$test_path" "$test_root/bin/autohand-alpha" --help >/dev/null
 if [ "${AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL:-0}" != '1' ]; then
     env HOME="$test_root/user" PATH="$test_path" "$test_root/bin/autohand-alpha" computer status --json

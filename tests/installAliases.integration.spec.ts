@@ -83,6 +83,42 @@ afterEach(() => {
 });
 
 describe('release installer command aliases', () => {
+  unixIt('compares fresh-install versions under the same isolated environment', () => {
+    const root = mkdtempSync(join(tmpdir(), 'autohand-smoke-environment-'));
+    tempRoots.push(root);
+    const binary = join(root, 'autohand-fixture');
+    writeFileSync(binary, `#!/bin/sh
+case "$1" in
+  --version)
+    if [ "$HOME" = "$AUTOHAND_TEST_RUNNER_HOME" ]; then
+      printf '0.8.2 (runner-commit)\\n'
+    else
+      printf '0.8.2 (unknown)\\n'
+    fi
+    ;;
+  --help) printf 'Usage: autohand\\n' ;;
+  *) exit 1 ;;
+esac
+`);
+    chmodSync(binary, 0o755);
+    const result = spawnSync('/bin/sh', [
+      'src/testing/scenarios/fresh-alpha-install.sh', binary, 'ci-alpha-smoke',
+    ], {
+      cwd: ROOT,
+      env: {
+        ...process.env,
+        HOME: root,
+        AUTOHAND_TEST_RUNNER_HOME: root,
+        PATH: SAFE_SYSTEM_PATH,
+        AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL: '1',
+      },
+      encoding: 'utf8',
+      timeout: 15_000,
+    });
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stdout).toContain('Fresh alpha install and reinstall passed: 0.8.2 (unknown)');
+  });
+
   unixIt('restores the normal profile if creating its replacement fails', () => {
     const root = mkdtempSync(join(tmpdir(), 'autohand-profile-rollback-'));
     tempRoots.push(root);
