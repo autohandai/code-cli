@@ -72,7 +72,7 @@ import { fetchRegistryWithFallback, installSkillWithSecurity } from '../../skill
 import { McpClientManager } from '../../mcp/McpClientManager.js';
 import { compactComputerUseResult, COMPUTER_USE_TOOL_PREFIX } from '../../computer/computerUseOutput.js';
 import { ComputerUseLifecycle } from '../../computer/ComputerUseLifecycle.js';
-import { resolveRuntimeMcpServers } from '../../computer/cuaDriver.js';
+import { isComputerUseMcpServer, resolveRuntimeMcpServers } from '../../computer/cuaDriver.js';
 import {
   findCommunityMcpServers,
   installCommunityMcpServer,
@@ -1365,6 +1365,11 @@ export function initializeAgentDependencies(
     } : undefined;
 
     host.toolManager = new ToolManager({
+      onToolRequested: tool => {
+        const parsed = McpClientManager.parseMcpToolName(tool);
+        const server = parsed && host.runtimeMcpServers?.find((entry: { name: string }) => entry.name === parsed.serverName);
+        return server && isComputerUseMcpServer(server) ? host.activateComputerUseAutoMode?.() === true : false;
+      },
       getActiveProvider: () => host.activeProvider ?? runtime.config.provider ?? 'openrouter',
       maxConcurrency: runtime.config.agent?.parallelToolConcurrency ?? 5,
       executor: async (action, context) => {

@@ -173,7 +173,7 @@ function waitForChildClose(child: ChildProcess, timeoutMs: number): Promise<bool
 /** Manages a single stdio connection to an MCP server process */
 export class McpStdioConnection extends EventEmitter {
   private process: ChildProcess | null = null;
-  private lineBuffer = '';
+  private lineChunks: Buffer[] = [];
   private frameBuffer = Buffer.alloc(0);
   private nextId = 1;
   private pendingRequests = new Map<
@@ -239,9 +239,8 @@ export class McpStdioConnection extends EventEmitter {
           this.emit('close', code);
         });
 
-        // Give the process a moment to start, then resolve
-        // The actual readiness is determined by the initialize handshake
-        setTimeout(() => resolve(), 100);
+        // The protocol handshake determines readiness; spawning needs no grace delay.
+        this.process.once('spawn', () => resolve());
       } catch (err) {
         reject(err instanceof Error ? err : new Error(String(err)));
       }
@@ -430,7 +429,7 @@ export class McpStdioConnection extends EventEmitter {
   private cleanup(): void {
     this.rejectPendingRequests(new Error('MCP connection closed'));
     this.process = null;
-    this.lineBuffer = '';
+    this.lineChunks = [];
     this.frameBuffer = Buffer.alloc(0);
   }
 
@@ -451,16 +450,18 @@ export class McpStdioConnection extends EventEmitter {
    * Parses newline-delimited JSON-RPC messages (legacy mode).
    */
   private parseLineDelimitedData(data: Buffer): void {
-    this.lineBuffer += data.toString();
-
-    let newlineIndex: number;
-    while ((newlineIndex = this.lineBuffer.indexOf('\n')) !== -1) {
-      const line = this.lineBuffer.slice(0, newlineIndex).trim();
-      this.lineBuffer = this.lineBuffer.slice(newlineIndex + 1);
-
-      if (line.length === 0) continue;
-      this.handleJsonPayload(line);
+    let offset = 0;
+    let newlineIndex = data.indexOf(0x0a, offset);
+    while (newlineIndex !== -1) {
+      this.lineChunks.push(data.subarray(offset, newlineIndex));
+      // Decode the complete frame once, preserving UTF-8 split across pipe reads.
+      const line = Buffer.concat(this.lineChunks).toString('utf8').trim();
+      this.lineChunks = [];
+      if (line.length > 0) this.handleJsonPayload(line);
+      offset = newlineIndex + 1;
+      newlineIndex = data.indexOf(0x0a, offset);
     }
+    if (offset < data.length) this.lineChunks.push(data.subarray(offset));
   }
 
   /**

@@ -331,6 +331,7 @@ export async function createMockAutohandAINativeToolServer(): Promise<MockNative
 
 export async function createMockAutohandAINativeSequenceServer(
   turns: MockNativeAssistantTurn[],
+  delayMs = 0,
 ): Promise<MockNativeToolServer> {
   const requests: JsonRecord[] = [];
   const server = createServer(async (request, response) => {
@@ -349,6 +350,7 @@ export async function createMockAutohandAINativeSequenceServer(
 
     const turn = turns[Math.min(requests.length - 1, turns.length - 1)]
       ?? { content: '' };
+    if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs));
     if (body.stream === true) {
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       response.end(`data: ${JSON.stringify({

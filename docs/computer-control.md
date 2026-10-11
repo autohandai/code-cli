@@ -11,6 +11,8 @@ scroll down in Chrome and tell me what is visible
 
 The built-in `computer-control` skill activates for native GUI requests. Autohand discovers the requested application and window, observes current state, performs the requested input through its local computer use server, and verifies the visible result.
 
+Computer tasks temporarily enter auto mode, including when the composer was in plan mode. The previous mode returns when the task completes, fails, or is cancelled. Selecting a mode yourself during the task keeps your new choice. Explicit restricted and dry-run settings, denied tools, hooks, and operating-system permissions still apply.
+
 ## Install and check
 
 The Unix and Windows Autohand installers install Autohand Computer Use automatically. The npm package does the same during `postinstall`. An existing compatible engine is reused. Computer Use is a required component of the default desktop installation: an installation failure returns a nonzero exit status and prints the repair command. Headless installations can explicitly opt out as described below.
