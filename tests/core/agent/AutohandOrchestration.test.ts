@@ -39,18 +39,58 @@ function harness(responses: LLMResponse[] = [{ content: '{"verdict":"approved","
 }
 
 describe('Moa checkpoint advisor', () => {
+  it.each([
+    { content: '', finishReason: 'length' as const },
+    { content: '```json\n```', finishReason: 'stop' as const },
+    { content: '{"verdict":"approved"', finishReason: 'length' as const },
+  ])('recovers an empty or truncated review before rejecting the checkpoint: %j', async first => {
+    const usage = { promptTokens: 10, completionTokens: 4000, totalTokens: 4010 };
+    const { advisor, complete, budget, recordUsage } = harness([
+      { ...first, usage },
+      { content: '{"verdict":"approved","feedback":"Evidence verified."}', finishReason: 'stop', usage },
+    ]);
+    expect(await advisor.review('commit', { history: [], context: 'complete proposed diff', signal: new AbortController().signal }))
+      .toEqual({ verdict: 'approved', feedback: 'Evidence verified.' });
+    expect(complete).toHaveBeenCalledTimes(2);
+    expect(complete.mock.calls[1]?.[0].maxTokens).toBeGreaterThan(complete.mock.calls[0]?.[0].maxTokens ?? 0);
+    expect(budget.status()).toMatchObject({ requests: 2, tokens: 8020 });
+    expect(recordUsage).toHaveBeenCalledTimes(2);
+  });
   it('reads full supplied history and diff without tools and accounts for its request', async () => {
     const { advisor, complete, budget, recordUsage } = harness();
     const history = [{ role: 'user' as const, content: 'Preserve auth invariant.' }];
     const signal = new AbortController().signal;
     expect(await advisor.review('completion', { history, context: 'diff --git a/auth.ts b/auth.ts', signal })).toEqual({ verdict: 'approved', feedback: 'Contracts checked.' });
     const request = complete.mock.calls[0]?.[0];
-    expect(request).toMatchObject({ model: 'moa', maxTokens: 4000 });
+    expect(request).toMatchObject({ model: 'moa', maxTokens: 8000 });
     expect(request?.tools).toBeUndefined();
     expect(JSON.stringify(request?.messages)).toContain('Preserve auth invariant.');
     expect(JSON.stringify(request?.messages)).toContain('diff --git');
     expect(budget.status()).toMatchObject({ requests: 1, tokens: 15 });
     expect(recordUsage).toHaveBeenCalledOnce();
+  });
+  it('reports output exhaustion clearly after one recovery attempt without parsing partial approval', async () => {
+    const { advisor, complete } = harness([
+      { content: '{"verdict":"approved","feedback":"looks good"}', finishReason: 'length' },
+      { content: '', finishReason: 'length' },
+    ]);
+    const review = await advisor.review('commit', { history: [], context: 'diff', signal: new AbortController().signal });
+    expect(review).toEqual({ verdict: 'unavailable', feedback: 'Moa exhausted its output budget before returning a complete checkpoint verdict.' });
+    expect(complete).toHaveBeenCalledTimes(2);
+  });
+  it('does not exceed the request budget to recover an empty verdict', async () => {
+    const complete = vi.fn(async () => ({ content: '', finishReason: 'length' as const }));
+    const budget = new RunBudget({ maxRequests: 1 });
+    const advisor = new CheckpointAdvisor({ provider: { complete }, budget, recordUsage: () => {} });
+    await expect(advisor.review('commit', { history: [], context: 'diff', signal: new AbortController().signal })).rejects.toThrow('budget exhausted');
+    expect(complete).toHaveBeenCalledOnce();
+  });
+  it('propagates cancellation after an empty verdict without issuing a recovery request', async () => {
+    const controller = new AbortController();
+    const complete = vi.fn(async () => { controller.abort(); return { content: '', finishReason: 'length' as const }; });
+    const advisor = new CheckpointAdvisor({ provider: { complete }, recordUsage: () => {} });
+    await expect(advisor.review('commit', { history: [], context: 'diff', signal: controller.signal })).rejects.toThrow();
+    expect(complete).toHaveBeenCalledOnce();
   });
   it('consults only after the same failed test or compiler command repeats', () => {
     const { advisor } = harness();

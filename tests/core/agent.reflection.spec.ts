@@ -241,6 +241,18 @@ describe('checkpoint review in the live execution loop', () => {
     expect(await runAgentReactLoop(host, new AbortController())).toEqual({ status: 'incomplete', reason: 'advisor_review' });
     expect(host.emitOutput).toHaveBeenCalledWith(expect.objectContaining({ type: 'message', content: expect.stringContaining('Provider unavailable') }));
   });
+  it('retries a transient unavailable staging review before executing the tool exactly once', async () => {
+    const review = vi.fn<TurnAdvisor['review']>()
+      .mockResolvedValueOnce({ verdict: 'unavailable', feedback: 'Moa returned no verdict.' })
+      .mockResolvedValue({ verdict: 'approved', feedback: 'Diff verified.' });
+    const { host, executedCalls } = createReactLoopHarness([
+      { content: 'The verified change can now be staged for the requested commit.', toolCalls: [createNativeToolCall('stage', 'git_add', { paths: ['file.ts'] })] },
+      { content: 'The change was staged successfully and the work is complete.' },
+    ], { advisor: { review, observeFailure: () => false } });
+    expect(await runAgentReactLoop(host, new AbortController())).toEqual({ status: 'completed' });
+    expect(executedCalls).toEqual([expect.objectContaining({ tool: 'git_add' })]);
+    expect(review.mock.calls.map(call => call[0])).toEqual(['commit', 'commit', 'completion']);
+  });
   it('stops after two failed commands when the advisor is unavailable', async () => {
     const review = vi.fn<TurnAdvisor['review']>().mockResolvedValue({ verdict: 'unavailable', feedback: 'Review timed out.' });
     let failures = 0;
@@ -252,7 +264,8 @@ describe('checkpoint review in the live execution loop', () => {
     host.toolManager.execute.mockImplementation(async calls => calls.map(call => ({ tool: call.tool, success: false, error: 'Expected 1, received 2' })));
     expect(await runAgentReactLoop(host, new AbortController())).toEqual({ status: 'incomplete', reason: 'advisor_review' });
     expect(complete).toHaveBeenCalledTimes(2);
-    expect(review).toHaveBeenCalledExactlyOnceWith('repeated_failure', expect.anything());
+    expect(review).toHaveBeenCalledTimes(2);
+    expect(review).toHaveBeenNthCalledWith(2, 'repeated_failure', expect.anything());
     expect(host.conversation.history()).toContainEqual(expect.objectContaining({ role: 'tool', tool_call_id: 'second-test' }));
   });
 });

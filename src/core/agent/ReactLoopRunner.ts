@@ -648,7 +648,13 @@ export async function runAgentReactLoop(
           return { verdict: 'unavailable', feedback: `Cannot capture the workspace diff: ${error instanceof Error ? error.message : String(error)}` };
         }
       }
-      const review = await advisor!.review(checkpoint, { history: host.conversation.history(), context, signal: abortController.signal });
+      const reviewContext = { history: host.conversation.history(), context, signal: abortController.signal };
+      let review = await advisor!.review(checkpoint, reviewContext);
+      if (review.verdict === 'unavailable') {
+        abortController.signal.throwIfAborted();
+        host.setSpinnerStatus('Moa review unavailable; retrying review... (esc to interrupt)');
+        review = await advisor!.review(checkpoint, reviewContext);
+      }
       host.conversation.addSystemNote(`[Moa ${checkpoint} review: ${review.verdict}] ${review.feedback}`);
       return review;
     };

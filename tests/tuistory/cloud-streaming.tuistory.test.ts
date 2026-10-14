@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createServer, type ServerResponse } from 'node:http';
-import { writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Session } from 'tuistory';
 import { createMockAuthServer, createTempAutohandHome, exitInteractive, launchBuiltAutohand } from './helpers/autohandTuistory.js';
@@ -9,6 +10,116 @@ const cleanupTasks: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const cleanup of cleanupTasks.splice(0).reverse()) await cleanup(); });
 
 describe('built cloud token streaming', () => {
+  it.each([false, true])('continues an interrupted site-building turn without repeating completed tools (empty=%s)', async empty => {
+    const auth = await createMockAuthServer();
+    cleanupTasks.push(auth.close);
+    const requests: Array<{ messages: unknown[] }> = [];
+    const server = createServer(async (request, response) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.from(chunk));
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if (!body.stream) {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ choices: [{ message: { content: '{"complexity":"simple","requiresTools":true,"requiresPlanning":false,"suggestedApproach":"implement"}' }, finish_reason: 'stop' }] }));
+        return;
+      }
+      requests.push(body);
+      response.writeHead(200, { 'content-type': 'text/event-stream' });
+      const send = (delta: unknown, finish: string | null) => `data: ${JSON.stringify({ choices: [{ delta, finish_reason: finish }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } })}\n\n`;
+      if (requests.length === 1) {
+        response.end(send({ content: 'I will create the requested directory before writing the complete animated site.', tool_calls: [{ index: 0, id: 'create-birds', type: 'function', function: { name: 'create_directory', arguments: '{"path":"birds_stickers"}' } }] }, 'tool_calls') + 'data: [DONE]\n\n');
+      } else if (requests.length === 2) {
+        response.end(empty ? '' : send({ content: 'The directory is ready. I am preparing the animated sticker site.' }, null));
+      } else if (requests.length === 3) {
+        response.end(send({ content: 'The existing directory was created successfully. I will now write the complete site in it.', tool_calls: [{ index: 0, id: 'write-birds', type: 'function', function: { name: 'write_file', arguments: JSON.stringify({ path: 'birds_stickers/index.html', contents: '<!doctype html><title>Bird Stickers</title><style>@keyframes fly {to {transform:translateY(-8px)}} .bird {animation:fly 1s infinite alternate}</style><h1 class="bird">Bird Stickers</h1>' }) } }] }, 'tool_calls') + 'data: [DONE]\n\n');
+      } else {
+        response.end(send({ content: 'The animated bird sticker site is ready in birds_stickers/index.html.' }, 'stop') + 'data: [DONE]\n\n');
+      }
+    });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    cleanupTasks.push(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); });
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Fixture did not bind');
+    const state = await createTempAutohandHome({ config: {
+      provider: 'autohandai', features: { autohand_inference: true, automaticSpecialists: false },
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'fixture-only', baseUrl: `http://127.0.0.1:${address.port}`, model: 'auto', orchestration: false },
+      network: { maxRetries: 1, retryDelay: 10 },
+    } });
+    cleanupTasks.push(state.cleanup);
+    const session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, env: { AUTOHAND_AUTH_API_URL: `${auth.baseUrl}/api/auth` },
+    });
+    cleanupTasks.push(() => exitInteractive(session));
+    await session.text({ timeout: 20_000, waitFor: text => text.includes('❯') });
+    await session.type('Create an animated sticker site in birds_stickers');
+    await session.press('enter');
+    await session.text({ timeout: 20_000, waitFor: text => text.includes('Allow tool create_directory?') });
+    await session.press('enter');
+    await session.text({ timeout: 20_000, waitFor: text => text.includes('Write to this file?') && text.includes('birds_stickers/index.html') });
+    await session.press('enter');
+    const completed = await session.text({ timeout: 30_000, waitFor: text => text.includes('The animated bird sticker site is ready') });
+    expect(completed).not.toContain('Session failed');
+    expect(requests).toHaveLength(4);
+    expect(JSON.stringify(requests[2].messages)).toContain('create-birds');
+    expect(JSON.stringify(requests[2].messages)).toContain('Recovery 1/3');
+    expect(JSON.stringify(requests[2].messages)).toContain('Created directory birds_stickers');
+    expect(await readFile(path.join(state.workspaceRoot, 'birds_stickers/index.html'), 'utf8')).toContain('@keyframes fly');
+  }, 60_000);
+  it('recovers an empty Moa checkpoint verdict before staging the requested file', async () => {
+    const auth = await createMockAuthServer();
+    cleanupTasks.push(auth.close);
+    const reviews: Array<{ max_tokens: number }> = [];
+    let turns = 0;
+    const server = createServer(async (request, response) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.from(chunk));
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if (!body.stream) {
+        const review = body.messages?.[0]?.content?.includes('independent Moa advisor');
+        if (review) reviews.push(body);
+        const content = review ? reviews.length === 1 ? '' : '{"verdict":"approved","feedback":"The complete proposed change was verified."}'
+          : '{"complexity":"simple","requiresTools":true,"requiresPlanning":false,"suggestedApproach":"stage"}';
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ choices: [{ message: { content }, finish_reason: review && reviews.length === 1 ? 'length' : 'stop' }], usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 } }));
+        return;
+      }
+      turns += 1;
+      response.writeHead(200, { 'content-type': 'text/event-stream' });
+      const delta = turns === 1
+        ? { content: 'The requested fixture change is ready to stage for the commit.', tool_calls: [{ index: 0, id: 'stage-reviewed', type: 'function', function: { name: 'git_add', arguments: '{"paths":["fixture.txt"]}' } }] }
+        : { content: 'The requested file was reviewed and staged successfully.' };
+      response.end(`data: ${JSON.stringify({ choices: [{ delta, finish_reason: turns === 1 ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } })}\n\ndata: [DONE]\n\n`);
+    });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    cleanupTasks.push(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); });
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Fixture did not bind');
+    const state = await createTempAutohandHome({ config: {
+      provider: 'autohandai', features: { autohand_inference: true, automaticSpecialists: false },
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'fixture-only', baseUrl: `http://127.0.0.1:${address.port}`, model: 'auto', orchestration: true },
+      network: { maxRetries: 1, retryDelay: 10 },
+    } });
+    cleanupTasks.push(state.cleanup);
+    execFileSync('git', ['init', '--quiet'], { cwd: state.workspaceRoot });
+    await writeFile(path.join(state.workspaceRoot, 'fixture.txt'), 'Checkpoint review fixture.');
+    const session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, env: { AUTOHAND_AUTH_API_URL: `${auth.baseUrl}/api/auth` },
+    });
+    cleanupTasks.push(() => exitInteractive(session));
+    await session.text({ timeout: 20_000, waitFor: text => text.includes('❯') });
+    await session.type('Stage fixture.txt for the commit');
+    await session.press('enter');
+    await session.text({ timeout: 20_000, waitFor: text => text.includes('Allow tool git_add?') });
+    await session.press('enter');
+    const completed = await session.text({ timeout: 30_000, waitFor: text => text.includes('The requested file was reviewed and staged successfully.') });
+    expect(completed).not.toContain('Session failed');
+    expect(completed).not.toContain('Work paused for Moa review');
+    expect(turns).toBe(2);
+    expect(reviews).toHaveLength(3);
+    expect(reviews[0].max_tokens).toBe(8000);
+    expect(reviews[1].max_tokens).toBe(16000);
+    expect(execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: state.workspaceRoot, encoding: 'utf8' }).trim()).toBe('fixture.txt');
+  }, 60_000);
   it('reuses the tool prefix through a read-to-edit transition without a throughput retry', async () => {
     const auth = await createMockAuthServer();
     cleanupTasks.push(auth.close);

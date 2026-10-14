@@ -38,6 +38,7 @@ export async function readOpenAIEventStream(
   let finishReason: LLMResponse['finishReason'];
   let usage: LLMResponse['usage'];
   let done = false;
+  let interrupted = false;
   let responseChars = 0;
   const calls = new Map<number, LLMToolCall>();
   const abort = () => { void reader.cancel().catch(() => undefined); };
@@ -122,13 +123,17 @@ export async function readOpenAIEventStream(
       if (next.done) {
         buffer += decoder.decode() + '\n\n';
         processLines();
-        if (!done && !finishReason) throw streamError('Inference stream ended with an incomplete response.');
+        if (!done && !finishReason) {
+          interrupted = true;
+          finishReason = 'length';
+        }
         break;
       }
       buffer += decoder.decode(next.value, { stream: true });
       processLines();
     }
-    const toolCalls = [...calls.entries()].sort(([a], [b]) => a - b).map(([, call]) => call);
+    // A terminal event is required before any streamed action can reach an executor.
+    const toolCalls = interrupted || finishReason === 'length' ? [] : [...calls.entries()].sort(([a], [b]) => a - b).map(([, call]) => call);
     if (toolCalls.some(call => !call.id || !call.function.name)) throw streamError('Incomplete streamed tool call.');
     // Reasoning stays out of `content` so the show-thinking setting, not the
     // transcript, decides whether the user sees it.

@@ -64,13 +64,33 @@ describe('cloud inference streaming', () => {
       toolCalls: [{ id: 'call-1', type: 'function', function: { name: 'read_file', arguments: '{"path":"a.ts"}' } }],
       usage: { promptTokens: 3, completionTokens: 2, totalTokens: 5 } });
   });
-  it('does not retry a stream after visible content or return a truncated answer as success', async () => {
+  it('preserves a stream that ends early for continuation without replaying the accepted request', async () => {
     const fetch = vi.fn().mockImplementation(() => new Response(new ReadableStream({
       start(c) { c.enqueue(encoder.encode(event({ choices: [{ delta: { content: 'partial' } }] }))); c.close(); },
     })));
     vi.stubGlobal('fetch', fetch);
-    await expect(client().complete({ messages: [], stream: true, onDelta: vi.fn() })).rejects.toThrow(/incomplete|ended/i);
+    expect(await client().complete({ messages: [], stream: true, onDelta: vi.fn() }))
+      .toMatchObject({ content: 'partial', finishReason: 'length' });
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('withholds unfinished tools when an accepted stream ends without a terminal event', async () => {
+    const fetch = vi.fn().mockImplementation(() => new Response(
+      event({ choices: [{ delta: { content: 'I inspected the result and will write the file next.', tool_calls: [
+        { index: 0, id: 'call-1', type: 'function', function: { name: 'write_file', arguments: '{"path":"a.ts","content":"part' } },
+      ] } }] }), { headers: { 'content-type': 'text/event-stream' } },
+    ));
+    vi.stubGlobal('fetch', fetch);
+    const result = await client().complete({ messages: [], stream: true });
+    expect(result.finishReason).toBe('length');
+    expect(result.toolCalls).toBeUndefined();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+  it('marks an empty accepted EOF as truncation for bounded agent recovery without transport replay', async () => {
+    const fetch = vi.fn().mockImplementation(() => new Response(''));
+    vi.stubGlobal('fetch', fetch);
+    expect(await client().complete({ messages: [], stream: true }))
+      .toMatchObject({ content: '', finishReason: 'length' });
+    expect(fetch).toHaveBeenCalledOnce();
   });
   it('normalizes upstream max-token termination to a truncated response', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
