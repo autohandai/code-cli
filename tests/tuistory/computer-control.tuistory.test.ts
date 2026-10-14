@@ -217,7 +217,11 @@ describe('built native computer control', () => {
     });
   });
 
-  it('waits for native control and preserves window IDs for the next app inspection', async () => {
+  it.each([
+    { previousMode: 'default', instruction: 'use my spotify and play Felix Rosch', guiIntent: true },
+    { previousMode: 'plan', instruction: 'use my spotify and play Felix Rosch', guiIntent: true },
+    { previousMode: 'plan', instruction: 'inspect the fixture', guiIntent: false },
+  ])('uses temporary auto mode from $previousMode for "$instruction" and preserves window IDs', async ({ previousMode, instruction, guiIntent }) => {
     const provider = await createMockAutohandAINativeSequenceServer([
       {
         content: 'Checking the native app connection.',
@@ -232,7 +236,7 @@ describe('built native computer control', () => {
         toolCall: { id: 'call_window_state', name: 'mcp__autohand-computer-use__get_window_state', args: { pid: 6844, window_id: 280 } },
       },
       { content: 'COMPUTER_CONTROL_TURN_COMPLETE' },
-    ]);
+    ], 1_000);
     servers.push(provider);
     const state = await createTempAutohandHome({
       config: {
@@ -251,14 +255,13 @@ describe('built native computer control', () => {
       },
     });
     states.push(state);
-    const driver = await writeFakeCuaDriver(state, 5_000);
+    const driver = await writeFakeCuaDriver(state, guiIntent ? 5_000 : 0);
     const computerUseHost = await writeFakeComputerUseHost(state);
     const session = await launchBuiltAutohand([
       '--path',
       state.workspaceRoot,
       '--config',
       state.configPath,
-      '--yes',
     ], {
       autohandHome: state.autohandHome,
       cwd: state.workspaceRoot,
@@ -271,25 +274,36 @@ describe('built native computer control', () => {
     });
     sessions.push(session);
     await session.text({ timeout: 20_000, waitFor: (text) => text.includes('❯') });
-    await session.type('use my spotify and play Felix Rosch');
+    if (previousMode === 'plan') {
+      await session.press(['shift', 'tab']);
+      await session.waitForText('● PLAN', { timeout: 5_000 });
+    }
+    await session.type(instruction);
     await session.press('enter');
+    await session.waitForText('● AUTO', { timeout: 15_000 });
     await session.text({
       timeout: 30_000,
       waitFor: (text) => text.includes('COMPUTER_CONTROL_TURN_COMPLETE'),
     });
+    const restored = await session.text({ timeout: 10_000, waitFor: text =>
+      text.includes('❯') && !text.includes('● AUTO')
+      && (previousMode === 'plan' ? text.includes('● PLAN') : !text.includes('● PLAN')) });
+    expect(restored).not.toContain('Allow once');
 
     const firstRequest = provider.requests[0] as {
       messages?: Array<{ role?: string; content?: string }>;
       tools?: Array<{ function?: { name?: string } }>;
     };
-    expect(firstRequest.tools?.map((tool) => tool.function?.name))
+    if (guiIntent) expect(firstRequest.tools?.map((tool) => tool.function?.name))
       .toContain('mcp__autohand-computer-use__list_windows');
     const userMessage = firstRequest.messages?.find((message) => message.role === 'user')?.content ?? '';
-    expect(userMessage).toBe('use my spotify and play Felix Rosch');
+    expect(userMessage).toBe(instruction);
     const turnContext = firstRequest.messages?.filter(message => message.role === 'system').map(message => message.content).join('\n') ?? '';
-    expect(turnContext).toContain('Computer control mode');
-    expect(turnContext).toContain('Operate one exact local app or window');
-    expect(turnContext).toContain('mcp__autohand-computer-use__');
+    if (guiIntent) {
+      expect(turnContext).toContain('Computer control mode');
+      expect(turnContext).toContain('Operate one exact local app or window');
+      expect(turnContext).toContain('mcp__autohand-computer-use__');
+    }
 
     const secondRequest = provider.requests[1] as {
       messages?: Array<{ role?: string; content?: string }>;
@@ -302,6 +316,39 @@ describe('built native computer control', () => {
     expect(JSON.stringify(provider.requests[2])).toContain('Spotify window 280 inspected');
     expect(session.readAll()).not.toContain('window_id is not a live window');
     expect(await readFile(state.configPath, 'utf8')).not.toContain('cua-driver');
+    await exitInteractive(session);
+  }, 45_000);
+
+  it('restores plan mode when a computer task is cancelled during inference', async () => {
+    const provider = await createMockAutohandAINativeSequenceServer([{ content: 'UNEXPECTED_COMPLETION' }], 4_000);
+    servers.push(provider);
+    const state = await createTempAutohandHome({ config: {
+      provider: 'autohandai',
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'tuistory-key', model: 'moa', baseUrl: provider.baseUrl },
+      features: { autohand_inference: true },
+      agent: { autoMemory: false, sessionRetryLimit: 0 },
+      network: { maxRetries: 0 },
+      ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+    } });
+    states.push(state);
+    const driver = await writeFakeCuaDriver(state);
+    const computerUseHost = await writeFakeComputerUseHost(state);
+    const session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot,
+      env: { AUTOHAND_DISABLE_COMPUTER_USE: '0', AUTOHAND_CUA_DRIVER_PATH: driver, AUTOHAND_COMPUTER_USE_APP_PATH: computerUseHost },
+    });
+    sessions.push(session);
+    await session.waitForText('❯', { timeout: 20_000 });
+    await session.press(['shift', 'tab']);
+    await session.waitForText('● PLAN', { timeout: 5_000 });
+    await session.type('open the Calculator app');
+    await session.press('enter');
+    await session.waitForText('● AUTO', { timeout: 15_000 });
+    await session.text({ timeout: 10_000, waitFor: () => provider.requests.length > 0 });
+    await session.press('escape');
+    const restored = await session.text({ timeout: 10_000, waitFor: text =>
+      text.includes('● PLAN') && !text.includes('● AUTO') });
+    expect(restored).not.toContain('UNEXPECTED_COMPLETION');
     await exitInteractive(session);
   }, 45_000);
 

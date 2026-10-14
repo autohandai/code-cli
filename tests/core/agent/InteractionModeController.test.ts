@@ -8,9 +8,54 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   InteractionModeController,
   INTERACTION_MODE_SEQUENCE,
+  type InteractionMode,
 } from '../../../src/core/agent/InteractionModeController.js';
 
 describe('InteractionModeController', () => {
+  function createController(initial: InteractionMode) {
+    const state = { plan: false, yolo: false, automode: false, profile: 'baseline' };
+    const controller = new InteractionModeController({
+      isPlanEnabled: () => state.plan,
+      isYoloEnabled: () => state.yolo,
+      isAutomodeEnabled: () => state.automode,
+      setPlanEnabled: enabled => { state.plan = enabled; },
+      setYoloEnabled: enabled => { state.yolo = enabled; },
+      setAutomodeEnabled: enabled => { state.automode = enabled; },
+      setPermissionProfile: profile => { state.profile = profile; },
+    });
+    controller.setMode(initial);
+    return { controller, state };
+  }
+
+  it.each(INTERACTION_MODE_SEQUENCE)('restores %s after temporary computer auto mode', previous => {
+    const { controller, state } = createController(previous);
+    const restore = controller.enterTemporaryMode('automode');
+    expect(controller.getMode()).toBe('automode');
+    expect(state.profile).toBe('unrestricted');
+    restore();
+    restore();
+    expect(controller.getMode()).toBe(previous);
+    expect(state.profile).toBe(previous === 'automode' || previous === 'yolo' ? 'unrestricted' : 'baseline');
+  });
+
+  it.each(INTERACTION_MODE_SEQUENCE)('preserves an explicit %s selection during computer auto mode', selected => {
+    const { controller } = createController('default');
+    const restore = controller.enterTemporaryMode('automode');
+    controller.setMode(selected);
+    restore();
+    expect(controller.getMode()).toBe(selected);
+  });
+
+  it('keeps an outer temporary mode active through a nested turn', () => {
+    const { controller } = createController('plan');
+    const restoreOuter = controller.enterTemporaryMode('automode');
+    const restoreInner = controller.enterTemporaryMode('automode');
+    restoreInner();
+    expect(controller.getMode()).toBe('automode');
+    restoreOuter();
+    expect(controller.getMode()).toBe('plan');
+  });
+
   it('cycles default, plan, automode, yolo, then back to default', () => {
     const state = {
       plan: false,

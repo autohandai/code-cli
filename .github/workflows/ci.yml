@@ -167,6 +167,15 @@ jobs:
         shell: pwsh
         run: bun run test -- tests/windowsInstaller.spec.ts
 
+      - name: Verify shared Computer Use mode and MCP contracts
+        run: >-
+          node ./node_modules/vitest/vitest.mjs run
+          tests/core/agent/InteractionModeController.test.ts
+          tests/core/agent/InstructionRunner.command-mode.test.ts
+          tests/toolManager.spec.ts
+          tests/mcp/stdioConnectionEnv.test.ts
+          -t "InteractionModeController|MCP stdio|computer auto|enters auto mode|discovered native action|explicitly denied native action|ordinary writes restricted|preserves explicit.*computer task|source work or absent native"
+
       - name: Build
         run: bun run build
 

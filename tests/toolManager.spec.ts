@@ -13,6 +13,7 @@ import {
   type ToolManagerOptions,
 } from '../src/core/toolManager.js';
 import { PermissionManager } from '../src/permissions/PermissionManager.js';
+import { getPlanModeManager } from '../src/commands/plan.js';
 import type { HookExecutionResult } from '../src/core/HookManager.js';
 
 const noopDefinitions = [
@@ -673,6 +674,88 @@ describe('ToolManager', () => {
       expect(result.success).toBe(false);
       expect(confirmApproval).not.toHaveBeenCalled();
       expect(executor).not.toHaveBeenCalled();
+    });
+
+    it('applies the computer turn mode before prompting for the first discovered native action', async () => {
+      const permissionManager = new PermissionManager({ mode: 'interactive' });
+      const executor = vi.fn().mockResolvedValue({ success: true, output: 'clicked' });
+      const confirmApproval = vi.fn().mockResolvedValue({ decision: 'deny' });
+      const onToolRequested = vi.fn(() => {
+        permissionManager.setMode('unrestricted');
+        return true;
+      });
+      const manager = new ToolManager({
+        executor, confirmApproval, onToolRequested,
+        definitions: [{ name: 'mcp__autohand-computer-use__click', description: 'click', requiresApproval: true }],
+        authorization: { permissionManager },
+      });
+      const [result] = await manager.execute([{ tool: 'mcp__autohand-computer-use__click', args: {} }]);
+      expect(result.success).toBe(true);
+      expect(onToolRequested).toHaveBeenCalledExactlyOnceWith('mcp__autohand-computer-use__click');
+      expect(confirmApproval).not.toHaveBeenCalled();
+      expect(executor).toHaveBeenCalledOnce();
+    });
+
+    it('does not change turn mode or execute an explicitly denied native action', async () => {
+      const permissionManager = new PermissionManager({
+        mode: 'interactive', denyPatterns: [{ kind: 'mcp__autohand-computer-use__click' }],
+      });
+      const executor = vi.fn();
+      const confirmApproval = vi.fn();
+      const onToolRequested = vi.fn(() => true);
+      const manager = new ToolManager({
+        executor, confirmApproval, onToolRequested,
+        definitions: [{ name: 'mcp__autohand-computer-use__click', description: 'click', requiresApproval: true }],
+        authorization: { permissionManager },
+      });
+      const [result] = await manager.execute([{ tool: 'mcp__autohand-computer-use__click', args: {} }]);
+      expect(result.success).toBe(false);
+      expect(onToolRequested).not.toHaveBeenCalled();
+      expect(confirmApproval).not.toHaveBeenCalled();
+      expect(executor).not.toHaveBeenCalled();
+    });
+
+    it('leaves plan mode before the first discovered native action and subsequent calls', async () => {
+      const plan = getPlanModeManager();
+      plan.enable();
+      const permissionManager = new PermissionManager({ mode: 'interactive' });
+      const executor = vi.fn().mockResolvedValue({ success: true, output: 'clicked' });
+      const confirmApproval = vi.fn();
+      const onToolRequested = vi.fn(() => {
+        if (!plan.isEnabled()) return false;
+        plan.disable();
+        permissionManager.setMode('unrestricted');
+        return true;
+      });
+      const manager = new ToolManager({ executor, confirmApproval, onToolRequested,
+        definitions: [{ name: 'mcp__autohand-computer-use__click', description: 'click', requiresApproval: true }],
+        authorization: { permissionManager } });
+      try {
+        const results = await manager.execute([
+          { tool: 'mcp__autohand-computer-use__click', args: {} },
+          { tool: 'mcp__autohand-computer-use__click', args: {} },
+        ]);
+        expect(results.map(result => result.success)).toEqual([true, true]);
+        expect(confirmApproval).not.toHaveBeenCalled();
+        expect(executor).toHaveBeenCalledTimes(2);
+      } finally { plan.disable(); }
+    });
+
+    it('keeps ordinary writes restricted while plan mode remains enabled', async () => {
+      const plan = getPlanModeManager();
+      plan.enable();
+      const executor = vi.fn();
+      const confirmApproval = vi.fn();
+      const manager = new ToolManager({ executor, confirmApproval,
+        definitions: [{ name: 'write_file', description: 'write', requiresApproval: true }],
+        authorization: { permissionManager: new PermissionManager({ mode: 'unrestricted' }) } });
+      try {
+        const [result] = await manager.execute([{ tool: 'write_file', args: { path: 'file.txt', contents: 'hello' } }]);
+        expect(result.error).toContain('not available in plan mode');
+        expect(executor).not.toHaveBeenCalled();
+        expect(confirmApproval).not.toHaveBeenCalled();
+        expect(plan.isEnabled()).toBe(true);
+      } finally { plan.disable(); }
     });
 
     it('keeps safe default-policy tools prompt-free', async () => {

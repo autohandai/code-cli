@@ -120,6 +120,63 @@ function createHost(): AgentInstructionHost {
 }
 
 describe('InstructionRunner command mode UI', () => {
+  it.each(['finished', 'failed', 'cancelled'] as const)('uses computer auto mode and restores it when %s', async status => {
+    const host = createHost();
+    let mode = 'default';
+    const restore = vi.fn(() => { mode = 'default'; });
+    const begin = vi.fn(() => { mode = 'automode'; return restore; });
+    Object.assign(host, { beginComputerUseAutoMode: begin });
+    host.runtimeMcpServers = [{ name: 'autohand-computer-use', transport: 'stdio', command: 'fixture-driver' }];
+    host.runReactLoop = vi.fn(async controller => {
+      expect(mode).toBe('automode');
+      if (status === 'failed') throw new Error('fixture failed');
+      if (status === 'cancelled') controller.abort();
+      return { status: status === 'cancelled' ? 'aborted' : 'completed' };
+    });
+    expect(await new InstructionRunner(host).run('open my browser')).toBe(status === 'finished');
+    expect(begin).toHaveBeenCalledOnce();
+    expect(restore).toHaveBeenCalledOnce();
+    expect(mode).toBe('default');
+  });
+
+  it.each(['restricted', 'dryRun'] as const)('preserves explicit %s for a computer task', async flag => {
+    const host = createHost();
+    host.runtime.options[flag] = true;
+    host.runtimeMcpServers = [{ name: 'autohand-computer-use', transport: 'stdio', command: 'fixture-driver' }];
+    const begin = vi.fn(() => vi.fn());
+    Object.assign(host, { beginComputerUseAutoMode: begin });
+    expect(await new InstructionRunner(host).run('open my browser')).toBe(true);
+    expect(begin).not.toHaveBeenCalled();
+  });
+
+  it('enters auto mode once for a native action discovered during an ordinary turn', async () => {
+    const host = createHost();
+    const restore = vi.fn();
+    const begin = vi.fn(() => restore);
+    Object.assign(host, { beginComputerUseAutoMode: begin });
+    const runner = new InstructionRunner(host);
+    host.runReactLoop = vi.fn(async () => {
+      runner.activateComputerUseAutoMode();
+      runner.activateComputerUseAutoMode();
+      expect(begin).toHaveBeenCalledOnce();
+      return { status: 'completed' };
+    });
+    expect(await runner.run('inspect the current state')).toBe(true);
+    expect(restore).toHaveBeenCalledOnce();
+    runner.activateComputerUseAutoMode();
+    expect(begin).toHaveBeenCalledOnce();
+  });
+
+  it('does not enter computer auto mode for source work or absent native control', async () => {
+    const host = createHost();
+    const begin = vi.fn(() => vi.fn());
+    Object.assign(host, { beginComputerUseAutoMode: begin });
+    const runner = new InstructionRunner(host);
+    expect(await runner.run('build a browser extension')).toBe(true);
+    expect(await runner.run('open my browser')).toBe(true);
+    expect(begin).not.toHaveBeenCalled();
+  });
+
   it.each(['finished', 'failed', 'cancelled'] as const)('settles the Computer Use lifecycle once when the turn is %s', async status => {
     const host = createHost();
     const manager = new HookManager({ workspaceRoot: '/tmp', settings: { enabled: false } });
@@ -204,15 +261,22 @@ describe('InstructionRunner command mode UI', () => {
 
   it('completes provider setup cleanup before retrying within the same admitted turn', async () => {
     const host = createHost();
+    const restore = vi.fn();
+    const begin = vi.fn(() => restore);
+    Object.assign(host, { beginComputerUseAutoMode: begin,
+      runtimeMcpServers: [{ name: 'autohand-computer-use', transport: 'stdio', command: 'cua-driver' }] });
     host.runtime.isCommandMode = false;
     host.runtime.options.prompt = undefined;
     vi.mocked(host.providerConfigManager.promptModelSelection).mockResolvedValue(true);
     vi.mocked(host.runReactLoop).mockRejectedValueOnce(new ProviderNotConfiguredError('openai')).mockImplementationOnce(async () => {
+      expect(begin).toHaveBeenCalledOnce();
+      expect(restore).not.toHaveBeenCalled();
       expect(host.cleanupUI).toHaveBeenCalled();
       expect(host.isInstructionActive).toBe(true);
       return { status: 'completed' };
     });
-    expect(await new InstructionRunner(host).run('retry provider setup')).toBe(true);
+    expect(await new InstructionRunner(host).run('open my browser')).toBe(true);
+    expect(restore).toHaveBeenCalledOnce();
     expect(host.runInstruction).not.toHaveBeenCalled();
     expect(host.runReactLoop).toHaveBeenCalledTimes(2);
     expect(host.isInstructionActive).toBe(false);
@@ -257,10 +321,14 @@ describe('InstructionRunner command mode UI', () => {
 
   it('runs pre-prompt before side effects and respects hook denial', async () => {
     const host = createHost();
+    const begin = vi.fn(() => vi.fn());
+    Object.assign(host, { beginComputerUseAutoMode: begin,
+      runtimeMcpServers: [{ name: 'autohand-computer-use', transport: 'stdio', command: 'cua-driver' }] });
     host.hookManager = new HookManager({ workspaceRoot: '/tmp', settings: { hooks: [{
       event: 'pre-prompt', command: `printf '%s' '{"decision":"block","reason":"PROMPT_BLOCKED"}'`,
     }] } });
-    expect(await new InstructionRunner(host).run('blocked prompt')).toBe(false);
+    expect(await new InstructionRunner(host).run('open my browser')).toBe(false);
+    expect(begin).not.toHaveBeenCalled();
     expect(host.buildTurnContext).not.toHaveBeenCalled();
     expect(host.runReactLoop).not.toHaveBeenCalled();
     expect(host.runEnvironmentBootstrap).not.toHaveBeenCalled();
