@@ -83,6 +83,10 @@ The composer identifies a signed-in account as `Autohand (Free)`, `Autohand (Pro
 
 Fantail and Moa use native tool calling in the main agent, delegated agents, parallel agents, and teammates. Autohand preserves matching tool-call IDs and results across model turns; if an observation disappears or repeated calls stop making progress, the runtime withholds further tools and asks the model to finish from the evidence already available.
 
+If a cloud stream closes before its completion event, the CLI preserves partial text and completed tool results, then requests bounded continuation with that history. Calls from the interrupted response are not executed. The accepted HTTP request is not replayed by the transport; continued provider truncation stops the turn without marking the task complete.
+
+Moa checkpoint reviews retry an empty or truncated verdict once with a larger output budget. An unavailable review receives one further attempt before the turn pauses. Staging, committing, and completion still require a valid approval; malformed or partial JSON cannot approve a checkpoint. Each review attempt counts toward the run budget and usage.
+
 Cloud mode uses the OpenAI-compatible `/chat/completions` API and defaults to temperature `0.1`.
 
 | Model | Notes |
