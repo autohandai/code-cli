@@ -947,8 +947,9 @@
       "verificationFailedStatus": "Provider verification failed with HTTP {{status}}.",
       "verificationFailedHint": "Check the base URL, API key, and that the endpoint implements the OpenAI-compatible /models API.",
       "verificationNetworkError": "Provider verification failed because Autohand could not reach the endpoint.",
-      "modelNotFound": "Provider verification failed because model {{model}} was not returned by /models.",
-      "modelNotFoundHint": "Available models include: {{models}}"
+      "modelNotFound": "Model {{model}} was not returned by /models. Some providers, such as routers and gateways, accept model names they don't list.",
+      "modelNotFoundHint": "Available models include: {{models}}",
+      "saveAnyway": "Save this provider with model {{model}} anyway?"
     },
     "wizard": {
       "openrouter": {
