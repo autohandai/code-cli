@@ -720,6 +720,41 @@ describe('ClaudeImporter', () => {
       expect(fse.copy).toHaveBeenCalledTimes(2);
     });
 
+    it('should count folder skills but leave them in place', async () => {
+      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+        const s = String(p);
+        if (s === CLAUDE_HOME) return true;
+        if (s === path.join(CLAUDE_HOME, 'skills')) return true;
+        if (s === path.join(CLAUDE_HOME, 'skills', 'pr-summary', 'SKILL.md')) return true;
+        return false;
+      });
+
+      vi.mocked(fse.readdir).mockImplementation(async (p: string) => {
+        const s = String(p);
+        if (s === path.join(CLAUDE_HOME, 'skills')) {
+          return [
+            { name: 'pr-summary', isDirectory: () => true, isFile: () => false },
+            { name: 'notes', isDirectory: () => true, isFile: () => false },
+            { name: 'skill1.md', isDirectory: () => false, isFile: () => true },
+          ] as any;
+        }
+        return [];
+      });
+
+      const scan = await importer.scan();
+      expect(scan.available.get('skills')!.count).toBe(2);
+
+      const result = await importer.import(['skills']);
+      const skills = result.imported.get('skills');
+      expect(skills).toEqual({
+        success: 1,
+        failed: 0,
+        skipped: 1,
+        skipReasons: { 'already available from ~/.claude/skills': 1 },
+      });
+      expect(fse.copy).toHaveBeenCalledTimes(1);
+    });
+
     it('should handle missing skills directory gracefully', async () => {
       vi.mocked(fse.pathExists).mockResolvedValue(false as never);
 

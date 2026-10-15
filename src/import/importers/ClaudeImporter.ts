@@ -102,12 +102,12 @@ export class ClaudeImporter extends BaseImporter {
     // Check skills
     const skillsDir = path.join(home, 'skills');
     if (await fse.pathExists(skillsDir)) {
-      const skillEntries = await fse.readdir(skillsDir, { withFileTypes: true }) as unknown as Array<{ name: string; isFile(): boolean }>;
-      const skillFiles = skillEntries.filter(e => e.isFile());
-      if (skillFiles.length > 0) {
+      const { files, folders } = await this.listSkills(skillsDir);
+      const skillCount = files.length + folders.length;
+      if (skillCount > 0) {
         available.set('skills', {
-          count: skillFiles.length,
-          description: `${skillFiles.length} skill file${skillFiles.length !== 1 ? 's' : ''}`,
+          count: skillCount,
+          description: `${skillCount} skill${skillCount !== 1 ? 's' : ''}`,
         });
       }
     }
@@ -392,8 +392,7 @@ export class ClaudeImporter extends BaseImporter {
       return;
     }
 
-    const entries = await fse.readdir(skillsDir, { withFileTypes: true }) as unknown as Array<{ name: string; isFile(): boolean }>;
-    const skillFiles = entries.filter(e => e.isFile());
+    const { files: skillFiles, folders: skillFolders } = await this.listSkills(skillsDir);
 
     let success = 0;
     let failed = 0;
@@ -428,7 +427,27 @@ export class ClaudeImporter extends BaseImporter {
       }
     }
 
-    imported.set('skills', { success, failed, skipped: 0 });
+    // Folder skills (skills/<name>/SKILL.md) are loaded in place from ~/.claude/skills,
+    // so copying them would only create duplicates.
+    const skipped = skillFolders.length;
+    imported.set('skills', {
+      success,
+      failed,
+      skipped,
+      ...(skipped > 0 ? { skipReasons: { 'already available from ~/.claude/skills': skipped } } : {}),
+    });
+  }
+
+  private async listSkills(skillsDir: string): Promise<{ files: Array<{ name: string }>; folders: Array<{ name: string }> }> {
+    const entries = await fse.readdir(skillsDir, { withFileTypes: true }) as unknown as Array<{ name: string; isFile(): boolean; isDirectory(): boolean }>;
+    const files = entries.filter(e => e.isFile());
+    const folders: Array<{ name: string }> = [];
+    for (const entry of entries) {
+      if (entry.isDirectory() && await fse.pathExists(path.join(skillsDir, entry.name, 'SKILL.md'))) {
+        folders.push(entry);
+      }
+    }
+    return { files, folders };
   }
 
   // ---------------------------------------------------------------

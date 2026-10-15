@@ -1541,7 +1541,8 @@ program
       source: source as any,
       categories: opts.categories as any,
       all: opts.all,
-      dryRun: opts.dryRun,
+      // The global --dry-run option claims the flag before the subcommand sees it.
+      dryRun: opts.dryRun || program.opts<CLIOptions>().dryRun,
       retryFailed: opts.retryFailed,
     });
     process.exit(0);
