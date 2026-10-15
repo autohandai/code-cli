@@ -29,6 +29,7 @@ vi.mock('../../src/config.js', () => ({
 vi.mock('../../src/browser/chrome.js', () => ({
   applyChromeSettings: mocks.applyChromeSettings,
   buildChromeOpenUrl: vi.fn(() => 'about:blank'),
+  CHROME_WEB_STORE_EXTENSION_ID: 'lljmbfgiogeolajngfkodakhlglkipbj',
   DEFAULT_CHROME_INSTALL_URL: 'https://autohand.ai/chrome/installed',
   detectExtensionProfile: vi.fn(async () => null),
   installNativeHost: mocks.installNativeHost,
@@ -62,6 +63,36 @@ describe('browser install command routing', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it('pairs the native host with the Chrome Web Store extension when no id is given', async () => {
+    await createProgram().parseAsync(['node', 'autohand', 'browser', 'install']);
+
+    expect(mocks.installNativeHost).toHaveBeenCalledWith(
+      expect.objectContaining({ extensionIds: ['lljmbfgiogeolajngfkodakhlglkipbj'] }),
+    );
+    expect(mocks.applyChromeSettings).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ extensionId: 'lljmbfgiogeolajngfkodakhlglkipbj' }),
+    );
+  });
+
+  it('prefers an explicit --extension-id over the store default', async () => {
+    await createProgram().parseAsync(['node', 'autohand', 'browser', 'install', '--extension-id', 'unpackedid']);
+
+    expect(mocks.installNativeHost).toHaveBeenCalledWith(
+      expect.objectContaining({ extensionIds: ['unpackedid'] }),
+    );
+  });
+
+  it('prefers a configured extension id over the store default', async () => {
+    mocks.loadConfig.mockResolvedValueOnce({ chrome: { extensionId: 'configuredid' } } as never);
+
+    await createProgram().parseAsync(['node', 'autohand', 'browser', 'install']);
+
+    expect(mocks.installNativeHost).toHaveBeenCalledWith(
+      expect.objectContaining({ extensionIds: ['configuredid'] }),
+    );
   });
 
   it('routes the hidden Chrome command and emits a migration warning', async () => {
