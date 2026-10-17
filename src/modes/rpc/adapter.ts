@@ -451,6 +451,7 @@ export class RPCAdapter {
       contextPercent: this.contextPercent,
     });
     this.emitHookSessionStart('startup');
+    agent.programStatus?.start();
   }
 
   /**
@@ -1800,6 +1801,13 @@ export class RPCAdapter {
     if (this.shuttingDown || this.notificationsSealed) return;
 
     switch (context.event) {
+      case 'program-status':
+        if (context.programStatus) {
+          writeNotification(RPC_NOTIFICATIONS.HOOK_PROGRAM_STATUS, {
+            ...context.programStatus, timestamp: createTimestamp(),
+          });
+        }
+        break;
       case 'pre-tool':
         this.emitHookPreTool(context.toolCallId ?? '', context.tool ?? '', context.args ?? {});
         break;
@@ -3221,6 +3229,7 @@ export class RPCAdapter {
     });
 
     try {
+      this.agent?.programStatus?.dispose();
       this.shuttingDown = true;
       this.hookLifecycleUnsubscribe?.();
       this.hookLifecycleUnsubscribe = null;

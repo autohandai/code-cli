@@ -1,5 +1,5 @@
 import type { SessionMessage } from '../../session/types.js';
-import type { ToolOutputChunk } from '../../types.js';
+import type { ToolExecutionResult, ToolOutputChunk } from '../../types.js';
 
 export interface AgentToolOutputRuntimeHost {
   sessionManager: {
@@ -73,4 +73,11 @@ export async function saveAgentToolMessage(
     tool_call_id: toolCallId,
   };
   await session.append(message);
+}
+
+export function formatToolObservation(result: ToolExecutionResult): string {
+  if (result.success) return result.output ?? '(no output)';
+  if (!result.output) return result.error ?? 'Tool failed without error message';
+  if (!result.error || result.output.includes(result.error)) return result.output;
+  return `${result.error}\n${result.output}`;
 }

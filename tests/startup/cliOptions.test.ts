@@ -154,7 +154,7 @@ describe('CLI option normalization', () => {
     Reflect.set(options, 'searchEngine', 'unknown');
 
     expect(normalizeSearchEngineOption(options)).toBe(
-      'Invalid search engine: unknown. Valid options: browser-profile, exa, google, brave, duckduckgo, parallel',
+      'Invalid search engine: unknown. Valid options: autohand, browser-profile, exa, google, brave, duckduckgo, parallel',
     );
     expect(options).toMatchObject({
       path: '../workspace',

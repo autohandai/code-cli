@@ -126,21 +126,25 @@ describe('slash command dispatch – output vs instruction', () => {
     expect(await handler.handle('/handoff web')).toContain('/login');
   });
 
-  it('/handoff is registered with both surfaces as subcommands', () => {
+  it('/handoff registers Cloud, Web, and local session surfaces', () => {
     const handoff = SLASH_COMMANDS.find((cmd) => cmd.command === '/handoff');
     expect(handoff?.implemented).toBe(true);
-    expect(handoff?.subcommands?.map((sub) => sub.name)).toEqual(['web', 'session']);
+    expect(handoff?.subcommands?.map((sub) => sub.name)).toEqual(['cloud', 'web', 'session']);
   });
 
-  it('bare /handoff lists the surfaces instead of handing off', async () => {
+  it('bare /handoff enters the authenticated cloud handoff flow', async () => {
     const handler = new SlashCommandHandler(createMinimalContext(), SLASH_COMMANDS);
     expect(handler.isCommandSupported('/handoff')).toBe(true);
 
     const result = await handler.handle('/handoff');
 
-    expect(result).toContain('/handoff web');
-    expect(result).toContain('/handoff session');
-    expect(result).not.toContain('/login');
+    expect(result).toBe('Sign in first with /login, then run /cloud.');
+  });
+
+  it('/handoff --help lists all surfaces without starting a transfer', async () => {
+    const handler = new SlashCommandHandler(createMinimalContext(), SLASH_COMMANDS);
+    const result = await handler.handle('/handoff', ['--help']);
+    for (const surface of ['cloud', 'web', 'session']) expect(result).toContain(`/handoff ${surface}`);
   });
 
   it('/handoff web runs the web handoff when the surface arrives as an argument', async () => {

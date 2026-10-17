@@ -249,6 +249,7 @@ const HOOK_EVENTS = new Set<HookEvent>([
   'context:overflow',
   'context:warning',
   'context:critical',
+  'program-status',
 ]);
 
 function errorMessage(error: unknown): string {

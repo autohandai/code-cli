@@ -355,11 +355,18 @@ export class GoalManager {
     return this.withMutation(() => this.updateGoalUnlocked(input));
   }
 
-  private async updateGoalUnlocked(input: GoalUpdateInput): Promise<GoalMutationResult> {
+  async prepareGoalCompletion(input: Omit<GoalUpdateInput, 'status'>): Promise<GoalMutationResult> {
+    return this.withMutation(() => this.updateGoalUnlocked({ ...input, status: 'complete' }, true));
+  }
+
+  private async updateGoalUnlocked(input: GoalUpdateInput, prepareOnly = false): Promise<GoalMutationResult> {
     const snapshot = await this.readSnapshot();
     const key = this.goalKey();
     const current = snapshot.goals[key] ? this.withLiveElapsed(snapshot.goals[key]) : null;
     if (!current) return this.result(snapshot, false, 'No goal exists for this session to update.');
+    if (input.expectedGoalId !== undefined && current.goalId !== input.expectedGoalId) {
+      return this.result(snapshot, false, 'The active goal changed before completion. The current goal was not modified.');
+    }
     if (input.completionEvidence !== undefined && input.status !== 'complete') {
       return this.result(snapshot, false, 'completion evidence can only be submitted when completing a goal.');
     }
@@ -432,6 +439,12 @@ export class GoalManager {
 
     if (next.status === 'complete') {
       if (current.status === 'complete') return this.result({ ...snapshot, goals: { ...snapshot.goals, [key]: current } }, false, 'Goal is already complete.');
+      if (prepareOnly) {
+        return this.result(snapshot, true,
+          'Goal completion prepared. The goal remains active until its final response is reviewed and delivered.',
+          { completionPending: true },
+        );
+      }
       const completedGoal = buildCompletedGoal(next, Date.now(), key);
       const completedRun = [...snapshot.completed.filter((item) => item.goalId !== completedGoal.goalId), completedGoal];
       next = { ...next, updatedAt: Date.now() };

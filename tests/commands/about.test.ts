@@ -44,13 +44,13 @@ describe('/about command', () => {
     expect(output).not.toContain('here are a few suggestions');
   });
 
-  it('uses terminal-width-aware logo art', async () => {
+  it('uses a fitting wordmark when the terminal is too narrow for logo art', async () => {
     const { about } = await import('../../src/commands/about.js');
 
     const output = await about({ terminalColumns: 12 });
     const logoLines = output!.split('\n').slice(0, 2);
 
-    expect(logoLines).toEqual(['o o o o', 'o o o o']);
+    expect(logoLines).toEqual(['autohand', '']);
     expect(logoLines.every((line) => stringWidth(line) <= 12)).toBe(true);
   });
 });

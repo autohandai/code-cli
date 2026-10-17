@@ -74,10 +74,12 @@ export const HOOK_EVENTS: HookEvent[] = [
   'context:overflow',
   'context:warning',
   'context:critical',
+  'program-status',
 ];
 
 // Event descriptions for better UX
 export const EVENT_DESCRIPTIONS: Record<HookEvent, string> = {
+  'program-status': 'When the agent starts, works, waits for input, finishes, fails, or clears its status',
   'session-start': 'When a session begins',
   'session-end': 'When a session ends',
   'pre-clear': 'Before memory extraction on /clear or /new',

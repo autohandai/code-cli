@@ -159,6 +159,17 @@ describe('getProviderConfig', () => {
     }
   });
 
+  it('validates the background repository readiness opt-out', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
+    const configPath = path.join(tempDir, 'config.json');
+    try {
+      await fs.writeJson(configPath, { provider: 'openrouter', ui: { repositoryReadiness: false } });
+      expect((await loadConfig(configPath)).ui?.repositoryReadiness).toBe(false);
+      await fs.writeJson(configPath, { provider: 'openrouter', ui: { repositoryReadiness: 'yes' } });
+      await expect(loadConfig(configPath)).rejects.toThrow('ui.repositoryReadiness must be boolean');
+    } finally { await fs.remove(tempDir); }
+  });
+
   it('rejects non-boolean completion report config values', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
     const configPath = path.join(tempDir, 'config.json');

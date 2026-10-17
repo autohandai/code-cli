@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import path from 'node:path';
 import fs from 'fs-extra';
 import type { Session } from 'tuistory';
-import { chooseOlderResumeSession, chooseResumeSession, seedResumeScenario } from '../../src/testing/scenarios/resumeScenario.js';
+import { chooseOlderResumeSession, chooseResumeSession, runMarkdownResumeScenario, seedMarkdownResumeScenario, seedResumeScenario } from '../../src/testing/scenarios/resumeScenario.js';
 import {
   createTempAutohandHome, exitInteractive, launchBuiltAutohand, waitForExit,
   type TuistoryTempState,
@@ -37,6 +37,22 @@ async function launch(args: string[], seed = true, olderSessionCount = 0) {
 }
 
 describe('resume startup Tuistory', () => {
+  it('restores long markdown history without resize warnings and keeps the resized composer usable', async () => {
+    const state = await createTempAutohandHome({ config: { ui: { promptSuggestions: false } } });
+    states.push(state);
+    const id = await seedMarkdownResumeScenario(state.autohandHome, state.workspaceRoot);
+    const session = await launchBuiltAutohand(['resume', id, '--config', state.configPath, '--offline'], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, cols: 120, rows: 36,
+    });
+    sessions.push(session);
+    const screen = await runMarkdownResumeScenario(session);
+    expect(screen.split('\n').find(line => line.includes('❯ restored history draft'))?.trim())
+      .toMatchInlineSnapshot('"❯ restored history draft"');
+    await exitInteractive(session);
+    expect(session.getRawOutput()).not.toContain('MaxListenersExceededWarning');
+    expect(session.exitInfo?.exitCode).toBe(0);
+  });
+
   it('documents optional references, --last, and --all in command help', async () => {
     const { session } = await launch(['--help'], false);
     await waitForExit(session);

@@ -975,12 +975,32 @@ export class McpClientManager {
       throw new McpConnectionCancelledError();
     }
 
-    if (config.transport === 'stdio') {
-      await this.connectStdio(config, generation);
-    } else if (config.transport === 'http') {
-      await this.connectHttp(config, generation);
-    } else if (config.transport === 'sse') {
-      await this.connectSse(config);
+    try {
+      if (config.transport === 'stdio') {
+        await this.connectStdio(config, generation);
+      } else if (config.transport === 'http') {
+        await this.connectHttp(config, generation);
+      } else if (config.transport === 'sse') {
+        await this.connectSse(config);
+      }
+    } catch (error) {
+      if (error instanceof McpConnectionCancelledError) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (config.transport === 'http' && config.name.toLowerCase().includes('figma') && config.url) {
+        const url = URL.canParse(config.url) ? new URL(config.url) : null;
+        if (url && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) && url.port === '3845') {
+          throw new Error(`${message}\nEnable the desktop MCP server in Figma with a Design file open in Dev Mode. Use HTTP at http://127.0.0.1:3845/mcp, then reconnect. The configuration was not changed.`, { cause: error });
+        }
+      }
+      if (config.transport === 'stdio' && /(?:^|[/\\])docker(?:\.exe)?$/i.test(config.command ?? '')) {
+        if (config.args?.some(arg => arg.startsWith('ghcr.io/github/github-mcp-server')) && /denied|unauthorized/i.test(message)) {
+          throw new Error(`${message}\nGitHub MCP image pull was denied. The official image is public; verify GHCR access and stored registry credentials before reconnecting. No credentials were changed.`, { cause: error });
+        }
+        if (/timed out|daemon|connect/i.test(message)) {
+          throw new Error(`${message}\nVerify Docker daemon health with docker info, then reconnect this MCP server after Docker is ready.`, { cause: error });
+        }
+      }
+      throw error;
     }
   }
 
@@ -1287,7 +1307,9 @@ export class McpClientManager {
       return await this.connectStdioWithFraming(config, 'content-length', generation);
     } catch (contentLengthError) {
       if (contentLengthError instanceof McpConnectionCancelledError) throw contentLengthError;
-      if (!this.shouldRetryWithNewlineFraming(contentLengthError)) {
+      const dockerLaunchFailure = /(?:^|[/\\])docker(?:\.exe)?$/i.test(config.command ?? '')
+        && contentLengthError instanceof Error && /server exited with code (?:125|126|127)\b/.test(contentLengthError.message);
+      if (dockerLaunchFailure || !this.shouldRetryWithNewlineFraming(contentLengthError)) {
         throw contentLengthError;
       }
 

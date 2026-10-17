@@ -503,7 +503,14 @@ export class LLMGatewayClient {
       }
     }
 
-    const json = (await response.json()) as any;
+    const json = (await response.json().catch(() => {
+      const requestId = headers['x-autohand-client-request-id'];
+      throw new ApiError(
+        `${this.errorLabels.serviceName} returned invalid HTTP JSON (stage=http-json; HTTP ${response.status}).`
+          + (requestId ? ` The accepted request was not replayed. Check /usage before retrying. Request ID: ${requestId}.` : ''),
+        'server_error', response.status, false,
+      );
+    })) as any;
     const message = json?.choices?.[0]?.message;
     const inline = splitInlineThinking(message?.content ?? "");
     const reasoning = joinReasoning(message?.reasoning ?? message?.reasoning_content, inline.reasoning);

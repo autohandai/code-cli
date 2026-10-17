@@ -225,9 +225,42 @@ describe('Theme', () => {
 
 describe('detectColorMode()', () => {
   const originalEnv = { ...process.env };
+  const originalTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+
+  beforeEach(() => {
+    delete process.env.NO_COLOR;
+    delete process.env.FORCE_COLOR;
+    delete process.env.COLORTERM;
+    delete process.env.TERM;
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+  });
 
   afterEach(() => {
     process.env = { ...originalEnv };
+    if (originalTTYDescriptor) {
+      Object.defineProperty(process.stdout, 'isTTY', originalTTYDescriptor);
+    } else {
+      delete (process.stdout as { isTTY?: boolean }).isTTY;
+    }
+  });
+
+  it.each([
+    { forceColor: undefined, colorterm: undefined },
+    { forceColor: undefined, colorterm: 'truecolor' },
+    { forceColor: undefined, colorterm: '24bit' },
+    { forceColor: '1', colorterm: undefined },
+    { forceColor: '2', colorterm: undefined },
+    { forceColor: '3', colorterm: 'truecolor' },
+  ])('keeps a dumb terminal monochrome with FORCE_COLOR=$forceColor and COLORTERM=$colorterm', ({ forceColor, colorterm }) => {
+    process.env.TERM = 'dumb';
+    if (forceColor !== undefined) process.env.FORCE_COLOR = forceColor;
+    if (colorterm !== undefined) process.env.COLORTERM = colorterm;
+
+    expect(detectColorMode()).toBe('none');
+    const theme = new Theme('dumb-terminal', createMockColors());
+    expect(theme.fg('accent', 'Sign in')).toBe('Sign in');
+    expect(theme.bg('userMessageBg', 'Sign in')).toBe('Sign in');
+    expect(theme.fgBg('text', 'userMessageBg', 'Sign in')).toBe('Sign in');
   });
 
   it('returns none when NO_COLOR is set', () => {

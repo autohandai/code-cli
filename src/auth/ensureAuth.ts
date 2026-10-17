@@ -6,16 +6,18 @@
  * Mandatory authentication gate for CLI startup
  */
 import chalk from 'chalk';
+import { createElement } from 'react';
 import { AuthClient } from './AuthClient.js';
 import { isDurableAuthCredential } from './credentialType.js';
 import { loadConfig } from '../config.js';
 import { showModal } from '../ui/ink/components/Modal.js';
-import { getTerminalColumns, renderAutohandLogo } from '../utils/asciiArt.js';
+import { AutohandBrand } from '../ui/ink/components/AutohandBrand.js';
 import { checkForUpdates } from '../utils/versionCheck.js';
 import packageJson from '../../package.json' with { type: 'json' };
 import type { LoadedConfig } from '../types.js';
 import { spawn, spawnSync } from 'node:child_process';
 import { platform } from 'node:os';
+import { withProgramStatusAuthentication } from '../core/agent/AgentProgramStatus.js';
 
 /**
  * Get git commit hash (short)
@@ -120,7 +122,7 @@ async function runUpgrade(): Promise<void> {
  */
 export async function ensureAuthenticated(
   config: LoadedConfig,
-  options: { bare?: boolean } = {}
+  options: { bare?: boolean; onLoginPromptShown?: () => void } = {}
 ): Promise<LoadedConfig> {
   if (options.bare) {
     const token = resolveBareModeApiKey(config);
@@ -141,7 +143,7 @@ export async function ensureAuthenticated(
   if (config.auth?.token) {
     if (isTokenExpiredLocally(config)) {
       // Expired locally — skip server check, go straight to login
-      return await promptLogin(config);
+      return await withProgramStatusAuthentication(() => promptLogin(config, options.onLoginPromptShown));
     }
 
     // Trust locally unexpired tokens on the startup path. runCLI starts a
@@ -151,7 +153,7 @@ export async function ensureAuthenticated(
   }
 
   // No token at all — need to login
-  return await promptLogin(config);
+  return await withProgramStatusAuthentication(() => promptLogin(config, options.onLoginPromptShown));
 }
 
 function resolveBareModeApiKey(config: LoadedConfig): string | null {
@@ -223,7 +225,7 @@ function isTokenExpiredLocally(config: LoadedConfig): boolean {
  * Print a message and launch the interactive login flow.
  * Reloads config after login. Exits if login fails.
  */
-async function promptLogin(config: LoadedConfig): Promise<LoadedConfig> {
+async function promptLogin(config: LoadedConfig, onLoginPromptShown?: () => void): Promise<LoadedConfig> {
   // Show modal with logo and login/exit options
   if (process.stdout.isTTY) {
     const commit = await getGitCommit();
@@ -244,12 +246,6 @@ async function promptLogin(config: LoadedConfig): Promise<LoadedConfig> {
       // Silently fail version check
     }
 
-    const logo = renderAutohandLogo({
-      columns: getTerminalColumns(process.stdout),
-      includeWordmark: true,
-    });
-    const logoWithVersion = [logo, '', chalk.gray(versionStr)].join('\n');
-
     const options = [
       { label: 'Login', value: 'login' },
     ];
@@ -264,13 +260,14 @@ async function promptLogin(config: LoadedConfig): Promise<LoadedConfig> {
     options.push({ label: 'Exit', value: 'exit' });
 
     const selected = await showModal({
-      logo: logoWithVersion,
+      header: ({ availableRows }: { availableRows: number }) => createElement(AutohandBrand, { version: versionStr, availableRows }),
       skipAltScreen: true,
       title: updateAvailable
         ? chalk.yellow('New version available!')
         : chalk.white('Sign in to continue.'),
       options,
     });
+    onLoginPromptShown?.();
 
     if (!selected || selected.value === 'exit') {
       process.exit(0);

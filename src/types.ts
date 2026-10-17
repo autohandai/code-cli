@@ -385,6 +385,8 @@ export interface UISettings {
   notifications?: boolean | NotificationConfig;
   /** Show LLM-generated next-step suggestions in prompt placeholder (default: true) */
   promptSuggestions?: boolean;
+  /** Background, read-only repository review offered after the first completed turn (default: true). */
+  repositoryReadiness?: boolean;
   /** Rotate tips about slash commands, composer triggers and shortcuts beside the idle composer (default: true) */
   showTips?: boolean;
   /**
@@ -833,6 +835,7 @@ export interface AutomodeSettings {
 
 /** Hook events that can be subscribed to */
 export type HookEvent =
+  | 'program-status'
   | 'pre-tool'
   | 'post-tool'
   | 'file-modified'
@@ -1106,7 +1109,7 @@ export interface AutohandConfig {
 }
 
 /** Supported web search providers */
-export type SearchProvider = 'brave' | 'duckduckgo' | 'parallel' | 'google' | 'browser-profile' | 'exa';
+export type SearchProvider = 'autohand' | 'brave' | 'duckduckgo' | 'parallel' | 'google' | 'browser-profile' | 'exa';
 
 /** Web search provider settings */
 export interface SearchSettings {
@@ -1226,6 +1229,13 @@ export interface InlineAgentDefinition {
 }
 
 export interface CLIOptions {
+  cloud?: boolean;
+  resume?: string | boolean;
+  cloudAccount?: string;
+  cloudRepository?: string;
+  cloudConnector?: string;
+  cloudBranch?: string;
+  cloudProvider?: string;
   /** Select a provider for this process without updating saved configuration. */
   provider?: ProviderName;
   prompt?: string;
@@ -2104,6 +2114,10 @@ export type ToolExecutionResult = {
 } & ToolActionOutcome;
 
 export interface ToolExecutionContext {
+  deferGoalCompletion?: (
+    prepared: import('./goals/types.js').GoalMutationResult,
+    commit: () => Promise<import('./goals/types.js').GoalMutationResult>,
+  ) => import('./goals/types.js').GoalMutationResult;
   peerMessaging?: import('./session/peers/PeerMessaging.js').PeerClient;
   resourceCoordinator?: import('./session/peers/ResourceCoordinator.js').ResourceCoordinatorClient;
   peerAutomatic?: boolean;
@@ -2137,6 +2151,8 @@ export interface ToolOutputChunk {
 export interface AgentRuntime {
   config: LoadedConfig;
   workspaceRoot: string;
+  /** Original repository when --zit runs the agent in an isolated workspace. */
+  repositorySourceRoot?: string;
   /** Additional directories with same access as workspaceRoot */
   additionalDirs?: string[];
   options: CLIOptions;
@@ -2168,7 +2184,8 @@ export interface AgentOutputEvent {
    * model's reply in `content` / `thought` while the completion is still in
    * flight; the whole reply still follows as `message` / `thinking`.
    */
-  type: 'message' | 'message_delta' | 'thinking' | 'thought_delta' | 'tool_start' | 'tool_end' | 'error' | 'schedule_triggered' | 'file_modified' | 'team_update' | 'peer_update' | 'resource_update';
+  type: 'message' | 'message_delta' | 'thinking' | 'thought_delta' | 'tool_start' | 'tool_end' | 'error' | 'schedule_triggered' | 'file_modified' | 'team_update' | 'peer_update' | 'resource_update' | 'program_status';
+  programStatus?: import('./core/agent/AgentProgramStatus.js').ProgramStatusReport;
   peerEvent?: import('./session/peers/PeerProtocol.js').PeerEvent;
   resourceEvent?: import('./session/peers/PeerProtocol.js').PeerEvent;
   content?: string;

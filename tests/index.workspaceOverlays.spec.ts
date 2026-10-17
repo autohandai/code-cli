@@ -25,7 +25,7 @@ describe('CLI entry points load workspace overlays from the requested workspace'
   const requestedWorkspaceLoad = /loadConfig\(\s*(?:opts|options)\.config,\s*resolveRequestedWorkspaceRoot\(\s*(?:opts|options)\.path\s*\)/;
 
   it('uses the requested workspace in the mandatory authentication gate', () => {
-    const gate = sliceBetween('// ── Mandatory authentication gate ──', '(opts as any)._authConfig = authConfig;');
+    const gate = sliceBetween('// ── Mandatory authentication gate ──', 'opts._authConfig = authConfig;');
     expect(gate).toMatch(requestedWorkspaceLoad);
     expect(gate).not.toMatch(/loadConfig\([^)]*process\.cwd\(\)\)/);
   });
@@ -39,6 +39,12 @@ describe('CLI entry points load workspace overlays from the requested workspace'
   it('uses the requested workspace for resume', () => {
     const resume = sliceBetween('registerResumeCommand(program, {', 'await runCLI({ ...opts, _authConfig: authConfig });');
     expect(resume).toMatch(requestedWorkspaceLoad);
+  });
+
+  it('reloads the imported cloud checkout settings before local continuation', () => {
+    const cloud = sliceBetween('if (opts.cloud) {', '// Handle --patch flag');
+    expect(cloud).toMatch(/loadConfig\(opts\.config,\s*imported\.workspace\)/);
+    expect(cloud.indexOf('loadConfig(opts.config, imported.workspace)')).toBeGreaterThan(cloud.indexOf('prepareCliTransfer('));
   });
 
   it('loads workspace overlays for auto mode', () => {

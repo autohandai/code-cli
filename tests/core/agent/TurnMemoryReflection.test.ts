@@ -168,6 +168,31 @@ describe('turn memory reflection', () => {
       'User prefers automatic memory updates between turns.', 'user', ['workflow'], 'turn-reflection', { sessionId: 'original-session' },
     );
   });
+  it('publishes a receipt only for confirmed stores and persists it in the originating session', async () => {
+    const { agent, memoryManager } = createAgentHarness();
+    const append = vi.fn().mockResolvedValue(undefined), setCommandResult = vi.fn();
+    agent.sessionManager = { getCurrentSession: () => ({ metadata: { sessionId: 'origin' }, append }) };
+    agent.inkRenderer = { setCommandResult };
+    agent.scheduleTurnMemoryReflection({ status: 'succeeded' });
+    await agent.turnMemoryReflectionInFlight;
+    expect(memoryManager.store).toHaveBeenCalledOnce();
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({ role: 'system', content: expect.stringContaining('Memories saved for') }));
+    expect(setCommandResult).toHaveBeenCalledWith('/memory', expect.stringContaining('User prefers automatic memory updates between turns.'));
+  });
+  it('never attaches a delayed memory receipt to a different session', async () => {
+    const { agent } = createAgentHarness();
+    const originAppend = vi.fn().mockResolvedValue(undefined), nextAppend = vi.fn(), setCommandResult = vi.fn();
+    let session = { metadata: { sessionId: 'origin' }, append: originAppend };
+    agent.sessionManager = { getCurrentSession: () => session };
+    agent.inkRenderer = { setCommandResult };
+    agent.scheduleTurnMemoryReflection({ status: 'succeeded' });
+    session = { metadata: { sessionId: 'next' }, append: nextAppend };
+    await agent.turnMemoryReflectionInFlight;
+    expect(originAppend).toHaveBeenCalledOnce();
+    expect(nextAppend).not.toHaveBeenCalled();
+    expect(setCommandResult).not.toHaveBeenCalled();
+  });
+
   it('stores extracted memories in the background and injects an update for the next turn', async () => {
     const { agent, memoryManager, conversation } = createAgentHarness();
 

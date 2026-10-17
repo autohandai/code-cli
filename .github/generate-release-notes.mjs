@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const STABLE_TAG_PATTERN = /^v(\d+)\.(\d+)\.(\d+)$/;
@@ -222,6 +223,14 @@ export function generateReleaseNotes({
     lines.push(`Hey there! We've been busy making Autohand better. Here's what's new since ${previousTag}:`, '');
   } else {
     lines.push("Hey there! Here's what's new in this release:", '');
+  }
+
+  if (channel === 'release' && parseStableTag(targetTag)) {
+    const curatedPath = join(cwd, 'docs', 'changelog', `whats-new-${targetTag.slice(1)}.md`);
+    if (existsSync(curatedPath)) {
+      const curated = readFileSync(curatedPath, 'utf8').replace(/^# [^\n]+\n+/, '').trim();
+      if (curated) lines.push(curated, '');
+    }
   }
 
   appendSection(lines, 'Heads up! Breaking Changes', sections.breaking, 'These changes might require updates to your setup:');

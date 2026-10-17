@@ -1,3 +1,5 @@
+import { configureSearchFromAccount } from '../actions/web.js';
+import { SEARCH_PROVIDERS } from '../search/providers.js';
 /**
  * @license
  * Copyright 2025 Autohand AI LLC
@@ -229,9 +231,10 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
   { key: 'teams.maxTeammates', labelKey: 'commands.settings.teams.maxTeammates', descriptionKey: 'commands.settings.teams.maxTeammatesDesc', category: 'teams', type: 'number', defaultValue: 5 },
 
   // Search
-  { key: 'search.provider', labelKey: 'commands.settings.search.provider', descriptionKey: 'commands.settings.search.providerDesc', category: 'search', type: 'enum', enumValues: ['google', 'brave', 'duckduckgo', 'parallel'], defaultValue: 'google' },
+  { key: 'search.provider', labelKey: 'commands.settings.search.provider', descriptionKey: 'commands.settings.search.providerDesc', category: 'search', type: 'enum', enumValues: [...SEARCH_PROVIDERS], defaultValue: 'browser-profile' },
   { key: 'search.braveApiKey', labelKey: 'commands.settings.search.braveApiKey', descriptionKey: 'commands.settings.search.braveApiKeyDesc', category: 'search', type: 'password' },
   { key: 'search.parallelApiKey', labelKey: 'commands.settings.search.parallelApiKey', descriptionKey: 'commands.settings.search.parallelApiKeyDesc', category: 'search', type: 'password' },
+  { key: 'search.exaApiKey', labelKey: 'commands.settings.search.exaApiKey', descriptionKey: 'commands.settings.search.exaApiKeyDesc', category: 'search', type: 'password' },
 ];
 
 // ── Utility Functions ──────────────────────────────────────────────────
@@ -525,6 +528,7 @@ async function applyPersistedSettingChange(
   change: SettingsChange,
 ): Promise<string | undefined> {
   try {
+    if (change.key.startsWith('search.')) await configureSearchFromAccount(ctx.config);
     SETTINGS_REGISTRY.find((setting) => setting.key === change.key)?.apply?.(change.value);
     await ctx.onSettingChanged?.(change);
     return undefined;

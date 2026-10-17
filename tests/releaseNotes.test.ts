@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -28,6 +28,17 @@ function commitFile(cwd: string, fileName: string, contents: string, message: st
 }
 
 describe('generate release notes', () => {
+  it('includes curated notes for the exact stable version only', () => {
+    const cwd = createRepo();
+    commitFile(cwd, 'README.md', 'baseline', 'Initial release');
+    mkdirSync(join(cwd, 'docs/changelog'), { recursive: true });
+    writeFileSync(join(cwd, 'docs/changelog/whats-new-0.9.9.md'), '# Autohand 0.9.9\n\n- Search failure #672 and visible final replies #674.\n');
+    const notes = generateReleaseNotes({ version: '0.9.9', channel: 'release', cwd }).markdown;
+    expect(notes).toContain('Search failure #672 and visible final replies #674.');
+    expect(generateReleaseNotes({ version: '0.9.10', channel: 'release', cwd }).markdown).not.toContain('Search failure #672');
+    expect(generateReleaseNotes({ version: '0.9.9-alpha.test', channel: 'alpha', cwd }).markdown).not.toContain('Search failure #672');
+  });
+
   it('compares stable releases against the previous stable tag, not a same-commit alpha tag', () => {
     const cwd = createRepo();
     commitFile(cwd, 'README.md', 'initial\n', 'Initial release');

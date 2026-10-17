@@ -308,7 +308,16 @@ export class SyncService {
     try {
       this.assertOperationActive(context);
       this.onEvent({ type: 'sync_started' });
-      const accountSkillError = await this.syncCodingAgentControlPlane(context);
+      let accountSkillError: string | undefined;
+      try {
+        accountSkillError = await this.syncCodingAgentControlPlane(context);
+      } catch (error) {
+        this.assertOperationActive(context);
+        accountSkillError = error instanceof Error ? error.message : 'Console synchronization failed';
+        this.emitOperationEvent(context, {
+          type: 'download_error', path: '.coding-agent', error: accountSkillError,
+        });
+      }
       this.assertOperationActive(context);
 
       // 1. Build local manifest

@@ -209,6 +209,9 @@ EOF
             --fresh)
                 AUTOHAND_INSTALL_FRESH=1
                 ;;
+            --no-zit)
+                AUTOHAND_SKIP_ZIT_INSTALL=1
+                ;;
         esac
     done
 
@@ -344,6 +347,7 @@ EOF
     install_symlink "$BINARY_NAME" "$_dir/$AGENT_ALIAS_NAME"
     install_symlink "$BINARY_NAME" "$_dir/$SHORT_ALIAS_NAME"
     claim_agent_alias_path_wide "$_dir/$BINARY_NAME" "$_dir"
+    install_zit "$_dir"
 
     if ! install_computer_control "$_dir/$BINARY_NAME" "${_tmp_dir}/Autohand Computer Use.app"; then
         rm -rf "$_tmp_dir"
@@ -402,6 +406,51 @@ EOF
     echo ""
     offer_first_run "$_launch_binary"
 }
+
+install_zit() (
+    local _dir="$1" _target _name _url _expected _actual _zit_tmp
+    if [ "${AUTOHAND_SKIP_ZIT_INSTALL:-0}" = "1" ]; then
+        info "Skipping Zit installation (--no-zit)."
+        return 0
+    fi
+    if command -v zit >/dev/null 2>&1; then
+        info "Keeping existing Zit installation. Use autohand --zit for isolated work."
+        return 0
+    fi
+    case "$(uname -s):$(uname -m)" in
+        Darwin:arm64|Darwin:aarch64) _target="aarch64-apple-darwin" ;;
+        Darwin:x86_64) _target="x86_64-apple-darwin" ;;
+        Linux:arm64|Linux:aarch64) _target="aarch64-unknown-linux-gnu" ;;
+        Linux:x86_64|Linux:amd64) _target="x86_64-unknown-linux-gnu" ;;
+        *) warn "Zit has no official binary for this platform. See https://getzit.org; Autohand installation continues."; return 0 ;;
+    esac
+    _name="zit-v0.1.2-${_target}"
+    _url="https://github.com/autohandai/getzit/releases/download/v0.1.2/${_name}.tar.gz"
+    _zit_tmp=$(mktemp -d) || { warn "Could not prepare Zit download. See https://getzit.org"; return 0; }
+    trap 'rm -rf "$_zit_tmp"' 0
+    info "Installing Zit for autohand --zit (opt out with --no-zit)."
+    if ! curl --connect-timeout 10 --max-time 60 -fsSL "$_url" -o "$_zit_tmp/archive.tar.gz" \
+        || ! curl --connect-timeout 10 --max-time 30 -fsSL "${_url}.sha256" -o "$_zit_tmp/checksum"; then
+        warn "Zit download unavailable. See https://getzit.org; Autohand installation continues."
+        return 0
+    fi
+    _expected=$(awk 'NR == 1 {print $1}' "$_zit_tmp/checksum")
+    if ! _actual=$(compute_sha256 "$_zit_tmp/archive.tar.gz") || [ "${#_expected}" != "64" ] || [ "$_expected" != "$_actual" ]; then
+        warn "Zit checksum verification failed; no Zit binaries installed. See https://getzit.org"
+        return 0
+    fi
+    if ! tar -xzf "$_zit_tmp/archive.tar.gz" -C "$_zit_tmp" "$_name/zit" "$_name/git-zit" \
+        || [ ! -f "$_zit_tmp/$_name/zit" ] || [ -L "$_zit_tmp/$_name/zit" ] \
+        || [ ! -f "$_zit_tmp/$_name/git-zit" ] || [ -L "$_zit_tmp/$_name/git-zit" ]; then
+        warn "Zit archive was invalid. See https://getzit.org; Autohand installation continues."
+        return 0
+    fi
+    if ! install_file "$_zit_tmp/$_name/zit" "$_dir/zit" || ! install_file "$_zit_tmp/$_name/git-zit" "$_dir/git-zit"; then
+        warn "Could not install Zit. See https://getzit.org; Autohand installation continues."
+        return 0
+    fi
+    success "Installed Zit. Try autohand --zit (requires Git 2.38 or newer)."
+)
 
 compute_sha256() {
     local _file="$1"

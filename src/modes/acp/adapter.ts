@@ -50,7 +50,7 @@ import { isSessionWorktreeEnabled, prepareSessionWorktree } from '../../utils/se
 import { ApiError, classifyApiError, type ApiErrorCode } from '../../providers/errors.js';
 import type { SessionMessage } from '../../session/types.js';
 import { isGoalFeatureEnabled } from '../../goals/feature.js';
-import { configureSearchFromSettings } from '../../actions/web.js';
+import { configureSearchFromAccount } from '../../actions/web.js';
 import { resolveReviewCommand } from '../../commands/review.js';
 import {
   executeReviewWithLifecycle,
@@ -219,7 +219,7 @@ export class AutohandAcpAdapter implements Agent {
           ?? await loadConfig(this.cliOptions.config, process.cwd()),
         this.cliOptions
       );
-      configureSearchFromSettings(this.config.search, this.cliOptions.searchEngine);
+      await configureSearchFromAccount(this.config, this.cliOptions.searchEngine);
       // ACP clients cannot answer a trust prompt; the warning goes to stderr, never the protocol stream.
       if (!this.cliOptions.bare) {
         await resolveWorkspaceTrust(this.config, { interactive: false });
@@ -1220,6 +1220,13 @@ export class AutohandAcpAdapter implements Agent {
     this.hookForwarders.get(sessionId)?.();
     const unsubscribe = agent.getHookManager?.()?.subscribeLifecycle?.((context) => {
       switch (context.event) {
+        case 'program-status':
+          if (context.programStatus) {
+            void this.emitHookSafe(ACP_HOOK_NOTIFICATIONS.HOOK_PROGRAM_STATUS, {
+              ...context.programStatus, sessionId, timestamp: new Date().toISOString(),
+            });
+          }
+          break;
         case 'permission-request':
           this.emitHookPermissionRequest(sessionId, context.tool ?? '', context.path, context.command, context.args);
           break;
@@ -1247,9 +1254,11 @@ export class AutohandAcpAdapter implements Agent {
     if (unsubscribe) {
       this.hookForwarders.set(sessionId, unsubscribe);
     }
+    agent.programStatus?.start();
   }
 
   private forgetSession(sessionId: string): void {
+    this.agents.get(sessionId)?.programStatus?.dispose();
     this.hookForwarders.get(sessionId)?.();
     this.hookForwarders.delete(sessionId);
     this.sessions.delete(sessionId);

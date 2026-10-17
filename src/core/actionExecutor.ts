@@ -1658,7 +1658,7 @@ export class ActionExecutor {
       }
       case 'update_goal': {
         const manager = this.createGoalManager();
-        const updated = await manager.updateGoal({
+        const input = {
           objective: action.objective,
           status: parseGoalStatus(action.status),
           completionEvidence: action.completion_evidence,
@@ -1669,7 +1669,19 @@ export class ActionExecutor {
           timeBudgetSeconds: action.time_budget_seconds,
           minTokensBeforeWrapUp: action.min_tokens_before_wrap_up,
           minTimeSecondsBeforeWrapUp: action.min_time_seconds_before_wrap_up,
-        });
+        };
+        if (input.status === 'complete' && context?.deferGoalCompletion) {
+          const prepared = await manager.prepareGoalCompletion(input);
+          if (!prepared.ok || !prepared.goal) return formatGoalToolResult(prepared);
+          const expectedGoalId = prepared.goal.goalId;
+          return formatGoalToolResult(context.deferGoalCompletion(prepared, async () => {
+            context.signal?.throwIfAborted();
+            const completed = await manager.updateGoal({ ...input, expectedGoalId });
+            if (completed.started) await this.activateGoal(completed);
+            return completed;
+          }));
+        }
+        const updated = await manager.updateGoal(input);
         if (action.status === 'active' || updated.started) await this.activateGoal(updated);
         return formatGoalToolResult(updated);
       }
@@ -4714,6 +4726,7 @@ export class ActionExecutor {
 
 function formatGoalToolResult(result: {
   ok: boolean;
+  completionPending?: boolean;
   storageWarning?: string;
   message?: string;
   goal: unknown;
@@ -4730,6 +4743,7 @@ function formatGoalToolResult(result: {
 }): string {
   return JSON.stringify({
     ok: result.ok,
+    completionPending: result.completionPending,
     storageWarning: result.storageWarning,
     message: result.message,
     goal: result.goal,

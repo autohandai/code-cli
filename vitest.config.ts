@@ -26,6 +26,7 @@ export default defineConfig({
       '**/dist/**',
       '**/.worktrees/**',
       '**/.claude/worktrees/**',
+      '**/.tmp/**',
       '**/.{idea,git,cache,output,temp}/**',
       'tests/tuistory/**',
     ],

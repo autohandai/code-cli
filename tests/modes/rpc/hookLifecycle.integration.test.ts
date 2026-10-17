@@ -74,6 +74,19 @@ function hookNotifications(): Array<[string, Record<string, unknown>]> {
 }
 
 describe('HookManager to RPC lifecycle integration', () => {
+  it('forwards program status as structured lifecycle notifications without terminal escapes', async () => {
+    const { hookManager } = createHarness();
+    vi.mocked(writeNotification).mockClear();
+    await hookManager.executeHooks('program-status', {
+      programStatus: { state: 'blocked', kind: 'auth', id: 'autohand-1', app: 'autohand', message: 'Sign in' },
+    });
+    expect(vi.mocked(writeNotification).mock.calls).toEqual([
+      ['autohand.hook.programStatus', {
+        state: 'blocked', kind: 'auth', id: 'autohand-1', app: 'autohand', message: 'Sign in', timestamp,
+      }],
+    ]);
+    expect(JSON.stringify(vi.mocked(writeNotification).mock.calls)).not.toContain('7501');
+  });
   it('forwards Computer Use start, progress, error, and stop without requiring shell hooks', async () => {
     const { hookManager } = createHarness();
     vi.mocked(writeNotification).mockClear();

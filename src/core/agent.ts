@@ -6,10 +6,12 @@
 import chalk from 'chalk';
 import type { RunBudget } from './agent/RunBudget.js';
 import { SteeringQueue } from './agent/SteeringQueue.js';
+import { AgentProgramStatus, shouldWriteProgramStatus, withProgramStatusPrompt } from './agent/AgentProgramStatus.js';
 import { syncAgentTerminalTitleName } from './agent/AgentSessionTitle.js';
 import { shouldWriteTerminalTitle, TerminalTitleController } from '../ui/terminalTitle.js';
 import { isITerm2 } from '../ui/mouseReporting.js';
 import type { SessionAutoNamer } from './agent/SessionAutoNamer.js';
+import type { RepositoryReadiness } from './agent/RepositoryReadiness.js';
 import type { AxoResponder } from './agent/AxoResponder.js';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
@@ -371,6 +373,8 @@ interface TurnMemoryReflectionRequest {
   sessionId?: string;
   projectMemoryScope?: string;
   sharedProjectMemory?: boolean;
+  session?: ReturnType<SessionManager['getCurrentSession']>;
+  requestLabel?: string;
 }
 
 export class AutohandAgent {
@@ -484,7 +488,9 @@ export class AutohandAgent {
     shouldWriteTerminalTitle(process.argv, process.stdout.isTTY),
     { tabColour: isITerm2() },
   );
+  readonly programStatus: AgentProgramStatus;
   sessionAutoNamer: SessionAutoNamer | null = null;
+  repositoryReadiness: RepositoryReadiness | null = null;
   /** Answers `~axo <question>`; see AxoResponder. */
   axoResponder: AxoResponder | null = null;
   sessionTitleRefined = false;
@@ -580,6 +586,19 @@ export class AutohandAgent {
       tier: resolveAwarenessTier(runtime.config),
     });
     initializeAgentDependencies(this as unknown as AgentDependencyHost, llm, files, runtime);
+    this.programStatus = new AgentProgramStatus({
+      id: `autohand-${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+      enabled: !runtime.isRpcMode && !runtime.options.prompt
+        && (runtime.options.commandOutputFormat ?? 'text') === 'text'
+        && shouldWriteProgramStatus(process.argv, process.stdout.isTTY),
+      write: sequence => { process.stdout.write(sequence); },
+      onChange: programStatus => {
+        this.emitOutput({ type: 'program_status', programStatus });
+        void this.hookManager.executeHooks('program-status', {
+          programStatus, sessionId: this.sessionManager.getCurrentSession()?.metadata.sessionId,
+        }).catch(() => {});
+      },
+    });
     this.interactionModeController = new InteractionModeController({
       isPlanEnabled: () => getPlanModeManager().isEnabled(),
       isYoloEnabled: () => Boolean(this.runtime.options.yolo),
@@ -694,12 +713,18 @@ export class AutohandAgent {
 
   async runInteractive(initialInstruction?: string): Promise<void> {
     this.startAccountPlanRefresh();
-    return runAgentInteractive(this, initialInstruction);
+    this.programStatus.start();
+    try {
+      await runAgentInteractive(this, initialInstruction);
+    } finally {
+      this.programStatus.dispose();
+    }
   }
 
   /** Release process resources without ending or closing the current session. */
   shutdownRuntimeResources(): Promise<void> {
     this.runtimeResourceShutdownController?.abort();
+    this.programStatus?.dispose();
     this.runtimeResourceShutdownPromise ??= shutdownAgentRuntimeResources(this);
     return this.runtimeResourceShutdownPromise;
   }
@@ -897,11 +922,15 @@ export class AutohandAgent {
         && typeof message.content === 'string'
         && message.content.includes('[Auto Memory Update]'))
     );
+    const session = this.sessionManager?.getCurrentSession?.();
+    const requestLabel = [...conversationHistory].reverse().find(message => message.role === 'user' && typeof message.content === 'string')?.content;
     this.turnMemoryReflectionQueue ??= [];
     this.turnMemoryReflectionQueue.push({
       outcome,
       conversationHistory,
-      sessionId: this.sessionManager?.getCurrentSession?.()?.metadata?.sessionId,
+      sessionId: session?.metadata?.sessionId,
+      session,
+      requestLabel: typeof requestLabel === 'string' ? requestLabel.replace(/\s+/g, ' ').slice(0, 120) : undefined,
       projectMemoryScope: this.memoryManager?.getProjectMemoryScope?.(),
       sharedProjectMemory: this.memoryManager?.hasSharedProjectMemory?.() ?? false,
     });
@@ -972,10 +1001,16 @@ export class AutohandAgent {
         return;
       }
 
-      this.conversation.addSystemNote(
-        formatTurnMemoryUpdate(currentSaved, request.sharedProjectMemory),
-        '[Auto Memory Update]',
-      );
+      const receipt = `Memories saved for “${request.requestLabel ?? 'previous request'}”:\n${currentSaved.map(memory => `- ${memory.level}: ${memory.content}`).join('\n')}`;
+      await request.session?.append?.({ role: 'system', content: receipt, timestamp: new Date().toISOString(), _meta: { kind: 'memory_receipt' } });
+      if (abortController.signal.aborted || this.runtimeResourceShutdownPromise) return;
+      if (request.sessionId === this.sessionManager?.getCurrentSession?.()?.metadata?.sessionId) {
+        this.conversation.addSystemNote(
+          formatTurnMemoryUpdate(currentSaved, request.sharedProjectMemory),
+          '[Auto Memory Update]',
+        );
+        this.inkRenderer?.setCommandResult('/memory', receipt);
+      }
       this.writeTurnMemoryDebugLine(
         `[memory] turn reflection saved ${currentSaved.length} ${currentSaved.length === 1 ? 'memory' : 'memories'}`,
       );
@@ -1085,7 +1120,8 @@ export class AutohandAgent {
       this.admittedInstructionAbort = controller;
       try {
         if (signal.aborted || this.shouldExit) return false;
-        return await this.executeAdmittedInstruction(instruction, { ...options, signal });
+        const execute = () => this.executeAdmittedInstruction(instruction, { ...options, signal });
+        return await (this.programStatus?.run(execute, { signal }) ?? execute());
       } finally {
         if (this.admittedInstructionAbort === controller) this.admittedInstructionAbort = undefined;
         this.instructionAdmissionCount--;
@@ -2459,7 +2495,8 @@ export class AutohandAgent {
     args: string[] = [],
     surface: CommandUseSurface = 'interactive',
   ): Promise<string | null> {
-    return handleAgentSlashCommand(this, command, args, surface);
+    const execute = () => handleAgentSlashCommand(this, command, args, surface);
+    return this.programStatus?.run(execute, { message: command }) ?? execute();
   }
 
   async trackCommandUsage(data: CommandUseData): Promise<void> {
@@ -2591,7 +2628,7 @@ export class AutohandAgent {
    * executeAskFollowupQuestion, and handlePlanCreated.
    */
   private async withModalPause<T>(fn: () => Promise<T>): Promise<T> {
-    return withAgentModalPause(this, fn);
+    return withProgramStatusPrompt('Waiting for input', () => withAgentModalPause(this, fn));
   }
 
   private async requestResearchPublication(reportPath: string): Promise<string> {

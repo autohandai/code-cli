@@ -36,7 +36,9 @@ function title(host: AgentSessionTitleHost): Pick<TerminalTitleController, 'setN
 /** Pushes the current session's display name into the terminal title. */
 export function syncAgentTerminalTitleName(host: AgentSessionTitleHost): void {
   const metadata = currentMetadata(host);
-  title(host)?.setName(metadata ? getSessionDisplayName(metadata) : undefined);
+  const name = metadata ? getSessionDisplayName(metadata) : undefined;
+  title(host)?.setName(name);
+  host.programStatus?.setTitle(name);
 }
 
 /**

@@ -21,6 +21,7 @@ import { isAutohandInferenceEnabled } from "../../featureFlags.js";
  * Mirrors RPC_NOTIFICATIONS hook constants for parity with the VS Code extension.
  */
 export const ACP_HOOK_NOTIFICATIONS = {
+  HOOK_PROGRAM_STATUS: 'autohand.hook.programStatus',
   HOOK_PRE_TOOL: "autohand.hook.preTool",
   HOOK_POST_TOOL: "autohand.hook.postTool",
   HOOK_FILE_MODIFIED: "autohand.hook.fileModified",

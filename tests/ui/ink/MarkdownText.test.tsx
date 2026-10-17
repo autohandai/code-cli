@@ -22,6 +22,38 @@ function frameOf(view: ReturnType<typeof renderInkScreen>): string {
 }
 
 describe('MarkdownText', () => {
+  it('shares a resize subscription across restored markdown and releases it on unmount', async () => {
+    const view = renderInkScreen(<Box flexDirection="column">{Array.from({ length: 24 }, (_, index) => (
+      <MarkdownText key={index} content="- A long list item that remains aligned with its text" />
+    ))}</Box>);
+    mounted.push(view);
+    await vi.waitFor(() => expect(view.stdout.listenerCount('resize')).toBe(1));
+
+    Object.defineProperty(view.stdout, 'columns', { configurable: true, value: 24 });
+    view.stdout.emit('resize');
+    await vi.waitFor(() => expect(frameOf(view).match(/• A long list item that\n  remains aligned with\n  its text/g)).toHaveLength(24));
+    expect(frameOf(view).split('\n').slice(0, 3).join('\n')).toMatchInlineSnapshot(`
+      "• A long list item that
+        remains aligned with
+        its text"
+    `);
+
+    view.unmount();
+    await vi.waitFor(() => expect(view.stdout.listenerCount('resize')).toBe(0));
+  });
+
+  it('keeps terminal dimensions independent across separate render roots', async () => {
+    const content = '- A long list item that remains aligned with its text';
+    const first = renderInkScreen(<MarkdownText content={content} />);
+    const second = renderInkScreen(<MarkdownText content={content} />);
+    mounted.push(first, second);
+    await new Promise<void>(resolve => setImmediate(resolve));
+    Object.defineProperty(first.stdout, 'columns', { configurable: true, value: 24 });
+    first.stdout.emit('resize');
+    await vi.waitFor(() => expect(frameOf(first)).toContain('• A long list item that\n  remains aligned with\n  its text'));
+    expect(frameOf(second)).toContain('• A long list item that remains aligned with its text');
+  });
+
   it('preserves process IDs and QR quiet-zone whitespace in operational command messages', () => {
     const commandOutput = 'Background processes:\n1  node fixture.cjs  (pid 1234, running 0m00s)\n\n    █▀▀▀█    \n    █▄▄▄█    ';
     const view = renderInkScreen(<I18nProvider><AgentUI

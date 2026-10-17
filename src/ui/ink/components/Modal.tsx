@@ -4,14 +4,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
-import { Box, Text, useInput, render, type Instance, type Key as InkKey } from 'ink';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { Box, Text, useInput, useStdout, render, type Instance, type Key as InkKey } from 'ink';
+import stringWidth from 'string-width';
+import wrapAnsi from 'wrap-ansi';
 import { I18nProvider, useTranslation } from '../../i18n/index.js';
 import { disableBracketedPaste, enableBracketedPaste } from '../../displayUtils.js';
 import { resetScrollRegion } from '../../resetScrollRegion.js';
-import { inkRenderOptions } from '../../inkRenderOptions.js';
+import { createScrollbackPreservingOutput, inkRenderOptions } from '../../inkRenderOptions.js';
 import { ThemeProvider, useTheme } from '../../theme/ThemeContext.js';
 import type { ColorToken } from '../../theme/types.js';
+import { withProgramStatusPrompt } from '../../../core/agent/AgentProgramStatus.js';
 
 /**
  * Represents an option in the modal.
@@ -47,6 +50,12 @@ export interface ModalOption {
   action?: boolean;
 }
 
+export interface ModalHeaderLayout {
+  availableRows: number;
+}
+
+export type ModalHeader = React.ReactNode | ((layout: ModalHeaderLayout) => React.ReactNode);
+
 /**
  * Base props shared by all modal modes
  */
@@ -55,10 +64,12 @@ interface BaseModalProps {
   title: string;
   /** Logo/art to display at the top of the modal */
   logo?: string;
+  header?: ModalHeader;
   /** Callback invoked when user cancels (ESC) */
   onCancel?: () => void;
   /** Optional override for the keyboard help rendered below the modal. */
   hint?: string;
+  onInputReady?: () => void;
 }
 
 /**
@@ -332,7 +343,20 @@ export function cleanupModalRender(
 function Modal(props: ModalProps) {
   const { t } = useTranslation();
   const { theme } = useTheme();
-  const { title, logo, onCancel, hint } = props;
+  const { title, logo, header, onCancel, hint, onInputReady } = props;
+  const { stdout } = useStdout();
+  const [terminalSize, setTerminalSize] = useState(() => ({
+    columns: stdout.columns || 80,
+    rows: stdout.rows || 24,
+  }));
+  const responsiveHeader = typeof header === 'function';
+
+  useEffect(() => {
+    if (!responsiveHeader) return;
+    const resize = () => setTerminalSize({ columns: stdout.columns || 80, rows: stdout.rows || 24 });
+    stdout.on('resize', resize);
+    return () => { stdout.off('resize', resize); };
+  }, [stdout, responsiveHeader]);
 
   // Determine mode (default to 'select' for backward compatibility)
   const mode = 'mode' in props ? props.mode : 'select';
@@ -348,7 +372,7 @@ function Modal(props: ModalProps) {
     : 10;
 
   // State for select mode
-  const [cursor, setCursor] = useState(() =>
+  const [cursor, setCursorState] = useState(() =>
     resolveInitialCursor(
       mode === 'confirm' ? 'confirm' : 'select',
       mode === 'confirm' ? 2 : selectOptionCount,
@@ -356,6 +380,11 @@ function Modal(props: ModalProps) {
       confirmDefaultValue
     )
   );
+  const cursorRef = useRef(cursor);
+  const setCursor = (next: number): void => {
+    cursorRef.current = next;
+    setCursorState(next);
+  };
   const [windowStart, setWindowStart] = useState(() => {
     const initial = resolveInitialCursor(
       mode === 'confirm' ? 'confirm' : 'select',
@@ -582,7 +611,7 @@ function Modal(props: ModalProps) {
 
     // Multi-select: spacebar toggles the current item
     if (isMultiSelect && char === ' ' && 'onToggle' in props) {
-      const selected = choices[cursor];
+      const selected = choices[cursorRef.current];
       if (selected && !selected.disabled && !selected.action) {
         setCheckedSet((prev) => {
           const next = new Set(prev);
@@ -601,7 +630,7 @@ function Modal(props: ModalProps) {
 
     // Handle select/confirm modes - selection
     if (key.return) {
-      const selected = choices[cursor];
+      const selected = choices[cursorRef.current];
       if (selected?.disabled) {
         return;
       }
@@ -620,26 +649,22 @@ function Modal(props: ModalProps) {
 
     // Arrow navigation
     if (key.upArrow) {
-      setCursor((prev) => {
-        const next = findNextEnabled(prev, -1);
-        setWindowStart((ws) => {
-          if (next < ws) return next;
-          if (next >= ws + maxVisible) return Math.max(0, next - maxVisible + 1);
-          return ws;
-        });
-        return next;
+      const next = findNextEnabled(cursorRef.current, -1);
+      setCursor(next);
+      setWindowStart((ws) => {
+        if (next < ws) return next;
+        if (next >= ws + maxVisible) return Math.max(0, next - maxVisible + 1);
+        return ws;
       });
       return;
     }
     if (key.downArrow) {
-      setCursor((prev) => {
-        const next = findNextEnabled(prev, 1);
-        setWindowStart((ws) => {
-          if (next >= ws + maxVisible) return next - maxVisible + 1;
-          if (next < ws) return next;
-          return ws;
-        });
-        return next;
+      const next = findNextEnabled(cursorRef.current, 1);
+      setCursor(next);
+      setWindowStart((ws) => {
+        if (next >= ws + maxVisible) return next - maxVisible + 1;
+        if (next < ws) return next;
+        return ws;
       });
       return;
     }
@@ -672,6 +697,44 @@ function Modal(props: ModalProps) {
       }
       return;
     }
+  });
+
+  useEffect(() => {
+    onInputReady?.();
+  }, [onInputReady]);
+
+  const needsScroll = choices.length > maxVisible;
+  const windowEnd = Math.min(windowStart + maxVisible, choices.length);
+  const visibleChoices = needsScroll ? choices.slice(windowStart, windowEnd) : choices;
+  const inheritedHeader = (index: number): string | undefined => {
+    for (let i = index; i >= 0; i--) {
+      const heading = choices[i]?.header;
+      if (heading) return heading;
+    }
+    return undefined;
+  };
+  const numberWidth = String(choices.length).length;
+  const optionViews = visibleChoices.map((choice, visibleIndex) => {
+    const index = needsScroll ? windowStart + visibleIndex : visibleIndex;
+    const isSelected = index === cursor;
+    const heading = isFilterQueryActive ? undefined : (visibleIndex === 0 ? inheritedHeader(index) : choice.header);
+    const isHeader = choice.value.startsWith('__header');
+    const isAction = choice.action === true;
+    const checkbox = isMultiSelect && !isHeader && !isAction
+      ? (checkedSet.has(choice.value) ? '\u2611 ' : '\u2610 ')
+      : '';
+    const numberPrefix = isHeader || isAction ? '' : `${String(index + 1).padStart(numberWidth, ' ')}. `;
+    const disabledSuffix = choice.disabled && !isHeader && !isAction ? ' (disabled)' : '';
+    const color: ColorToken = choice.disabled ? 'dim' : isSelected ? 'accent' : 'text';
+
+    return {
+      key: `${choice.value}-${index}`,
+      heading,
+      spacer: Boolean(heading && visibleIndex > 0),
+      label: `${isSelected ? '\u25b8 ' : '  '}${checkbox}${numberPrefix}${choice.label}${disabledSuffix}`,
+      description: choice.description ? `     ${choice.description}` : undefined,
+      color,
+    };
   });
 
   // Render based on mode
@@ -733,63 +796,6 @@ function Modal(props: ModalProps) {
       );
     }
 
-    // Select/Confirm mode - show options with viewport scrolling
-    const needsScroll = choices.length > maxVisible;
-    const windowEnd = Math.min(windowStart + maxVisible, choices.length);
-    const visibleChoices = needsScroll
-      ? choices.slice(windowStart, windowEnd)
-      : choices;
-
-    // A scrolled viewport can start below a section heading, so the topmost row
-    // inherits the heading of the group it belongs to and keeps the list legible.
-    const inheritedHeader = (index: number): string | undefined => {
-      for (let i = index; i >= 0; i--) {
-        const header = choices[i]?.header;
-        if (header) return header;
-      }
-      return undefined;
-    };
-
-    const numberWidth = String(choices.length).length;
-
-    const items = visibleChoices.map((choice, vi) => {
-      const i = needsScroll ? windowStart + vi : vi;
-      const isSelected = i === cursor;
-      const isDisabled = choice.disabled;
-      // A filtered view is no longer contiguous, so its headings would lie
-      // about grouping — suppress them here rather than stripping `header`
-      // from the option objects themselves (see `choices` above).
-      const header = isFilterQueryActive ? undefined : (vi === 0 ? inheritedHeader(i) : choice.header);
-
-      let color: ColorToken | undefined;
-      if (isDisabled) {
-        color = 'dim';
-      } else if (isSelected) {
-        color = 'accent';
-      }
-
-      const isHeader = choice.value.startsWith('__header');
-      const isAction = choice.action === true;
-      const checkbox = isMultiSelect && !isHeader && !isAction
-        ? (checkedSet.has(choice.value) ? '\u2611 ' : '\u2610 ')
-        : '';
-      const numberPrefix = isHeader || isAction ? '' : `${String(i + 1).padStart(numberWidth, ' ')}. `;
-      const disabledSuffix = isDisabled && !isHeader && !isAction ? ' (disabled)' : '';
-
-      return (
-        <Box key={`${choice.value}-${i}`} flexDirection="column">
-          {header && vi > 0 && <Text> </Text>}
-          {header && <Text>{theme.fg('muted', header)}</Text>}
-          <Text>
-            {theme.fg(color ?? 'text', `${isSelected ? '\u25b8 ' : '  '}${checkbox}${numberPrefix}${choice.label}${disabledSuffix}`)}
-          </Text>
-          {choice.description && (
-            <Text>{theme.fg('muted', `     ${choice.description}`)}</Text>
-          )}
-        </Box>
-      );
-    });
-
     return (
       <>
         {filterable && filter !== null && (
@@ -802,7 +808,14 @@ function Modal(props: ModalProps) {
             {needsScroll && windowStart > 0 && (
               <Text>{theme.fg('muted', `  \u2191 ${windowStart} more above`)}</Text>
             )}
-            {items}
+            {optionViews.map((view) => (
+              <Box key={view.key} flexDirection="column">
+                {view.spacer && <Text> </Text>}
+                {view.heading && <Text>{theme.fg('muted', view.heading)}</Text>}
+                <Text>{theme.fg(view.color, view.label)}</Text>
+                {view.description && <Text>{theme.fg('muted', view.description)}</Text>}
+              </Box>
+            ))}
             {needsScroll && windowEnd < choices.length && (
               <Text>{theme.fg('muted', `  \u2193 ${choices.length - windowEnd} more below`)}</Text>
             )}
@@ -835,8 +848,48 @@ function Modal(props: ModalProps) {
     return t('ui.questionSelectHint');
   };
 
+  const hintText = renderHint();
+  const headerRows = (): number => {
+    const columns = Math.max(1, terminalSize.columns - 2);
+    const rowCount = (text: string): number => stringWidth(text) <= columns && !text.includes('\n')
+      ? 1
+      : wrapAnsi(text, columns, { hard: true, trim: false }).split('\n').length;
+    const content: string[] = [];
+    if (mode === 'input' || mode === 'password') {
+      const value = mode === 'password' ? '•'.repeat(inputValue.length) : inputValue;
+      const placeholder = ('placeholder' in props && props.placeholder)
+        || (mode === 'password' ? t('ui.passwordPlaceholder') : t('ui.inputPlaceholder'));
+      content.push(`> ${value || placeholder}${inputCursor >= value.length ? ' ' : ''}`);
+      if (validationError) content.push('', validationError);
+    } else if (mode === 'select' && isCustomMode) {
+      content.push(`${t('ui.questionYourAnswer')}: ${customInput}\u2588`);
+    } else if (hasNoChoices) {
+      content.push(t('ui.noOptionsAvailable'));
+    } else {
+      if (filterable && filter !== null) content.push(`  / ${filter}`);
+      if (filterable && filter && choices.length === 0) {
+        content.push(`  No matches for "${filter}"`);
+      } else {
+        if (needsScroll && windowStart > 0) content.push(`  \u2191 ${windowStart} more above`);
+        for (const view of optionViews) {
+          if (view.spacer) content.push('');
+          if (view.heading) content.push(view.heading);
+          content.push(view.label);
+          if (view.description) content.push(view.description);
+        }
+        if (needsScroll && windowEnd < choices.length) content.push(`  \u2193 ${choices.length - windowEnd} more below`);
+      }
+    }
+    const fixedRows = [
+      ...(logo ? logo.split('\n') : []),
+      title, '', ...content, '', hintText,
+    ].reduce((total, text) => total + rowCount(text), 0);
+    return Math.max(0, terminalSize.rows - fixedRows - 1);
+  };
+
   return (
     <Box flexDirection="column" paddingX={1}>
+      {typeof header === 'function' ? header({ availableRows: headerRows() }) : header}
       {logo && (
         <Box flexDirection="column">
           {logo.split('\n').map((line, i) => (
@@ -848,7 +901,7 @@ function Modal(props: ModalProps) {
       <Text> </Text>
       {renderContent()}
       <Text> </Text>
-      <Text>{theme.fg('muted', renderHint())}</Text>
+      <Text>{theme.fg('muted', hintText)}</Text>
     </Box>
   );
 }
@@ -875,6 +928,7 @@ export interface ShowModalOptions {
   layout?: string;
   /** Logo/art to display at the top of the modal */
   logo?: string;
+  header?: ModalHeader;
   /** When true, skips entering alternative screen buffer */
   skipAltScreen?: boolean;
   /** Optional override for the keyboard help rendered below the modal. */
@@ -911,6 +965,7 @@ export async function showModal(
   const {
     title,
     logo,
+    header,
     options: modalOptions,
     allowCustomInput,
     multiSelect,
@@ -940,10 +995,9 @@ export async function showModal(
   // renders but keyboard is frozen (stdin in cooked/line-buffered mode).
   await new Promise<void>((resolve) => setImmediate(resolve));
 
-  return new Promise((resolve) => {
+  return withProgramStatusPrompt(title ?? 'Choose an option', () => new Promise<ModalOption | null>((resolve) => {
     let completed = false;
     let fallbackInput: ((data: Buffer | string) => void) | null = null;
-    let fallbackReadable: (() => void) | null = null;
     let instance: Instance | null = null;
     let hasPendingCompletion = false;
     let pendingCompletion: ModalOption | null = null;
@@ -955,15 +1009,17 @@ export async function showModal(
       unmountAndResolve(currentInstance, value, resolve, { skipAltScreen });
     };
 
+    const releaseFallbackInput = (): void => {
+      if (fallbackInput) {
+        process.stdin.removeListener('data', fallbackInput);
+        fallbackInput = null;
+      }
+    };
+
     const complete = (value: ModalOption | null): void => {
       if (completed) return;
       completed = true;
-      if (fallbackInput) {
-        process.stdin.removeListener('data', fallbackInput);
-      }
-      if (fallbackReadable) {
-        process.stdin.removeListener('readable', fallbackReadable);
-      }
+      releaseFallbackInput();
       if (!instance) {
         hasPendingCompletion = true;
         pendingCompletion = value;
@@ -980,14 +1036,7 @@ export async function showModal(
         onCancel: () => complete(null),
       });
       if (fallbackInput) {
-        fallbackReadable = () => {
-          let chunk: string | Buffer | null;
-          while ((chunk = process.stdin.read() as string | Buffer | null) !== null) {
-            fallbackInput?.(chunk);
-          }
-        };
         process.stdin.on('data', fallbackInput);
-        process.stdin.on('readable', fallbackReadable);
       }
     }
 
@@ -997,6 +1046,7 @@ export async function showModal(
           <Modal
             title={title}
             logo={logo}
+            header={header}
             options={modalOptions}
             hint={hint}
             allowCustomInput={allowCustomInput}
@@ -1011,12 +1061,13 @@ export async function showModal(
             onCancel={() => {
               complete(null);
             }}
+            onInputReady={releaseFallbackInput}
           />
         </ThemeProvider>
       </I18nProvider>,
       inkRenderOptions({
         stdin: process.stdin,
-        stdout: process.stdout,
+        stdout: skipAltScreen && header ? createScrollbackPreservingOutput(process.stdout) : process.stdout,
         stderr: process.stderr,
         exitOnCtrlC: false
       })
@@ -1025,7 +1076,7 @@ export async function showModal(
     if (hasPendingCompletion) {
       resolveWithInstance(instance, pendingCompletion);
     }
-  });
+  }));
 }
 
 /**
@@ -1084,7 +1135,7 @@ async function showSingleValueModal<T>(
 
   await new Promise<void>((resolve) => setImmediate(resolve));
 
-  return new Promise((resolve) => {
+  return withProgramStatusPrompt('Waiting for input', () => new Promise<T>((resolve) => {
     let completed = false;
     let instance: Instance;
     const finish = (value: T): void => {
@@ -1106,7 +1157,7 @@ async function showSingleValueModal<T>(
         exitOnCtrlC: false
       })
     );
-  });
+  }));
 }
 
 /**

@@ -143,9 +143,13 @@ describe('SystemPromptBuilder', () => {
   it('includes completion report guidance by default', async () => {
     const prompt = await createBuilder().build();
 
-    expect(prompt).toContain('## Completion Report');
-    expect(prompt).toContain('For code work, include the details a staff engineer would expect');
-    expect(prompt).toContain('SITREP:');
+    expect(prompt).toContain('## Final Answer');
+    expect(prompt).toContain('short recap');
+    expect(prompt).toContain('confirmed memory writes');
+    expect(prompt).toContain('reflection is pending');
+    expect(prompt).not.toContain('SITREP:');
+    expect(prompt).not.toContain('After ANY tool failure');
+    expect(prompt).not.toContain('Next: Run `npm test`');
   });
 
   it('omits completion report guidance when disabled in config', async () => {

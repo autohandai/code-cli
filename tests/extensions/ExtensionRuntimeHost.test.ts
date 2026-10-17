@@ -266,6 +266,23 @@ describe('ExtensionRuntimeHost', () => {
     expect(host.getHooks().map(hook => hook.event)).toEqual(events);
   });
 
+  it('registers program status hooks and delivers the structured report to trusted extensions', async () => {
+    const fixture = await makeRuntimePackage({ source: `export function activate(api) {
+      api.hooks.on('program-status', context => ({ additionalContext: JSON.stringify(context.programStatus) }));
+    }` });
+    const service = new ExtensionService({ userRoot: fixture.userRoot });
+    await service.install(fixture.packageRoot, { trust: true });
+    const host = new ExtensionRuntimeHost();
+    hosts.push(host);
+    expect(await host.sync(await service.list())).toEqual([]);
+    const manager = new HookManager({ settings: { enabled: true, hooks: [] }, workspaceRoot: fixture.packageRoot });
+    manager.setExtensionHooks(host.getHooks());
+    const report = { state: 'blocked', kind: 'permission', id: 'autohand-fixture', app: 'autohand' } as const;
+    expect(await manager.executeHooks('program-status', { programStatus: report })).toEqual([
+      expect.objectContaining({ success: true, response: { additionalContext: JSON.stringify(report) } }),
+    ]);
+  });
+
   it('creates and configures extension providers through the normal provider factory', async () => {
     const fixture = await makeRuntimePackage();
     const service = new ExtensionService({ userRoot: fixture.userRoot });

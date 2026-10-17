@@ -3,6 +3,8 @@ dist/
 binaries/
 .DS_Store
 .tmp/
+.artifacts/
+.cloud-build.log
 CHANGELOG.md
 install-local.sh
 PATH_SETUP.md
@@ -29,6 +31,7 @@ plans/
 package-lock.json
 bin/
 scripts/*
+!scripts/generate-autohand-logo.ts
 # The build runs this generator; keep it tracked despite the scripts rule.
 !scripts/embed-builtin-assets.ts
 !scripts/embed-cursor-theme.mjs
@@ -58,3 +61,5 @@ autoresearch-results/
 .baseline-orchestration-terminal-extra.log
 .baseline-orchestration-terminal.log
 .orchestration-local-build.log
+vendor/zit/
+!scripts/install-zit.mjs

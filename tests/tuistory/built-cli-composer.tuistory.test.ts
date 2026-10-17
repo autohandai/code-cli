@@ -736,6 +736,7 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
         autohandHome: state.autohandHome,
         cwd: state.workspaceRoot,
         env: {
+          AUTOHAND_NO_BANNER: undefined,
           AUTOHAND_API_URL: authServer.baseUrl,
           AUTOHAND_AUTH_URL: authServer.baseUrl,
           AUTOHAND_AUTH_API_URL: `${authServer.baseUrl}/v1/auth`,
@@ -746,6 +747,10 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
     );
 
     await session.waitForText('Sign in to continue.', { timeout: 10_000 });
+    const loginScreen = await session.text({ immediate: true, trimEnd: true });
+    expect(loginScreen.match(/(?:^|\n)\s*autohand\s*(?=\n|$)/gu)).toHaveLength(1);
+    expect(loginScreen).toContain('Login');
+    expect(loginScreen).toContain('Exit');
     await session.press('enter');
     await session.waitForText('TEST-CAFE', { timeout: 10_000 });
     await session.waitForText('Waiting for authorization', { timeout: 10_000 });
@@ -782,6 +787,7 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
         autohandHome: state.autohandHome,
         cwd: state.workspaceRoot,
         env: {
+          AUTOHAND_NO_BANNER: undefined,
           AUTOHAND_API_URL: authServer.baseUrl,
           AUTOHAND_AUTH_URL: authServer.baseUrl,
           AUTOHAND_AUTH_API_URL: `${authServer.baseUrl}/v1/auth`,
@@ -796,12 +802,21 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
     );
 
     await session.waitForText('Sign in to continue.', { timeout: 10_000 });
+    const firstLogoRow = (await session.text({ immediate: true })).split('\n')
+      .find((line) => /^[ "'(),./08:=OPY\\^_bdopq|~\u2800-\u28ff·•●-]+$/u.test(line) && line.trim());
+    expect(firstLogoRow).toBeDefined();
+    const authGateOutputLength = session.getRawOutput().length;
     await session.press('enter');
-    await session.waitForText('Successfully logged in as Authorized Tuistory User', { timeout: 10_000 });
     await session.text({
-      timeout: 5_000,
+      timeout: 10_000,
       waitFor: (text) => text.includes('❯'),
     });
+    expect(stripAnsi(session.getRawOutput())).toContain('Successfully logged in as Authorized Tuistory User');
+    const rawOutput = session.getRawOutput();
+    const authenticatedOutput = rawOutput.slice(rawOutput.indexOf('Successfully logged in as Authorized Tuistory User'));
+    expect(rawOutput.slice(authGateOutputLength)).not.toContain('\x1b[3J');
+    expect(stripAnsi(authenticatedOutput).split('\n').map((line) => line.trim()))
+      .not.toContain(firstLogoRow?.trim());
 
     const prompt = 'post login input';
     await typeLikeUser(session, prompt);
@@ -813,6 +828,7 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
 
     expect(screen).toContain('❯');
     expect(screen).toContain(prompt);
+    expect(screen.match(/(?:^|\n)\s*autohand\s*(?=\n|$)/gu)).toHaveLength(1);
 
     await exitInteractive(session);
   });

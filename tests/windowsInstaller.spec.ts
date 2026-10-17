@@ -57,6 +57,36 @@ function runPowerShellProbe(script: string): { stdout: string; stderr: string; s
 }
 
 describe('Windows installer architecture detection', () => {
+  powerShellTest('honors both Zit opt-outs before checking installed commands', () => {
+    const result = runPowerShellProbe(`${installerWithoutEntrypoint}
+function Get-Command { throw 'Zit must not be probed after opt-out' }
+$script:NoZit = $true
+$env:AUTOHAND_SKIP_ZIT_INSTALL = '0'
+Install-Zit -InstallPath '.'
+$script:NoZit = $false
+$env:AUTOHAND_SKIP_ZIT_INSTALL = '1'
+Install-Zit -InstallPath '.'
+`);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.match(/Skipping Zit integration/g)).toHaveLength(2);
+  });
+
+  powerShellTest('keeps existing Zit and explains unavailable native Windows binaries', () => {
+    const result = runPowerShellProbe(`${installerWithoutEntrypoint}
+$script:NoZit = $false
+$env:AUTOHAND_SKIP_ZIT_INSTALL = '0'
+function Get-Command { param($Name, $ErrorAction) return 'zit' }
+Install-Zit -InstallPath '.'
+function Get-Command { param($Name, $ErrorAction) return $null }
+function Test-Path { return $false }
+Install-Zit -InstallPath '.'
+`);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('Keeping existing Zit');
+    expect(result.stdout).toContain('no native Windows release');
+    expect(result.stdout).toContain('https://getzit.org');
+  });
+
   it('falls back to native Windows architecture signals when RuntimeInformation is empty', () => {
     expect(installer).toContain('$env:PROCESSOR_ARCHITEW6432');
     expect(installer).toContain('$env:PROCESSOR_ARCHITECTURE');

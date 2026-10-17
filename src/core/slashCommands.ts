@@ -42,6 +42,7 @@ import * as automode from '../commands/automode.js';
 import * as share from '../commands/share.js';
 import * as goCmd from '../commands/go.js';
 import * as handoffWebCmd from '../commands/handoff-web.js';
+import * as cloudCmd from '../commands/cloud.js';
 import * as sync from '../commands/sync.js';
 import * as addDir from '../commands/add-dir.js';
 import * as language from '../commands/language.js';
@@ -78,6 +79,7 @@ import * as sessionBranchingCmd from '../commands/sessionBranching.js';
 import * as renameCmd from '../commands/rename.js';
 import * as whatsnewCmd from '../commands/whatsnew.js';
 import * as changelogCmd from '../commands/changelog.js';
+import * as readinessCmd from '../commands/readiness.js';
 
 import type { SlashCommand } from './slashCommandTypes.js';
 export type { SlashCommand } from './slashCommandTypes.js';
@@ -130,6 +132,9 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   share.metadata,
   goCmd.metadata,
   handoffWebCmd.handoffMetadata,
+  cloudCmd.metadata,
+  cloudCmd.handoffMetadata,
+  cloudCmd.openMetadata,
   goCmd.handoffSessionMetadata,
   handoffWebCmd.metadata,
   sync.metadata,
@@ -173,4 +178,5 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   renameCmd.metadata,
   whatsnewCmd.metadata,
   changelogCmd.metadata,
+  readinessCmd.metadata,
 ] as (SlashCommand | undefined)[]).filter((cmd): cmd is SlashCommand => cmd != null && typeof cmd.command === 'string');

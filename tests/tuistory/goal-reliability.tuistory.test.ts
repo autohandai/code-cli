@@ -110,7 +110,7 @@ describe('built CLI goal reliability', () => {
       expect(JSON.stringify(server.requests[0])).toContain('RECOVERED_CONVERSATION_MARKER');
       expect((await owner.getSessionSnapshot()).goal?.status).toBe('paused');
       await finishRecoveredGoal(session);
-      expect((await owner.getSessionSnapshot()).goal?.status).toBe('complete');
+      await expect.poll(async () => (await owner.getSessionSnapshot()).goal?.status).toBe('complete');
       expect((await owner.getSnapshot()).goals[other.metadata.sessionId]?.status).toBe('active');
       await exitInteractive(session);
     } finally {

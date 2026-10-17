@@ -5,9 +5,10 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export type SessionZitOption = boolean | string | undefined;
 
@@ -74,9 +75,46 @@ function ensureGitRepo(cwd: string): string {
   return result.stdout.trim();
 }
 
-export function resolveZitBin(): string {
-  const fromEnv = process.env.ZIT_BIN?.trim();
-  return fromEnv || 'zit';
+export interface ZitBinaryOptions {
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  architecture?: string;
+  entryPath?: string;
+  moduleDirectory?: string;
+}
+
+function isExecutableFile(filename: string): boolean {
+  try {
+    if (!statSync(filename).isFile()) return false;
+    accessSync(filename, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function resolveZitBin(options: ZitBinaryOptions = {}): string {
+  const env = options.env ?? process.env;
+  const fromEnv = env.ZIT_BIN?.trim();
+  if (fromEnv) return fromEnv;
+  const platform = options.platform ?? process.platform;
+  const name = platform === 'win32' ? 'zit.exe' : 'zit';
+  if ((env.PATH ?? '').split(path.delimiter).filter(Boolean).some(directory => isExecutableFile(path.join(directory, name)))) return 'zit';
+
+  const moduleDirectory = options.moduleDirectory ?? (typeof import.meta.url === 'string'
+    ? path.dirname(fileURLToPath(import.meta.url))
+    : path.dirname(process.argv[1] ?? process.execPath));
+  const directories = [path.resolve(moduleDirectory, '..'), path.resolve(moduleDirectory, '../..')];
+  const entryPath = options.entryPath ?? process.argv[1];
+  if (entryPath) {
+    try {
+      directories.unshift(path.resolve(path.dirname(realpathSync(entryPath)), '..'));
+    } catch {
+      directories.push(path.resolve(path.dirname(entryPath), '..'));
+    }
+  }
+  const target = `${platform}-${options.architecture ?? process.arch}`;
+  return directories.map(directory => path.join(directory, 'vendor', 'zit', target, name)).find(isExecutableFile) ?? 'zit';
 }
 
 function ensureZitBin(zitBin: string, cwd: string): void {

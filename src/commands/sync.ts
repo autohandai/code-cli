@@ -96,7 +96,7 @@ async function gatherSyncData(ctx: SlashCommandContext, config: any): Promise<Sy
 }
 
 function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const tabs: TabName[] = ['Status', 'Settings', 'Activity'];
     let currentTab = 0;
     let closed = false;
@@ -106,21 +106,8 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
     const isTTY = input.isTTY;
 
     const wasRaw = (input as any).isRaw;
-    const wasPaused = typeof input.isPaused === 'function' ? input.isPaused() : false;
-
-    if (wasPaused && typeof input.resume === 'function') {
-      input.resume();
-    }
-
-    if (isTTY) {
-      readline.emitKeypressEvents(input);
-      if (!wasRaw && typeof input.setRawMode === 'function') {
-        try { input.setRawMode(true); } catch { /* TTY may be gone */ }
-      }
-      if (typeof input.setEncoding === 'function') {
-        input.setEncoding('utf8');
-      }
-    }
+    const wasPaused = input.readableFlowing !== true;
+    let ownsRawMode = false;
 
     const render = () => {
       if (closed) return;
@@ -208,8 +195,9 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
       if (closed) return;
       closed = true;
       input.off('keypress', handler as any);
-      if (isTTY && !wasRaw && typeof input.setRawMode === 'function') {
+      if (ownsRawMode) {
         try { input.setRawMode(false); } catch { /* TTY may be gone */ }
+        input.unref();
       }
       if (wasPaused && typeof input.pause === 'function') {
         input.pause();
@@ -217,8 +205,23 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
       process.stdout.write('\x1B[2J\x1B[H');
     };
 
-    input.on('keypress', handler as any);
-    render();
+    try {
+      if (isTTY) {
+        readline.emitKeypressEvents(input);
+        if (!wasRaw && typeof input.setRawMode === 'function') {
+          input.ref();
+          ownsRawMode = true;
+          try { input.setRawMode(true); } catch { /* TTY may be gone */ }
+        }
+        if (typeof input.setEncoding === 'function') input.setEncoding('utf8');
+      }
+      input.on('keypress', handler as any);
+      input.resume();
+      render();
+    } catch (error) {
+      cleanup();
+      reject(error);
+    }
   });
 }
 

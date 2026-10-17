@@ -134,6 +134,7 @@ export interface SlashCommandContext {
     requestFeedbackSurvey?: () => boolean;
     /** Tells the user something after the command has returned, e.g. when background work finishes. */
     notifyUser?: (message: string) => void;
+    repositoryReadiness?: import('./agent/RepositoryReadiness.js').RepositoryReadiness | null;
     /** Called with the top recommended skill slug from /learn for install hint */
     onTopRecommendation?: (slug: string) => void;
     /** Team manager for /team and /tasks commands */

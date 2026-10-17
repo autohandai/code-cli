@@ -19,6 +19,12 @@ Install it, run `autohand`, and describe the outcome you want in natural languag
 
 ## Features
 
+Interactive sessions assess repository readiness in the background while you work. A bounded, read-only scan compares `AGENTS.md` and `CLAUDE.md` history with committed and uncommitted changes, then asks your configured model for a repository map and concrete improvement candidates. It runs no project scripts and makes no edits. After your first successful turn, new findings appear once per repository; materially new findings can be offered in a later session. Use `/readiness` to review the evidence, `/readiness apply 1` to choose a finding, or `/readiness dismiss` to skip. Set `ui.repositoryReadiness` to `false` to disable this background model request. Bare, ephemeral, offline, command, RPC and ACP sessions skip it.
+
+The shell installer includes [Zit](https://getzit.org) v0.1.2 by default on supported macOS and Linux platforms, preserving an existing installation and verifying release checksums. Use `--no-zit` or `AUTOHAND_SKIP_ZIT_INSTALL=1` to opt out. The Windows installer supports `-NoZit` and the same environment variable; it preserves an existing Zit installation and reports that native Windows binaries are currently unavailable. `autohand --zit` requires Git 2.38 or newer. Installing Zit does not initialize repositories.
+
+The npm package includes checksum-verified Zit binaries for macOS and Linux on ARM64 and x64. `npm install -g autohand-cli` and `bun install -g autohand-cli` download them with the package, including when lifecycle scripts are disabled. Autohand uses `ZIT_BIN`, an existing `zit` on `PATH`, or its packaged binary, in that order. Rust and a separate Zit installation are not required. Native Windows Zit binaries are currently unavailable.
+
 - **Terminal-Native Agent**: Understands your codebase and executes approved changes from the CLI
 - **Planning + Tools**: Combines reasoning, file edits, shell commands, and web context in one loop
 - **Interactive REPL**: Smooth terminal experience with file mentions, slash commands, and keyboard shortcuts

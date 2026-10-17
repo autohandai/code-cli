@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import { resolveRunToolScope } from '../../permissions/runToolScope.js';
 import { RunBudget } from './RunBudget.js';
 import { SessionAutoNamer } from './SessionAutoNamer.js';
+import { RepositoryReadiness } from './RepositoryReadiness.js';
 import { AxoResponder } from './AxoResponder.js';
 import { syncAgentTerminalTitleName } from './AgentSessionTitle.js';
 import type { PeerComposerDraft } from '../../ui/peerMention.js';
@@ -541,6 +542,18 @@ export function initializeAgentDependencies(
       getProvider: () => host.llm,
       enabled: !runtime.options.bare && runtime.options.offline !== true && runtime.config.ui?.promptSuggestions !== false,
     });
+    if (!runtime.options.bare && !runtime.options.ephemeral && !runtime.options.offline
+      && !runtime.options.prompt && !runtime.isCommandMode && !runtime.isRpcMode
+      && runtime.config.ui?.repositoryReadiness !== false) {
+      host.repositoryReadiness = new RepositoryReadiness({
+        workspaceRoot: runtime.repositorySourceRoot ?? runtime.workspaceRoot,
+        signal: host.runtimeResourceShutdownController?.signal,
+        getProvider: () => host.llm,
+        notify: message => host.notifyUser(message),
+        isIdle: () => !host.isInstructionActive && !host.modalActive,
+      });
+      void host.repositoryReadiness.start();
+    }
     // Offline means no Autohand cloud services, not no model: turns still reach the
     // provider, so a question the user puts to Axo does too.
     host.axoResponder = new AxoResponder({
@@ -2202,6 +2215,7 @@ export function initializeAgentDependencies(
       requestFeedbackSurvey: () =>
         host.feedbackSurvey?.show('manual', sessionMgr.getCurrentSession()?.metadata.sessionId) ?? false,
       notifyUser: (message: string) => host.notifyUser(message),
+      get repositoryReadiness() { return host.repositoryReadiness; },
       // Add-dir command context
       fileManager: host.files,
       get additionalDirs() {

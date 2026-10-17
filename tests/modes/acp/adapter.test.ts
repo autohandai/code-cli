@@ -552,6 +552,14 @@ describe("AutohandAcpAdapter", () => {
         expect.objectContaining({ subagentName: "helper", success: true }),
       );
     });
+
+    it("forwards program status with the ACP session identity and no terminal escapes", () => {
+      lifecycleListener!({ event: 'program-status', programStatus: {
+        state: 'blocked', kind: 'question', app: 'autohand', id: 'autohand-1', message: 'Choose an answer',
+      } });
+      expect(connection.extNotification).toHaveBeenCalledWith('autohand.hook.programStatus',
+        expect.objectContaining({ sessionId: expect.any(String), state: 'blocked', kind: 'question', message: 'Choose an answer' }));
+    });
   });
 
   describe("dispose()", () => {

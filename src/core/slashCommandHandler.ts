@@ -112,7 +112,7 @@ export class SlashCommandHandler {
       '/model', '/cc', '/search', '/theme', '/language', '/feedback', '/skills new', '/skills-new',
       '/squad', '/statusline', '/statusbar',
       '/publish-research', '/ps', '/stop',
-      '/whatsnew', '/whatityped',
+      '/whatsnew', '/whatityped', '/cloud', '/handoff cloud', '/open',
     ]);
     if (this.ctx.isNonInteractive && INTERACTIVE_ONLY.has(command)) {
       usageOutcome = 'failed';
@@ -132,7 +132,12 @@ export class SlashCommandHandler {
         }
         case '/search': {
           const { search } = await import('../commands/search.js');
-          return search(this.ctx);
+          await this.ctx.onBeforeModal?.();
+          try {
+            return await search(this.ctx);
+          } finally {
+            await this.ctx.onAfterModal?.();
+          }
         }
         case '/init': {
           const { init } = await import('../commands/init.js');
@@ -400,15 +405,22 @@ export class SlashCommandHandler {
         }
         case '/handoff': {
           const surface = args[0]?.toLowerCase();
+          if (surface === '--help' || surface === 'help') {
+            return ['/handoff [task] — continue in Cloud', ...['/handoff cloud', '/handoff web', '/handoff session'].map(name => `  ${name.padEnd(18)}${this.commandMap.get(name)?.description ?? ''}`.trimEnd())].join('\n');
+          }
           if (surface === 'web' || surface === 'session') {
             return this.handle(`/handoff ${surface}`, args.slice(1));
           }
-          const lines = ['Hand this session to another Autohand surface:'];
-          for (const name of ['/handoff web', '/handoff session']) {
-            const description = this.commandMap.get(name)?.description ?? '';
-            lines.push(`  ${name.padEnd(18)}${description}`.trimEnd());
-          }
-          return lines.join('\n');
+          return this.handle('/handoff cloud', surface === 'cloud' ? args.slice(1) : args);
+        }
+        case '/cloud':
+        case '/handoff cloud': {
+          const { cloudCommand } = await import('../commands/cloud.js');
+          return cloudCommand(this.ctx, args, {}, command === '/handoff cloud');
+        }
+        case '/open': {
+          const { openCloudSession } = await import('../commands/cloud.js');
+          return openCloudSession(this.ctx, args);
         }
         case '/handoff web': {
           const { handoffWeb } = await import('../commands/handoff-web.js');
@@ -472,6 +484,10 @@ export class SlashCommandHandler {
         case '/pr-review': {
           const { prReview } = await import('../commands/pr-review.js');
           return prReview(this.ctx, args);
+        }
+        case '/readiness': {
+          const { readiness } = await import('../commands/readiness.js');
+          return readiness(this.ctx, args);
         }
         case '/deslop': {
           const { deslop } = await import('../commands/deslop.js');
@@ -600,7 +616,12 @@ export class SlashCommandHandler {
         }
         case '/sync': {
           const { sync } = await import('../commands/sync.js');
-          return sync(this.ctx);
+          await this.ctx.onBeforeModal?.();
+          try {
+            return await sync(this.ctx);
+          } finally {
+            await this.ctx.onAfterModal?.();
+          }
         }
         case '/add-dir': {
           const { addDir } = await import('../commands/add-dir.js');

@@ -5,64 +5,33 @@
  *
  * Centralized ASCII artwork for the CLI
  */
-import stringWidth from 'string-width';
+import { AUTOHAND_LOGO_ART, AUTOHAND_LOGO_FRAME_COUNT } from './autohandLogoData.js';
 
 const DEFAULT_TERMINAL_COLUMNS = 80;
+const WORDMARK = 'autohand';
+
+const LOGO_VARIANTS = AUTOHAND_LOGO_ART.map((variant) => ({
+  ...variant,
+  art: variant.lines.join('\n'),
+}));
 
 export interface RenderAutohandLogoOptions {
   columns?: number;
+  rows?: number;
   includeWordmark?: boolean;
+  frame?: number;
 }
 
-/**
- * Braille pattern logo (friendly mascot)
- * Used in: welcome banner, about command, main CLI banner
- */
-const DETAILED_LOGO_LINES = [
-  '⢀⡴⠛⠛⠻⣷⡄⠀⣠⡶⠟⠛⠻⣶⡄⢀⣴⡾⠛⠛⢿⣦⠀⢀⣴⠞⠛⠛⠶⡀',
-  '⡎⠀⢰⣶⡆⠈⣿⣴⣿⠁⣴⣶⡄⠘⣿⣾⡏⢀⣶⣦⠀⢻⡇⣿⠃⢠⣶⡆⠀⢹',
-  '⢧⠀⠘⠛⠃⢠⡿⠙⣿⡀⠙⠛⠃⣰⡿⢻⣧⠈⠛⠛⢀⣾⠇⢻⣆⠈⠛⠋⠀⡼',
-  '⠈⠻⢶⣶⡾⠟⠁⠀⠘⠿⢶⣶⡾⠟⠁⠀⠙⠷⣶⣶⠿⠋⠀⠈⠻⠷⣶⡶⠚⠁',
-  '⢀⣴⠿⠿⠷⣦⡀⠀⣠⣶⠿⠻⢷⣦⡀⠀⣠⡾⠟⠿⣶⣄⠀⢀⣴⡾⠿⠿⣶⣄',
-  '⡾⠃⢠⣤⡄⠘⣿⣠⣿⠁⣠⣤⡄⠹⣷⣼⡏⢀⣤⣤⠈⢿⡆⣾⠏⢀⣤⣄⠈⢿',
-  '⢧⡀⠸⠿⠇⢀⣿⠺⣿⡀⠻⠿⠃⢰⣿⢿⣇⠈⠿⠿⠀⣼⡇⢿⣇⠘⠿⠇⠀⣸',
-  '⠈⢿⣦⣤⣴⡿⠃⠀⠙⢷⣦⣤⣶⡿⠁⠈⠻⣷⣤⣤⡾⠛⠀⠈⢿⣦⣤⣤⠴⠁'
-];
+function centeredWordmark(columns: number): string {
+  return `${' '.repeat(Math.floor((columns - WORDMARK.length) / 2))}${WORDMARK}`;
+}
 
-const COMPACT_LOGO_LINES = [
-  ' .--.  .--.  .--.  .--.',
-  '(() ) (() ) (() ) (() )',
-  " '--'  '--'  '--'  '--'",
-  ' .--.  .--.  .--.  .--.',
-  '(() ) (() ) (() ) (() )',
-  " '--'  '--'  '--'  '--'",
-];
-
-const TINY_LOGO_LINES = [
-  'o o o o',
-  'o o o o',
-];
-
-/**
- * Combined logo: ASCII_FRIEND + Autohand in Figlet style side by side
- * Used in: authentication/login screen
- */
+export const ASCII_FRIEND = LOGO_VARIANTS[0].art;
 export const LOGO_LINES = [
-  '⢀⡴⠛⠛⠻⣷⡄⠀⣠⡶⠟⠛⠻⣶⡄⢀⣴⡾⠛⠛⢿⣦⠀⢀⣴⠞⠛⠛⠶⡀     █████  ██    ██ ████████  ██████  ██   ██  █████  ███    ██ ██████',
-  '⡎⠀⢰⣶⡆⠈⣿⣴⣿⠁⣴⣶⡄⠘⣿⣾⡏⢀⣶⣦⠀⢻⡇⣿⠃⢠⣶⡆⠀⢹     ██   ██ ██    ██    ██    ██    ██ ██   ██ ██   ██ ████   ██ ██   ██',
-  '⢧⠀⠘⠛⠃⢠⡿⠙⣿⡀⠙⠛⠃⣰⡿⢻⣧⠈⠛⠛⢀⣾⠇⢻⣆⠈⠛⠋⠀⡼     ███████ ██    ██    ██    ██    ██ ███████ ███████ ██ ██  ██ ██   ██',
-  '⠈⠻⢶⣶⡾⠟⠁⠀⠘⠿⢶⣶⡾⠟⠁⠀⠙⠷⣶⣶⠿⠋⠀⠈⠻⠷⣶⡶⠚⠁     ██   ██ ██    ██    ██    ██    ██ ██   ██ ██   ██ ██  ██ ██ ██   ██',
-  '⢀⣴⠿⠿⠷⣦⡀⠀⣠⣶⠿⠻⢷⣦⡀⠀⣠⡾⠟⠿⣶⣄⠀⢀⣴⡾⠿⠿⣶⣄     ██   ██  ██████     ██     ██████  ██   ██ ██   ██ ██   ████ ██████',
-  '⡾⠃⢠⣤⡄⠘⣿⣠⣿⠁⣠⣤⡄⠹⣷⣼⡏⢀⣤⣤⠈⢿⡆⣾⠏⢀⣤⣄⠈⢿',
-  '⢧⡀⠸⠿⠇⢀⣿⠺⣿⡀⠻⠿⠃⢰⣿⢿⣇⠈⠿⠿⠀⣼⡇⢿⣇⠘⠿⠇⠀⣸',
-  '⠈⢿⣦⣤⣴⡿⠃⠀⠙⢷⣦⣤⣶⡿⠁⠈⠻⣷⣤⣤⡾⠛⠀⠈⢿⣦⣤⣤⠴⠁'
+  ...AUTOHAND_LOGO_ART[0].lines,
+  '',
+  centeredWordmark(AUTOHAND_LOGO_ART[0].columns),
 ];
-
-export const ASCII_FRIEND = DETAILED_LOGO_LINES.join('\n');
-
-function maxLineWidth(lines: readonly string[]): number {
-  return Math.max(...lines.map((line) => stringWidth(line)));
-}
 
 function normalizeColumns(columns: number | undefined): number {
   if (typeof columns !== 'number' || !Number.isFinite(columns)) {
@@ -78,19 +47,25 @@ export function getTerminalColumns(output: Pick<NodeJS.WriteStream, 'columns'> =
 
 export function renderAutohandLogo(options: RenderAutohandLogoOptions = {}): string {
   const columns = normalizeColumns(options.columns);
-  const candidates = [
-    ...(options.includeWordmark ? [{ lines: LOGO_LINES, minColumns: 120 }] : []),
-    { lines: DETAILED_LOGO_LINES, minColumns: 64 },
-    { lines: COMPACT_LOGO_LINES, minColumns: 24 },
-    { lines: TINY_LOGO_LINES, minColumns: 7 },
-  ];
-
-  const match = candidates.find((candidate) =>
-    columns >= candidate.minColumns && maxLineWidth(candidate.lines) <= columns
-  );
-  if (match) {
-    return match.lines.join('\n');
+  const rows = typeof options.rows === 'number' && Number.isFinite(options.rows)
+    ? Math.max(0, Math.floor(options.rows))
+    : Number.POSITIVE_INFINITY;
+  if (rows === 0) {
+    return '';
   }
 
-  return columns >= 'autohand'.length ? 'autohand' : 'ah';
+  const wordmarkRows = options.includeWordmark ? 2 : 0;
+  const match = LOGO_VARIANTS.find((variant) =>
+    variant.columns <= columns && variant.lines.length + wordmarkRows <= rows
+  );
+  if (match) {
+    const frame = typeof options.frame === 'number' && Number.isFinite(options.frame) ? Math.floor(options.frame) : 0;
+    const phase = (frame % AUTOHAND_LOGO_FRAME_COUNT + AUTOHAND_LOGO_FRAME_COUNT) % AUTOHAND_LOGO_FRAME_COUNT;
+    const art = match.frames[phase];
+    return options.includeWordmark
+      ? `${art}\n\n${centeredWordmark(match.columns)}`
+      : art;
+  }
+
+  return columns >= WORDMARK.length ? WORDMARK : 'ah'.slice(0, columns);
 }

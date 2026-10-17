@@ -1,0 +1,36 @@
+
+ Autohand Cloud  auto  connected
+ Repair parser
+ Session aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
+
+ Autohand
+ Cloud agent connected to the parser workspace.
+
+
+ Queued · ↑/↓ selects · /steer sends the selected correction
+ › 1. Repair parser
+
+ Message admitted to the cloud queue.
+ ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+ ❯ Queue a task or type /help
+ ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+ Ctrl+C detaches · cloud work continues · /stop cancels · /open web shows the full transcript
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

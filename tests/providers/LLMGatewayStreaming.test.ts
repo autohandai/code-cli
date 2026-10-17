@@ -8,6 +8,16 @@ const client = () => new LLMGatewayClient({ apiKey: 'fixture', model: 'moa' }, {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('cloud inference streaming', () => {
+  it.each(['', '{"choices":'])('does not replay accepted malformed HTTP JSON and identifies its transport stage: %j', async body => {
+    const fetch = vi.fn().mockImplementation(() => new Response(body, { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetch);
+    const cloud = new LLMGatewayClient({ apiKey: 'fixture', model: 'moa' }, { maxRetries: 2, retryDelay: 1 }, {
+      serviceName: 'Autohand AI', credentialName: 'Autohand API key', accountName: 'Autohand account',
+    });
+    await expect(cloud.complete({ messages: [] })).rejects.toMatchObject({ retryable: false,
+      message: expect.stringContaining('stage=http-json') });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
   it.each([false, true])('preserves a safety rejection without retries or completed tool calls (stream=%s)', async (stream) => {
     const error = { type: 'content_blocked', categories: ['S7'], requestId: 'server-request-123', message: "This message was blocked by Autohand's safety check. Rephrase it and try again." };
     const tool = { index: 0, id: 'call-1', type: 'function', function: { name: 'mcp__autohand-computer-use__click', arguments: '{}' } };

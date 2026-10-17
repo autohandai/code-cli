@@ -115,7 +115,7 @@ describe('renderAgentSlashCommandResult', () => {
 });
 
 describe('runAgentSlashCommandWithInput', () => {
-  it.each(['/whatityped', '/feedback'])('preserves the active draft after %s', async (command) => {
+  it.each(['/whatityped', '/feedback', '/sync'])('preserves the active draft after %s', async (command) => {
     const clearInput = vi.fn();
     const host = {
       runtime: { options: {}, config: {} },
@@ -126,7 +126,7 @@ describe('runAgentSlashCommandWithInput', () => {
     expect(clearInput).not.toHaveBeenCalled();
   });
 
-  it.each(['/browser', '/chrome', '/whatityped'])('keeps the persistent composer paused for %s', async (command) => {
+  it.each(['/browser', '/chrome', '/whatityped', '/sync'])('keeps the persistent composer paused for %s', async (command) => {
     const restoreStdoutTTY = overrideStreamTTY(process.stdout, true);
     const restoreStdinTTY = overrideStreamTTY(process.stdin, true);
     const start = vi.fn();

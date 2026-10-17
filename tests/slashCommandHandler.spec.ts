@@ -31,6 +31,11 @@ vi.mock('../src/commands/usage.js', () => ({
   usage: mockUsage,
 }));
 
+const mockSync = vi.fn();
+vi.mock('../src/commands/sync.js', () => ({
+  sync: mockSync,
+}));
+
 const mockSettings = vi.fn();
 vi.mock('../src/commands/settings.js', async (importOriginal) => ({
   ...await importOriginal<typeof import('../src/commands/settings.js')>(),
@@ -76,6 +81,7 @@ const DEFAULT_COMMANDS: SlashCommand[] = [
   { command: '/usage', description: 'show usage', implemented: true },
   { command: '/goals', description: 'open goals', implemented: true },
   { command: '/settings', description: 'configure settings', implemented: true },
+  { command: '/sync', description: 'settings sync', implemented: true },
 ];
 
 describe('SlashCommandHandler', () => {
@@ -91,6 +97,23 @@ describe('SlashCommandHandler', () => {
 
   beforeEach(() => {
     mockShowModal.mockReset();
+    mockSync.mockReset();
+  });
+
+  it.each([false, true])('gives the sync screen exclusive input and restores the composer after failure: %s', async fails => {
+    const ctx = createContext();
+    const events: string[] = [];
+    ctx.onBeforeModal.mockImplementation(async () => { events.push('pause'); });
+    ctx.onAfterModal.mockImplementation(async () => { events.push('resume'); });
+    mockSync.mockImplementationOnce(async () => {
+      events.push('sync');
+      if (fails) throw new Error('Sync fixture failed');
+      return null;
+    });
+    const handler = new SlashCommandHandler(ctx, DEFAULT_COMMANDS);
+    await handler.handle('/sync');
+    expect(events).toEqual(['pause', 'sync', 'resume']);
+    expect(mockSync).toHaveBeenCalledWith(ctx);
   });
 
   it('invokes model selection for /model', async () => {

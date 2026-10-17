@@ -55,6 +55,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 case "$url" in
+  *autohandai/getzit/*) exit 22 ;;
   *.sha256) cp "$AUTOHAND_TEST_CHECKSUM" "$output" ;;
   *) cp "$AUTOHAND_TEST_ARCHIVE" "$output" ;;
 esac

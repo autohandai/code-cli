@@ -14,6 +14,7 @@ import type { ExtensionRuntimeHook } from '../extensions/ExtensionRuntimeHost.js
 
 /** Context passed to hooks via environment variables and JSON stdin */
 export interface HookContext {
+  programStatus?: import('./agent/AgentProgramStatus.js').ProgramStatusReport;
   /** Event that triggered the hook */
   event: HookEvent;
   previousMode?: string;
@@ -836,6 +837,7 @@ export class HookManager {
       env.HOOK_ADDITIONAL_WORKSPACES = JSON.stringify(context.additionalWorkspaces);
     }
 
+    if (context.programStatus) env.HOOK_PROGRAM_STATUS = JSON.stringify(context.programStatus);
     return env as Record<string, string>;
   }
 
@@ -857,6 +859,7 @@ export class HookManager {
       session_id: context.sessionId,
       cwd: context.workspace,
       hook_event_name: context.event,
+      program_status: context.programStatus,
       // Tool context
       tool_name: context.tool,
       tool_input: context.args,

@@ -23,6 +23,7 @@ import { MessageTargetDropdown } from './MessageTargetDropdown.js';
 import { buildTargetSuggestions, matchTargetMention, type MessageTarget, type MessageTargetSuggestion } from '../messageTargets.js';
 import { canSteerComposerInput } from '../composerSteering.js';
 import { usePeerComposer } from './usePeerComposer.js';
+import { useTerminalWindowSize } from './useTerminalWindowSize.js';
 import { PeerMentionDropdown } from './PeerMentionDropdown.js';
 import type { PeerDescriptor, PeerReceipt, PeerScope } from '../../session/peers/PeerProtocol.js';
 import type { PeerComposerDraft, PeerInstructionMetadata } from '../peerMention.js';
@@ -564,32 +565,6 @@ function mapInkKeyToTextBufferKey(input: string, key: InkKey): TextBufferKeyInfo
     shift: key.shift,
     sequence: input,
   };
-}
-
-function useTerminalWindowSize(): { columns: number | undefined; rows: number | undefined } {
-  const { stdout } = useStdout();
-  const [windowSize, setWindowSize] = useState(() => ({
-    columns: stdout.columns,
-    rows: stdout.rows,
-  }));
-
-  useEffect(() => {
-    const updateWindowSize = () => {
-      setWindowSize({
-        columns: stdout.columns,
-        rows: stdout.rows,
-      });
-    };
-
-    updateWindowSize();
-    stdout.on('resize', updateWindowSize);
-
-    return () => {
-      stdout.off('resize', updateWindowSize);
-    };
-  }, [stdout]);
-
-  return windowSize;
 }
 
 export function getTextBufferCursorOffset(buffer: TextBuffer): number {

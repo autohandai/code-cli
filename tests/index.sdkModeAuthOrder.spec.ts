@@ -24,11 +24,18 @@ describe('index SDK mode startup ordering', () => {
 
   it('routes RPC and ACP before the interactive auth gate can print or prompt', () => {
     const source = readFileSync(path.resolve(process.cwd(), 'src/index.ts'), 'utf8');
+    const actionStart = source.indexOf('.action(async (positionalPrompt:');
+    const actionEnd = source.indexOf('registerReviewCommand(program,', actionStart);
+    expect(actionStart).toBeGreaterThan(-1);
+    expect(actionEnd).toBeGreaterThan(actionStart);
+    const startupAction = source.slice(actionStart, actionEnd);
+    const authenticationWrapper = source.match(/function authenticateForStartup\([\s\S]*?\n\}/)?.[0];
+    expect(authenticationWrapper).toContain('return ensureAuthenticated(config, {');
 
-    const authGateIndex = source.indexOf('await ensureAuthenticated(authConfig');
-    const routerIndex = source.indexOf('const protocolLaunchMode = resolveProtocolLaunchMode(opts)');
-    const rpcModeIndex = source.indexOf("if (protocolLaunchMode === 'rpc')");
-    const acpModeIndex = source.indexOf("if (protocolLaunchMode === 'acp')");
+    const authGateIndex = startupAction.indexOf('await authenticateForStartup(authConfig');
+    const routerIndex = startupAction.indexOf('const protocolLaunchMode = resolveProtocolLaunchMode(opts)');
+    const rpcModeIndex = startupAction.indexOf("if (protocolLaunchMode === 'rpc')");
+    const acpModeIndex = startupAction.indexOf("if (protocolLaunchMode === 'acp')");
 
     expect(authGateIndex).toBeGreaterThan(-1);
     expect(routerIndex).toBeGreaterThan(-1);

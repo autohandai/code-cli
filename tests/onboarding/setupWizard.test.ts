@@ -1464,6 +1464,42 @@ describe("SetupWizard", () => {
   });
 
   describe("Advanced Settings", () => {
+    it("defaults signed-in paid accounts to included search during quick setup", async () => {
+      const wizard = new SetupWizard(testWorkspace, { configPath: testConfigPath, auth: { token: "ahc_paid_fixture" } });
+      setupQuickLocalMocks("ollama", "llama3.2:latest");
+      mockFetch.mockImplementation(async (url: string) => url === "https://dev.autohand.ai/api/native/web-search"
+        ? Response.json({ available: true, tier: "lite", provider: "cloudflare" }) : { ok: true, status: 200 });
+      const result = await wizard.run({ skipWelcome: true, quickSetup: true });
+      expect(result.config.search?.provider).toBe("autohand");
+      expect(mockShowModal).not.toHaveBeenCalledWith(expect.objectContaining({ title: "setup.search.prompt" }));
+    });
+    it("defers a keyed provider when its required API key is blank", async () => {
+      const wizard = new SetupWizard(testWorkspace);
+      setupQuickLocalMocks("ollama", "llama3.2:latest");
+      mockShowModal.mockImplementation(async (options: { title: string }) => ({ value: options.title === "setup.search.prompt" ? "exa" : "disabled" }));
+      mockShowPassword.mockResolvedValue(" ");
+      const previous = process.env.EXA_API_KEY;
+      delete process.env.EXA_API_KEY;
+      try {
+        const result = await wizard.run({ skipWelcome: true, quickSetup: true });
+        expect(result.config.search).toBeUndefined();
+        expect(result.skippedSteps).toContain("search");
+      } finally {
+        if (previous === undefined) delete process.env.EXA_API_KEY; else process.env.EXA_API_KEY = previous;
+      }
+    });
+    it("offers search setup in quick setup, including browser profiles and Exa", async () => {
+      const wizard = new SetupWizard(testWorkspace);
+      setupQuickLocalMocks("ollama", "llama3.2:latest");
+      await wizard.run({ skipWelcome: true, quickSetup: true });
+      expect(mockShowModal).toHaveBeenCalledWith(expect.objectContaining({
+        title: "setup.search.prompt",
+        options: expect.arrayContaining([
+          expect.objectContaining({ value: "browser-profile" }),
+          expect.objectContaining({ value: "exa" }),
+        ]),
+      }));
+    });
     it("should skip all advanced settings when user declines gate", async () => {
       const wizard = new SetupWizard(testWorkspace);
       setupLocalProviderMocks("ollama", "llama3.2:latest");
@@ -1485,7 +1521,8 @@ describe("SetupWizard", () => {
       mockShowModal
         .mockResolvedValueOnce({ value: "en" })
         .mockResolvedValueOnce({ value: "ollama" })
-        .mockResolvedValueOnce({ value: "interactive" });
+        .mockResolvedValueOnce({ value: "interactive" })
+        .mockResolvedValueOnce({ value: "disabled" });
       mockShowInput.mockResolvedValueOnce("llama3.2:latest");
       mockShowConfirm
         .mockResolvedValueOnce(true) // remember
@@ -1779,7 +1816,7 @@ describe("SetupWizard", () => {
       });
 
       expect(result.success).toBe(true);
-      expect(mockShowModal).toHaveBeenCalledTimes(4);
+      expect(mockShowModal).toHaveBeenCalledTimes(5);
       expect(result.skippedSteps).toEqual(expect.arrayContaining(["keybindings", "importAgents"]));
       expect(result.config.ui?.keybindingProfile).toBeUndefined();
     });

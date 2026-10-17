@@ -19,6 +19,7 @@ export class PtyDriver {
   up(): void { this.type('\x1b[A'); }
   down(): void { this.type('\x1b[B'); }
   ctrlC(): void { this.type('\x03'); }
+  resize(cols: number, rows: number): void { this.terminal?.resize(cols, rows); }
   snapshot(): string { return stripVTControlCharacters(this.output); }
   close(): void { this.terminal?.kill(); }
 

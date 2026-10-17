@@ -87,6 +87,13 @@ The invariant is the executable plus `--acp`. Translate `command`, `args`, and `
 
 Autohand communicates using newline-delimited JSON over stdin and stdout. In ACP mode, stdout is reserved for ACP protocol messages and diagnostics go to stderr. Launch the binary directly when possible. A shell wrapper must never print banners, debug text, or other output to stdout.
 
+Autohand also sends the `autohand.hook.programStatus` extension notification with
+`sessionId`, record `id`, `app`, `state`, and `timestamp`, plus `kind`, `title`, or
+`message` when applicable. It follows working, input waits, completion, failure,
+cancellation, and cleanup even with shell hooks disabled. ACP sends structured
+JSON and never writes OSC7501 terminal escapes. See
+[program status lifecycle](../hooks.md#program-status-and-terminal-tabs).
+
 ## Zed
 
 Zed supports custom ACP processes as [External Agents](https://zed.dev/docs/ai/external-agents).
