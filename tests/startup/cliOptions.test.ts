@@ -162,4 +162,29 @@ describe('CLI option normalization', () => {
       dryRun: true,
     });
   });
+
+  it('parses string values of --sync-settings as booleans', () => {
+    for (const value of ['false', 'FALSE', '0', 'no', 'off']) {
+      const options = { syncSettings: value } as unknown as RootCliOptions;
+      normalizeInitialCliOptions(options, {});
+      expect(options.syncSettings).toBe(false);
+    }
+    for (const value of ['true', 'TRUE', '1', 'yes', 'on']) {
+      const options = { syncSettings: value } as unknown as RootCliOptions;
+      normalizeInitialCliOptions(options, {});
+      expect(options.syncSettings).toBe(true);
+    }
+    const bare = { syncSettings: true } as RootCliOptions;
+    normalizeInitialCliOptions(bare, {});
+    expect(bare.syncSettings).toBe(true);
+    const unset = {} as RootCliOptions;
+    normalizeInitialCliOptions(unset, {});
+    expect(unset.syncSettings).toBeUndefined();
+  });
+
+  it('rejects an unrecognised --sync-settings value instead of silently enabling sync', () => {
+    const options = { syncSettings: 'maybe' } as unknown as RootCliOptions;
+    const result = normalizeInitialCliOptions(options, {});
+    expect(result.invalidOption).toBe('--sync-settings expects true or false, got "maybe"');
+  });
 });

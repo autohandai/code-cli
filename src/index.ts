@@ -523,6 +523,10 @@ program
     }
 
     const normalization = normalizeInitialCliOptions(opts);
+    if (normalization.invalidOption) {
+      console.error(chalk.red(normalization.invalidOption));
+      process.exit(2);
+    }
     if (normalization.deprecatedBrowserOption) {
       console.warn(chalk.yellow(formatDeprecatedBrowserOptionWarning(normalization.deprecatedBrowserOption)));
     }
