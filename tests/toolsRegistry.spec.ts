@@ -91,7 +91,7 @@ describe('ToolsRegistry', () => {
     ]);
   });
 
-  it('loads project-scoped tools before user-scoped tools for future sessions', async () => {
+  it('lets user-scoped tools win over project-scoped tools across sessions', async () => {
     const workspaceRoot = path.join(tempRoot, 'workspace');
     const userToolsDir = path.join(tempRoot, 'user-tools');
     const projectToolsDir = path.join(workspaceRoot, '.autohand', 'tools');
@@ -115,20 +115,24 @@ describe('ToolsRegistry', () => {
       scope: 'project'
     });
 
-    const registry = createToolsRegistry(workspaceRoot, userToolsDir);
+    const registry = createToolsRegistry(workspaceRoot, userToolsDir, { projectToolsTrusted: true });
     await registry.initialize();
 
     expect(registry.getMetaTool('shared_tool')).toMatchObject({
-      description: 'Project-scoped helper',
-      scope: 'project'
+      description: 'User-scoped helper',
+      scope: 'user'
     });
-    expect(registry.listMetaTools({ includeDisabled: true }).map((tool) => tool.scope)).toEqual(['project', 'user']);
+    expect(registry.listMetaTools({ includeDisabled: true }).map((tool) => tool.scope)).toEqual(['user', 'project']);
+    expect(registry.getDiagnostics()).toContainEqual({
+      file: path.join(projectToolsDir, 'shared_tool.json'),
+      reason: 'project tool shadows user tool "shared_tool"'
+    });
 
-    const nextSessionRegistry = createToolsRegistry(workspaceRoot, userToolsDir);
+    const nextSessionRegistry = createToolsRegistry(workspaceRoot, userToolsDir, { projectToolsTrusted: true });
     await nextSessionRegistry.initialize();
     expect(nextSessionRegistry.getMetaTool('shared_tool')).toMatchObject({
-      description: 'Project-scoped helper',
-      scope: 'project'
+      description: 'User-scoped helper',
+      scope: 'user'
     });
   });
 
