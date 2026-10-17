@@ -1137,9 +1137,9 @@ export interface LoadedConfig extends AutohandConfig {
    */
   workspaceOverlay?: WorkspaceOverlaySnapshot;
   /**
-   * Runtime-only trust state for project hooks and MCP servers declared in
-   * `<workspace>/.autohand/`. Present only when the workspace declares any.
-   * Never persisted.
+   * Runtime-only trust state for project hooks, MCP servers, and tool files
+   * declared in `<workspace>/.autohand/`. Present only when the workspace
+   * declares any. Never persisted.
    */
   workspaceTrust?: WorkspaceTrustState;
   /**
@@ -1150,11 +1150,11 @@ export interface LoadedConfig extends AutohandConfig {
   runOverlay?: RunConfigOverlaySnapshot;
 }
 
-/** Whether a workspace's project hooks and MCP servers may run. */
+/** Whether a workspace's project hooks, MCP servers, and tool files may run. */
 export interface WorkspaceTrustState {
   /** Workspace whose project files declare the entries */
   workspaceRoot: string;
-  /** Hash of the declared hooks and MCP servers; any change asks again */
+  /** Hash of the declared hooks, MCP servers, and tool files; any change asks again */
   fingerprint: string;
   /** True when the user trusted this workspace for exactly these entries */
   trusted: boolean;
@@ -1162,6 +1162,16 @@ export interface WorkspaceTrustState {
   hooks: HookDefinition[];
   /** Project MCP servers after layering */
   mcpServers: McpServerConfigEntry[];
+  /** Project tool files under `.autohand/tools/`, sorted by name, with content hashes */
+  tools: WorkspaceTrustToolEntry[];
+}
+
+/** A project tool file, identified by workspace-relative path and content hash. */
+export interface WorkspaceTrustToolEntry {
+  /** Path relative to the workspace root, e.g. `.autohand/tools/deploy.json` */
+  file: string;
+  /** Hex sha256 of the file bytes */
+  sha256: string;
 }
 
 /** Keys of plain settings objects that workspace overlays merge field by field. */

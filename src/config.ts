@@ -42,9 +42,11 @@ import { autoInitTheme, configureThemeSources, getDefaultThemeName, themeExists 
 import { loadLocalProjectSettings, type LocalProjectSettings } from "./permissions/localProjectPermissions.js";
 import {
   canonicalJson,
+  collectProjectToolEntries,
   computeWorkspaceTrustFingerprint,
   isWorkspaceTrusted,
   type WorkspaceTrustEntries,
+  type WorkspaceTrustToolEntry,
 } from "./permissions/workspaceTrust.js";
 import { isAwsBedrockProviderEnabled } from "./features/featureRegistry.js";
 import { getCustomProviderConfig, isCustomProviderName } from "./providers/customProviders.js";
@@ -559,12 +561,15 @@ export async function loadConfig(
     workspaceSettings = await loadLocalProjectSettings(workspaceRoot);
   }
 
-  // Project hooks and MCP servers run commands, and a cloned repository can
-  // ship them. They only apply once the user trusts this exact content.
+  // Project hooks, MCP servers, and tool files run commands, and a cloned
+  // repository can ship them. They only apply once the user trusts this exact
+  // content. Tool files are part of the fingerprint so a workspace whose only
+  // executable content is .autohand/tools still gets the trust prompt.
   let workspaceTrust: WorkspaceTrustState | undefined;
   if (workspaceRoot) {
-    const entries = resolveWorkspaceTrustEntries([projectConfig, workspaceSettings]);
-    if (entries.hooks.length > 0 || entries.mcpServers.length > 0) {
+    const tools = await collectProjectToolEntries(workspaceRoot);
+    const entries = resolveWorkspaceTrustEntries([projectConfig, workspaceSettings], tools);
+    if (entries.hooks.length > 0 || entries.mcpServers.length > 0 || entries.tools.length > 0) {
       const fingerprint = computeWorkspaceTrustFingerprint(entries);
       const trusted = await isWorkspaceTrusted(workspaceRoot, fingerprint, options.workspaceTrustStorePath);
       workspaceTrust = { workspaceRoot: path.resolve(workspaceRoot), fingerprint, trusted, ...entries };
@@ -621,8 +626,14 @@ export async function loadConfig(
   };
 }
 
-/** Project hooks and MCP servers after layering, in the order they would apply. */
-function resolveWorkspaceTrustEntries(layers: (LocalProjectSettings | null)[]): WorkspaceTrustEntries {
+/**
+ * Project hooks and MCP servers after layering, in the order they would apply,
+ * together with the project tool files the workspace ships.
+ */
+function resolveWorkspaceTrustEntries(
+  layers: (LocalProjectSettings | null)[],
+  tools: WorkspaceTrustToolEntry[] = [],
+): WorkspaceTrustEntries {
   let hooks: HookDefinition[] = [];
   let mcpServers: McpServerConfigEntry[] = [];
   for (const layer of layers) {
@@ -634,7 +645,7 @@ function resolveWorkspaceTrustEntries(layers: (LocalProjectSettings | null)[]): 
       mcpServers = mergeMcpSettings({ servers: mcpServers }, layer.mcp).servers ?? [];
     }
   }
-  return { hooks, mcpServers };
+  return { hooks, mcpServers, tools };
 }
 
 function withoutExecutableSections(layer: LocalProjectSettings | null): LocalProjectSettings | null {
