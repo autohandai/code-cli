@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { OPENROUTER_ATTRIBUTION_HEADERS } from "../../src/providers/OpenRouterClient.js";
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -121,8 +122,7 @@ describe("API Key Validation", () => {
         headers: {
           Authorization: "Bearer sk-or-valid-key",
           "Content-Type": "application/json",
-          "HTTP-Referer": "https://autohand.dev",
-          "X-Title": "Autohand CLI",
+          ...OPENROUTER_ATTRIBUTION_HEADERS,
         },
       });
 
@@ -130,8 +130,8 @@ describe("API Key Validation", () => {
         "https://openrouter.ai/api/v1/models",
         expect.objectContaining({
           headers: expect.objectContaining({
-            "HTTP-Referer": "https://autohand.dev",
-            "X-Title": "Autohand CLI",
+            "HTTP-Referer": "https://autohand.ai",
+            "X-Title": "Autohand Code",
           }),
         }),
       );
