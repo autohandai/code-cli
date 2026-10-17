@@ -7,7 +7,7 @@ TRACES_BINARY_NAME="ahtraces"
 COMPAT_BINARY_NAME="autohand-code"
 AGENT_ALIAS_NAME="agent"
 SHORT_ALIAS_NAME="ah"
-FIRST_RUN_MESSAGE="hello world"
+FIRST_RUN_MESSAGE="What can you do in this folder? Give me 3 quick ideas."
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
