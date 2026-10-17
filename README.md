@@ -23,9 +23,10 @@ Install it, run `autohand`, and describe the outcome you want in natural languag
 - **Planning + Tools**: Combines reasoning, file edits, shell commands, and web context in one loop
 - **Interactive REPL**: Smooth terminal experience with file mentions, slash commands, and keyboard shortcuts
 - **Modular Skills**: Extends workflows with specialized instruction packages
-- **Multi-Provider Support**: Works with OpenRouter, LLMGateway, OpenAI, AWS Bedrock, DeepSeek, Azure Foundry Models, Z.ai, and local models
+- **Multi-Provider Support**: Free Fantail model with an Autohand account, or 15+ providers incl. Anthropic, OpenAI, OpenRouter, Bedrock, DeepSeek, Azure, Vertex, xAI, Z.ai and local Ollama/llama.cpp/MLX
 - **Git Integration**: Full version control support with automatic commits
 - **Cross-Platform**: Works on macOS, Linux, and Windows
+- **Coming from Claude Code?** Run `autohand import claude` to bring over your settings, skills, hooks, sessions and memory
 
 ## Why Autohand Code CLI?
 
