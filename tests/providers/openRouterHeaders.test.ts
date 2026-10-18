@@ -21,11 +21,13 @@ describe('OpenRouter attribution headers', () => {
   it('names Autohand Code so OpenRouter rankings credit the app', () => {
     expect(OPENROUTER_ATTRIBUTION_HEADERS).toEqual({
       'HTTP-Referer': 'https://autohand.ai',
+      'X-OpenRouter-Title': 'Autohand Code',
       'X-Title': 'Autohand Code',
+      'X-OpenRouter-Categories': 'cli-agent',
     });
   });
 
-  it('sends only the documented attribution headers on chat requests', async () => {
+  it('sends the documented attribution headers on chat requests', async () => {
     const client = new OpenRouterClient({ apiKey: 'test-key', model: 'openrouter/auto' });
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response(
@@ -44,6 +46,6 @@ describe('OpenRouter attribution headers', () => {
     expect(headers).toMatchObject(OPENROUTER_ATTRIBUTION_HEADERS);
     expect(headers['HTTP-Referer']).toBe('https://autohand.ai');
     expect(headers['X-Title']).toBe('Autohand Code');
-    expect(Object.keys(headers).filter((name) => name.startsWith('X-OpenRouter-'))).toEqual([]);
+    expect(Object.keys(headers).filter((name) => name.startsWith('X-OpenRouter-')).sort()).toEqual(['X-OpenRouter-Categories', 'X-OpenRouter-Title']);
   });
 });
