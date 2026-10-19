@@ -101,7 +101,8 @@ bun add -g .
 
 ### Requirements
 
-- Bun ≥1.0 (`curl -fsSL https://bun.sh/install | bash`)
+- Node.js 22 or later (to run Autohand)
+- Bun 1.0 or later, only to build from source (`curl -fsSL https://bun.sh/install | bash`)
 - Git (for version control features)
 - ripgrep (optional, for faster search)
 
@@ -784,7 +785,7 @@ We welcome contributions! Please read our [Contributing Guide](CONTRIBUTING.md) 
 
 ### Common Issues
 
-**Installation fails**: Make sure you have Bun installed and up to date.
+**Installation fails**: Make sure Node.js 22 or later is installed. Building from source also needs Bun.
 
 **Permission denied**: Check your file permissions and try running with appropriate privileges.
 
