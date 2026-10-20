@@ -52,11 +52,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function validMcpServers(value: unknown): Record<string, unknown> {
   if (!isRecord(value)) return {};
 
-  return Object.fromEntries(Object.entries(value).filter(([, server]) => {
+  return Object.fromEntries(Object.entries(value).filter(([name, server]) => {
+    if (!name.trim()) return false;
     if (!isRecord(server)) return false;
     if (server.type === 'http' || server.type === 'sse') return typeof server.url === 'string' && server.url.length > 0;
     return (server.type === undefined || server.type === 'stdio') && typeof server.command === 'string' && server.command.length > 0;
   }));
+}
+
+function hasEnvPlaceholders(value: unknown): boolean {
+  if (typeof value === 'string') return /\$\{[A-Za-z_][A-Za-z0-9_]*(?::-[^}]*)?\}/.test(value);
+  if (Array.isArray(value)) return value.some(hasEnvPlaceholders);
+  return isRecord(value) && Object.values(value).some(hasEnvPlaceholders);
 }
 
 /**
@@ -69,6 +76,12 @@ export class ClaudeImporter extends BaseImporter {
   readonly name: ImportSource = 'claude';
   readonly displayName = 'Claude Code';
   readonly homePath = '~/.claude';
+
+  async detect(): Promise<boolean> {
+    return await super.detect()
+      || await fse.pathExists(path.join(path.dirname(this.resolvedHomePath), '.claude.json'))
+      || await fse.pathExists(path.join(path.resolve(this.hookImportOptions.workspaceRoot ?? process.cwd()), '.mcp.json'));
+  }
 
   // ---------------------------------------------------------------
   // scan()
@@ -216,17 +229,17 @@ export class ClaudeImporter extends BaseImporter {
       Object.assign(collected.user, validMcpServers(claudeConfig.mcpServers));
     }
 
+    const localConfig = await this.readOptionalJson(projectConfigPath);
+    if (localConfig && isRecord(localConfig.mcpServers)) {
+      Object.assign(collected.project, validMcpServers(localConfig.mcpServers));
+    }
+
     const projects = claudeConfig?.projects;
     if (isRecord(projects)) {
       const projectConfig = projects[workspaceRoot];
       if (isRecord(projectConfig) && isRecord(projectConfig.mcpServers)) {
         Object.assign(collected.project, validMcpServers(projectConfig.mcpServers));
       }
-    }
-
-    const localConfig = await this.readOptionalJson(projectConfigPath);
-    if (localConfig && isRecord(localConfig.mcpServers)) {
-      Object.assign(collected.project, validMcpServers(localConfig.mcpServers));
     }
 
     return collected;
@@ -251,6 +264,10 @@ export class ClaudeImporter extends BaseImporter {
         const existing = Array.isArray(mcp.servers) ? mcp.servers : [];
         const converted = Object.entries(servers).flatMap(([name, value]) => {
           if (!isRecord(value)) return [];
+          if (hasEnvPlaceholders(value)) {
+            errors.push({ category: 'mcp', item: name, error: 'Claude MCP environment variable placeholders are not supported by this importer', retriable: false });
+            return [];
+          }
           const server = value;
           const transport = server.type === 'http' || server.type === 'sse' ? server.type : 'stdio';
           return [{ ...server, name, transport, autoConnect: false, localOnly: true }];

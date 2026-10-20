@@ -89,6 +89,15 @@ describe('ClaudeImporter', () => {
   // scan()
   // ---------------------------------------------------------------
   describe('scan()', () => {
+    it.each(['global config', 'project config'])('detects Claude when only the MCP %s exists', async (scope) => {
+      const root = '/workspace';
+      importer = new ClaudeImporter({ sourceHome: CLAUDE_HOME, workspaceRoot: root });
+      const onlyMcpConfig = scope === 'global config' ? path.join(HOME, '.claude.json') : path.join(root, '.mcp.json');
+      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => String(p) === onlyMcpConfig);
+
+      await expect(importer.detect()).resolves.toBe(true);
+    });
+
     it('reports MCP servers from Claude configuration', async () => {
       const root = '/workspace';
       importer = new ClaudeImporter({ sourceHome: CLAUDE_HOME, workspaceRoot: root });
@@ -115,6 +124,7 @@ describe('ClaudeImporter', () => {
             missingUrl: { type: 'http' },
             unsupported: { type: 'websocket', url: 'https://example.test' },
             scalar: 'invalid',
+            '': { command: 'blank-name' },
           },
         } as never;
         if (String(p) === userConfig) return {} as never;
@@ -156,13 +166,30 @@ describe('ClaudeImporter', () => {
       expect(writes.some(call => String(call[0]) === userConfig)).toBe(false);
       const localWrite = writes.find(call => String(call[0]).endsWith('.autohand/settings.local.json'))?.[1] as any;
       expect(localWrite.mcp.servers).toEqual(expect.arrayContaining([
-        { name: 'project', type: 'http', url: 'https://local', transport: 'http', autoConnect: false, localOnly: true },
+        { name: 'project', command: 'shared', transport: 'stdio', autoConnect: false, localOnly: true },
         { name: 'keep', command: 'incoming', transport: 'stdio', autoConnect: false, localOnly: true },
         { name: 'events', type: 'sse', url: 'https://example.test/events', headers: { Authorization: 'Bearer secret' }, transport: 'sse', autoConnect: false, localOnly: true },
         { name: 'local', command: 'local-run', transport: 'stdio', autoConnect: false, localOnly: true },
       ]));
       expect(execFileSync).toHaveBeenCalledWith('git', ['rev-parse', '--path-format=absolute', '--git-path', 'info/exclude'], expect.objectContaining({ cwd: root }));
       expect(fse.writeFile).toHaveBeenCalledWith('/workspace/.git/info/exclude', expect.stringContaining('**/.autohand/settings.local.json'));
+    });
+
+    it('reports MCP servers with Claude environment placeholders as unsupported', async () => {
+      const root = '/workspace';
+      importer = new ClaudeImporter({ sourceHome: CLAUDE_HOME, workspaceRoot: root });
+      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => [path.join(HOME, '.claude.json'), path.join(root, '.mcp.json')].includes(String(p)));
+      vi.mocked(fse.readJson).mockImplementation(async (p: string) => {
+        if (String(p) === path.join(HOME, '.claude.json')) return {} as never;
+        if (String(p) === path.join(root, '.mcp.json')) return { mcpServers: { shared: { command: 'node', args: ['${SCRIPT:-server.js}'], env: { TOKEN: '${TOKEN}' } } } } as never;
+        throw new Error('missing');
+      });
+
+      const result = await importer.import(['mcp']);
+
+      expect(result.imported.get('mcp')).toMatchObject({ success: 0, failed: 1 });
+      expect(result.errors).toEqual([expect.objectContaining({ category: 'mcp', item: 'shared', error: expect.stringContaining('environment variable placeholders') })]);
+      expect(fse.writeJson).not.toHaveBeenCalled();
     });
 
     it('reports existing MCP servers as skipped without rewriting their config', async () => {
