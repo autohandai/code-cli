@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const atomicFileMocks = vi.hoisted(() => ({
   atomicWriteJson: vi.fn().mockResolvedValue(undefined),
@@ -15,6 +16,16 @@ const atomicFileMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../src/utils/atomicFile.js', () => atomicFileMocks);
+
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...await importOriginal<typeof import('node:child_process')>(),
+  execFileSync: vi.fn((file: string, args: string[]) => {
+    if (file !== 'git') throw new Error(`Unexpected command: ${file}`);
+    if (args.includes('--show-toplevel')) return '/workspace';
+    if (args.includes('info/exclude')) return '/workspace/.git/info/exclude';
+    throw new Error(`Unexpected git args: ${args.join(' ')}`);
+  }),
+}));
 
 // Mock fs-extra before importing anything that uses it
 vi.mock('fs-extra', () => ({
@@ -150,6 +161,8 @@ describe('ClaudeImporter', () => {
         { name: 'events', type: 'sse', url: 'https://example.test/events', headers: { Authorization: 'Bearer secret' }, transport: 'sse', autoConnect: false, localOnly: true },
         { name: 'local', command: 'local-run', transport: 'stdio', autoConnect: false, localOnly: true },
       ]));
+      expect(execFileSync).toHaveBeenCalledWith('git', ['rev-parse', '--path-format=absolute', '--git-path', 'info/exclude'], expect.objectContaining({ cwd: root }));
+      expect(fse.writeFile).toHaveBeenCalledWith('/workspace/.git/info/exclude', expect.stringContaining('**/.autohand/settings.local.json'));
     });
 
     it('reports existing MCP servers as skipped without rewriting their config', async () => {

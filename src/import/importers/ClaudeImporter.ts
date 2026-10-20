@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import fse from 'fs-extra';
 import type {
   ImportSource,
@@ -268,6 +269,7 @@ export class ClaudeImporter extends BaseImporter {
         if (additions.length === 0) continue;
 
         const merged = [...existing, ...additions];
+        if (servers === project) await this.ignoreLocalSettings(workspace);
         await fse.ensureDir(path.dirname(file));
         const output = { ...current, mcp: { ...mcp, servers: merged } };
         await this.writeConfigFile(file, output);
@@ -280,6 +282,28 @@ export class ClaudeImporter extends BaseImporter {
       skipped,
       ...(skipped > 0 ? { skipReasons } : {}),
     });
+  }
+
+  // Keep imported credentials out of Git without changing the shared .gitignore.
+  private async ignoreLocalSettings(workspace: string): Promise<void> {
+    let excludeFile: string;
+    try {
+      excludeFile = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-path', 'info/exclude'], {
+        cwd: workspace,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim();
+    } catch (error) {
+      const stderr = (error as NodeJS.ErrnoException & { stderr?: Buffer | string }).stderr?.toString() ?? '';
+      if (stderr.includes('not a git repository')) return;
+      throw error;
+    }
+
+    const pattern = '**/.autohand/settings.local.json';
+    const current = await fse.pathExists(excludeFile) ? await fse.readFile(excludeFile, 'utf8') : '';
+    if (current.split(/\r?\n/).includes(pattern)) return;
+    const separator = current.length > 0 && !current.endsWith('\n') ? '\n' : '';
+    await fse.writeFile(excludeFile, `${current}${separator}${pattern}\n`);
   }
 
   private async readConfigFile(file: string): Promise<Record<string, unknown>> {
