@@ -1915,7 +1915,7 @@ Ezek a jelzők felülírják a konfigurációs fájl beállításait:
 | `--worktree [name]` | Munkamenet futtatása elszigetelt git-munkafán (opcionális munkafa/ág neve) |
 | `--tmux` | Indítás egy dedikált tmux munkamenetben (az `--worktree`-t jelenti; nem használható a `--no-worktree` kóddal) |
 | `--no-worktree` | A git munkafa elkülönítésének letiltása automatikus módban |
-| `-c, --auto-commit` | Változások automatikus véglegesítése a feladatok elvégzése után |
+| `--auto-commit` | Változások automatikus véglegesítése a feladatok elvégzése után |
 | `--patch` | Git javítás generálása változtatások alkalmazása nélkül |
 | `--output <file>` | A javítás kimeneti fájlja (a --patch-el együtt használatos) |
 

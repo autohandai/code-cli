@@ -27,7 +27,7 @@ describe('resume CLI command', () => {
     program = new Command().exitOverride()
       .option('--config <path>')
       .option('--offline', 'Disable startup network operations', false)
-      .option('-c, --auto-commit');
+      .option('--auto-commit');
     program.configureOutput({ writeErr: () => {}, writeOut: () => {} });
     registerResumeCommand(program, { run, sessionManager: manager, isInteractive });
     vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -107,7 +107,7 @@ describe('resume CLI command', () => {
 
   it('preserves explicit references and global runtime options', async () => {
     const session = await savedSession('/project', 'Explicit session', '2026-01-01');
-    await parse([path.join(directory, session.metadata.sessionId), '--config', '/custom/config.json', '-c', '--model', 'test-override', '--offline']);
+    await parse([path.join(directory, session.metadata.sessionId), '--config', '/custom/config.json', '--auto-commit', '--model', 'test-override', '--offline']);
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       resumeSessionId: session.metadata.sessionId,
       config: '/custom/config.json', autoCommit: true, model: 'test-override', offline: true,

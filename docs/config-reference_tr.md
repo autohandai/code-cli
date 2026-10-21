@@ -1915,7 +1915,7 @@ Bu bayraklar yapılandırma dosyası ayarlarını geçersiz kılar:
 | `--worktree [name]` | Oturumu yalıtılmış git çalışma ağacında çalıştırın (isteğe bağlı çalışma ağacı/dal adı) |
 | `--tmux` | Özel bir tmux oturumunda başlat (`--worktree` anlamına gelir; `--no-worktree` ile kullanılamaz) |
 | `--no-worktree` | Otomatik modda git çalışma ağacı izolasyonunu devre dışı bırakın |
-| `-c, --auto-commit` | Görevleri tamamladıktan sonra değişiklikleri otomatik olarak uygula |
+| `--auto-commit` | Görevleri tamamladıktan sonra değişiklikleri otomatik olarak uygula |
 | `--patch` | Değişiklikleri uygulamadan git yamasını oluşturun |
 | `--output <file>` | Yama için çıktı dosyası (--patch ile kullanılır) |
 

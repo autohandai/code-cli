@@ -273,7 +273,7 @@ describe('built CLI Tuistory smoke tests', () => {
       '--path', state.workspaceRoot, '--config', state.configPath, '--ephemeral', '--fork', 'anything',
     ], { autohandHome: state.autohandHome, cwd: state.workspaceRoot, waitForDataTimeout: 15_000 }));
     await waitForExit(refused, 15_000);
-    expect(refused.readAll()).toContain('--ephemeral cannot be combined with --resume or --fork');
+    expect(refused.readAll()).toContain('--ephemeral cannot be combined with --continue, --resume or --fork');
     expect(refused.exitInfo?.exitCode).toBe(1);
   }, 60_000);
 

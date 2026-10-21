@@ -1253,6 +1253,8 @@ export interface CLIOptions {
   sdkSessionReference?: string;
   /** SDK-only continuation of this workspace's most recent saved session. */
   sdkResumeLast?: boolean;
+  continue?: boolean;
+  resume?: string | boolean;
   /** Keep this run out of session history: nothing saved, no auto-memory, no session sync. */
   ephemeral?: boolean;
   /** --output-schema <file>: the command-mode final answer must be JSON validating against this schema. */

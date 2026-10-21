@@ -1933,7 +1933,7 @@ Tyto příznaky přepisují nastavení konfiguračního souboru:
 | `--worktree [name]` | Spustit relaci v izolovaném pracovním stromu git (volitelný název pracovního stromu/větve) |
 | `--tmux` | Spustit ve vyhrazené relaci tmux (předpokládá `--worktree`; nelze použít s `--no-worktree`) |
 | `--no-worktree` | Zakázat izolaci pracovního stromu git v automatickém režimu |
-| `-c, --auto-commit` | Automatické potvrzení změn po dokončení úkolů |
+| `--auto-commit` | Automatické potvrzení změn po dokončení úkolů |
 | `--patch` | Vygenerujte git patch bez použití změn |
 | `--output <file>` | Výstupní soubor pro patch (používá se s --patch) |
 

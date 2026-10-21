@@ -2056,7 +2056,7 @@ Diese Flags überschreiben Konfigurationsdatei-Einstellungen:
 | `--worktree [name]`           | Sitzung in isoliertem Git-Worktree ausführen (optionaler Worktree-/Branch-Name)                           |
 | `--tmux`                      | In dedizierter tmux-Sitzung starten (impliziert `--worktree`; kann nicht mit `--no-worktree` verwendet werden) |
 | `--no-worktree`               | Git-Worktree-Isolierung im Auto-Modus deaktivieren                                                    |
-| `-c, --auto-commit`           | Änderungen nach Abschluss der Aufgaben automatisch committen                                                     |
+| `--auto-commit`           | Änderungen nach Abschluss der Aufgaben automatisch committen                                                     |
 | `--patch`                     | Git-Patch generieren, ohne Änderungen anzuwenden                                                    |
 | `--output <file>`             | Ausgabedatei für Patch (verwendet mit --patch)                                                      |
 

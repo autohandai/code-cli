@@ -1915,7 +1915,7 @@ Ces indicateurs remplacent les paramètres du fichier de configuration :
 | `--worktree [name]` | Exécuter la session dans un arbre de travail git isolé (nom de l'arbre de travail/de la branche facultatif) |
 | `--tmux` | Lancer dans une session tmux dédiée (implique `--worktree` ; ne peut pas être utilisé avec `--no-worktree`) |
 | `--no-worktree` | Désactiver l'isolation de git worktree en mode automatique |
-| `-c, --auto-commit` | Valider automatiquement les modifications après avoir terminé les tâches |
+| `--auto-commit` | Valider automatiquement les modifications après avoir terminé les tâches |
 | `--patch` | Générer le patch git sans appliquer les modifications |
 | `--output <file>` | Fichier de sortie pour le patch (utilisé avec --patch) |
 

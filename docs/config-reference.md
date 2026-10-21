@@ -2889,7 +2889,9 @@ These flags override config file settings:
 | `--tmux`                      | Launch in a dedicated tmux session (implies `--worktree`; cannot be used with `--no-worktree`) |
 | `--zit [intent]`              | Run session in a disposable Zit workspace, recorded as a Zit change on exit (optional intent)  |
 | `--no-worktree`               | Disable git worktree isolation in auto-mode                                                    |
-| `-c, --auto-commit`           | Auto-commit changes after completing tasks                                                     |
+| `-c, --continue` | Resume the latest session in this folder, including with `-p`; start fresh when none exists |
+| `-r, --resume [id]` | Resume by reference, or open the folder picker without an id |
+| `--auto-commit`           | Auto-commit changes after completing tasks                                                     |
 | `--patch`                     | Generate git patch without applying changes                                                    |
 | `--output <file>`             | Output file for patch (used with --patch)                                                      |
 

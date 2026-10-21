@@ -1376,7 +1376,7 @@ Autohandは `~/.autohand/`（または `$AUTOHAND_HOME`）にデータを保存�
 | `--patch`                  | 変更を適用せずにgitパッチを生成                                               |
 | `--output <file>`          | パッチの出力ファイル（--patchと併用）                                         |
 | `--auto-skill`             | プロジェクト分析に基づいてスキルを自動生成（対話型は `/learn` を参照）        |
-| `-c, --auto-commit`        | タスク完了後に変更を自動コミット                                              |
+| `--auto-commit`        | タスク完了後に変更を自動コミット                                              |
 | `--login`                  | Autohandアカウントにサインイン                                                |
 | `--logout`                 | Autohandアカウントからサインアウト                                            |
 | `--setup`                  | セットアップウィザードを実行してAutohandを設定または再設定                    |

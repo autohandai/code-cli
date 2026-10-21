@@ -118,6 +118,17 @@ describe('AutohandAgent runtime resource shutdown', () => {
     expect(stopMobileRelay).toHaveBeenCalledOnce();
   });
 
+  it('keeps transport-owned stdin flowing when replacing an ACP or RPC session', async () => {
+    const agent = createShutdownAgent({
+      runtime: { config: {}, options: {}, isRpcMode: true },
+    });
+    const pauseStdin = vi.spyOn(process.stdin, 'pause');
+
+    await agent.shutdownRuntimeResources();
+
+    expect(pauseStdin).not.toHaveBeenCalled();
+  });
+
   it('terminates registered background processes so none outlive the CLI', async () => {
     const killAll = vi.fn().mockResolvedValue(undefined);
     const agent = createShutdownAgent({ backgroundProcessRegistry: { killAll } });

@@ -62,6 +62,19 @@ function lifecycleHookOptions() {
 }
 
 describe('runAgentCommandMode', () => {
+  it('restores the selected session before a headless instruction without auto-commit', async () => {
+    const host = {
+      ...createHost(true),
+      restoreSessionState: vi.fn().mockResolvedValue(undefined),
+    };
+    Object.assign(host.runtime.options, { autoCommit: false, resumeSessionId: 'saved-session' });
+    await expect(runAgentCommandMode(host, 'hi')).resolves.toBe(true);
+    expect(host.initializeForRPC).toHaveBeenCalledWith(undefined, 'saved-session');
+    expect(host.restoreSessionState).toHaveBeenCalledWith('saved-session');
+    expect(host.restoreSessionState.mock.invocationCallOrder[0]).toBeLessThan(host.runInstruction.mock.invocationCallOrder[0]);
+    expect(host.performAutoCommit).not.toHaveBeenCalled();
+  });
+
   const originalStdoutTTY = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
   afterEach(() => {
     vi.useRealTimers();

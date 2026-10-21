@@ -748,7 +748,10 @@ export async function shutdownAgentRuntimeResources(host: AgentLifecycleHost): P
       callResourceCleanupSync(() => stopMobileRelay());
       host.persistentInputActiveTurn = false;
       callResourceCleanupSync(() => host.persistentInput?.dispose?.());
-      callResourceCleanupSync(() => process.stdin.pause());
+      // Protocol transports own stdin across replacement agent sessions.
+      if (!host.runtime?.isRpcMode) {
+        callResourceCleanupSync(() => process.stdin.pause());
+      }
 
       const cleanupTasks: Promise<unknown>[] = [];
       if (host.ui) {
@@ -1250,10 +1253,16 @@ export async function runAgentCommandMode(
         throw createLifecycleAbortError();
       }
       await awaitLifecycleStep(
-        Promise.resolve(host.initializeForRPC(signal)),
+        Promise.resolve(host.runtime.options.resumeSessionId
+          ? host.initializeForRPC(signal, host.runtime.options.resumeSessionId)
+          : host.initializeForRPC(signal)),
         signal,
       );
       initialized = true;
+
+      if (host.runtime.options.resumeSessionId) {
+        await awaitLifecycleStep(host.restoreSessionState(host.runtime.options.resumeSessionId), signal);
+      }
 
       if (options.review) {
         await host.telemetryManager.trackCommand({

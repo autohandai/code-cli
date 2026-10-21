@@ -1915,7 +1915,7 @@ Autohand 將資料儲存在 `~/.autohand/` （或 `$AUTOHAND_HOME`）：
 | `--worktree [name]` |在隔離的 git 工作樹中執行會話（可選工作樹/分支名稱）|
 | `--tmux` |在專用 tmux 會話中啟動（意味著 `--worktree`；不能與 `--no-worktree` 一起使用）|
 | `--no-worktree` |在自動模式下停用 git worktree 隔離 |
-| `-c, --auto-commit` |完成任務後自動提交變更 |
+| `--auto-commit` |完成任務後自動提交變更 |
 | `--patch` |產生 git 補丁而不套用變更 |
 | `--output <file>` |補丁的輸出檔案（與--patch一起使用）|
 

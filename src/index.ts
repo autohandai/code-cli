@@ -77,7 +77,7 @@ import { registerBrowserCommand, registerBrowserOptions } from './browser/cliCom
 import { registerComputerCommand } from './computer/cliCommand.js';
 import { registerReviewCommand } from './review/reviewCliCommand.js';
 import { registerTransferCommand } from './startup/transferCommand.js';
-import { registerResumeCommand } from './startup/resumeCommand.js';
+import { registerResumeCommand, registerResumeOptions, resolveStartupSession, validateSessionOptions } from './startup/resumeCommand.js';
 import { attachHerdrIntegration, type HerdrIntegration } from './integrations/herdr/index.js';
 import { probeMcpServersWithManager, registerDoctorCommand } from './startup/doctorCommand.js';
 import type { ReviewCliExecution } from './review/reviewCliRuntime.js';
@@ -394,6 +394,7 @@ registerBrowserOptions(program);
 registerComputerCommand(program);
 registerExtensionsCommand(program);
 registerDiscoveryCommand(program);
+registerResumeOptions(program);
 
 program
   .name('autohand')
@@ -416,7 +417,6 @@ program
   .option('--config <path>', 'Path to config file (default ~/.autohand/config.json)')
   .option('--temperature <value>', 'Sampling temperature', parseFloat)
   .option('--thinking [level]', 'Set thinking/reasoning depth (none, normal, extended)')
-  .option('-c, --auto-commit', 'Auto-commit with LLM-generated message (runs lint & test first)', false)
   .option('--unrestricted', 'Run without any approval prompts (use with caution)', false)
   .option('--restricted', 'Deny all dangerous operations automatically', false)
   .addOption(new Option('--plan', 'Start in read-only plan mode; require approval before execution')
@@ -496,6 +496,7 @@ program
   .option('--ephemeral', 'Keep this run out of session history: no session files, no auto-memory, no session sync', false)
   .option('--profile <name>', 'Layer profiles.<name> from the config onto this run without saving it')
   .option('--set <key=value>', 'Override one setting for this run, e.g. --set ui.theme=aurora (repeatable, never saved)', collectRepeatable)
+  .addHelpText('after', '\nExamples:\n  autohand -c                       Continue in this folder\n  autohand -c -p "Continue the fix"  Continue headlessly\n  autohand -r                       Pick a saved session\n  autohand -r <id>                  Resume a saved session\n  autohand --auto-commit -p "Fix lint"\n')
   .action(async (positionalPrompt: string | undefined, opts: RootCliOptions) => {
     // Clear screen immediately for Cursor-like behavior (before any output)
     if (
@@ -531,6 +532,12 @@ program
     }
     opts.commandOutputFormat = commandOutputResolution.format;
     normalizePromptAndProtocolOptions(positionalPrompt, opts);
+    const sessionOptionError = validateSessionOptions(opts);
+    if (sessionOptionError) {
+      console.error(chalk.red(sessionOptionError));
+      process.exitCode = 1;
+      return;
+    }
 
     const restrictedProtocolMode = resolveProtocolLaunchMode(opts);
     if (opts.answerOnly || opts.setupOnly || (
@@ -760,12 +767,6 @@ program
 
     if (opts.outputSchema && !opts.prompt) {
       console.error(chalk.red('--output-schema applies to command mode: pass the instruction with --prompt.'));
-      process.exit(1);
-    }
-
-    // An ephemeral run has no session to continue; refuse before asking anyone to sign in.
-    if (opts.ephemeral && (opts.resumeSessionId || opts.fork)) {
-      console.error(chalk.red('--ephemeral cannot be combined with --resume or --fork: an ephemeral run has no session to continue.'));
       process.exit(1);
     }
 
@@ -1620,13 +1621,13 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       import('./permissions/yoloMode.js'),
       commandLifecycleController.signal,
     );
-    // `autohand resume` reaches runCLI directly, after its own sign-in, so the
-    // ephemeral conflict is checked here as well as on the root command.
-    if (options.ephemeral && (options.resumeSessionId || options.fork)) {
-      console.error(chalk.red('--ephemeral cannot be combined with --resume or --fork: an ephemeral run has no session to continue.'));
+    const sessionOptionError = validateSessionOptions(options);
+    if (sessionOptionError) {
+      console.error(chalk.red(sessionOptionError));
       process.exitCode = 1;
       return;
     }
+    if (!await awaitCliLifecycleStep(resolveStartupSession(options, originalWorkspaceRoot), commandLifecycleController.signal)) return;
 
     applyStartupInteractionMode(options, resolveStartupInteractionMode({
       options,
