@@ -11,6 +11,7 @@ import { ConversationManager } from '../../core/conversationManager.js';
 import { FileActionManager } from '../../actions/filesystem.js';
 import { ProviderFactory } from '../../providers/ProviderFactory.js';
 import { applyCliProviderOverride, loadConfig, saveConfig } from '../../config.js';
+import { getFeatureState } from '../../features/featureRegistry.js';
 import { checkAuthenticated } from '../../auth/index.js';
 import { prepareBareModeConfig } from '../../runtime/bareMode.js';
 import { checkWorkspaceSafety } from '../../startup/workspaceSafety.js';
@@ -670,6 +671,17 @@ export async function runRpcMode(options: CLIOptions): Promise<0 | 1> {
       isRpcMode: true,
     };
 
+    if (options.fork && getFeatureState(config, 'experimental_fork')?.enabled !== true) {
+      throw new Error('The --fork flag is behind experimental_fork. Enable experimental_fork before forking a session.');
+    }
+
+    const hasSessionSelection = options.sdkSessionReference !== undefined || options.sdkResumeLast === true;
+    if ((options.fork && hasSessionSelection)
+      || (options.sdkSessionReference !== undefined && options.sdkResumeLast)
+      || (options.ephemeral && (hasSessionSelection || options.fork))) {
+      throw new Error('RPC startup requires one persistent session selection.');
+    }
+
     // Create LLM provider
     const provider = ProviderFactory.create(config);
     if (options.model) {
@@ -682,9 +694,28 @@ export async function runRpcMode(options: CLIOptions): Promise<0 | 1> {
     // Create agent
     agent = new AutohandAgent(provider, files, runtime);
 
+    // Resolve continuation or fork before initialization creates a new latest session.
+    let startupSessionId: string | undefined;
+    if (hasSessionSelection || options.fork) {
+      const sessions = agent.getSessionManager();
+      await awaitRpcLifecycleStep(sessions.initialize(), terminationController.signal);
+      if (options.fork) {
+        startupSessionId = (await awaitRpcLifecycleStep(
+          sessions.branchSession(options.fork, { type: 'fork' }), terminationController.signal,
+        )).metadata.sessionId;
+      } else {
+        startupSessionId = options.sdkSessionReference !== undefined
+          ? await awaitRpcLifecycleStep(sessions.resolveSessionReference(options.sdkSessionReference), terminationController.signal)
+          : (await awaitRpcLifecycleStep(sessions.getLastSession(workspaceRoot), terminationController.signal))?.sessionId;
+      }
+      if (!startupSessionId) throw new Error('No saved session found for this workspace.');
+    }
+
     // Initialize agent for RPC mode (sets up conversation, sessions, etc.)
     await awaitRpcLifecycleStep(
-      agent.initializeForRPC(terminationController.signal),
+      startupSessionId
+        ? agent.initializeForRPC(terminationController.signal, startupSessionId)
+        : agent.initializeForRPC(terminationController.signal),
       terminationController.signal,
     );
     if (terminationController.signal.aborted) {
@@ -719,6 +750,13 @@ export async function runRpcMode(options: CLIOptions): Promise<0 | 1> {
       config,
       config.mcp?.servers
     );
+
+    if (startupSessionId) {
+      await awaitRpcLifecycleStep(
+        adapter.handleSessionAttach(null, { sessionId: startupSessionId }),
+        terminationController.signal,
+      );
+    }
 
     // Connect agent confirmation to RPC adapter for permission handling
     agent.setConfirmationCallback(async (message, context) => {
