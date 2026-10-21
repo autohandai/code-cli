@@ -24,7 +24,7 @@ process.env.AUTOHAND_CODE = '1';
 import 'dotenv/config';
 import './startup/installEnvironmentProxy.js';
 import { collectToolPatternOption } from './permissions/cliPolicyMutation.js';
-import { configureRunConfigOverlay } from './runConfigOverlay.js';
+import { configureRunConfigOverlay, consumeSdkRunSettings } from './runConfigOverlay.js';
 import { loadOutputSchema } from './modes/outputSchema.js';
 import { startupTimeline } from './startup/startupTimeline.js';
 import { Command, InvalidArgumentError, Option } from 'commander';
@@ -327,8 +327,11 @@ const collectRepeatable = (value: string, previous: string[] = []): string[] => 
 // --profile and --set apply to every command, including subcommands, and to
 // every config load in this process, before any of them reads the config.
 program.hook('preAction', async (thisCommand, actionCommand) => {
-  const { profile, set, config, bare, tracesOn, tracesOff, mode, acp } = thisCommand.opts<{
+  const { profile, set, config, bare, tracesOn, tracesOff, mode, acp, sdkSettingsVersion, answerOnly, setupOnly } = thisCommand.opts<{
     profile?: string;
+    sdkSettingsVersion?: string;
+    answerOnly?: boolean;
+    setupOnly?: boolean;
     set?: string[];
     config?: string;
     bare?: boolean;
@@ -337,7 +340,8 @@ program.hook('preAction', async (thisCommand, actionCommand) => {
     mode?: string;
     acp?: boolean;
   }>();
-  configureRunConfigOverlay({ profile, sets: set });
+  const sdkSettings = consumeSdkRunSettings(sdkSettingsVersion, process.env, answerOnly === true || setupOnly === true);
+  configureRunConfigOverlay({ profile, sets: set, ...(sdkSettings ? { sdkSettings } : {}) });
 
   const commandPath = commandPathOf(actionCommand);
   const traceControlCommand = commandPath[0] === 'traces' || commandPath[0] === 'computer';
@@ -445,6 +449,9 @@ program
   .addOption(new Option('--agent <name>').hideHelp())
   .addOption(new Option('--lead-session <id>').hideHelp())
   .addOption(new Option('--provider <provider>').hideHelp())
+  .addOption(new Option('--sdk-settings-version <version>').choices(['1']).hideHelp())
+  .addOption(new Option('--sdk-session-reference <reference>').hideHelp())
+  .addOption(new Option('--sdk-resume-last').hideHelp())
   .option('--teammate-mode <mode>', 'Legacy team display preference; live team view stays in the lead terminal')
   .option('--worktree [name]', 'Run session in isolated git worktree (optional name)')
   .option('--tmux', 'Launch in a dedicated tmux session (implies --worktree)')

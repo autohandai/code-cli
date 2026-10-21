@@ -419,7 +419,7 @@ export class RPCAdapter {
     this.sessionStartedAt = Date.now();
     this.config = config ? { ...config } : { configPath: '' };
     this.browserV2PromptInjected = false;
-    this.sessionId = generateId('session');
+    this.sessionId = agent.getSessionManager?.()?.getCurrentSession?.()?.metadata.sessionId ?? generateId('session');
     this.mcpServerConfigs = mcpServerConfigs ?? [];
 
     // Get reference to agent's ImageManager for handling multimodal prompts

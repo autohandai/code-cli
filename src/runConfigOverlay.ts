@@ -12,6 +12,8 @@ import type { AutohandConfig, RunConfigOverlayEntry, RunConfigOverlaySnapshot } 
 export interface RunConfigOverlaySelection {
   profile?: string;
   sets?: string[];
+  /** Typed settings supplied by an SDK for this process only. */
+  sdkSettings?: Record<string, unknown>;
 }
 
 /** Keys a profile or override may never touch. */
@@ -20,10 +22,17 @@ const PROTECTED_TOP_LEVEL_KEYS = new Set(['profiles', 'auth', 'configPath', 'isN
 let selection: RunConfigOverlaySelection | undefined;
 
 /** Installs the CLI's profile and overrides for every config load in this process. */
-export function configureRunConfigOverlay(next: RunConfigOverlaySelection | undefined): void {
+export function configureRunConfigOverlay(
+  next: RunConfigOverlaySelection | undefined,
+  sdkSettingsJson?: string,
+): void {
   const profile = next?.profile?.trim();
   const sets = (next?.sets ?? []).filter((entry) => entry.trim());
-  selection = profile || sets.length > 0 ? { ...(profile ? { profile } : {}), sets } : undefined;
+  const sdkSettings = sdkSettingsJson === undefined ? next?.sdkSettings : parseSdkRunSettings(sdkSettingsJson);
+  if (sdkSettings) validateSdkSettings(sdkSettings);
+  selection = profile || sets.length > 0 || sdkSettings !== undefined
+    ? { ...(profile ? { profile } : {}), sets, ...(sdkSettings ? { sdkSettings } : {}) }
+    : undefined;
 }
 
 export function getRunConfigOverlaySelection(): RunConfigOverlaySelection | undefined {
@@ -32,6 +41,66 @@ export function getRunConfigOverlaySelection(): RunConfigOverlaySelection | unde
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** Consume the private SDK envelope once so tool children cannot inherit it. */
+export function consumeSdkRunSettings(
+  version: string | undefined,
+  environment: Record<string, string | undefined> = process.env,
+  restrictedProfile = false,
+): Record<string, unknown> | undefined {
+  const input = environment.AUTOHAND_RUN_SETTINGS;
+  delete environment.AUTOHAND_RUN_SETTINGS;
+  if (input === undefined && version === undefined) return undefined;
+  if (restrictedProfile) throw new Error('SDK run settings are unavailable in restricted RPC profiles.');
+  if (version !== '1' || input === undefined) {
+    throw new Error('SDK run settings require --sdk-settings-version 1 and AUTOHAND_RUN_SETTINGS.');
+  }
+  return parseSdkRunSettings(input);
+}
+
+const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
+const SDK_SETTINGS_SECTIONS = new Set([
+  'autohandai', 'openrouter', 'anthropic', 'ollama', 'llamacpp', 'openai', 'mlx',
+  'llmgateway', 'azure', 'zai', 'sakana', 'vertexai', 'xai', 'cerebras', 'nvidia',
+  'deepseek', 'bedrock', 'customProviders', 'extensionProviders', 'features', 'sessions',
+]);
+
+function validateOverlayPath(path: readonly string[]): void {
+  if (path.length === 0 || path.some((segment) => !segment || UNSAFE_PATH_SEGMENTS.has(segment))) {
+    throw new Error('Configuration overlay contains an unsafe setting path.');
+  }
+  if (PROTECTED_TOP_LEVEL_KEYS.has(path[0]!)) {
+    throw new Error(`Configuration overlay cannot change "${path[0]}".`);
+  }
+}
+
+function validateSdkSettings(settings: Record<string, unknown>): void {
+  if (isRecord(settings.sessions) && Object.hasOwn(settings.sessions, 'awareness')
+    && !['passive', 'warn', 'coordinate'].includes(String(settings.sessions.awareness))) {
+    throw new Error('AUTOHAND_RUN_SETTINGS sessions.awareness must be passive, warn or coordinate.');
+  }
+  for (const section of Object.keys(settings)) {
+    if (!SDK_SETTINGS_SECTIONS.has(section) || !isRecord(settings[section])) {
+      throw new Error('AUTOHAND_RUN_SETTINGS must contain only provider, feature and session settings objects.');
+    }
+  }
+  for (const leaf of profileLeaves(settings)) {
+    validateOverlayPath(leaf.path);
+    if (leaf.path[0] === 'sessions' && leaf.path[1] !== 'awareness') {
+      throw new Error('AUTOHAND_RUN_SETTINGS supports only sessions.awareness.');
+    }
+  }
+}
+
+/** Parse without including credential values or JSON input in error messages. */
+export function parseSdkRunSettings(input: string): Record<string, unknown> {
+  let value: unknown;
+  try { value = JSON.parse(input); }
+  catch { throw new Error('AUTOHAND_RUN_SETTINGS must be a valid JSON settings object.'); }
+  if (!isRecord(value)) throw new Error('AUTOHAND_RUN_SETTINGS must be a JSON settings object.');
+  validateSdkSettings(value);
+  return value;
 }
 
 function sameValue(a: unknown, b: unknown): boolean {
@@ -70,16 +139,14 @@ function deletePath(root: Record<string, unknown>, path: readonly string[]): voi
 /** `key.path=value`; the value is JSON when it parses, otherwise the literal text. */
 export function parseRunConfigSet(input: string): { path: string[]; value: unknown } {
   const separator = input.indexOf('=');
-  if (separator <= 0) throw new Error(`--set expects key=value, got "${input}".`);
+  if (separator <= 0) throw new Error('--set expects key=value.');
   const key = input.slice(0, separator).trim();
   const raw = input.slice(separator + 1).trim();
   const path = key.split('.').map((segment) => segment.trim());
   if (path.some((segment) => !segment || !/^[A-Za-z0-9_-]+$/.test(segment))) {
     throw new Error(`--set key "${key}" must be a dotted path of setting names.`);
   }
-  if (PROTECTED_TOP_LEVEL_KEYS.has(path[0]!)) {
-    throw new Error(`--set cannot change "${path[0]}".`);
-  }
+  validateOverlayPath(path);
   let value: unknown = raw;
   if (raw !== '') {
     try { value = JSON.parse(raw); } catch { value = raw; }
@@ -111,11 +178,17 @@ export function applyRunConfigOverlay(
   const layered = structuredClone(config) as unknown as Record<string, unknown>;
   const entries: RunConfigOverlayEntry[] = [];
   const apply = (path: string[], value: unknown) => {
+    validateOverlayPath(path);
     const base = readPath(layered, path);
     const applied = structuredClone(value);
     writePath(layered, path, applied);
     entries.push({ path, applied: structuredClone(applied), hadBase: base.present, base: base.present ? structuredClone(base.value) : undefined });
   };
+
+  if (active.sdkSettings) {
+    validateSdkSettings(active.sdkSettings);
+    for (const leaf of profileLeaves(active.sdkSettings)) apply(leaf.path, leaf.value);
+  }
 
   if (active.profile) {
     const profiles = isRecord(config.profiles) ? config.profiles : {};
