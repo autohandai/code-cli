@@ -1,0 +1,16 @@
+Source: origin/main fcd92ec12f30ea113f44ef4887ea0d8c51556331
+Node: v24.3.0
+Bun: 1.4.0
+
+bun run typecheck: PASS (exit 0)
+bun run lint: PASS (exit 0)
+bun run test:ci: FAIL (exit 1)
+Test Files  1 failed | 851 passed | 5 skipped (857)
+Tests  2 failed | 12194 passed | 72 skipped (12268)
+Duration  706.39s (tests 93%, import 4%, setup 2%, transform 1%)
+
+Existing failing tests:
+tests/core/agent/AgentDependencyComposer.outcomes.test.ts > hook context delivery > keeps subagent-start context out of the lead conversation (async: false)
+tests/core/agent/AgentDependencyComposer.outcomes.test.ts > hook context delivery > keeps subagent-progress context out of the lead conversation (async: false)
+
+No source changes in the baseline checkout. Dependencies are linked through a node_modules symlink; the same dependencies are used by the candidate.
