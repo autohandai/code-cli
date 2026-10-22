@@ -12,6 +12,8 @@
     Back up and reset the normal profile, create an empty alpha profile, and reinstall Computer Use
 .PARAMETER NoCache
     Bypass CDN cache and fetch fresh release from GitHub
+.PARAMETER NoZit
+    Skip Zit integration (also AUTOHAND_SKIP_ZIT_INSTALL=1)
 .PARAMETER Version
     Install specific version (e.g., 0.7.3)
 .PARAMETER InstallDir
@@ -33,7 +35,8 @@ param(
     [switch]$NoCache,
     [string]$Version,
     [string]$InstallDir,
-    [switch]$Help
+    [switch]$Help,
+    [switch]$NoZit
 )
 
 $ErrorActionPreference = "Stop"
@@ -91,6 +94,7 @@ Options:
   -Clean        Remove existing installation before installing
   -Fresh        Back up/reset normal profile and create an empty alpha profile (use with -Alpha)
   -NoCache      Bypass CDN cache and fetch fresh release from GitHub
+  -NoZit        Skip Zit integration
   -Version      Install specific version (e.g., 0.7.3)
   -InstallDir   Custom installation directory
   -Help         Show this help message
@@ -99,6 +103,7 @@ Environment variables:
   AUTOHAND_VERSION      Install specific version (e.g., 0.7.3)
   AUTOHAND_INSTALL_DIR  Custom installation directory
   AUTOHAND_CHANNEL      Set to "alpha" for pre-release builds
+  AUTOHAND_SKIP_ZIT_INSTALL  Set to "1" to skip Zit integration
   AUTOHAND_INSTALL_FIRST_RUN  "yes" starts Autohand with a first message after
                         installing without asking; "no" never offers to
 
@@ -726,6 +731,29 @@ exit $LASTEXITCODE
     Write-Host 'Run autohand-alpha to test this installation. Earlier profiles are retained.'
 }
 
+function Install-Zit {
+    param([string]$InstallPath)
+    if ($NoZit -or $env:AUTOHAND_SKIP_ZIT_INSTALL -eq '1') {
+        Write-Step "Skipping Zit integration (-NoZit)."
+        return
+    }
+    if ((Get-Command zit -ErrorAction SilentlyContinue) -or (Test-Path (Join-Path $InstallPath 'zit.exe'))) {
+        Write-Success "Keeping existing Zit installation. Try autohand --zit."
+        return
+    }
+    Write-Warning "Zit currently publishes macOS and Linux binaries, with no native Windows release. See https://getzit.org for supported installation options. Autohand installation continues; -NoZit opts out of this check."
+}
+
+function Test-ComputerControlSupport {
+    param([string]$BinaryPath)
+    # Old releases print root help even for unknown commands before --help.
+    try {
+        $helpText = (& $BinaryPath --help 2>$null | Out-String)
+        return ($LASTEXITCODE -eq 0 -and $helpText -match '(?m)^\s+computer(?:\s|$)')
+    }
+    catch { return $false }
+}
+
 function Install-ComputerControl {
     param(
         [Parameter(Mandatory = $true)][string]$BinaryPath
@@ -733,6 +761,11 @@ function Install-ComputerControl {
 
     if ($env:AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL -eq "1") {
         Write-Host "Skipping Computer control because AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL=1." -ForegroundColor Yellow
+        return
+    }
+
+    if (-not (Test-ComputerControlSupport $BinaryPath)) {
+        Write-Host "Computer control arrives in the next release" -ForegroundColor DarkGray
         return
     }
 
@@ -748,9 +781,8 @@ function Install-ComputerControl {
         Write-Success "Autohand Computer Use is ready."
     }
     catch {
-        Write-Host "Installation is incomplete: Computer control could not be installed." -ForegroundColor Yellow
+        Write-Host "Warning: Optional Computer control could not be installed. Autohand CLI is ready." -ForegroundColor Yellow
         Write-Host "Retry with: autohand computer install" -ForegroundColor Yellow
-        throw
     }
 }
 
@@ -931,6 +963,7 @@ function Install-Autohand {
     Add-AutohandToUserPath -InstallPath $installPath
 
     Install-ComputerControl -BinaryPath $binaryPath
+    Install-Zit -InstallPath $installPath
     $launchBinary = $binaryPath
     if ($Fresh -or $env:AUTOHAND_INSTALL_FRESH -eq '1') {
         Prepare-FreshAlphaProfile -InstallPath $installPath
@@ -963,7 +996,9 @@ function Install-Autohand {
     Write-Host "  autohand              # Start interactive mode"
     Write-Host "  autohand --help       # Show all options"
     Write-Host "  autohand login        # Sign in to your account"
-    Write-Host "  autohand computer doctor # Verify native app control permissions"
+    if (Test-ComputerControlSupport (Join-Path $InstallPath 'autohand.exe')) {
+        Write-Host "  autohand computer doctor # Verify native app control permissions"
+    }
     if ($extractedAhtraces) {
         Write-Host ""
         Write-Host "Agent traces stay off until you choose during onboarding."

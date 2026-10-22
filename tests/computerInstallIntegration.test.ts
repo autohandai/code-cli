@@ -20,16 +20,29 @@ afterEach(async () => {
 });
 
 describe('computer control installation integration', () => {
-  it.runIf(process.platform !== 'win32')('fails the Unix installer when the required component fails', async () => {
+  it.runIf(process.platform !== 'win32')('skips unsupported releases without an invalid retry command', async () => {
     const script = await readFile('install.sh', 'utf8');
-    const functionSource = script.slice(script.indexOf('install_computer_control() {'), script.indexOf('\nmain() {'));
+    const functionSource = script.slice(script.indexOf('computer_control_supported() {'), script.indexOf('\nmain() {'));
     const result = spawnSync('/bin/sh', ['-c', [
       'info() { echo "$*"; }', 'warn() { echo "$*"; }', 'success() { echo "$*"; }',
-      functionSource, 'install_computer_control /usr/bin/false',
+      'dim() { echo "$*"; }', functionSource, 'install_computer_control /usr/bin/false',
     ].join('\n')], { encoding: 'utf8', env: { ...process.env, AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL: '0' } });
-    expect(result.status).toBe(1);
-    expect(result.stdout).toContain('autohand computer install');
-    expect(result.stdout).not.toContain('still ready');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Computer control arrives in the next release');
+    expect(result.stdout).not.toContain('Retry with');
+    expect(result.stdout).not.toContain('Installation is incomplete');
+  });
+
+  it('keeps npm installation successful when the optional computer setup fails', async () => {
+    const packageRoot = await mkdtemp(path.join(tmpdir(), 'autohand-computer-postinstall-'));
+    temporaryDirectories.push(packageRoot);
+    await mkdir(path.join(packageRoot, 'dist'));
+    await writeFile(path.join(packageRoot, 'dist/index.js'), '');
+    const warn = vi.fn();
+    await expect(installComputerUsePostinstall({ packageRoot, warn,
+      runCli: () => { throw new Error('fixture setup failure'); },
+    })).resolves.toEqual({ status: 'failed-optional' });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('fixture setup failure'));
   });
 
   it('allows an explicit headless opt-out before npm postinstall', async () => {
@@ -89,6 +102,7 @@ describe('computer control installation integration', () => {
     const distDirectory = path.join(packageRoot, 'dist');
     await mkdir(distDirectory);
     await writeFile(path.join(distDirectory, 'index.js'), [
+      "if (process.argv[2] === '--help') { console.log('Commands:\\n  computer  Computer control'); process.exit(0); }",
       "const expected = ['computer', 'install', '--non-interactive', '--postinstall', '--bin-dir', 'vendor'];",
       'if (JSON.stringify(process.argv.slice(2)) !== JSON.stringify(expected)) process.exit(2);',
     ].join('\n'));
@@ -96,6 +110,17 @@ describe('computer control installation integration', () => {
     await expect(installComputerUsePostinstall({ packageRoot })).resolves.toEqual({
       status: 'completed',
     });
+  });
+
+  it('does not invoke computer install when packaged help lacks the command', async () => {
+    const packageRoot = await mkdtemp(path.join(tmpdir(), 'autohand-computer-postinstall-'));
+    temporaryDirectories.push(packageRoot);
+    await mkdir(path.join(packageRoot, 'dist'));
+    await writeFile(path.join(packageRoot, 'dist/index.js'), [
+      "if (process.argv[2] === '--help') { console.log('Commands:\\n  login  Sign in'); process.exit(0); }",
+      "throw new Error('unsupported computer install must not run');",
+    ].join('\n'));
+    await expect(installComputerUsePostinstall({ packageRoot })).resolves.toEqual({ status: 'skipped-unsupported' });
   });
 
   it('rejects a published package that is missing its built CLI', async () => {

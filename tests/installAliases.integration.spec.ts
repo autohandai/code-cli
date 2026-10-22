@@ -55,6 +55,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 case "$url" in
+  *autohandai/getzit/*) exit 22 ;;
   *.sha256) cp "$AUTOHAND_TEST_CHECKSUM" "$output" ;;
   *) cp "$AUTOHAND_TEST_ARCHIVE" "$output" ;;
 esac
@@ -182,6 +183,7 @@ reset_normal_profile
     writeFileSync(join(payload, 'autohand'), `#!/bin/sh
 case "$1" in
   --version) printf '0.8.3-alpha.123abcd\\n' ;;
+  --help) printf 'Commands:\\n  computer  Computer control\\n'; exit 0 ;;
   computer) printf '%s\\n' "$*" >> "$AUTOHAND_TEST_CALLS"; exit "\${AUTOHAND_TEST_COMPUTER_EXIT:-0}" ;;
   *) printf '%s\\n' "$AUTOHAND_HOME" "\${AUTOHAND_CONFIG:-unset}" "$@" ;;
 esac
@@ -228,9 +230,15 @@ esac
     const failed = spawnSync('/bin/sh', ['install.sh', '--alpha', '--fresh'], {
       cwd: ROOT, env: { ...environment, AUTOHAND_TEST_COMPUTER_EXIT: '17' }, encoding: 'utf8',
     });
-    expect(failed.status).not.toBe(0);
-    expect(readFileSync(normalConfig, 'utf8')).toBe('keep profile when installation fails');
-    expect(readdirSync(home).filter(name => name.startsWith('.autohand.backup.'))).toHaveLength(2);
+    expect(failed.status).toBe(0);
+    expect(failed.stdout).toContain('Optional Computer control could not be installed');
+    expect(existsSync(normalConfig)).toBe(false);
+    const allBackups = readdirSync(home).filter(name => name.startsWith('.autohand.backup.'));
+    expect(allBackups).toHaveLength(3);
+    expect(allBackups.some(name => {
+      const config = join(home, name, 'profile', 'config.json');
+      return existsSync(config) && readFileSync(config, 'utf8') === 'keep profile when installation fails';
+    })).toBe(true);
   });
 
   unixIt('rejects a downloaded binary that cannot start before replacing the installation', () => {
@@ -523,6 +531,7 @@ describe('release installer first run', () => {
       join(payloadDir, 'autohand'),
       `#!/bin/sh
 if [ "\${1:-}" = "--version" ]; then printf "test-version\\n"; exit 0; fi
+if [ "\${1:-}" = "--help" ]; then printf "Commands:\\n  computer  Computer control\\n"; exit 0; fi
 if [ "\${1:-}" = "computer" ] && [ "\${2:-}" = "install" ]; then exit 0; fi
 { printf "args=%s\\n" "$*"; printf "stdin="; cat; } > "$AUTOHAND_TEST_LAUNCH_LOG"
 `,
@@ -551,7 +560,29 @@ if [ "\${1:-}" = "computer" ] && [ "\${2:-}" = "install" ]; then exit 0; fi
     return execFileSync('/bin/sh', ['install.sh'], { cwd: ROOT, encoding: 'utf8', env, stdio: ['pipe', 'pipe', 'pipe'] });
   }
 
-  unixIt('fails the complete installer when its required computer component fails', () => {
+  unixIt('installs an older release cleanly even when unknown-command help exits zero', () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), 'autohand-installer-stable-'));
+    tempRoots.push(tempRoot);
+    const { env } = seedFirstRunFixture(tempRoot);
+    const payloadDir = join(tempRoot, 'payload');
+    writeFileSync(join(payloadDir, 'autohand'), [
+      '#!/bin/sh',
+      '[ "${1:-}" = "--version" ] && { echo 0.9.8; exit 0; }',
+      'case "$*" in *--help*) printf "Usage: autohand [options] [prompt]\\nCommands:\\n  login  Sign in\\n"; exit 0 ;; esac',
+      'echo "unsupported command" >&2; exit 1',
+    ].join('\n'));
+    execFileSync('tar', ['-czf', env.AUTOHAND_TEST_ARCHIVE, '-C', payloadDir, 'autohand', 'ahtraces']);
+    const checksum = createHash('sha256').update(readFileSync(env.AUTOHAND_TEST_ARCHIVE)).digest('hex');
+    writeFileSync(env.AUTOHAND_TEST_CHECKSUM, `${checksum}  autohand.tar.gz\n`);
+    const output = runInstaller({ ...env, AUTOHAND_INSTALL_FIRST_RUN: 'no' });
+    expect(output).toContain('Computer control arrives in the next release');
+    expect(output).toContain('Autohand CLI installed successfully');
+    expect(output).not.toContain('Retry with');
+    expect(output).not.toContain('autohand computer doctor');
+    expect(output).not.toContain('Installation is incomplete');
+  });
+
+  unixIt('finishes the complete installer when optional computer setup fails', () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'autohand-installer-computer-'));
     tempRoots.push(tempRoot);
     const { env } = seedFirstRunFixture(tempRoot);
@@ -559,6 +590,7 @@ if [ "\${1:-}" = "computer" ] && [ "\${2:-}" = "install" ]; then exit 0; fi
     writeFileSync(join(payloadDir, 'autohand'), [
       '#!/bin/sh',
       '[ "${1:-}" = "--version" ] && { printf "test-version\\n"; exit 0; }',
+      '[ "${1:-}" = "--help" ] && { printf "Commands:\\n  computer  Computer control\\n"; exit 0; }',
       '[ "${1:-}" = "computer" ] && exit 7',
       'exit 0',
     ].join('\n'));
@@ -566,10 +598,11 @@ if [ "\${1:-}" = "computer" ] && [ "\${2:-}" = "install" ]; then exit 0; fi
     const checksum = createHash('sha256').update(readFileSync(env.AUTOHAND_TEST_ARCHIVE)).digest('hex');
     writeFileSync(env.AUTOHAND_TEST_CHECKSUM, `${checksum}  autohand.tar.gz\n`);
     const result = spawnSync('/bin/sh', ['install.sh'], { cwd: ROOT, encoding: 'utf8', env });
-    expect(result.status).toBe(1);
-    expect(result.stdout).toContain('Installation is incomplete');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Computer control could not be installed');
+    expect(result.stdout).not.toContain('Installation is incomplete');
     expect(result.stdout).not.toContain('Autohand Computer Use is ready');
-    expect(result.stdout).not.toContain('Autohand CLI installed successfully');
+    expect(result.stdout).toContain('Autohand CLI installed successfully');
   });
 
   unixIt('starts the installed binary with "hello world" as its first message when asked to', () => {
