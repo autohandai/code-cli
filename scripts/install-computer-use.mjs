@@ -19,6 +19,13 @@ const COMPUTER_INSTALL_ARGS = [
 ];
 
 function runComputerUseCli({ entrypoint, packageRoot, environment }) {
+  const help = spawnSync(process.execPath, [entrypoint, '--help'], {
+    cwd: packageRoot, env: environment, encoding: 'utf8', windowsHide: true,
+    timeout: 30_000,
+  });
+  if (help.status !== 0 || !/^\s+computer(?:\s|$)/m.test(help.stdout ?? '')) {
+    return { status: 'skipped-unsupported' };
+  }
   const result = spawnSync(process.execPath, [entrypoint, ...COMPUTER_INSTALL_ARGS], {
     cwd: packageRoot,
     env: environment,
@@ -56,8 +63,14 @@ export async function installComputerUsePostinstall(options = {}) {
   }
 
   const runCli = options.runCli ?? runComputerUseCli;
-  await runCli({ entrypoint, packageRoot, environment });
-  return { status: 'completed' };
+  try {
+    const result = await runCli({ entrypoint, packageRoot, environment });
+    return result ?? { status: 'completed' };
+  } catch (error) {
+    const warn = options.warn ?? console.warn;
+    warn(`Warning: Optional Computer control could not be installed. Autohand CLI is ready. ${error instanceof Error ? error.message : String(error)}`);
+    return { status: 'failed-optional' };
+  }
 }
 
 function isMainModule() {
@@ -67,6 +80,9 @@ function isMainModule() {
 
 if (isMainModule()) {
   installComputerUsePostinstall().then((result) => {
+    if (result.status === 'skipped-unsupported') {
+      console.log('Computer control arrives in the next release');
+    }
     if (result.status === 'skipped-development') {
       console.log(
         'Skipping Autohand Computer Use postinstall in a source checkout. '

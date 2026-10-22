@@ -14,6 +14,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
+DIM='\033[2m'
 
 info() {
     printf "${BLUE}%s${NC}\n" "$1"
@@ -146,6 +147,18 @@ LAUNCHER
     info "Run autohand-alpha to test this installation. Earlier profiles are retained."
 }
 
+# Older releases accept unknown command names before --help and print root help.
+# Require the command in that root help rather than trusting its exit status.
+computer_control_supported() {
+    local _help
+    _help=$("$1" --help < /dev/null 2>/dev/null) || return 1
+    printf '%s\n' "$_help" | grep -Eq '^[[:space:]]+computer([[:space:]]|$)'
+}
+
+dim() {
+    printf "${DIM}%s${NC}\n" "$1"
+}
+
 install_computer_control() {
     local _binary="$1"
     local _computer_use_app="${2:-}"
@@ -157,6 +170,11 @@ install_computer_control() {
 
     if [ "${AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL:-0}" = "1" ]; then
         warn "Skipping Computer control because AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL=1."
+        return 0
+    fi
+
+    if ! computer_control_supported "$_binary"; then
+        dim "Computer control arrives in the next release"
         return 0
     fi
 
@@ -175,9 +193,9 @@ install_computer_control() {
     if [ "$_computer_status" -eq 0 ]; then
         success "Autohand Computer Use is ready."
     else
-        warn "Installation is incomplete: Computer control could not be installed."
+        warn "Warning: Optional Computer control could not be installed. Autohand CLI is ready."
         warn "Retry with: autohand computer install"
-        return 1
+        return 0
     fi
 }
 
@@ -391,7 +409,9 @@ EOF
     echo "  autohand              # Start interactive mode"
     echo "  autohand --help       # Show all options"
     echo "  autohand login        # Sign in to your account"
-    echo "  autohand computer doctor # Verify native app control permissions"
+    if computer_control_supported "$_dir/$BINARY_NAME"; then
+        echo "  autohand computer doctor # Verify native app control permissions"
+    fi
     if [ "$_has_traces" = true ]; then
         echo ""
         echo "Agent traces stay off until you choose during onboarding."
