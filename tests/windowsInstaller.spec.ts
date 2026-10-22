@@ -639,20 +639,33 @@ Write-Output (Start-FirstRun -BinaryPath '${fixture}' -Answer $null)
   });
 });
 
-describe('required computer use installation', () => {
-  powerShellTest('propagates a companion installation failure', () => {
+describe('optional computer use installation', () => {
+  powerShellTest('warns without failing when a supported companion installation fails', () => {
     const result = runPowerShellProbe([
       installerWithoutEntrypoint,
-      'function Invoke-FailedComputerInstall { $global:LASTEXITCODE = 7 }',
+      'function Invoke-FailedComputerInstall { if ($args[0] -eq "--help") { Write-Output "Commands:`n  computer  Computer control"; $global:LASTEXITCODE = 0; return }; $global:LASTEXITCODE = 7 }',
       '$env:AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL = "0"',
       'Install-ComputerControl -BinaryPath "Invoke-FailedComputerInstall"',
     ].join('\n'));
-    expect(result.status).not.toBe(0);
-    expect(result.stdout).toContain('autohand computer install');
-    expect(result.stdout).not.toContain('still ready');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Warning: Optional Computer control');
+    expect(result.stdout).toContain('Retry with: autohand computer install');
+    expect(result.stdout).not.toContain('Installation is incomplete');
+  });
+
+  powerShellTest('skips older releases whose generic help exits successfully', () => {
+    const result = runPowerShellProbe([
+      installerWithoutEntrypoint,
+      'function Invoke-OldRelease { if ($args[0] -ne "--help") { throw "Unsupported command was invoked" }; Write-Output "Usage: autohand [prompt]`nCommands:`n  login  Sign in"; $global:LASTEXITCODE = 0 }',
+      '$env:AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL = "0"',
+      'Install-ComputerControl -BinaryPath "Invoke-OldRelease"',
+    ].join('\n'));
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Computer control arrives in the next release');
+    expect(result.stdout).not.toContain('Retry with');
+    expect(result.stdout).not.toContain('Installing Computer control');
   });
 });
-
 
 describe('fresh alpha profile', () => {
   it('offers an explicit fresh alpha install and forces companion replacement', () => {
