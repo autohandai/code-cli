@@ -12,6 +12,11 @@ export async function prepareZitPackageInstallScenario(
   const environment = { ...process.env, npm_config_cache: path.join(scenarioRoot, 'npm-cache') };
   await mkdir(packing, { recursive: true });
   await mkdir(consumer, { recursive: true });
+  // Packaging is trusted and must run prepack to bundle verified Zit binaries.
+  // The consumer install below still blocks untrusted lifecycle scripts.
+  execFileSync('npm', ['run', 'prepack'], {
+    cwd: repositoryRoot, env: environment, timeout: 120_000, maxBuffer: 4 * 1024 * 1024,
+  });
   const packed = JSON.parse(execFileSync('npm', [
     'pack', '--ignore-scripts', '--json', '--pack-destination', packing,
   ], { cwd: repositoryRoot, env: environment, encoding: 'utf8', timeout: 60_000, maxBuffer: 4 * 1024 * 1024 })) as Array<{ filename: string }>;
