@@ -784,7 +784,7 @@ From the TUI, run `/model`, choose **New provider...**, then enter:
 - model id
 - optional context window and reasoning effort
 
-Autohand verifies the base URL, API key, and selected model through the OpenAI-compatible `/models` endpoint before saving the provider. If `/models` returns model IDs, the selected model must be present in that list.
+Autohand verifies the base URL, API key, and selected model through the OpenAI-compatible `/models` endpoint before saving the provider. If `/models` returns model IDs and the selected model isn't one of them, Autohand warns, shows some of the listed models, and asks whether to save anyway, since routers and gateways often accept model names they don't list. A failed `/models` request still blocks the save.
 
 The saved config uses `provider: "custom:<id>"` and stores provider details under `customProviders`:
 
